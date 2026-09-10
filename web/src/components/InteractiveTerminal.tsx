@@ -17,6 +17,7 @@ import {
   Check,
 } from 'lucide-react'
 import type { Task } from '../types'
+import { terminalSkillCommand } from '../lib/terminalSkillCommand'
 import { useApp } from '../context/AppContext'
 
 interface InteractiveTerminalProps {
@@ -274,7 +275,7 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
     sendCommand(`${provider}\n`)
   }
 
-  // Une skill s'appelle par sa commande slash, tapée dans l'agent qui tourne.
+  // Le serveur adapte le nom de la skill au moteur de l'agent qui tourne.
   // Avant, ce bouton composait « claude -p "/clarify-issue ..." » et l'envoyait
   // au shell : si l'agent était ouvert, cette ligne devenait un simple message.
   const handleRunSkill = async (skillId: string) => {
@@ -455,17 +456,20 @@ export const InteractiveTerminal: React.FC<InteractiveTerminalProps> = ({
         </button>
 
         {task &&
-          skills.map(sk => (
-            <button
-              key={sk.id}
-              type="button"
-              onClick={() => handleRunSkill(sk.id)}
-              className={BAR_BUTTON}
-              title={`Taper ${sk.command} dans l'agent de cette session`}
-            >
-              <span>{sk.command}</span>
-            </button>
-          ))}
+          skills.map(sk => {
+            const command = terminalSkillCommand(provider, sk.command, proj?.skillOverrides?.[sk.id])
+            return (
+              <button
+                key={sk.id}
+                type="button"
+                onClick={() => handleRunSkill(sk.id)}
+                className={BAR_BUTTON}
+                title={`Taper ${command} dans l'agent de cette session`}
+              >
+                <span>{command}</span>
+              </button>
+            )
+          })}
 
         <button
           type="button"

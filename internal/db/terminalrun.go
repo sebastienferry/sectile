@@ -304,7 +304,7 @@ func (d *DB) InjectSkillInTTY(taskID, skillID string) (*TTYSkillLaunch, error) {
 	if trackerName == "" {
 		trackerName = settings.IssueTracker
 	}
-	call := runner.SkillCallLineWithCommand(d.ProjectSkillCommand(task, skillID), task, strings.ToLower(trackerName))
+	call := runner.SkillCallLineForProvider(settings.AIProvider, d.ProjectSkillCommand(task, skillID), task, strings.ToLower(trackerName))
 	if err := d.termRunner.InjectLine(sessionID, call); err != nil {
 		return nil, err
 	}
@@ -333,7 +333,11 @@ func (d *DB) runSkillThroughAgent(
 	if trackerName == "" && settings != nil {
 		trackerName = settings.IssueTracker
 	}
-	call := runner.SkillCallLineWithCommand(d.ProjectSkillCommand(task, skillID), task, strings.ToLower(trackerName))
+	provider := ""
+	if settings != nil {
+		provider = settings.AIProvider
+	}
+	call := runner.SkillCallLineForProvider(provider, d.ProjectSkillCommand(task, skillID), task, strings.ToLower(trackerName))
 
 	steps := []string{
 		fmt.Sprintf("🖥 Agent déjà ouvert dans %s : l'appel y est tapé", sessionID),

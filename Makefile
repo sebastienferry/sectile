@@ -27,7 +27,7 @@ run: build
 
 test:
 	go test ./internal/...
-	cd web && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
+	cd web && npm test && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
 
 # Release : un fichier par plateforme, sans dépendance système. SQLite est en Go
 # pur (modernc.org/sqlite), donc rien n'oblige à compiler sur la cible.
