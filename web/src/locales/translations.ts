@@ -336,6 +336,15 @@ export interface TranslationSchema {
       clearConfirm: string
     }
   }
+  compactCard: {
+    pin: string
+    unpin: string
+    advance: string
+    advanceAuto: string
+    filterParent: string
+    clearParent: string
+    openPr: string
+  }
   statusBar: {
     branch: string
     clean: string
@@ -712,6 +721,15 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         clearConfirm: 'Êtes-vous sûr de vouloir vider toutes les activités terminées / échouées ?',
       },
     },
+    compactCard: {
+      pin: 'Épingler',
+      unpin: 'Désépingler',
+      advance: 'Avancer une étape',
+      advanceAuto: 'Avancer automatiquement',
+      filterParent: 'Filtrer par parent',
+      clearParent: 'Retirer le filtre parent',
+      openPr: 'Ouvrir la PR / MR',
+    },
     statusBar: {
       branch: 'Branche',
       clean: 'Arbre de travail propre',
@@ -1085,6 +1103,15 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         clearCompleted: 'Clear Completed History',
         clearConfirm: 'Are you sure you want to delete all completed / failed activities?',
       },
+    },
+    compactCard: {
+      pin: 'Pin',
+      unpin: 'Unpin',
+      advance: 'Advance one step',
+      advanceAuto: 'Advance automatically',
+      filterParent: 'Filter by parent',
+      clearParent: 'Clear parent filter',
+      openPr: 'Open PR / MR',
     },
     statusBar: {
       branch: 'Branch',
