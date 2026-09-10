@@ -2,6 +2,28 @@ package runner
 
 import "testing"
 
+func TestOpenPRMustMatchBranchAndCommit(t *testing.T) {
+	for _, tc := range []struct {
+		name, raw  string
+		gitlab, ok bool
+	}{
+		{"github open", `{"url":"https://github.com/o/r/pull/1","state":"OPEN","headRefName":"ticket","headRefOid":"abc"}`, false, true},
+		{"github merged", `{"url":"https://github.com/o/r/pull/1","state":"MERGED","headRefName":"ticket","headRefOid":"abc"}`, false, false},
+		{"github old commit", `{"url":"https://github.com/o/r/pull/1","state":"OPEN","headRefName":"ticket","headRefOid":"old"}`, false, false},
+		{"github wrong branch", `{"url":"https://github.com/o/r/pull/1","state":"OPEN","headRefName":"other","headRefOid":"abc"}`, false, false},
+		{"gitlab open", `[{"web_url":"https://gitlab.com/o/r/-/merge_requests/1","state":"opened","source_branch":"ticket","sha":"abc"}]`, true, true},
+		{"gitlab closed", `[{"web_url":"https://gitlab.com/o/r/-/merge_requests/1","state":"closed","source_branch":"ticket","sha":"abc"}]`, true, false},
+		{"gitlab old commit", `[{"web_url":"https://gitlab.com/o/r/-/merge_requests/1","state":"opened","source_branch":"ticket","sha":"old"}]`, true, false},
+		{"malformed", "not json", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := openPRFromJSON(tc.raw, "ticket", "abc", tc.gitlab); (got != "") != tc.ok {
+				t.Fatalf("PR URL = %q; want accepted = %v", got, tc.ok)
+			}
+		})
+	}
+}
+
 // L'URL de la merge request doit être lue, jamais devinée : la version
 // précédente fabriquait github.com/<repo>/pull/<numero de ticket>.
 func TestDetectMergeRequestURL(t *testing.T) {

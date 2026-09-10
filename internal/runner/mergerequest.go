@@ -4,10 +4,68 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"strings"
 	"time"
 )
+
+// OpenBranchMergeRequestURL confirms an open PR for the current commit, rather
+// than accepting an old/closed PR or a URL mentioned in the agent's prose.
+func (r *Runner) OpenBranchMergeRequestURL(repoPath, branch string) string {
+	head, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
+	if err != nil || strings.TrimSpace(branch) == "" {
+		return ""
+	}
+	sha := strings.TrimSpace(string(head))
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	if gh, err := FindCliTool("gh"); err == nil {
+		out, err := r.runCommand(ctx, repoPath, gh, "pr", "view", branch, "--json", "url,state,headRefName,headRefOid")
+		if err == nil {
+			if url := openPRFromJSON(out, branch, sha, false); url != "" {
+				return url
+			}
+		}
+	}
+	if glab, err := FindCliTool("glab"); err == nil {
+		// https://docs.gitlab.com/cli/mr/list/ : defaults to open MRs.
+		out, err := r.runCommand(ctx, repoPath, glab, "mr", "list", "--source-branch", branch, "--output", "json")
+		if err == nil {
+			return openPRFromJSON(out, branch, sha, true)
+		}
+	}
+	return ""
+}
+
+func openPRFromJSON(raw, branch, sha string, gitlab bool) string {
+	if gitlab {
+		var prs []struct {
+			URL    string `json:"web_url"`
+			State  string `json:"state"`
+			Branch string `json:"source_branch"`
+			SHA    string `json:"sha"`
+		}
+		if json.Unmarshal([]byte(raw), &prs) == nil {
+			for _, pr := range prs {
+				if pr.State == "opened" && pr.Branch == branch && pr.SHA == sha {
+					return pr.URL
+				}
+			}
+		}
+		return ""
+	}
+	var pr struct {
+		URL    string `json:"url"`
+		State  string `json:"state"`
+		Branch string `json:"headRefName"`
+		SHA    string `json:"headRefOid"`
+	}
+	if json.Unmarshal([]byte(raw), &pr) == nil && pr.State == "OPEN" && pr.Branch == branch && pr.SHA == sha {
+		return pr.URL
+	}
+	return ""
+}
 
 // Récupération de la merge request ouverte par une skill.
 //

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -45,8 +46,8 @@ type StageSkill struct {
 	report          string
 }
 
-// StageSkills is the unified set: one skill per workflow step. The old
-// pick-issue auto-pilot is gone, the autonomous button replaced it.
+// StageSkills is the unified set: one skill per workflow step. Standalone
+// pickup and the background pipeline share the same stage contracts.
 var StageSkills = []StageSkill{
 	{
 		ID:          "clarify",
@@ -56,7 +57,7 @@ var StageSkills = []StageSkill{
 		FromStage:   "new",
 		ToStage:     "clarified",
 		Interactive: false,
-		Description: "Analyse les ambiguïtés techniques et produit 3 à 5 questions de cadrage.",
+		Description: "Résout les ambiguïtés réversibles et identifie les décisions indispensables.",
 		Icon:        "HelpCircle",
 		Color:       "amber",
 		Steps: []string{
@@ -77,10 +78,13 @@ would be expensive to reverse later, not for a list of everything unknown.`,
    if two readings lead to different code.
 3. Name the critical dependencies: other services, other teams, migrations, data
    you do not have.
-4. Formulate 3 to 5 numbered questions with your recommended options:
-   - **Autonomous execution** (default background / pipeline run): Adopt the recommended options as the settled scope, document the rationale in the report, and advance the ticket.
-   - **Interactive TTY session** (when running in an interactive terminal): Ask the questions directly to the user and incorporate their answers.
-5. Record the settled scope and advance the ticket locally via TaskFlow handler.`,
+4. Resolve reversible choices using existing code and project conventions. Record
+   the choice and rationale; do not ask questions merely to fill a quota.
+   Ask only when an essential product decision changes acceptance criteria or an
+   unavailable dependency prevents progress. In an unattended run, report the
+   concrete blocker and the decision needed; do not invent settled requirements.
+   A TTY alone does not make a run interactive: follow the invocation's mode.
+5. Persist the settled scope and assumptions in the report for specification.`,
 		guardTitle: "Do not",
 		guard: `- Do not write production code at this stage, and do not start the specification.
 - Do not invent an answer to your own question and move on without stating your assumption.
@@ -144,16 +148,21 @@ already there, with the project's checks green.`,
 		readFirst: `- The specification and its task checklist. It is the contract, follow its order.
 - The surrounding code: naming, error handling, comment density, test style. Match it.
 - How this project builds and tests. Find the real commands, do not assume them.`,
-		stepsBody: `1. Switch to the ticket's work branch. Never implement on the default branch.
+		stepsBody: `1. Reuse the assigned worktree and branch, including a shared batch branch. Never implement on the default branch.
 2. Work through the checklist in small steps, each one leaving the tree buildable.
 3. Add the tests that cover the new behaviour and its edge cases, not just the
    happy path. A change with no test needs a stated reason.
 4. Run build, static analysis and tests. Fix until green, and quote the real output.
 5. Re-read your own diff before finishing, as a reviewer would.`,
-		guardTitle: "Stop and report instead of pushing through when",
-		guard: `- A decision in the specification turns out to be wrong or impossible.
-- A test that was already failing before your change blocks the suite.
-- The change would require touching a subsystem the specification never mentioned.`,
+		guardTitle: "Recovery and blockers",
+		guard: `- Repair routine technical issues and update design/tasks when the implementation
+  needs to change while preserving acceptance criteria. Continue after documenting why.
+- Establish whether a failing test predates the change. Fix failures in scope; report
+  unrelated failures with baseline evidence. Never hide them or mark checks green.
+- Stop only for an essential product decision, an unavailable dependency after
+  bounded recovery attempts, or work that materially expands the requested scope.
+- Preserve the work branch, completed checklist items and remaining next action so
+  a retry can resume instead of starting over.`,
 		report: `- What changed, file by file, and why.
 - The real output of build, linters and tests, remaining failures included.
 - What you deliberately left out, and what it would take to finish it.`,
@@ -181,11 +190,11 @@ found and fixed, the risky parts pointed out, the test plan written down.`,
 		readFirst: `- The full diff of the branch against the default branch. All of it, not the summary.
 - The specification, to check that what was asked is what was built.`,
 		stepsBody: `1. Review the diff for correctness, side effects, security, and edge cases with no test.
-2. Fix what the review finds, now. A known defect belongs in the code, not in the
+2. Update documentation affected by the change. Fix what the review finds, now. A known defect belongs in the code, not in the
    description of the merge request.
 3. Re-run build, static analysis and tests on the final state.
 4. Commit with a conventional message: type, scope, and why the change exists.
-5. Push the branch and open the merge request: summary, test plan, and the specific
+5. Push the branch and create or update its existing merge request: summary, test plan, and the specific
    places where you want a reviewer's eyes.
 6. If the repository has no remote, say so and stop rather than merging locally.`,
 		guardTitle: "Do not",
@@ -222,12 +231,13 @@ and a local workspace with nothing stale in it.`,
 2. Write the handover: what shipped, what changed for the user, what is still open.
 3. Write the acceptance checklist as checkboxes, each item something a human can
    verify in the running product.
-4. Update the repository documentation when the change makes it wrong, README and
-   changelog included.
+4. Confirm documentation shipped with the change. If a correction is still needed,
+   record it as follow-up work; do not create uncommitted edits just before cleanup.
 5. Turn any remaining follow-up into a separate ticket to create, rather than a
    paragraph nobody will read.
-6. Clean up locally: remove the ticket's worktree, delete the local branch once the
-   merge is confirmed.`,
+6. Clean up locally only after checking for uncommitted or unpushed work and other
+   tickets sharing this worktree. Preserve a shared batch worktree until every ticket
+   is handed off. Remove only an unused, clean worktree and its confirmed merged branch.`,
 		guardTitle: "Do not",
 		guard: `- Do not delete anything remote: no remote branch, no tag, no release.
 - Do not clean up while the merge is unconfirmed.`,
@@ -261,40 +271,10 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		readFirst: `- The ticket: key, title, description, parent macro, and tracker comments.
 - The project's code and existing patterns.
 - The project SDD framework (OpenSpec or Spec Kit).`,
-		stepsBody: `1. **Pick & Inspect**:
-   - Identify the ticket key (<KEY>) and target branch name (<KEY>-<title-slug>).
-   - Check the current ticket stage and start from where it currently is.
-   - Switch or create the work branch ` + tick + `<KEY>-<title-slug>` + tick + `. Never implement on the default branch.
-
-2. **Step 1: Clarification (if not already clarified)**:
-   - Restate the requirements and resolve ambiguities with sensible technical choices.
-   - Transition ticket locally: ` + tick + `taskflow stage <KEY> clarified` + tick + `
-
-3. **Step 2: Specification (if not already specified)**:
-   - Write the formal technical specification in ` + tick + `openspec/changes/<KEY>-<title-slug>/` + tick + ` or ` + tick + `specs/<KEY>-<title-slug>/` + tick + `.
-   - Validate the specification structure and checklist.
-   - Transition ticket locally: ` + tick + `taskflow stage <KEY> specified` + tick + `
-
-4. **Step 3: Implementation & Validation**:
-   - Implement the changes incrementally on the work branch following the spec checklist.
-   - Add automated tests covering the new behavior and edge cases.
-   - Run the project's build, linters, and test suite until all checks pass (100% green).
-   - Transition ticket locally: ` + tick + `taskflow stage <KEY> implemented --branch "<KEY>-<title-slug>"` + tick + `
-
-5. **Step 4: Review, Push & Pull Request**:
-   - Review the complete diff against the default branch to ensure cleanliness.
-   - Commit all changes with a clean conventional commit message.
-   - Push the branch to the remote repository: ` + tick + `git push -u origin <KEY>-<title-slug>` + tick + `
-   - Open the Pull Request / Merge Request via GitHub CLI (` + tick + `gh pr create` + tick + `) or GitLab/Linear tooling.
-   - Transition ticket locally: ` + tick + `taskflow stage <KEY> reviewed --pr-url "<PR_URL>"` + tick + `
-
-6. **Step 5: Stop before merge**:
-   - Report the PR URL, test results, and summary of changes.
-   - Do NOT merge into the default branch (merging is strictly reserved for the human user).`,
 		guardTitle: "Do not",
 		guard: `- Do not merge into the default branch (merging is reserved for the human user).
 - Do not push or open a PR if the test suite is failing.
-- Do not skip the local handler stage transitions.`,
+- Follow the managed or standalone transition contract for the invocation.`,
 		report: `- The created Pull Request URL.
 - The work branch and files modified.
 - The test results demonstrating that build, lint, and tests pass.
@@ -318,7 +298,7 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		},
 		title:           "Rewrite Story",
 		frontmatterDesc: "Reformat a story or task description into structured markdown, optionally incorporating task comments.",
-		goal: `Reformat a task's title, description, and optional comments into a clean GitHub-Flavored Markdown specification (User Story: As a..., I want..., So that... + Context + Acceptance Criteria + Notes).`,
+		goal:            `Reformat a task's title, description, and optional comments into a clean GitHub-Flavored Markdown specification (User Story: As a..., I want..., So that... + Context + Acceptance Criteria + Notes).`,
 		readFirst: `- The task: title, description, and task comments (if requested or passed as context).
 - Standard GitHub-Flavored Markdown (GFM) formatting guidelines.`,
 		stepsBody: `1. Inspect the task title, raw description, and comments (if provided).
@@ -355,8 +335,8 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		},
 		title:           "Refine Macro",
 		frontmatterDesc: "Refine a macro framing text into a structured action plan of todos respecting the project SDD framework.",
-		goal: `Transform high-level macro framing text into an actionable, structured todo list aligned with the active Spec-Driven Design framework (SpecKit or OpenSpec).`,
-		guardTitle: "Do not",
+		goal:            `Transform high-level macro framing text into an actionable, structured todo list aligned with the active Spec-Driven Design framework (SpecKit or OpenSpec).`,
+		guardTitle:      "Do not",
 		guard: `- Do not overwrite existing todos without user confirmation in the UI.
 - Do not generate unstructured or generic todo items.
 - Do not mutate tracker issues or milestones directly without user trigger.`,
@@ -382,19 +362,10 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		},
 		title:           "Batch Pickup Issues (Single Worktree & Combined PR)",
 		frontmatterDesc: "Batch process a list of selected board tickets sequentially in autonomy inside a single dedicated worktree, producing one combined Pull Request covered by tests and lints.",
-		goal: `Autonomously process a batch of tickets selected from the board sequentially in the exact order provided inside a single dedicated batch worktree.`,
+		goal:            `Autonomously process a batch of tickets selected from the board sequentially in the exact order provided inside a single dedicated batch worktree.`,
 		readFirst: `- The list of tickets in the batch.
 - The project's code and existing patterns.
 - The project SDD framework.`,
-		stepsBody: `1. **Batch Initialization & Single Worktree Setup**:
-   - Parse input into ordered queue of tickets.
-   - Create or switch to the single dedicated batch worktree/branch.
-2. **Sequential In-Place Ticket Processing Loop**:
-   - Clarify, specify, implement and test each ticket in order inside the same worktree.
-3. **Combined Batch Quality & Verification**:
-   - Run full test and build suites.
-4. **Single Combined Pull Request Creation**:
-   - Open ONE single combined PR referencing all ticket numbers.`,
 		guardTitle: "Do not",
 		guard: `- Do not create separate branches or PRs per ticket.
 - Do not merge into default branch (merging is reserved for human user).`,
@@ -431,6 +402,12 @@ func StageSkillByID(skillID string) (StageSkill, bool) {
 }
 
 const tick = "`"
+
+// JSON strings are valid YAML scalars, including colons, quotes and newlines.
+func skillYAMLString(value string) string {
+	encoded, _ := json.Marshal(value)
+	return string(encoded)
+}
 
 // specifyFrameworkName is the display name of the specification skill: the SDD
 // framework is part of what the step actually is.
@@ -477,12 +454,13 @@ func refineMacroFrameworkBody(specFramework string) (readFirst, steps string) {
 // {sdd_framework} parameterization (openspec / speckit) as well as auto-detection.
 func specifyFrameworkBody(specFramework string) (readFirst, steps string) {
 	readFirst = `- The clarification outcome on the ticket: the decisions are already made, apply them.
-- If {sdd_framework} or --framework=<name> is provided, use it. Otherwise, auto-detect:
+- Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
+  then the project-configured framework, then repository detection:
   - If ` + tick + `openspec/` + tick + ` exists -> use OpenSpec SDD.
   - If ` + tick + `.specify/` + tick + ` or ` + tick + `specs/` + tick + ` exists -> use Spec Kit SDD.
 - Ensure the project SDD directory is initialized before writing specifications.`
 
-	steps = `1. Create or switch to the work branch, named <KEY>-<title-slug>. Never write on the default branch.
+	steps = `1. Reuse the assigned worktree and branch (including a shared batch branch). Only create <KEY>-<title-slug> when no work branch is assigned. Preserve existing work; never write on the default branch.
 2. Select the SDD framework from {sdd_framework} argument, flag, or project detection:
 
    **If using OpenSpec SDD:**
@@ -499,6 +477,9 @@ func specifyFrameworkBody(specFramework string) (readFirst, steps string) {
    - Write ` + tick + `tasks.md` + tick + ` (ordered implementation checklist with test plan)
    - Use ` + tick + `/speckit.specify` + tick + `, ` + tick + `/speckit.plan` + tick + `, ` + tick + `/speckit.tasks` + tick + ` if available.`
 
+	if framework := strings.ToLower(strings.TrimSpace(specFramework)); framework == "openspec" || framework == "speckit" {
+		readFirst = "- Project-configured SDD framework: " + framework + ". Use it unless the invocation explicitly overrides it.\n" + readFirst
+	}
 	return readFirst, steps
 }
 
@@ -506,53 +487,52 @@ func specifyFrameworkBody(specFramework string) (readFirst, steps string) {
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
 func renderTicketTransitionContract(s StageSkill) string {
+	if s.FromStage == "" || s.Scope == "macro" {
+		return ""
+	}
 	var b strings.Builder
-	if s.ID == "pickup" {
-		b.WriteString("## Ticket Transition & Autonomous Pipeline Contract\n")
-		b.WriteString("The agent executing the pickup skill is responsible for advancing the ticket through each stage autonomously up to PR creation:\n")
-		b.WriteString("- **Step 1 (Clarify)**: Advance ticket to `clarified` via `taskflow stage <KEY> clarified`\n")
-		b.WriteString("- **Step 2 (Specify)**: Advance ticket to `specified` via `taskflow stage <KEY> specified`\n")
-		b.WriteString("- **Step 3 (Implement)**: Advance ticket to `implemented` via `taskflow stage <KEY> implemented --branch \"<KEY>-<title-slug>\"`\n")
-		b.WriteString("- **Step 4 (Review & PR)**: Advance ticket to `reviewed` via `taskflow stage <KEY> reviewed --pr-url \"<PR_URL>\"`\n")
-		b.WriteString("- **HTTP API Alternative** (if CLI not in PATH): `curl -s -X POST http://localhost:8090/api/tasks/stage -H \"Content-Type: application/json\" -d '{\"taskKey\":\"<KEY>\",\"stage\":\"<STAGE>\"}'`\n")
-		b.WriteString("- **Fallback to Tracker CLI** (only if TaskFlow is unreachable): `gh issue edit <NUMBER> --add-label \"<STAGE>\"` / `linear issue update <KEY> --add-label \"<STAGE>\"`\n")
-		b.WriteString("- **Safety Rules**: Always work on the ticket branch (`<KEY>-<title-slug>`). Never delete anything remote and never merge into the default branch (merging is strictly reserved for the human user).\n")
-		return b.String()
+	b.WriteString("## Execution and ticket state\n")
+	b.WriteString("- **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.\n")
+	b.WriteString("- **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.\n")
+	if s.ID == "pickup" || s.ID == "pickup_issues" {
+		if s.ID == "pickup_issues" {
+			b.WriteString("For each ticket key in the batch, record clarified, specified and implemented after that ticket's corresponding step. Use the SAME actual batch branch for every ticket. After the combined PR is verified, record reviewed and the SAME PR URL for every implemented ticket. Never mark an unfinished ticket reviewed.\n")
+		}
+		b.WriteString("```bash\ntaskflow stage <KEY> clarified \"<settled scope and assumptions>\"\ntaskflow stage <KEY> specified --branch \"<ACTUAL_BRANCH>\" \"<spec paths>\"\ntaskflow stage <KEY> implemented --branch \"<ACTUAL_BRANCH>\" \"<check results>\"\ntaskflow stage <KEY> reviewed --pr-url \"<PR_URL>\" \"<review summary>\"\n```\n")
+	} else {
+		fmt.Fprintf(&b, "Transition %s → %s only when this step is complete.\n```bash\ntaskflow stage <KEY> %s", s.FromStage, s.ToStage, s.ToStage)
+		if s.ID == "implement" || s.ID == "specify" {
+			b.WriteString(" --branch \"<ACTUAL_BRANCH>\"")
+		}
+		if s.ID == "create_pr" {
+			b.WriteString(" --pr-url \"<PR_URL>\"")
+		}
+		b.WriteString(" \"<REPORT_NOTE>\"\n```\n")
 	}
+	b.WriteString("If the CLI is absent, POST equivalent JSON (taskKey, stage, note, branch, prUrl as applicable) to the configured TASKFLOW_API_URL + /api/tasks/stage using curl --fail-with-body. Confirm HTTP success before continuing.\n")
+	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
+	return b.String()
+}
 
-	b.WriteString("## Ticket Transition & Status Update\n")
-	b.WriteString("The agent executing this skill is responsible for advancing the ticket to the next agentic status upon completion:\n")
-	fmt.Fprintf(&b, "- **Stage Transition**: Advance ticket from `%s` to `%s`.\n", s.FromStage, s.ToStage)
-	b.WriteString("- **Step 1: Check and use Local Handler (Recommended if TaskFlow is running)**:\n")
-	b.WriteString("  Call TaskFlow's local transition handler to update local state, record branch/PR, and automatically queue two-way synchronization to GitHub/Linear:\n")
-	b.WriteString("  - **Via TaskFlow CLI**:\n")
-	if s.ID == "code" {
-		fmt.Fprintf(&b, "    ```bash\n    taskflow stage <KEY> %s --branch \"<KEY>-<title-slug>\" [\"<optional summary note>\"]\n    ```\n", s.ToStage)
-	} else if s.ID == "create_pr" {
-		fmt.Fprintf(&b, "    ```bash\n    taskflow stage <KEY> %s --pr-url \"<PR_URL>\" [\"<optional summary note>\"]\n    ```\n", s.ToStage)
+// Pickup embeds the maintained stage bodies, so batch and single-ticket runs
+// cannot silently omit a validation rule added to a standalone step.
+func renderPickupSteps(specFramework string, batch bool) string {
+	var b strings.Builder
+	b.WriteString("1. Inspect the current ticket state AND existing artifacts. Reuse assigned branches, specifications, checklist progress and PRs. Verify completed work before skipping it.\n")
+	if batch {
+		b.WriteString("2. Use one dedicated worktree and branch for the ordered batch. Run clarification, specification and implementation for each ticket in order. If one blocks, preserve the batch and report completed tickets and the next action; never include unfinished work as completed.\n3. Once all tickets are implemented, run review and final checks across the whole batch and create or update ONE combined PR.\n")
 	} else {
-		fmt.Fprintf(&b, "    ```bash\n    taskflow stage <KEY> %s [\"<optional summary note>\"]\n    ```\n", s.ToStage)
+		b.WriteString("2. Reuse or create a dedicated worktree and work branch. Continue through the stages below from the first incomplete stage to a verified PR.\n")
 	}
-	b.WriteString("  - **Via HTTP API** (port 8090 or 8080):\n")
-	b.WriteString("    ```bash\n")
-	if s.ID == "code" {
-		fmt.Fprintf(&b, "    curl -s -X POST http://localhost:8090/api/tasks/stage -H \"Content-Type: application/json\" -d '{\"taskKey\": \"<KEY>\", \"stage\": \"%s\", \"branch\": \"<KEY>-<title-slug>\"}' || curl -s -X POST http://localhost:8080/api/tasks/stage -H \"Content-Type: application/json\" -d '{\"taskKey\": \"<KEY>\", \"stage\": \"%s\", \"branch\": \"<KEY>-<title-slug>\"}'\n", s.ToStage, s.ToStage)
-	} else if s.ID == "create_pr" {
-		fmt.Fprintf(&b, "    curl -s -X POST http://localhost:8090/api/tasks/stage -H \"Content-Type: application/json\" -d '{\"taskKey\": \"<KEY>\", \"stage\": \"%s\", \"prUrl\": \"<PR_URL>\"}' || curl -s -X POST http://localhost:8080/api/tasks/stage -H \"Content-Type: application/json\" -d '{\"taskKey\": \"<KEY>\", \"stage\": \"%s\", \"prUrl\": \"<PR_URL>\"}'\n", s.ToStage, s.ToStage)
-	} else {
-		fmt.Fprintf(&b, "    curl -s -X POST http://localhost:8090/api/tasks/stage -H \"Content-Type: application/json\" -d '{\"taskKey\": \"<KEY>\", \"stage\": \"%s\"}' || curl -s -X POST http://localhost:8080/api/tasks/stage -H \"Content-Type: application/json\" -d '{\"taskKey\": \"<KEY>\", \"stage\": \"%s\"}'\n", s.ToStage, s.ToStage)
+	b.WriteString("Stop before merge. Stage-local boundaries apply while that stage is active; after its requirements are met, continue to the next stage without asking for routine confirmation.\n")
+	for _, id := range []string{"clarify", "specify", "implement", "create_pr"} {
+		step, _ := StageSkillByID(id)
+		readFirst, body := step.readFirst, step.stepsBody
+		if id == "specify" {
+			readFirst, body = specifyFrameworkBody(specFramework)
+		}
+		fmt.Fprintf(&b, "\n### %s\n%s\n\n%s\n\n%s\n\nReport and persist before continuing:\n%s\n", step.title, readFirst, body, step.guard, step.report)
 	}
-	b.WriteString("    ```\n")
-	b.WriteString("- **Step 2: Fallback to Direct Tracker CLI (Only if local TaskFlow handler is unreachable)**:\n")
-	if s.ToStage == "finished" {
-		fmt.Fprintf(&b, "  - **GitHub CLI**: `gh issue edit <NUMBER> --add-label \"%s\" --remove-label \"%s\"` then `gh issue close <NUMBER>`\n", s.ToStage, s.FromStage)
-		fmt.Fprintf(&b, "  - **Linear CLI**: `linear issue update <ISSUE_KEY> --add-label \"%s\" --remove-label \"%s\" --state \"Done\"`\n", s.ToStage, s.FromStage)
-	} else {
-		fmt.Fprintf(&b, "  - **GitHub CLI**: `gh issue edit <NUMBER> --add-label \"%s\" --remove-label \"%s\"`\n", s.ToStage, s.FromStage)
-		fmt.Fprintf(&b, "  - **Linear CLI**: `linear issue update <ISSUE_KEY> --add-label \"%s\" --remove-label \"%s\"`\n", s.ToStage, s.FromStage)
-	}
-	b.WriteString("- **Comments**: Post the stage summary report as a comment on the ticket via `taskflow stage <KEY> " + s.ToStage + " \"<REPORT_NOTE>\"` or `gh issue comment <NUMBER> --body \"...\"` / `linear issue comment add <ISSUE_KEY> --body \"...\"`.\n")
-	b.WriteString("- **Safety Rules**: Always work on the ticket branch (`<KEY>-<title-slug>`). Never delete anything remote and never merge into the default branch (merging is strictly reserved for the human user).\n")
 	return b.String()
 }
 
@@ -573,10 +553,16 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 		readFirst, steps = refineMacroFrameworkBody(specFramework)
 	}
 
+	if s.ID == "pickup" || s.ID == "pickup_issues" {
+		steps = renderPickupSteps(specFramework, s.ID == "pickup_issues")
+	}
+
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, s.frontmatterDesc)
+	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, skillYAMLString(s.frontmatterDesc))
 	fmt.Fprintf(&b, "# %s\n\n", name)
-	fmt.Fprintf(&b, "Stage: %s -> %s.", s.FromStage, s.ToStage)
+	if s.FromStage != "" && s.Scope != "macro" {
+		fmt.Fprintf(&b, "Stage: %s -> %s.", s.FromStage, s.ToStage)
+	}
 	if s.Interactive {
 		b.WriteString(" Interactive: the user answers in the terminal.")
 	}
@@ -662,7 +648,7 @@ func RenderSkillCommand(s StageSkill, specFramework string) string {
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "description: %s\n", s.frontmatterDesc)
+	fmt.Fprintf(&b, "description: %s\n", skillYAMLString(s.frontmatterDesc))
 	b.WriteString("argument-hint: <TICKET-KEY> [contexte]\n")
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimSpace(body))
