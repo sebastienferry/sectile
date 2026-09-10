@@ -579,7 +579,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       draggable
       onDragStart={handleDragStartInternal}
       onClick={() => setSelectedTask(task)}
-      className={`group relative rounded-2xl border bg-[var(--bg-secondary)] ${isCondensed ? 'p-2' : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
+      className={`group relative rounded-2xl border bg-[var(--bg-secondary)] ${isCondensed ? 'px-1.5 py-1' : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
         isRunning
           ? 'border-indigo-500/60 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500/20'
           : isQueued
@@ -590,14 +590,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       }`}
     >
       {isCondensed ? (
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-1 min-w-0">
           {externalUrl ? (
-            <a href={externalUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="shrink-0 whitespace-nowrap text-[11px] font-mono font-bold text-[var(--accent-color)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
+            <a href={externalUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold text-[var(--accent-color)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
               {task.key}
             </a>
-          ) : <span className="shrink-0 whitespace-nowrap text-[11px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
-          <span aria-hidden="true" className="text-[var(--text-muted)]">—</span>
-          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); setSelectedTask(task) }} className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-[var(--text-primary)] leading-snug cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
+          ) : <span className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
+          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); setSelectedTask(task) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
             {task.title}
           </button>
           {actionsMenu}
