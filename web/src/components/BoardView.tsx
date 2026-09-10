@@ -450,7 +450,8 @@ export const BoardView: React.FC = () => {
             type="button"
             onClick={() => setShowSimplifiedCards(value => !value)}
             aria-pressed={showSimplifiedCards}
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+            aria-label={showSimplifiedCards ? 'Afficher les cartes détaillées' : 'Afficher les cartes sur une ligne'}
+            className={`flex items-center justify-center p-1.5 rounded-lg border transition-colors cursor-pointer ${
               showSimplifiedCards
                 ? 'bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/40 shadow-2xs'
                 : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
@@ -458,7 +459,6 @@ export const BoardView: React.FC = () => {
             title={showSimplifiedCards ? 'Afficher les cartes détaillées' : 'Afficher les cartes sur une ligne'}
           >
             {showSimplifiedCards ? <List size={14} /> : <Kanban size={14} />}
-            <span>{showSimplifiedCards ? 'Vue 1 ligne' : 'Vue détaillée'}</span>
           </button>
 
           <TaskFilters />
