@@ -1,3 +1,4 @@
+import { sameTask, tasksInProject } from '../lib/taskIdentity'
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import type {
   MacroRequiredField,
@@ -1333,21 +1334,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         try {
           const data = JSON.parse(e.data)
           if (data && data.task) {
-            setTasks(prevTasks => {
-              const idx = prevTasks.findIndex(t => t.id === data.task.id || t.key === data.task.key)
-              if (idx >= 0) {
-                const next = [...prevTasks]
-                next[idx] = { ...next[idx], ...data.task }
-                return next
-              }
-              return [data.task, ...prevTasks]
-            })
-            if (selectedTask && (selectedTask.id === data.task.id || selectedTask.key === data.task.key)) {
-              setSelectedTask(data.task)
-            }
-          } else {
-            fetchTasks()
+            setSelectedTask(current => current && sameTask(current, data.task) ? data.task : current)
           }
+          // Reapply the active project and all server-side filters, including
+          // when an event introduces a new task or moves one out of this view.
+          fetchTasks()
+
           fetchActivities()
           fetchActivityStats()
         } catch (err) {
@@ -1840,8 +1832,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) throw new Error('Update failed')
       const updated: Task = await res.json()
-      setTasks(prev => prev.map(t => (t.id === id || t.key === id || t.id === updated.id || t.key === updated.key ? updated : t)))
-      if (selectedTask && (selectedTask.id === id || selectedTask.key === id || selectedTask.id === updated.id)) {
+      setTasks(prev => prev.map(t => (sameTask(t, updated) ? updated : t)))
+      if (selectedTask && (sameTask(selectedTask, updated))) {
         setSelectedTask(updated)
       }
       addToast({
@@ -1872,8 +1864,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json()
       const updated: Task = data.task
       if (updated) {
-        setTasks(prev => prev.map(t => (t.id === id || t.key === id || t.id === updated.id || t.key === updated.key ? updated : t)))
-        if (selectedTask && (selectedTask.id === id || selectedTask.key === id || selectedTask.id === updated.id)) {
+        setTasks(prev => prev.map(t => (sameTask(t, updated) ? updated : t)))
+        if (selectedTask && (sameTask(selectedTask, updated))) {
           setSelectedTask(updated)
         }
         addToast({
@@ -2505,7 +2497,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Transition refusée')
       if (data.task) {
-        setTasks(prev => prev.map(t => (t.id === data.task.id || t.key === data.task.key ? data.task : t)))
+        setTasks(prev => prev.map(t => (sameTask(t, data.task) ? data.task : t)))
       }
       fetchActivities()
       addToast({
@@ -3112,8 +3104,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // then by the active parent (epic or parent story), when one is selected.
   const filteredTasks = React.useMemo(() => {
     let out = sourceFilter === 'all'
-      ? tasks
-      : tasks.filter(t => (t.source || 'local') === sourceFilter)
+      ? tasksInProject(tasks, selectedProjectId)
+      : tasksInProject(tasks, selectedProjectId).filter(t => (t.source || 'local') === sourceFilter)
     if (parentFilter) {
       if (parentFilter === '__no_macro__' || parentFilter === 'none') {
         out = out.filter(t => !t.parentKey && !t.parentTitle)
@@ -3122,7 +3114,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return out
-  }, [tasks, sourceFilter, parentFilter])
+  }, [tasks, sourceFilter, parentFilter, selectedProjectId])
 
   // The daily digest reads as a brief for one person, so it is served only for
   // a selected project of type "personal" — never for a delivery project, and
