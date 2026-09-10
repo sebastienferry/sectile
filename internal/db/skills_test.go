@@ -33,15 +33,17 @@ func TestGeneratedSkillContracts(t *testing.T) {
 					}
 				}
 				if stage.FromStage == "" || stage.Scope == "macro" {
-					if strings.Contains(content, "taskflow stage") {
+					if strings.Contains(content, "/api/tasks/stage") {
 						t.Fatal("non-workflow skill received a task transition")
 					}
 				}
 				if stage.ID == "implement" || stage.ID == "specify" {
-					want := "taskflow stage <KEY> " + stage.ToStage + ` --branch "<ACTUAL_BRANCH>"`
-					if !strings.Contains(content, want) {
+					if !strings.Contains(content, "http://localhost:8090/api/tasks/stage") || !strings.Contains(content, `"branch":"<ACTUAL_BRANCH>"`) {
 						t.Fatal("transition does not record the actual assigned branch")
 					}
+				}
+				if stage.FromStage != "" && stage.Scope != "macro" && strings.Contains(content, "taskflow stage") {
+					t.Fatal("workflow skill must call the local handler instead of a CLI")
 				}
 			})
 		}

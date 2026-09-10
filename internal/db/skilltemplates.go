@@ -506,20 +506,35 @@ func renderTicketTransitionContract(s StageSkill) string {
 		if s.ID == "pickup_issues" {
 			b.WriteString("For each ticket key in the batch, record clarified, specified and implemented after that ticket's corresponding step. Use the SAME actual batch branch for every ticket. After the combined PR is verified, record reviewed and the SAME PR URL for every implemented ticket. Never mark an unfinished ticket reviewed.\n")
 		}
-		b.WriteString("```bash\ntaskflow stage <KEY> clarified \"<settled scope and assumptions>\"\ntaskflow stage <KEY> specified --branch \"<ACTUAL_BRANCH>\" \"<spec paths>\"\ntaskflow stage <KEY> implemented --branch \"<ACTUAL_BRANCH>\" \"<check results>\"\ntaskflow stage <KEY> reviewed --pr-url \"<PR_URL>\" \"<review summary>\"\n```\n")
+		b.WriteString("```bash\n")
+		b.WriteString(renderStageHandlerCommand("clarified", "<settled scope and assumptions>", false, false))
+		b.WriteString(renderStageHandlerCommand("specified", "<spec paths>", true, false))
+		b.WriteString(renderStageHandlerCommand("implemented", "<check results>", true, false))
+		b.WriteString(renderStageHandlerCommand("reviewed", "<review summary>", false, true))
+		b.WriteString("```\n")
 	} else {
-		fmt.Fprintf(&b, "Transition %s → %s only when this step is complete.\n```bash\ntaskflow stage <KEY> %s", s.FromStage, s.ToStage, s.ToStage)
-		if s.ID == "implement" || s.ID == "specify" {
-			b.WriteString(" --branch \"<ACTUAL_BRANCH>\"")
-		}
-		if s.ID == "create_pr" {
-			b.WriteString(" --pr-url \"<PR_URL>\"")
-		}
-		b.WriteString(" \"<REPORT_NOTE>\"\n```\n")
+		fmt.Fprintf(&b, "Transition %s → %s only when this step is complete.\n```bash\n", s.FromStage, s.ToStage)
+		b.WriteString(renderStageHandlerCommand(s.ToStage, "<REPORT_NOTE>", s.ID == "implement" || s.ID == "specify", s.ID == "create_pr"))
+		b.WriteString("```\n")
 	}
-	b.WriteString("If the CLI is absent, POST equivalent JSON (taskKey, stage, note, branch, prUrl as applicable) to the configured TASKFLOW_API_URL + /api/tasks/stage using curl --fail-with-body. Confirm HTTP success before continuing.\n")
+	b.WriteString("This POST calls the local TaskFlow handler directly. Confirm HTTP success before continuing. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.\n")
 	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
 	return b.String()
+}
+
+func renderStageHandlerCommand(stage, note string, includesBranch, includesPRURL bool) string {
+	fields := []string{
+		`"taskKey":"<KEY>"`,
+		fmt.Sprintf(`"stage":"%s"`, stage),
+		fmt.Sprintf(`"note":"%s"`, note),
+	}
+	if includesBranch {
+		fields = append(fields, `"branch":"<ACTUAL_BRANCH>"`)
+	}
+	if includesPRURL {
+		fields = append(fields, `"prUrl":"<PR_URL>"`)
+	}
+	return "curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \\\n  -H 'Content-Type: application/json' \\\n  -d '{" + strings.Join(fields, ",") + "}'\n"
 }
 
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs

@@ -97,7 +97,7 @@ up during confirmed handoff.
 
 The worker owns transitions during managed runs; standalone stage and post-back
 state updates are rejected while that workflow step is running. Standalone skill
-invocations instead use `taskflow stage` after completing each step. Single and
+invocations instead call the local TaskFlow stage handler after completing each step. Single and
 batch pickup templates embed the same maintained stage instructions. Batch
 invocations retain one branch and one combined PR, recording each ticket's
 progress individually. Rewrite-story and macro refinement have no ticket-stage
