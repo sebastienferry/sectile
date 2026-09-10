@@ -10,7 +10,8 @@ import {
   EyeOff,
   Sparkles,
   Kanban,
-  ListFilter
+  ListFilter,
+  List
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { TaskCard } from './TaskCard'
@@ -454,9 +455,10 @@ export const BoardView: React.FC = () => {
                 ? 'bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/40 shadow-2xs'
                 : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
             }`}
-            title={showSimplifiedCards ? 'Afficher les cartes détaillées' : 'Afficher les cartes simplifiées'}
+            title={showSimplifiedCards ? 'Afficher les cartes détaillées' : 'Afficher les cartes sur une ligne'}
           >
-            <span>{showSimplifiedCards ? 'Cartes simplifiées' : 'Cartes détaillées'}</span>
+            {showSimplifiedCards ? <List size={14} /> : <Kanban size={14} />}
+            <span>{showSimplifiedCards ? 'Vue 1 ligne' : 'Vue détaillée'}</span>
           </button>
 
           <TaskFilters />

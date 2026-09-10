@@ -590,19 +590,18 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       }`}
     >
       {isCondensed ? (
-        <>
-          <div className="flex items-center justify-between gap-2 mb-1">
-            {externalUrl ? (
-              <a href={externalUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="shrink-0 whitespace-nowrap text-[11px] font-mono font-bold text-[var(--accent-color)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
-                {task.key}
-              </a>
-            ) : <span className="shrink-0 whitespace-nowrap text-[11px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
-            {actionsMenu}
-          </div>
-          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); setSelectedTask(task) }} className="block w-full truncate text-left text-xs font-semibold text-[var(--text-primary)] leading-snug cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
+        <div className="flex items-center gap-2 min-w-0">
+          {externalUrl ? (
+            <a href={externalUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="shrink-0 whitespace-nowrap text-[11px] font-mono font-bold text-[var(--accent-color)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
+              {task.key}
+            </a>
+          ) : <span className="shrink-0 whitespace-nowrap text-[11px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
+          <span aria-hidden="true" className="text-[var(--text-muted)]">—</span>
+          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); setSelectedTask(task) }} className="min-w-0 flex-1 truncate text-left text-xs font-semibold text-[var(--text-primary)] leading-snug cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
             {task.title}
           </button>
-        </>
+          {actionsMenu}
+        </div>
       ) : (
         <>
       {/* Ligne 1 : Référence (Parent / Tâche) + pastille de priorité */}
