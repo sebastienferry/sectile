@@ -175,7 +175,8 @@ For hands-on pair programming and manual debugging:
 - Injects task context variables (`$TASKFLOW_TASK_KEY`, `$TASKFLOW_TASK_WORKTREE`).
 - Action toolbar provides one-click triggers:
   - **`⚡ Run agent`**: Starts interactive conversation with the chosen agent.
-  - **`/clarify`**, **`/specify`**, **`/code`**, **`/create-pr`**: Executes prompt skills natively in shell.
+  - **Skill actions** (`clarify-issue`, `specify-issue`, `code-issue`, `create-pr`): Send the skill name and ticket context to the running agent. Codex receives the plain name; other providers retain a leading `/`. Button labels and tooltips follow that syntax and any project skill-name overrides. Start the agent before selecting a skill; calls are rejected when no agent is running.
+  - The project's agent setting takes precedence over the global setting. Codex is supported by the interactive launcher. Workflow steps reusing an open agent use the same invocation syntax; headless prompts are unchanged.
   - **`Ctrl+C`**: Sends interrupt signal to running processes.
   - **`Reset`**: Gracefully terminates and respawns a fresh shell.
 
