@@ -2,10 +2,26 @@ package runner_test
 
 import (
 	"os"
+	"strings"
 	"testing"
 
+	"tasks/internal/models"
 	"tasks/internal/runner"
 )
+
+func TestRunAIPropagatesProcessFailure(t *testing.T) {
+	settings := &models.Settings{
+		AIProvider: "custom", RepoPath: t.TempDir(),
+		AICommandTemplate: "printf 'partial result'; exit 7",
+	}
+	output, _, err := runner.NewRunner().RunAI(settings, "clarify", &models.Task{Key: "TEST-1"}, "")
+	if err == nil {
+		t.Fatal("nonzero process exit was treated as success")
+	}
+	if !strings.Contains(output, "partial result") {
+		t.Fatalf("process diagnostics were lost: %s", output)
+	}
+}
 
 func TestGetCwdGitStatus(t *testing.T) {
 	r := runner.NewRunner()

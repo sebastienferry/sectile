@@ -77,6 +77,11 @@ func TestPTYSkillUsesEffectiveProviderAndProjectName(t *testing.T) {
 			if terminal.line != want || out != "done" || terminal.session != TaskSessionID(task.ID) {
 				t.Fatalf("workflow invocation: terminal=%+v output=%q want=%q", terminal, out, want)
 			}
+			// Preserve the managed result contract added by the autonomous workflow.
+			_, _, err = d.runSkillInSession(context.Background(), settings, "clarify", task, "Result contract\nKeep context", "")
+			if err != nil || terminal.line != want+" Result contract Keep context" {
+				t.Fatalf("workflow context lost: line=%q err=%v", terminal.line, err)
+			}
 			terminal.running, terminal.line = false, ""
 			if _, err := d.InjectSkillInTTY(task.ID, "clarify"); err == nil || terminal.line != "" {
 				t.Fatalf("missing agent must reject injection: line=%q err=%v", terminal.line, err)

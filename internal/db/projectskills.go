@@ -340,7 +340,7 @@ func commandContentFromSkill(stage StageSkill, content, specFramework string) (s
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "description: %s\n", stage.Description)
+	fmt.Fprintf(&b, "description: %s\n", skillYAMLString(stage.Description))
 	b.WriteString("argument-hint: <TICKET-KEY> [contexte]\n")
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimSpace(body))
