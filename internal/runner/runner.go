@@ -1689,7 +1689,7 @@ func (r *Runner) RunAI(settings *models.Settings, skillID string, task *models.T
 
 	if execErr != nil {
 		steps = append(steps, fmt.Sprintf("⚠️ Erreur d'exécution : %v", execErr))
-		return fmt.Sprintf("### ⚠️ Erreur lors de l'exécution de la commande IA (%s)\n\n```text\n%s\n```\n\n*Vérifiez que le binaire '%s' est bien accessible et authentifié.*", inv.Provider, output, inv.Provider), steps, nil
+		return fmt.Sprintf("### ⚠️ Erreur lors de l'exécution de la commande IA (%s)\n\n```text\n%s\n```\n\n*Vérifiez que le binaire '%s' est bien accessible et authentifié.*", inv.Provider, output, inv.Provider), steps, execErr
 	}
 
 	steps = append(steps, "✅ Réponse générée par le modèle IA avec succès")
@@ -1808,7 +1808,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	case "create_pr":
 		promptTemplate = settings.PromptCreatePR
 		if promptTemplate == "" {
-			promptTemplate = `Tu es l'ingénieur DevOps & Release pour TaskFlow. Tu dois finaliser la tâche, commiter et créer la Pull Request ou effectuer la fusion (merge) locale :
+			promptTemplate = `Tu es l'ingénieur DevOps & Release pour TaskFlow. Tu dois finaliser la tâche, commiter et créer la Pull Request, puis laisser la fusion à l’utilisateur :
 Clé : {issueKey}
 Titre : {issueTitle}
 Description : {issueDesc}
@@ -1821,10 +1821,8 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 3. CAS A : Si un dépôt distant (remote 'origin' ou GitHub/GitLab) est configuré :
    - Pousse la branche vers le remote : 'git push -u origin {branchName}'
    - Crée la Pull Request via 'gh pr create' ou 'glab mr create' si disponible.
-4. CAS B : Si AUCUN remote distant n'est configuré (dépôt local uniquement) :
-   - Bascule sur la branche principale : 'git checkout main' (ou 'git checkout master' selon la branche par défaut).
-   - Fusionne la branche de la tâche : 'git merge --no-ff {branchName} -m "Merge branch \'{branchName}\' for {issueKey}: {issueTitle}"'
-5. Fournis un compte-rendu clair de l'action réalisée (Pull Request créée ou Merge local effectué sur la branche principale).`
+4. Si aucun remote n'est configuré, signale le blocage et conserve la branche et le worktree.
+5. Fournis l'URL réelle de la Pull Request et les résultats des vérifications. Ne fusionne jamais localement ou à distance.`
 		}
 	case "handoff":
 		promptTemplate = `Tu es responsable de la clôture propre de la tâche pour TaskFlow. Le code a été revu et fusionné : il reste à documenter le handoff et à nettoyer.
