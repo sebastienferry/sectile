@@ -548,7 +548,7 @@ export const Sidebar: React.FC = () => {
               {!sidebarCollapsed && <span className="truncate">Backlog</span>}
             </button>
 
-            {/* 4. Kanban */}
+            {/* 4. Board */}
             <button
               onClick={() => setActiveView('board')}
               className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
@@ -556,10 +556,10 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Kanban"
+              title="Board"
             >
               <Columns size={15} className="shrink-0 text-emerald-400" />
-              {!sidebarCollapsed && <span className="truncate">Kanban</span>}
+              {!sidebarCollapsed && <span className="truncate">Board</span>}
             </button>
 
             {/* 5. Roadmap */}

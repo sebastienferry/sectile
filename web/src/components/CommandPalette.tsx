@@ -166,7 +166,7 @@ export const CommandPalette: React.FC = () => {
     },
     {
       id: 'switch_board',
-      title: '📊 Vue Board (Tableau Kanban & Workflow)',
+      title: '📊 Vue Board (colonnes et workflow)',
       icon: <Columns size={16} className="text-indigo-400" />,
       shortcut: 'B',
       keywords: ['board', 'tableau', 'kanban', 'sprint', 'colonnes', 'workflow', 'cards'],

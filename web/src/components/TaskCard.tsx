@@ -35,9 +35,10 @@ interface TaskCardProps {
   task: Task
   isDragging?: boolean
   onDragStart?: (e: React.DragEvent) => void
+  compact?: boolean
 }
 
-export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStart }) => {
+export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStart, compact = false }) => {
   const {
     setSelectedTask,
     setChatTask,
@@ -317,7 +318,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   const isRunning = latestActivity?.status === 'running'
   const isQueued = latestActivity?.status === 'queued' || latestActivity?.status === 'pending'
 
-  const isCondensed = settings.density === 'compact'
+  const isCondensed = compact
   const compactActionClass = 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
   const actionsMenu = (
     <div className="flex items-center gap-1 relative" ref={menuRef} onClick={e => e.stopPropagation()}>

@@ -63,6 +63,7 @@ export const BoardView: React.FC = () => {
   } = useApp()
 
   const [showHiddenColumns, setShowHiddenColumns] = useState(false)
+  const [showSimplifiedCards, setShowSimplifiedCards] = useState(false)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
 
@@ -444,6 +445,20 @@ export const BoardView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSimplifiedCards(value => !value)}
+            aria-pressed={showSimplifiedCards}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
+              showSimplifiedCards
+                ? 'bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/40 shadow-2xs'
+                : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
+            }`}
+            title={showSimplifiedCards ? 'Afficher les cartes détaillées' : 'Afficher les cartes simplifiées'}
+          >
+            <span>{showSimplifiedCards ? 'Cartes simplifiées' : 'Cartes détaillées'}</span>
+          </button>
+
           <TaskFilters />
 
           {hiddenColumns.length > 0 && (
@@ -576,6 +591,7 @@ export const BoardView: React.FC = () => {
                       <TaskCard
                         key={task.id}
                         task={task}
+                        compact={showSimplifiedCards}
                         isDragging={draggingTaskId === task.id}
                         onDragStart={() => setDraggingTaskId(task.id)}
                       />
@@ -695,6 +711,7 @@ export const BoardView: React.FC = () => {
                       <TaskCard
                         key={task.id}
                         task={task}
+                        compact={showSimplifiedCards}
                         isDragging={draggingTaskId === task.id}
                         onDragStart={() => setDraggingTaskId(task.id)}
                       />
@@ -735,6 +752,7 @@ export const BoardView: React.FC = () => {
                   <TaskCard
                     key={task.id}
                     task={task}
+                    compact={showSimplifiedCards}
                     isDragging={draggingTaskId === task.id}
                     onDragStart={() => setDraggingTaskId(task.id)}
                   />

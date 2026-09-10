@@ -216,7 +216,7 @@ export const Header: React.FC = () => {
                 ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-xs font-bold border border-[var(--border-color)]'
                 : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
             }`}
-            title="Kanban"
+            title="Board"
           >
             <Columns size={15} />
           </button>
