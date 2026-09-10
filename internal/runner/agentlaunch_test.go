@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -53,5 +55,46 @@ func TestSkillCallLineFollowsProjectCommand(t *testing.T) {
 	want := "/clarify-workitem PROJ-238 (Titre avec saut) suivi dans jira"
 	if got != want {
 		t.Fatalf("ligne inattendue:\n obtenu %q\n attendu %q", got, want)
+	}
+}
+
+func TestInteractiveAgentLaunchCodex(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "codex")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	line, err := InteractiveAgentLaunch(&models.Settings{AIProvider: " Codex "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if line != shellQuote(bin) {
+		t.Fatalf("got %q, want %q", line, shellQuote(bin))
+	}
+}
+
+func TestSkillCallLineForProvider(t *testing.T) {
+	task := &models.Task{Key: "#38", Title: "Codex\r\ncase PTY"}
+	for _, tc := range []struct{ provider, command, want string }{
+		{"codex", "/clarify-issue", "clarify-issue"},
+		{" Codex ", " /clarify-workitem ", "clarify-workitem"},
+		{"codex", "clarify-workitem", "clarify-workitem"},
+		{"claude", "/clarify-issue", "/clarify-issue"},
+		{"gemini", "clarify-workitem", "/clarify-workitem"},
+		{"", "clarify-issue", "/clarify-issue"},
+	} {
+		t.Run(tc.provider+tc.command, func(t *testing.T) {
+			want := tc.want + " #38 (Codex case PTY) suivi dans github"
+			if got := SkillCallLineForProvider(tc.provider, tc.command, task, "github"); got != want {
+				t.Fatalf("got %q, want %q", got, want)
+			}
+			if got := SkillCallLineForProvider(tc.provider, tc.command, nil, ""); got != tc.want {
+				t.Fatalf("nil task: got %q", got)
+			}
+		})
+	}
+	if got := SkillCallLineForProvider("codex", "/clarify-issue", &models.Task{Key: "LOCAL-1"}, "local"); got != "clarify-issue LOCAL-1" {
+		t.Fatalf("local context: %q", got)
 	}
 }

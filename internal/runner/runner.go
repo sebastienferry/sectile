@@ -2728,7 +2728,7 @@ func InteractiveAgentLaunch(settings *models.Settings) (string, error) {
 	}
 
 	switch provider {
-	case "agy", "vibe", "claude", "gemini":
+	case "agy", "vibe", "claude", "gemini", "codex":
 		return resolveAgentBinary(provider, "")
 	case "cursor":
 		line, err := resolveAgentBinary("cursor", "")
@@ -2741,7 +2741,7 @@ func InteractiveAgentLaunch(settings *models.Settings) (string, error) {
 		// est le binaire, et c'est lui qu'on ouvre en interactif.
 		return resolveAgentBinary(firstWord(settings.AICommandTemplate), provider)
 	}
-	return "", fmt.Errorf("le moteur %q n'a pas de mode interactif connu : configure un moteur agy, claude, gemini, cursor ou vibe sur le projet", provider)
+	return "", fmt.Errorf("le moteur %q n'a pas de mode interactif connu : configure un moteur agy, claude, gemini, codex, cursor ou vibe sur le projet", provider)
 }
 
 // resolveAgentBinary finds an engine binary and says where it looked when it
@@ -2790,7 +2790,16 @@ func SkillCallLine(skillID string, task *models.Task, trackerName string) string
 // SkillCallLineWithCommand builds the same line for an explicit slash command,
 // so a project that renamed its skills keeps its own command.
 func SkillCallLineWithCommand(command string, task *models.Task, trackerName string) string {
-	command = "/" + strings.TrimPrefix(strings.TrimSpace(command), "/")
+	return SkillCallLineForProvider("", command, task, trackerName)
+}
+
+// SkillCallLineForProvider formats a skill for an interactive agent. Codex
+// receives its plain skill name; other providers keep their slash invocation.
+func SkillCallLineForProvider(provider, command string, task *models.Task, trackerName string) string {
+	command = strings.TrimPrefix(strings.TrimSpace(command), "/")
+	if !strings.EqualFold(strings.TrimSpace(provider), "codex") {
+		command = "/" + command
+	}
 	if task == nil {
 		return command
 	}
@@ -2816,4 +2825,3 @@ func collapseSpaces(s string) string {
 	}
 	return strings.TrimSpace(s)
 }
-
