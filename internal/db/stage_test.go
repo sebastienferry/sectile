@@ -24,7 +24,7 @@ func TestTransitionTaskStage(t *testing.T) {
 		Name:         "Project Stage Test",
 		Slug:         "stage-test",
 		IssueTracker: "local",
-		RepoPath:     ".",
+		RepoPath:     filepath.Join(tempDir, "repo"),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create project: %v", err)

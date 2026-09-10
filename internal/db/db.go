@@ -5948,10 +5948,10 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 
 func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
+		d.mu.Unlock()
 		return nil, fmt.Errorf("nom du projet obligatoire")
 	}
 
@@ -6058,21 +6058,31 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, req.LinearTeam, githubRepo, jiraProject, issueTracker, req.TrackerUrl, projectType, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), aiProvider, aiCmd, specFramework, parallelism, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, now, now)
 	if err != nil {
+		d.mu.Unlock()
 		return nil, err
 	}
 
-	return d.getProjectByIDUnsafe(id)
+	project, err := d.getProjectByIDUnsafe(id)
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if err := writeProjectContextFiles(project); err != nil {
+		return nil, err
+	}
+	return project, nil
 }
 
 func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	p, err := d.getProjectByIDUnsafe(id)
 	if err != nil {
+		d.mu.Unlock()
 		return nil, err
 	}
 	if p == nil {
+		d.mu.Unlock()
 		return nil, fmt.Errorf("projet non trouvé")
 	}
 
@@ -6236,10 +6246,19 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 		WHERE id = ?
 	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.LinearTeam, p.GithubRepo, p.JiraProject, p.IssueTracker, p.TrackerUrl, NormalizeProjectType(p.ProjectType), isDefInt, string(stageMappingBytes), string(skillOverridesBytes), p.AIProvider, p.AICommandTemplate, p.SpecFramework, p.Parallelism, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
 	if err != nil {
+		d.mu.Unlock()
 		return nil, err
 	}
 
-	return d.getProjectByIDUnsafe(p.ID)
+	project, err := d.getProjectByIDUnsafe(p.ID)
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if err := writeProjectContextFiles(project); err != nil {
+		return nil, err
+	}
+	return project, nil
 }
 
 func (d *DB) DeleteProject(id string) error {
@@ -6425,8 +6444,10 @@ func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (
 	specFramework := "speckit"
 	aiProvider := "agy"
 	aiCommandTemplate := ""
+	var configuredProject *models.Project
 
 	if proj, _ := d.getProjectByIDUnsafe(projectIDOrPath); proj != nil {
+		configuredProject = proj
 		projectID = proj.ID
 		projectName = proj.Name
 		if proj.RepoPath != "" {
@@ -6520,6 +6541,15 @@ func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (
 		}
 		if bytes, err := json.MarshalIndent(cfgData, "", "  "); err == nil {
 			_ = os.WriteFile(configFile, bytes, 0644)
+		}
+	}
+	if configuredProject != nil {
+		project := *configuredProject
+		project.SpecFramework = specFramework
+		project.AIProvider = aiProvider
+		project.AICommandTemplate = aiCommandTemplate
+		if err := writeProjectContextFiles(&project); err != nil {
+			return nil, err
 		}
 	}
 

@@ -71,7 +71,7 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 		Slug:         "test-proj",
 		IssueTracker: "linear",
 		LinearTeam:   "TEST",
-		RepoPath:     ".",
+		RepoPath:     filepath.Join(tempDir, "repo"),
 	})
 
 	// 1. Create a task with explicitly specified source="local"
@@ -258,7 +258,7 @@ func TestHandleTaskStageTransition(t *testing.T) {
 		Name:         "Stage Handler Test",
 		Slug:         "stage-handler-test",
 		IssueTracker: "local",
-		RepoPath:     ".",
+		RepoPath:     filepath.Join(tempDir, "repo"),
 	})
 
 	task, err := database.CreateTask(models.CreateTaskRequest{
@@ -462,4 +462,3 @@ func TestCloneTaskHandler(t *testing.T) {
 		t.Errorf("Expected default title 'Original Story Title (Copie)', got '%s'", defaultCloned.Title)
 	}
 }
-
