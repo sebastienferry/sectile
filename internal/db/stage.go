@@ -42,8 +42,6 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	switch cleanStage {
 	case "to_clarify", "open", "todo", "backlog":
 		cleanStage = "new"
-	case "to_specify":
-		cleanStage = "clarified"
 	case "to_implement":
 		cleanStage = "specified"
 	case "to_test":

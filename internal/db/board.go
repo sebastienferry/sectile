@@ -282,7 +282,7 @@ func (d *DB) SyncProjectBoardColumns(projectID string) (string, error) {
 
 var stageToInternalStatus = map[string]models.Status{
 	"new":         models.StatusToClarify,
-	"clarified":   models.StatusToSpecify,
+	"clarified":   models.StatusClarified,
 	"specified":   models.StatusToImplement,
 	"implemented": models.StatusToTest,
 	"reviewed":    models.StatusToClose,
@@ -415,8 +415,10 @@ func (d *DB) StageOfTask(task *models.Task) string {
 		return "implemented"
 	case models.StatusToImplement, models.StatusInProgress:
 		return "specified"
-	case models.StatusToSpecify, models.StatusSpecified:
+	case models.StatusClarified:
 		return "clarified"
+	case models.StatusSpecified:
+		return "specified"
 	}
 	return "new"
 }

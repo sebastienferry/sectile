@@ -64,7 +64,7 @@ export const BoardView: React.FC = () => {
   } = useApp()
 
   const [showHiddenColumns, setShowHiddenColumns] = useState(false)
-  const [showSimplifiedCards, setShowSimplifiedCards] = useState(false)
+  const [showSimplifiedCards, setShowSimplifiedCards] = useState(true)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
 
@@ -158,7 +158,7 @@ export const BoardView: React.FC = () => {
       return st === 'to_clarify' || st === 'backlog' || st === 'open' || st === 'todo' || st === 'new'
     }
     if (colId === 'in_progress') {
-      return st === 'in_progress' || st === 'to_specify' || st === 'to_implement' || st === 'specified'
+      return st === 'in_progress' || st === 'clarified' || st === 'to_implement' || st === 'specified'
     }
     if (colId === 'to_test') {
       return st === 'to_test' || st === 'to_validate' || st === 'to_close' || st === 'in_review' || st === 'testing'

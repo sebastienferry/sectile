@@ -191,8 +191,8 @@ export const Sidebar: React.FC = () => {
     ? {
         all: totalCount,
         to_clarify: facetCount(taskFacets.statuses, 'to_clarify', 'backlog'),
-        to_specify: facetCount(taskFacets.statuses, 'to_specify', 'specified'),
-        to_implement: facetCount(taskFacets.statuses, 'to_implement', 'in_progress'),
+        clarified: facetCount(taskFacets.statuses, 'clarified'),
+        to_implement: facetCount(taskFacets.statuses, 'to_implement', 'in_progress', 'specified'),
         to_test: facetCount(taskFacets.statuses, 'to_test', 'to_validate'),
         to_close: facetCount(taskFacets.statuses, 'to_close'),
         finished: facetCount(taskFacets.statuses, 'finished', 'done'),
@@ -200,8 +200,8 @@ export const Sidebar: React.FC = () => {
     : {
         all: tasks.length,
         to_clarify: tasks.filter(t => t.status === 'to_clarify' || t.status === 'backlog').length,
-        to_specify: tasks.filter(t => t.status === 'to_specify' || t.status === 'specified').length,
-        to_implement: tasks.filter(t => t.status === 'to_implement' || t.status === 'in_progress').length,
+        clarified: tasks.filter(t => t.status === 'clarified').length,
+        to_implement: tasks.filter(t => t.status === 'to_implement' || t.status === 'in_progress' || t.status === 'specified').length,
         to_test: tasks.filter(t => t.status === 'to_test' || t.status === 'to_validate').length,
         to_close: tasks.filter(t => t.status === 'to_close').length,
         finished: tasks.filter(t => t.status === 'finished' || t.status === 'done').length,
@@ -234,7 +234,7 @@ export const Sidebar: React.FC = () => {
   const workflowItems: { status: Status | null; label: string; stageLabel: string; stageColor: string; icon: React.ReactNode; count: number; color: string }[] = [
     { status: null, label: t.nav.allTasks, stageLabel: '', stageColor: '', icon: <Inbox size={16} />, count: counts.all, color: 'text-slate-400' },
     { status: 'to_clarify', label: t.status.to_clarify, stageLabel: '#new', stageColor: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30', icon: <Sparkles size={16} />, count: counts.to_clarify, color: 'text-cyan-400' },
-    { status: 'to_specify', label: t.status.to_specify, stageLabel: '#clarified', stageColor: 'bg-amber-500/15 text-amber-400 border-amber-500/30', icon: <HelpCircle size={16} />, count: counts.to_specify, color: 'text-amber-400' },
+    { status: 'clarified', label: t.status.clarified, stageLabel: '#clarified', stageColor: 'bg-amber-500/15 text-amber-400 border-amber-500/30', icon: <HelpCircle size={16} />, count: counts.clarified, color: 'text-amber-400' },
     { status: 'to_implement', label: t.status.to_implement, stageLabel: '#specified', stageColor: 'bg-blue-500/15 text-blue-400 border-blue-500/30', icon: <FileCode size={16} />, count: counts.to_implement, color: 'text-blue-400' },
     { status: 'to_test', label: t.status.to_test, stageLabel: '#implemented', stageColor: 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30', icon: <Flame size={16} />, count: counts.to_test, color: 'text-indigo-400' },
     { status: 'to_close', label: t.status.to_close, stageLabel: '#reviewed', stageColor: 'bg-purple-500/15 text-purple-400 border-purple-500/30', icon: <ShieldCheck size={16} />, count: counts.to_close, color: 'text-purple-400' },

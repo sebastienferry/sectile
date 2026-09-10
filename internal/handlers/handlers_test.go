@@ -292,8 +292,8 @@ func TestHandleTaskStageTransition(t *testing.T) {
 	if !res.Success {
 		t.Errorf("Expected success=true")
 	}
-	if res.Task == nil || res.Task.Status != models.StatusToSpecify {
-		t.Errorf("Expected status %s, got %v", models.StatusToSpecify, res.Task)
+	if res.Task == nil || res.Task.Status != models.StatusClarified {
+		t.Errorf("Expected status %s, got %v", models.StatusClarified, res.Task)
 	}
 
 	// 2. GET /api/tasks/{id}/stage

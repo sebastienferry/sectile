@@ -2,7 +2,7 @@ export type Priority = 'urgent' | 'high' | 'medium' | 'low'
 
 export type Status = 
   | 'to_clarify'    // A clarifier (Label: #new)
-  | 'to_specify'    // A spécifier (Label: #clarified)
+  | 'clarified'     // Cadré (Label: #clarified)
   | 'to_implement'  // A implémenter (Label: #specified)
   | 'to_test'       // A tester (Label: #implemented)
   | 'to_close'      // En revue / PR (Label: #reviewed)

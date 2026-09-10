@@ -644,11 +644,11 @@ export const TaskDetailModal: React.FC = () => {
       case 'to_clarify':
       case 'backlog':
         return skills.find(s => s.id === 'clarify') || skills[0]
-      case 'to_specify':
-      case 'specified':
+      case 'clarified':
         return skills.find(s => s.id === 'specify') || skills[1]
       case 'to_implement':
       case 'in_progress':
+      case 'specified':
         return skills.find(s => s.id === 'implement') || skills[2]
       case 'to_test':
       case 'to_validate':
@@ -1063,7 +1063,7 @@ export const TaskDetailModal: React.FC = () => {
               <h3 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
                 <span>{clarifySkillLabel} & {specifySkillLabel} ({specFramework === 'openspec' ? 'OpenSpec' : 'Spec Kit'})</span>
                 <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  {status === 'to_clarify' || status === 'backlog' ? '#new' : status === 'to_specify' ? '#clarified' : status === 'to_implement' ? '#specified' : `#${status}`}
+                  {status === 'to_clarify' || status === 'backlog' ? '#new' : status === 'clarified' ? '#clarified' : status === 'to_implement' ? '#specified' : `#${status}`}
                 </span>
               </h3>
               <p className="text-xs text-[var(--text-muted)] mt-0.5">
@@ -1326,8 +1326,8 @@ export const TaskDetailModal: React.FC = () => {
                 type="button"
                 onClick={async () => {
                   if (status === 'to_clarify' || status === 'backlog') {
-                    await updateTask(selectedTask.id, { status: 'to_specify' })
-                    setStatus('to_specify')
+                    await updateTask(selectedTask.id, { status: 'clarified' })
+                    setStatus('clarified')
                   }
                   await handleTriggerSkill('specify', specifyPrompt)
                 }}
@@ -1469,7 +1469,7 @@ export const TaskDetailModal: React.FC = () => {
               className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
             >
               <option value="to_clarify">{t.status.to_clarify} (#new)</option>
-              <option value="to_specify">{t.status.to_specify} (#clarified)</option>
+              <option value="clarified">{t.status.clarified} (#clarified)</option>
               <option value="to_implement">{t.status.to_implement} (#specified)</option>
               <option value="to_test">{t.status.to_test} (#implemented)</option>
               <option value="to_close">{t.status.to_close} (#reviewed)</option>
@@ -1918,7 +1918,7 @@ export const TaskDetailModal: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {(status === 'to_clarify' || status === 'backlog' || status === 'to_specify' || status === 'specified') && (
+            {(status === 'to_clarify' || status === 'backlog' || status === 'clarified' || status === 'specified') && (
               <button
                 type="button"
                 onClick={() => handleTriggerSkill('implement')}

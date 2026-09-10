@@ -305,8 +305,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       return skillAction('implement')
     }
 
-    // If clarified / to_specify -> Action is "Spécifier"
-    if (stage === 'clarified' || task.status === 'to_specify') {
+    // A clarified task is ready for specification.
+    if (stage === 'clarified') {
       return skillAction('specify')
     }
 

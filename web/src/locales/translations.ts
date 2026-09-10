@@ -112,7 +112,7 @@ export interface TranslationSchema {
   }
   status: {
     to_clarify: string
-    to_specify: string
+    clarified: string
     to_implement: string
     to_test: string
     to_close: string
@@ -497,7 +497,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     status: {
       to_clarify: 'À clarifier',
-      to_specify: 'À spécifier',
+      clarified: 'Cadré',
       to_implement: 'À implémenter',
       to_test: 'À tester',
       to_close: 'En revue / PR',
@@ -880,7 +880,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     status: {
       to_clarify: 'To Clarify',
-      to_specify: 'To Specify',
+      clarified: 'Clarified',
       to_implement: 'To Implement',
       to_test: 'To Test',
       to_close: 'In Review / PR',

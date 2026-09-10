@@ -262,7 +262,7 @@ func (r *Runner) SyncFromLinear(teamKey string) ([]models.Task, error) {
 		case strings.Contains(stateName, "clarif") || strings.Contains(stateName, "triage") || strings.Contains(stateName, "backlog"):
 			status = models.StatusToClarify
 		case strings.Contains(stateName, "specif") || strings.Contains(stateName, "todo") || strings.Contains(stateName, "unstarted"):
-			status = models.StatusToSpecify
+			status = models.StatusClarified
 		case strings.Contains(stateName, "progress") || strings.Contains(stateName, "started") || strings.Contains(stateName, "implem"):
 			status = models.StatusToImplement
 		case strings.Contains(stateName, "test") || strings.Contains(stateName, "valid") || strings.Contains(stateName, "review"):
@@ -336,7 +336,6 @@ var validLinearLabels = map[string]string{
 	"specified":    "specified",
 	"specify":      "specified",
 	"to-specify":   "specified",
-	"to_specify":   "specified",
 	"implemented":  "Implemented",
 	"implement":    "Implemented",
 	"to-implement": "Implemented",
@@ -467,7 +466,7 @@ func mapStatusToLinearState(status models.Status) string {
 	switch status {
 	case models.StatusToClarify, models.StatusBacklog:
 		return "Backlog"
-	case models.StatusToSpecify, models.StatusSpecified:
+	case models.StatusClarified:
 		return "Todo"
 	case models.StatusToImplement, models.StatusInProgress:
 		return "In Progress"
@@ -562,12 +561,12 @@ func (r *Runner) UpdateLinearIssue(issueKey string, title *string, description *
 
 // GitHub structures
 type GithubIssueItem struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	Body    string `json:"body"`
-	URL     string `json:"url"`
-	HTMLURL string `json:"html_url"`
-	State   string `json:"state"`
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	URL       string `json:"url"`
+	HTMLURL   string `json:"html_url"`
+	State     string `json:"state"`
 	Milestone *struct {
 		Title  string `json:"title"`
 		Number int    `json:"number"`
@@ -689,7 +688,7 @@ func (r *Runner) SyncFromGithub(repo string, repoPath string) ([]models.Task, er
 				case "new", "untouched":
 					status = models.StatusToClarify
 				case "clarified":
-					status = models.StatusToSpecify
+					status = models.StatusClarified
 				case "specified":
 					status = models.StatusToImplement
 				case "implemented":
@@ -800,7 +799,7 @@ func (r *Runner) FetchSingleGithubIssue(repo string, repoPath string, issueNumbe
 			case "new", "untouched":
 				status = models.StatusToClarify
 			case "clarified":
-				status = models.StatusToSpecify
+				status = models.StatusClarified
 			case "specified":
 				status = models.StatusToImplement
 			case "implemented":

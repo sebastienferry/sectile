@@ -86,7 +86,7 @@ const AVAILABLE_ICONS = [
 
 const DEFAULT_STAGE_MAPPING: Record<WorkflowStage, string> = {
   new: 'to_clarify',
-  clarified: 'to_specify',
+  clarified: 'clarified',
   specified: 'to_implement',
   implemented: 'to_test',
   reviewed: 'to_close',
@@ -104,7 +104,7 @@ const STAGE_CONFIGS: { id: WorkflowStage; label: string; sub: string; color: str
 
 const STATUS_OPTIONS: { id: string; label: string; stageCategory: string }[] = [
   { id: 'to_clarify', label: 'À clarifier / Todo (Backlog) [#new]', stageCategory: 'Todo' },
-  { id: 'to_specify', label: 'À spécifier (Cadré) [#clarified]', stageCategory: 'In Progress' },
+  { id: 'clarified', label: 'Cadré [#clarified]', stageCategory: 'In Progress' },
   { id: 'to_implement', label: 'À implémenter (En dev) [#specified]', stageCategory: 'In Progress' },
   { id: 'to_test', label: 'À tester (En revue / QA) [#implemented]', stageCategory: 'Review' },
   { id: 'to_close', label: 'En revue / PR prête [#reviewed]', stageCategory: 'Review' },
@@ -1529,7 +1529,7 @@ export const ProjectModal: React.FC = () => {
                         }
                         setStageMapping({
                           new: findStatus(['triage', 'backlog', 'unstarted', 'to_clarify', 'todo', 'open'], 'to_clarify'),
-                          clarified: findStatus(['cadré', 'clarified', 'specify', 'to_specify', 'triage', 'todo', 'unstarted'], 'to_specify'),
+                          clarified: findStatus(['cadré', 'clarified', 'specify', 'triage', 'todo', 'unstarted'], 'clarified'),
                           specified: findStatus(['ready', 'specified', 'spec', 'plan', 'to_implement', 'todo'], 'to_implement'),
                           implemented: findStatus(['in progress', 'progress', 'dev', 'started', 'implemented', 'doing', 'to_test'], 'to_test'),
                           reviewed: findStatus(['review', 'pr', 'qa', 'test', 'reviewed', 'to_close'], 'to_close'),

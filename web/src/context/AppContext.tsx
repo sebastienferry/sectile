@@ -1922,7 +1922,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         targetStage = 'implemented'
       } else if (cleanSt.includes('progress') || cleanSt === 'to_implement' || cleanSt === 'in_progress' || cleanSt.includes('code') || cleanSt.includes('implement')) {
         targetStage = 'specified'
-      } else if (cleanSt.includes('specify') || cleanSt === 'to_specify' || cleanSt.includes('spec')) {
+      } else if (cleanSt.includes('specify') || cleanSt.includes('spec')) {
         targetStage = 'clarified'
       } else if (cleanSt.includes('clarif') || cleanSt === 'to_clarify') {
         targetStage = 'new'
@@ -2911,7 +2911,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       mappedStatus = proj.stageMapping[targetStage] as Status
     } else {
       if (targetStage === 'new' || (targetStage as any) === 'untouched') mappedStatus = 'to_clarify'
-      else if (targetStage === 'clarified') mappedStatus = 'to_specify'
+      else if (targetStage === 'clarified') mappedStatus = 'clarified'
       else if (targetStage === 'specified') mappedStatus = 'to_implement'
       else if (targetStage === 'implemented') mappedStatus = 'to_test'
       else if (targetStage === 'reviewed') mappedStatus = 'to_close'

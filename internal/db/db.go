@@ -384,7 +384,10 @@ func (d *DB) initSchema() error {
 
 	// Migrate legacy stage names to 5-stage workflow
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_clarify' WHERE status = 'backlog';")
-	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_specify' WHERE status = 'specified';")
+	// Retire le statut interne historique, qui ne doit plus apparaître dans les
+	// réponses ni dans l'interface. Les tickets déjà concernés gardent leur
+	// étape métier : ils deviennent `clarified`.
+	_, _ = d.conn.Exec("UPDATE tasks SET status = 'clarified' WHERE status = 'to_specify';")
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_implement' WHERE status = 'in_progress';")
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_test' WHERE status = 'to_validate';")
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_close' WHERE status = 'done';")
@@ -515,7 +518,7 @@ func (d *DB) SeedDemoData() error {
 	}{
 		{"task-1", "TASK-1", "Initialize workspace configuration and metadata", "Setup project structure, metadata, and continuous integration pipeline.", "finished", "high", "TASK-1-init-workspace", `["devops", "repo"]`, 1},
 		{"task-2", "TASK-2", "Configure multi-tracker sync and issue mappings", "Implement generic abstractions for Linear, GitHub, Jira, and Local SQLite storage.", "to_implement", "high", "TASK-2-configure-trackers", `["tracker", "sync", "backend"]`, 2},
-		{"task-3", "TASK-3", "Refine Kanban board drag and drop interactions", "Ensure optimistic UI updates and smooth animations across all workflow stages.", "to_specify", "medium", "TASK-3-kanban-board-dnd", `["ui", "kanban", "frontend"]`, 3},
+		{"task-3", "TASK-3", "Refine Kanban board drag and drop interactions", "Ensure optimistic UI updates and smooth animations across all workflow stages.", "clarified", "medium", "TASK-3-kanban-board-dnd", `["ui", "kanban", "frontend"]`, 3},
 		{"task-4", "TASK-4", "Implement interactive terminal session manager", "Provide browser-based PTY terminal with contextual environment variables and WebSocket streaming.", "to_test", "high", "TASK-4-terminal-session", `["pty", "terminal", "websocket"]`, 4},
 		{"task-5", "TASK-5", "Integrate automated AI skill runner pipeline", "Orchestrate clarify, specify, code, and PR generation skills directly in isolated worktrees.", "to_close", "high", "TASK-5-ai-skills-pipeline", `["ai", "agent", "skills"]`, 5},
 		{"task-6", "TASK-6", "Add live Git diff and branch inspector", "Display syntax-highlighted file diffs and branch status against the main repository.", "to_clarify", "low", "TASK-6-git-diff-inspector", `["git", "diff", "ui"]`, 6},
@@ -2335,7 +2338,7 @@ func GetStageLabelForStatus(status models.Status) string {
 	switch clean {
 	case "to_clarify", "backlog", "todo", "idea", "open", "new", "untouched":
 		return "new"
-	case "to_specify", "clarified", "cadré", "cadre", "clarify":
+	case "clarified", "cadré", "cadre", "clarify":
 		return "clarified"
 	case "to_implement", "specified", "spec", "specced", "in_progress", "progress", "code", "coding", "dev", "doing":
 		return "specified"
@@ -4141,7 +4144,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 	// Determine next status & workflow labels
 	switch skill.ID {
 	case "clarify":
-		task.Status = resolveMappedStatus("clarified", models.StatusToSpecify)
+		task.Status = resolveMappedStatus("clarified", models.StatusClarified)
 		task.Labels = SetWorkflowLabel(task.Labels, "clarified")
 		action = fmt.Sprintf("Clarification exécutée avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
 		summary = fmt.Sprintf("Périmètre clarifié ➔ Étape: %s [Label: #clarified]", task.Status)
@@ -5645,7 +5648,7 @@ func defaultStageMapping() map[string]string {
 	return map[string]string{
 		"new":         "to_clarify",
 		"untouched":   "to_clarify",
-		"clarified":   "to_specify",
+		"clarified":   "clarified",
 		"specified":   "to_implement",
 		"implemented": "to_test",
 		"reviewed":    "to_test",
@@ -6816,7 +6819,7 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, linearTeam, githubRepo st
 		{"Done", "completed", "#27ae60"},
 		{"Canceled", "canceled", "#eb5757"},
 		{"to_clarify", "backlog", "#06b6d4"},
-		{"to_specify", "unstarted", "#f59e0b"},
+		{"clarified", "unstarted", "#f59e0b"},
 		{"to_implement", "started", "#3b82f6"},
 		{"to_test", "started", "#6366f1"},
 		{"to_close", "completed", "#10b981"},
