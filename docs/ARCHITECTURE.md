@@ -123,3 +123,43 @@ TaskFlow includes an autonomous in-process background worker:
 - Fetches `queued` activities from SQLite in FIFO order.
 - Executes the designated AI skill or script in the task worktree.
 - Updates activity status (`running` → `completed` | `failed`) and captures stdout/stderr in the activity record.
+
+---
+
+## 6. Remote Web & Local Agent Decoupling
+
+TaskFlow supports a decoupled architecture separating the central **Remote Web UX & Database** (Cloud Control Plane) from the developer's **Local Background Agent** (Edge Execution Worker):
+
+```mermaid
+graph TD
+    subgraph Remote Cloud Server
+        WebUI["React Web UI (Browser / Xterm.js)"]
+        RemoteDB[("Central SQLite / Postgres DB")]
+        Dispatcher["Agent Dispatcher (/ws/agent-connect)"]
+    end
+
+    subgraph Developer Local Machine
+        LocalAgent["TaskFlow Agent Daemon (taskflow agent)"]
+        PTYMgr["PTY Manager (creack/pty)"]
+        GitEngine["Local Git Worktrees (.tasks/worktrees)"]
+        LLMTools["AI CLI Tools (codex / agy / claude)"]
+    end
+
+    WebUI <-->|REST API & SSE /ws/terminal| Dispatcher
+    Dispatcher <-->|SQL Queries & State| RemoteDB
+    LocalAgent <-->|Outbound WSS Relay /ws/agent-connect| Dispatcher
+    LocalAgent <-->|PTY I/O Streams| PTYMgr
+    PTYMgr <-->|Subprocess Execution| LLMTools
+    LLMTools <-->|File Ops & Git Worktrees| GitEngine
+```
+
+### 6.1 Architectural Principles
+1. **Outbound WebSocket Relay**:
+   - The local daemon connects outward to `wss://<remote-server>/ws/agent-connect` using an authentication token.
+   - Outbound connections eliminate firewall ingress, port-forwarding, or public IP requirements on the developer's workstation.
+2. **Session Guard & Identity Verification**:
+   - Commands are dispatched to an agent only when `web_session.user_id == agent_session.user_id`.
+   - Rebind policy: Enforces a 1:1 active connection limit per user/project mapping; new connections gracefully disconnect older daemons with code `4001 Session Rebound`.
+3. **Local-First Execution Privacy**:
+   - All LLM interactions, API keys, Git worktrees, code edits, and compiler/test runs remain strictly on the developer's machine.
+
