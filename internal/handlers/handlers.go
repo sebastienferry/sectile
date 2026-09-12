@@ -1775,6 +1775,24 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// If a local agent daemon is connected, dispatch the step directly to the local worker!
+		projectID := "default"
+		if task.ProjectID != "" {
+			projectID = task.ProjectID
+		}
+		userID := "default"
+		if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
+			log.Printf("🚀 [Dispatch] Local agent active for user=%s project=%s. Dispatching skill %s for task %s", userID, projectID, req.SkillID, task.Key)
+			_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
+				"taskKey":   task.Key,
+				"taskId":    task.ID,
+				"skillId":   req.SkillID,
+				"action":    req.SkillID,
+				"prompt":    req.Prompt,
+				"projectId": projectID,
+			})
+		}
+
 		writeJSON(w, http.StatusOK, models.RunSkillResponse{
 			Task:     *task,
 			Activity: *activity,
@@ -1922,6 +1940,26 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+
+		// Also notify connected local agent if active
+		if task, _ := h.db.GetTaskByID(id); task != nil {
+			projectID := "default"
+			if task.ProjectID != "" {
+				projectID = task.ProjectID
+			}
+			userID := "default"
+			if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
+				log.Printf("🚀 [Dispatch] Local agent active. Dispatching TTY skill %s on task %s", req.SkillID, task.Key)
+				_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
+					"taskKey":   task.Key,
+					"taskId":    task.ID,
+					"skillId":   req.SkillID,
+					"action":    req.SkillID,
+					"projectId": projectID,
+				})
+			}
+		}
+
 		writeJSON(w, http.StatusOK, launch)
 		return
 	}

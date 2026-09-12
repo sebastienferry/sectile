@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -302,8 +303,25 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 
-	log.Printf("[Agent] Executing step: task=%s action=%s skill=%s", payload.TaskKey, payload.Action, payload.SkillID)
+	log.Printf("🚀 [Agent] Received job dispatch for task %s (id=%s): action=%s skill=%s", payload.TaskKey, msg.TaskID, payload.Action, payload.SkillID)
+	fmt.Printf("\n⚡ ========================================================\n")
+	fmt.Printf("🚀 [Agent] Received job dispatch for task %s\n", payload.TaskKey)
+	fmt.Printf("   Action: %s | Skill: %s\n", payload.Action, payload.SkillID)
+	fmt.Printf("========================================================\n\n")
+
 	d.sendStatus(conn, msg.MsgID, msg.TaskID, "running", fmt.Sprintf("Executing %s", payload.Action))
+
+	// Resolve target worktree directory
+	workDir := payload.WorkDir
+	if workDir == "" || workDir == "." {
+		cwd, _ := os.Getwd()
+		candidate := filepath.Join(cwd, ".tasks", "worktrees", payload.TaskKey)
+		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
+			workDir = candidate
+		} else {
+			workDir = cwd
+		}
+	}
 
 	// Create or reuse a PTY session for this task.
 	sessionID := "task-" + payload.TaskKey
@@ -313,11 +331,6 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"TASKFLOW_REMOTE_MODE": "true",
 	}
 
-	workDir := payload.WorkDir
-	if workDir == "" {
-		workDir, _ = os.Getwd()
-	}
-
 	_, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars)
 	if err != nil {
 		log.Printf("[Agent] Failed to create session: %v", err)
@@ -325,7 +338,29 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 
-	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s session ready", payload.Action))
+	// Determine command line to execute in terminal
+	skillCmd := "/" + payload.Action
+	switch strings.ToLower(payload.SkillID) {
+	case "clarify", "clarify-issue", "clarify_issue":
+		skillCmd = "/clarify-issue"
+	case "specify", "specify-issue", "specify_issue":
+		skillCmd = "/specify-issue"
+	case "code", "code-issue", "code_issue", "implement":
+		skillCmd = "/code-issue"
+	case "create_pr", "create-pr", "createpr":
+		skillCmd = "/create-pr"
+	case "handoff", "handoff-issue", "handoff_issue":
+		skillCmd = "/handoff-issue"
+	default:
+		if !strings.HasPrefix(skillCmd, "/") {
+			skillCmd = "/" + payload.SkillID
+		}
+	}
+
+	log.Printf("⚡ [Agent] Launching skill command in local terminal: %s (workdir: %s)", skillCmd, workDir)
+	_ = d.terminalMgr.SendInput(sessionID, skillCmd+"\n")
+
+	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in local terminal", payload.Action))
 }
 
 // sendStatus sends a step_status message back to the remote server.
