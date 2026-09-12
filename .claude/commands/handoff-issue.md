@@ -1,5 +1,5 @@
 ---
-description: Close the ticket properly: confirm the merge, write the handover and the acceptance checklist, then clean the local workspace.
+description: "Close the ticket properly: confirm the merge, write the handover and the acceptance checklist, then clean the local workspace."
 argument-hint: <TICKET-KEY> [contexte]
 ---
 # Handoff and Close
@@ -20,12 +20,13 @@ and a local workspace with nothing stale in it.
 2. Write the handover: what shipped, what changed for the user, what is still open.
 3. Write the acceptance checklist as checkboxes, each item something a human can
    verify in the running product.
-4. Update the repository documentation when the change makes it wrong, README and
-   changelog included.
+4. Confirm documentation shipped with the change. If a correction is still needed,
+   record it as follow-up work; do not create uncommitted edits just before cleanup.
 5. Turn any remaining follow-up into a separate ticket to create, rather than a
    paragraph nobody will read.
-6. Clean up locally: remove the ticket's worktree, delete the local branch once the
-   merge is confirmed.
+6. Clean up locally only after checking for uncommitted or unpushed work and other
+   tickets sharing this worktree. Preserve a shared batch worktree until every ticket
+   is handed off. Remove only an unused, clean worktree and its confirmed merged branch.
 
 ## Do not
 - Do not delete anything remote: no remote branch, no tag, no release.
@@ -37,24 +38,17 @@ and a local workspace with nothing stale in it.
 - What was cleaned locally, and what could not be, with the reason.
 - Follow-up tickets worth creating.
 
-## Ticket Transition & Status Update
-The agent executing this skill is responsible for advancing the ticket to the next agentic status upon completion:
-- **Stage Transition**: Advance ticket from `reviewed` to `finished`.
-- **Step 1: Check and use Local Handler (Recommended if TaskFlow is running)**:
-  Call TaskFlow's local transition handler to update local state, record branch/PR, and automatically queue two-way synchronization to GitHub/Linear:
-  - **Via TaskFlow CLI**:
-    ```bash
-    taskflow stage <KEY> finished ["<optional summary note>"]
-    ```
-  - **Via HTTP API** (port 8090 or 8080):
-    ```bash
-    curl -s -X POST http://localhost:8090/api/tasks/stage -H "Content-Type: application/json" -d '{"taskKey": "<KEY>", "stage": "finished"}' || curl -s -X POST http://localhost:8080/api/tasks/stage -H "Content-Type: application/json" -d '{"taskKey": "<KEY>", "stage": "finished"}'
-    ```
-- **Step 2: Fallback to Direct Tracker CLI (Only if local TaskFlow handler is unreachable)**:
-  - **GitHub CLI**: `gh issue edit <NUMBER> --add-label "finished" --remove-label "reviewed"` then `gh issue close <NUMBER>`
-  - **Linear CLI**: `linear issue update <ISSUE_KEY> --add-label "finished" --remove-label "reviewed" --state "Done"`
-- **Comments**: Post the stage summary report as a comment on the ticket via `taskflow stage <KEY> finished "<REPORT_NOTE>"` or `gh issue comment <NUMBER> --body "..."` / `linear issue comment add <ISSUE_KEY> --body "..."`.
-- **Safety Rules**: Always work on the ticket branch (`<KEY>-<title-slug>`). Never delete anything remote and never merge into the default branch (merging is strictly reserved for the human user).
+## Execution and ticket state
+- **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
+- **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+Transition reviewed → finished only when this step is complete.
+```bash
+curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
+  -H 'Content-Type: application/json' \
+  -d '{"taskKey":"<KEY>","stage":"finished","note":"<REPORT_NOTE>"}'
+```
+This POST calls the local TaskFlow handler directly. Confirm HTTP success before continuing. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
 
 ## Ticket
 $ARGUMENTS

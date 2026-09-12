@@ -1,19 +1,22 @@
 {
-  "aiCommandTemplate": "agy -p \"{prompt}\"",
-  "aiProvider": "agy",
+  "aiCommandTemplate": "codex --dangerously-bypass-approvals-and-sandbox \"{prompt}\"",
+  "aiProvider": "codex",
   "githubRepo": "",
   "issueTracker": "local",
   "linearTeam": "",
-  "projectId": "/Users/sferry/Sources/taskacao",
-  "projectName": "/Users/sferry/Sources/taskacao",
+  "projectId": "/Users/sferry/Sources/taskflow",
+  "projectName": "/Users/sferry/Sources/taskflow",
   "skills": [
     "clarify-issue",
     "specify-issue",
     "code-issue",
     "create-pr",
     "handoff-issue",
-    "pickup-issue"
+    "pickup-issue",
+    "rewrite-story",
+    "refine-macro",
+    "pickup-issues"
   ],
   "specFramework": "openspec",
-  "updatedAt": "2026-09-01T20:22:21+02:00"
+  "updatedAt": "2026-09-10T23:08:31+02:00"
 }

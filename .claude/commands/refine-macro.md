@@ -1,6 +1,6 @@
 ---
-name: refine-macro
 description: "Refine a macro framing text into a structured action plan of todos respecting the project SDD framework."
+argument-hint: <TICKET-KEY> [contexte]
 ---
 # Refine Macro (OpenSpec SDD)
 
@@ -37,3 +37,5 @@ Transform high-level macro framing text into an actionable, structured todo list
 - Structured list of proposed MacroTodo items.
 - Rationale behind the task breakdown.
 
+## Ticket
+$ARGUMENTS

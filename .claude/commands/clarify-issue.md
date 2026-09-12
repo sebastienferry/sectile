@@ -1,5 +1,5 @@
 ---
-description: Analyse a ticket against the code, surface what is genuinely undecided, and ask the few questions that unblock specification.
+description: "Analyse a ticket against the code, surface what is genuinely undecided, and ask the few questions that unblock specification."
 argument-hint: <TICKET-KEY> [contexte]
 ---
 # Clarify Issue
@@ -21,10 +21,13 @@ would be expensive to reverse later, not for a list of everything unknown.
    if two readings lead to different code.
 3. Name the critical dependencies: other services, other teams, migrations, data
    you do not have.
-4. Formulate 3 to 5 numbered questions with your recommended options:
-   - **Autonomous execution** (default background / pipeline run): Adopt the recommended options as the settled scope, document the rationale in the report, and advance the ticket.
-   - **Interactive TTY session** (when running in an interactive terminal): Ask the questions directly to the user and incorporate their answers.
-5. Record the settled scope and advance the ticket locally via TaskFlow handler.
+4. Resolve reversible choices using existing code and project conventions. Record
+   the choice and rationale; do not ask questions merely to fill a quota.
+   Ask only when an essential product decision changes acceptance criteria or an
+   unavailable dependency prevents progress. In an unattended run, report the
+   concrete blocker and the decision needed; do not invent settled requirements.
+   A TTY alone does not make a run interactive: follow the invocation's mode.
+5. Persist the settled scope and assumptions in the report for specification.
 
 ## Do not
 - Do not write production code at this stage, and do not start the specification.
@@ -38,24 +41,17 @@ would be expensive to reverse later, not for a list of everything unknown.
 - Numbered questions with your recommended option.
 - Settled scope and assumptions.
 
-## Ticket Transition & Status Update
-The agent executing this skill is responsible for advancing the ticket to the next agentic status upon completion:
-- **Stage Transition**: Advance ticket from `new` to `clarified`.
-- **Step 1: Check and use Local Handler (Recommended if TaskFlow is running)**:
-  Call TaskFlow's local transition handler to update local state, record branch/PR, and automatically queue two-way synchronization to GitHub/Linear:
-  - **Via TaskFlow CLI**:
-    ```bash
-    taskflow stage <KEY> clarified ["<optional summary note>"]
-    ```
-  - **Via HTTP API** (port 8090 or 8080):
-    ```bash
-    curl -s -X POST http://localhost:8090/api/tasks/stage -H "Content-Type: application/json" -d '{"taskKey": "<KEY>", "stage": "clarified"}' || curl -s -X POST http://localhost:8080/api/tasks/stage -H "Content-Type: application/json" -d '{"taskKey": "<KEY>", "stage": "clarified"}'
-    ```
-- **Step 2: Fallback to Direct Tracker CLI (Only if local TaskFlow handler is unreachable)**:
-  - **GitHub CLI**: `gh issue edit <NUMBER> --add-label "clarified" --remove-label "new"`
-  - **Linear CLI**: `linear issue update <ISSUE_KEY> --add-label "clarified" --remove-label "new"`
-- **Comments**: Post the stage summary report as a comment on the ticket via `taskflow stage <KEY> clarified "<REPORT_NOTE>"` or `gh issue comment <NUMBER> --body "..."` / `linear issue comment add <ISSUE_KEY> --body "..."`.
-- **Safety Rules**: Always work on the ticket branch (`<KEY>-<title-slug>`). Never delete anything remote and never merge into the default branch (merging is strictly reserved for the human user).
+## Execution and ticket state
+- **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
+- **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+Transition new → clarified only when this step is complete.
+```bash
+curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
+  -H 'Content-Type: application/json' \
+  -d '{"taskKey":"<KEY>","stage":"clarified","note":"<REPORT_NOTE>"}'
+```
+This POST calls the local TaskFlow handler directly. Confirm HTTP success before continuing. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
 
 ## Ticket
 $ARGUMENTS

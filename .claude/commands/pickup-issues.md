@@ -1,23 +1,23 @@
 ---
-name: pickup-issue
-description: "Pick a ticket and autonomously execute all development steps up to Pull Request creation."
+description: "Batch process a list of selected board tickets sequentially in autonomy inside a single dedicated worktree, producing one combined Pull Request covered by tests and lints."
+argument-hint: <TICKET-KEY> [contexte]
 ---
-# Pickup Issue (Auto-Pilot to PR)
+# Batch Pickup Issues (Single Worktree & Combined PR)
 
 Stage: new -> reviewed.
 
 ## Goal
-Autonomously take a ticket from its current stage through clarification, specification,
-implementation, and testing, all the way to opening a clean Pull Request, updating each stage via TaskFlow.
+Autonomously process a batch of tickets selected from the board sequentially in the exact order provided inside a single dedicated batch worktree.
 
 ## Read first
-- The ticket: key, title, description, parent macro, and tracker comments.
+- The list of tickets in the batch.
 - The project's code and existing patterns.
-- The project SDD framework (OpenSpec or Spec Kit).
+- The project SDD framework.
 
 ## Steps
 1. Inspect the current ticket state AND existing artifacts. Reuse assigned branches, specifications, checklist progress and PRs. Verify completed work before skipping it.
-2. Reuse or create a dedicated worktree and work branch. Continue through the stages below from the first incomplete stage to a verified PR.
+2. Use one dedicated worktree and branch for the ordered batch. Run clarification, specification and implementation for each ticket in order. If one blocks, preserve the batch and report completed tickets and the next action; never include unfinished work as completed.
+3. Once all tickets are implemented, run review and final checks across the whole batch and create or update ONE combined PR.
 Stop before merge. Stage-local boundaries apply while that stage is active; after its requirements are met, continue to the next stage without asking for routine confirmation.
 
 ### Clarify Issue
@@ -141,19 +141,17 @@ Report and persist before continuing:
 
 
 ## Do not
-- Do not merge into the default branch (merging is reserved for the human user).
-- Do not push or open a PR if the test suite is failing.
-- Follow the managed or standalone transition contract for the invocation.
+- Do not create separate branches or PRs per ticket.
+- Do not merge into default branch (merging is reserved for human user).
 
 ## Report
 - The created Pull Request URL.
-- The work branch and files modified.
-- The test results demonstrating that build, lint, and tests pass.
-- Summary of settled scope and key architectural decisions.
+- Summary of processed tickets and test results.
 
 ## Execution and ticket state
 - **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
 - **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+For each ticket key in the batch, record clarified, specified and implemented after that ticket's corresponding step. Use the SAME actual batch branch for every ticket. After the combined PR is verified, record reviewed and the SAME PR URL for every implemented ticket. Never mark an unfinished ticket reviewed.
 ```bash
 curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
   -H 'Content-Type: application/json' \
@@ -170,3 +168,6 @@ curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/ta
 ```
 This POST calls the local TaskFlow handler directly. Confirm HTTP success before continuing. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
 Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
+
+## Ticket
+$ARGUMENTS

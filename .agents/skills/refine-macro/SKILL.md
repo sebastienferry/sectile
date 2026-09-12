@@ -1,10 +1,10 @@
 ---
 name: refine-macro
-description: Refine a macro framing text into a structured action plan of todos respecting the project SDD framework.
+description: "Refine a macro framing text into a structured action plan of todos respecting the project SDD framework."
 ---
-# Refine Macro (Spec-Driven Design)
+# Refine Macro (OpenSpec SDD)
 
-Stage: macro -> macro.
+
 
 ## Goal
 Transform high-level macro framing text into an actionable, structured todo list aligned with the active Spec-Driven Design framework (SpecKit or OpenSpec).
@@ -36,3 +36,4 @@ Transform high-level macro framing text into an actionable, structured todo list
 ## Report
 - Structured list of proposed MacroTodo items.
 - Rationale behind the task breakdown.
+
