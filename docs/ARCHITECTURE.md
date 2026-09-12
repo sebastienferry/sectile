@@ -153,7 +153,19 @@ graph TD
     LLMTools <-->|File Ops & Git Worktrees| GitEngine
 ```
 
-### 6.1 Architectural Principles
+### 6.1 Responsibilities Breakdown: Control Plane vs. Execution Plane
+
+The architecture strictly decouples the centralized governance and visualization layer (**Control Plane**) from the developer's workstation runtime (**Data / Execution Plane**):
+
+| Domain | Remote Server & WebUI (Control Plane) | Local Agent & Gateway (Execution Plane) |
+| :--- | :--- | :--- |
+| **Execution & Triggers** | • Presents tasks, board, backlog, and activity logs<br>• Triggers step execution via WebSocket dispatch (`dispatch_step`) | • Receives dispatch over outbound WebSocket<br>• Launches native desktop terminal (Ghostty, iTerm) or local PTY |
+| **LLM & AI Tasks** | • Centralizes AI provider selection & command templates | • Executes AI CLI agents (`agy`, `claude`, `codex`, `vibe`)<br>• Manages interactive human-in-the-loop terminal sessions |
+| **Git & Worktrees** | • Records remote repository URL & branch metadata | • Manages local Git worktrees (`.tasks/worktrees/#<key>`)<br>• Performs code modifications, compilations, linters, tests<br>• Pushes branches and creates pull requests (`gh pr create`) |
+| **Scaffolding & Config** | • Stores global project settings, tracker tokens, and stage models | • Scaffolds local skill directories (`.agents/`, `.agy/`, `.skills/`)<br>• Supports local configuration overrides (custom terminal, skills) *(Roadmap)* |
+| **Task Management & MCP** | • Exposes central API and **MCP Server** (`/mcp` / `/sse`)<br>• Serves project context, tracker sync, task state, comments | • Runs embedded local reverse proxy gateway (`127.0.0.1:8091`)<br>• Forwards skill transitions with automatic authentication<br>• Bridges local AI tools to TaskFlow via local stdio MCP (`taskflow mcp`) |
+
+### 6.2 Architectural Principles
 1. **Outbound WebSocket Relay**:
    - The local daemon connects outward to `wss://<remote-server>/ws/agent-connect` using an authentication token.
    - Outbound connections eliminate firewall ingress, port-forwarding, or public IP requirements on the developer's workstation.
