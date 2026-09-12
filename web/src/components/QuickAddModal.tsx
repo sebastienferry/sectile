@@ -74,7 +74,7 @@ export const QuickAddModal: React.FC = () => {
       const proj = projects.find(p => p.id === initialProjId) || projects[0]
       setSource((proj?.issueTracker as TaskSource) || 'local')
       setSprint('')
-      setLabels(['New'])
+      setLabels(['new'])
       setLabelInput('')
       setTimeout(() => {
         inputRef.current?.focus()
