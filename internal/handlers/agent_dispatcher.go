@@ -119,7 +119,37 @@ func (d *AgentDispatcher) Unregister(userID, projectID string, conn *websocket.C
 func (d *AgentDispatcher) Lookup(userID, projectID string) *AgentConn {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.agents[agentKey{UserID: userID, ProjectID: projectID}]
+
+	// 1. Exact match
+	if ac, ok := d.agents[agentKey{UserID: userID, ProjectID: projectID}]; ok {
+		return ac
+	}
+
+	// 2. Wildcard / default project registered by the agent
+	if ac, ok := d.agents[agentKey{UserID: userID, ProjectID: "default"}]; ok {
+		return ac
+	}
+	if ac, ok := d.agents[agentKey{UserID: userID, ProjectID: "all"}]; ok {
+		return ac
+	}
+	if ac, ok := d.agents[agentKey{UserID: userID, ProjectID: ""}]; ok {
+		return ac
+	}
+
+	// 3. Fallback: if there is only 1 agent connected in total (or for this user), route to it!
+	var fallback *AgentConn
+	matchCount := 0
+	for k, ac := range d.agents {
+		if k.UserID == userID || userID == "default" || k.UserID == "default" {
+			fallback = ac
+			matchCount++
+		}
+	}
+	if matchCount == 1 {
+		return fallback
+	}
+
+	return nil
 }
 
 // Dispatch sends a command message to the user's connected local agent. It
@@ -145,7 +175,7 @@ func (d *AgentDispatcher) Dispatch(userID, projectID string, msgType string, tas
 
 	if err := ac.Send(msg); err != nil {
 		// Connection broken: clean up and report.
-		d.Unregister(userID, projectID, ac.Conn)
+		d.Unregister(ac.UserID, ac.ProjectID, ac.Conn)
 		return fmt.Errorf("failed to send message to local agent: %w", err)
 	}
 	return nil

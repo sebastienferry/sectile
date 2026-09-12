@@ -176,6 +176,9 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	}()
 
 	log.Printf("[Agent] Connected to remote server")
+	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur TaskFlow (%s)\n", d.serverURL)
+	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.projectID, d.deviceID)
+	fmt.Printf("   Prêt ! Les compétences déclenchées sur l'interface web s'exécuteront ici.\n\n")
 
 	// Start heartbeat sender.
 	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
@@ -331,12 +334,17 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"TASKFLOW_REMOTE_MODE": "true",
 	}
 
-	_, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars)
+	sess, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars)
 	if err != nil {
 		log.Printf("[Agent] Failed to create session: %v", err)
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", fmt.Sprintf("Session error: %v", err))
 		return
 	}
+
+	// Stream live PTY output to this agent console so the user sees progress in their terminal
+	sess.AddOutputListener(func(chunk []byte) {
+		_, _ = os.Stdout.Write(chunk)
+	})
 
 	// Determine command line to execute in terminal
 	skillCmd := "/" + payload.Action
@@ -356,6 +364,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			skillCmd = "/" + payload.SkillID
 		}
 	}
+
+	// Small pause to let the login shell complete initialization before input is sent
+	time.Sleep(350 * time.Millisecond)
 
 	log.Printf("⚡ [Agent] Launching skill command in local terminal: %s (workdir: %s)", skillCmd, workDir)
 	_ = d.terminalMgr.SendInput(sessionID, skillCmd+"\n")

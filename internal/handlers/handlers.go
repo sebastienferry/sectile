@@ -20,6 +20,7 @@ import (
 	"tasks/internal/runner"
 	"tasks/internal/terminal"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -1769,34 +1770,76 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		task, activity, err := h.db.EnqueueSkillOnTask(id, req.SkillID, req.Prompt)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+		task, err := h.db.GetTaskByID(id)
+		if err != nil || task == nil {
+			writeError(w, http.StatusNotFound, "Task not found")
 			return
 		}
 
-		// If a local agent daemon is connected, dispatch the step directly to the local worker!
 		projectID := "default"
 		if task.ProjectID != "" {
 			projectID = task.ProjectID
 		}
 		userID := "default"
-		if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
-			log.Printf("🚀 [Dispatch] Local agent active for user=%s project=%s. Dispatching skill %s for task %s", userID, projectID, req.SkillID, task.Key)
-			_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
+		ac := h.agentDispatcher.Lookup(userID, projectID)
+
+		// 1. If a local agent daemon is connected, delegate the execution directly to it!
+		if ac != nil {
+			log.Printf("🚀 [Dispatch] Delegating skill %s on task %s (%s) to connected local agent (device=%s)", req.SkillID, task.Key, task.ID, ac.DeviceID)
+
+			activityID := uuid.New().String()
+			now := time.Now()
+			act := models.TaskActivity{
+				ID:        activityID,
+				TaskID:    task.ID,
+				SkillID:   req.SkillID,
+				SkillName: req.SkillID,
+				Action:    fmt.Sprintf("Exécution de %s sur l'agent local", req.SkillID),
+				Status:    string(models.ActivityStatusRunning),
+				Summary:   fmt.Sprintf("Exécution en cours sur l'agent local (%s)", ac.DeviceID),
+				Output:    "",
+				Steps: []string{
+					fmt.Sprintf("Tâche ciblée : %s - %s", task.Key, task.Title),
+					fmt.Sprintf("Déléguée à l'agent local (%s)...", ac.DeviceID),
+				},
+				Prompt:    req.Prompt,
+				CreatedAt: now,
+				StartedAt: &now,
+			}
+			_ = h.db.AddTaskActivity(act)
+
+			err := h.agentDispatcher.Dispatch(ac.UserID, ac.ProjectID, "dispatch_step", task.ID, map[string]interface{}{
 				"taskKey":   task.Key,
 				"taskId":    task.ID,
 				"skillId":   req.SkillID,
 				"action":    req.SkillID,
 				"prompt":    req.Prompt,
-				"projectId": projectID,
+				"projectId": ac.ProjectID,
 			})
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "Erreur lors de la délégation à l'agent local: "+err.Error())
+				return
+			}
+
+			writeJSON(w, http.StatusOK, models.RunSkillResponse{
+				Task:     *task,
+				Activity: act,
+				Message:  fmt.Sprintf("Skill %s déléguée à l'agent local (%s)", req.SkillID, ac.DeviceID),
+			})
+			return
+		}
+
+		// 2. Fallback to local server queue execution when no local agent daemon is connected
+		enqueuedTask, activity, err := h.db.EnqueueSkillOnTask(id, req.SkillID, req.Prompt)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
 		}
 
 		writeJSON(w, http.StatusOK, models.RunSkillResponse{
-			Task:     *task,
+			Task:     *enqueuedTask,
 			Activity: *activity,
-			Message:  "Skill " + req.SkillID + " ajoutée à la file d'exécution",
+			Message:  "Skill " + req.SkillID + " ajoutée à la file d'exécution locale",
 		})
 		return
 	}

@@ -267,7 +267,7 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	task, err := database.CreateTask(models.CreateTaskRequest{
 		Title:       "Test task",
 		Description: "Testing agent dispatch",
-		ProjectID:   "default",
+		ProjectID:   "custom-proj-uuid-123",
 		Priority:    "high",
 	})
 	if err != nil {

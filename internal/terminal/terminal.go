@@ -56,8 +56,10 @@ type Session struct {
 	// suivants du même ticket lui parlent au lieu d'en relancer un.
 	agentLaunched bool
 	agentMu       sync.Mutex
-	CreatedAt     time.Time
-	LastActiveAt  time.Time
+	CreatedAt         time.Time
+	LastActiveAt      time.Time
+	outputListeners   []func([]byte)
+	outputListenersMu sync.Mutex
 }
 
 type Manager struct {
@@ -267,6 +269,23 @@ func (m *Manager) SendInput(sessionID string, input string) error {
 	return err
 }
 
+// AddOutputListener adds a callback invoked for every byte chunk read from this session's PTY.
+func (s *Session) AddOutputListener(fn func([]byte)) {
+	s.outputListenersMu.Lock()
+	defer s.outputListenersMu.Unlock()
+	s.outputListeners = append(s.outputListeners, fn)
+}
+
+// AddOutputListener registers a callback on the named session to receive real-time PTY output.
+func (m *Manager) AddOutputListener(sessionID string, fn func([]byte)) {
+	m.mu.RLock()
+	sess, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if ok && sess != nil {
+		sess.AddOutputListener(fn)
+	}
+}
+
 func (m *Manager) readPtyLoop(sess *Session) {
 	buf := make([]byte, 4096)
 	for {
@@ -291,6 +310,13 @@ func (m *Manager) readPtyLoop(sess *Session) {
 			// Alimenter les observateurs d'exécution avant la diffusion : ils
 			// n'ont pas de client WebSocket et doivent voir tout le flux.
 			sess.feedWatchers(chunk)
+
+			// Notify direct output listeners (e.g. agent CLI console tap)
+			sess.outputListenersMu.Lock()
+			for _, fn := range sess.outputListeners {
+				fn(chunk)
+			}
+			sess.outputListenersMu.Unlock()
 
 			// Broadcast to all active websockets
 			sess.clientsMu.Lock()
