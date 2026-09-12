@@ -262,3 +262,31 @@ graph TD
    - `taskflow mcp` operates over standard input/output (`stdio`), the universal protocol supported by `agy`, Claude Code, Cursor, and Windsurf.
    - When running against a remote control plane, `taskflow mcp` relays tool calls through the local agent daemon or loopback gateway, keeping all local execution private and firewall-free.
 
+### 7.4 Skill Evolution: Transition from Bash Curl Snippets to Native MCP Tools
+With the arrival of the TaskFlow MCP Server, the definition of skills (`SKILL.md`) undergoes a major evolutionary shift:
+
+- **Legacy Model (Markdown Prompt with Bash Curl Snippet)**:
+  - The skill instructions contained raw markdown describing a bash `curl` command with placeholders (`<KEY>`, `<REPORT_NOTE>`, `<ACTUAL_BRANCH>`).
+  - Fragile: LLMs frequently failed on JSON quote escaping, omitted parameters, or failed to invoke curl altogether.
+- **Target MCP Model (Declarative Prompt with Typed MCP Tools)**:
+  - Instead of running a bash subprocess, the skill instructs the LLM:
+    > "When this stage is completed and verified, invoke the `taskflow_transition_stage` tool with your structured summary note and assigned branch."
+  - For stage inspection: The LLM directly calls `taskflow_get_task(taskKey)` to read live comments, acceptance criteria, and tracker context.
+  - For interactive queries: The LLM calls `taskflow_add_comment(taskKey, question)` to post clarification questions to the ticket thread.
+  - Type-safe, validated by JSON Schema, and completely free of shell-escaping bugs.
+
+### 7.5 Purely API-Based Configuration Contract
+The boundary between the Remote Web UX / Central Server and the Local Agent is strictly contract-driven:
+
+1. **Remote Central Server as Single Source of Truth**:
+   - Holds team configurations, tracker secrets (GitHub/Linear/Jira tokens), project definitions, workflow stages, and AI command templates.
+   - Exposes a versioned REST/WebSocket API contract for agent synchronization.
+2. **Local Agent as Stateless Consumer & Local Executor**:
+   - Never accesses the remote SQLite/Postgres database directly.
+   - Upon connection (`/ws/agent-connect`), receives or queries the project configuration contract.
+   - Uses the configuration contract to:
+     - Scaffold local skill directories (`.agents/`, `.skills/`).
+     - Resolve target worktree paths and branch naming conventions.
+     - Launch the configured desktop terminal (Ghostty/iTerm) and AI CLI (`agy`/`claude`).
+   - Supports local overrides layered on top of the remote contract (e.g. locally preferred terminal emulator, offline custom prompts) without polluting central state.
+
