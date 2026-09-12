@@ -89,20 +89,20 @@ func resolveDBPath(explicit string) (path string, origin string) {
 	if strings.TrimSpace(explicit) != "" {
 		return explicit, "DB_PATH"
 	}
-	if _, err := os.Stat("tasks.db"); err == nil {
+	if fi, err := os.Stat("tasks.db"); err == nil && fi.Size() > 0 {
 		return "tasks.db", "base trouvée dans le répertoire courant"
 	}
 
 	appDir := appDataDir()
 	if appDir != "" {
 		taskflowDB := filepath.Join(appDir, "tasks.db")
-		if _, err := os.Stat(taskflowDB); err == nil {
+		if fi, err := os.Stat(taskflowDB); err == nil && fi.Size() > 0 {
 			return taskflowDB, "dossier de données"
 		}
 		// Fallback to legacy taskacao directory if it exists
 		if userDir, err := os.UserConfigDir(); err == nil && userDir != "" {
 			legacyDB := filepath.Join(userDir, "taskacao", "tasks.db")
-			if _, err := os.Stat(legacyDB); err == nil {
+			if fi, err := os.Stat(legacyDB); err == nil && fi.Size() > 0 {
 				return legacyDB, "dossier de données (legacy taskacao)"
 			}
 		}

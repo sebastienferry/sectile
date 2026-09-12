@@ -1808,6 +1808,11 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = h.db.AddTaskActivity(act)
 
+			provider := "agy"
+			if settings, err := h.db.GetSettings(); err == nil && settings != nil && settings.AIProvider != "" {
+				provider = settings.AIProvider
+			}
+
 			err := h.agentDispatcher.Dispatch(ac.UserID, ac.ProjectID, "dispatch_step", task.ID, map[string]interface{}{
 				"taskKey":   task.Key,
 				"taskId":    task.ID,
@@ -1815,6 +1820,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				"action":    req.SkillID,
 				"prompt":    req.Prompt,
 				"projectId": ac.ProjectID,
+				"provider":  provider,
 			})
 			if err != nil {
 				writeError(w, http.StatusBadGateway, "Erreur lors de la délégation à l'agent local: "+err.Error())

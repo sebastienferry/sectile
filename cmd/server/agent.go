@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -291,6 +292,25 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 	}
 }
 
+// findRepoRoot finds the repository or worktree root containing .tasks or .git
+func findRepoRoot(startDir string) string {
+	dir := startDir
+	for {
+		if fi, err := os.Stat(filepath.Join(dir, ".tasks")); err == nil && fi.IsDir() {
+			return dir
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return startDir
+}
+
 // handleDispatchStep executes a workflow step locally inside a Git worktree.
 func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Conn, msg handlers.AgentMessage) {
 	var payload struct {
@@ -299,6 +319,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		Action    string `json:"action"`    // clarify, specify, code, etc.
 		WorkDir   string `json:"workDir"`   // Optional override
 		ProjectID string `json:"projectId"`
+		Provider  string `json:"provider"`
 	}
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		log.Printf("[Agent] Invalid dispatch_step payload: %v", err)
@@ -318,11 +339,12 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	workDir := payload.WorkDir
 	if workDir == "" || workDir == "." {
 		cwd, _ := os.Getwd()
-		candidate := filepath.Join(cwd, ".tasks", "worktrees", payload.TaskKey)
+		root := findRepoRoot(cwd)
+		candidate := filepath.Join(root, ".tasks", "worktrees", payload.TaskKey)
 		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
 			workDir = candidate
 		} else {
-			workDir = cwd
+			workDir = root
 		}
 	}
 
@@ -346,7 +368,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		_, _ = os.Stdout.Write(chunk)
 	})
 
-	// Determine command line to execute in terminal
+	// Determine skill command name
 	skillCmd := "/" + payload.Action
 	switch strings.ToLower(payload.SkillID) {
 	case "clarify", "clarify-issue", "clarify_issue":
@@ -365,11 +387,39 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		}
 	}
 
+	// Resolve AI provider CLI tool
+	provider := payload.Provider
+	if provider == "" {
+		if _, err := exec.LookPath("agy"); err == nil {
+			provider = "agy"
+		} else if _, err := exec.LookPath("claude"); err == nil {
+			provider = "claude"
+		} else if _, err := exec.LookPath("codex"); err == nil {
+			provider = "codex"
+		} else {
+			provider = "agy"
+		}
+	}
+
+	var fullLine string
+	switch strings.ToLower(provider) {
+	case "agy":
+		fullLine = fmt.Sprintf("agy -i %q", skillCmd)
+	case "claude":
+		fullLine = fmt.Sprintf("claude %q", skillCmd)
+	case "codex":
+		fullLine = fmt.Sprintf("codex %q", skillCmd)
+	case "vibe":
+		fullLine = fmt.Sprintf("vibe -p %q", skillCmd)
+	default:
+		fullLine = fmt.Sprintf("%s -i %q", provider, skillCmd)
+	}
+
 	// Small pause to let the login shell complete initialization before input is sent
 	time.Sleep(350 * time.Millisecond)
 
-	log.Printf("⚡ [Agent] Launching skill command in local terminal: %s (workdir: %s)", skillCmd, workDir)
-	_ = d.terminalMgr.SendInput(sessionID, skillCmd+"\n")
+	log.Printf("⚡ [Agent] Launching skill command in local terminal: %s (workdir: %s)", fullLine, workDir)
+	_ = d.terminalMgr.SendInput(sessionID, fullLine+"\n")
 
 	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in local terminal", payload.Action))
 }
