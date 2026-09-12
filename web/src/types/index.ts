@@ -110,6 +110,38 @@ export interface MacroTodo {
 }
 export type EpicTodo = MacroTodo
 
+export interface ProposedMacroTask {
+  title: string
+  issueType: string
+  description: string
+}
+
+export interface CreateTaskPayload {
+  title: string
+  description?: string
+  status?: Status
+  priority?: Priority
+  labels?: string[]
+  assignee?: string
+  assigneeAvatar?: string
+  dueDate?: string | null
+  sprint?: string
+  source?: TaskSource
+  externalUrl?: string
+  projectId?: string
+  issueType?: string
+  parentKey?: string
+  parentTitle?: string
+  parentType?: string
+}
+
+export interface RefineMacroResult {
+  key: string
+  todos: MacroTodo[]
+  proposedTasks?: ProposedMacroTask[]
+  specFramework: string
+}
+
 export interface MacroMeta {
   projectId: string
   key: string

@@ -861,7 +861,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			if decoded, err := url.PathUnescape(parts[2]); err == nil {
 				key = decoded
 			}
-			todos, framework, err := h.db.RefineMacro(id, key)
+			todos, proposed, framework, err := h.db.RefineMacro(id, key)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -869,6 +869,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]interface{}{
 				"key":           key,
 				"todos":         todos,
+				"proposedTasks": proposed,
 				"specFramework": framework,
 			})
 			return
@@ -1362,6 +1363,26 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			"migratedCount":   count,
 			"targetProjectId": req.TargetProjectID,
 		})
+		return
+	}
+
+	if r.URL.Path == "/api/tasks/batch" && r.Method == http.MethodPost {
+		var reqs []models.CreateTaskRequest
+		if err := json.NewDecoder(r.Body).Decode(&reqs); err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid batch payload: "+err.Error())
+			return
+		}
+		created := make([]models.Task, 0, len(reqs))
+		for _, req := range reqs {
+			if strings.TrimSpace(req.Title) == "" {
+				continue
+			}
+			t, err := h.db.CreateTask(req)
+			if err == nil && t != nil {
+				created = append(created, *t)
+			}
+		}
+		writeJSON(w, http.StatusCreated, created)
 		return
 	}
 
@@ -3015,7 +3036,7 @@ func (h *Handler) HandleMacroRoute(w http.ResponseWriter, r *http.Request) {
 
 	if len(parts) >= 2 && parts[1] == "refine" && r.Method == http.MethodPost {
 		projectID := r.URL.Query().Get("projectId")
-		todos, framework, err := h.db.RefineMacro(projectID, key)
+		todos, proposed, framework, err := h.db.RefineMacro(projectID, key)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3023,6 +3044,7 @@ func (h *Handler) HandleMacroRoute(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"key":           key,
 			"todos":         todos,
+			"proposedTasks": proposed,
 			"specFramework": framework,
 		})
 		return

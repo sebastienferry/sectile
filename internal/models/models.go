@@ -912,3 +912,10 @@ type TaskPostBackResult struct {
 	Activity *TaskActivity `json:"activity,omitempty"`
 	Error    string        `json:"error,omitempty"`
 }
+
+type ProposedMacroTask struct {
+	Title       string `json:"title"`
+	IssueType   string `json:"issueType"`
+	Description string `json:"description"`
+}
+

@@ -978,12 +978,12 @@ func (d *DB) MigrateTasks(taskIDs []string, targetProjectID string) (int, error)
 }
 
 // RefineMacro processes a macro's framing text (description) and generates structured MacroTodo items
-// formatted according to the project's selected SSD framework (SpecKit vs OpenSpec).
-func (d *DB) RefineMacro(projectID string, key string) ([]models.MacroTodo, string, error) {
+// and proposed TaskFlow tasks formatted according to the project's selected SSD framework (SpecKit vs OpenSpec).
+func (d *DB) RefineMacro(projectID string, key string) ([]models.MacroTodo, []models.ProposedMacroTask, string, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return nil, "", fmt.Errorf("clé de macro obligatoire")
+		return nil, nil, "", fmt.Errorf("clé de macro obligatoire")
 	}
 
 	d.mu.RLock()
@@ -1004,11 +1004,11 @@ func (d *DB) RefineMacro(projectID string, key string) ([]models.MacroTodo, stri
 	d.mu.RUnlock()
 
 	if err != nil {
-		return nil, "", fmt.Errorf("macro %s non trouvée", key)
+		return nil, nil, "", fmt.Errorf("macro %s non trouvée", key)
 	}
 
 	if strings.TrimSpace(macro.Description) == "" {
-		return nil, "", fmt.Errorf("le texte de cadrage (description) de la macro %s est vide", key)
+		return nil, nil, "", fmt.Errorf("le texte de cadrage (description) de la macro %s est vide", key)
 	}
 
 	framework := "speckit"
@@ -1020,7 +1020,8 @@ func (d *DB) RefineMacro(projectID string, key string) ([]models.MacroTodo, stri
 	}
 
 	todos := GenerateMacroTodosFromFraming(macro.Title, macro.Description, framework)
-	return todos, framework, nil
+	proposed := GenerateProposedMacroTasksFromFraming(macro.Title, macro.Description, framework)
+	return todos, proposed, framework, nil
 }
 
 // GenerateMacroTodosFromFraming structures framing text into MacroTodo items based on the SSD framework.
@@ -1108,5 +1109,30 @@ func GenerateMacroTodosFromFraming(title, description, framework string) []model
 		})
 	}
 
+	return out
+}
+
+// GenerateProposedMacroTasksFromFraming extracts proposed TaskFlow tasks from macro framing items.
+func GenerateProposedMacroTasksFromFraming(title, description, framework string) []models.ProposedMacroTask {
+	todos := GenerateMacroTodosFromFraming(title, description, framework)
+	out := make([]models.ProposedMacroTask, 0, len(todos))
+	for _, todo := range todos {
+		t := strings.TrimSpace(todo.Text)
+		if t == "" {
+			continue
+		}
+		issueType := "Story"
+		lower := strings.ToLower(t)
+		if strings.Contains(lower, "bug") || strings.Contains(lower, "fix") || strings.Contains(lower, "erreur") {
+			issueType = "Bug"
+		} else if strings.Contains(lower, "feat") || strings.Contains(lower, "task") || strings.Contains(lower, "change") || strings.Contains(lower, "tâche") {
+			issueType = "Task"
+		}
+		out = append(out, models.ProposedMacroTask{
+			Title:       t,
+			IssueType:   issueType,
+			Description: fmt.Sprintf("Tâche issue du cadrage de la macro %s.\n\nDescription initiale : %s", title, t),
+		})
+	}
 	return out
 }

@@ -24,12 +24,14 @@ import {
   ArrowRightLeft,
   Sparkles,
   ListChecks,
+  FolderGit2,
   Maximize2,
   Minimize2,
   ChevronDown,
   ChevronRight,
   MessageSquare,
 } from 'lucide-react'
+import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
 import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
@@ -101,6 +103,10 @@ export const RoadmapView: React.FC = () => {
     addToast,
     migrateMacro,
     refineMacro,
+    createBatchTasks,
+    setIsTerminalPanelOpen,
+    injectTaskSkill,
+    sendTerminalInput,
   } = useApp()
 
   const [tab, setTab] = useState<HorizonTab>('now')
@@ -111,7 +117,9 @@ export const RoadmapView: React.FC = () => {
   const [showClosed, setShowClosed] = useState(false)
 
   const [isRefining, setIsRefining] = useState(false)
-  const [refinePreview, setRefinePreview] = useState<{ todos: MacroTodo[]; specFramework?: string } | null>(null)
+  const [refinePreview, setRefinePreview] = useState<RefineMacroResult | null>(null)
+  const [selectedProposedTasks, setSelectedProposedTasks] = useState<Record<number, boolean>>({})
+  const [isCreatingBatch, setIsCreatingBatch] = useState(false)
 
   const [showMigrateModal, setShowMigrateModal] = useState(false)
   const [migrateTargetProjectId, setMigrateTargetProjectId] = useState('')
@@ -441,17 +449,28 @@ export const RoadmapView: React.FC = () => {
       setDraftDirty(false)
     }
 
+    setIsTerminalPanelOpen(true)
+    if (orderedOpen.length > 0) {
+      setChatTask(orderedOpen[0])
+      await injectTaskSkill(orderedOpen[0].id, 'refine_macro')
+    } else {
+      await sendTerminalInput(`/refine-macro ${selected.key}\n`)
+    }
+
     setIsRefining(true)
     const result = await refineMacro(selected.key, currentProject?.id)
     setIsRefining(false)
 
-    if (result && result.todos && result.todos.length > 0) {
+    if (result && ((result.todos && result.todos.length > 0) || (result.proposedTasks && result.proposedTasks.length > 0))) {
       setRefinePreview(result)
+      const initialMap: Record<number, boolean> = {}
+      result.proposedTasks?.forEach((_: unknown, idx: number) => { initialMap[idx] = true })
+      setSelectedProposedTasks(initialMap)
     } else if (result) {
       addToast({
         type: 'info',
-        title: 'Aucun TODO généré',
-        description: 'Le texte de cadrage n\'a pas permis de générer de nouveaux items de TODO.',
+        title: 'Aucune donnée générée',
+        description: "Le texte de cadrage n'a pas permis de générer de nouveaux items.",
       })
     }
   }
@@ -1842,18 +1861,84 @@ export const RoadmapView: React.FC = () => {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto py-3 space-y-2 my-2 pr-1">
-              {refinePreview.todos.map((todo, idx) => (
-                <div key={todo.id || idx} className="flex items-start gap-2 p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)]">
-                  <ListChecks size={13} className="text-orange-400 shrink-0 mt-0.5" />
-                  <span className="text-[11.5px] leading-snug text-[var(--text-primary)] flex-1 font-mono">
-                    {todo.text}
+            <div className="flex-1 overflow-y-auto py-3 space-y-3 my-2 pr-1">
+              {refinePreview.todos && refinePreview.todos.length > 0 && (
+                <div className="space-y-1.5">
+                  <span className="text-xs font-bold text-[var(--text-muted)] flex items-center gap-1">
+                    <ListChecks size={13} className="text-orange-400" />
+                    Checklist TODOs de la macro ({refinePreview.todos.length})
                   </span>
+                  {refinePreview.todos.map((todo, idx) => (
+                    <div key={todo.id || idx} className="flex items-start gap-2 p-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)]">
+                      <ListChecks size={13} className="text-orange-400 shrink-0 mt-0.5" />
+                      <span className="text-[11.5px] leading-snug text-[var(--text-primary)] flex-1 font-mono">
+                        {todo.text}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              )}
+
+              {refinePreview.proposedTasks && refinePreview.proposedTasks.length > 0 && (
+                <div className="pt-2 border-t border-[var(--border-color)] space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
+                      <FolderGit2 size={13} className="text-cyan-400" />
+                      Tickets TaskFlow déduits ({refinePreview.proposedTasks.length})
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const total = refinePreview.proposedTasks?.length || 0
+                        const allChecked = Object.keys(selectedProposedTasks).length === total
+                        const newMap: Record<number, boolean> = {}
+                        if (!allChecked) {
+                          refinePreview.proposedTasks?.forEach((_, idx) => { newMap[idx] = true })
+                        }
+                        setSelectedProposedTasks(newMap)
+                      }}
+                      className="text-[10px] font-bold text-[var(--accent-color)] hover:underline cursor-pointer"
+                    >
+                      Tout sélectionner / Déselectionner
+                    </button>
+                  </div>
+                  <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                    {refinePreview.proposedTasks.map((pt, idx) => (
+                      <label
+                        key={idx}
+                        className="flex items-start gap-2.5 p-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] hover:border-cyan-500/30 cursor-pointer select-none"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedProposedTasks[idx])}
+                          onChange={e => setSelectedProposedTasks(prev => ({ ...prev, [idx]: e.target.checked }))}
+                          className="mt-0.5 rounded border-[var(--border-color)] text-cyan-500 focus:ring-0 cursor-pointer"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                              pt.issueType === 'Bug'
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
+                                : pt.issueType === 'Task'
+                                ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/30'
+                                : 'bg-blue-500/10 text-blue-400 border border-blue-500/30'
+                            }`}>
+                              {pt.issueType}
+                            </span>
+                            <span className="text-xs font-semibold text-[var(--text-primary)] truncate">{pt.title}</span>
+                          </div>
+                          {pt.description && (
+                            <p className="text-[10.5px] text-[var(--text-muted)] line-clamp-1 mt-0.5">{pt.description}</p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="flex items-center justify-end gap-2 border-t border-[var(--border-color)] pt-3 mt-auto">
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--border-color)] pt-3 mt-auto flex-wrap">
               <button
                 type="button"
                 onClick={() => setRefinePreview(null)}
@@ -1861,37 +1946,55 @@ export const RoadmapView: React.FC = () => {
               >
                 Annuler
               </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const existing = todosOf(selected)
-                  await persist(selected.key, { todos: [...existing, ...refinePreview.todos] })
-                  setRefinePreview(null)
-                  addToast({
-                    type: 'success',
-                    title: 'TODOs ajoutés',
-                    description: `${refinePreview.todos.length} item(s) ajoutés à la checklist de ${selected.key}`,
-                  })
-                }}
-                className="px-3 py-1.5 rounded-xl text-xs font-bold text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] hover:border-[var(--accent-color)] cursor-pointer"
-              >
-                Ajouter aux TODOs
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  await persist(selected.key, { todos: refinePreview.todos })
-                  setRefinePreview(null)
-                  addToast({
-                    type: 'success',
-                    title: 'TODOs remplacés',
-                    description: `Checklist de ${selected.key} remplacée par les ${refinePreview.todos.length} item(s) générés.`,
-                  })
-                }}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white accent-bg cursor-pointer"
-              >
-                Remplacer les TODOs
-              </button>
+              {refinePreview.todos && refinePreview.todos.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const existing = todosOf(selected)
+                    await persist(selected.key, { todos: [...existing, ...refinePreview.todos] })
+                    setRefinePreview(null)
+                    addToast({
+                      type: 'success',
+                      title: 'TODOs ajoutés',
+                      description: `${refinePreview.todos.length} item(s) ajoutés à la checklist de ${selected.key}`,
+                    })
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-[var(--text-primary)] bg-[var(--bg-tertiary)] border border-[var(--border-color)] hover:border-[var(--accent-color)] cursor-pointer"
+                >
+                  Ajouter aux TODOs
+                </button>
+              )}
+              {refinePreview.proposedTasks && refinePreview.proposedTasks.length > 0 && (
+                <button
+                  type="button"
+                  disabled={isCreatingBatch}
+                  onClick={async () => {
+                    const selectedTasksToCreate = refinePreview.proposedTasks?.filter((_, idx) => selectedProposedTasks[idx]) || []
+                    if (selectedTasksToCreate.length === 0) {
+                      addToast({ type: 'warning', title: 'Aucun ticket sélectionné', description: 'Veuillez cocher au moins un ticket à générer.' })
+                      return
+                    }
+                    setIsCreatingBatch(true)
+                    const payload = selectedTasksToCreate.map(pt => ({
+                      projectId: currentProject?.id || selected.meta?.projectId || '',
+                      title: pt.title,
+                      issueType: pt.issueType,
+                      description: pt.description,
+                      parentKey: selected.key,
+                      parentTitle: selected.title,
+                      parentType: 'Macro',
+                      status: 'backlog' as const,
+                    }))
+                    await createBatchTasks(payload)
+                    setIsCreatingBatch(false)
+                    setRefinePreview(null)
+                  }}
+                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
+                >
+                  {isCreatingBatch ? <Loader2 size={13} className="animate-spin" /> : <FolderGit2 size={13} />}
+                  <span>Générer les tickets TaskFlow ({Object.values(selectedProposedTasks).filter(Boolean).length})</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

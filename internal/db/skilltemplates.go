@@ -332,23 +332,26 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		FromStage:   "macro",
 		ToStage:     "macro",
 		Scope:       "macro",
-		Interactive: false,
-		Description: "Transforme le cadrage d'une macro en un plan d'action de TODOs structuré selon le cadre SDD du projet.",
+		Interactive: true,
+		Description: "Clarifie de manière interactive le cadrage d'une macro et le décompose en TODOs structurés et cartes TaskFlow.",
 		Icon:        "ListChecks",
 		Color:       "orange",
 		Steps: []string{
 			"Analyse du titre et du texte de cadrage de la macro",
+			"Évaluation de la complétude du cadrage et questions de clarification si nécessaire",
 			"Structuration du plan d'action selon le cadre SDD (SpecKit ou OpenSpec)",
-			"Génération des items MacroTodo prêts à être appliqués",
+			"Génération des items MacroTodo et découpage des tickets TaskFlow prêts à être créés",
 		},
 		title:           "Refine Macro",
-		frontmatterDesc: "Refine a macro framing text into a structured action plan of todos respecting the project SDD framework.",
-		goal:            `Transform high-level macro framing text into an actionable, structured todo list aligned with the active Spec-Driven Design framework (SpecKit or OpenSpec).`,
+		frontmatterDesc: "Interactively clarify macro framing text with the user and break it down into structured todos and TaskFlow tickets.",
+		goal:            `Transform high-level macro framing text into an actionable, structured todo list and concrete TaskFlow tickets, interactively clarifying ambiguities with the user when framing text is vague.`,
 		guardTitle:      "Do not",
-		guard: `- Do not overwrite existing todos without user confirmation in the UI.
-- Do not generate unstructured or generic todo items.
-- Do not mutate tracker issues or milestones directly without user trigger.`,
-		report: `- Structured list of proposed MacroTodo items.
+		guard: `- Do not generate tasks blindly when framing text is vague without asking clarification questions.
+- Do not overwrite existing todos or tasks without user confirmation in the UI.
+- Do not mutate external tracker issues directly without user trigger.`,
+		report: `- Clarification Q&A summary (if framing was vague).
+- Structured list of proposed MacroTodo items.
+- Proposed TaskFlow tickets breakdown (Title, IssueType, Description).
 - Rationale behind the task breakdown.`,
 	},
 	{
@@ -440,20 +443,16 @@ func refineMacroFrameworkName(specFramework string) string {
 func refineMacroFrameworkBody(specFramework string) (readFirst, steps string) {
 	readFirst = `- The macro title and framing description.
 - The active project SDD framework (SpecKit or OpenSpec).
-- Existing macro todos to avoid duplicating completed work.`
+- Existing macro todos and child tasks to avoid duplicating completed work.`
 
-	steps = `1. Read the macro title and high-level framing description.
-2. Structure the action plan according to the selected SDD framework:
-
-   **If using SpecKit SDD:**
-   - Group action items into User Stories and Feature Modules.
-   - Format each todo item clearly with functional scope (e.g. "[US-1] User Story description" or "[FEAT] Feature item").
-
-   **If using OpenSpec SDD:**
-   - Group action items into Capabilities and Change Proposals.
-   - Format each todo item clearly with delta scope (e.g. "[CAP-1] Capability requirement" or "[CHANGE] Proposal change").
-
-3. Output the generated checklist of actionable todos for preview before applying to the macro.`
+	steps = `1. Inspect the macro title and high-level framing description.
+2. **Evaluate framing completeness**:
+   - If the framing description is empty, under 2 sentences, or lacks clear technical boundaries/acceptance criteria, formulate 3 to 5 numbered clarification questions and ask the user directly in this interactive terminal session before generating tasks.
+3. **Decompose & Break Down**:
+   - Once answered or if framing text is detailed, group action items according to the selected SDD framework:
+     - **SpecKit SDD**: Group into User Stories ([US-x]) and Feature Modules ([FEAT-x]).
+     - **OpenSpec SDD**: Group into Capabilities ([CAP-x]) and Change Proposals ([CHANGE-x]).
+4. Output the generated checklist of actionable todos AND proposed TaskFlow tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.`
 
 	return readFirst, steps
 }
@@ -585,9 +584,11 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	fmt.Fprintf(&b, "# %s\n\n", name)
 	if s.FromStage != "" && s.Scope != "macro" {
 		fmt.Fprintf(&b, "Stage: %s -> %s.", s.FromStage, s.ToStage)
-	}
-	if s.Interactive {
-		b.WriteString(" Interactive: the user answers in the terminal.")
+		if s.Interactive {
+			b.WriteString(" Interactive: the user answers in the terminal.")
+		}
+	} else if s.Interactive {
+		b.WriteString("Interactive: the user answers in the terminal.")
 	}
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "## Goal\n%s\n\n", s.goal)
@@ -672,7 +673,11 @@ func RenderSkillCommand(s StageSkill, specFramework string) string {
 	var b strings.Builder
 	b.WriteString("---\n")
 	fmt.Fprintf(&b, "description: %s\n", skillYAMLString(s.frontmatterDesc))
-	b.WriteString("argument-hint: <TICKET-KEY> [contexte]\n")
+	hint := "<TICKET-KEY> [contexte]"
+	if s.Scope == "macro" {
+		hint = "<MACRO-KEY> [contexte]"
+	}
+	fmt.Fprintf(&b, "argument-hint: %s\n", hint)
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimSpace(body))
 	b.WriteString("\n\n## Ticket\n$ARGUMENTS\n")
