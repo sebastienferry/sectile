@@ -46,6 +46,12 @@ would be expensive to reverse later, not for a list of everything unknown.
 - **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
 Transition new → clarified only when this step is complete.
 ```bash
+# Route via local agent if available, fallback to http://localhost:8090/api/tasks/stage
+ENDPOINT="${TASKFLOW_AGENT_URL:-${TASKFLOW_SERVER_URL:-http://localhost:8090}}/api/tasks/stage"
+curl --fail-with-body --silent --show-error -X POST "${ENDPOINT}" \
+  ${TASKFLOW_AGENT_TOKEN:+-H "Authorization: Bearer $TASKFLOW_AGENT_TOKEN"} \
+  -H 'Content-Type: application/json' \
+  -d '{"taskKey":"<KEY>","stage":"clarified","note":"<REPORT_NOTE>"}' || \
 curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
   -H 'Content-Type: application/json' \
   -d '{"taskKey":"<KEY>","stage":"clarified","note":"<REPORT_NOTE>"}'

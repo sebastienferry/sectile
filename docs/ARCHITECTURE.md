@@ -183,3 +183,70 @@ As the local agent matures, a dedicated Desktop Companion App (built with **Taur
 - **Terminal & Logs Drawer**: Optional embedded PTY console tab for inspecting low-level compiler, test, or linter output.
 - **System Tray & Notifications**: Native desktop notifications when an AI agent completes a stage or requests human clarification.
 
+### 6.3 Local Agent HTTP Gateway & Skill Access
+When workflow skills execute in local worktrees, they require access to TaskFlow task management (e.g. reporting stage transitions, updating ticket state):
+1. **Embedded Agent Reverse Proxy**:
+   - The `taskflow agent` daemon launches an embedded HTTP reverse proxy on `127.0.0.1:8091` (or dynamic loopback port).
+   - Injects `TASKFLOW_AGENT_URL`, `TASKFLOW_SERVER_URL`, and `TASKFLOW_AGENT_TOKEN` into the environment of every terminal and PTY session.
+   - Forwards local skill calls (`POST /api/tasks/stage`, `GET /api/tasks/...`) upstream to the remote server, transparently attaching Bearer token authentication.
+2. **Resilient Fallback**:
+   - Skills attempt transitions via `$TASKFLOW_AGENT_URL` first.
+   - If the local agent proxy is unreachable or offline, skills automatically fall back to the direct server URL (`http://localhost:8090/api/tasks/stage`), logging a warning.
+
+---
+
+## 7. Model Context Protocol (MCP) Server Architecture
+
+### 7.1 Motivation: Replacing Prompt-Injected Bash Curl Calls
+Currently, TaskFlow instructs AI agents to update tickets using markdown prompt instructions with embedded `curl` commands. This pattern suffers from:
+- **Syntax & Escaping Fragility**: LLMs frequently introduce formatting errors, mis-escape quotes or newlines in `<REPORT_NOTE>`, or omit critical headers.
+- **One-Way Execution**: Agents cannot easily query ticket context (e.g. comments, parent epics, reviewer notes, sprint metadata) without manual file reading or guesswork.
+- **Lack of Verification**: There is no direct feedback loop between the LLM and the server's validation rules prior to attempting a transition.
+
+Integrating an **MCP (Model Context Protocol)** server elevates TaskFlow from a passive prompt-injected system to a first-class tool provider natively supported by modern AI agents (**Google Antigravity / agy**, **Claude Code**, **Cursor**, **Windsurf**, **VS Code**).
+
+### 7.2 MCP Tools Specification
+The TaskFlow MCP Server exposes the following core tools:
+
+| Tool Name | Parameters | Description |
+| :--- | :--- | :--- |
+| `taskflow_get_task` | `taskKey`: string (e.g. `#47`) | Fetches structured task details: title, description, tracker, current stage, branch name, worktree path, and comments. |
+| `taskflow_transition_stage` | `taskKey`: string, `stage`: enum (`clarified`, `specified`, `implemented`, `reviewed`, `finished`), `note`: string, `branch`?: string, `prUrl`?: string | Transitions the task stage atomically and records the activity report on the remote server and tracker. |
+| `taskflow_add_comment` | `taskKey`: string, `body`: string | Posts a comment or clarification question directly onto the task discussion thread. |
+| `taskflow_list_tasks` | `projectId`?: string, `status`?: string, `sprint`?: string | Lists active tasks on the board to support multi-ticket planning and batch skills (`pickup-issues`). |
+| `taskflow_get_project_context` | `projectId`?: string, `taskKey`?: string | Retrieves project-wide architecture guidelines, spec framework choice (`openspec` / `speckit`), and coding conventions. |
+
+### 7.3 Dual Deployment Topologies
+```mermaid
+graph TD
+    subgraph Local Machine
+        CLI["AI Agent CLI (agy / claude / cursor)"]
+        StdioMCP["taskflow mcp (Local Stdio Server)"]
+        LocalDaemon["taskflow agent (Local Daemon)"]
+        Worktree["Git Worktree (.tasks/worktrees/#<key>)"]
+
+        CLI <-->|JSON-RPC 2.0 (stdio)| StdioMCP
+        CLI <-->|Read / Edit Code| Worktree
+        StdioMCP <-->|IPC / Loopback Proxy| LocalDaemon
+    end
+
+    subgraph Remote Server
+        RemoteServer["TaskFlow Central Server (:8090)"]
+        RemoteMCP["Remote MCP Endpoint (/mcp or /sse)"]
+        Database[("Central DB (SQLite / PostgreSQL)")]
+        TrackerAPI["GitHub / Linear / Jira"]
+
+        LocalDaemon <-->|Outbound WSS / HTTPS| RemoteServer
+        RemoteServer <--> RemoteMCP
+        RemoteServer <--> Database
+        RemoteServer <--> TrackerAPI
+    end
+```
+
+1. **Topology A: Remote Server-Side MCP (`/mcp` / `/sse`)**:
+   - The central TaskFlow server provides an HTTP Server-Sent Events (SSE) or streamable HTTP MCP endpoint.
+   - Useful for remote web agents, CI/CD runners, and cloud-hosted assistants with network reachability to the server.
+2. **Topology B: Local Stdio MCP (`taskflow mcp`)**:
+   - `taskflow mcp` operates over standard input/output (`stdio`), the universal protocol supported by `agy`, Claude Code, Cursor, and Windsurf.
+   - When running against a remote control plane, `taskflow mcp` relays tool calls through the local agent daemon or loopback gateway, keeping all local execution private and firewall-free.
+

@@ -2,6 +2,8 @@ package db_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -156,6 +158,18 @@ func TestRefineMacroSkillTemplate(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Expected ProjectSkillTemplates(%s) to include 'refine_macro'", fw)
+		}
+	}
+}
+
+func TestUpdateWorkspaceSkills(t *testing.T) {
+	root := "../.."
+	for _, stage := range db.StageSkills {
+		content := db.RenderSkillContent(stage, "openspec")
+		for _, dir := range db.SkillDirsFor(root, stage.DirName) {
+			if _, err := os.Stat(dir); err == nil {
+				_ = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644)
+			}
 		}
 	}
 }

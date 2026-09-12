@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,6 +39,9 @@ type agentDaemon struct {
 	deviceID         string
 	terminalApp      string
 	terminalExplicit bool
+	agentPort        int
+	agentURL         string
+	httpServer       *http.Server
 	conn             *websocket.Conn
 	connMu           sync.Mutex
 	terminalMgr      *terminal.Manager
@@ -148,6 +154,16 @@ func runAgentCommand(args []string) {
 
 	log.Printf("🚀 TaskFlow Agent starting (server=%s, project=%s, device=%s)", daemon.serverURL, daemon.projectID, daemon.deviceID)
 
+	// Start local agent HTTP reverse proxy gateway
+	if err := daemon.startLocalProxy(ctx); err != nil {
+		log.Printf("[Agent] Warning: could not start local proxy: %v", err)
+	}
+	defer func() {
+		if daemon.httpServer != nil {
+			_ = daemon.httpServer.Shutdown(context.Background())
+		}
+	}()
+
 	daemon.connectLoop(ctx)
 }
 
@@ -177,6 +193,92 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 			attempt = 0
 		}
 	}
+}
+
+// startLocalProxy starts an embedded HTTP reverse proxy on 127.0.0.1 (default port 8091 or dynamic)
+// so that local skills, scripts, and tools can seamlessly interact with the TaskFlow API through
+// the local agent without needing to know the remote server's URL or auth tokens.
+func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
+	var ln net.Listener
+	var err error
+	ln, err = net.Listen("tcp", "127.0.0.1:8091")
+	if err != nil {
+		ln, err = net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			return fmt.Errorf("failed to start local agent proxy listener: %w", err)
+		}
+	}
+
+	addr := ln.Addr().(*net.TCPAddr)
+	d.agentPort = addr.Port
+	d.agentURL = fmt.Sprintf("http://127.0.0.1:%d", d.agentPort)
+	log.Printf("🔌 [Agent Proxy] Local agent HTTP gateway listening on %s", d.agentURL)
+
+	mux := http.NewServeMux()
+
+	// Forward /api/ requests to the remote server with authentication
+	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		targetURL := fmt.Sprintf("%s%s", d.serverURL, r.URL.RequestURI())
+		log.Printf("🔄 [Agent Proxy] Forwarding %s %s -> %s", r.Method, r.URL.Path, targetURL)
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to read request body: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(bodyBytes))
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to create upstream request: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		for k, vv := range r.Header {
+			for _, v := range vv {
+				req.Header.Add(k, v)
+			}
+		}
+
+		if d.token != "" && req.Header.Get("Authorization") == "" {
+			req.Header.Set("Authorization", "Bearer "+d.token)
+		}
+
+		client := &http.Client{Timeout: 30 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Printf("⚠️ [Agent Proxy] Upstream request failed: %v", err)
+			http.Error(w, fmt.Sprintf("agent proxy upstream error: %v", err), http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		for k, vv := range resp.Header {
+			for _, v := range vv {
+				w.Header().Add(k, v)
+			}
+		}
+		w.WriteHeader(resp.StatusCode)
+		_, _ = io.Copy(w, resp.Body)
+	})
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ok","agent":"taskflow-local","device":%q,"server":%q}`, d.deviceID, d.serverURL)))
+	})
+
+	server := &http.Server{
+		Handler: mux,
+	}
+	d.httpServer = server
+
+	go func() {
+		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
+			log.Printf("[Agent Proxy] Server error: %v", err)
+		}
+	}()
+
+	return nil
 }
 
 // connect establishes a single WebSocket connection and runs the message loop
@@ -518,6 +620,12 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"TASKFLOW_TASK_KEY":    payload.TaskKey,
 		"TASKFLOW_TASK_ID":     msg.TaskID,
 		"TASKFLOW_REMOTE_MODE": "true",
+		"TASKFLOW_AGENT_URL":   d.agentURL,
+		"TASKFLOW_SERVER_URL":  d.serverURL,
+		"TASKFLOW_AGENT_TOKEN": d.token,
+	}
+	if payload.ProjectID != "" {
+		envVars["TASKFLOW_PROJECT_ID"] = payload.ProjectID
 	}
 
 	// Determine terminal application:
