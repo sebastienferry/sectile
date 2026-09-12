@@ -163,3 +163,23 @@ graph TD
 3. **Local-First Execution Privacy**:
    - All LLM interactions, API keys, Git worktrees, code edits, and compiler/test runs remain strictly on the developer's machine.
 
+### 6.2 Interactive Execution UX: Option 1 & Option 2
+
+#### Option 1: Native External Terminal Launch (Current Implementation)
+To provide a smooth developer experience without dumping interactive AI sessions into a background daemon's raw stdout:
+- **Native Window Launch**: When a user triggers an interactive workflow skill (`/clarify-issue`, `/specify-issue`, `/code-issue`) from the central Web UI, the connected local agent daemon launches a native desktop terminal window (e.g. **Ghostty**, **iTerm2**, or **Terminal.app**) directly inside the task's worktree (`.tasks/worktrees/#<key>`).
+- **Interactive AI Session**: Launches the configured CLI provider tool (`agy -i "/clarify-issue"`, `claude`, `codex`, or `vibe`), enabling interactive prompts, diff approvals, and conversation directly in the user's preferred terminal.
+- **Hierarchy of Terminal Selection**:
+  1. CLI flag `--terminal <app>` passed to `taskflow agent` (e.g., `ghostty`, `iterm`, `terminal`, `pty`).
+  2. Project/server settings (`external_terminal_command` in Project configuration).
+  3. Local project configuration (`.taskflow/config.json` in the worktree or repository root).
+  4. Environment variable `TASKFLOW_TERMINAL`.
+  5. Auto-detection on macOS (`/Applications/Ghostty.app` -> `ghostty`, then `iTerm.app` -> `iterm`, then `Terminal.app` -> `terminal`, with fallback to embedded `pty`).
+
+#### Option 2: Dedicated Desktop Companion App (Future Roadmap)
+As the local agent matures, a dedicated Desktop Companion App (built with **Tauri**, **Wails**, or **Electron**) will provide a unified local interface:
+- **Left Sidebar**: Displays the local agent status, live WebSocket connection to the remote TaskFlow server, and the list of active task worktrees.
+- **Main Chat & Execution Pane**: Interactive chat with the local agent running the skill, complete with rich Markdown rendering, collapsible tool call outputs, diff viewers, and inline user input prompts.
+- **Terminal & Logs Drawer**: Optional embedded PTY console tab for inspecting low-level compiler, test, or linter output.
+- **System Tray & Notifications**: Native desktop notifications when an AI agent completes a stage or requests human clarification.
+

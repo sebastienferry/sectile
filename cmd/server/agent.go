@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/runner"
 	"tasks/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -28,15 +30,31 @@ import (
 // agentDaemon runs the local TaskFlow agent that connects outward to a remote
 // TaskFlow server and executes workflow steps locally inside Git worktrees.
 type agentDaemon struct {
-	serverURL   string
-	token       string
-	projectID   string
-	deviceID    string
-	conn        *websocket.Conn
-	connMu      sync.Mutex
-	terminalMgr *terminal.Manager
-	database    *db.DB
-	done        chan struct{}
+	serverURL        string
+	token            string
+	projectID        string
+	deviceID         string
+	terminalApp      string
+	terminalExplicit bool
+	conn             *websocket.Conn
+	connMu           sync.Mutex
+	terminalMgr      *terminal.Manager
+	database         *db.DB
+	done             chan struct{}
+}
+
+// detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)
+func detectDefaultTerminal() string {
+	if runtime.GOOS == "darwin" {
+		if _, err := os.Stat("/Applications/Ghostty.app"); err == nil {
+			return "ghostty"
+		}
+		if _, err := os.Stat("/Applications/iTerm.app"); err == nil {
+			return "iterm"
+		}
+		return "terminal"
+	}
+	return "pty"
 }
 
 // runAgentCommand is the entrypoint for "taskflow agent". It parses flags,
@@ -47,6 +65,7 @@ func runAgentCommand(args []string) {
 	token := fs.String("token", "", "Authentication token for the remote server")
 	projectID := fs.String("project", "default", "Project ID to register with")
 	deviceID := fs.String("device", "", "Device identifier (defaults to hostname)")
+	terminalApp := fs.String("terminal", "", "Terminal application to launch for interactive jobs (ghostty, iterm, terminal, warp, pty)")
 	dbPath := fs.String("db", "", "Local database path (optional, for task metadata)")
 
 	_ = fs.Parse(args)
@@ -79,6 +98,17 @@ func runAgentCommand(args []string) {
 		*deviceID = hostname
 	}
 
+	termExplicit := false
+	termChoice := strings.TrimSpace(*terminalApp)
+	if termChoice != "" {
+		termExplicit = true
+	} else {
+		termChoice = os.Getenv("TASKFLOW_TERMINAL")
+	}
+	if termChoice == "" {
+		termChoice = detectDefaultTerminal()
+	}
+
 	// Optional local database for task metadata caching.
 	var database *db.DB
 	if *dbPath != "" {
@@ -92,13 +122,15 @@ func runAgentCommand(args []string) {
 	}
 
 	daemon := &agentDaemon{
-		serverURL:   strings.TrimRight(*serverURL, "/"),
-		token:       *token,
-		projectID:   *projectID,
-		deviceID:    *deviceID,
-		terminalMgr: terminal.NewManager(),
-		database:    database,
-		done:        make(chan struct{}),
+		serverURL:        strings.TrimRight(*serverURL, "/"),
+		token:            *token,
+		projectID:        *projectID,
+		deviceID:         *deviceID,
+		terminalApp:      termChoice,
+		terminalExplicit: termExplicit,
+		terminalMgr:      terminal.NewManager(),
+		database:         database,
+		done:             make(chan struct{}),
 	}
 
 	// Graceful shutdown on SIGINT / SIGTERM.
@@ -292,14 +324,30 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 	}
 }
 
-// findRepoRoot finds the repository or worktree root containing .tasks or .git
+// findRepoRoot finds the repository root containing .tasks and all worktrees
 func findRepoRoot(startDir string) string {
+	// 1. Try git rev-parse --git-common-dir (works inside any git worktree)
+	cmd := exec.Command("git", "-C", startDir, "rev-parse", "--git-common-dir")
+	if out, err := cmd.Output(); err == nil {
+		gitCommon := strings.TrimSpace(string(out))
+		if gitCommon != "" {
+			if !filepath.IsAbs(gitCommon) {
+				gitCommon = filepath.Join(startDir, gitCommon)
+			}
+			if realGitDir, err := filepath.Abs(gitCommon); err == nil {
+				candidate := filepath.Dir(realGitDir)
+				if fi, err := os.Stat(filepath.Join(candidate, ".tasks")); err == nil && fi.IsDir() {
+					return candidate
+				}
+				return candidate
+			}
+		}
+	}
+
+	// 2. Walk upwards looking for .tasks directory
 	dir := startDir
 	for {
 		if fi, err := os.Stat(filepath.Join(dir, ".tasks")); err == nil && fi.IsDir() {
-			return dir
-		}
-		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
@@ -308,18 +356,84 @@ func findRepoRoot(startDir string) string {
 		}
 		dir = parent
 	}
+
+	// 3. Walk upwards looking for real .git directory (not a worktree file)
+	dir = startDir
+	for {
+		if fi, err := os.Stat(filepath.Join(dir, ".git")); err == nil && fi.IsDir() {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
 	return startDir
+}
+
+// readProjectTerminalConfig checks for terminal preference in .taskflow/config.json
+func readProjectTerminalConfig(dir string) string {
+	configPath := filepath.Join(dir, ".taskflow", "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Terminal                string `json:"terminal"`
+		TerminalApp             string `json:"terminalApp"`
+		ExternalTerminalCommand string `json:"externalTerminalCommand"`
+	}
+	if err := json.Unmarshal(data, &cfg); err == nil {
+		if cfg.Terminal != "" {
+			return cfg.Terminal
+		}
+		if cfg.TerminalApp != "" {
+			return cfg.TerminalApp
+		}
+		if cfg.ExternalTerminalCommand != "" {
+			return cfg.ExternalTerminalCommand
+		}
+	}
+	return ""
+}
+
+// resolveTaskWorktreeDir looks for the worktree directory under .tasks/worktrees/
+func resolveTaskWorktreeDir(root, taskKey string) string {
+	cleanKey := strings.TrimSpace(taskKey)
+	candidates := []string{
+		filepath.Join(root, ".tasks", "worktrees", cleanKey),
+	}
+	if !strings.HasPrefix(cleanKey, "#") {
+		candidates = append(candidates, filepath.Join(root, ".tasks", "worktrees", "#"+cleanKey))
+	}
+	if strings.HasPrefix(cleanKey, "gh-") {
+		num := strings.TrimPrefix(cleanKey, "gh-")
+		candidates = append(candidates, filepath.Join(root, ".tasks", "worktrees", "#"+num))
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
+			return c
+		}
+	}
+	return root
 }
 
 // handleDispatchStep executes a workflow step locally inside a Git worktree.
 func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Conn, msg handlers.AgentMessage) {
 	var payload struct {
-		TaskKey   string `json:"taskKey"`
-		SkillID   string `json:"skillId"`
-		Action    string `json:"action"`    // clarify, specify, code, etc.
-		WorkDir   string `json:"workDir"`   // Optional override
-		ProjectID string `json:"projectId"`
-		Provider  string `json:"provider"`
+		TaskKey                 string `json:"taskKey"`
+		TaskID                  string `json:"taskId"`
+		SkillID                 string `json:"skillId"`
+		Action                  string `json:"action"` // clarify, specify, code, etc.
+		WorkDir                 string `json:"workDir"`
+		ProjectID               string `json:"projectId"`
+		Provider                string `json:"provider"`
+		Prompt                  string `json:"prompt"`
+		ExternalTerminalCommand string `json:"externalTerminalCommand"`
+		TTYMode                 string `json:"ttyMode"`
+		AICommandTemplate       string `json:"aiCommandTemplate"`
 	}
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		log.Printf("[Agent] Invalid dispatch_step payload: %v", err)
@@ -336,37 +450,12 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	d.sendStatus(conn, msg.MsgID, msg.TaskID, "running", fmt.Sprintf("Executing %s", payload.Action))
 
 	// Resolve target worktree directory
+	cwd, _ := os.Getwd()
+	root := findRepoRoot(cwd)
 	workDir := payload.WorkDir
 	if workDir == "" || workDir == "." {
-		cwd, _ := os.Getwd()
-		root := findRepoRoot(cwd)
-		candidate := filepath.Join(root, ".tasks", "worktrees", payload.TaskKey)
-		if fi, err := os.Stat(candidate); err == nil && fi.IsDir() {
-			workDir = candidate
-		} else {
-			workDir = root
-		}
+		workDir = resolveTaskWorktreeDir(root, payload.TaskKey)
 	}
-
-	// Create or reuse a PTY session for this task.
-	sessionID := "task-" + payload.TaskKey
-	envVars := map[string]string{
-		"TASKFLOW_TASK_KEY":    payload.TaskKey,
-		"TASKFLOW_TASK_ID":     msg.TaskID,
-		"TASKFLOW_REMOTE_MODE": "true",
-	}
-
-	sess, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars)
-	if err != nil {
-		log.Printf("[Agent] Failed to create session: %v", err)
-		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", fmt.Sprintf("Session error: %v", err))
-		return
-	}
-
-	// Stream live PTY output to this agent console so the user sees progress in their terminal
-	sess.AddOutputListener(func(chunk []byte) {
-		_, _ = os.Stdout.Write(chunk)
-	})
 
 	// Determine skill command name
 	skillCmd := "/" + payload.Action
@@ -401,27 +490,92 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		}
 	}
 
+	promptArg := skillCmd
+	trimmedPrompt := strings.TrimSpace(payload.Prompt)
+	if trimmedPrompt != "" && strings.HasPrefix(trimmedPrompt, "/") {
+		promptArg = trimmedPrompt
+	} else if payload.TaskKey != "" && !strings.Contains(promptArg, payload.TaskKey) {
+		promptArg = fmt.Sprintf("%s %s", promptArg, payload.TaskKey)
+	}
+
 	var fullLine string
 	switch strings.ToLower(provider) {
 	case "agy":
-		fullLine = fmt.Sprintf("agy -i %q", skillCmd)
+		fullLine = fmt.Sprintf("agy -i %q", promptArg)
 	case "claude":
-		fullLine = fmt.Sprintf("claude %q", skillCmd)
+		fullLine = fmt.Sprintf("claude %q", promptArg)
 	case "codex":
-		fullLine = fmt.Sprintf("codex %q", skillCmd)
+		fullLine = fmt.Sprintf("codex %q", promptArg)
 	case "vibe":
-		fullLine = fmt.Sprintf("vibe -p %q", skillCmd)
+		fullLine = fmt.Sprintf("vibe -p %q", promptArg)
 	default:
-		fullLine = fmt.Sprintf("%s -i %q", provider, skillCmd)
+		fullLine = fmt.Sprintf("%s -i %q", provider, promptArg)
 	}
 
-	// Small pause to let the login shell complete initialization before input is sent
+	// Create or reuse a PTY session for this task.
+	sessionID := "task-" + payload.TaskKey
+	envVars := map[string]string{
+		"TASKFLOW_TASK_KEY":    payload.TaskKey,
+		"TASKFLOW_TASK_ID":     msg.TaskID,
+		"TASKFLOW_REMOTE_MODE": "true",
+	}
+
+	// Determine terminal application:
+	// 1. Explicit CLI flag --terminal
+	// 2. Project/server external terminal configuration from payload
+	// 3. Local project .taskflow/config.json in workDir or root
+	// 4. Configured daemon default (TASKFLOW_TERMINAL or detectDefaultTerminal())
+	termApp := ""
+	if d.terminalExplicit {
+		termApp = d.terminalApp
+	} else if payload.ExternalTerminalCommand != "" {
+		termApp = payload.ExternalTerminalCommand
+	} else if localTerm := readProjectTerminalConfig(workDir); localTerm != "" {
+		termApp = localTerm
+	} else if rootTerm := readProjectTerminalConfig(root); rootTerm != "" {
+		termApp = rootTerm
+	} else if d.terminalApp != "" {
+		termApp = d.terminalApp
+	} else {
+		termApp = detectDefaultTerminal()
+	}
+
+	if termApp != "" && termApp != "none" && termApp != "pty" {
+		// Launch in configured external desktop terminal (Ghostty, iTerm, etc.)
+		r := runner.NewRunner()
+		log.Printf("🚀 [Agent] Launching external terminal (%s) for task %s: %s (workdir: %s)", termApp, payload.TaskKey, fullLine, workDir)
+		fmt.Printf("\n🖥️  [Agent] Ouverture du terminal externe (%s) pour %s...\n", strings.ToUpper(termApp), payload.TaskKey)
+		fmt.Printf("   Dossier : %s\n", workDir)
+		fmt.Printf("   Commande: %s\n\n", fullLine)
+
+		if err := r.OpenExternalTerminal(termApp, workDir, fullLine, envVars); err != nil {
+			log.Printf("[Agent] Failed to open external terminal %s: %v, falling back to background PTY", termApp, err)
+			d.runInPty(sessionID, workDir, envVars, fullLine)
+		} else {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Terminal externe (%s) ouvert pour %s", termApp, payload.TaskKey))
+			return
+		}
+	} else {
+		d.runInPty(sessionID, workDir, envVars, fullLine)
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in local PTY", payload.Action))
+	}
+}
+
+// runInPty starts or reuses an embedded PTY session and injects the command line.
+func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]string, fullLine string) {
+	sess, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars)
+	if err != nil {
+		log.Printf("[Agent] Failed to create PTY session: %v", err)
+		return
+	}
+
+	sess.AddOutputListener(func(chunk []byte) {
+		_, _ = os.Stdout.Write(chunk)
+	})
+
 	time.Sleep(350 * time.Millisecond)
-
-	log.Printf("⚡ [Agent] Launching skill command in local terminal: %s (workdir: %s)", fullLine, workDir)
+	log.Printf("⚡ [Agent] Launching skill command in local PTY terminal: %s (workdir: %s)", fullLine, workDir)
 	_ = d.terminalMgr.SendInput(sessionID, fullLine+"\n")
-
-	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in local terminal", payload.Action))
 }
 
 // sendStatus sends a step_status message back to the remote server.

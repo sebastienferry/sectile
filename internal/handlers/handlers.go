@@ -1809,18 +1809,40 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			_ = h.db.AddTaskActivity(act)
 
 			provider := "agy"
-			if settings, err := h.db.GetSettings(); err == nil && settings != nil && settings.AIProvider != "" {
-				provider = settings.AIProvider
+			cmdTemplate := ""
+			termCmd := ""
+			ttyMode := ""
+			if proj, err := h.db.GetProjectByID(task.ProjectID); err == nil && proj != nil {
+				if proj.AIProvider != "" {
+					provider = proj.AIProvider
+				}
+				cmdTemplate = proj.AICommandTemplate
+				termCmd = proj.ExternalTerminalCommand
+				ttyMode = proj.TtyMode
+			}
+			if settings, err := h.db.GetSettings(); err == nil && settings != nil {
+				if provider == "agy" && settings.AIProvider != "" {
+					provider = settings.AIProvider
+				}
+				if cmdTemplate == "" {
+					cmdTemplate = settings.AICommandTemplate
+				}
+				if termCmd == "" {
+					termCmd = settings.ExternalTerminalCommand
+				}
 			}
 
 			err := h.agentDispatcher.Dispatch(ac.UserID, ac.ProjectID, "dispatch_step", task.ID, map[string]interface{}{
-				"taskKey":   task.Key,
-				"taskId":    task.ID,
-				"skillId":   req.SkillID,
-				"action":    req.SkillID,
-				"prompt":    req.Prompt,
-				"projectId": ac.ProjectID,
-				"provider":  provider,
+				"taskKey":                 task.Key,
+				"taskId":                  task.ID,
+				"skillId":                 req.SkillID,
+				"action":                  req.SkillID,
+				"prompt":                  req.Prompt,
+				"projectId":               ac.ProjectID,
+				"provider":                provider,
+				"externalTerminalCommand": termCmd,
+				"ttyMode":                 ttyMode,
+				"aiCommandTemplate":       cmdTemplate,
 			})
 			if err != nil {
 				writeError(w, http.StatusBadGateway, "Erreur lors de la délégation à l'agent local: "+err.Error())
@@ -1999,12 +2021,22 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			userID := "default"
 			if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
 				log.Printf("🚀 [Dispatch] Local agent active. Dispatching TTY skill %s on task %s", req.SkillID, task.Key)
+				termCmd := ""
+				if proj, err := h.db.GetProjectByID(task.ProjectID); err == nil && proj != nil {
+					termCmd = proj.ExternalTerminalCommand
+				}
+				if termCmd == "" {
+					if settings, err := h.db.GetSettings(); err == nil && settings != nil {
+						termCmd = settings.ExternalTerminalCommand
+					}
+				}
 				_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
-					"taskKey":   task.Key,
-					"taskId":    task.ID,
-					"skillId":   req.SkillID,
-					"action":    req.SkillID,
-					"projectId": projectID,
+					"taskKey":                 task.Key,
+					"taskId":                  task.ID,
+					"skillId":                 req.SkillID,
+					"action":                  req.SkillID,
+					"projectId":               projectID,
+					"externalTerminalCommand": termCmd,
 				})
 			}
 		}
@@ -3114,6 +3146,29 @@ func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTer
 	}
 	if customTermCmd == "" && settings != nil && settings.ExternalTerminalCommand != "" {
 		customTermCmd = settings.ExternalTerminalCommand
+	}
+
+	projectID := "default"
+	if task.ProjectID != "" {
+		projectID = task.ProjectID
+	}
+	userID := "default"
+	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
+		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
+		_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
+			"taskKey":                 task.Key,
+			"taskId":                  task.ID,
+			"skillId":                 skillID,
+			"action":                  skillID,
+			"prompt":                  command,
+			"projectId":               projectID,
+			"externalTerminalCommand": customTermCmd,
+		})
+		return map[string]interface{}{
+			"success": true,
+			"taskId":  task.ID,
+			"message": fmt.Sprintf("External terminal dispatched to local agent (%s)", ac.DeviceID),
+		}, nil
 	}
 
 	repoPath := h.db.ResolveTaskRepoPath(task)
