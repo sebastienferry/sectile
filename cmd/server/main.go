@@ -170,6 +170,10 @@ func main() {
 
 	if len(os.Args) >= 2 {
 		cmd := strings.ToLower(os.Args[1])
+		if cmd == "agent" {
+			runAgentCommand(os.Args[2:])
+			return
+		}
 		if cmd == "stage" || cmd == "transition" || cmd == "set-stage" {
 			handleCliStageCommand(port, os.Args[2:])
 			return
@@ -265,6 +269,11 @@ func main() {
 	mux.HandleFunc("/api/terminal/sessions", h.HandleTerminalSessions)
 	mux.HandleFunc("/api/terminal/send", h.HandleTerminalSend)
 	mux.HandleFunc("/api/terminal/reset", h.HandleTerminalReset)
+
+	// Remote Agent WebSocket & Dispatch Routes
+	mux.HandleFunc("/ws/agent-connect", h.HandleAgentConnect)
+	mux.HandleFunc("/api/agent/status", h.HandleAgentStatus)
+	mux.HandleFunc("/api/agent/dispatch", h.HandleAgentDispatch)
 
 	// Interface : la copie embarquée d'abord, le dossier de build ensuite.
 	//
