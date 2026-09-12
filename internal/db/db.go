@@ -2509,11 +2509,11 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 		req.Source = tracker
 	}
 
-	// Action Create -> Status: to_clarify, Label: New
+	// Action Create -> Status: to_clarify, Label: new
 	if req.Status == "" {
 		req.Status = models.StatusToClarify
 	}
-	req.Labels = SetWorkflowLabel(req.Labels, "New")
+	req.Labels = SetWorkflowLabel(req.Labels, "new")
 
 	var key string
 	var extURL *string
@@ -2683,7 +2683,7 @@ func (d *DB) CloneTask(taskID string, req models.CloneTaskRequest) (*models.Task
 			labels = append(labels, l)
 		}
 	}
-	labels = SetWorkflowLabel(labels, "New")
+	labels = SetWorkflowLabel(labels, "new")
 
 	sprint := ""
 	if req.Sprint != "" {
