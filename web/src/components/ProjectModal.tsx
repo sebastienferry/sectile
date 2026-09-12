@@ -86,7 +86,7 @@ const AVAILABLE_ICONS = [
 
 const DEFAULT_STAGE_MAPPING: Record<WorkflowStage, string> = {
   new: 'to_clarify',
-  clarified: 'to_specify',
+  clarified: 'clarified',
   specified: 'to_implement',
   implemented: 'to_test',
   reviewed: 'to_close',
@@ -104,7 +104,7 @@ const STAGE_CONFIGS: { id: WorkflowStage; label: string; sub: string; color: str
 
 const STATUS_OPTIONS: { id: string; label: string; stageCategory: string }[] = [
   { id: 'to_clarify', label: 'À clarifier / Todo (Backlog) [#new]', stageCategory: 'Todo' },
-  { id: 'to_specify', label: 'À spécifier (Cadré) [#clarified]', stageCategory: 'In Progress' },
+  { id: 'clarified', label: 'Cadré [#clarified]', stageCategory: 'In Progress' },
   { id: 'to_implement', label: 'À implémenter (En dev) [#specified]', stageCategory: 'In Progress' },
   { id: 'to_test', label: 'À tester (En revue / QA) [#implemented]', stageCategory: 'Review' },
   { id: 'to_close', label: 'En revue / PR prête [#reviewed]', stageCategory: 'Review' },
@@ -171,6 +171,8 @@ export const ProjectModal: React.FC = () => {
   const [aiCommandTemplate, setAiCommandTemplate] = useState('')
   const [useCustomAgent, setUseCustomAgent] = useState(false)
   const [parallelism, setParallelism] = useState<number>(1)
+  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
+  const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
   const [ttyMode, setTtyMode] = useState<TtyMode>('integrated')
   const [externalTerminalCommand, setExternalTerminalCommand] = useState('')
 
@@ -411,6 +413,8 @@ export const ProjectModal: React.FC = () => {
       setAiCommandTemplate(editingProject.aiCommandTemplate || '')
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setParallelism(editingProject.parallelism && editingProject.parallelism >= 1 && editingProject.parallelism <= 3 ? editingProject.parallelism : 1)
+      setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
+      setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
       setTtyMode(editingProject.ttyMode || 'integrated')
       setExternalTerminalCommand(editingProject.externalTerminalCommand || '')
 
@@ -456,6 +460,8 @@ export const ProjectModal: React.FC = () => {
       setAiCommandTemplate('')
       setSpecFramework(settings.specFramework || 'speckit')
       setParallelism(1)
+      setAutoSyncEnabled(false)
+      setAutoSyncIntervalMin(5)
       setTtyMode('integrated')
       setExternalTerminalCommand('')
 
@@ -610,6 +616,8 @@ export const ProjectModal: React.FC = () => {
         aiCommandTemplate: useCustomAgent && aiCommandTemplate.trim() ? aiCommandTemplate.trim() : undefined,
         specFramework,
         parallelism,
+        autoSyncEnabled,
+        autoSyncIntervalMin,
         ttyMode,
         externalTerminalCommand: externalTerminalCommand.trim() || undefined,
         issueTracker,
@@ -1311,6 +1319,62 @@ export const ProjectModal: React.FC = () => {
                 </div>
               </div>
 
+              {/* Section Synchronisation en arrière-plan */}
+              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
+                      <RefreshCw size={16} />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-[var(--text-primary)] block">
+                        Synchronisation en arrière-plan
+                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)] block">
+                        Génère automatiquement des tâches de synchronisation en file d'attente pour les tickets non terminés de ce projet.
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoSyncEnabled}
+                    onClick={() => setAutoSyncEnabled(v => !v)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                      autoSyncEnabled ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)]'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        autoSyncEnabled ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {autoSyncEnabled && (
+                  <div className="pt-2 border-t border-[var(--border-color)] space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[var(--text-secondary)] font-medium">Période de synchronisation :</span>
+                      <span className="font-mono font-bold text-[var(--accent-color)]">{autoSyncIntervalMin} min</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={30}
+                      value={autoSyncIntervalMin}
+                      onChange={e => setAutoSyncIntervalMin(parseInt(e.target.value, 10) || 5)}
+                      className="w-full h-1.5 bg-[var(--bg-primary)] rounded-lg appearance-none cursor-pointer accent-[var(--accent-color)]"
+                    />
+                    <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
+                      <span>1 min</span>
+                      <span>15 min</span>
+                      <span>30 min</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* TTY Terminal Mode Setting */}
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1465,7 +1529,7 @@ export const ProjectModal: React.FC = () => {
                         }
                         setStageMapping({
                           new: findStatus(['triage', 'backlog', 'unstarted', 'to_clarify', 'todo', 'open'], 'to_clarify'),
-                          clarified: findStatus(['cadré', 'clarified', 'specify', 'to_specify', 'triage', 'todo', 'unstarted'], 'to_specify'),
+                          clarified: findStatus(['cadré', 'clarified', 'specify', 'triage', 'todo', 'unstarted'], 'clarified'),
                           specified: findStatus(['ready', 'specified', 'spec', 'plan', 'to_implement', 'todo'], 'to_implement'),
                           implemented: findStatus(['in progress', 'progress', 'dev', 'started', 'implemented', 'doing', 'to_test'], 'to_test'),
                           reviewed: findStatus(['review', 'pr', 'qa', 'test', 'reviewed', 'to_close'], 'to_close'),
@@ -1930,6 +1994,57 @@ export const ProjectModal: React.FC = () => {
                     </span>
                   )}
                 </div>
+              </div>
+
+              {/* Section Synchronisation en arrière-plan */}
+              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <label className="text-xs font-bold text-[var(--text-primary)] block">
+                      Synchronisation en arrière-plan
+                    </label>
+                    <span className="text-[10px] text-[var(--text-secondary)] block mt-0.5">
+                      Génère automatiquement des tâches de synchronisation en file d'attente pour les tickets non terminés de ce projet.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={autoSyncEnabled}
+                    onClick={() => setAutoSyncEnabled(v => !v)}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                      autoSyncEnabled ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)]'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                        autoSyncEnabled ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {autoSyncEnabled && (
+                  <div className="pt-2 border-t border-[var(--border-color)] space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-[var(--text-secondary)] font-medium">Période de synchronisation :</span>
+                      <span className="font-mono font-bold text-[var(--accent-color)]">{autoSyncIntervalMin} min</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={30}
+                      value={autoSyncIntervalMin}
+                      onChange={e => setAutoSyncIntervalMin(parseInt(e.target.value, 10) || 5)}
+                      className="w-full h-1.5 bg-[var(--bg-primary)] rounded-lg appearance-none cursor-pointer accent-[var(--accent-color)]"
+                    />
+                    <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
+                      <span>1 min</span>
+                      <span>15 min</span>
+                      <span>30 min</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Colonnes du board */}

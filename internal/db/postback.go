@@ -59,6 +59,17 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		d.notifyPostBackListeners(nil, nil, err)
 		return nil, nil, err
 	}
+	if payload.Stage != nil || payload.Status != nil || payload.Labels != nil || payload.TrackerStatus != nil {
+		running, runErr := d.managedStageRunningUnsafe(existing.ID)
+		if runErr != nil || running {
+			d.mu.Unlock()
+			if runErr == nil {
+				runErr = fmt.Errorf("une étape TaskFlow est en cours : son résultat doit être vérifié avant le post-back d'état")
+			}
+			d.notifyPostBackListeners(existing, nil, runErr)
+			return nil, nil, runErr
+		}
+	}
 
 	// 1. Mutate local task attributes idempotently
 	if payload.Title != nil {

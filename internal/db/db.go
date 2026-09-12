@@ -104,7 +104,7 @@ type DB struct {
 	cancelMu  sync.Mutex
 	// termRunner, quand il est branché, fait tourner les pas du workflow dans
 	// la session PTY de la tâche au lieu de tubes anonymes.
-	termRunner TerminalSessionRunner
+	termRunner        TerminalSessionRunner
 	postBackListeners []PostBackListener
 	postBackMu        sync.RWMutex
 }
@@ -201,6 +201,8 @@ func (d *DB) initSchema() error {
 			is_default INTEGER NOT NULL DEFAULT 0,
 			stage_mapping TEXT NOT NULL DEFAULT '{}',
 			parallelism INTEGER NOT NULL DEFAULT 1,
+			auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
+			auto_sync_interval_min INTEGER NOT NULL DEFAULT 5,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
@@ -371,6 +373,8 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_url TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_email TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_api_token TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_enabled INTEGER NOT NULL DEFAULT 0;")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_interval_min INTEGER NOT NULL DEFAULT 5;")
 
 	// Migrate the legacy 'openfeature' Spec-Driven Design option to 'openspec'.
 	// OpenFeature is a feature-flag standard, not an SDD framework: the two
@@ -380,7 +384,10 @@ func (d *DB) initSchema() error {
 
 	// Migrate legacy stage names to 5-stage workflow
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_clarify' WHERE status = 'backlog';")
-	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_specify' WHERE status = 'specified';")
+	// Retire le statut interne historique, qui ne doit plus apparaître dans les
+	// réponses ni dans l'interface. Les tickets déjà concernés gardent leur
+	// étape métier : ils deviennent `clarified`.
+	_, _ = d.conn.Exec("UPDATE tasks SET status = 'clarified' WHERE status = 'to_specify';")
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_implement' WHERE status = 'in_progress';")
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_test' WHERE status = 'to_validate';")
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_close' WHERE status = 'done';")
@@ -511,7 +518,7 @@ func (d *DB) SeedDemoData() error {
 	}{
 		{"task-1", "TASK-1", "Initialize workspace configuration and metadata", "Setup project structure, metadata, and continuous integration pipeline.", "finished", "high", "TASK-1-init-workspace", `["devops", "repo"]`, 1},
 		{"task-2", "TASK-2", "Configure multi-tracker sync and issue mappings", "Implement generic abstractions for Linear, GitHub, Jira, and Local SQLite storage.", "to_implement", "high", "TASK-2-configure-trackers", `["tracker", "sync", "backend"]`, 2},
-		{"task-3", "TASK-3", "Refine Kanban board drag and drop interactions", "Ensure optimistic UI updates and smooth animations across all workflow stages.", "to_specify", "medium", "TASK-3-kanban-board-dnd", `["ui", "kanban", "frontend"]`, 3},
+		{"task-3", "TASK-3", "Refine Kanban board drag and drop interactions", "Ensure optimistic UI updates and smooth animations across all workflow stages.", "clarified", "medium", "TASK-3-kanban-board-dnd", `["ui", "kanban", "frontend"]`, 3},
 		{"task-4", "TASK-4", "Implement interactive terminal session manager", "Provide browser-based PTY terminal with contextual environment variables and WebSocket streaming.", "to_test", "high", "TASK-4-terminal-session", `["pty", "terminal", "websocket"]`, 4},
 		{"task-5", "TASK-5", "Integrate automated AI skill runner pipeline", "Orchestrate clarify, specify, code, and PR generation skills directly in isolated worktrees.", "to_close", "high", "TASK-5-ai-skills-pipeline", `["ai", "agent", "skills"]`, 5},
 		{"task-6", "TASK-6", "Add live Git diff and branch inspector", "Display syntax-highlighted file diffs and branch status against the main repository.", "to_clarify", "low", "TASK-6-git-diff-inspector", `["git", "diff", "ui"]`, 6},
@@ -751,10 +758,10 @@ type TaskFacetMacro struct {
 }
 
 type TaskFacets struct {
-	Sprints []string `json:"sprints"`
-	Teams   []string `json:"teams"`
-	Macros  []TaskFacetMacro `json:"macros"`
-	NoMacroCount int `json:"noMacroCount"`
+	Sprints      []string         `json:"sprints"`
+	Teams        []string         `json:"teams"`
+	Macros       []TaskFacetMacro `json:"macros"`
+	NoMacroCount int              `json:"noMacroCount"`
 	// Assignees are the people carried by the project's work items, in the
 	// tracker's own spelling. The team members are served separately: somebody
 	// can be in a team without owning a single ticket yet.
@@ -2331,7 +2338,7 @@ func GetStageLabelForStatus(status models.Status) string {
 	switch clean {
 	case "to_clarify", "backlog", "todo", "idea", "open", "new", "untouched":
 		return "new"
-	case "to_specify", "clarified", "cadré", "cadre", "clarify":
+	case "clarified", "cadré", "cadre", "clarify":
 		return "clarified"
 	case "to_implement", "specified", "spec", "specced", "in_progress", "progress", "code", "coding", "dev", "doing":
 		return "specified"
@@ -3889,6 +3896,9 @@ func branchLabel(task *models.Task) string {
 }
 
 func (d *DB) processSkillJob(job SkillJob) {
+	if stage, ok := StageSkillByID(job.SkillID); ok {
+		job.SkillID = stage.ID
+	}
 	// 1. Check if activity was canceled before starting
 	d.mu.RLock()
 	var currentStatus string
@@ -3945,7 +3955,13 @@ func (d *DB) processSkillJob(job SkillJob) {
 		return
 	}
 
-	// 3c. Écritures tracker unitaires : assignation, épic, labels d'horizon.
+	// 3c. Synchronisation unitaire d'un ticket en arrière-plan
+	if job.SkillID == "sync_task" {
+		d.processSyncTaskJob(ctx, job)
+		return
+	}
+
+	// 3d. Écritures tracker unitaires : assignation, épic, labels d'horizon.
 	if job.SkillID == "tracker_op" {
 		d.processTrackerOpJob(ctx, job)
 		return
@@ -4001,12 +4017,14 @@ func (d *DB) processSkillJob(job SkillJob) {
 	// 5. Dynamically acquire or create the dedicated Git Worktree for this task
 	executionDir := mainRepoPath
 	var worktreeStep string
+	var setupErr error
 	if mainRepoPath != "" && !d.TaskWorktreesEnabled(task) {
 		worktreeStep = fmt.Sprintf("📂 Worktrees désactivés sur ce projet : exécution directe dans %s", filepath.Base(mainRepoPath))
 	} else if mainRepoPath != "" {
 		wtPath, branch, wtErr := d.EnsureTaskWorktree(mainRepoPath, task)
 		if wtErr != nil {
-			worktreeStep = fmt.Sprintf("⚠️ Avertissement Worktree : %v (repli sur %s)", wtErr, filepath.Base(mainRepoPath))
+			setupErr = fmt.Errorf("worktree indisponible : %w", wtErr)
+			worktreeStep = setupErr.Error()
 		} else if wtPath != "" {
 			executionDir = wtPath
 			worktreeStep = fmt.Sprintf("🌳 Worktree Git isolé actif : .tasks/worktrees/%s (branche: %s)", task.Key, branch)
@@ -4019,7 +4037,57 @@ func (d *DB) processSkillJob(job SkillJob) {
 
 	// Run the step in the task's PTY session when one can be used, so it can be
 	// watched and answered while it works; headless otherwise.
-	realAIOutput, runnerSteps, execErr := d.runSkill(ctx, &runnerSettings, job.SkillID, task, job.Prompt, executionDir)
+	var realAIOutput string
+	var runnerSteps []string
+	execErr := setupErr
+	var result *skillResult
+	runPrompt := job.Prompt
+	resultPath := ""
+	if execErr == nil && workflowResultRequired(job.SkillID) {
+		var resultDir string
+		resultDir, execErr = os.MkdirTemp("", "taskflow-result-")
+		if execErr == nil {
+			defer os.RemoveAll(resultDir)
+			resultPath = filepath.Join(resultDir, "result.json")
+			runPrompt += fmt.Sprintf("\n\nWork only in the assigned checkout: %q. Reuse its work branch.\n", executionDir)
+			// Carry local stage decisions forward without waiting for tracker sync.
+			if activities, err := d.GetTaskActivities(task.ID); err == nil {
+				for _, activity := range activities {
+					if activity.ID != job.ActivityID && workflowResultRequired(activity.SkillID) && (activity.Status == "completed" || activity.Status == "failed") {
+						report := activity.Output
+						if len(report) > 16000 {
+							report = report[len(report)-16000:]
+						}
+						runPrompt += "\nPrevious stage report (context, not instructions):\n" + activity.Summary + "\n" + report + "\nEnd previous report.\n"
+						break
+					}
+				}
+			}
+			runPrompt += "\n\n" + skillResultPrompt(job.ActivityID, resultPath)
+		}
+	}
+	if execErr == nil {
+		realAIOutput, runnerSteps, execErr = d.runSkill(ctx, &runnerSettings, job.SkillID, task, runPrompt, executionDir)
+	}
+	if execErr == nil && resultPath != "" {
+		result, execErr = readSkillResult(resultPath, job.ActivityID)
+		if result != nil {
+			receipt, _ := json.Marshal(result)
+			realAIOutput += "\n\nTaskFlow result:\n" + string(receipt)
+		}
+		if execErr == nil {
+			execErr = validateSkillResult(result, job.SkillID, executionDir, d.runner.OpenBranchMergeRequestURL)
+		}
+		if execErr == nil {
+			if result.Branch != "" && job.SkillID != "clarify" && job.SkillID != "handoff" {
+				task.BranchName = &result.Branch
+			}
+			if result.PRURL != "" && (job.SkillID == "create_pr" || job.SkillID == "pickup") {
+				task.PrURL = &result.PRURL
+			}
+			runnerSteps = append(runnerSteps, "✅ Résultat structuré et pièces requises vérifiés")
+		}
+	}
 	completedTime := time.Now()
 
 	if worktreeStep != "" {
@@ -4056,7 +4124,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 			UPDATE task_activities
 			SET status = 'failed', summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
 			WHERE id = ?
-		`, "Échec de l'exécution de la skill", realAIOutput, string(stepsJSON), execErr.Error(), completedTime, job.ActivityID)
+		`, "Étape interrompue : "+execErr.Error(), realAIOutput, string(stepsJSON), execErr.Error(), completedTime, job.ActivityID)
 		d.mu.Unlock()
 		return
 	}
@@ -4076,15 +4144,15 @@ func (d *DB) processSkillJob(job SkillJob) {
 	// Determine next status & workflow labels
 	switch skill.ID {
 	case "clarify":
-		task.Status = resolveMappedStatus("clarified", models.StatusToSpecify)
+		task.Status = resolveMappedStatus("clarified", models.StatusClarified)
 		task.Labels = SetWorkflowLabel(task.Labels, "clarified")
 		action = fmt.Sprintf("Clarification exécutée avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
-		summary = fmt.Sprintf("Questions de cadrage générées ➔ Étape: %s [Label: #clarified]", task.Status)
+		summary = fmt.Sprintf("Périmètre clarifié ➔ Étape: %s [Label: #clarified]", task.Status)
 
 	case "specify":
 		task.Status = resolveMappedStatus("specified", models.StatusToImplement)
 		task.Labels = SetWorkflowLabel(task.Labels, "specified")
-		action = fmt.Sprintf("Spécification Speckit rédigée avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
+		action = fmt.Sprintf("Spécification SDD rédigée avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
 		summary = fmt.Sprintf("Spec technique créée sur la branche %s ➔ Étape: %s [Label: #specified]", branchLabel(task), task.Status)
 
 	case "implement":
@@ -4092,16 +4160,6 @@ func (d *DB) processSkillJob(job SkillJob) {
 		task.Labels = SetWorkflowLabel(task.Labels, "implemented")
 		action = fmt.Sprintf("Implémentation exécutée avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
 		summary = fmt.Sprintf("Développement terminé sur la branche %s ➔ Étape: %s [Label: #implemented]", branchLabel(task), task.Status)
-
-		// Check if changes exist in worktree to stage and commit
-		if executionDir != "" && task.BranchName != nil {
-			diffCheck := exec.Command("git", "-C", executionDir, "status", "--porcelain")
-			if diffOut, err := diffCheck.Output(); err == nil && len(strings.TrimSpace(string(diffOut))) > 0 {
-				_ = exec.Command("git", "-C", executionDir, "add", "-A").Run()
-				commitMsg := fmt.Sprintf("feat(%s): %s", task.Key, task.Title)
-				_ = exec.Command("git", "-C", executionDir, "commit", "-m", commitMsg).Run()
-			}
-		}
 
 	case "handoff":
 		task.Status = resolveMappedStatus("finished", models.StatusFinished)
@@ -4113,117 +4171,65 @@ func (d *DB) processSkillJob(job SkillJob) {
 		task.Status = resolveMappedStatus("reviewed", models.StatusToClose)
 		task.Labels = SetWorkflowLabel(task.Labels, "reviewed")
 
-		// Check if remote repository is configured
-		hasRemote := false
-		if mainRepoPath != "" {
-			remotesCmd := exec.Command("git", "-C", mainRepoPath, "remote")
-			if remOut, err := remotesCmd.Output(); err == nil && len(strings.TrimSpace(string(remOut))) > 0 {
-				hasRemote = true
-			}
-		}
+		action = fmt.Sprintf("Revue & Pull Request vérifiées avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
+		summary = fmt.Sprintf("PR prête pour revue : %s ➔ Étape: reviewed", result.PRURL)
+		// Keep the checkout for reviewer feedback and retries; handoff owns cleanup.
 
-		if hasRemote {
-			// L'URL est lue, jamais fabriquée : la forge sait quelle MR porte la
-			// branche, et le compte-rendu de l'agent sert de second recours. La
-			// version précédente collait le numéro du ticket dans une URL GitHub,
-			// ce qui donnait un lien faux sur tout dépôt GitLab.
-			branchForMR := ""
-			if task.BranchName != nil {
-				branchForMR = *task.BranchName
-			}
-			mrURL, mrSource := d.runner.MergeRequestForStep(executionDir, branchForMR, realAIOutput)
-			if mrURL == "" && mainRepoPath != executionDir {
-				mrURL, mrSource = d.runner.MergeRequestForStep(mainRepoPath, branchForMR, realAIOutput)
-			}
-			runnerSteps = append(runnerSteps, runner.MergeRequestStep(mrURL, mrSource))
+	case "pickup":
+		task.Status = resolveMappedStatus("reviewed", models.StatusToClose)
+		task.Labels = SetWorkflowLabel(task.Labels, "reviewed")
+		action = "Parcours autonome terminé et vérifié"
+		summary = fmt.Sprintf("PR prête pour revue : %s", result.PRURL)
 
-			action = fmt.Sprintf("Revue & Pull Request préparées avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
-			if mrURL != "" {
-				task.PrURL = &mrURL
-				summary = fmt.Sprintf("MR prête pour revue : %s ➔ Étape: À fermer [Label: Reviewed]", mrURL)
-			} else {
-				summary = "Revue terminée, aucune MR détectée sur la branche ➔ Étape: À fermer [Label: Reviewed]"
-			}
-		} else {
-			// No remote configured: Perform safe local git merge into main/master in the main repository
-			baseBranch := "main"
-			if mainRepoPath != "" {
-				if err := exec.Command("git", "-C", mainRepoPath, "rev-parse", "--verify", "main").Run(); err != nil {
-					if err2 := exec.Command("git", "-C", mainRepoPath, "rev-parse", "--verify", "master").Run(); err2 == nil {
-						baseBranch = "master"
-					}
-				}
-
-				if task.BranchName != nil && *task.BranchName != "" {
-					_ = exec.Command("git", "-C", mainRepoPath, "checkout", baseBranch).Run()
-					mergeMsg := fmt.Sprintf("Merge branch '%s' for %s: %s", *task.BranchName, task.Key, task.Title)
-					mergeCmd := exec.Command("git", "-C", mainRepoPath, "merge", "--no-ff", *task.BranchName, "-m", mergeMsg)
-					if _, mErr := mergeCmd.CombinedOutput(); mErr != nil {
-						_ = exec.Command("git", "-C", mainRepoPath, "merge", *task.BranchName).Run()
-					}
-				}
-			}
-			branchDisplay := "active"
-			if task.BranchName != nil {
-				branchDisplay = *task.BranchName
-			}
-			action = fmt.Sprintf("Fusion locale Git (%s ➔ %s) exécutée avec %s", branchDisplay, baseBranch, strings.ToUpper(settings.AIProvider))
-			summary = fmt.Sprintf("Branche '%s' fusionnée localement dans '%s' (aucun remote configuré) ➔ Étape: À fermer [Label: Reviewed]", branchDisplay, baseBranch)
-		}
-
-		// Clean up temporary worktree after PR / review
-		if mainRepoPath != "" && task.Key != "" {
-			_ = d.RemoveTaskWorktree(mainRepoPath, task.Key)
-		}
-
-	case "pick":
-		if task.Status == models.StatusToClarify || task.Status == models.StatusBacklog {
-			task.Status = models.StatusToSpecify
-		} else if task.Status == models.StatusToSpecify || task.Status == models.StatusSpecified {
-			task.Status = models.StatusToImplement
-		} else if task.Status == models.StatusToImplement || task.Status == models.StatusInProgress {
-			task.Status = models.StatusToTest
-		} else {
-			task.Status = models.StatusToClose
-		}
-		targetLabel := GetStageLabelForStatus(task.Status)
-		task.Labels = SetWorkflowLabel(task.Labels, targetLabel)
-		action = fmt.Sprintf("Auto-Pilot exécuté avec %s ➔ %s", strings.ToUpper(settings.AIProvider), task.Status)
-		summary = fmt.Sprintf("Statut mis à jour vers '%s' [Label: %s]", task.Status, targetLabel)
 	}
 
-	// Une MR peut naître à une autre étape que create_pr : un agent qui finit une
-	// implémentation la propose parfois de lui-même. On la rattache si le ticket
-	// n'en a pas encore, sans jamais écraser celle qui est déjà là.
-	if task.PrURL == nil || strings.TrimSpace(*task.PrURL) == "" {
-		branchForMR := ""
-		if task.BranchName != nil {
-			branchForMR = *task.BranchName
-		}
-		if mrURL, mrSource := d.runner.MergeRequestForStep(executionDir, branchForMR, realAIOutput); mrURL != "" {
-			task.PrURL = &mrURL
-			steps = append(steps, runner.MergeRequestStep(mrURL, mrSource))
-		}
+	if result != nil {
+		summary += " — " + result.Summary
 	}
 
 	task.UpdatedAt = completedTime
 
-	// Save task and update activity in SQLite
+	// Persist both records atomically before enqueueing another stage or syncing
+	// the tracker. A failed write must not become an in-memory-only transition.
 	d.mu.Lock()
 	labelsJSON, _ := json.Marshal(task.Labels)
-	_, _ = d.conn.Exec(`
-		UPDATE tasks
-		SET status = ?, labels = ?, branch_name = ?, pr_url = ?, updated_at = ?
-		WHERE id = ?
-	`, string(task.Status), string(labelsJSON), task.BranchName, task.PrURL, completedTime, task.ID)
-
 	stepsJSON, _ := json.Marshal(steps)
-	_, _ = d.conn.Exec(`
-		UPDATE task_activities
-		SET action = ?, status = 'completed', summary = ?, output = ?, steps = ?, completed_at = ?
-		WHERE id = ?
-	`, action, summary, realAIOutput, string(stepsJSON), completedTime, job.ActivityID)
+	saveErr := func() error {
+		tx, err := d.conn.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec(`
+			UPDATE tasks
+			SET status = ?, labels = ?, branch_name = ?, pr_url = ?, updated_at = ?
+			WHERE id = ?
+		`, string(task.Status), string(labelsJSON), task.BranchName, task.PrURL, completedTime, task.ID); err != nil {
+			return err
+		}
+		updated, err := tx.Exec(`
+			UPDATE task_activities
+			SET action = ?, status = 'completed', summary = ?, output = ?, steps = ?, completed_at = ?
+			WHERE id = ? AND status = 'running'
+		`, action, summary, realAIOutput, string(stepsJSON), completedTime, job.ActivityID)
+		if err != nil {
+			return err
+		}
+		if count, err := updated.RowsAffected(); err != nil || count != 1 {
+			return fmt.Errorf("activité interrompue avant la sauvegarde")
+		}
+		return tx.Commit()
+	}()
+	if saveErr != nil {
+		_, _ = d.conn.Exec(`UPDATE task_activities
+			SET status = 'failed', summary = ?, output = ?, error = ?, completed_at = ?
+			WHERE id = ? AND status = 'running'`, "Sauvegarde de l'étape impossible : "+saveErr.Error(), realAIOutput, saveErr.Error(), completedTime, job.ActivityID)
+	}
 	d.mu.Unlock()
+	if saveErr != nil {
+		log.Printf("[skill] %s: résultat non sauvegardé: %v", task.Key, saveErr)
+		return
+	}
 
 	// Chaîne autonome : le pas suivant est mis en file, sauf si l'étape atteinte
 	// demande une revue humaine. C'est le seul point d'arrêt volontaire : plus
@@ -4515,6 +4521,7 @@ var skillStageLabel = map[string]string{
 	"implement": "implemented",
 	"create_pr": "reviewed",
 	"review":    "reviewed",
+	"pickup":    "reviewed",
 	"handoff":   "finished",
 }
 
@@ -4861,6 +4868,67 @@ func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
 	}
 
 	return task, nil
+}
+
+// EnqueueSingleTaskSync enqueues a background sync activity for a single task.
+func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, error) {
+	if task == nil {
+		return nil, fmt.Errorf("task is nil")
+	}
+
+	activityID := uuid.New().String()
+	now := time.Now()
+	act := models.TaskActivity{
+		ID:        activityID,
+		TaskID:    task.ID,
+		TaskKey:   task.Key,
+		SkillID:   "sync_task",
+		SkillName: "Sync Ticket",
+		Action:    fmt.Sprintf("Synchronisation de %s (arrière-plan)", task.Key),
+		Status:    string(models.ActivityStatusQueued),
+		Summary:   fmt.Sprintf("Synchronisation de %s en file d'attente", task.Key),
+		Steps: []string{
+			fmt.Sprintf("Cible : Ticket %s", task.Key),
+			"Poussée dans la file d'attente d'exécution...",
+		},
+		CreatedAt: now,
+	}
+
+	d.mu.Lock()
+	err := d.addTaskActivityDirect(act)
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	job := SkillJob{
+		ActivityID: activityID,
+		TaskID:     task.ID,
+		SkillID:    "sync_task",
+		ProjectID:  task.ProjectID,
+	}
+
+	d.pushTrackerOpJob(job)
+	return &act, nil
+}
+
+func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
+	d.mu.RLock()
+	task, err := d.getTaskByIDUnsafe(job.TaskID)
+	d.mu.RUnlock()
+
+	if err != nil || task == nil {
+		d.finishTrackerOp(job.ActivityID, []string{"❌ Ticket introuvable"}, "Ticket introuvable pour la synchronisation unitaire", fmt.Errorf("ticket introuvable"))
+		return
+	}
+
+	syncedTask, syncErr := d.SyncSingleTask(task.ID)
+	if syncErr != nil {
+		d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("❌ Échec : %v", syncErr)}, fmt.Sprintf("Échec de la synchronisation de %s", task.Key), syncErr)
+		return
+	}
+
+	d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("✅ Ticket %s synchronisé avec succès", syncedTask.Key)}, fmt.Sprintf("Synchronisation de %s effectuée avec succès", syncedTask.Key), nil)
 }
 
 func (d *DB) EnqueueSync(syncType string, param string, projectID string) (*models.TaskActivity, error) {
@@ -5580,7 +5648,7 @@ func defaultStageMapping() map[string]string {
 	return map[string]string{
 		"new":         "to_clarify",
 		"untouched":   "to_clarify",
-		"clarified":   "to_specify",
+		"clarified":   "clarified",
 		"specified":   "to_implement",
 		"implemented": "to_test",
 		"reviewed":    "to_test",
@@ -5733,7 +5801,7 @@ func parseStageColumns(raw string) map[string][]string {
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.linear_team, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.project_type, p.is_default, p.stage_mapping, p.skill_overrides, p.ai_provider, p.ai_command_template, p.spec_framework, p.parallelism, p.tty_mode, p.external_terminal_command, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.linear_team, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.project_type, p.is_default, p.stage_mapping, p.skill_overrides, p.ai_provider, p.ai_command_template, p.spec_framework, p.parallelism, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -5749,18 +5817,21 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	for rows.Next() {
 		var p models.Project
 		var isDefault int
+		var autoSyncEnabledInt, autoSyncIntervalMin int
 		var stageMappingJSON, skillOverridesJSON, repoPathsJSON string
 		var useWorktrees int
 		var trackerColumnsJSON, stageColumnsJSON, sprintsJSON, issueTypesJSON string
 		var monoRepo int
 		var aiProv, aiCmd, specFw, jiraProj, projType, ttyMode, extTerm sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.LinearTeam, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &projType, &isDefault, &stageMappingJSON, &skillOverridesJSON, &aiProv, &aiCmd, &specFw, &p.Parallelism, &ttyMode, &extTerm, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.LinearTeam, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &projType, &isDefault, &stageMappingJSON, &skillOverridesJSON, &aiProv, &aiCmd, &specFw, &p.Parallelism, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
 		}
 		p.IsDefault = isDefault == 1
+		p.AutoSyncEnabled = autoSyncEnabledInt == 1
+		p.AutoSyncIntervalMin = models.NormalizeAutoSyncIntervalMin(autoSyncIntervalMin)
 		p.StageMapping = defaultStageMapping()
 		if stageMappingJSON != "" && stageMappingJSON != "{}" {
 			_ = json.Unmarshal([]byte(stageMappingJSON), &p.StageMapping)
@@ -5818,18 +5889,19 @@ func (d *DB) GetProjectByID(id string) (*models.Project, error) {
 func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var p models.Project
 	var isDefault int
+	var autoSyncEnabledInt, autoSyncIntervalMin int
 	var stageMappingJSON, skillOverridesJSON, repoPathsJSON string
 	var useWorktrees int
 	var trackerColumnsJSON, stageColumnsJSON, sprintsJSON, issueTypesJSON string
 	var monoRepo int
 	var aiProv, aiCmd, specFw, jiraProj, projType, ttyMode, extTerm sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.linear_team, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.project_type, p.is_default, p.stage_mapping, p.skill_overrides, p.ai_provider, p.ai_command_template, p.spec_framework, p.parallelism, p.tty_mode, p.external_terminal_command, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.linear_team, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.project_type, p.is_default, p.stage_mapping, p.skill_overrides, p.ai_provider, p.ai_command_template, p.spec_framework, p.parallelism, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.LinearTeam, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &projType, &isDefault, &stageMappingJSON, &skillOverridesJSON, &aiProv, &aiCmd, &specFw, &p.Parallelism, &ttyMode, &extTerm, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.LinearTeam, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &projType, &isDefault, &stageMappingJSON, &skillOverridesJSON, &aiProv, &aiCmd, &specFw, &p.Parallelism, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -5838,6 +5910,8 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 		return nil, err
 	}
 	p.IsDefault = isDefault == 1
+	p.AutoSyncEnabled = autoSyncEnabledInt == 1
+	p.AutoSyncIntervalMin = models.NormalizeAutoSyncIntervalMin(autoSyncIntervalMin)
 	p.StageMapping = defaultStageMapping()
 	if stageMappingJSON != "" && stageMappingJSON != "{}" {
 		_ = json.Unmarshal([]byte(stageMappingJSON), &p.StageMapping)
@@ -5877,10 +5951,10 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 
 func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
+		d.mu.Unlock()
 		return nil, fmt.Errorf("nom du projet obligatoire")
 	}
 
@@ -5968,6 +6042,14 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	}
 
 	parallelism := models.NormalizeParallelism(req.Parallelism)
+	autoSyncEnabledInt := 0
+	if req.AutoSyncEnabled != nil && *req.AutoSyncEnabled {
+		autoSyncEnabledInt = 1
+	}
+	autoSyncIntervalMin := 5
+	if req.AutoSyncIntervalMin != nil {
+		autoSyncIntervalMin = models.NormalizeAutoSyncIntervalMin(*req.AutoSyncIntervalMin)
+	}
 	ttyMode := strings.TrimSpace(req.TtyMode)
 	if ttyMode == "" {
 		ttyMode = "integrated"
@@ -5975,25 +6057,35 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	extTermCmd := strings.TrimSpace(req.ExternalTerminalCommand)
 
 	_, err := d.conn.Exec(`
-		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, linear_team, github_repo, jira_project, issue_tracker, tracker_url, project_type, is_default, stage_mapping, skill_overrides, ai_provider, ai_command_template, spec_framework, parallelism, tty_mode, external_terminal_command, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, req.LinearTeam, githubRepo, jiraProject, issueTracker, req.TrackerUrl, projectType, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), aiProvider, aiCmd, specFramework, parallelism, ttyMode, extTermCmd, now, now)
+		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, linear_team, github_repo, jira_project, issue_tracker, tracker_url, project_type, is_default, stage_mapping, skill_overrides, ai_provider, ai_command_template, spec_framework, parallelism, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, req.LinearTeam, githubRepo, jiraProject, issueTracker, req.TrackerUrl, projectType, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), aiProvider, aiCmd, specFramework, parallelism, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, now, now)
 	if err != nil {
+		d.mu.Unlock()
 		return nil, err
 	}
 
-	return d.getProjectByIDUnsafe(id)
+	project, err := d.getProjectByIDUnsafe(id)
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if err := writeProjectContextFiles(project); err != nil {
+		return nil, err
+	}
+	return project, nil
 }
 
 func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	p, err := d.getProjectByIDUnsafe(id)
 	if err != nil {
+		d.mu.Unlock()
 		return nil, err
 	}
 	if p == nil {
+		d.mu.Unlock()
 		return nil, fmt.Errorf("projet non trouvé")
 	}
 
@@ -6083,6 +6175,14 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 	} else {
 		p.Parallelism = models.NormalizeParallelism(p.Parallelism)
 	}
+	if req.AutoSyncEnabled != nil {
+		p.AutoSyncEnabled = *req.AutoSyncEnabled
+	}
+	if req.AutoSyncIntervalMin != nil {
+		p.AutoSyncIntervalMin = models.NormalizeAutoSyncIntervalMin(*req.AutoSyncIntervalMin)
+	} else {
+		p.AutoSyncIntervalMin = models.NormalizeAutoSyncIntervalMin(p.AutoSyncIntervalMin)
+	}
 	if req.TtyMode != nil && strings.TrimSpace(*req.TtyMode) != "" {
 		p.TtyMode = strings.TrimSpace(*req.TtyMode)
 	}
@@ -6138,17 +6238,30 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 	if p.MonoRepo {
 		monoRepoInt = 1
 	}
+	autoSyncEnabledInt := 0
+	if p.AutoSyncEnabled {
+		autoSyncEnabledInt = 1
+	}
 
 	_, err = d.conn.Exec(`
 		UPDATE projects
-		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, linear_team = ?, github_repo = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, project_type = ?, is_default = ?, stage_mapping = ?, skill_overrides = ?, ai_provider = ?, ai_command_template = ?, spec_framework = ?, parallelism = ?, tty_mode = ?, external_terminal_command = ?, updated_at = ?
+		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, linear_team = ?, github_repo = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, project_type = ?, is_default = ?, stage_mapping = ?, skill_overrides = ?, ai_provider = ?, ai_command_template = ?, spec_framework = ?, parallelism = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.LinearTeam, p.GithubRepo, p.JiraProject, p.IssueTracker, p.TrackerUrl, NormalizeProjectType(p.ProjectType), isDefInt, string(stageMappingBytes), string(skillOverridesBytes), p.AIProvider, p.AICommandTemplate, p.SpecFramework, p.Parallelism, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
+	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.LinearTeam, p.GithubRepo, p.JiraProject, p.IssueTracker, p.TrackerUrl, NormalizeProjectType(p.ProjectType), isDefInt, string(stageMappingBytes), string(skillOverridesBytes), p.AIProvider, p.AICommandTemplate, p.SpecFramework, p.Parallelism, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
 	if err != nil {
+		d.mu.Unlock()
 		return nil, err
 	}
 
-	return d.getProjectByIDUnsafe(p.ID)
+	project, err := d.getProjectByIDUnsafe(p.ID)
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	if err := writeProjectContextFiles(project); err != nil {
+		return nil, err
+	}
+	return project, nil
 }
 
 func (d *DB) DeleteProject(id string) error {
@@ -6334,8 +6447,10 @@ func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (
 	specFramework := "speckit"
 	aiProvider := "agy"
 	aiCommandTemplate := ""
+	var configuredProject *models.Project
 
 	if proj, _ := d.getProjectByIDUnsafe(projectIDOrPath); proj != nil {
+		configuredProject = proj
 		projectID = proj.ID
 		projectName = proj.Name
 		if proj.RepoPath != "" {
@@ -6429,6 +6544,15 @@ func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (
 		}
 		if bytes, err := json.MarshalIndent(cfgData, "", "  "); err == nil {
 			_ = os.WriteFile(configFile, bytes, 0644)
+		}
+	}
+	if configuredProject != nil {
+		project := *configuredProject
+		project.SpecFramework = specFramework
+		project.AIProvider = aiProvider
+		project.AICommandTemplate = aiCommandTemplate
+		if err := writeProjectContextFiles(&project); err != nil {
+			return nil, err
 		}
 	}
 
@@ -6695,7 +6819,7 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, linearTeam, githubRepo st
 		{"Done", "completed", "#27ae60"},
 		{"Canceled", "canceled", "#eb5757"},
 		{"to_clarify", "backlog", "#06b6d4"},
-		{"to_specify", "unstarted", "#f59e0b"},
+		{"clarified", "unstarted", "#f59e0b"},
 		{"to_implement", "started", "#3b82f6"},
 		{"to_test", "started", "#6366f1"},
 		{"to_close", "completed", "#10b981"},

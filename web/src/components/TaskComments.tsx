@@ -83,41 +83,6 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
         </button>
       </div>
 
-      {isLoading && comments.length === 0 ? (
-        <div className="flex items-center justify-center gap-2 py-6 text-[var(--text-muted)]">
-          <Loader2 size={14} className="animate-spin text-[var(--accent-color)]" />
-          <span className="text-xs">Lecture des commentaires…</span>
-        </div>
-      ) : comments.length === 0 ? (
-        <p className="text-[11px] text-[var(--text-muted)] py-2">
-          Aucun commentaire{task.source && task.source !== 'local' ? ` sur ${task.key}` : ''}. Le premier ci-dessous partira {task.source && task.source !== 'local' ? `dans ${task.source}` : 'en base locale'}.
-        </p>
-      ) : (
-        <div className="space-y-2 max-h-[calc(var(--app-h)*0.42)] overflow-y-auto pr-1">
-          {comments.map(comment => (
-            <div
-              key={comment.id}
-              className="p-2.5 rounded-xl bg-[var(--bg-tertiary)]/60 border border-[var(--border-color)]"
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className="w-5 h-5 rounded-full bg-[var(--accent-light)] text-[var(--accent-color)] flex items-center justify-center shrink-0">
-                  <User size={11} />
-                </span>
-                <span className="text-[11px] font-bold text-[var(--text-primary)] truncate">
-                  {comment.author || 'Inconnu'}
-                </span>
-                {comment.createdAt && (
-                  <span className="text-[10px] font-mono text-[var(--text-muted)] ml-auto shrink-0">
-                    {formatDate(comment.createdAt)}
-                  </span>
-                )}
-              </div>
-              <MarkdownView compact>{comment.body}</MarkdownView>
-            </div>
-          ))}
-        </div>
-      )}
-
       <div className="space-y-1.5">
         <MarkdownEditor
           value={draft}
@@ -148,6 +113,41 @@ export const TaskComments: React.FC<{ task: Task }> = ({ task }) => {
           </button>
         </div>
       </div>
+
+      {isLoading && comments.length === 0 ? (
+        <div className="flex items-center justify-center gap-2 py-6 text-[var(--text-muted)]">
+          <Loader2 size={14} className="animate-spin text-[var(--accent-color)]" />
+          <span className="text-xs">Lecture des commentaires…</span>
+        </div>
+      ) : comments.length === 0 ? (
+        <p className="text-[11px] text-[var(--text-muted)] py-2">
+          Aucun commentaire{task.source && task.source !== 'local' ? ` sur ${task.key}` : ''}. Le premier ci-dessus partira {task.source && task.source !== 'local' ? `dans ${task.source}` : 'en base locale'}.
+        </p>
+      ) : (
+        <div className="space-y-2 max-h-[calc(var(--app-h)*0.42)] overflow-y-auto pr-1">
+          {comments.map(comment => (
+            <div
+              key={comment.id}
+              className="p-2.5 rounded-xl bg-[var(--bg-tertiary)]/60 border border-[var(--border-color)]"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <span className="w-5 h-5 rounded-full bg-[var(--accent-light)] text-[var(--accent-color)] flex items-center justify-center shrink-0">
+                  <User size={11} />
+                </span>
+                <span className="text-[11px] font-bold text-[var(--text-primary)] truncate">
+                  {comment.author || 'Inconnu'}
+                </span>
+                {comment.createdAt && (
+                  <span className="text-[10px] font-mono text-[var(--text-muted)] ml-auto shrink-0">
+                    {formatDate(comment.createdAt)}
+                  </span>
+                )}
+              </div>
+              <MarkdownView compact>{comment.body}</MarkdownView>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

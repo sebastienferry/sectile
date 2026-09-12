@@ -262,7 +262,7 @@ func (r *Runner) SyncFromLinear(teamKey string) ([]models.Task, error) {
 		case strings.Contains(stateName, "clarif") || strings.Contains(stateName, "triage") || strings.Contains(stateName, "backlog"):
 			status = models.StatusToClarify
 		case strings.Contains(stateName, "specif") || strings.Contains(stateName, "todo") || strings.Contains(stateName, "unstarted"):
-			status = models.StatusToSpecify
+			status = models.StatusClarified
 		case strings.Contains(stateName, "progress") || strings.Contains(stateName, "started") || strings.Contains(stateName, "implem"):
 			status = models.StatusToImplement
 		case strings.Contains(stateName, "test") || strings.Contains(stateName, "valid") || strings.Contains(stateName, "review"):
@@ -336,7 +336,6 @@ var validLinearLabels = map[string]string{
 	"specified":    "specified",
 	"specify":      "specified",
 	"to-specify":   "specified",
-	"to_specify":   "specified",
 	"implemented":  "Implemented",
 	"implement":    "Implemented",
 	"to-implement": "Implemented",
@@ -467,7 +466,7 @@ func mapStatusToLinearState(status models.Status) string {
 	switch status {
 	case models.StatusToClarify, models.StatusBacklog:
 		return "Backlog"
-	case models.StatusToSpecify, models.StatusSpecified:
+	case models.StatusClarified:
 		return "Todo"
 	case models.StatusToImplement, models.StatusInProgress:
 		return "In Progress"
@@ -562,12 +561,12 @@ func (r *Runner) UpdateLinearIssue(issueKey string, title *string, description *
 
 // GitHub structures
 type GithubIssueItem struct {
-	Number  int    `json:"number"`
-	Title   string `json:"title"`
-	Body    string `json:"body"`
-	URL     string `json:"url"`
-	HTMLURL string `json:"html_url"`
-	State   string `json:"state"`
+	Number    int    `json:"number"`
+	Title     string `json:"title"`
+	Body      string `json:"body"`
+	URL       string `json:"url"`
+	HTMLURL   string `json:"html_url"`
+	State     string `json:"state"`
 	Milestone *struct {
 		Title  string `json:"title"`
 		Number int    `json:"number"`
@@ -689,7 +688,7 @@ func (r *Runner) SyncFromGithub(repo string, repoPath string) ([]models.Task, er
 				case "new", "untouched":
 					status = models.StatusToClarify
 				case "clarified":
-					status = models.StatusToSpecify
+					status = models.StatusClarified
 				case "specified":
 					status = models.StatusToImplement
 				case "implemented":
@@ -800,7 +799,7 @@ func (r *Runner) FetchSingleGithubIssue(repo string, repoPath string, issueNumbe
 			case "new", "untouched":
 				status = models.StatusToClarify
 			case "clarified":
-				status = models.StatusToSpecify
+				status = models.StatusClarified
 			case "specified":
 				status = models.StatusToImplement
 			case "implemented":
@@ -1689,7 +1688,7 @@ func (r *Runner) RunAI(settings *models.Settings, skillID string, task *models.T
 
 	if execErr != nil {
 		steps = append(steps, fmt.Sprintf("⚠️ Erreur d'exécution : %v", execErr))
-		return fmt.Sprintf("### ⚠️ Erreur lors de l'exécution de la commande IA (%s)\n\n```text\n%s\n```\n\n*Vérifiez que le binaire '%s' est bien accessible et authentifié.*", inv.Provider, output, inv.Provider), steps, nil
+		return fmt.Sprintf("### ⚠️ Erreur lors de l'exécution de la commande IA (%s)\n\n```text\n%s\n```\n\n*Vérifiez que le binaire '%s' est bien accessible et authentifié.*", inv.Provider, output, inv.Provider), steps, execErr
 	}
 
 	steps = append(steps, "✅ Réponse générée par le modèle IA avec succès")
@@ -1808,7 +1807,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	case "create_pr":
 		promptTemplate = settings.PromptCreatePR
 		if promptTemplate == "" {
-			promptTemplate = `Tu es l'ingénieur DevOps & Release pour TaskFlow. Tu dois finaliser la tâche, commiter et créer la Pull Request ou effectuer la fusion (merge) locale :
+			promptTemplate = `Tu es l'ingénieur DevOps & Release pour TaskFlow. Tu dois finaliser la tâche, commiter et créer la Pull Request, puis laisser la fusion à l’utilisateur :
 Clé : {issueKey}
 Titre : {issueTitle}
 Description : {issueDesc}
@@ -1821,10 +1820,8 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 3. CAS A : Si un dépôt distant (remote 'origin' ou GitHub/GitLab) est configuré :
    - Pousse la branche vers le remote : 'git push -u origin {branchName}'
    - Crée la Pull Request via 'gh pr create' ou 'glab mr create' si disponible.
-4. CAS B : Si AUCUN remote distant n'est configuré (dépôt local uniquement) :
-   - Bascule sur la branche principale : 'git checkout main' (ou 'git checkout master' selon la branche par défaut).
-   - Fusionne la branche de la tâche : 'git merge --no-ff {branchName} -m "Merge branch \'{branchName}\' for {issueKey}: {issueTitle}"'
-5. Fournis un compte-rendu clair de l'action réalisée (Pull Request créée ou Merge local effectué sur la branche principale).`
+4. Si aucun remote n'est configuré, signale le blocage et conserve la branche et le worktree.
+5. Fournis l'URL réelle de la Pull Request et les résultats des vérifications. Ne fusionne jamais localement ou à distance.`
 		}
 	case "handoff":
 		promptTemplate = `Tu es responsable de la clôture propre de la tâche pour TaskFlow. Le code a été revu et fusionné : il reste à documenter le handoff et à nettoyer.
@@ -2730,7 +2727,7 @@ func InteractiveAgentLaunch(settings *models.Settings) (string, error) {
 	}
 
 	switch provider {
-	case "agy", "vibe", "claude", "gemini":
+	case "agy", "vibe", "claude", "gemini", "codex":
 		return resolveAgentBinary(provider, "")
 	case "cursor":
 		line, err := resolveAgentBinary("cursor", "")
@@ -2743,7 +2740,7 @@ func InteractiveAgentLaunch(settings *models.Settings) (string, error) {
 		// est le binaire, et c'est lui qu'on ouvre en interactif.
 		return resolveAgentBinary(firstWord(settings.AICommandTemplate), provider)
 	}
-	return "", fmt.Errorf("le moteur %q n'a pas de mode interactif connu : configure un moteur agy, claude, gemini, cursor ou vibe sur le projet", provider)
+	return "", fmt.Errorf("le moteur %q n'a pas de mode interactif connu : configure un moteur agy, claude, gemini, codex, cursor ou vibe sur le projet", provider)
 }
 
 // resolveAgentBinary finds an engine binary and says where it looked when it
@@ -2792,7 +2789,16 @@ func SkillCallLine(skillID string, task *models.Task, trackerName string) string
 // SkillCallLineWithCommand builds the same line for an explicit slash command,
 // so a project that renamed its skills keeps its own command.
 func SkillCallLineWithCommand(command string, task *models.Task, trackerName string) string {
-	command = "/" + strings.TrimPrefix(strings.TrimSpace(command), "/")
+	return SkillCallLineForProvider("", command, task, trackerName)
+}
+
+// SkillCallLineForProvider formats a skill for an interactive agent. Codex
+// receives its plain skill name; other providers keep their slash invocation.
+func SkillCallLineForProvider(provider, command string, task *models.Task, trackerName string) string {
+	command = strings.TrimPrefix(strings.TrimSpace(command), "/")
+	if !strings.EqualFold(strings.TrimSpace(provider), "codex") {
+		command = "/" + command
+	}
 	if task == nil {
 		return command
 	}
@@ -2818,4 +2824,3 @@ func collapseSpaces(s string) string {
 	}
 	return strings.TrimSpace(s)
 }
-

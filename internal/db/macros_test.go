@@ -58,7 +58,7 @@ func TestMigrateMacroAndTasks(t *testing.T) {
 	h := "now"
 	desc := "Macro in Project A"
 	todos := []models.MacroTodo{{ID: "t1", Text: "Do something", Done: false}}
-	macroA, err := database.SaveMacroMeta(p1.ID, "M-1", &h, &desc, &todos)
+	macroA, err := database.SaveMacroMeta(p1.ID, "M-1", &h, &desc, nil, &todos)
 	if err != nil {
 		t.Fatalf("Failed to save macro: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestRefineMacro(t *testing.T) {
 	h := "now"
 	desc := "- User authentication system\n- Password reset flow\n- Session token management"
 	todos := []models.MacroTodo{}
-	_, err = database.SaveMacroMeta(projOpenSpec.ID, "M-10", &h, &desc, &todos)
+	_, err = database.SaveMacroMeta(projOpenSpec.ID, "M-10", &h, &desc, nil, &todos)
 	if err != nil {
 		t.Fatalf("Failed to save macro: %v", err)
 	}
@@ -221,7 +221,7 @@ func TestRefineMacro(t *testing.T) {
 		t.Fatalf("Failed to create project: %v", err)
 	}
 
-	_, err = database.SaveMacroMeta(projSpecKit.ID, "M-20", &h, &desc, &todos)
+	_, err = database.SaveMacroMeta(projSpecKit.ID, "M-20", &h, &desc, nil, &todos)
 	if err != nil {
 		t.Fatalf("Failed to save macro: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestRefineMacro(t *testing.T) {
 
 	// 5. Test empty description validation
 	emptyDesc := ""
-	_, _ = database.SaveMacroMeta(projSpecKit.ID, "M-30", &h, &emptyDesc, &todos)
+	_, _ = database.SaveMacroMeta(projSpecKit.ID, "M-30", &h, &emptyDesc, nil, &todos)
 	_, _, _, err = database.RefineMacro(projSpecKit.ID, "M-30")
 	if err == nil {
 		t.Errorf("Expected error for empty framing description, got nil")

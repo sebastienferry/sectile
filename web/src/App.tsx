@@ -6,6 +6,7 @@ import { BoardView } from './components/BoardView'
 import { ListView } from './components/ListView'
 import { TriageView } from './components/TriageView'
 import { RoadmapView } from './components/RoadmapView'
+import { SprintTimelineView } from './components/SprintTimelineView'
 import { TeamView } from './components/TeamView'
 import { TrackerSetup } from './components/TrackerSetup'
 import { ActivitiesView } from './components/ActivitiesView'
@@ -79,6 +80,8 @@ const MainContent: React.FC = () => {
               <TriageView />
             ) : activeView === 'roadmap' ? (
               <RoadmapView />
+            ) : activeView === 'timeline' ? (
+              <SprintTimelineView />
             ) : activeView === 'team' ? (
               <TeamView />
             ) : activeView === 'sync' ? (

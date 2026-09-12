@@ -10,7 +10,8 @@ import {
   EyeOff,
   Sparkles,
   Kanban,
-  ListFilter
+  ListFilter,
+  List
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { TaskCard } from './TaskCard'
@@ -63,6 +64,7 @@ export const BoardView: React.FC = () => {
   } = useApp()
 
   const [showHiddenColumns, setShowHiddenColumns] = useState(false)
+  const [showSimplifiedCards, setShowSimplifiedCards] = useState(true)
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null)
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null)
 
@@ -156,7 +158,7 @@ export const BoardView: React.FC = () => {
       return st === 'to_clarify' || st === 'backlog' || st === 'open' || st === 'todo' || st === 'new'
     }
     if (colId === 'in_progress') {
-      return st === 'in_progress' || st === 'to_specify' || st === 'to_implement' || st === 'specified'
+      return st === 'in_progress' || st === 'clarified' || st === 'to_implement' || st === 'specified'
     }
     if (colId === 'to_test') {
       return st === 'to_test' || st === 'to_validate' || st === 'to_close' || st === 'in_review' || st === 'testing'
@@ -444,6 +446,21 @@ export const BoardView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowSimplifiedCards(value => !value)}
+            aria-pressed={showSimplifiedCards}
+            aria-label={showSimplifiedCards ? 'Afficher les cartes détaillées' : 'Afficher les cartes sur une ligne'}
+            className={`flex items-center justify-center p-1.5 rounded-lg border transition-colors cursor-pointer ${
+              showSimplifiedCards
+                ? 'bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/40 shadow-2xs'
+                : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
+            }`}
+            title={showSimplifiedCards ? 'Afficher les cartes détaillées' : 'Afficher les cartes sur une ligne'}
+          >
+            {showSimplifiedCards ? <List size={14} /> : <Kanban size={14} />}
+          </button>
+
           <TaskFilters />
 
           {hiddenColumns.length > 0 && (
@@ -576,6 +593,7 @@ export const BoardView: React.FC = () => {
                       <TaskCard
                         key={task.id}
                         task={task}
+                        compact={showSimplifiedCards}
                         isDragging={draggingTaskId === task.id}
                         onDragStart={() => setDraggingTaskId(task.id)}
                       />
@@ -695,6 +713,7 @@ export const BoardView: React.FC = () => {
                       <TaskCard
                         key={task.id}
                         task={task}
+                        compact={showSimplifiedCards}
                         isDragging={draggingTaskId === task.id}
                         onDragStart={() => setDraggingTaskId(task.id)}
                       />
@@ -735,6 +754,7 @@ export const BoardView: React.FC = () => {
                   <TaskCard
                     key={task.id}
                     task={task}
+                    compact={showSimplifiedCards}
                     isDragging={draggingTaskId === task.id}
                     onDragStart={() => setDraggingTaskId(task.id)}
                   />

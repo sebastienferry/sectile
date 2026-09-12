@@ -112,7 +112,7 @@ export interface TranslationSchema {
   }
   status: {
     to_clarify: string
-    to_specify: string
+    clarified: string
     to_implement: string
     to_test: string
     to_close: string
@@ -336,6 +336,15 @@ export interface TranslationSchema {
       clearConfirm: string
     }
   }
+  compactCard: {
+    pin: string
+    unpin: string
+    advance: string
+    advanceAuto: string
+    filterParent: string
+    clearParent: string
+    openPr: string
+  }
   statusBar: {
     branch: string
     clean: string
@@ -389,7 +398,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       toValidate: 'À valider',
       done: 'Terminé',
       views: 'Vues',
-      board: 'Kanban',
+      board: 'Board',
       list: 'Backlog',
       activities: 'Activités',
       sync: 'Synchro',
@@ -488,7 +497,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     status: {
       to_clarify: 'À clarifier',
-      to_specify: 'À spécifier',
+      clarified: 'Cadré',
       to_implement: 'À implémenter',
       to_test: 'À tester',
       to_close: 'En revue / PR',
@@ -567,7 +576,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       searchPlaceholder: 'Tapez une commande, skill ou tâche...',
       general: 'Actions générales',
       createTask: 'Créer une nouvelle tâche',
-      switchBoard: 'Passer en vue Kanban (Tableau)',
+      switchBoard: 'Passer en vue Board',
       switchList: 'Passer en vue Liste',
       toggleTheme: 'Basculer le thème (Sombre / Clair)',
       changeLanguage: 'Changer la langue (FR / EN)',
@@ -712,6 +721,15 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         clearConfirm: 'Êtes-vous sûr de vouloir vider toutes les activités terminées / échouées ?',
       },
     },
+    compactCard: {
+      pin: 'Épingler',
+      unpin: 'Désépingler',
+      advance: 'Avancer une étape',
+      advanceAuto: 'Avancer automatiquement',
+      filterParent: 'Filtrer par parent',
+      clearParent: 'Retirer le filtre parent',
+      openPr: 'Ouvrir la PR / MR',
+    },
     statusBar: {
       branch: 'Branche',
       clean: 'Arbre de travail propre',
@@ -763,7 +781,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       toValidate: 'To Validate',
       done: 'Done',
       views: 'Views',
-      board: 'Kanban',
+      board: 'Board',
       list: 'Backlog',
       activities: 'Activities',
       sync: 'Sync',
@@ -862,7 +880,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     status: {
       to_clarify: 'To Clarify',
-      to_specify: 'To Specify',
+      clarified: 'Clarified',
       to_implement: 'To Implement',
       to_test: 'To Test',
       to_close: 'In Review / PR',
@@ -1085,6 +1103,15 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         clearCompleted: 'Clear Completed History',
         clearConfirm: 'Are you sure you want to delete all completed / failed activities?',
       },
+    },
+    compactCard: {
+      pin: 'Pin',
+      unpin: 'Unpin',
+      advance: 'Advance one step',
+      advanceAuto: 'Advance automatically',
+      filterParent: 'Filter by parent',
+      clearParent: 'Clear parent filter',
+      openPr: 'Open PR / MR',
     },
     statusBar: {
       branch: 'Branch',

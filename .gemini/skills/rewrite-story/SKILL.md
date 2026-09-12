@@ -1,10 +1,10 @@
 ---
 name: rewrite-story
-description: Reformat a story or task description into structured markdown, optionally incorporating task comments.
+description: "Reformat a story or task description into structured markdown, optionally incorporating task comments."
 ---
 # Rewrite Story
 
-Stage:  -> .
+
 
 ## Goal
 Reformat a task's title, description, and optional comments into a clean GitHub-Flavored Markdown specification (User Story: As a..., I want..., So that... + Context + Acceptance Criteria + Notes).
@@ -32,21 +32,3 @@ Reformat a task's title, description, and optional comments into a clean GitHub-
 - The reformatted GFM description preview.
 - List of comment points integrated into acceptance criteria (if any).
 
-## Ticket Transition & Status Update
-The agent executing this skill is responsible for advancing the ticket to the next agentic status upon completion:
-- **Stage Transition**: Advance ticket from `` to ``.
-- **Step 1: Check and use Local Handler (Recommended if TaskFlow is running)**:
-  Call TaskFlow's local transition handler to update local state, record branch/PR, and automatically queue two-way synchronization to GitHub/Linear:
-  - **Via TaskFlow CLI**:
-    ```bash
-    taskflow stage <KEY>  ["<optional summary note>"]
-    ```
-  - **Via HTTP API** (port 8090 or 8080):
-    ```bash
-    curl -s -X POST http://localhost:8090/api/tasks/stage -H "Content-Type: application/json" -d '{"taskKey": "<KEY>", "stage": ""}' || curl -s -X POST http://localhost:8080/api/tasks/stage -H "Content-Type: application/json" -d '{"taskKey": "<KEY>", "stage": ""}'
-    ```
-- **Step 2: Fallback to Direct Tracker CLI (Only if local TaskFlow handler is unreachable)**:
-  - **GitHub CLI**: `gh issue edit <NUMBER> --add-label "" --remove-label ""`
-  - **Linear CLI**: `linear issue update <ISSUE_KEY> --add-label "" --remove-label ""`
-- **Comments**: Post the stage summary report as a comment on the ticket via `taskflow stage <KEY>  "<REPORT_NOTE>"` or `gh issue comment <NUMBER> --body "..."` / `linear issue comment add <ISSUE_KEY> --body "..."`.
-- **Safety Rules**: Always work on the ticket branch (`<KEY>-<title-slug>`). Never delete anything remote and never merge into the default branch (merging is strictly reserved for the human user).

@@ -128,7 +128,7 @@ func (d *DB) runSkillInSession(
 	// de lancer un second moteur à côté. C'est la même console, la même
 	// conversation, et l'appel de skill y est simplement tapé.
 	if d.termRunner.AgentLaunched(sessionID) {
-		return d.runSkillThroughAgent(ctx, settings, skillID, task, sessionID)
+		return d.runSkillThroughAgent(ctx, settings, skillID, task, sessionID, prompt)
 	}
 
 	inv, err := d.runner.PrepareAI(settings, skillID, task, prompt)
@@ -304,7 +304,7 @@ func (d *DB) InjectSkillInTTY(taskID, skillID string) (*TTYSkillLaunch, error) {
 	if trackerName == "" {
 		trackerName = settings.IssueTracker
 	}
-	call := runner.SkillCallLineWithCommand(d.ProjectSkillCommand(task, skillID), task, strings.ToLower(trackerName))
+	call := runner.SkillCallLineForProvider(settings.AIProvider, d.ProjectSkillCommand(task, skillID), task, strings.ToLower(trackerName))
 	if err := d.termRunner.InjectLine(sessionID, call); err != nil {
 		return nil, err
 	}
@@ -328,12 +328,21 @@ func (d *DB) runSkillThroughAgent(
 	skillID string,
 	task *models.Task,
 	sessionID string,
+	prompt string,
 ) (string, []string, error) {
 	trackerName := task.Source
 	if trackerName == "" && settings != nil {
 		trackerName = settings.IssueTracker
 	}
-	call := runner.SkillCallLineWithCommand(d.ProjectSkillCommand(task, skillID), task, strings.ToLower(trackerName))
+	provider := ""
+	if settings != nil {
+		provider = settings.AIProvider
+	}
+	call := runner.SkillCallLineForProvider(provider, d.ProjectSkillCommand(task, skillID), task, strings.ToLower(trackerName))
+	if strings.TrimSpace(prompt) != "" {
+		// One terminal line, including the managed result contract and user context.
+		call += " " + strings.NewReplacer("\r", " ", "\n", " ").Replace(prompt)
+	}
 
 	steps := []string{
 		fmt.Sprintf("🖥 Agent déjà ouvert dans %s : l'appel y est tapé", sessionID),

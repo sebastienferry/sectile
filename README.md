@@ -70,6 +70,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 - 🔍 **Recherche Rapide (`/`) & Palette d'actions (`Cmd+K`)** :
   - Raccourci clavier `/` pour cibler immédiatement la recherche.
   - Palette d'actions avec recherche floue et exécution directe des skills au clavier.
+  - Dans la barre du terminal PTY, démarrer l'agent puis sélectionner un skill : Codex reçoit son nom sans `/`, les autres moteurs conservent le slash. Les noms personnalisés du projet sont respectés.
 
 ---
 

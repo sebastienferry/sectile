@@ -1,10 +1,10 @@
 ---
-description: Interactively clarify macro framing text with the user and break it down into structured todos and TaskFlow tickets.
+description: "Interactively clarify macro framing text with the user and break it down into structured todos and TaskFlow tickets."
 argument-hint: <MACRO-KEY> [contexte]
 ---
-# Refine Macro (Spec-Driven Design)
+# Refine Macro (OpenSpec SDD)
 
-Stage: macro -> macro. Interactive: the user answers in the terminal.
+Interactive: the user answers in the terminal.
 
 ## Goal
 Transform high-level macro framing text into an actionable, structured todo list and concrete TaskFlow tickets, interactively clarifying ambiguities with the user when framing text is vague.
@@ -23,6 +23,17 @@ Transform high-level macro framing text into an actionable, structured todo list
      - **SpecKit SDD**: Group into User Stories ([US-x]) and Feature Modules ([FEAT-x]).
      - **OpenSpec SDD**: Group into Capabilities ([CAP-x]) and Change Proposals ([CHANGE-x]).
 4. Output the generated checklist of actionable todos AND proposed TaskFlow tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.
+
+## Do not
+- Do not generate tasks blindly when framing text is vague without asking clarification questions.
+- Do not overwrite existing todos or tasks without user confirmation in the UI.
+- Do not mutate external tracker issues directly without user trigger.
+
+## Report
+- Clarification Q&A summary (if framing was vague).
+- Structured list of proposed MacroTodo items.
+- Proposed TaskFlow tickets breakdown (Title, IssueType, Description).
+- Rationale behind the task breakdown.
 
 ## Ticket
 $ARGUMENTS

@@ -289,7 +289,7 @@ export const QuickAddModal: React.FC = () => {
                 className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
               >
                 <option value="to_clarify">{t.status.to_clarify} (#new)</option>
-                <option value="to_specify">{t.status.to_specify} (#clarified)</option>
+                <option value="clarified">{t.status.clarified} (#clarified)</option>
                 <option value="to_implement">{t.status.to_implement} (#specified)</option>
                 <option value="to_test">{t.status.to_test} (#implemented)</option>
                 <option value="to_close">{t.status.to_close} (#reviewed)</option>

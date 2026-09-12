@@ -2,7 +2,7 @@ export type Priority = 'urgent' | 'high' | 'medium' | 'low'
 
 export type Status = 
   | 'to_clarify'    // A clarifier (Label: #new)
-  | 'to_specify'    // A spécifier (Label: #clarified)
+  | 'clarified'     // Cadré (Label: #clarified)
   | 'to_implement'  // A implémenter (Label: #specified)
   | 'to_test'       // A tester (Label: #implemented)
   | 'to_close'      // En revue / PR (Label: #reviewed)
@@ -153,6 +153,7 @@ export interface MacroMeta {
   /** Chaîne vide = macro non encore classée. */
   horizon: MacroHorizon | ''
   description: string
+  framingComment?: string
   todos: MacroTodo[]
   updatedAt: string
 }
@@ -227,6 +228,10 @@ export interface Project {
   aiCommandTemplate?: string
   specFramework?: SpecFramework
   parallelism?: number
+  /** Synchronisation automatique en arrière-plan activée pour ce projet. */
+  autoSyncEnabled?: boolean
+  /** Période de la synchronisation en arrière-plan (en minutes, entre 1 et 30 min). */
+  autoSyncIntervalMin?: number
   /** Mode d'exécution des terminaux : 'integrated' (web xterm) ou 'external' (vrai terminal OS). */
   ttyMode?: TtyMode
   /** Commande ou application de terminal externe spécifique à ce projet (ex: 'Ghostty', 'iTerm', 'Terminal'). */
@@ -435,7 +440,7 @@ export type Language = 'fr' | 'en'
 
 export type Density = 'compact' | 'standard' | 'comfortable'
 
-export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'activities' | 'sync' | 'digest' | 'skills' | 'team'
+export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'digest' | 'skills' | 'team'
 
 export type BoardGroupingMode = 'workflow' | 'status'
 

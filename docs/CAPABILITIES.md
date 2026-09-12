@@ -61,13 +61,52 @@ TaskFlow orchestrates tasks through a five-stage progressive development lifecyc
 flowchart LR
     A["1. Clarify (#new)"] --> B["2. Specify (#clarified)"]
     B --> C["3. Code (#specified)"]
-    C --> D["4. Test (#implemented)"]
-    D --> E["5. PR (#reviewed)"]
+    C --> D["4. Review and PR (#implemented)"]
+    D --> E["Human review and merge (#reviewed)"]
+    E --> F["5. Handoff (#finished)"]
 ```
 
 ### Stage 1: Clarification (`clarify-issue` / `/clarify`)
 - **Objective**: Identifies functional gaps, edge cases, and architectural ambiguities.
-- **Output**: Generates structured questions for the human developer. Answers can be appended directly to the story description or posted back to Linear/GitHub.
+- **Output**: Records settled scope and reversible technical assumptions. Only essential product decisions or unavailable dependencies block an unattended run; the presence of a PTY does not itself require interactive questions.
+
+### Completion contract for managed runs
+
+Each background workflow step receives a unique temporary result-file path and
+run ID in its invocation, including when an agent is already open in a PTY.
+The agent writes JSON with `runId`, `outcome` (`completed`, `blocked`, or
+`retryable`), `summary`, `branch`, `prUrl`, `artifacts`, and `checks`.
+Missing, stale, malformed or non-completed results fail the activity and stop the
+chain without advancing the ticket. The report remains in the activity output;
+the temporary file is removed after processing. A retry uses a fresh result file
+and receives the previous local workflow report so it can resume existing work.
+
+Before advancing, TaskFlow checks specification files exist and are nonempty
+(`spec.md`, `tasks.md`, and `plan.md` or `design.md`), the actual work branch, and
+reported build/lint/test evidence. Each check carries its command, exit code and
+output, or a specific reason why it does not apply. Check execution remains the
+agent's responsibility: TaskFlow validates the receipt rather than rerunning its
+commands. Handoff additionally requires a successful merge-check receipt.
+
+Review completion requires a clean checkout and a forge-confirmed open PR whose
+source branch and commit match the checkout. A missing remote, unavailable CLI
+or unconfirmed PR stops progress; TaskFlow never substitutes a local merge.
+Worktree setup failures stop execution rather than falling back to the main
+checkout. Worktrees remain available for review feedback and are only cleaned
+up during confirmed handoff.
+
+The worker owns transitions during managed runs; standalone stage and post-back
+state updates are rejected while that workflow step is running. Standalone skill
+invocations instead call the local TaskFlow stage handler after completing each step. Single and
+batch pickup templates embed the same maintained stage instructions. Batch
+invocations retain one branch and one combined PR, recording each ticket's
+progress individually. Rewrite-story and macro refinement have no ticket-stage
+transition contract.
+
+Existing project-specific skill overrides and installed files are preserved.
+Use the project's skill editor to compare or reset an override and reinstall
+the generated defaults when adopting the revised templates. The managed result
+contract is injected at runtime even with an older installed skill.
 
 ### Stage 2: Technical Specification (`specify-issue` / `/specify`)
 - **Objective**: Generates an actionable, implementation-ready technical specification, following the Spec-Driven Design framework configured on the project.
@@ -118,13 +157,13 @@ framework value; the database migrates that value to `openspec` on startup.
 - **Objective**: Implements the required code changes directly inside the task's isolated Git worktree.
 - **Output**: Edits codebase, verifies build, prepares clean atomic commits.
 
-### Stage 4: Automated Testing (`/test`)
-- **Objective**: Executes unit tests, linter checks, and compile steps.
-- **Output**: Validates zero regressions before code review.
+### Stage 4: Review and Pull Request (`create-pr`)
+- **Objective**: Reviews and repairs the diff, updates affected documentation, runs final checks, then pushes and creates or updates the branch's PR.
+- **Output**: Verified Pull Request URL attached to the task card and external issue tracker. The autonomous chain stops here for human review and merge.
 
-### Stage 5: Pull Request Generation (`create-pr` / `/pr`)
-- **Objective**: Pushes the branch to remote origin and opens a PR with a structured changelog.
-- **Output**: Pull Request URL attached to the task card and external issue tracker.
+### Stage 5: Handoff (`handoff-issue`)
+- **Objective**: Confirms the merge and writes the handover and acceptance checklist.
+- **Output**: Finished ticket and safe cleanup of clean, unused local worktrees. Shared batch worktrees remain until every associated ticket is handed off.
 
 ---
 
@@ -136,7 +175,8 @@ For hands-on pair programming and manual debugging:
 - Injects task context variables (`$TASKFLOW_TASK_KEY`, `$TASKFLOW_TASK_WORKTREE`).
 - Action toolbar provides one-click triggers:
   - **`⚡ Run agent`**: Starts interactive conversation with the chosen agent.
-  - **`/clarify`**, **`/specify`**, **`/code`**, **`/create-pr`**: Executes prompt skills natively in shell.
+  - **Skill actions** (`clarify-issue`, `specify-issue`, `code-issue`, `create-pr`): Send the skill name and ticket context to the running agent. Codex receives the plain name; other providers retain a leading `/`. Button labels and tooltips follow that syntax and any project skill-name overrides. Start the agent before selecting a skill; calls are rejected when no agent is running.
+  - The project's agent setting takes precedence over the global setting. Codex is supported by the interactive launcher. Workflow steps reusing an open agent use the same invocation syntax; headless prompts are unchanged.
   - **`Ctrl+C`**: Sends interrupt signal to running processes.
   - **`Reset`**: Gracefully terminates and respawns a fresh shell.
 

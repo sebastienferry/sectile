@@ -1,5 +1,5 @@
 ---
-description: Write the executable specification of a ticket in the project's Spec-Driven Design framework, before any code.
+description: "Write the executable specification of a ticket in the project's Spec-Driven Design framework, before any code."
 argument-hint: <TICKET-KEY> [contexte]
 ---
 # Specify Issue (OpenSpec SDD)
@@ -12,14 +12,16 @@ anything. Behaviour and acceptance criteria first, implementation choices second
 and the two kept in separate files.
 
 ## Read first
+- Project-configured SDD framework: openspec. Use it unless the invocation explicitly overrides it.
 - The clarification outcome on the ticket: the decisions are already made, apply them.
-- If {sdd_framework} or --framework=<name> is provided, use it. Otherwise, auto-detect:
+- Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
+  then the project-configured framework, then repository detection:
   - If `openspec/` exists -> use OpenSpec SDD.
   - If `.specify/` or `specs/` exists -> use Spec Kit SDD.
 - Ensure the project SDD directory is initialized before writing specifications.
 
 ## Steps
-1. Create or switch to the work branch, named <KEY>-<title-slug>. Never write on the default branch.
+1. Reuse the assigned worktree and branch (including a shared batch branch). Only create <KEY>-<title-slug> when no work branch is assigned. Preserve existing work; never write on the default branch.
 2. Select the SDD framework from {sdd_framework} argument, flag, or project detection:
 
    **If using OpenSpec SDD:**
@@ -46,24 +48,17 @@ and the two kept in separate files.
 - The work branch.
 - Requirements that are still open, and what they block.
 
-## Ticket Transition & Status Update
-The agent executing this skill is responsible for advancing the ticket to the next agentic status upon completion:
-- **Stage Transition**: Advance ticket from `clarified` to `specified`.
-- **Step 1: Check and use Local Handler (Recommended if TaskFlow is running)**:
-  Call TaskFlow's local transition handler to update local state, record branch/PR, and automatically queue two-way synchronization to GitHub/Linear:
-  - **Via TaskFlow CLI**:
-    ```bash
-    taskflow stage <KEY> specified ["<optional summary note>"]
-    ```
-  - **Via HTTP API** (port 8090 or 8080):
-    ```bash
-    curl -s -X POST http://localhost:8090/api/tasks/stage -H "Content-Type: application/json" -d '{"taskKey": "<KEY>", "stage": "specified"}' || curl -s -X POST http://localhost:8080/api/tasks/stage -H "Content-Type: application/json" -d '{"taskKey": "<KEY>", "stage": "specified"}'
-    ```
-- **Step 2: Fallback to Direct Tracker CLI (Only if local TaskFlow handler is unreachable)**:
-  - **GitHub CLI**: `gh issue edit <NUMBER> --add-label "specified" --remove-label "clarified"`
-  - **Linear CLI**: `linear issue update <ISSUE_KEY> --add-label "specified" --remove-label "clarified"`
-- **Comments**: Post the stage summary report as a comment on the ticket via `taskflow stage <KEY> specified "<REPORT_NOTE>"` or `gh issue comment <NUMBER> --body "..."` / `linear issue comment add <ISSUE_KEY> --body "..."`.
-- **Safety Rules**: Always work on the ticket branch (`<KEY>-<title-slug>`). Never delete anything remote and never merge into the default branch (merging is strictly reserved for the human user).
+## Execution and ticket state
+- **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
+- **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+Transition clarified → specified only when this step is complete.
+```bash
+curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
+  -H 'Content-Type: application/json' \
+  -d '{"taskKey":"<KEY>","stage":"specified","note":"<REPORT_NOTE>","branch":"<ACTUAL_BRANCH>"}'
+```
+This POST calls the local TaskFlow handler directly. Confirm HTTP success before continuing. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
 
 ## Ticket
 $ARGUMENTS

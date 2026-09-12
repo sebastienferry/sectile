@@ -23,6 +23,15 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche %q non trouvée", taskIDOrKey)
 	}
+	d.mu.RLock()
+	running, runErr := d.managedStageRunningUnsafe(task.ID)
+	d.mu.RUnlock()
+	if runErr != nil {
+		return nil, nil, runErr
+	}
+	if running {
+		return nil, nil, fmt.Errorf("une étape TaskFlow est en cours : son résultat doit être vérifié avant la transition")
+	}
 
 	cleanStage := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(targetStage), "#"))
 	if cleanStage == "" {
@@ -33,8 +42,6 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	switch cleanStage {
 	case "to_clarify", "open", "todo", "backlog":
 		cleanStage = "new"
-	case "to_specify":
-		cleanStage = "clarified"
 	case "to_implement":
 		cleanStage = "specified"
 	case "to_test":
@@ -43,6 +50,9 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 		cleanStage = "reviewed"
 	case "done", "closed":
 		cleanStage = "finished"
+	}
+	if _, ok := InternalStatusForStage(cleanStage); !ok {
+		return nil, nil, fmt.Errorf("étape de workflow inconnue : %s", cleanStage)
 	}
 
 	proj, _ := d.GetProjectByID(task.ProjectID)

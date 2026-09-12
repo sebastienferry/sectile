@@ -24,7 +24,7 @@ func TestTransitionTaskStage(t *testing.T) {
 		Name:         "Project Stage Test",
 		Slug:         "stage-test",
 		IssueTracker: "local",
-		RepoPath:     ".",
+		RepoPath:     filepath.Join(tempDir, "repo"),
 	})
 	if err != nil {
 		t.Fatalf("Failed to create project: %v", err)
@@ -46,8 +46,8 @@ func TestTransitionTaskStage(t *testing.T) {
 		t.Fatalf("Transition to clarified failed: %v", err)
 	}
 
-	if updated.Status != models.StatusToSpecify {
-		t.Errorf("Expected internal status %s, got %s", models.StatusToSpecify, updated.Status)
+	if updated.Status != models.StatusClarified {
+		t.Errorf("Expected internal status %s, got %s", models.StatusClarified, updated.Status)
 	}
 
 	hasClarified := false

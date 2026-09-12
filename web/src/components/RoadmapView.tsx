@@ -19,19 +19,22 @@ import {
   Filter,
   Scissors,
   Search,
-  Clock,
   Loader2,
   Pencil,
   ArrowRightLeft,
   Sparkles,
   ListChecks,
   FolderGit2,
+  Maximize2,
+  Minimize2,
+  ChevronDown,
+  ChevronRight,
+  MessageSquare,
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
 import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
-import { SprintTimelineView } from './SprintTimelineView'
 import { sprintLookup, isProjectCompatible } from '../lib/lookups'
 import {
   buildMacroRows,
@@ -106,7 +109,6 @@ export const RoadmapView: React.FC = () => {
     sendTerminalInput,
   } = useApp()
 
-  const [roadmapMode, setRoadmapMode] = useState<'sprints' | 'macros'>('sprints')
   const [tab, setTab] = useState<HorizonTab>('now')
   const [displayMode, setDisplayMode] = useState<'framing' | 'execution'>('execution')
   const [macroMeta, setMacroMeta] = useState<MacroMeta[]>([])
@@ -146,9 +148,16 @@ export const RoadmapView: React.FC = () => {
     setEditingTitleValue('')
   }, [selectedKey])
 
+  // Plein écran / Expand du panneau de droite et repli des zones de texte
+  const [isPanelExpanded, setIsPanelExpanded] = useState(false)
+  const [isDescExpanded, setIsDescExpanded] = useState(true)
+  const [isFramingExpanded, setIsFramingExpanded] = useState(true)
+
   // Le cadrage n'est enregistré qu'à la demande
   const [draftDescription, setDraftDescription] = useState('')
   const [draftDirty, setDraftDirty] = useState(false)
+  const [draftFramingComment, setDraftFramingComment] = useState('')
+  const [draftFramingDirty, setDraftFramingDirty] = useState(false)
   const [newTodo, setNewTodo] = useState('')
   const [creatingTodoId, setCreatingTodoId] = useState<string | null>(null)
   // Prototypage de la macro : créer une story a la volée, ou y pousser un ticket existant
@@ -370,13 +379,15 @@ export const RoadmapView: React.FC = () => {
   useEffect(() => {
     setDraftDescription(selected?.meta?.description || '')
     setDraftDirty(false)
+    setDraftFramingComment(selected?.meta?.framingComment || '')
+    setDraftFramingDirty(false)
     setNewTodo('')
     setChecked({})
     setCutAt(-1)
     rowRefs.current = []
     setMoveTarget('')
     setNewMacroTitle('')
-  }, [selected?.key, selected?.meta?.description])
+  }, [selected?.key, selected?.meta?.description, selected?.meta?.framingComment])
 
   const attachCandidates = useMemo(() => {
     const q = attachQuery.trim().toLowerCase()
@@ -392,7 +403,7 @@ export const RoadmapView: React.FC = () => {
 
   const persist = async (
     key: string,
-    patch: { horizon?: MacroHorizon | ''; description?: string; todos?: MacroTodo[] }
+    patch: { horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[] }
   ) => {
     if (!currentProject?.id) {
       addToast({
@@ -466,45 +477,7 @@ export const RoadmapView: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[var(--bg-primary)] text-[var(--text-primary)]">
-      {/* Sub-View Mode Switcher (Timeline Sprints vs Macros Horizons) */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] shrink-0">
-        <div className="flex items-center gap-1.5 bg-[var(--bg-tertiary)] p-0.5 rounded-lg border border-[var(--border-color)]">
-          <button
-            type="button"
-            onClick={() => setRoadmapMode('sprints')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
-              roadmapMode === 'sprints'
-                ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Clock size={13} />
-            <span>Timeline</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setRoadmapMode('macros')}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
-              roadmapMode === 'macros'
-                ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Route size={13} />
-            <span>Macros & Horizons (NOW/NEXT)</span>
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
-          <span className="font-mono">{currentProject?.name || 'Projet Actif'}</span>
-        </div>
-      </div>
-
-      {roadmapMode === 'sprints' ? (
-        <SprintTimelineView />
-      ) : (
-        <>
-          {/* Barre d'outils : classification, et en mode opérationnel les sprints visés */}
+      {/* Barre d'outils : classification, et en mode opérationnel les sprints visés */}
           <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
         <div className="flex items-center gap-3 flex-wrap min-w-0">
           <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
@@ -685,131 +658,133 @@ export const RoadmapView: React.FC = () => {
       </div>
 
       <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden" ref={splitRef}>
-        {/* Macros de l'horizon courant */}
-        <div className="flex-1 overflow-y-auto p-3 min-w-0 space-y-2">
-          {visibleRows.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
-              <Compass size={26} className="text-[var(--text-muted)]" />
-              <p className="text-sm font-semibold">
-                {searchQuery.trim() ? `Aucune macro ne correspond à « ${searchQuery.trim()} »` : 'Aucune macro ici'}
-              </p>
-              <p className="text-[11px] text-[var(--text-muted)] max-w-sm">
-                {searchQuery.trim()
-                  ? hiddenMatches > 0
-                    ? `${hiddenMatches} macro(s) correspondent mais sont écartées par les filtres d'affichage : affiche les macros closes ou celles d'un autre projet pour les voir.`
-                    : 'La recherche porte sur la clé, le titre et l’équipe de la macro, ainsi que sur les clés et titres de ses tickets.'
-                  : tab === 'hidden'
-                  ? 'Aucune macro masquée. Classe en HIDDEN le tout-venant qui n’a pas vocation à apparaître dans la roadmap.'
-                  : tab === 'unclassified'
-                  ? 'Toutes les macros sont classées. Les nouvelles apparaîtront ici après une synchro.'
-                  : onlyIssues
-                    ? 'Aucune anomalie de placement sur cet horizon.'
-                    : 'Classe des macros depuis l’onglet « Non classés » pour les voir apparaître ici.'}
-              </p>
-            </div>
-          ) : (
-            visibleRows.map(row => {
-              const isSel = selected?.key === row.key
-              const issues = placementIssues(row, horizonOfTab)
-              const mat = MATURITY_META[row.maturity]
-              const prio = PRIORITY_META[row.priority]
-              return (
-                <div
-                  key={row.key}
-                  onClick={() => setSelectedKey(row.key)}
-                  className="rounded-xl border p-2.5 cursor-pointer transition-colors"
-                  style={{
-                    background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
-                    borderColor: isSel ? 'rgb(var(--accent-rgb) / 0.45)' : 'var(--border-color)',
-                  }}
-                >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
-                    <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
-                      {row.squad}
-                    </span>
-                    <span className="text-[9.5px] px-1 rounded font-bold" style={{ color: prio.color, background: prio.bg }}>
-                      {prio.label}
-                    </span>
-                    <span className="text-[9px] font-bold px-1.5 rounded uppercase tracking-[.06em]"
-                      style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
-                      {row.maturity}
-                    </span>
-
-                    {displayMode === 'execution' ? (
-                      issues.length > 0 ? (
-                        <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-                          style={{ color: 'var(--status-danger)', background: 'rgb(var(--status-danger-rgb) / 0.13)', border: '1px solid rgb(var(--status-danger-rgb) / 0.32)' }}>
-                          <AlertTriangle size={10} />
-                          {issues.length} à corriger
-                        </span>
-                      ) : (
-                        <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-                          style={{ color: 'var(--status-ok)', background: 'rgb(var(--status-ok-rgb) / 0.13)', border: '1px solid rgb(var(--status-ok-rgb) / 0.32)' }}>
-                          <Check size={10} />
-                          tout placé
-                        </span>
-                      )
-                    ) : (
-                      <span className="ml-auto text-[10px] font-mono text-[var(--text-muted)]">
-                        {todosOf(row).filter(t => t.done).length}/{todosOf(row).length} todos
+        {/* Macros de l'horizon courant (masqué si panneau en plein écran) */}
+        {!isPanelExpanded && (
+          <div className="flex-1 overflow-y-auto p-3 min-w-0 space-y-2">
+            {visibleRows.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center gap-2 text-center px-6">
+                <Compass size={26} className="text-[var(--text-muted)]" />
+                <p className="text-sm font-semibold">
+                  {searchQuery.trim() ? `Aucune macro ne correspond à « ${searchQuery.trim()} »` : 'Aucune macro ici'}
+                </p>
+                <p className="text-[11px] text-[var(--text-muted)] max-w-sm">
+                  {searchQuery.trim()
+                    ? hiddenMatches > 0
+                      ? `${hiddenMatches} macro(s) correspondent mais sont écartées par les filtres d'affichage : affiche les macros closes ou celles d'un autre projet pour les voir.`
+                      : 'La recherche porte sur la clé, le titre et l’équipe de la macro, ainsi que sur les clés et titres de ses tickets.'
+                    : tab === 'hidden'
+                    ? 'Aucune macro masquée. Classe en HIDDEN le tout-venant qui n’a pas vocation à apparaître dans la roadmap.'
+                    : tab === 'unclassified'
+                    ? 'Toutes les macros sont classées. Les nouvelles apparaîtront ici après une synchro.'
+                    : onlyIssues
+                      ? 'Aucune anomalie de placement sur cet horizon.'
+                      : 'Classe des macros depuis l’onglet « Non classés » pour les voir apparaître ici.'}
+                </p>
+              </div>
+            ) : (
+              visibleRows.map(row => {
+                const isSel = selected?.key === row.key
+                const issues = placementIssues(row, horizonOfTab)
+                const mat = MATURITY_META[row.maturity]
+                const prio = PRIORITY_META[row.priority]
+                return (
+                  <div
+                    key={row.key}
+                    onClick={() => setSelectedKey(row.key)}
+                    className="rounded-xl border p-2.5 cursor-pointer transition-colors"
+                    style={{
+                      background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
+                      borderColor: isSel ? 'rgb(var(--accent-rgb) / 0.45)' : 'var(--border-color)',
+                    }}
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
+                      <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
+                        {row.squad}
                       </span>
-                    )}
+                      <span className="text-[9.5px] px-1 rounded font-bold" style={{ color: prio.color, background: prio.bg }}>
+                        {prio.label}
+                      </span>
+                      <span className="text-[9px] font-bold px-1.5 rounded uppercase tracking-[.06em]"
+                        style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
+                        {row.maturity}
+                      </span>
+
+                      {displayMode === 'execution' ? (
+                        issues.length > 0 ? (
+                          <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                            style={{ color: 'var(--status-danger)', background: 'rgb(var(--status-danger-rgb) / 0.13)', border: '1px solid rgb(var(--status-danger-rgb) / 0.32)' }}>
+                            <AlertTriangle size={10} />
+                            {issues.length} à corriger
+                          </span>
+                        ) : (
+                          <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                            style={{ color: 'var(--status-ok)', background: 'rgb(var(--status-ok-rgb) / 0.13)', border: '1px solid rgb(var(--status-ok-rgb) / 0.32)' }}>
+                            <Check size={10} />
+                            tout placé
+                          </span>
+                        )
+                      ) : (
+                        <span className="ml-auto text-[10px] font-mono text-[var(--text-muted)]">
+                          {todosOf(row).filter(t => t.done).length}/{todosOf(row).length} todos
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-[12px] font-semibold leading-snug mt-1.5">{row.title}</div>
+
+                    <div className="flex items-center gap-2 mt-2 flex-wrap text-[10px] font-mono text-[var(--text-muted)]">
+                      <span>{row.open.length} ouverts / {row.tasks.length}</span>
+                      {row.inActiveSprint.length > 0 && (
+                        <span style={{ color: 'var(--status-ok)' }}>{row.inActiveSprint.length} sprint actif</span>
+                      )}
+                      {row.inFutureSprint.length > 0 && (
+                        <span style={{ color: 'var(--status-info)' }}>{row.inFutureSprint.length} sprint futur</span>
+                      )}
+                      {row.inStaleSprint.length > 0 && (
+                        <span style={{ color: 'var(--status-warn)' }}>{row.inStaleSprint.length} sprint clos</span>
+                      )}
+                      {row.unscheduled.length > 0 && (
+                        <span style={{ color: 'var(--status-danger)' }}>{row.unscheduled.length} sans sprint</span>
+                      )}
+                    </div>
+
+                    {/* Classification : un clic, et la suggestion est mise en avant */}
+                    <div className="flex items-center gap-1.5 mt-2">
+                      {(['now', 'next', 'later', 'hidden'] as MacroHorizon[]).map(h => {
+                        const active = row.horizon === h
+                        const isSuggestion = !row.horizon && row.suggested === h
+                        return (
+                          <button
+                            key={h}
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation()
+                              persist(row.key, { horizon: h })
+                            }}
+                            className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] border transition-colors cursor-pointer"
+                            style={{
+                              color: active ? '#fff' : HORIZON_META[h].color,
+                              background: active ? HORIZON_META[h].color : isSuggestion ? HORIZON_META[h].bg : 'transparent',
+                              borderColor: active || isSuggestion ? HORIZON_META[h].border : 'var(--border-color)',
+                            }}
+                            title={isSuggestion ? `Suggéré d'après les sprints : ${HORIZON_META[h].label}` : `Classer en ${HORIZON_META[h].label}`}
+                          >
+                            {HORIZON_META[h].label}
+                            {isSuggestion && ' ?'}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
+                )
+              })
+            )}
+          </div>
+        )}
 
-                  <div className="text-[12px] font-semibold leading-snug mt-1.5">{row.title}</div>
-
-                  <div className="flex items-center gap-2 mt-2 flex-wrap text-[10px] font-mono text-[var(--text-muted)]">
-                    <span>{row.open.length} ouverts / {row.tasks.length}</span>
-                    {row.inActiveSprint.length > 0 && (
-                      <span style={{ color: 'var(--status-ok)' }}>{row.inActiveSprint.length} sprint actif</span>
-                    )}
-                    {row.inFutureSprint.length > 0 && (
-                      <span style={{ color: 'var(--status-info)' }}>{row.inFutureSprint.length} sprint futur</span>
-                    )}
-                    {row.inStaleSprint.length > 0 && (
-                      <span style={{ color: 'var(--status-warn)' }}>{row.inStaleSprint.length} sprint clos</span>
-                    )}
-                    {row.unscheduled.length > 0 && (
-                      <span style={{ color: 'var(--status-danger)' }}>{row.unscheduled.length} sans sprint</span>
-                    )}
-                  </div>
-
-                  {/* Classification : un clic, et la suggestion est mise en avant */}
-                  <div className="flex items-center gap-1.5 mt-2">
-                    {(['now', 'next', 'later', 'hidden'] as MacroHorizon[]).map(h => {
-                      const active = row.horizon === h
-                      const isSuggestion = !row.horizon && row.suggested === h
-                      return (
-                        <button
-                          key={h}
-                          type="button"
-                          onClick={e => {
-                            e.stopPropagation()
-                            persist(row.key, { horizon: h })
-                          }}
-                          className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] border transition-colors cursor-pointer"
-                          style={{
-                            color: active ? '#fff' : HORIZON_META[h].color,
-                            background: active ? HORIZON_META[h].color : isSuggestion ? HORIZON_META[h].bg : 'transparent',
-                            borderColor: active || isSuggestion ? HORIZON_META[h].border : 'var(--border-color)',
-                          }}
-                          title={isSuggestion ? `Suggéré d'après les sprints : ${HORIZON_META[h].label}` : `Classer en ${HORIZON_META[h].label}`}
-                        >
-                          {HORIZON_META[h].label}
-                          {isSuggestion && ' ?'}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-
-        {/* Poignée de répartition */}
-        {selected && (
+        {/* Poignée de répartition (masquée si plein écran) */}
+        {selected && !isPanelExpanded && (
           <div
             role="separator"
             aria-orientation="vertical"
@@ -825,63 +800,28 @@ export const RoadmapView: React.FC = () => {
         {/* Panneau : vérification des sprints en NOW/NEXT, cadrage en LATER */}
         {selected && (
           <aside className="flex flex-col min-h-0 shrink-0 bg-[var(--bg-secondary)]"
-            style={{ width: panelWidth }}>
+            style={{ width: isPanelExpanded ? '100%' : panelWidth, flex: isPanelExpanded ? 1 : undefined }}>
             <div className="px-4 pt-3.5 pb-3 shrink-0 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{selected.key}</span>
-                <div className="flex items-center gap-1 bg-[var(--bg-tertiary)] p-0.5 rounded-lg border border-[var(--border-color)]">
-                  {(['now', 'next', 'later', 'hidden'] as MacroHorizon[]).map(h => {
-                    const active = selected.horizon === h
-                    return (
-                      <button
-                        key={h}
-                        type="button"
-                        onClick={() => persist(selected.key, { horizon: h })}
-                        className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] transition-all cursor-pointer ${
-                          active
-                            ? 'text-white shadow-xs'
-                            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                        }`}
-                        style={{
-                          background: active ? HORIZON_META[h].color : 'transparent',
-                        }}
-                        title={`Déplacer vers ${HORIZON_META[h].label}`}
-                      >
-                        {HORIZON_META[h].label}
-                      </button>
-                    )
-                  })}
-                </div>
+                {selected.horizon && (
+                  <span
+                    className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] text-white"
+                    style={{ background: HORIZON_META[selected.horizon].color }}
+                  >
+                    {HORIZON_META[selected.horizon].label}
+                  </span>
+                )}
                 <div className="ml-auto flex items-center gap-1.5 flex-wrap">
-                  {/* Switcher de mode de visualisation */}
-                  <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
-                    <button
-                      type="button"
-                      onClick={() => setDisplayMode('framing')}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-bold transition-all cursor-pointer ${
-                        displayMode === 'framing'
-                          ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                      title="Mode Framing : Cadrage et Checklist TODOs"
-                    >
-                      <Compass size={11} />
-                      <span>Framing</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDisplayMode('execution')}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded-md text-[10.5px] font-bold transition-all cursor-pointer ${
-                        displayMode === 'execution'
-                          ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                      title="Mode Execution : Stories, Sprints et Découpe"
-                    >
-                      <Target size={11} />
-                      <span>Execution</span>
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsPanelExpanded(prev => !prev)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-[var(--accent-color)] hover:opacity-90 cursor-pointer border border-[var(--accent-color)]/40 bg-[var(--accent-light)] transition-colors"
+                    title={isPanelExpanded ? "Réduire le panneau (Vue divisée)" : "Agrandir le panneau sur toute la surface (Mode Framing)"}
+                  >
+                    {isPanelExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                    <span>{isPanelExpanded ? "Réduire" : "Plein écran"}</span>
+                  </button>
 
                   {selected.tasks[0]?.externalUrl && (
                     <a href={selected.tasks[0].externalUrl} target="_blank" rel="noreferrer"
@@ -1425,44 +1365,114 @@ export const RoadmapView: React.FC = () => {
 </>
               ) : (
                 <>
-                  {/* Mode Framing : cadrage de la macro, description et checklist TODO */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)]">Framing</span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          disabled={isRefining}
-                          onClick={handleRefineMacro}
-                          className="flex items-center gap-1 px-2.5 py-1 rounded text-[10px] font-bold text-orange-300 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 disabled:opacity-50 cursor-pointer"
-                          title="Raffiner le cadrage avec l'IA pour générer la checklist de TODOs"
-                        >
-                          {isRefining ? <Loader2 size={10} className="animate-spin text-orange-400" /> : <Sparkles size={10} className="text-orange-400" />}
-                          <span>Raffiner la macro (AI)</span>
-                        </button>
-                        {draftDirty && (
+                  {/* Mode Framing : description de la macro, commentaire framing et checklist TODO / tickets */}
+                  <div className="space-y-3">
+                    {/* Textbox 1 : Description de la Macro */}
+                    <div className="rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] overflow-hidden">
+                      <div
+                        className="flex items-center justify-between p-3 cursor-pointer select-none bg-[var(--bg-tertiary)]/40 hover:bg-[var(--bg-tertiary)]/70 transition-colors"
+                        onClick={() => setIsDescExpanded(prev => !prev)}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {isDescExpanded ? <ChevronDown size={14} className="text-[var(--accent-color)] shrink-0" /> : <ChevronRight size={14} className="text-[var(--text-muted)] shrink-0" />}
+                          <span className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-primary)] shrink-0">
+                            Description de la Macro
+                          </span>
+                          {!isDescExpanded && draftDescription.trim() && (
+                            <span className="text-[10px] text-[var(--text-muted)] italic truncate max-w-[280px]">
+                              — {draftDescription.trim().slice(0, 50)}…
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
                           <button
                             type="button"
-                            onClick={() => {
-                              persist(selected.key, { description: draftDescription })
-                              setDraftDirty(false)
-                            }}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white accent-bg cursor-pointer"
+                            disabled={isRefining}
+                            onClick={handleRefineMacro}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-orange-300 bg-orange-500/10 border border-orange-500/30 hover:bg-orange-500/20 disabled:opacity-50 cursor-pointer"
+                            title="Raffiner le cadrage avec l'IA pour générer la checklist de TODOs"
                           >
-                            <Save size={10} /> Enregistrer
+                            {isRefining ? <Loader2 size={10} className="animate-spin text-orange-400" /> : <Sparkles size={10} className="text-orange-400" />}
+                            <span>Raffiner AI</span>
                           </button>
-                        )}
+                          {draftDirty && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                persist(selected.key, { description: draftDescription })
+                                setDraftDirty(false)
+                              }}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white accent-bg cursor-pointer"
+                            >
+                              <Save size={10} /> Enregistrer
+                            </button>
+                          )}
+                        </div>
                       </div>
+
+                      {isDescExpanded && (
+                        <div className="p-3 pt-1 border-t border-[var(--border-color)]">
+                          <MarkdownEditor
+                            value={draftDescription}
+                            onChange={value => {
+                              setDraftDescription(value)
+                              setDraftDirty(true)
+                            }}
+                            minHeight={120}
+                            placeholder="Le problème, le périmètre, la valeur attendue, ce qui est hors périmètre… Ce cadrage vit dans TaskFlow."
+                          />
+                        </div>
+                      )}
                     </div>
-                    <MarkdownEditor
-                      value={draftDescription}
-                      onChange={value => {
-                        setDraftDescription(value)
-                        setDraftDirty(true)
-                      }}
-                      minHeight={160}
-                      placeholder="Le problème, le périmètre, la valeur attendue, ce qui est hors périmètre… Ce cadrage vit dans TaskFlow."
-                    />
+
+                    {/* Textbox 2 : Commentaire Framing / Notes de Cadrage */}
+                    <div className="rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] overflow-hidden">
+                      <div
+                        className="flex items-center justify-between p-3 cursor-pointer select-none bg-[var(--bg-tertiary)]/40 hover:bg-[var(--bg-tertiary)]/70 transition-colors"
+                        onClick={() => setIsFramingExpanded(prev => !prev)}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          {isFramingExpanded ? <ChevronDown size={14} className="text-amber-400 shrink-0" /> : <ChevronRight size={14} className="text-[var(--text-muted)] shrink-0" />}
+                          <span className="text-[11px] font-bold uppercase tracking-[.08em] text-[var(--text-primary)] flex items-center gap-1 shrink-0">
+                            <MessageSquare size={12} className="text-amber-400" />
+                            <span>Commentaire Framing / Notes de Cadrage</span>
+                          </span>
+                          {!isFramingExpanded && draftFramingComment.trim() && (
+                            <span className="text-[10px] text-[var(--text-muted)] italic truncate max-w-[280px]">
+                              — {draftFramingComment.trim().slice(0, 50)}…
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                          {draftFramingDirty && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                persist(selected.key, { framingComment: draftFramingComment })
+                                setDraftFramingDirty(false)
+                              }}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold text-white accent-bg cursor-pointer"
+                            >
+                              <Save size={10} /> Enregistrer
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {isFramingExpanded && (
+                        <div className="p-3 pt-1 border-t border-[var(--border-color)]">
+                          <MarkdownEditor
+                            value={draftFramingComment}
+                            onChange={value => {
+                              setDraftFramingComment(value)
+                              setDraftFramingDirty(true)
+                            }}
+                            minHeight={100}
+                            placeholder="Commentaires et consignes de cadrage pour l'équipe ou l'agent (ex: architecture, contraintes techniques, notes de révision)..."
+                          />
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <div>
@@ -1601,8 +1611,6 @@ export const RoadmapView: React.FC = () => {
           </aside>
         )}
       </div>
-        </>
-      )}
 
       {showCreateMacroModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">

@@ -80,11 +80,23 @@ func (d *DB) StartAutoSync() {
 
 	go func() {
 		for {
-			interval := d.autoSyncInterval()
-			time.Sleep(interval)
+			time.Sleep(30 * time.Second)
+
+			projects, err := d.GetProjects()
+			if err != nil {
+				continue
+			}
+
+			hasActiveAutoSync := false
+			for _, p := range projects {
+				if p.AutoSyncEnabled {
+					hasActiveAutoSync = true
+					break
+				}
+			}
 
 			settings, _ := d.GetSettings()
-			if settings == nil || !settings.AutoSyncEnabled {
+			if !hasActiveAutoSync && (settings == nil || !settings.AutoSyncEnabled) {
 				continue
 			}
 
@@ -166,7 +178,44 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 	var failures []string
 
 	for _, proj := range projects {
-		_ = proj
+		if !proj.AutoSyncEnabled {
+			continue
+		}
+
+		intervalMin := models.NormalizeAutoSyncIntervalMin(proj.AutoSyncIntervalMin)
+
+		d.auto.mu.Lock()
+		lastRun, hasRun := d.auto.lastPassAt[proj.ID]
+		d.auto.mu.Unlock()
+
+		if hasRun && time.Since(lastRun) < time.Duration(intervalMin)*time.Minute {
+			continue
+		}
+
+		d.auto.mu.Lock()
+		d.auto.lastPassAt[proj.ID] = time.Now()
+		d.auto.mu.Unlock()
+
+		// Retrieve all non-finished tasks for this project
+		tasks, taskErr := d.GetTasks("", "", "", "", proj.ID, "", "", "", "", nil, nil, false)
+		if taskErr != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", proj.Name, taskErr))
+			continue
+		}
+
+		for _, t := range tasks {
+			// Skip finished tasks
+			if t.Status == models.StatusFinished || strings.EqualFold(t.TrackerStatus, "Done") {
+				continue
+			}
+
+			// Enqueue single task sync activity in the queue
+			if _, syncErr := d.EnqueueSingleTaskSync(&t); syncErr != nil {
+				failures = append(failures, fmt.Sprintf("%s (%s): %v", proj.Name, t.Key, syncErr))
+			} else {
+				imported++
+			}
+		}
 	}
 
 	d.auto.mu.Lock()
@@ -176,7 +225,7 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 	d.auto.mu.Unlock()
 
 	if imported > 0 {
-		log.Printf("[autosync] %d ticket(s) mis à jour", imported)
+		log.Printf("[autosync] %d tâche(s) de synchronisation en file d'attente", imported)
 	}
 }
 

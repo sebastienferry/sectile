@@ -175,7 +175,7 @@ export const ListView: React.FC = () => {
 
   const statusList: { id: Status; label: string; stageLabel: string; stageColor: string; icon: React.ReactNode; color: string }[] = [
     { id: "to_clarify", label: t.status.to_clarify, stageLabel: "Backlog", stageColor: "bg-cyan-500/15 text-cyan-400 border-cyan-500/30", icon: <Sparkles size={14} />, color: "text-cyan-400" },
-    { id: "to_specify", label: t.status.to_specify, stageLabel: "Spécification", stageColor: "bg-amber-500/15 text-amber-400 border-amber-500/30", icon: <HelpCircle size={14} />, color: "text-amber-400" },
+    { id: "clarified", label: t.status.clarified, stageLabel: "Spécification", stageColor: "bg-amber-500/15 text-amber-400 border-amber-500/30", icon: <HelpCircle size={14} />, color: "text-amber-400" },
     { id: "to_implement", label: t.status.to_implement, stageLabel: "En cours", stageColor: "bg-blue-500/15 text-blue-400 border-blue-500/30", icon: <FileCode size={14} />, color: "text-blue-400" },
     { id: "to_test", label: t.status.to_test, stageLabel: "Tests", stageColor: "bg-indigo-500/15 text-indigo-400 border-indigo-500/30", icon: <Flame size={14} />, color: "text-indigo-400" },
     { id: "to_close", label: t.status.to_close, stageLabel: "Revue", stageColor: "bg-purple-500/15 text-purple-400 border-purple-500/30", icon: <ShieldCheck size={14} />, color: "text-purple-400" },

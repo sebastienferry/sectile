@@ -17,7 +17,6 @@ import {
   FileCode,
   HelpCircle,
   CalendarDays,
-  ShieldCheck,
   Flame,
   GitPullRequest,
   Info,
@@ -41,7 +40,6 @@ export const ProfileModal: React.FC = () => {
   const {
     isProfileOpen,
     setIsProfileOpen,
-    setIsTrackerSetupOpen,
     settings,
     updateSettings,
     t,
@@ -65,16 +63,6 @@ export const ProfileModal: React.FC = () => {
   const [aiCommandTemplate, setAiCommandTemplate] = useState(settings.aiCommandTemplate || 'agy -p "{prompt}"')
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
 
-  // Jira REST credentials. acli cannot return the Sprint and Team fields, so
-  // importing them needs an API token of its own.
-  const [jiraUrl, setJiraUrl] = useState(settings.jiraUrl || '')
-  const [jiraEmail, setJiraEmail] = useState(settings.jiraEmail || '')
-  const [jiraApiToken, setJiraApiToken] = useState('')
-  // Boucle de synchronisation de fond : éteinte par défaut, c'est un appel
-  // périodique au tracker et il se règle ici.
-  const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
-  const [autoSyncIntervalSec, setAutoSyncIntervalSec] = useState(60)
-
   // Skill Prompts
   const [promptDigestAgenda, setPromptDigestAgenda] = useState(settings.promptDigestAgenda || '')
   const [promptClarify, setPromptClarify] = useState(settings.promptClarify || '')
@@ -96,11 +84,6 @@ export const ProfileModal: React.FC = () => {
       setAiProvider(settings.aiProvider || 'agy')
       setAiCommandTemplate(settings.aiCommandTemplate || 'agy -p "{prompt}"')
       setSpecFramework(settings.specFramework || 'speckit')
-      setJiraUrl(settings.jiraUrl || '')
-      setJiraEmail(settings.jiraEmail || '')
-      setJiraApiToken('')
-      setAutoSyncEnabled(Boolean(settings.autoSyncEnabled))
-      setAutoSyncIntervalSec(settings.autoSyncIntervalSec || 60)
       setPromptDigestAgenda(settings.promptDigestAgenda || '')
       setPromptClarify(settings.promptClarify || '')
       setPromptSpecify(settings.promptSpecify || '')
@@ -150,12 +133,6 @@ export const ProfileModal: React.FC = () => {
       aiProvider,
       aiCommandTemplate: aiCommandTemplate.trim() || `${aiProvider} -p "{prompt}"`,
       specFramework,
-      jiraUrl: jiraUrl.trim(),
-      jiraEmail: jiraEmail.trim(),
-      // Vide = conserver le jeton stocké, la sentinelle l'efface.
-      jiraApiToken: jiraApiToken.trim(),
-      autoSyncEnabled,
-      autoSyncIntervalSec,
       promptDigestAgenda: promptDigestAgenda.trim(),
       promptClarify: promptClarify.trim(),
       promptSpecify: promptSpecify.trim(),
@@ -523,129 +500,6 @@ export const ProfileModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Jira REST access: needed for the Sprint and Team fields, which
-                  acli refuses to return. */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-[var(--text-secondary)] flex items-center gap-1.5">
-                  <span>Accès API Jira (import des champs Sprint et Team)</span>
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    value={jiraUrl}
-                    onChange={e => setJiraUrl(e.target.value)}
-                    placeholder="mon-org.atlassian.net"
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                  />
-                  <input
-                    type="email"
-                    value={jiraEmail}
-                    onChange={e => setJiraEmail(e.target.value)}
-                    placeholder="prenom.nom@societe.com"
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                  />
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="password"
-                    value={jiraApiToken}
-                    onChange={e => setJiraApiToken(e.target.value)}
-                    placeholder={
-                      settings.jiraApiTokenFromEnv
-                        ? 'Défini par TASKFLOW_JIRA_API_TOKEN'
-                        : settings.jiraApiTokenSet
-                          ? '•••••••• (jeton enregistré, laisser vide pour le conserver)'
-                          : "Jeton d'API Jira"
-                    }
-                    disabled={settings.jiraApiTokenFromEnv}
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all disabled:opacity-60"
-                  />
-                  {settings.jiraApiTokenSet && !settings.jiraApiTokenFromEnv && (
-                    <button
-                      type="button"
-                      onClick={() => setJiraApiToken('__clear__')}
-                      className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 transition-colors cursor-pointer shrink-0"
-                      title="Effacer le jeton enregistré à l'enregistrement"
-                    >
-                      Effacer
-                    </button>
-                  )}
-                </div>
-                {jiraApiToken === '__clear__' && (
-                  <span className="text-[10px] text-rose-300 block">
-                    Le jeton sera effacé à l'enregistrement. Sprint et Team retomberont sur le repli acli, qui ne couvre que le sprint.
-                  </span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsProfileOpen(false)
-                    setIsTrackerSetupOpen(true)
-                  }}
-                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-semibold text-[var(--accent-color)] bg-[var(--accent-light)] hover:opacity-90 border border-[var(--accent-color)]/30 transition-colors cursor-pointer"
-                  title="Saisir site, e-mail et jeton, et vérifier qu'ils fonctionnent avant de les enregistrer"
-                >
-                  <ShieldCheck size={14} />
-                  <span>Vérifier et enregistrer les accès au tracker</span>
-                </button>
-
-                {/* Boucle de fond : elle ne relit que ce qui a bougé, ce qui la
-                    rend possible sans peser sur le tracker. */}
-                <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <span className="text-xs font-bold text-[var(--text-primary)] block">
-                        Synchronisation en arrière-plan
-                      </span>
-                      <span className="text-[10px] text-[var(--text-muted)] block mt-0.5">
-                        {autoSyncEnabled
-                          ? "La boucle relit périodiquement ce qui a changé dans Jira depuis sa passe précédente. Une passe complète d'un projet de mille quatre cents tickets coûte quatorze requêtes ; une passe incrémentale, une seule, qui ne répond le plus souvent aucun ticket."
-                          : 'Rien ne part vers le tracker tant que vous ne synchronisez pas vous-même. Nécessite un jeton d\'API : le CLI acli ne sait pas lire par date de mise à jour.'}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setAutoSyncEnabled(v => !v)}
-                      role="switch"
-                      aria-checked={autoSyncEnabled}
-                      className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${
-                        autoSyncEnabled ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)]'
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-                          autoSyncEnabled ? 'left-[22px]' : 'left-0.5'
-                        }`}
-                      />
-                    </button>
-                  </div>
-
-                  {autoSyncEnabled && (
-                    <div className="flex items-center gap-2">
-                      <label className="text-[10px] text-[var(--text-muted)]">Toutes les</label>
-                      <select
-                        value={autoSyncIntervalSec}
-                        onChange={e => setAutoSyncIntervalSec(Number(e.target.value))}
-                        className="px-2 py-1 text-[11px] rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer"
-                      >
-                        <option value={60}>minute</option>
-                        <option value={120}>2 minutes</option>
-                        <option value={300}>5 minutes</option>
-                        <option value={900}>15 minutes</option>
-                      </select>
-                      <span className="text-[10px] text-[var(--text-muted)]">
-                        Une passe complète est refaite toutes les 30 minutes : elle seule voit les
-                        tickets sortis du périmètre.
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                <span className="text-[10px] text-[var(--text-muted)] block">
-                  Sprint et Team sont des champs personnalisés que le CLI acli refuse de renvoyer. Avec un jeton, la synchro Jira lit tout par l'API en une passe, parent inclus. Sans jeton, elle repasse sur acli : le sprint est reconstruit depuis les boards scrum et Team reste vide. Jeton à créer sur id.atlassian.com, section jetons d'API, ou à fournir par la variable d'environnement TASKFLOW_JIRA_API_TOKEN pour qu'il ne soit pas stocké en base.
-                </span>
-              </div>
-
             </div>
           )}
 
@@ -696,13 +550,13 @@ export const ProfileModal: React.FC = () => {
               </div>
 
               {/* Command Line Template Configuration */}
-              <div className="space-y-2.5 p-4 rounded-xl bg-slate-950/70 border border-slate-800">
+              <div className="space-y-2.5 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
                 <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-primary)] flex items-center gap-1.5">
                     <Terminal size={13} className="text-indigo-400" />
                     <span>Modèle de ligne de commande d'exécution (CLI)</span>
                   </label>
-                  <span className="text-[10px] text-slate-400 font-mono">Template bash / zsh</span>
+                  <span className="text-[10px] text-[var(--text-muted)] font-mono">Template bash / zsh</span>
                 </div>
 
                 <div className="space-y-1.5">
@@ -711,22 +565,22 @@ export const ProfileModal: React.FC = () => {
                     value={aiCommandTemplate}
                     onChange={e => setAiCommandTemplate(e.target.value)}
                     placeholder='Ex: agy -p "{prompt}" ou claude -p "{prompt}"'
-                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-slate-900 border border-slate-700 text-slate-200 focus:outline-none focus:border-indigo-500 transition-all"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
                   />
-                  <div className="flex flex-wrap items-center gap-1 text-[10.5px] text-slate-400 leading-relaxed pt-1">
+                  <div className="flex flex-wrap items-center gap-1 text-[10.5px] text-[var(--text-muted)] leading-relaxed pt-1">
                     <Info size={12} className="text-indigo-400 shrink-0" />
-                    <span>Variables disponibles :</span>
-                    <code className="bg-slate-800 text-indigo-300 px-1 py-0.5 rounded text-[9.5px] font-mono">{'{prompt}'}</code>
-                    <code className="bg-slate-800 text-indigo-300 px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueKey}'}</code>
-                    <code className="bg-slate-800 text-indigo-300 px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueTitle}'}</code>
-                    <code className="bg-slate-800 text-indigo-300 px-1 py-0.5 rounded text-[9.5px] font-mono">{'{branchName}'}</code>
-                    <code className="bg-slate-800 text-indigo-300 px-1 py-0.5 rounded text-[9.5px] font-mono">{'{repoPath}'}</code>
+                    <span className="font-semibold text-[var(--text-secondary)]">Variables disponibles :</span>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{prompt}'}</code>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueKey}'}</code>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueTitle}'}</code>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{branchName}'}</code>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{repoPath}'}</code>
                   </div>
                 </div>
 
                 {/* Fast Preset buttons */}
-                <div className="pt-2 border-t border-slate-800/80">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-bold mb-1.5">
+                <div className="pt-2 border-t border-[var(--border-color)]">
+                  <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-bold mb-1.5">
                     Modèles de commande rapides :
                   </div>
                   <div className="flex flex-wrap gap-1.5">
@@ -742,7 +596,7 @@ export const ProfileModal: React.FC = () => {
                         key={preset.label}
                         type="button"
                         onClick={() => setAiCommandTemplate(preset.cmd)}
-                        className="px-2 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 text-[10.5px] rounded-lg font-mono transition-colors cursor-pointer"
+                        className="px-2 py-1 bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)] text-[10.5px] rounded-lg font-mono transition-colors cursor-pointer"
                       >
                         {preset.label}
                       </button>

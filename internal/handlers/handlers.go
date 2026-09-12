@@ -888,10 +888,11 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			var req struct {
 				Key         string              `json:"key"`
 				Title       *string             `json:"title,omitempty"`
-				Horizon     *string             `json:"horizon,omitempty"`
-				Description *string             `json:"description,omitempty"`
-				Todos       *[]models.MacroTodo `json:"todos,omitempty"`
-				Closed      *bool               `json:"closed,omitempty"`
+				Horizon        *string             `json:"horizon,omitempty"`
+				Description    *string             `json:"description,omitempty"`
+				FramingComment *string             `json:"framingComment,omitempty"`
+				Todos          *[]models.MacroTodo `json:"todos,omitempty"`
+				Closed         *bool               `json:"closed,omitempty"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid macro payload: "+err.Error())
@@ -903,7 +904,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					key = decoded
 				}
 			}
-			saved, err := h.db.UpdateMacro(id, key, req.Title, req.Horizon, req.Description, req.Todos, req.Closed)
+			saved, err := h.db.UpdateMacro(id, key, req.Title, req.Horizon, req.Description, req.FramingComment, req.Todos, req.Closed)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return

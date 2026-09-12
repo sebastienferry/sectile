@@ -1,10 +1,10 @@
 ---
 name: refine-macro
-description: Interactively clarify macro framing text with the user and break it down into structured todos and TaskFlow tickets.
+description: "Interactively clarify macro framing text with the user and break it down into structured todos and TaskFlow tickets."
 ---
-# Refine Macro (Spec-Driven Design)
+# Refine Macro (OpenSpec SDD)
 
-Stage: macro -> macro. Interactive: the user answers in the terminal.
+Interactive: the user answers in the terminal.
 
 ## Goal
 Transform high-level macro framing text into an actionable, structured todo list and concrete TaskFlow tickets, interactively clarifying ambiguities with the user when framing text is vague.
@@ -33,3 +33,4 @@ Transform high-level macro framing text into an actionable, structured todo list
 - Clarification Q&A summary (if framing was vague).
 - Structured list of proposed MacroTodo items.
 - Proposed TaskFlow tickets breakdown (Title, IssueType, Description).
+- Rationale behind the task breakdown.

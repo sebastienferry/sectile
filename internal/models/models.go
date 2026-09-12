@@ -15,7 +15,7 @@ type Status string
 
 const (
 	StatusToClarify   Status = "to_clarify"   // A clarifier (Label: #new)
-	StatusToSpecify   Status = "to_specify"   // A spécifier (Label: #clarified)
+	StatusClarified   Status = "clarified"    // Cadré (Label: #clarified)
 	StatusToImplement Status = "to_implement" // A implémenter (Label: #specified)
 	StatusToTest      Status = "to_test"      // A tester (Label: #implemented)
 	StatusToClose     Status = "to_close"     // En revue / PR (Label: #reviewed)
@@ -116,15 +116,17 @@ type Project struct {
 	// ProjectType is "standard" (a delivery project) or "personal" (a personal
 	// board). The daily digest is only meaningful on a personal project, so it
 	// is served for that type only.
-	ProjectType       string            `json:"projectType"`
-	IsDefault         bool              `json:"isDefault"`
-	StageMapping      map[string]string `json:"stageMapping,omitempty"`      // mapping AI workflow labels to tracker statuses
-	SkillOverrides    map[string]string `json:"skillOverrides,omitempty"`    // skillId -> custom skill name override
-	AIProvider              string            `json:"aiProvider,omitempty"`        // "agy", "claude", "vibe", "gemini", "cursor", "custom"
-	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"` // e.g. 'agy -p "{prompt}"'
-	SpecFramework           string            `json:"specFramework,omitempty"`     // "speckit", "openspec"
-	Parallelism             int               `json:"parallelism"`                 // 1 to 3 concurrent AI background workers
-	TtyMode                 string            `json:"ttyMode,omitempty"`           // "integrated" or "external"
+	ProjectType             string            `json:"projectType"`
+	IsDefault               bool              `json:"isDefault"`
+	StageMapping            map[string]string `json:"stageMapping,omitempty"`            // mapping AI workflow labels to tracker statuses
+	SkillOverrides          map[string]string `json:"skillOverrides,omitempty"`          // skillId -> custom skill name override
+	AIProvider              string            `json:"aiProvider,omitempty"`              // "agy", "claude", "vibe", "gemini", "cursor", "custom"
+	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`       // e.g. 'agy -p "{prompt}"'
+	SpecFramework           string            `json:"specFramework,omitempty"`           // "speckit", "openspec"
+	Parallelism             int               `json:"parallelism"`                       // 1 to 3 concurrent AI background workers
+	AutoSyncEnabled         bool              `json:"autoSyncEnabled"`                   // Enable background sync for non-finished tickets
+	AutoSyncIntervalMin     int               `json:"autoSyncIntervalMin"`               // Period in minutes (1 to 30)
+	TtyMode                 string            `json:"ttyMode,omitempty"`                 // "integrated" or "external"
 	ExternalTerminalCommand string            `json:"externalTerminalCommand,omitempty"` // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
 	TaskCount               int               `json:"taskCount"`
 	CreatedAt               time.Time         `json:"createdAt"`
@@ -172,11 +174,12 @@ type TrackerSprint struct {
 // MacroMeta is the macro-level data TaskFlow owns. Macros are containers referenced by their children
 // — so their horizon, their framing notes and their todo list have nowhere else to live.
 type MacroMeta struct {
-	ProjectID   string      `json:"projectId"`
-	Key         string      `json:"key"`
-	Horizon     string      `json:"horizon"` // "now", "next", "later", "hidden", "" = non classé
-	Description string      `json:"description"`
-	Todos       []MacroTodo `json:"todos"`
+	ProjectID      string      `json:"projectId"`
+	Key            string      `json:"key"`
+	Horizon        string      `json:"horizon"` // "now", "next", "later", "hidden", "" = non classé
+	Description    string      `json:"description"`
+	FramingComment string      `json:"framingComment,omitempty"`
+	Todos          []MacroTodo `json:"todos"`
 	// Title et Status viennent du ticket macro lui-même, que la synchro n'importe
 	// pas comme carte. Closed permet de sortir de la roadmap ce qui est terminé
 	// sans avoir à deviner depuis l'état des enfants.
@@ -263,30 +266,32 @@ type CreateProjectRequest struct {
 	IssueTypes []string `json:"issueTypes,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
-	MonoRepo          *bool             `json:"monoRepo,omitempty"`
-	Name              string            `json:"name"`
-	Slug              string            `json:"slug,omitempty"`
-	Description       string            `json:"description,omitempty"`
-	Icon              string            `json:"icon,omitempty"`
-	Color             string            `json:"color,omitempty"`
-	RepoPath          string            `json:"repoPath,omitempty"`
-	RepoPaths         []string          `json:"repoPaths,omitempty"`
-	UseWorktrees      *bool             `json:"useWorktrees,omitempty"`
-	BoardID           string            `json:"boardId,omitempty"`
-	GitRemoteUrl      string            `json:"gitRemoteUrl,omitempty"`
-	LinearTeam        string            `json:"linearTeam,omitempty"`
-	GithubRepo        string            `json:"githubRepo,omitempty"`
-	JiraProject       string            `json:"jiraProject,omitempty"`
-	IssueTracker      string            `json:"issueTracker,omitempty"`
-	TrackerUrl        string            `json:"trackerUrl,omitempty"`
-	ProjectType       string            `json:"projectType,omitempty"`
-	IsDefault         bool              `json:"isDefault,omitempty"`
-	StageMapping      map[string]string `json:"stageMapping,omitempty"`
-	SkillOverrides    map[string]string `json:"skillOverrides,omitempty"`
-	AIProvider        string            `json:"aiProvider,omitempty"`
-	AICommandTemplate string            `json:"aiCommandTemplate,omitempty"`
-	SpecFramework     string            `json:"specFramework,omitempty"`
+	MonoRepo                *bool             `json:"monoRepo,omitempty"`
+	Name                    string            `json:"name"`
+	Slug                    string            `json:"slug,omitempty"`
+	Description             string            `json:"description,omitempty"`
+	Icon                    string            `json:"icon,omitempty"`
+	Color                   string            `json:"color,omitempty"`
+	RepoPath                string            `json:"repoPath,omitempty"`
+	RepoPaths               []string          `json:"repoPaths,omitempty"`
+	UseWorktrees            *bool             `json:"useWorktrees,omitempty"`
+	BoardID                 string            `json:"boardId,omitempty"`
+	GitRemoteUrl            string            `json:"gitRemoteUrl,omitempty"`
+	LinearTeam              string            `json:"linearTeam,omitempty"`
+	GithubRepo              string            `json:"githubRepo,omitempty"`
+	JiraProject             string            `json:"jiraProject,omitempty"`
+	IssueTracker            string            `json:"issueTracker,omitempty"`
+	TrackerUrl              string            `json:"trackerUrl,omitempty"`
+	ProjectType             string            `json:"projectType,omitempty"`
+	IsDefault               bool              `json:"isDefault,omitempty"`
+	StageMapping            map[string]string `json:"stageMapping,omitempty"`
+	SkillOverrides          map[string]string `json:"skillOverrides,omitempty"`
+	AIProvider              string            `json:"aiProvider,omitempty"`
+	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`
+	SpecFramework           string            `json:"specFramework,omitempty"`
 	Parallelism             int               `json:"parallelism,omitempty"`
+	AutoSyncEnabled         *bool             `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin     *int              `json:"autoSyncIntervalMin,omitempty"`
 	TtyMode                 string            `json:"ttyMode,omitempty"`
 	ExternalTerminalCommand string            `json:"externalTerminalCommand,omitempty"`
 }
@@ -320,8 +325,21 @@ type UpdateProjectRequest struct {
 	AICommandTemplate       *string              `json:"aiCommandTemplate,omitempty"`
 	SpecFramework           *string              `json:"specFramework,omitempty"`
 	Parallelism             *int                 `json:"parallelism,omitempty"`
+	AutoSyncEnabled         *bool                `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin     *int                 `json:"autoSyncIntervalMin,omitempty"`
 	TtyMode                 *string              `json:"ttyMode,omitempty"`
 	ExternalTerminalCommand *string              `json:"externalTerminalCommand,omitempty"`
+}
+
+// NormalizeAutoSyncIntervalMin clamps the project background sync interval between 1 and 30 minutes (default 5).
+func NormalizeAutoSyncIntervalMin(min int) int {
+	if min < 1 {
+		return 5
+	}
+	if min > 30 {
+		return 30
+	}
+	return min
 }
 
 // NormalizeParallelism keeps the concurrent background agent workers count between 1 and 3.
@@ -601,15 +619,15 @@ type Settings struct {
 	JiraAPITokenFromEnv bool   `json:"jiraApiTokenFromEnv"` // e.g. "https://acme.atlassian.net"
 	// PromptDigestAgenda replaces the built-in agenda prompt of the daily digest.
 	// Empty keeps the default. Placeholders: {project}, {date}.
-	PromptDigestAgenda string    `json:"promptDigestAgenda"`
-	PromptClarify      string    `json:"promptClarify"`
-	PromptSpecify      string    `json:"promptSpecify"`
-	PromptImplement    string    `json:"promptImplement"`
-	PromptCreatePR     string    `json:"promptCreatePr"`
-	PromptPick         string    `json:"promptPick"`
-	EditorCommand           string    `json:"editorCommand"` // "code", "cursor", "zed", "subl", etc.
+	PromptDigestAgenda      string    `json:"promptDigestAgenda"`
+	PromptClarify           string    `json:"promptClarify"`
+	PromptSpecify           string    `json:"promptSpecify"`
+	PromptImplement         string    `json:"promptImplement"`
+	PromptCreatePR          string    `json:"promptCreatePr"`
+	PromptPick              string    `json:"promptPick"`
+	EditorCommand           string    `json:"editorCommand"`                     // "code", "cursor", "zed", "subl", etc.
 	ExternalTerminalCommand string    `json:"externalTerminalCommand,omitempty"` // e.g. "Terminal", "iTerm", "Ghostty", "alacritty", "kitty"
-	SpecFramework           string    `json:"specFramework"` // "speckit", "openspec"
+	SpecFramework           string    `json:"specFramework"`                     // "speckit", "openspec"
 	UpdatedAt               time.Time `json:"updatedAt"`
 }
 
@@ -840,7 +858,7 @@ type DailyDigest struct {
 	RecentlyDone   []DigestTaskRef    `json:"recentlyDone"`   // closed in the last 7 days
 	ByMacro        []DigestMacroGroup `json:"byMacro"`
 	ByEpic         []DigestMacroGroup `json:"byEpic,omitempty"`
-	Stats          DigestStats       `json:"stats"`
+	Stats          DigestStats        `json:"stats"`
 
 	// AI enrichment (agenda / meetings).
 	Agenda       string     `json:"agenda,omitempty"`
@@ -893,5 +911,11 @@ type TaskPostBackResult struct {
 	Task     *Task         `json:"task,omitempty"`
 	Activity *TaskActivity `json:"activity,omitempty"`
 	Error    string        `json:"error,omitempty"`
+}
+
+type ProposedMacroTask struct {
+	Title       string `json:"title"`
+	IssueType   string `json:"issueType"`
+	Description string `json:"description"`
 }
 

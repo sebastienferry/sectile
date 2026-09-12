@@ -1,3 +1,4 @@
+import { sameTask, tasksInProject } from '../lib/taskIdentity'
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import type {
   MacroRequiredField,
@@ -253,8 +254,8 @@ interface AppContextType {
   refineMacro: (key: string, projectId?: string) => Promise<RefineMacroResult | null>
   createBatchTasks: (reqs: CreateTaskPayload[]) => Promise<Task[]>
   sendTerminalInput: (input: string, taskId?: string, sessionId?: string) => Promise<boolean>
-  saveMacroMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
-  saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
+  saveMacroMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
+  saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   createStoryFromEpicTodo: (projectId: string, epicKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   pendingHorizonPushes: (projectId: string) => Promise<MacroMeta[]>
@@ -347,7 +348,7 @@ interface AppContextType {
  * Vues connues. Ce qui sort du stockage local n'est pas fiable : une vue retirée
  * d'une version à l'autre laisserait un écran vide au démarrage.
  */
-const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'activities', 'sync', 'digest', 'skills', 'team']
+const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'digest', 'skills', 'team']
 
 const defaultSettings: UserSettings = {
   id: 1,
@@ -1337,21 +1338,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         try {
           const data = JSON.parse(e.data)
           if (data && data.task) {
-            setTasks(prevTasks => {
-              const idx = prevTasks.findIndex(t => t.id === data.task.id || t.key === data.task.key)
-              if (idx >= 0) {
-                const next = [...prevTasks]
-                next[idx] = { ...next[idx], ...data.task }
-                return next
-              }
-              return [data.task, ...prevTasks]
-            })
-            if (selectedTask && (selectedTask.id === data.task.id || selectedTask.key === data.task.key)) {
-              setSelectedTask(data.task)
-            }
-          } else {
-            fetchTasks()
+            setSelectedTask(current => current && sameTask(current, data.task) ? data.task : current)
           }
+          // Reapply the active project and all server-side filters, including
+          // when an event introduces a new task or moves one out of this view.
+          fetchTasks()
+
           fetchActivities()
           fetchActivityStats()
         } catch (err) {
@@ -1844,8 +1836,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) throw new Error('Update failed')
       const updated: Task = await res.json()
-      setTasks(prev => prev.map(t => (t.id === id || t.key === id || t.id === updated.id || t.key === updated.key ? updated : t)))
-      if (selectedTask && (selectedTask.id === id || selectedTask.key === id || selectedTask.id === updated.id)) {
+      setTasks(prev => prev.map(t => (sameTask(t, updated) ? updated : t)))
+      if (selectedTask && (sameTask(selectedTask, updated))) {
         setSelectedTask(updated)
       }
       addToast({
@@ -1876,8 +1868,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json()
       const updated: Task = data.task
       if (updated) {
-        setTasks(prev => prev.map(t => (t.id === id || t.key === id || t.id === updated.id || t.key === updated.key ? updated : t)))
-        if (selectedTask && (selectedTask.id === id || selectedTask.key === id || selectedTask.id === updated.id)) {
+        setTasks(prev => prev.map(t => (sameTask(t, updated) ? updated : t)))
+        if (selectedTask && (sameTask(selectedTask, updated))) {
           setSelectedTask(updated)
         }
         addToast({
@@ -1934,7 +1926,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         targetStage = 'implemented'
       } else if (cleanSt.includes('progress') || cleanSt === 'to_implement' || cleanSt === 'in_progress' || cleanSt.includes('code') || cleanSt.includes('implement')) {
         targetStage = 'specified'
-      } else if (cleanSt.includes('specify') || cleanSt === 'to_specify' || cleanSt.includes('spec')) {
+      } else if (cleanSt.includes('specify') || cleanSt.includes('spec')) {
         targetStage = 'clarified'
       } else if (cleanSt.includes('clarif') || cleanSt === 'to_clarify') {
         targetStage = 'new'
@@ -2147,7 +2139,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const saveMacroMeta = async (
     projectId: string,
     key: string,
-    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; todos?: MacroTodo[]; closed?: boolean }
+    patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }
   ): Promise<MacroMeta | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros`, {
@@ -2538,7 +2530,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Transition refusée')
       if (data.task) {
-        setTasks(prev => prev.map(t => (t.id === data.task.id || t.key === data.task.key ? data.task : t)))
+        setTasks(prev => prev.map(t => (sameTask(t, data.task) ? data.task : t)))
       }
       fetchActivities()
       addToast({
@@ -2965,7 +2957,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       mappedStatus = proj.stageMapping[targetStage] as Status
     } else {
       if (targetStage === 'new' || (targetStage as any) === 'untouched') mappedStatus = 'to_clarify'
-      else if (targetStage === 'clarified') mappedStatus = 'to_specify'
+      else if (targetStage === 'clarified') mappedStatus = 'clarified'
       else if (targetStage === 'specified') mappedStatus = 'to_implement'
       else if (targetStage === 'implemented') mappedStatus = 'to_test'
       else if (targetStage === 'reviewed') mappedStatus = 'to_close'
@@ -3158,8 +3150,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // then by the active parent (epic or parent story), when one is selected.
   const filteredTasks = React.useMemo(() => {
     let out = sourceFilter === 'all'
-      ? tasks
-      : tasks.filter(t => (t.source || 'local') === sourceFilter)
+      ? tasksInProject(tasks, selectedProjectId)
+      : tasksInProject(tasks, selectedProjectId).filter(t => (t.source || 'local') === sourceFilter)
     if (parentFilter) {
       if (parentFilter === '__no_macro__' || parentFilter === 'none') {
         out = out.filter(t => !t.parentKey && !t.parentTitle)
@@ -3168,7 +3160,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return out
-  }, [tasks, sourceFilter, parentFilter])
+  }, [tasks, sourceFilter, parentFilter, selectedProjectId])
 
   // The daily digest reads as a brief for one person, so it is served only for
   // a selected project of type "personal" — never for a delivery project, and

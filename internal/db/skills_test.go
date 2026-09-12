@@ -1,11 +1,73 @@
 package db_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"tasks/internal/db"
 	"tasks/internal/models"
 )
+
+func TestGeneratedSkillContracts(t *testing.T) {
+	for _, framework := range []string{"openspec", "speckit"} {
+		for _, stage := range db.StageSkills {
+			t.Run(framework+"/"+stage.ID, func(t *testing.T) {
+				content := db.RenderSkillContent(stage, framework)
+				// A JSON-quoted description is a valid YAML scalar even with a
+				// colon, as in handoff's "properly: confirm the merge".
+				for _, document := range []string{content, db.RenderSkillCommand(stage, framework)} {
+					lines := strings.SplitN(document, "\n", 5)
+					found := false
+					for _, line := range lines {
+						if scalar, ok := strings.CutPrefix(line, "description: "); ok {
+							var desc string
+							if err := json.Unmarshal([]byte(scalar), &desc); err != nil || desc == "" {
+								t.Fatalf("unsafe YAML description: %s (%v)", scalar, err)
+							}
+							found = true
+						}
+					}
+					if !found {
+						t.Fatal("missing description")
+					}
+				}
+				if stage.FromStage == "" || stage.Scope == "macro" {
+					if strings.Contains(content, "/api/tasks/stage") {
+						t.Fatal("non-workflow skill received a task transition")
+					}
+				}
+				if stage.ID == "implement" || stage.ID == "specify" {
+					if !strings.Contains(content, "http://localhost:8090/api/tasks/stage") || !strings.Contains(content, `"branch":"<ACTUAL_BRANCH>"`) {
+						t.Fatal("transition does not record the actual assigned branch")
+					}
+				}
+				if stage.FromStage != "" && stage.Scope != "macro" && strings.Contains(content, "taskflow stage") {
+					t.Fatal("workflow skill must call the local handler instead of a CLI")
+				}
+			})
+		}
+	}
+}
+
+func TestCreatePRSkillIntegratesRemoteDefaultBranchBeforePublishing(t *testing.T) {
+	skill, ok := db.StageSkillByID("create_pr")
+	if !ok {
+		t.Fatal("create_pr skill missing")
+	}
+	content := db.RenderSkillContent(skill, "openspec")
+	for _, required := range []string{
+		"git fetch origin",
+		"origin/main",
+		"prefer rebase when the branch is private",
+		"git push --force-with-lease",
+		"behind the remote default branch",
+	} {
+		if !strings.Contains(content, required) {
+			t.Fatalf("create_pr skill is missing %q", required)
+		}
+	}
+}
 
 func TestRewriteStorySkillTemplate(t *testing.T) {
 	// 1. Verify StageSkillByID lookup for rewrite_story and its aliases

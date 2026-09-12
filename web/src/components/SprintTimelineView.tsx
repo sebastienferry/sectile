@@ -14,8 +14,6 @@ import {
   MessageSquare,
   LayoutGrid,
   Tag,
-  Maximize2,
-  Minimize2,
   CheckSquare,
   Square,
   GripVertical,
@@ -1431,14 +1429,6 @@ export const SprintTimelineView: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setBacklogWidth(prev => (prev > 450 ? 340 : 540))}
-                  className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                  title={backlogWidth > 450 ? 'Réduire la largeur' : 'Agrandir la largeur'}
-                >
-                  {backlogWidth > 450 ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-                </button>
                 <button
                   type="button"
                   onClick={() => setIsBacklogOpen(false)}

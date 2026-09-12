@@ -45,8 +45,8 @@ export const stageFromLabels = (task: Task): WorkflowStage => {
   if (task.status === 'finished' || task.status === 'done') return 'finished'
   if (task.status === 'to_close') return 'reviewed'
   if (task.status === 'to_test' || task.status === 'to_validate') return 'implemented'
-  if (task.status === 'to_implement' || task.status === 'in_progress') return 'specified'
-  if (task.status === 'to_specify' || task.status === 'specified') return 'clarified'
+  if (task.status === 'clarified') return 'clarified'
+  if (task.status === 'to_implement' || task.status === 'in_progress' || task.status === 'specified') return 'specified'
   return 'new'
 }
 
@@ -126,7 +126,7 @@ export const skillForStage = (stage: WorkflowStage): string | null => {
  */
 export const INTERNAL_STATUS_BY_STAGE: Record<WorkflowStage, Status> = {
   new: 'to_clarify',
-  clarified: 'to_specify',
+  clarified: 'clarified',
   specified: 'to_implement',
   implemented: 'to_test',
   reviewed: 'to_close',
@@ -138,8 +138,8 @@ export const stageForInternalStatus = (status: Status): WorkflowStage => {
   if (status === 'finished' || status === 'done') return 'finished'
   if (status === 'to_close') return 'reviewed'
   if (status === 'to_test' || status === 'to_validate') return 'implemented'
-  if (status === 'to_implement' || status === 'in_progress') return 'specified'
-  if (status === 'to_specify' || status === 'specified') return 'clarified'
+  if (status === 'clarified') return 'clarified'
+  if (status === 'to_implement' || status === 'in_progress' || status === 'specified') return 'specified'
   return 'new'
 }
 

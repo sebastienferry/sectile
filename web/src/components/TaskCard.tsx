@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Flame,
+  ListFilter,
   Calendar,
   Clock,
   Sparkles,
@@ -34,9 +35,10 @@ interface TaskCardProps {
   task: Task
   isDragging?: boolean
   onDragStart?: (e: React.DragEvent) => void
+  compact?: boolean
 }
 
-export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStart }) => {
+export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStart, compact = false }) => {
   const {
     setSelectedTask,
     setChatTask,
@@ -142,11 +144,24 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     // Le menu est en position fixe : plutôt que de le faire suivre le défilement,
     // on le referme, ce qui reste prévisible et évite un menu qui flotte loin de
     // sa carte.
-    const close = () => setIsMenuOpen(false)
+    const close = (e: Event) => {
+      if (e.target instanceof Node && menuNodeRef.current?.contains(e.target)) return
+      setIsMenuOpen(false)
+    }
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        setIsMenuOpen(false)
+        menuButtonRef.current?.focus()
+      }
+    }
+    menuNodeRef.current?.querySelector<HTMLElement>('button:not(:disabled), a[href]')?.focus({ preventScroll: true })
+    document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('mousedown', handleClickOutside)
     window.addEventListener('scroll', close, true)
     window.addEventListener('resize', close)
     return () => {
+      document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('mousedown', handleClickOutside)
       window.removeEventListener('scroll', close, true)
       window.removeEventListener('resize', close)
@@ -290,8 +305,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       return skillAction('implement')
     }
 
-    // If clarified / to_specify -> Action is "Spécifier"
-    if (stage === 'clarified' || task.status === 'to_specify') {
+    // A clarified task is ready for specification.
+    if (stage === 'clarified') {
       return skillAction('specify')
     }
 
@@ -303,12 +318,268 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   const isRunning = latestActivity?.status === 'running'
   const isQueued = latestActivity?.status === 'queued' || latestActivity?.status === 'pending'
 
+  const isCondensed = compact
+  const compactActionClass = 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
+  const actionsMenu = (
+    <div className="flex items-center gap-1 relative" ref={menuRef} onClick={e => e.stopPropagation()}>
+      {/* Menu (...) Button */}
+      <button
+        type="button"
+        ref={menuButtonRef}
+        onClick={e => {
+          e.stopPropagation()
+          if (isMenuOpen) {
+            setIsMenuOpen(false)
+          } else {
+            openMenuAt()
+          }
+        }}
+        className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border border-transparent hover:border-[var(--border-color)]/60 transition-colors cursor-pointer"
+        title="Actions"
+        aria-label="Actions"
+        aria-expanded={isMenuOpen}
+      >
+        <MoreHorizontal size={14} />
+      </button>
+
+      {/* Contextual Dropdown Menu */}
+      {isMenuOpen && menuPos && createPortal(
+        <div
+          ref={menuNodeRef}
+          style={{
+            position: 'fixed',
+            left: menuPos.left,
+            top: menuPos.top,
+            bottom: menuPos.bottom,
+            width: MENU_WIDTH,
+            maxHeight: menuPos.maxHeight || MENU_MAX_HEIGHT,
+          }}
+          className="overflow-y-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl p-1 z-[100] animate-in fade-in-0 zoom-in-95 duration-100 text-xs">
+          {isCondensed && (
+            <>
+              <button type="button" className={compactActionClass} onClick={() => { setIsMenuOpen(false); togglePin(task.id) }}>
+                <Pin size={12} /><span>{isPinned(task.id) ? t.compactCard.unpin : t.compactCard.pin}</span>
+              </button>
+              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false) }}>
+                <ChevronRight size={12} /><span>{t.compactCard.advance}</span>
+              </button>
+              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(true) }}>
+                <ChevronsRight size={12} /><span>{t.compactCard.advanceAuto}</span>
+              </button>
+              {task.parentKey && (
+                <button type="button" className={compactActionClass} onClick={() => { setIsMenuOpen(false); setParentFilter(parentFilter === task.parentKey ? null : task.parentKey!) }}>
+                  <ListFilter size={12} /><span>{parentFilter === task.parentKey ? t.compactCard.clearParent : t.compactCard.filterParent} {task.parentKey}</span>
+                </button>
+              )}
+              {task.prUrl && (
+                <a className={compactActionClass} href={task.prUrl} target="_blank" rel="noreferrer" onClick={() => setIsMenuOpen(false)}>
+                  <GitPullRequest size={12} /><span>{t.compactCard.openPr}</span>
+                </a>
+              )}
+              <div className="h-px bg-[var(--border-color)] my-1" />
+            </>
+          )}
+          {/* Action de l'étape courante du workflow (nom du skill) */}
+          {workflowAction && (
+            <>
+              <button
+                type="button"
+                onClick={async e => {
+                  setIsMenuOpen(false)
+                  await workflowAction.action(e)
+                }}
+                disabled={isSkillRunning}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                title={workflowAction.title}
+              >
+                {isSkillRunning && runningSkillId === workflowAction.id ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  workflowAction.icon
+                )}
+                <span className="truncate">{workflowAction.label}</span>
+              </button>
+              <div className="h-px bg-[var(--border-color)] my-1" />
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsMenuOpen(false)
+              setSelectedTask(task)
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+          >
+            <Eye size={12} className="text-blue-400" />
+            <span>Voir les détails</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsMenuOpen(false)
+              setChatTask(task)
+              setIsTerminalPanelOpen(true)
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+            title="Ouvrir le terminal interactif dans l'application"
+          >
+            <TerminalIcon size={12} className="text-cyan-400" />
+            <span>Lancer le terminal intégré</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsMenuOpen(false)
+              openExternalTerminal({ taskId: task.id })
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+            title="Ouvrir une fenêtre de console native (Terminal.app, iTerm...)"
+          >
+            <ExternalLink size={12} className="text-amber-400" />
+            <span>Lancer le terminal externe</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsMenuOpen(false)
+              openInEditor({ taskId: task.id })
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+            title={`Ouvrir dans ${settings.editorCommand || 'VS Code'}`}
+          >
+            <Code2 size={12} className="text-blue-400" />
+            <span>Ouvrir dans l'éditeur</span>
+          </button>
+
+          {/* Créer PR : masqué quand c'est déjà l'action de l'étape courante */}
+          {!task.prUrl && task.status !== 'finished' && workflowAction?.id !== 'create_pr' && (
+            <button
+              type="button"
+              onClick={async () => {
+                setIsMenuOpen(false)
+                await runSkill(task.id, 'create_pr')
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-purple-400 hover:bg-purple-500/10 transition-colors cursor-pointer"
+            >
+              <GitPullRequest size={12} />
+              <span>Créer la Pull Request</span>
+            </button>
+          )}
+
+          {/* Merge / Finaliser : masqué quand c'est déjà l'action de l'étape courante */}
+          {task.status !== 'finished' && workflowAction?.id !== 'merge' && (
+            <button
+              type="button"
+              onClick={async () => {
+                setIsMenuOpen(false)
+                await moveTaskWorkflowStage(task.id, 'finished')
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
+            >
+              <CheckCircle2 size={12} />
+              <span>Fusionner & Finir (#finished)</span>
+            </button>
+          )}
+
+          {task.branchName && (
+            <button
+              type="button"
+              onClick={() => {
+                setIsMenuOpen(false)
+                setDiffTask(task)
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+            >
+              <GitBranch size={12} className="text-indigo-400" />
+              <span>Inspecter le Diff Git</span>
+            </button>
+          )}
+
+          {externalUrl && (
+            <a
+              href={externalUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() => setIsMenuOpen(false)}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+            >
+              <ExternalLink size={12} className="text-amber-400" />
+              <span>Ouvrir sur le tracker</span>
+            </a>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsMenuOpen(false)
+              openCloneModal(task)
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+            title="Créer une copie de cette story"
+          >
+            <CopyPlus size={12} className="text-cyan-400" />
+            <span>Cloner la story</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsMenuOpen(false)
+              navigator.clipboard.writeText(`${task.key}: ${task.title}`)
+              addToast({ type: 'info', title: 'Copié', description: `${task.key} copié dans le presse-papier` })
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+          >
+            <Copy size={12} className="text-slate-400" />
+            <span>Copier la référence</span>
+          </button>
+
+          {Boolean(task.sprint) && (
+            <button
+              type="button"
+              onClick={async () => {
+                setIsMenuOpen(false)
+                await setTaskSprint(task.id, '', '')
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
+              title="Retirer la tâche du sprint et la renvoyer au backlog"
+            >
+              <X size={12} />
+              <span>Retirer du sprint</span>
+            </button>
+          )}
+
+          <div className="h-px bg-[var(--border-color)] my-1" />
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsMenuOpen(false)
+              if (window.confirm(`Supprimer la tâche ${task.key} ?`)) {
+                deleteTask(task.id)
+              }
+            }}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
+          >
+            <Trash2 size={12} />
+            <span>Supprimer la tâche</span>
+          </button>
+        </div>,
+        document.body
+      )}
+    </div>
+  )
+
   return (
     <div
       draggable
       onDragStart={handleDragStartInternal}
       onClick={() => setSelectedTask(task)}
-      className={`group relative rounded-2xl border bg-[var(--bg-secondary)] p-3 hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
+      className={`group relative border bg-[var(--bg-secondary)] ${isCondensed ? 'rounded-none px-1.5 py-1' : 'rounded-2xl p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
         isRunning
           ? 'border-indigo-500/60 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500/20'
           : isQueued
@@ -318,6 +589,20 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
         isDragging ? 'opacity-40 scale-95 ring-2 ring-[var(--accent-color)] ring-dashed' : ''
       }`}
     >
+      {isCondensed ? (
+        <div className="flex items-center gap-1 min-w-0">
+          {externalUrl ? (
+            <a href={externalUrl} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold text-[var(--accent-color)] hover:underline focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
+              {task.key}
+            </a>
+          ) : <span className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
+          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); setSelectedTask(task) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
+            {task.title}
+          </button>
+          {actionsMenu}
+        </div>
+      ) : (
+        <>
       {/* Ligne 1 : Référence (Parent / Tâche) + pastille de priorité */}
       <div className="flex items-center justify-between gap-2 mb-1">
         {/* Référence : ParentID / TaskID */}
@@ -541,232 +826,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
           <TerminalIcon size={14} />
         </button>
 
-        <div className="flex items-center gap-1 relative" ref={menuRef}>
-          {/* Menu (...) Button */}
-          <button
-            type="button"
-            ref={menuButtonRef}
-            onClick={e => {
-              e.stopPropagation()
-              if (isMenuOpen) {
-                setIsMenuOpen(false)
-              } else {
-                openMenuAt()
-              }
-            }}
-            className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] border border-transparent hover:border-[var(--border-color)]/60 transition-colors cursor-pointer"
-            title="Actions"
-          >
-            <MoreHorizontal size={14} />
-          </button>
-
-          {/* Contextual Dropdown Menu */}
-          {isMenuOpen && menuPos && createPortal(
-            <div
-              ref={menuNodeRef}
-              style={{
-                position: 'fixed',
-                left: menuPos.left,
-                top: menuPos.top,
-                bottom: menuPos.bottom,
-                width: MENU_WIDTH,
-                maxHeight: menuPos.maxHeight || MENU_MAX_HEIGHT,
-              }}
-              className="overflow-y-auto rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl p-1 z-[100] animate-in fade-in-0 zoom-in-95 duration-100 text-xs">
-              {/* Action de l'étape courante du workflow (nom du skill) */}
-              {workflowAction && (
-                <>
-                  <button
-                    type="button"
-                    onClick={async e => {
-                      setIsMenuOpen(false)
-                      await workflowAction.action(e)
-                    }}
-                    disabled={isSkillRunning}
-                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={workflowAction.title}
-                  >
-                    {isSkillRunning && runningSkillId === workflowAction.id ? (
-                      <Loader2 size={12} className="animate-spin" />
-                    ) : (
-                      workflowAction.icon
-                    )}
-                    <span className="truncate">{workflowAction.label}</span>
-                  </button>
-                  <div className="h-px bg-[var(--border-color)] my-1" />
-                </>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false)
-                  setSelectedTask(task)
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-              >
-                <Eye size={12} className="text-blue-400" />
-                <span>Voir les détails</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false)
-                  setChatTask(task)
-                  setIsTerminalPanelOpen(true)
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                title="Ouvrir le terminal interactif dans l'application"
-              >
-                <TerminalIcon size={12} className="text-cyan-400" />
-                <span>Lancer le terminal intégré</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false)
-                  openExternalTerminal({ taskId: task.id })
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                title="Ouvrir une fenêtre de console native (Terminal.app, iTerm...)"
-              >
-                <ExternalLink size={12} className="text-amber-400" />
-                <span>Lancer le terminal externe</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false)
-                  openInEditor({ taskId: task.id })
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                title={`Ouvrir dans ${settings.editorCommand || 'VS Code'}`}
-              >
-                <Code2 size={12} className="text-blue-400" />
-                <span>Ouvrir dans l'éditeur</span>
-              </button>
-
-              {/* Créer PR : masqué quand c'est déjà l'action de l'étape courante */}
-              {!task.prUrl && task.status !== 'finished' && workflowAction?.id !== 'create_pr' && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setIsMenuOpen(false)
-                    await runSkill(task.id, 'create_pr')
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-purple-400 hover:bg-purple-500/10 transition-colors cursor-pointer"
-                >
-                  <GitPullRequest size={12} />
-                  <span>Créer la Pull Request</span>
-                </button>
-              )}
-
-              {/* Merge / Finaliser : masqué quand c'est déjà l'action de l'étape courante */}
-              {task.status !== 'finished' && workflowAction?.id !== 'merge' && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setIsMenuOpen(false)
-                    await moveTaskWorkflowStage(task.id, 'finished')
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
-                >
-                  <CheckCircle2 size={12} />
-                  <span>Fusionner & Finir (#finished)</span>
-                </button>
-              )}
-
-              {task.branchName && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsMenuOpen(false)
-                    setDiffTask(task)
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                >
-                  <GitBranch size={12} className="text-indigo-400" />
-                  <span>Inspecter le Diff Git</span>
-                </button>
-              )}
-
-              {externalUrl && (
-                <a
-                  href={externalUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                >
-                  <ExternalLink size={12} className="text-amber-400" />
-                  <span>Ouvrir sur le tracker</span>
-                </a>
-              )}
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false)
-                  openCloneModal(task)
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                title="Créer une copie de cette story"
-              >
-                <CopyPlus size={12} className="text-cyan-400" />
-                <span>Cloner la story</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false)
-                  navigator.clipboard.writeText(`${task.key}: ${task.title}`)
-                  addToast({ type: 'info', title: 'Copié', description: `${task.key} copié dans le presse-papier` })
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-              >
-                <Copy size={12} className="text-slate-400" />
-                <span>Copier la référence</span>
-              </button>
-
-              {Boolean(task.sprint) && (
-                <button
-                  type="button"
-                  onClick={async () => {
-                    setIsMenuOpen(false)
-                    await setTaskSprint(task.id, '', '')
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
-                  title="Retirer la tâche du sprint et la renvoyer au backlog"
-                >
-                  <X size={12} />
-                  <span>Retirer du sprint</span>
-                </button>
-              )}
-
-              <div className="h-px bg-[var(--border-color)] my-1" />
-
-              <button
-                type="button"
-                onClick={() => {
-                  setIsMenuOpen(false)
-                  if (window.confirm(`Supprimer la tâche ${task.key} ?`)) {
-                    deleteTask(task.id)
-                  }
-                }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer"
-              >
-                <Trash2 size={12} />
-                <span>Supprimer la tâche</span>
-              </button>
-            </div>,
-            document.body
-          )}
-        </div>
+        {actionsMenu}
       </div>
+        </>
+      )}
     </div>
   )
 }

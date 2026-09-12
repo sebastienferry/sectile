@@ -264,7 +264,7 @@ export const WorkspaceTerminalPanel: React.FC<WorkspaceTerminalPanelProps> = ({ 
                       listTerminalSessions().then(setSessions)
                     }}
                     className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 cursor-pointer shrink-0"
-                    title="Terminer cette session"
+                    title="Terminer la session"
                   >
                     <X size={10} />
                   </button>
@@ -346,7 +346,7 @@ export const WorkspaceTerminalPanel: React.FC<WorkspaceTerminalPanelProps> = ({ 
                     listTerminalSessions().then(setSessions)
                   }}
                   className="p-1 rounded-md text-[var(--text-muted)] hover:text-rose-400 border border-transparent hover:border-[var(--border-color)] cursor-pointer shrink-0"
-                  title="Terminer la session affichée"
+                  title="Terminer la session"
                 >
                   <X size={11} />
                 </button>
@@ -434,7 +434,7 @@ export const WorkspaceTerminalPanel: React.FC<WorkspaceTerminalPanelProps> = ({ 
               type="button"
               onClick={() => setIsTerminalPanelOpen(false)}
               className="p-1 rounded-md text-[var(--text-muted)] hover:text-rose-400 border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] cursor-pointer"
-              title="Fermer le panneau du terminal"
+              title="Masquer le panneau"
             >
               <X size={11} />
             </button>
@@ -462,8 +462,6 @@ export const WorkspaceTerminalPanel: React.FC<WorkspaceTerminalPanelProps> = ({ 
               label={label}
               agentRunning={agentRunning}
               isExpanded={isFullscreen}
-              onToggleExpand={() => setIsFullscreen(v => !v)}
-              onClose={() => setChatTask(null)}
             />
           ) : terminalSessionOverride ? (
             <InteractiveTerminal
@@ -471,8 +469,6 @@ export const WorkspaceTerminalPanel: React.FC<WorkspaceTerminalPanelProps> = ({ 
               sessionId={terminalSessionOverride}
               label={sessionLabel(terminalSessionOverride)}
               isExpanded={isFullscreen}
-              onToggleExpand={() => setIsFullscreen(v => !v)}
-              onClose={() => openTerminalSession('')}
             />
           ) : (
             <InteractiveTerminal
@@ -482,8 +478,6 @@ export const WorkspaceTerminalPanel: React.FC<WorkspaceTerminalPanelProps> = ({ 
               projectId={currentProject?.id}
               label={label}
               isExpanded={isFullscreen}
-              onToggleExpand={() => setIsFullscreen(v => !v)}
-              onClose={() => setIsTerminalPanelOpen(false)}
             />
           )}
           </div>
