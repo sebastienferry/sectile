@@ -23,7 +23,7 @@ export const TaskFlowLogo: React.FC<TaskFlowLogoProps> = ({
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
-      aria-label="TaskFlow Logo"
+      aria-label="Sectile Logo"
     >
       <defs>
         {/* Deep Tech Badge Gradient */}

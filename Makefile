@@ -33,15 +33,16 @@ binary-build:
 	@touch internal/webui/dist/.gitkeep
 	@echo "Building binary with the interface embedded..."
 	@mkdir -p bin
-	go build -o bin/taskflow.new ./cmd/server
-	mv -f bin/taskflow.new bin/taskflow
-	@echo "Done: bin/taskflow"
+	go build -o bin/sectile.new ./cmd/server
+	mv -f bin/sectile.new bin/sectile
+	cp -f bin/sectile bin/taskflow
+	@echo "Done: bin/sectile"
 
 start:
-	./bin/taskflow agent $(ARGS)
+	./bin/sectile agent $(ARGS)
 
 serve:
-	./bin/taskflow $(ARGS)
+	./bin/sectile $(ARGS)
 
 run:
 	cd desktop && npm start
@@ -59,7 +60,7 @@ release:
 	@mkdir -p dist
 	@for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do \
 		os=$${target%/*}; arch=$${target#*/}; \
-		out=dist/taskflow-$$os-$$arch; \
+		out=dist/sectile-$$os-$$arch; \
 		if [ "$$os" = "windows" ]; then out=$$out.exe; fi; \
 		echo "  $$os/$$arch"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o $$out ./cmd/server || exit 1; \

@@ -1,4 +1,4 @@
-# TaskFlow (React + Go + SQLite)
+# Sectile (React + Go + SQLite)
 
 Outil moderne et agentique de gestion des tâches pour développeurs et équipes techniques, construit avec **Go**, **React 19**, **Tailwind CSS v4**, et **SQLite**.
 
@@ -74,11 +74,16 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 
 ---
 
-## 🚀 Démarrage rapide
+## Task access from workflow skills
+
+Workflow skills use the local TaskFlow agent's exposed task-management interface first. When that interface is unavailable, `http://localhost:8090` is a temporary fallback and the integration failure must be recorded. Resolve the project and full task ID before mutations: a ticket key alone can match another repository. Managed runs retain ownership of result validation and stage transitions. See [the workflow access policy](docs/CAPABILITIES.md#task-access-from-agent-sessions).
+
+## 🚀 Quick Start / Démarrage rapide
 
 ### 1. Mode Production (Serveur unique Go servant le frontend React & l'API)
 ```bash
-make run
+make build # compile le frontend et produit bin/sectile
+make run   # lance ./bin/sectile
 ```
 L'application est disponible sur **http://localhost:8080**.
 
@@ -94,6 +99,34 @@ make dev-server
 make dev-web
 ```
 Puis ouvrez **http://localhost:5173**.
+
+---
+
+### 3. Release Multiplateforme
+```bash
+make release
+```
+Génère les exécutables autonomes dans `dist/` :
+- `dist/sectile-darwin-arm64`
+- `dist/sectile-darwin-amd64`
+- `dist/sectile-linux-amd64`
+- `dist/sectile-linux-arm64`
+- `dist/sectile-windows-amd64.exe`
+
+---
+
+## 🔄 Upgrade & Backwards Compatibility
+
+TaskFlow has been renamed to **Sectile** (executable `bin/sectile`). All existing databases, local configurations, and automation remain fully backwards-compatible without manual migration:
+
+| Contract | Retained Compatibility Policy |
+| --- | --- |
+| **Database resolution** | Existing search order is preserved: explicit `DB_PATH` > `./tasks.db` > `$APP_DIR/taskflow/tasks.db` > legacy `$APP_DIR/taskacao/tasks.db`. No database files are moved or deleted. |
+| **Configuration** | Projects continue using the `.taskflow/` configuration directory (`.taskflow/config.json`) and `.tasks/` worktree paths. Ownership markers (`<!-- taskflow:project-context:start -->`) remain intact. |
+| **Environment variables** | `TASKFLOW_*` and legacy `TASKACAO_*` variables (`TASKFLOW_TASK_KEY`, `TASKFLOW_TASK_ID`, `TASKFLOW_API_URL`, etc.) continue to be injected and supported. |
+| **Health & Protocol** | Machine-facing health check identifier remains `taskflow-api` (`GET /api/health`). Terminal execution protocol markers remain `__TASKFLOW_*`. |
+| **Custom launchers** | Existing launchers pointing to `taskflow` can be updated to `sectile`, or aliased locally via `alias taskflow=sectile` or a symlink `ln -s bin/sectile bin/taskflow`. |
+| **Repository coordinates** | Git remote and tracker URLs remain unchanged (`git@github.com:sebastienferry/taskflow.git`). |
 
 ---
 

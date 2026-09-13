@@ -1402,7 +1402,7 @@ export const RoadmapView: React.FC = () => {
                               setDraftDirty(true)
                             }}
                             minHeight={120}
-                            placeholder="Le problème, le périmètre, la valeur attendue, ce qui est hors périmètre… Ce cadrage vit dans TaskFlow."
+                            placeholder="Le problème, le périmètre, la valeur attendue, ce qui est hors périmètre… Ce cadrage vit dans Sectile."
                           />
                         </div>
                       )}
@@ -1867,7 +1867,7 @@ export const RoadmapView: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
                       <FolderGit2 size={13} className="text-cyan-400" />
-                      Tickets TaskFlow déduits ({refinePreview.proposedTasks.length})
+                      Tickets Sectile déduits ({refinePreview.proposedTasks.length})
                     </span>
                     <button
                       type="button"
@@ -1975,7 +1975,7 @@ export const RoadmapView: React.FC = () => {
                   className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
                 >
                   {isCreatingBatch ? <Loader2 size={13} className="animate-spin" /> : <FolderGit2 size={13} />}
-                  <span>Générer les tickets TaskFlow ({Object.values(selectedProposedTasks).filter(Boolean).length})</span>
+                  <span>Générer les tickets Sectile ({Object.values(selectedProposedTasks).filter(Boolean).length})</span>
                 </button>
               )}
             </div>

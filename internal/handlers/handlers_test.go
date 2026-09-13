@@ -462,3 +462,39 @@ func TestCloneTaskHandler(t *testing.T) {
 		t.Errorf("Expected default title 'Original Story Title (Copie)', got '%s'", defaultCloned.Title)
 	}
 }
+
+func TestHealthEndpointReturnsTaskflowAPI(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	database, err := db.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.Close()
+
+	h := handlers.NewHandler(database)
+	req, err := http.NewRequest(http.MethodGet, "/api/health", nil)
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	h.HandleHealth(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var healthRes map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &healthRes); err != nil {
+		t.Fatalf("Failed to decode response: %v", err)
+	}
+
+	if healthRes["status"] != "ok" {
+		t.Errorf("Expected status 'ok', got %q", healthRes["status"])
+	}
+	if healthRes["service"] != "taskflow-api" {
+		t.Errorf("Expected service 'taskflow-api' for backward compatibility, got %q", healthRes["service"])
+	}
+}

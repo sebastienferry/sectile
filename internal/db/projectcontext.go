@@ -48,7 +48,7 @@ func projectTaskflowConfig(project *models.Project) taskflowProjectConfig {
 		GithubRepo:    project.GithubRepo,
 		JiraProject:   project.JiraProject,
 		Workflow: taskflowWorkflowConfig{
-			Operator:     "TaskFlow",
+			Operator:     "Sectile",
 			UseWorktrees: project.UseWorktrees,
 			Stages:       []string{"clarify", "specify", "implement", "review", "handoff"},
 		},
@@ -120,8 +120,8 @@ func renderTaskflowAgentsBlock(project *models.Project) string {
 
 	var b strings.Builder
 	b.WriteString(taskflowAgentsBlockStart + "\n")
-	b.WriteString("## TaskFlow workflow\n\n")
-	b.WriteString("TaskFlow operates the development workflow for this repository. Use `.taskflow/config.json` as the source of truth for the project and remote tracker context.\n\n")
+	b.WriteString("## Sectile workflow\n\n")
+	b.WriteString("Sectile operates the development workflow for this repository. Use `.taskflow/config.json` as the source of truth for the project and remote tracker context.\n\n")
 	fmt.Fprintf(&b, "- Tracker: `%s`\n", tracker)
 	if project.TrackerUrl != "" {
 		fmt.Fprintf(&b, "- Tracker URL: `%s`\n", project.TrackerUrl)
@@ -138,7 +138,7 @@ func renderTaskflowAgentsBlock(project *models.Project) string {
 	if project.GitRemoteUrl != "" {
 		fmt.Fprintf(&b, "- Git remote: `%s`\n", project.GitRemoteUrl)
 	}
-	b.WriteString("\nDevelopment work follows TaskFlow's stages: clarify, specify, implement, review and pull request, then human merge and handoff. Keep the assigned branch/worktree, use TaskFlow's local stage handler for standalone runs, and let managed TaskFlow runs own stage transitions and tracker synchronization.\n")
+	b.WriteString("\nDevelopment work follows Sectile's stages: clarify, specify, implement, review and pull request, then human merge and handoff. Keep the assigned branch/worktree, use Sectile's local stage handler for standalone runs, and let managed Sectile runs own stage transitions and tracker synchronization.\n")
 	b.WriteString(taskflowAgentsBlockEnd + "\n")
 	return b.String()
 }

@@ -32,6 +32,6 @@ Transform high-level macro framing text into an actionable, structured todo list
 ## Report
 - Clarification Q&A summary (if framing was vague).
 - Structured list of proposed MacroTodo items.
-- Proposed TaskFlow tickets breakdown (Title, IssueType, Description).
+- Proposed Sectile tickets breakdown (Title, IssueType, Description).
 - Rationale behind the task breakdown.
 

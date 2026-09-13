@@ -1,6 +1,16 @@
 # Core Capabilities & Workflows
 
-This document outlines the functional capabilities, workflow engines, and AI orchestration pipelines provided by **TaskFlow**.
+This document outlines the functional capabilities, workflow engines, and AI orchestration pipelines provided by **Sectile** (formerly TaskFlow).
+
+## Task access from agent sessions
+
+Skills first use the local TaskFlow agent's exposed task-management interface, discovered from the session or project context. The policy does not imply that every deployed agent exposes such an interface. When it is missing or fails after a bounded attempt, the server at `http://localhost:8090` is a temporary fallback. Record the observed failure, look for an existing project bug, and register or update it when authorized; otherwise preserve the bug report locally.
+
+Resolve the project by repository and verify the full task ID and external URL before a mutation. List tasks with the explicit project ID and send `taskId`, rather than a potentially ambiguous key such as `#47`, to the stage endpoint. Task creation also requires the explicit project ID.
+
+A managed run's supplied result contract takes precedence over standalone transitions. The worker validates the result and owns tracker synchronization. An active run with no usable completion contract must be reported; do not clear its activity or use another endpoint to bypass validation. A successful terminal launch is not proof that a workflow step completed.
+
+These instructions are maintained in `internal/db/skilltemplates.go` and mirrored in the repository's skill and command files. Project-specific skill overrides remain authoritative and must receive the same correction through the supported project skill editor before redistribution. The known local-agent integration gap is tracked in [issue #50](https://github.com/sebastienferry/taskflow/issues/50).
 
 ---
 

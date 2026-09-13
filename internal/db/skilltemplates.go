@@ -270,12 +270,12 @@ and a local workspace with nothing stale in it.`,
 			"Rédaction de la spécification technique SDD (Specify)",
 			"Implémentation incrémentale et passage des tests (Code)",
 			"Revue du diff, commit et ouverture de la PR/MR (Create PR)",
-			"Mise à jour à chaque étape via le handler local TaskFlow",
+			"Mise à jour à chaque étape via le handler local Sectile",
 		},
 		title:           "Pickup Issue (Auto-Pilot to PR)",
 		frontmatterDesc: "Pick a ticket and autonomously execute all development steps up to Pull Request creation.",
 		goal: `Autonomously take a ticket from its current stage through clarification, specification,
-implementation, and testing, all the way to opening a clean Pull Request, updating each stage via TaskFlow.`,
+implementation, and testing, all the way to opening a clean Pull Request, updating each stage via Sectile.`,
 		readFirst: `- The ticket: key, title, description, parent macro, and tracker comments.
 - The project's code and existing patterns.
 - The project SDD framework (OpenSpec or Spec Kit).`,
@@ -333,25 +333,25 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		ToStage:     "macro",
 		Scope:       "macro",
 		Interactive: true,
-		Description: "Clarifie de manière interactive le cadrage d'une macro et le décompose en TODOs structurés et cartes TaskFlow.",
+		Description: "Clarifie de manière interactive le cadrage d'une macro et le décompose en TODOs structurés et cartes Sectile.",
 		Icon:        "ListChecks",
 		Color:       "orange",
 		Steps: []string{
 			"Analyse du titre et du texte de cadrage de la macro",
 			"Évaluation de la complétude du cadrage et questions de clarification si nécessaire",
 			"Structuration du plan d'action selon le cadre SDD (SpecKit ou OpenSpec)",
-			"Génération des items MacroTodo et découpage des tickets TaskFlow prêts à être créés",
+			"Génération des items MacroTodo et découpage des tickets Sectile prêts à être créés",
 		},
 		title:           "Refine Macro",
-		frontmatterDesc: "Interactively clarify macro framing text with the user and break it down into structured todos and TaskFlow tickets.",
-		goal:            `Transform high-level macro framing text into an actionable, structured todo list and concrete TaskFlow tickets, interactively clarifying ambiguities with the user when framing text is vague.`,
+		frontmatterDesc: "Interactively clarify macro framing text with the user and break it down into structured todos and Sectile tickets.",
+		goal:            `Transform high-level macro framing text into an actionable, structured todo list and concrete Sectile tickets, interactively clarifying ambiguities with the user when framing text is vague.`,
 		guardTitle:      "Do not",
 		guard: `- Do not generate tasks blindly when framing text is vague without asking clarification questions.
 - Do not overwrite existing todos or tasks without user confirmation in the UI.
 - Do not mutate external tracker issues directly without user trigger.`,
 		report: `- Clarification Q&A summary (if framing was vague).
 - Structured list of proposed MacroTodo items.
-- Proposed TaskFlow tickets breakdown (Title, IssueType, Description).
+- Proposed Sectile tickets breakdown (Title, IssueType, Description).
 - Rationale behind the task breakdown.`,
 	},
 	{
@@ -452,7 +452,7 @@ func refineMacroFrameworkBody(specFramework string) (readFirst, steps string) {
    - Once answered or if framing text is detailed, group action items according to the selected SDD framework:
      - **SpecKit SDD**: Group into User Stories ([US-x]) and Feature Modules ([FEAT-x]).
      - **OpenSpec SDD**: Group into Capabilities ([CAP-x]) and Change Proposals ([CHANGE-x]).
-4. Output the generated checklist of actionable todos AND proposed TaskFlow tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.`
+4. Output the generated checklist of actionable todos AND proposed Sectile tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.`
 
 	return readFirst, steps
 }
@@ -490,6 +490,18 @@ func specifyFrameworkBody(specFramework string) (readFirst, steps string) {
 	return readFirst, steps
 }
 
+// renderTaskAccessContract keeps task access consistent across skills and commands.
+func renderTaskAccessContract() string {
+	return `## TaskFlow task access
+- Use the local TaskFlow agent's exposed task-management interface first for ticket reads, updates, comments, creation, and workflow results. Discover its actual tools or documented commands from the session/project context; do not invent an endpoint or launch another agent daemon as a substitute.
+- Resolve the project against its repository, then verify the task's full ID and external URL. A bare key such as #47 can match another project's ticket. Use the full task ID for mutations and an explicit project ID for creation.
+- If the local agent interface is unavailable or fails after a bounded attempt, use http://localhost:8090 as a temporary fallback. Record the missing capability or error, check for an existing bug in the same project, and register or update that bug when authorized. If reporting is unavailable or not authorized, preserve the report locally and state what remains pending. Do not bypass TaskFlow by writing directly to its database or remote tracker.
+- For a managed run, submit only through its supplied result contract and let TaskFlow validate and synchronize the result. An active run without a usable completion contract is a reportable integration failure. Preserve the artifacts and report the blocked transition; do not cancel the activity, forge launch/completion status, or use another endpoint to evade result validation.
+- This routing does not authorize mutations excluded by the skill or user request. Verify each mutation's response and report partial success explicitly.
+
+`
+}
+
 // renderTicketTransitionContract generates the autonomous ticket transition instructions
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
@@ -515,11 +527,9 @@ func renderTicketTransitionContract(s StageSkill) string {
 		}
 	}
 	b.WriteString("Use `taskflow_add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by TaskFlow. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.\n")
-
 	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
 	return b.String()
 }
-
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs
 // cannot silently omit a validation rule added to a standalone step.
 func renderPickupSteps(specFramework string, batch bool) string {
@@ -575,6 +585,7 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 		b.WriteString("Interactive: the user answers in the terminal.")
 	}
 	b.WriteString("\n\n")
+	b.WriteString(renderTaskAccessContract())
 	fmt.Fprintf(&b, "## Goal\n%s\n\n", s.goal)
 	if readFirst != "" {
 		fmt.Fprintf(&b, "## Read first\n%s\n\n", readFirst)
@@ -585,8 +596,12 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	if s.guard != "" {
 		fmt.Fprintf(&b, "## %s\n%s\n\n", s.guardTitle, s.guard)
 	}
-	fmt.Fprintf(&b, "## Report\n%s\n\n", s.report)
-	b.WriteString(renderTicketTransitionContract(s))
+	if contract := renderTicketTransitionContract(s); contract != "" {
+		fmt.Fprintf(&b, "## Report\n%s\n\n", s.report)
+		b.WriteString(contract)
+	} else {
+		fmt.Fprintf(&b, "## Report\n%s\n", s.report)
+	}
 	return b.String()
 }
 

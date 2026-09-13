@@ -266,7 +266,7 @@ export const DigestView: React.FC = () => {
             onClick={() => void generateDailyDigest({ date, assignee, enrich: true })}
             disabled={isDigestEnriching || isDigestLoading}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow-xs hover:opacity-90 active:scale-95 disabled:opacity-50 cursor-pointer"
-            title="Demander le brief du jour à l'agent du projet : réunions, annonces, tout ce que TaskFlow ne voit pas dans les tickets"
+            title="Demander le brief du jour à l'agent du projet : réunions, annonces, tout ce que Sectile ne voit pas dans les tickets"
           >
             {isDigestEnriching ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
             <span>{isDigestEnriching ? t.nav.dailyBriefRunning : t.nav.dailyBrief}</span>
@@ -341,7 +341,7 @@ export const DigestView: React.FC = () => {
               <span>
                 {dailyDigest?.aiStatus === 'failed'
                   ? `Agenda indisponible : ${dailyDigest.aiError}`
-                  : `TaskFlow ne voit pas votre calendrier. Lancez « ${t.nav.dailyBrief} » pour que l'agent du projet remonte les réunions du jour avec ses propres connecteurs.`}
+                  : `Sectile ne voit pas votre calendrier. Lancez « ${t.nav.dailyBrief} » pour que l'agent du projet remonte les réunions du jour avec ses propres connecteurs.`}
               </span>
             </div>
           )}

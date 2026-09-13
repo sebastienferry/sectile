@@ -386,7 +386,7 @@ export interface TranslationSchema {
 export const translations: Record<'fr' | 'en', TranslationSchema> = {
   fr: {
     app: {
-      title: 'TaskFlow',
+      title: 'Sectile',
       tagline: 'Gestionnaire de tâches agentique',
     },
     nav: {
@@ -769,7 +769,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
   },
   en: {
     app: {
-      title: 'TaskFlow',
+      title: 'Sectile',
       tagline: 'Agentic Task Workflow Manager',
     },
     nav: {

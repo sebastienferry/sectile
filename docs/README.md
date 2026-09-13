@@ -1,6 +1,6 @@
-# TaskFlow Architecture & Engineering Documentation
+# Sectile Architecture & Engineering Documentation
 
-Welcome to the comprehensive technical documentation for **TaskFlow** (the Autonomous AI Task & Project Orchestrator). This documentation is designed to provide complete architectural clarity, component blueprints, data specifications, and step-by-step instructions so that any software engineer or Large Language Model (LLM) can understand, maintain, extend, or completely re-implement this system from scratch.
+Welcome to the comprehensive technical documentation for **Sectile** (formerly TaskFlow, the Autonomous AI Task & Project Orchestrator). This documentation is designed to provide complete architectural clarity, component blueprints, data specifications, and step-by-step instructions so that any software engineer or Large Language Model (LLM) can understand, maintain, extend, or completely re-implement this system from scratch.
 
 ---
 

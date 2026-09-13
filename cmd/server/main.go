@@ -112,7 +112,7 @@ func resolveDBPath(explicit string) (path string, origin string) {
 	return "tasks.db", "répertoire courant, dossier de données indisponible"
 }
 
-// alreadyServing reports whether the port is held by another TaskFlow rather than
+// alreadyServing reports whether the port is held by another Sectile rather than
 // by an unrelated program. The health endpoint is the only honest way to know,
 // and it decides between "your window is already open" and "something else is on
 // this port".
@@ -131,7 +131,7 @@ func alreadyServing(baseURL string) bool {
 		return false
 	}
 	lower := strings.ToLower(string(body))
-	return strings.Contains(lower, "taskflow") || strings.Contains(lower, "taskacao")
+	return strings.Contains(lower, "sectile") || strings.Contains(lower, "taskflow") || strings.Contains(lower, "taskacao")
 }
 
 // openBrowser opens the interface once the server listens. It is best effort by
@@ -354,9 +354,9 @@ func main() {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			fmt.Fprintf(w, `<!DOCTYPE html>
 <html>
-<head><title>TaskFlow API</title></head>
+<head><title>Sectile API</title></head>
 <body style="font-family: system-ui; padding: 2rem; background: #0f172a; color: #f8fafc;">
-  <h2>TaskFlow Go API is running!</h2>
+  <h2>Sectile Go API is running!</h2>
   <p>To run the frontend with hot-reloading, run <code>cd web && npm run dev</code></p>
   <p>Or build the bundle via <code>make build</code>, which compiles the interface into the binary.</p>
   <p>API endpoints available at <a href="/api/tasks" style="color: #818cf8;">/api/tasks</a>, <a href="/api/skills" style="color: #818cf8;">/api/skills</a> and <a href="/api/settings" style="color: #818cf8;">/api/settings</a>.</p>
@@ -376,7 +376,10 @@ func main() {
 	// rechargeait l'onglet de la première, puis mourait sur « address already in
 	// use ».
 	shouldOpenBrowser := func() bool {
-		noBrowserEnv := strings.ToLower(strings.TrimSpace(os.Getenv("TASKFLOW_NO_BROWSER")))
+		noBrowserEnv := strings.ToLower(strings.TrimSpace(os.Getenv("SECTILE_NO_BROWSER")))
+		if noBrowserEnv == "" {
+			noBrowserEnv = strings.ToLower(strings.TrimSpace(os.Getenv("TASKFLOW_NO_BROWSER")))
+		}
 		if noBrowserEnv == "" {
 			noBrowserEnv = strings.ToLower(strings.TrimSpace(os.Getenv("TASKACAO_NO_BROWSER")))
 		}
@@ -384,7 +387,10 @@ func main() {
 			return false
 		}
 
-		openBrowserEnv := strings.ToLower(strings.TrimSpace(os.Getenv("TASKFLOW_OPEN_BROWSER")))
+		openBrowserEnv := strings.ToLower(strings.TrimSpace(os.Getenv("SECTILE_OPEN_BROWSER")))
+		if openBrowserEnv == "" {
+			openBrowserEnv = strings.ToLower(strings.TrimSpace(os.Getenv("TASKFLOW_OPEN_BROWSER")))
+		}
 		if openBrowserEnv == "" {
 			openBrowserEnv = strings.ToLower(strings.TrimSpace(os.Getenv("TASKACAO_OPEN_BROWSER")))
 		}
@@ -402,16 +408,16 @@ func main() {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		if alreadyServing(url) {
-			log.Printf("TaskFlow is already running at %s.", url)
+			log.Printf("Sectile is already running at %s.", url)
 			if shouldOpenBrowser {
 				openBrowser(url)
 			}
 			return
 		}
-		log.Fatalf("Port %s indisponible et occupé par autre chose que TaskFlow: %v", addr, err)
+		log.Fatalf("Port %s indisponible et occupé par autre chose que Sectile: %v", addr, err)
 	}
 
-	log.Printf("🚀 TaskFlow Server listening on %s", url)
+	log.Printf("🚀 Sectile Server listening on %s", url)
 	log.Printf("   base : %s (%s)", dbPath, dbOrigin)
 
 	if shouldOpenBrowser {
@@ -425,9 +431,9 @@ func main() {
 
 func handleCliStageCommand(defaultPort string, args []string) {
 	if len(args) < 2 {
-		fmt.Println("Usage: taskflow stage <TASK_KEY_OR_ID> <STAGE> [NOTE] [--pr-url <URL>] [--branch <BRANCH>]")
+		fmt.Println("Usage: sectile stage <TASK_KEY_OR_ID> <STAGE> [NOTE] [--pr-url <URL>] [--branch <BRANCH>]")
 		fmt.Println("Stages: new, clarified, specified, implemented, reviewed, finished")
-		fmt.Println("Example: taskflow stage PROJ-123 clarified \"Questions answered, scope validated\"")
+		fmt.Println("Example: sectile stage PROJ-123 clarified \"Questions answered, scope validated\"")
 		os.Exit(1)
 	}
 
@@ -455,7 +461,9 @@ func handleCliStageCommand(defaultPort string, args []string) {
 	}
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%s", defaultPort)
-	if envURL := os.Getenv("TASKFLOW_API_URL"); envURL != "" {
+	if envURL := os.Getenv("SECTILE_API_URL"); envURL != "" {
+		baseURL = strings.TrimRight(envURL, "/")
+	} else if envURL := os.Getenv("TASKFLOW_API_URL"); envURL != "" {
 		baseURL = strings.TrimRight(envURL, "/")
 	}
 
