@@ -50,14 +50,14 @@ These setup failures are resolved.
 ## Review and recovery notes
 
 The branch incorporated the remote default baseline before implementation, without
-rewriting its published specification history. The shared remote ref advanced
-again during this run; adjustment must integrate the then-current default branch
-and perform its usual final review. This run completes implementation only and
-keeps the existing PR draft.
+rewriting its published specification history. Adjustment subsequently integrated
+`origin/main` at `adc4a71` and retained both documentation contracts when resolving
+the append-only merge conflict. Final adjustment evidence is in `adjustment.md`.
 
-Only MCP name substitutions from checked-in instruction files are staged; earlier
-local workflow/configuration edits remain available in the worktree. A named
-preservation stash also retains their pre-implementation state.
+Earlier local workflow/configuration edits are retained in the named stash
+`preserve local #64 configuration during adjustment`, so the reviewed checkout
+can remain clean. The earlier preservation stash also retains the original
+pre-implementation state. These local customizations are not part of the PR.
 
 The MCP SDK can close an HTTP session after an unknown-tool error. Negative tests
 therefore establish a fresh client for each legacy call and check the database

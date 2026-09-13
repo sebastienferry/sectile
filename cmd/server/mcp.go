@@ -53,14 +53,27 @@ func runMCPCommand(ctx context.Context, args []string) error {
 		return fmt.Errorf("connect to Sectile MCP: %w", err)
 	}
 	defer session.Close()
+	seen := map[string]bool{}
 	proxy := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, nil)
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
 			return err
 		}
+		switch tool.Name {
+		case "get_task", "transition_stage", "add_comment", "list_tasks", "get_project_context", "list_projects", "start_run", "finish_run":
+		default:
+			return fmt.Errorf("incompatible Sectile MCP catalog: upgrade server and agent together")
+		}
+		if seen[tool.Name] {
+			return fmt.Errorf("incompatible Sectile MCP catalog: duplicate tool %s", tool.Name)
+		}
+		seen[tool.Name] = true
 		proxy.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			return session.CallTool(ctx, &mcp.CallToolParams{Name: req.Params.Name, Arguments: req.Params.Arguments})
 		})
+	}
+	if len(seen) != 8 {
+		return fmt.Errorf("incompatible Sectile MCP catalog: expected eight tools; upgrade server and agent together")
 	}
 	return proxy.Run(ctx, &mcp.StdioTransport{})
 }

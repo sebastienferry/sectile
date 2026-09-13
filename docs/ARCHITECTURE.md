@@ -163,7 +163,7 @@ The architecture strictly decouples the centralized governance and visualization
 | **LLM & AI Tasks** | • Centralizes AI provider selection & command templates | • Executes AI CLI agents (`agy`, `claude`, `codex`, `vibe`)<br>• Manages interactive human-in-the-loop terminal sessions |
 | **Git & Worktrees** | • Records remote repository URL & branch metadata | • Manages local Git worktrees (`.tasks/worktrees/#<key>`)<br>• Performs code modifications, compilations, linters, tests<br>• Pushes branches and creates pull requests (`gh pr create`) |
 | **Scaffolding & Config** | • Stores global project settings, tracker tokens, and stage models | • Scaffolds local skill directories (`.agents/`, `.agy/`, `.skills/`)<br>• Supports local configuration overrides (custom terminal, skills) *(Roadmap)* |
-| **Task Management & MCP** | • Exposes central API and **MCP Server** (`/mcp` / `/sse`)<br>• Serves project context, tracker sync, task state, comments | • Runs embedded local reverse proxy gateway (`127.0.0.1:8091`)<br>• Forwards skill transitions with automatic authentication<br>• Bridges local AI tools to TaskFlow via local stdio MCP (`sectile mcp`) |
+| **Task Management & MCP** | • Exposes central API and **MCP Server** (`/mcp` / `/sse`)<br>• Serves project context, tracker sync, task state, comments | • Runs embedded local reverse proxy gateway (`127.0.0.1:8091`)<br>• Forwards skill transitions with automatic authentication<br>• Bridges local AI tools to Sectile via local stdio MCP (`sectile mcp`) |
 
 ### 6.2 Architectural Principles
 1. **Outbound WebSocket Relay**:
@@ -229,13 +229,13 @@ The Sectile MCP Server exposes the following core tools:
 | `add_comment` | `taskKey`: string, `body`: string | Posts a comment or clarification question directly onto the task discussion thread. |
 | `list_tasks` | `projectId`?: string, `status`?: string, `sprint`?: string | Lists active tasks on the board to support multi-ticket planning and batch skills (`pickup-issues`). |
 | `get_project_context` | `projectId`?: string, `taskKey`?: string | Retrieves project-wide architecture guidelines, spec framework choice (`openspec` / `speckit`), and coding conventions. |
-
 | `list_projects` | no arguments | Lists project primary keys, names and remotes. |
 | `start_run` | `taskKey`, `skill`, optional `runId` | Starts or reuses a remote invocation. |
 | `finish_run` | `taskKey`, `runId`, `status`, `note` | Finishes the invocation without a stage transition. |
 
 Both transports initialize as `sectile`. Former `taskflow_*` tool names fail as
-unknown tools; there is no runtime translation or compatibility fallback.
+unknown tools; there is no runtime translation or compatibility fallback. The
+stdio bridge rejects an incompatible upstream catalog before serving clients.
 
 ### 7.3 Dual Deployment Topologies
 ```mermaid
@@ -272,7 +272,7 @@ graph TD
    - When running against a remote control plane, `sectile mcp` relays tool calls through the local agent daemon or loopback gateway, keeping all local execution private and firewall-free.
 
 ### 7.4 Skill Evolution: Transition from Bash Curl Snippets to Native MCP Tools
-With the arrival of the TaskFlow MCP Server, the definition of skills (`SKILL.md`) undergoes a major evolutionary shift:
+With the arrival of the Sectile MCP Server, the definition of skills (`SKILL.md`) undergoes a major evolutionary shift:
 
 - **Legacy Model (Markdown Prompt with Bash Curl Snippet)**:
   - The skill instructions contained raw markdown describing a bash `curl` command with placeholders (`<KEY>`, `<REPORT_NOTE>`, `<ACTUAL_BRANCH>`).

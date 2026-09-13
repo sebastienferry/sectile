@@ -17,7 +17,7 @@ HTTP and stdio server implementation names become `sectile`; bridge client ident
 | `taskflow_start_run` | `start_run` |
 | `taskflow_finish_run` | `finish_run` |
 
-Change registration names and cross-references without changing handler bodies, schemas or delegation to database workflow services. Retain transparent stdio forwarding and upstream errors. Do not introduce a name translation or compatibility layer at runtime.
+Change registration names and cross-references without changing handler bodies, schemas or delegation to database workflow services. Validate that the upstream catalog contains exactly the eight canonical tools before serving stdio clients, then retain transparent forwarding and upstream errors. Do not introduce a name translation or compatibility layer at runtime.
 
 ## Registration migration
 Retain the existing parser, rooted filesystem access and temporary-file rename pattern in `internal/agentconfig/mcp.go`. Validate the whole prospective migration before writing. Reuse current transport-field replacement rules, credential exclusion, absolute-executable and loopback-gateway checks.

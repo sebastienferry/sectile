@@ -191,7 +191,8 @@ Before launching an LLM CLI, the local agent automatically registers its own
 `sectile mcp --url <active-gateway>` bridge in that CLI's project configuration.
 It refreshes the entry on each dispatch, including dynamic gateway ports. Existing
 settings and other MCP servers are preserved; bearer tokens are not written.
-Antigravity uses its shared user-level registry; other providers use project files. Native workspace/MCP trust prompts still apply.
+Antigravity uses its shared user-level registry; other providers use project files.
+Native workspace/MCP trust prompts still apply.
 Malformed configuration causes a visible launch error rather than being overwritten.
 
 | Target CLI | Project configuration |
@@ -356,7 +357,7 @@ Task cards and the task clarification panel provide **Copy skill command**.
 Choose Codex or Claude and a workflow skill, then copy the interactive terminal
 command. Commands use the task primary key and project identity with MCP
 instructions. Run them in a local repository where the project skills and
-TaskFlow MCP are already configured.
+Sectile MCP are already configured.
 
 Remote work is shown on task cards and list rows with a **Remote execution** badge.
 The MCP tools `start_run` and `finish_run` track the invocation
@@ -526,7 +527,8 @@ calls are supported. The bridge and desktop client identities are `sectile-stdio
 and `sectile-desktop-agent`.
 
 1. Upgrade the central server and workstation agent together. Mixed versions are
-   unsupported; stop existing native sessions before switching.
+   unsupported; the stdio bridge rejects incompatible upstream catalogs. Stop
+   existing native sessions before switching.
 2. On the next normal agent dispatch, bootstrap migrates the reserved `taskflow`
    registration to one `sectile` entry. It refreshes the connection settings and
    preserves unrelated entries and explicit restrictions for all six providers.

@@ -3,11 +3,12 @@ package agentconfig
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/pelletier/go-toml/v2"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 var genericMCPTools = []string{"get_task", "transition_stage", "add_comment", "list_tasks", "get_project_context", "list_projects", "start_run", "finish_run"}
