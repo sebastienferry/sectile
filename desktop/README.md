@@ -47,17 +47,21 @@ the agent reuses that checkout and preserves its local changes.
 
 ### Execution queue
 
-The sidebar's **Execution queue** shows active and waiting execution counts,
-including multiple executions of the same task. Expand **View executions** to
-see each task, project, skill and status, and select an entry to open its console.
-Waiting executions appear in submission order, using the daemon's queue sequence
-or creation time for older agents. This is not a global start-order guarantee:
-project concurrency limits and shared checkouts determine admission, and
-independent projects can run concurrently. The list updates with the desktop's
-regular refresh and is independent of collapsed project groups. Canceled runs
-are excluded from the waiting list. With an updated agent, cancellation requests
-appear separately as **Stopping / canceling** until cleanup completes; running
-processes retain their scheduler slot until their exit is confirmed.
+Use the small queue icon on a project's heading to switch that project's task
+list to its execution queue directly below the project heading. Close the queue
+with its small cross button, or click the queue icon again, to restore the task list. Its badge
+shows the number of waiting executions; the highlighted icon indicates queue
+mode. Each project switches independently, and opening queue mode expands a
+collapsed project.
+
+The queue shows only that project's active, waiting and stopping executions,
+including multiple executions of one task. Select an entry to open its console.
+Waiting executions appear first in submission order, using the daemon sequence
+or creation time for older agents. Project concurrency and shared checkouts
+still determine when work can start. Counts update with the desktop refresh.
+Canceled runs are excluded from waiting counts. An updated agent reports pending
+cancellation separately as **Stopping / canceling**; running processes retain
+their scheduler slot until exit is confirmed.
 
 ## Package and verify
 
