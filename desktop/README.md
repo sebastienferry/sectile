@@ -251,7 +251,12 @@ local rename and archive actions. Archiving hides its existing executions withou
 changing the server task. Active executions require explicit confirmation and
 confirmed stop before archiving. A new execution makes the task visible again.
 The TTY toolbar's execution selector provides access to previous runs of the
-selected task. Local names and archive visibility persist in companion storage.
+selected task. Its header shows the task key (or full ID), current task title, and
+selected execution skill. Local names take precedence over tracker titles and
+persist alongside archive visibility in companion storage. Titles refresh without
+reconnecting the console; unavailable titles fall back to identity and skill.
+Long headers truncate on one line, with their full text available on hover and
+to assistive technology. Toolbar controls wrap at narrow window widths.
 
 ### Desktop Quick add
 

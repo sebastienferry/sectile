@@ -34,3 +34,8 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .queue-execution strong,.queue-execution small{overflow-wrap:anywhere}.queue-execution strong{font-size:12px}
 .queue-execution[aria-pressed=true]{background:#203033}.queue-execution:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
 #queue-list p{color:#91a1b7;font-size:11px;line-height:1.5}
+
+#toolbar{height:auto;min-height:72px;flex-wrap:wrap;overflow:visible}
+#toolbar>div{flex:1 1 200px;max-width:100%}
+#title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#toolbar>button,#toolbar>select{flex-shrink:0;max-width:100%;margin:0}

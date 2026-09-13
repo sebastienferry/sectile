@@ -62,7 +62,6 @@ function select(run){
  selectedProject=run.projectId
  selected=run.id
  refreshNextStep()
- document.querySelector('#title').textContent=(taskState(run).name||run.taskKey||run.taskId)+' · '+run.skill
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
  terminal.reset()
@@ -101,7 +100,19 @@ function renderQueue(){
  }
  if(waiting.length){const note=document.createElement('p');note.className='queue-note';note.textContent='Starts when project capacity and checkout availability permit. Independent projects may start separately.';list.append(note)}
 }
+function renderHeader(){
+ const run=runs.find(item=>item.id===selected)
+ let text='Select an execution'
+ if(run){
+  const identity=run.taskKey||run.taskId
+  const name=taskState(run).name?.trim()||taskTitles.get(run.taskId)?.trim()
+  text=[identity,...(name&&name!==identity?[name]:[]),run.skill].join(' · ')
+ }
+ const title=document.querySelector('#title')
+ title.textContent=text;title.title=text
+}
 function render(){
+ renderHeader()
  renderQueue()
  const list=document.querySelector('#runs');list.replaceChildren()
 
@@ -196,7 +207,7 @@ document.querySelector('#restart').onclick=async()=>{
  try{
   if(await api.restart()){
    selected=null;runs=[];last='';terminal.reset();render()
-   document.querySelector('#title').textContent='Select an execution'
+   renderHeader()
    document.querySelector('#directory').textContent=''
    document.querySelector('#error').textContent=''
   }
@@ -234,7 +245,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   const {removed}=await api.clearHistory()
   if(removed.includes(selected)){
    selected=null;terminal.reset()
-   document.querySelector('#title').textContent='Select an execution'
+   renderHeader()
    document.querySelector('#directory').textContent=''
   }
   await refresh()
@@ -523,7 +534,8 @@ async function refreshPRs(executions){
     const tasks=await api.serverTasks(projectID,'')
     for(const run of executions.filter(run=>run.projectId===projectID)){
      const task=tasks.find(task=>task.id===run.taskId)
-     if(task?.title)taskTitles.set(run.taskId,task.title)
+     if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
+     else taskTitles.delete(run.taskId)
      if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,task.prUrl)
      else pullRequests.delete(run.taskId)
     }
@@ -541,7 +553,7 @@ function taskMenu(run){
  const rename=document.createElement('form'),name=document.createElement('input'),save=document.createElement('button')
  name.setAttribute('aria-label','Local task name');name.value=taskState(run).name||run.taskKey||run.taskId;name.maxLength=120;name.required=true
  save.textContent='Rename locally';rename.append(name,save)
- rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render();const current=runs.find(item=>item.id===selected);if(current&&taskKey(current)===taskKey(run))document.querySelector('#title').textContent=name.value.trim()+' · '+current.skill}
+ rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render()}
  const archive=document.createElement('button');archive.textContent='Archive'
  archive.onclick=()=>requestArchive(run)
  dialogBody.append(relaunch,rename,archive)
@@ -564,7 +576,7 @@ async function archiveTask(run){
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
   selected=null;terminal.reset();await api.detach()
-  document.querySelector('#title').textContent='Select an execution';document.querySelector('#directory').textContent=''
+  renderHeader();document.querySelector('#directory').textContent=''
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()
 }
@@ -648,6 +660,7 @@ function renderNextStep(){
  if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
 }
 new ResizeObserver(resize).observe(document.querySelector('#task-status'))
+new ResizeObserver(resize).observe(document.querySelector('#toolbar'))
 async function readNextStep(run){
  const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
  const task=tasks.find(task=>task.id===run.taskId)
