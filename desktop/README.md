@@ -24,8 +24,10 @@ project scope. Subsequent launches reconnect to the application's existing agent
 ## Use
 
 Launch a skill from the web. Select its local execution to see the Codex/Claude
-console, type answers, resize it, stop it, or export its scrollback. Project
-directories discovers server projects and saves local Git repository mappings.
+console, type answers, resize it, stop it, or export its scrollback. The selected
+task uses a highlighted background without a selection border; keyboard focus
+remains visible. The project directory browser discovers server projects and
+saves local Git repository mappings.
 
 Closing the window or quitting Electron keeps the detached agent and tasks alive.
 Reopening restores the connection. Agent diagnostics are in agent.log under
