@@ -116,12 +116,34 @@ function renderQueue(project,group){
  }
  if(waiting.length){const note=document.createElement('p');note.className='queue-note';note.textContent='Starts when project capacity and checkout availability permit. Independent projects may start separately.';list.append(note)}
 }
-async function refreshSkillResult(){
- const run=runs.find(item=>item.id===selected)
- if(!run||loadingSkillResults.has(run.id))return
+async function refreshSkillResult(id=selected){
+ const run=runs.find(item=>item.id===id)
+ if(!run||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
  loadingSkillResults.add(run.id)
  try{skillResults.set(run.id,await api.runResult(run.id))}catch{skillResults.delete(run.id)}
- finally{loadingSkillResults.delete(run.id);renderHeader()}
+ finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
+}
+let refreshingVisibleSkillResults=false
+async function refreshVisibleSkillResults(){
+ if(refreshingVisibleSkillResults)return
+ refreshingVisibleSkillResults=true
+ const ids=[...new Set([selected,...[...document.querySelectorAll('.task-skill-status')].map(item=>item.dataset.runId)].filter(Boolean))]
+ try{
+  await Promise.all(Array.from({length:Math.min(4,ids.length)},async()=>{
+   while(ids.length)await refreshSkillResult(ids.shift())
+  }))
+ }finally{refreshingVisibleSkillResults=false}
+}
+function renderTaskSkillStatuses(){
+ for(const badge of document.querySelectorAll('.task-skill-status')){
+  const run=runs.find(item=>item.id===badge.dataset.runId)
+  const result=skillResult(run,skillResults.get(run?.id))
+  if(!result)continue
+  badge.className='status task-skill-status '+result.kind
+  if(badge.textContent!==result.icon)badge.textContent=result.icon
+  badge.title=run.skill+' · '+result.label
+  badge.setAttribute('aria-label',badge.title)
+ }
 }
 function renderHeader(){
  const run=runs.find(item=>item.id===selected)
@@ -183,7 +205,7 @@ function render(){
     const button=document.createElement('button');button.className='run '+(executions.some(item=>item.id===selected)?'selected':'')
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||run.skill
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in TaskFlow';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in TaskFlow');context.onclick=()=>api.openTask(run.taskId).catch(error)
-    const status=document.createElement('span');status.className='status '+run.status;status.textContent=({running:'◉',queued:'◷',preparing:'◌',completed:'✓',failed:'!',canceled:'⊘'})[run.status]||'○';status.setAttribute('aria-label',run.status);status.title=run.status
+    const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
     button.title=title.textContent+' · '+run.skill+' · '+executions.length+' execution(s)';button.dataset.status=run.status
     button.append(title,status);button.onclick=()=>select(run)
     const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId));menu.onclick=()=>taskMenu(run)
@@ -204,6 +226,7 @@ function render(){
   }
   list.append(group)
  }
+ renderTaskSkillStatuses()
  document.querySelector('#clear-history').disabled=!runs.some(run=>['completed','failed','canceled'].includes(run.status))
  const current=runs.find(run=>run.id===selected)
  const history=document.querySelector('#execution-history')
@@ -248,7 +271,7 @@ async function refresh(){
   if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current)
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
-  refreshSkillResult()
+  refreshVisibleSkillResults()
  }catch{agentUnavailable()}
  finally{refreshing=false}
 }

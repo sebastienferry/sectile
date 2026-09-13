@@ -47,13 +47,18 @@ the agent reuses that checkout and preserves its local changes.
 
 ### Skill result indicator
 
-The terminal header shows the selected skill's result independently of its console
+The terminal header and each visible task row show the skill's result independently of its console
 process. A checkmark means the server reports that exact execution completed;
 for workflow stages, the task must also have reached the corresponding stage.
 An open console can therefore show **Skill completed**. Process exit alone shows
 **Execution ended · skill completion unconfirmed**, and pending stage validation,
 failures, cancellations and in-progress executions have distinct labels.
-The indicator refreshes without reattaching or resetting the terminal. It requires
+Task-row icons use the same completion rules as the header, with the skill name
+and result in their tooltip and accessible label. Visible rows refresh even when
+they are not selected, with at most four concurrent result lookups. A task row
+represents its current execution; selecting older history does not replace that
+row's result. Updates preserve selection and keyboard focus without reattaching
+or resetting the terminal. It requires
 an updated local agent for server-result lookup; unavailable results never produce
 a success checkmark. The server does not yet expose a reliable waiting-for-answer
 state, so inactivity is not interpreted as a request for input.
