@@ -377,3 +377,14 @@ The desktop can also start the same agent when none is running.
 but executions always use agent-owned consoles. `--desktop-info` can override
 the discovery file for isolated instances; the app automatically discovers the
 default file and its legacy private connection file.
+
+## Workstation project disconnection
+
+The desktop can disconnect a project locally without deleting its server identity
+or repository. The local agent persists the decision, excludes disconnected
+projects from repository resolution and execution admission, and serializes
+removal with queue registration. Removal requires confirmed process exit for
+the project's executions. The renderer uses authoritative agent state to hide
+the project and its retained console history until explicit re-add. See
+[the local API contract](contracts/server-agent-v1.md#local-project-disconnection)
+and [desktop instructions](../desktop/README.md#remove-a-local-project).

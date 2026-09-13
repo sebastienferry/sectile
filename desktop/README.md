@@ -45,6 +45,31 @@ the task activity and `agent.log` in the application's data directory.
 When a task's assigned branch is already open in the main repository checkout,
 the agent reuses that checkout and preserves its local changes.
 
+### Execution queue
+
+Hover over a project's heading to reveal its small funnel-shaped queue icon alongside the other
+project actions (also available on keyboard focus and touch). Use the queue icon to switch that project's task
+list to its execution queue directly below the project heading. Close the queue
+with its small cross button, or click the queue icon again, to restore the task list. Its badge
+shows the number of waiting executions; the highlighted icon indicates queue
+mode. Each project switches independently, and opening queue mode expands a
+collapsed project.
+
+The gray `(running/maximum)` counter beside each project name uses the agent's
+effective concurrency limit, including local overrides and shared-checkout
+serialization. Its numerator includes preparing and stopping executions that
+still hold a slot, and excludes queued and finished runs. If the agent cannot
+provide the limit, `?` is shown instead. Saving project settings refreshes it.
+
+The queue shows only that project's active, waiting and stopping executions,
+including multiple executions of one task. Select an entry to open its console.
+Waiting executions appear first in submission order, using the daemon sequence
+or creation time for older agents. Project concurrency and shared checkouts
+still determine when work can start. Counts update with the desktop refresh.
+Canceled runs are excluded from waiting counts. An updated agent reports pending
+cancellation separately as **Stopping / canceling**; running processes retain
+their scheduler slot until exit is confirmed.
+
 ## Package and verify
 
 ```sh
@@ -122,6 +147,23 @@ directory. Local worktree preferences are stored per project in
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
+
+### Remove a local project
+
+In project settings, choose **Local → Remove from desktop**, then confirm
+**Disconnect project**. Removal clears that project's workstation mapping and
+execution overrides. It preserves repository files, worktrees, deployed tooling,
+server projects, tracker tasks, and other local settings. Stop the project's
+executions first: queued, preparing, running, and not-yet-exited processes block
+removal, and removal never cancels them automatically.
+
+Disconnected projects and their consoles stay hidden after desktop or agent
+restart. Choose **Add project** and save a valid repository to reconnect explicitly.
+Finished history remains available after re-add for the agent's existing lifetime;
+archived tasks remain archived. Disconnection is stored in workstation settings
+under `disconnectedProjects`, a project-ID-to-boolean map. Repository detection
+and legacy mappings cannot override a true marker. Older agents must be updated
+and restarted before this action is available.
 
 ### Execution defaults and local overrides
 
@@ -240,7 +282,12 @@ local rename and archive actions. Archiving hides its existing executions withou
 changing the server task. Active executions require explicit confirmation and
 confirmed stop before archiving. A new execution makes the task visible again.
 The TTY toolbar's execution selector provides access to previous runs of the
-selected task. Local names and archive visibility persist in companion storage.
+selected task. Its header shows the task key (or full ID), current task title, and
+selected execution skill. Local names take precedence over tracker titles and
+persist alongside archive visibility in companion storage. Titles refresh without
+reconnecting the console; unavailable titles fall back to identity and skill.
+Long headers truncate on one line, with their full text available on hover and
+to assistive technology. Toolbar controls wrap at narrow window widths.
 
 ### Desktop Quick add
 

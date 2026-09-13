@@ -164,6 +164,11 @@ ipcMain.handle('create-task',async(_,input)=>{
 ipcMain.handle('project',(_,id)=>api('/desktop/project?id='+encodeURIComponent(id)))
 ipcMain.handle('deploy-project',(_,id,action)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))
+ipcMain.handle('remove-project',async(_,id)=>{
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('remove-project'))throw Error('The running local agent does not support project removal. Update it, then stop and restart the agent. Closing the desktop alone does not restart it.')
+ return api('/desktop/projects?id='+encodeURIComponent(id),'DELETE')
+})
 ipcMain.handle('map-project',(_,mapping)=>api('/desktop/projects','POST',mapping))
 ipcMain.handle('clear-history',()=>api('/desktop/history','DELETE'))
 ipcMain.handle('runs',()=>api('/desktop/runs'))
@@ -181,7 +186,7 @@ ipcMain.on('terminal-input',(_,data)=>{if(socket?.readyState===WebSocket.OPEN&&t
 ipcMain.on('terminal-resize',(_,size)=>{if(socket?.readyState===WebSocket.OPEN&&size.cols>0&&size.rows>0)socket.send(JSON.stringify({type:'resize',...size}))})
 function openWindow(){
  if(window&&!window.isDestroyed()){window.show();return}
- window=new BrowserWindow({show:process.env.TASKFLOW_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Local',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
+ window=new BrowserWindow({show:process.env.TASKFLOW_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))

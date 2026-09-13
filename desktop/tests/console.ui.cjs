@@ -43,7 +43,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
  try{
   application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   let page=await application.firstWindow()
-  await page.getByText('#48 · specify',{exact:true}).waitFor()
+  await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.xterm-screen').waitFor()
   withoutConsole=true
   await page.locator('.run[data-status=failed]').waitFor()
@@ -180,7 +180,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await application.close()
   application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   page=await application.firstWindow()
-  await page.getByText('#48 · specify',{exact:true}).waitFor()
+  await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.run[data-status=canceled]').waitFor()
   extraRun=true
   await page.waitForFunction(()=>document.querySelector('#execution-history').options.length===2)

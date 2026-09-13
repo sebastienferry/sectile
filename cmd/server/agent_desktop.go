@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
@@ -19,17 +20,19 @@ import (
 )
 
 type desktopRun struct {
-	CreatedAt time.Time `json:"createdAt"`
-	StartedAt time.Time `json:"startedAt,omitzero"`
-	Prompt    string    `json:"prompt,omitempty"`
-	ID        string    `json:"id"`
-	TaskID    string    `json:"taskId"`
-	TaskKey   string    `json:"taskKey"`
-	ProjectID string    `json:"projectId"`
-	Skill     string    `json:"skill"`
-	SessionID string    `json:"sessionId"`
-	Directory string    `json:"directory"`
-	Status    string    `json:"status"`
+	CancelRequested bool      `json:"cancelRequested,omitempty"`
+	QueueSequence   uint64    `json:"queueSequence,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	StartedAt       time.Time `json:"startedAt,omitzero"`
+	Prompt          string    `json:"prompt,omitempty"`
+	ID              string    `json:"id"`
+	TaskID          string    `json:"taskId"`
+	TaskKey         string    `json:"taskKey"`
+	ProjectID       string    `json:"projectId"`
+	Skill           string    `json:"skill"`
+	SessionID       string    `json:"sessionId"`
+	Directory       string    `json:"directory"`
+	Status          string    `json:"status"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +45,19 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.connMu.Lock()
 		connected := d.conn != nil
 		d.connMu.Unlock()
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.serverURL, "capabilities": []string{"create-task"}})
+		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		disconnected := []string{}
+		for id, value := range settings.DisconnectedProjects {
+			if value {
+				disconnected = append(disconnected, id)
+			}
+		}
+		sort.Strings(disconnected)
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.serverURL, "capabilities": []string{"create-task", "remove-project"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -117,6 +132,8 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		for key, run := range d.runs {
 			entry := run.desktop
 			entry.ID = key
+			entry.QueueSequence = run.sequence
+			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running")
 			if entry.Status != "" {
 				runs = append(runs, entry)
 			}
@@ -214,6 +231,10 @@ func mustJSON(v any) string { raw, _ := json.Marshal(v); return string(raw) }
 
 // desktopProjects keeps workstation paths in the local configuration only.
 func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodDelete {
+		d.disconnectProject(w, r)
+		return
+	}
 	if r.Method == http.MethodGet {
 		projects, err := d.discoverProjects(r.Context())
 		if err != nil {
@@ -221,10 +242,11 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		type entry struct {
-			ID         string `json:"id"`
-			Name       string `json:"name"`
-			Path       string `json:"path"`
-			Configured bool   `json:"configured"`
+			ID           string `json:"id"`
+			Name         string `json:"name"`
+			Path         string `json:"path"`
+			Configured   bool   `json:"configured"`
+			Disconnected bool   `json:"disconnected"`
 		}
 		entries := []entry{}
 		base := d.repoRoot
@@ -243,7 +265,12 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 			if root == "" {
 				root = mapped
 			}
-			entries = append(entries, entry{p.ID, p.Name, root, configured || root != ""})
+			disconnected := settings.DisconnectedProjects[p.ID]
+			if disconnected {
+				root = ""
+				configured = false
+			}
+			entries = append(entries, entry{p.ID, p.Name, root, configured || root != "", disconnected})
 		}
 		_ = json.NewEncoder(w).Encode(entries)
 		return
@@ -329,11 +356,65 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if input.InheritWorktrees {
 		delete(overrides.Worktrees, input.ProjectID)
 	}
+	delete(overrides.DisconnectedProjects, input.ProjectID)
 	if err := agentconfig.WriteSettings(overrides); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	w.WriteHeader(204)
+}
+
+func (d *agentDaemon) localSettingsRoot() string {
+	root := d.repoRoot
+	if root == "" {
+		root, _ = os.Getwd()
+		root = findRepoRoot(root)
+	}
+	return root
+}
+
+func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.URL.Query().Get("id"))
+	if id == "" {
+		http.Error(w, "Project ID required", 400)
+		return
+	}
+	if !d.prepareMu.TryLock() {
+		http.Error(w, "Project preparation or configuration is in progress; retry removal", 409)
+		return
+	}
+	defer d.prepareMu.Unlock()
+	d.runsMu.Lock()
+	defer d.runsMu.Unlock()
+	for _, run := range d.runs {
+		if run.desktop.ProjectID != id {
+			continue
+		}
+		select {
+		case <-run.exited:
+		default:
+			http.Error(w, "Stop active executions and wait for them to exit before removing this project", 409)
+			return
+		}
+	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	if settings.DisconnectedProjects == nil {
+		settings.DisconnectedProjects = map[string]bool{}
+	}
+	settings.DisconnectedProjects[id] = true
+	delete(settings.Projects, id)
+	delete(settings.Worktrees, id)
+	delete(settings.Parallelism, id)
+	delete(settings.Commands, id)
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Probe only loopback endpoints from the private discovery file.

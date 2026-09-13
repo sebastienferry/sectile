@@ -345,18 +345,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("configuration sync: %w", err)
 		}
-		root, overrides, err := d.localProjectRoot(ctx, config)
-		if err != nil {
-			return err
-		}
-		config = agentconfig.ApplyOverrides(config, overrides)
-		if err := config.Validate(); err != nil {
-			return err
-		}
-		if _, err := agentconfig.Scaffold(root, config); err != nil {
-			return err
-		}
-		if err := d.bootstrapLocalMCP(root, &config); err != nil {
+		if err := d.syncLocalProject(ctx, config); err != nil {
 			return err
 		}
 	}
@@ -603,15 +592,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "Dispatch project does not match task")
 		return
 	}
-	d.prepareMu.Lock()
-	root, overrides, err := d.localProjectRoot(ctx, queueConfig)
-	d.prepareMu.Unlock()
-	if err != nil {
-		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
-		return
-	}
-	queueConfig = agentconfig.ApplyOverrides(queueConfig, overrides)
-	run, err := d.enqueueRun(taskRef, payload, queueConfig.ProjectID, root, agentconfig.ExecutionLimit(queueConfig.ProjectID, queueConfig.UseWorktrees, overrides, queueConfig.Parallelism), queueConfig.UseWorktrees)
+	run, err := d.admitProjectRun(ctx, taskRef, payload, queueConfig)
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
@@ -635,7 +616,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if err := d.awaitRunSlot(ctx, run); err != nil {
 		return
 	}
-	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, queueConfig.UseWorktrees)
+	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return

@@ -23,7 +23,7 @@ func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.terminalMgr.CloseSession("run")
-	d.runs = map[string]*controlledRun{"run": {desktop: desktopRun{SessionID: "run", Directory: root, Status: "running"}, exited: make(chan struct{})}}
+	d.runs = map[string]*controlledRun{"run": {sequence: 7, desktop: desktopRun{SessionID: "run", Directory: root, Status: "running"}, exited: make(chan struct{})}}
 	server := httptest.NewServer(http.HandlerFunc(d.desktopHandler))
 	defer server.Close()
 	request := httptest.NewRequest("GET", "/desktop/runs", nil)
@@ -76,6 +76,9 @@ func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
 	var runs []desktopRun
 	if err := json.Unmarshal(response.Body.Bytes(), &runs); err != nil || len(runs) != 1 {
 		t.Fatalf("%s %v", response.Body.String(), err)
+	}
+	if runs[0].QueueSequence != 7 {
+		t.Fatal("desktop response lost scheduler submission order")
 	}
 }
 
@@ -258,5 +261,28 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 	}
 	if !d.runs["failed"].desktop.StartedAt.IsZero() {
 		t.Fatal("failed launch recorded a start")
+	}
+}
+
+func TestDesktopQueueCancellationMetadata(t *testing.T) {
+	d := &agentDaemon{desktopToken: "private", runs: map[string]*controlledRun{
+		"waiting":  {sequence: 2, canceled: true, desktop: desktopRun{Status: "queued"}},
+		"finished": {sequence: 1, canceled: true, desktop: desktopRun{Status: "canceled"}},
+	}}
+	request := httptest.NewRequest("GET", "/desktop/runs", nil)
+	request.Header.Set("Authorization", "Bearer private")
+	response := httptest.NewRecorder()
+	d.desktopHandler(response, request)
+	var runs []desktopRun
+	if err := json.Unmarshal(response.Body.Bytes(), &runs); err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("expected two executions, got %d", len(runs))
+	}
+	for _, run := range runs {
+		if run.CancelRequested != (run.ID == "waiting") {
+			t.Fatalf("incorrect cancellation metadata: %+v", run)
+		}
 	}
 }

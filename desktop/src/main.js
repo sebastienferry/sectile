@@ -1,3 +1,4 @@
+import { orderedQueueRuns } from './queue.mjs'
 import { orderedTaskGroups } from './task-order.mjs'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -6,7 +7,7 @@ import './style.css'
 import { taskStage, nextTaskStep } from './workflow.mjs'
 const api=window.localAgent
 document.querySelector('#app').innerHTML=`
-<header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><span class="brand">S</span><strong>Sectile Local</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
+<header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
 <form id="start"><label>TaskFlow server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><strong id="title">Select an execution</strong><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
@@ -24,9 +25,13 @@ try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const taskKey=run=>JSON.stringify([run.projectId,run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
-const hiddenRun=run=>(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
+let disconnectedProjects=new Set(),projectStateVersion=0,refreshing=false
+const hiddenProject=id=>disconnectedProjects.has(id)
+const hiddenRun=run=>hiddenProject(run.projectId)||(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
 function saveLocalTasks(){localStorage.setItem('localTasks',JSON.stringify(localTasks))}
 const collapsedProjects=new Set(JSON.parse(localStorage.getItem('collapsedProjects')||'[]'))
+
+const queueProjects=new Set()
 
 let linksLoading=false,lastLinksRefresh=0
 let selectedProject=null
@@ -58,10 +63,10 @@ function ready(){
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
 }
 function select(run){
+ if(hiddenProject(run.projectId))return
  selectedProject=run.projectId
  selected=run.id
  refreshNextStep()
- document.querySelector('#title').textContent=(taskState(run).name||run.taskKey||run.taskId)+' · '+run.skill
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
  terminal.reset()
@@ -74,27 +79,91 @@ function select(run){
  api.attach(run.id).then(()=>{setTimeout(resize,150);terminal.focus()}).catch(error)
  render()
 }
+function renderQueue(project,group){
+ const runsForProject=runs.filter(run=>run.projectId===project.id)
+ const panel=document.createElement('section');panel.className='execution-queue';panel.setAttribute('aria-label','Execution queue for '+project.name)
+ const header=document.createElement('div');header.className='queue-heading'
+ const label=document.createElement('strong');label.textContent='Execution queue'
+ const close=document.createElement('button');close.className='icon-button';close.type='button';close.title='Close queue';close.setAttribute('aria-label','Close queue for '+project.name)
+ close.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>'
+ close.onclick=()=>{queueProjects.delete(project.id);render();document.querySelectorAll('.project-queue-toggle').forEach(button=>{if(button.dataset.projectId===project.id)button.focus()})}
+ header.append(label,close);panel.append(header)
+ const summary=document.createElement('p');summary.className='queue-summary';summary.setAttribute('role','status')
+ const list=document.createElement('div');list.className='queue-list';panel.append(summary,list);group.append(panel)
+ const active=runsForProject.filter(run=>['running','preparing'].includes(run.status)&&!run.cancelRequested)
+ const stopping=runsForProject.filter(run=>activeRun(run)&&run.cancelRequested)
+ const waiting=orderedQueueRuns(runsForProject)
+ const text=active.length+' active · '+waiting.length+' waiting'+(stopping.length?' · '+stopping.length+' stopping':'')
+ if(summary.textContent!==text)summary.textContent=text
+ if(!active.length&&!waiting.length&&!stopping.length){
+  const empty=document.createElement('p');empty.textContent='No active or queued executions';list.append(empty);return
+ }
+ for(const [label,items] of [['Waiting · submission order',waiting],['Stopping / canceling',stopping],['Running / preparing',active]]){
+  if(!items.length)continue
+  const heading=document.createElement('h3');heading.textContent=label;list.append(heading)
+  const entries=document.createElement('ul');list.append(entries)
+  for(const run of items){
+   const item=document.createElement('li'),button=document.createElement('button')
+   button.className='queue-execution';button.dataset.runId=run.id
+   button.setAttribute('aria-pressed',String(run.id===selected))
+   const title=document.createElement('strong');title.textContent=(run.taskKey||run.taskId)+' · '+(taskState(run).name||taskTitles.get(run.taskId)||run.skill)
+   const context=document.createElement('small');context.textContent=(projects.find(project=>project.id===run.projectId)?.name||run.projectId)+' · '+run.skill+' · '+(run.cancelRequested?(run.status==='queued'?'Canceling':'Stopping; waiting for exit'):run.status)
+   button.append(title,context);button.onclick=()=>select(run);item.append(button);entries.append(item)
+  }
+ }
+ if(waiting.length){const note=document.createElement('p');note.className='queue-note';note.textContent='Starts when project capacity and checkout availability permit. Independent projects may start separately.';list.append(note)}
+}
+function renderHeader(){
+ const run=runs.find(item=>item.id===selected)
+ let text='Select an execution'
+ if(run){
+  const identity=run.taskKey||run.taskId
+  const name=taskState(run).name?.trim()||taskTitles.get(run.taskId)?.trim()
+  text=[identity,...(name&&name!==identity?[name]:[]),run.skill].join(' · ')
+ }
+ const title=document.querySelector('#title')
+ title.textContent=text;title.title=text
+}
 function render(){
+ renderHeader()
  const list=document.querySelector('#runs');list.replaceChildren()
 
- const groups=new Map(projects.filter(project=>project.path).map(project=>[project.id,project]))
- for(const run of runs)if(!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
+ const groups=new Map(projects.filter(project=>project.path&&!hiddenProject(project.id)).map(project=>[project.id,project]))
+ for(const run of runs)if(!hiddenProject(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
  for(const project of [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name))){
   const group=document.createElement('section');group.className='project-group'
 
   const projectRow=document.createElement('div');projectRow.className='project-row'
   const heading=document.createElement('button');heading.className='project-heading';heading.textContent=(collapsedProjects.has(project.id)?'▸ ':'▾ ')+project.name;heading.setAttribute('aria-expanded',String(!collapsedProjects.has(project.id)))
+  heading.setAttribute('aria-label',heading.textContent)
+  const name=document.createElement('span');name.className='project-name';name.textContent=heading.textContent
+  const capacity=document.createElement('span');capacity.className='project-capacity'
+  const running=runs.filter(run=>run.projectId===project.id&&['running','preparing'].includes(run.status)).length
+  const maximum=Number.isInteger(project.executionLimit)&&project.executionLimit>0?project.executionLimit:'?'
+  capacity.textContent='('+running+'/'+maximum+')'
+  capacity.title=running+' running / '+(maximum==='?'?'maximum unavailable':maximum+' maximum')+' · Includes preparing and stopping executions'
+  capacity.setAttribute('aria-label',capacity.title)
+  heading.replaceChildren(name,capacity)
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
   const configure=document.createElement('button');configure.textContent='⚙';configure.setAttribute('aria-label','Configure '+project.name);configure.onclick=()=>openProject(project.id)
   const browse=document.createElement('button');browse.textContent='+';browse.title='New task';browse.setAttribute('aria-label','New task in '+project.name);browse.onclick=()=>newProjectTask(project.id)
   const openTasks=document.createElement('button');openTasks.className='project-open-tasks';openTasks.title='Open tasks in '+project.name;openTasks.setAttribute('aria-label',openTasks.title)
   openTasks.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/></svg>'
   openTasks.onclick=()=>browseTasks(project.id)
-  projectRow.append(heading,openTasks,browse,configure);group.append(projectRow)
+  const queue=document.createElement('button');queue.className='project-queue-toggle icon-button';queue.dataset.projectId=project.id
+  const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
+  queue.setAttribute('aria-label','Queue view for '+project.name);queue.setAttribute('aria-pressed',String(queueProjects.has(project.id)))
+  queue.title=(queueProjects.has(project.id)?'Show tasks':'Show execution queue')+' · '+waitingCount+' waiting'
+  queue.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 4h18l-7 8v7l-4 2v-9Z"/></svg>'
+  if(waitingCount){const badge=document.createElement('span');badge.className='queue-count';badge.textContent=waitingCount;badge.setAttribute('aria-hidden','true');queue.append(badge)}
+  queue.onclick=()=>{selectedProject=project.id;if(queueProjects.has(project.id))queueProjects.delete(project.id);else queueProjects.add(project.id);collapsedProjects.delete(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
+  projectRow.append(heading,openTasks,queue,browse,configure);group.append(projectRow)
   const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run))
   const taskGroups=new Map()
   for(const run of children){const key=taskKey(run);if(!taskGroups.has(key))taskGroups.set(key,[]);taskGroups.get(key).push(run)}
-  if(!collapsedProjects.has(project.id)){
+  if(!collapsedProjects.has(project.id)&&queueProjects.has(project.id)){
+   renderQueue(project,group)
+  }else if(!collapsedProjects.has(project.id)){
    if(!children.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='No local tasks';group.append(empty)}
    for(const {executions,run} of orderedTaskGroups(taskGroups.values())){
     const row=document.createElement('div');row.className='local-task'
@@ -136,10 +205,38 @@ function render(){
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
  renderNextStep()
 }
+async function updateDisconnected(ids,force=false){
+ const changed=ids.length!==disconnectedProjects.size||ids.some(id=>!disconnectedProjects.has(id))
+ disconnectedProjects=new Set(ids)
+ if(hiddenProject(selectedProject))selectedProject=null
+ const current=runs.find(run=>run.id===selected)
+ if(current&&hiddenProject(current.projectId)){
+  selected=null;terminal.reset()
+  document.querySelector('#title').textContent='Select an execution'
+  document.querySelector('#directory').textContent=''
+  await api.detach().catch(error)
+ }
+ if(changed||force)render()
+}
 async function refresh(){
- if(restarting||!document.querySelector('#setup').hidden)return
- try{const next=await api.runs();ready();refreshPRs(next);const status=await api.status();document.querySelector('#connection').textContent=status.connected?'Connected to '+status.server:'Local agent ready · Server disconnected';const serialized=JSON.stringify(next);if(serialized!==last){const previous=runs.find(run=>run.id===selected);last=serialized;runs=next;render();const current=runs.find(run=>run.id===selected);if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current);if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}refreshNextStep()}else if(Date.now()-nextStepUpdated>15000)refreshNextStep()}
- catch{agentUnavailable()}
+ if(refreshing||restarting||!document.querySelector('#setup').hidden)return
+ refreshing=true
+ const version=projectStateVersion
+ try{
+  const next=await api.runs(),status=await api.status()
+  if(version!==projectStateVersion)return
+  ready();refreshPRs(next)
+  document.querySelector('#connection').textContent=status.connected?'Connected to '+status.server:'Local agent ready · Server disconnected'
+  const previous=runs.find(run=>run.id===selected)
+  const serialized=JSON.stringify(next),changed=serialized!==last
+  runs=next;last=serialized
+  await updateDisconnected(status.disconnectedProjects||[],changed)
+  const current=runs.find(run=>run.id===selected)
+  if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current)
+  if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}
+  if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
+ }catch{agentUnavailable()}
+ finally{refreshing=false}
 }
 document.querySelector('#start').onsubmit=async event=>{
  event.preventDefault();const button=event.target.querySelector('button');button.disabled=true
@@ -171,7 +268,7 @@ document.querySelector('#restart').onclick=async()=>{
  try{
   if(await api.restart()){
    selected=null;runs=[];last='';terminal.reset();render()
-   document.querySelector('#title').textContent='Select an execution'
+   renderHeader()
    document.querySelector('#directory').textContent=''
    document.querySelector('#error').textContent=''
   }
@@ -209,7 +306,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   const {removed}=await api.clearHistory()
   if(removed.includes(selected)){
    selected=null;terminal.reset()
-   document.querySelector('#title').textContent='Select an execution'
+   renderHeader()
    document.querySelector('#directory').textContent=''
   }
   await refresh()
@@ -225,7 +322,20 @@ function showDialog(title){
  if(!dialog.open)dialog.showModal()
 }
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
-async function loadProjects(){projects=[...new Map((await api.projects()).map(project=>[project.id,project])).values()];render()}
+async function loadProjects(){
+ const version=projectStateVersion
+ const status=await api.status(),next=await api.projects()
+ if(version!==projectStateVersion)return
+ const loaded=[...new Map(next.map(project=>[project.id,project])).values()]
+ projects=loaded
+ await updateDisconnected(status.disconnectedProjects||[],true)
+ const limits=await Promise.allSettled(loaded.map(project=>api.project(project.id)))
+ if(version!==projectStateVersion||projects!==loaded)return
+ for(const [index,result] of limits.entries()){
+  if(result.status==='fulfilled')loaded[index].executionLimit=result.value.parallelism
+ }
+ render()
+}
 document.querySelector('#toggle-sidebar').onclick=event=>{
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
  event.currentTarget.setAttribute('aria-expanded',String(!hidden));localStorage.setItem('sidebarCollapsed',String(hidden));resize()
@@ -242,13 +352,30 @@ document.querySelector('#add-project').onclick=async()=>{
   if(!projects.length)paragraph('No projects available on the server.')
   for(const project of projects){
    const button=document.createElement('button');button.className='discovered-project'
-   const added=project.configured||!!project.path||runs.some(run=>run.projectId===project.id)
+   const added=!hiddenProject(project.id)&&(project.configured||!!project.path||runs.some(run=>run.projectId===project.id))
    button.textContent=project.name+(added?' · Already added':'')
    button.disabled=added
    if(added)button.title='Use the project settings button in the sidebar to edit this project.'
    button.onclick=()=>openProject(project.id);dialogBody.append(button)
   }
  }catch(err){error(err)}
+}
+function requestRemoveProject(id,name){
+ showDialog('Remove '+name+' from desktop?')
+ paragraph('Disconnect this project from this workstation and remove its local configuration. Repository files and server data are preserved. Add the project again before launching new executions.')
+ const confirm=document.createElement('button');confirm.textContent='Disconnect project'
+ const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
+ const notice=document.createElement('p');notice.setAttribute('role','status')
+ confirm.onclick=async()=>{
+  confirm.disabled=true;cancel.disabled=true
+  try{await api.removeProject(id)}
+  catch(err){notice.textContent=err.message;confirm.disabled=false;cancel.disabled=false;return}
+  projectStateVersion++
+  await updateDisconnected([...disconnectedProjects,id])
+  dialog.close()
+  try{await loadProjects()}catch(err){error('Project disconnected, but refreshing projects failed: '+err.message)}
+ }
+ dialogBody.append(confirm,cancel,notice)
 }
 async function openProject(id){
  selectedProject=id
@@ -315,12 +442,16 @@ async function openProject(id){
   const notice=document.createElement('p');notice.setAttribute('role','status')
   form.append(label,controls.worktrees.section,controls.parallel.section,commandLabel,save)
   panels.Local.append(form)
+  const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop'
+  remove.onclick=()=>requestRemoveProject(id,config.projectName)
+  if(info.configured||runs.some(run=>run.projectId===id))panels.Local.append(remove)
   dialogBody.append(notice)
   const tools=document.createElement('div');tools.className='deployment-actions'
   form.onsubmit=async event=>{
    event.preventDefault();save.disabled=true
    try{
     await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,inheritParallelism,aiCommandTemplate:command.value,inheritCommand})
+    projectStateVersion++;disconnectedProjects.delete(id)
     notice.textContent='Local configuration saved';await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
@@ -367,7 +498,14 @@ async function openProject(id){
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
   }
 
- }catch(err){paragraph(err.message)}
+ }catch(err){
+  paragraph(err.message)
+  if(!hiddenProject(id)&&(projects.some(project=>project.id===id&&project.path)||runs.some(run=>run.projectId===id))){
+   const remove=document.createElement('button');remove.textContent='Remove from desktop'
+   remove.onclick=()=>requestRemoveProject(id,projects.find(project=>project.id===id)?.name||id)
+   dialogBody.append(remove)
+  }
+ }
 }
 
 const iconPaths={
@@ -503,7 +641,8 @@ async function refreshPRs(executions){
     const tasks=await api.serverTasks(projectID,'')
     for(const run of executions.filter(run=>run.projectId===projectID)){
      const task=tasks.find(task=>task.id===run.taskId)
-     if(task?.title)taskTitles.set(run.taskId,task.title)
+     if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
+     else taskTitles.delete(run.taskId)
      if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,task.prUrl)
      else pullRequests.delete(run.taskId)
     }
@@ -521,7 +660,7 @@ function taskMenu(run){
  const rename=document.createElement('form'),name=document.createElement('input'),save=document.createElement('button')
  name.setAttribute('aria-label','Local task name');name.value=taskState(run).name||run.taskKey||run.taskId;name.maxLength=120;name.required=true
  save.textContent='Rename locally';rename.append(name,save)
- rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render();const current=runs.find(item=>item.id===selected);if(current&&taskKey(current)===taskKey(run))document.querySelector('#title').textContent=name.value.trim()+' · '+current.skill}
+ rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render()}
  const archive=document.createElement('button');archive.textContent='Archive'
  archive.onclick=()=>requestArchive(run)
  dialogBody.append(relaunch,rename,archive)
@@ -544,7 +683,7 @@ async function archiveTask(run){
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
   selected=null;terminal.reset();await api.detach()
-  document.querySelector('#title').textContent='Select an execution';document.querySelector('#directory').textContent=''
+  renderHeader();document.querySelector('#directory').textContent=''
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()
 }
@@ -628,6 +767,7 @@ function renderNextStep(){
  if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
 }
 new ResizeObserver(resize).observe(document.querySelector('#task-status'))
+new ResizeObserver(resize).observe(document.querySelector('#toolbar'))
 async function readNextStep(run){
  const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
  const task=tasks.find(task=>task.id===run.taskId)
