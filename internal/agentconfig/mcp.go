@@ -13,7 +13,7 @@ import (
 )
 
 // BootstrapMCP registers the daemon's stdio bridge in the target CLI's project
-// configuration (user configuration for agy). Only TaskFlow's entry is replaced;
+// configuration (user configuration for agy). The reserved TaskFlow entry migrates to Sectile;
 // bearer credentials are never written. Native tool permissions remain in force.
 func BootstrapMCP(root, provider, executable, gateway string) (string, error) {
 	if !filepath.IsAbs(executable) {
@@ -76,50 +76,11 @@ func BootstrapMCP(root, provider, executable, gateway string) (string, error) {
 		// The bridge reads TASKFLOW_AGENT_URL and TASKFLOW_AGENT_TOKEN at runtime.
 		entry["args"] = []string{"mcp"}
 	}
-	if provider == "vibe" {
-		entry["name"] = "taskflow"
-		entry["transport"] = "stdio"
-		var list []any
-		if current, ok := data["mcp_servers"]; ok {
-			existing, ok := current.([]any)
-			if !ok {
-				return "", fmt.Errorf("mcp_servers must be an array")
-			}
-			for _, item := range existing {
-				server, ok := item.(map[string]any)
-				if !ok {
-					return "", fmt.Errorf("invalid MCP server entry")
-				}
-				if server["name"] != "taskflow" {
-					list = append(list, item)
-				}
-			}
-		}
-		data["mcp_servers"] = append(list, entry)
-	} else {
-		key := "mcpServers"
-		if provider == "codex" {
-			key = "mcp_servers"
-		}
-		servers, ok := data[key].(map[string]any)
-		if !ok && data[key] != nil {
-			return "", fmt.Errorf("%s must be an object", key)
-		}
-		if servers == nil {
-			servers = map[string]any{}
-		}
-		// Keep explicit permission and tool policies, replacing only transport fields.
-		if previous, ok := servers["taskflow"].(map[string]any); ok {
-			for key, value := range previous {
-				switch key {
-				case "command", "args", "env", "env_vars", "cwd", "url", "httpUrl", "serverUrl", "headers", "http_headers", "bearer_token_env_var", "type", "transport":
-				default:
-					entry[key] = value
-				}
-			}
-		}
-		servers["taskflow"] = entry
-		data[key] = servers
+	if err := migrateMCPRegistration(data, provider, entry); err != nil {
+		return "", fmt.Errorf("migrate MCP configuration %s: %w", path, err)
+	}
+	if err := checkExternalMCPPolicies(root, provider, filepath.Join(root, path)); err != nil {
+		return "", err
 	}
 	if isTOML {
 		raw, err = toml.Marshal(data)

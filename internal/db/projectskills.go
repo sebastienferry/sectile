@@ -114,7 +114,7 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []Pro
 		if out[i].ID != "specify" && out[i].ID != "implement" && out[i].ID != "adjust" && out[i].ID != "pickup" && out[i].ID != "pickup_issues" {
 			continue
 		}
-		out[i].Content += "\n## Project pull request policy\nPR creation stage: " + timing + ". Read this setting from taskflow_get_project_context before executing. "
+		out[i].Content += "\n## Project pull request policy\nPR creation stage: " + timing + ". Read this setting from get_project_context before executing. "
 		if timing == "specified" {
 			out[i].Content += "After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep newly created PRs draft while implementing; preserve an existing ready PR; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.\n"
 		} else {

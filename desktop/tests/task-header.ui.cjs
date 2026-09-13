@@ -43,6 +43,19 @@ test('TTY header follows metadata and selection without disturbing the console',
   const release=()=>{hold=false;for(const res of pending)respond(res);pending=[]}
   await expect(header()).toHaveText('#82 · implement')
   await expect.poll(()=>pending.length).toBeGreaterThan(0)
+  const otherBadge=page.locator('.task-skill-status[data-run-id="other"]')
+  await page.locator('#save-log').focus()
+  await expect.poll(()=>attachments).toBe(1)
+  const beforeStatus=[attachments,disconnections]
+  reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
+  await expect(otherBadge).toHaveText('✓')
+  await expect(otherBadge).toHaveAttribute('title','specify · Skill completed')
+  await expect(page.locator('.task-skill-status[data-run-id="current"]')).not.toHaveText('✓')
+  await expect(header()).toHaveText('#82 · implement')
+  await expect(page.locator('#save-log')).toBeFocused()
+  assert.deepEqual([attachments,disconnections],beforeStatus)
+  reported=null
+  await expect(otherBadge).toHaveText('◷')
   await select('full-task-id')
   await expect(header()).toHaveText('full-task-id · specify')
   tasks=[{id:'a',title:'Delayed title',prUrl:'https://github.com/example/repo/pull/82'}]
@@ -117,8 +130,10 @@ test('TTY header follows metadata and selection without disturbing the console',
   await expect(page.locator('#skill-result')).toContainText('Awaiting stage validation')
   reported.activity.status='failed'
   await expect(page.locator('#skill-result')).toHaveText('! Skill failed')
+  await expect(page.locator('.task-skill-status')).toHaveText('!')
   resultUnavailable=true
   await expect(page.locator('#skill-result')).toHaveText('◷ In progress')
+  await expect(page.locator('.task-skill-status')).toHaveText('◷')
   runs=[];await page.reload()
   await expect(header()).toHaveText('Select an execution')
   await expect(header()).toHaveAttribute('title','Select an execution')

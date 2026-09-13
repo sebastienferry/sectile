@@ -33,12 +33,12 @@ func TestGeneratedSkillContracts(t *testing.T) {
 					}
 				}
 				if stage.FromStage == "" || stage.Scope == "macro" {
-					if strings.Contains(content, "taskflow_transition_stage") {
+					if strings.Contains(content, "transition_stage") {
 						t.Fatal("non-workflow skill received a task transition")
 					}
 				}
 				if stage.ID == "implement" || stage.ID == "specify" {
-					if !strings.Contains(content, "taskflow_transition_stage") || !strings.Contains(content, "actual branch") {
+					if !strings.Contains(content, "transition_stage") || !strings.Contains(content, "actual branch") {
 						t.Fatal("transition does not record the actual assigned branch")
 					}
 				}
