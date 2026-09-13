@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 )
 
@@ -694,22 +695,6 @@ func (d *DB) EnqueueDigestAgenda(projectID string, dateRaw string, assignee stri
 	if settings == nil {
 		return nil, fmt.Errorf("réglages indisponibles")
 	}
-	runnerSettings := *settings
-
-	d.mu.RLock()
-	proj, _ := d.getProjectByIDUnsafe(projectID)
-	d.mu.RUnlock()
-	if proj != nil {
-		if proj.RepoPath != "" {
-			runnerSettings.RepoPath = proj.RepoPath
-		}
-		if proj.AIProvider != "" {
-			runnerSettings.AIProvider = proj.AIProvider
-		}
-		if proj.AICommandTemplate != "" {
-			runnerSettings.AICommandTemplate = proj.AICommandTemplate
-		}
-	}
 
 	activityID := uuid.New().String()
 	now := time.Now()
@@ -747,7 +732,12 @@ func (d *DB) EnqueueDigestAgenda(projectID string, dateRaw string, assignee stri
 	defer cancel()
 
 	started := time.Now()
-	output, steps, runErr := d.runner.RunAgentPrompt(ctx, &runnerSettings, prompt)
+	var result struct {
+		Output string
+		Steps  []string
+	}
+	runErr := d.callAgent(agentprotocol.Operation{ProjectID: projectID, Action: "run_prompt", Prompt: prompt}, &result)
+	output, steps := result.Output, result.Steps
 	completed := time.Now()
 
 	if runErr != nil && ctx.Err() != nil {

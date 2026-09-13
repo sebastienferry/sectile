@@ -60,9 +60,7 @@ ipcMain.handle('start',async(_,settings)=>{
   try{previous=readSettings()}catch{}
   const repo=previous.repo||path.dirname(settingsPath())
   fs.mkdirSync(repo,{recursive:true,mode:0o700})
-  const bundled=app.isPackaged?path.join(process.resourcesPath,'taskflow'):path.resolve(__dirname,'../bin/taskflow')
-  const binary=(fs.existsSync(bundled)?bundled:path.resolve(__dirname,'../../bin/taskflow'))
-  if(!fs.existsSync(binary))throw Error('The bundled TaskFlow agent is missing. Rebuild or reinstall the app.')
+  const binary=require('./runtime.cjs').resolveAgentBinary({packaged:app.isPackaged,resourcesPath:process.resourcesPath,directory:__dirname})
   if(connection){try{await api('/desktop/runs');return true}catch{connection=null}}
   fs.mkdirSync(app.getPath('userData'),{recursive:true})
   let legacy={}
@@ -76,7 +74,7 @@ ipcMain.handle('start',async(_,settings)=>{
   const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
   const info=infoPath()
   if(fs.existsSync(info))fs.unlinkSync(info)
-  const child=spawn(binary,['agent','--desktop-info',info,'--url',settings.server,'--repo',repo],{
+  const child=spawn(binary,['--desktop-info',info,'--url',settings.server,'--repo',repo],{
    detached:true,stdio:['ignore',output,output],
    env:{...process.env,TASKFLOW_AGENT_TOKEN:settings.token,TASKFLOW_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
   })

@@ -109,7 +109,7 @@ func (d *DB) GetProjectMacros(projectID string) ([]models.MacroMeta, error) {
 
 	proj, _ := d.GetProjectByID(projectID)
 	if proj != nil && (proj.IssueTracker == "github" || proj.GithubRepo != "") {
-		if milestones, err := d.runner.ListGithubMilestones(proj.GithubRepo, proj.RepoPath); err == nil && len(milestones) > 0 {
+		if milestones, err := d.trackers.ListGithubMilestones(proj.GithubRepo, proj.RepoPath); err == nil && len(milestones) > 0 {
 			d.mu.Lock()
 			for _, m := range milestones {
 				key := fmt.Sprintf("M-%d", m.Number)
@@ -216,7 +216,7 @@ func (d *DB) UpdateMacro(projectID string, key string, title *string, horizon *s
 			if description != nil {
 				newDesc = *description
 			}
-			_ = d.runner.UpdateGithubMilestone(proj.GithubRepo, proj.RepoPath, num, newTitle, newDesc, state)
+			_ = d.trackers.UpdateGithubMilestone(proj.GithubRepo, proj.RepoPath, num, newTitle, newDesc, state)
 		}
 	}
 
@@ -470,7 +470,7 @@ func (d *DB) applyTaskMacro(taskIDOrKey string, macroKey string, steps *[]string
 					milestoneTarget = cleanMacroKey
 				}
 			}
-			if err := d.runner.SetGithubIssueMilestone(proj.GithubRepo, proj.RepoPath, issueNum, milestoneTarget); err != nil {
+			if err := d.trackers.SetGithubIssueMilestone(proj.GithubRepo, proj.RepoPath, issueNum, milestoneTarget); err != nil {
 				*steps = append(*steps, fmt.Sprintf("⚠️ Synchro milestone GitHub échouée pour %s: %v, gardé en local", task.Key, err))
 			} else {
 				if milestoneTarget == "" {
@@ -539,7 +539,7 @@ func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title stri
 		var issueNum int
 		_, _ = fmt.Sscanf(strings.TrimPrefix(task.Key, "#"), "%d", &issueNum)
 		if issueNum > 0 {
-			_ = d.runner.SetGithubIssueMilestone(proj.GithubRepo, proj.RepoPath, issueNum, parentTitle)
+			_ = d.trackers.SetGithubIssueMilestone(proj.GithubRepo, proj.RepoPath, issueNum, parentTitle)
 		}
 	}
 	return task, nil
@@ -564,7 +564,7 @@ func (d *DB) CreateMacro(projectID string, title string, horizon string, fields 
 
 	key := ""
 	if (proj.IssueTracker == "github" || proj.GithubRepo != "") && proj.GithubRepo != "" {
-		num, err := d.runner.CreateGithubMilestone(proj.GithubRepo, proj.RepoPath, title, "")
+		num, err := d.trackers.CreateGithubMilestone(proj.GithubRepo, proj.RepoPath, title, "")
 		if err == nil && num > 0 {
 			key = fmt.Sprintf("M-%d", num)
 		}
@@ -609,7 +609,7 @@ func (d *DB) DeleteMacro(projectID string, key string) error {
 			_, _ = fmt.Sscanf(strings.ToUpper(key), "M-%d", &num)
 		}
 		if num > 0 {
-			_ = d.runner.DeleteGithubMilestone(proj.GithubRepo, proj.RepoPath, num)
+			_ = d.trackers.DeleteGithubMilestone(proj.GithubRepo, proj.RepoPath, num)
 		}
 	}
 
@@ -760,7 +760,7 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 
 	// 2. Handle GitHub milestones migration if target is GitHub
 	if targetProj.IssueTracker == "github" || targetProj.GithubRepo != "" {
-		targetMilestones, _ := d.runner.ListGithubMilestones(targetProj.GithubRepo, targetProj.RepoPath)
+		targetMilestones, _ := d.trackers.ListGithubMilestones(targetProj.GithubRepo, targetProj.RepoPath)
 		var existingNum int
 		for _, m := range targetMilestones {
 			if strings.EqualFold(strings.TrimSpace(m.Title), strings.TrimSpace(title)) {
@@ -771,7 +771,7 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 		if existingNum > 0 {
 			targetMacroKey = fmt.Sprintf("M-%d", existingNum)
 		} else {
-			newNum, createErr := d.runner.CreateGithubMilestone(targetProj.GithubRepo, targetProj.RepoPath, title, description)
+			newNum, createErr := d.trackers.CreateGithubMilestone(targetProj.GithubRepo, targetProj.RepoPath, title, description)
 			if createErr == nil && newNum > 0 {
 				targetMacroKey = fmt.Sprintf("M-%d", newNum)
 			}
@@ -842,14 +842,14 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 					var issueNum int
 					_, _ = fmt.Sscanf(strings.TrimPrefix(t.key, "#"), "%d", &issueNum)
 					if issueNum > 0 {
-						num, u, transferErr := d.runner.TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
+						num, u, transferErr := d.trackers.TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
 						if transferErr == nil && num > 0 {
 							newKey = fmt.Sprintf("#%d", num)
 							newID = fmt.Sprintf("gh-%s-%d", targetProjectID, num)
 							if u != "" {
 								newExternalUrl = u
 							}
-							_ = d.runner.SetGithubIssueMilestone(targetProj.GithubRepo, targetProj.RepoPath, num, title)
+							_ = d.trackers.SetGithubIssueMilestone(targetProj.GithubRepo, targetProj.RepoPath, num, title)
 						}
 					}
 				}
@@ -939,7 +939,7 @@ func (d *DB) MigrateTasks(taskIDs []string, targetProjectID string) (int, error)
 			var issueNum int
 			_, _ = fmt.Sscanf(strings.TrimPrefix(task.Key, "#"), "%d", &issueNum)
 			if issueNum > 0 {
-				num, u, transferErr := d.runner.TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
+				num, u, transferErr := d.trackers.TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
 				if transferErr == nil && num > 0 {
 					newKey = fmt.Sprintf("#%d", num)
 					newID = fmt.Sprintf("gh-%s-%d", targetProjectID, num)
@@ -948,11 +948,11 @@ func (d *DB) MigrateTasks(taskIDs []string, targetProjectID string) (int, error)
 					}
 					// If task had a milestone, check if milestone exists in target project
 					if newParentTitle != "" {
-						targetMilestones, _ := d.runner.ListGithubMilestones(targetProj.GithubRepo, targetProj.RepoPath)
+						targetMilestones, _ := d.trackers.ListGithubMilestones(targetProj.GithubRepo, targetProj.RepoPath)
 						for _, m := range targetMilestones {
 							if strings.EqualFold(strings.TrimSpace(m.Title), strings.TrimSpace(newParentTitle)) {
 								newParentKey = fmt.Sprintf("M-%d", m.Number)
-								_ = d.runner.SetGithubIssueMilestone(targetProj.GithubRepo, targetProj.RepoPath, num, newParentTitle)
+								_ = d.trackers.SetGithubIssueMilestone(targetProj.GithubRepo, targetProj.RepoPath, num, newParentTitle)
 								break
 							}
 						}

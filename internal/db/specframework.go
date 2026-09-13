@@ -7,8 +7,8 @@ import (
 
 	"github.com/google/uuid"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
-	"tasks/internal/runner"
 )
 
 // resolveSpecFrameworkTarget turns a project id, project slug or bare path into
@@ -54,7 +54,7 @@ func (d *DB) resolveSpecFrameworkTarget(req models.SpecFrameworkInstallRequest) 
 	if repoPath == "" {
 		repoPath = "."
 	}
-	framework = runner.NormalizeSpecFramework(framework)
+	framework = models.NormalizeSpecFramework(framework)
 
 	return repoPath, framework, aiAgent
 }
@@ -62,52 +62,28 @@ func (d *DB) resolveSpecFrameworkTarget(req models.SpecFrameworkInstallRequest) 
 // GetSpecFrameworkStatus reports whether the SDD toolchain CLI is reachable and
 // whether the project working directory has already been initialized. Passing an
 // empty framework reports on both Spec Kit and OpenSpec.
-func (d *DB) GetSpecFrameworkStatus(projectIDOrPath string, framework string) []models.SpecFrameworkStatus {
-	repoPath, resolved, _ := d.resolveSpecFrameworkTarget(models.SpecFrameworkInstallRequest{
-		ProjectID: projectIDOrPath,
-		RepoPath:  projectIDOrPath,
-		Framework: framework,
-	})
-
-	frameworks := []string{"speckit", "openspec"}
-	if strings.TrimSpace(framework) != "" {
-		frameworks = []string{resolved}
+func (d *DB) GetSpecFrameworkStatus(projectID, framework string) []models.SpecFrameworkStatus {
+	var result []models.SpecFrameworkStatus
+	err := d.callAgent(agentprotocol.Operation{ProjectID: projectID, Action: "spec_status", Framework: framework}, &result)
+	if err != nil {
+		return []models.SpecFrameworkStatus{{Framework: framework, InstallHint: err.Error()}}
 	}
-
-	out := make([]models.SpecFrameworkStatus, 0, len(frameworks))
-	for _, f := range frameworks {
-		out = append(out, *d.runner.GetSpecFrameworkStatus(f, repoPath))
-	}
-	return out
+	return result
 }
 
-// InstallSpecFramework bootstraps GitHub Spec Kit or OpenSpec in the project
-// working directory and records the outcome as a task activity so the run shows
-// up in the Activities view like any other Taskacao command.
 func (d *DB) InstallSpecFramework(req models.SpecFrameworkInstallRequest) (*models.SpecFrameworkInstallResult, error) {
-	repoPath, framework, aiAgent := d.resolveSpecFrameworkTarget(req)
-
-	// An explicit but unrecognised framework is a caller mistake: report it
-	// instead of silently installing Spec Kit.
-	if strings.TrimSpace(req.Framework) != "" && !isKnownFrameworkAlias(req.Framework) {
-		return nil, fmt.Errorf("framework SDD inconnu: %q (valeurs acceptées: 'speckit', 'openspec')", req.Framework)
+	if req.Framework != "" && !isKnownFrameworkAlias(req.Framework) {
+		return nil, fmt.Errorf("unknown specification framework %q", req.Framework)
 	}
-
-	res := d.runner.InstallSpecFramework(models.SpecFrameworkInstallRequest{
-		Framework: framework,
-		RepoPath:  repoPath,
-		AIAgent:   aiAgent,
-		Force:     req.Force,
-	})
-
-	d.recordSpecFrameworkActivity(req.ProjectID, res)
-
-	return res, nil
+	var result models.SpecFrameworkInstallResult
+	err := d.callAgent(agentprotocol.Operation{ProjectID: req.ProjectID, Action: "spec_install", Framework: req.Framework, Provider: req.AIAgent, Force: req.Force}, &result)
+	if err != nil {
+		return nil, err
+	}
+	d.recordSpecFrameworkActivity(req.ProjectID, &result)
+	return &result, nil
 }
 
-// isKnownFrameworkAlias tells apart a recognised spelling of a supported
-// framework from an outright unknown value, so a typo is reported instead of
-// silently falling back to Spec Kit.
 func isKnownFrameworkAlias(framework string) bool {
 	switch strings.ToLower(strings.TrimSpace(framework)) {
 	case "speckit", "spec-kit", "spec kit", "specify", "openspec", "open-spec", "open spec":

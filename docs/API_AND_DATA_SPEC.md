@@ -198,7 +198,7 @@ and its progress is readable through the Activities API.
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/spec-framework/status` | Query params: `projectId` or `repoPath`, optional `framework`. Reports CLI availability and initialization state. |
+| `GET` | `/api/spec-framework/status` | Query params: `projectId` or `repoPath`, optional `framework`. Reports CLI availability and initialization state from the connected local agent. |
 | `POST` | `/api/spec-framework/install` | Installs and initializes GitHub Spec Kit or OpenSpec in a working directory. |
 
 `GET /api/spec-framework/status` response:
@@ -262,26 +262,18 @@ initializer over an already-initialized directory instead of returning early.
 
 ---
 
-## 3. WebSocket Terminal Protocol (`/ws/terminal`)
+## 3. Agent operations and consoles
 
-### Connection Handshake
-- **URL**: `ws://<host>:<port>/ws/terminal?taskId=<taskId>`
-- Automatically resolves the worktree directory (`.tasks/worktrees/<taskKey>`) under the repository returned by `ResolveTaskRepoPath`: the ticket's own `repo_path` first, then the project's, then the global setting.
-- Starts login shell `/bin/zsh -l` with PTY attached.
+The server's former `/ws/terminal` and terminal session endpoints return HTTP 410.
+They cannot start or access a server shell. Agent-owned PTYs and console history
+are available through the desktop companion's authenticated loopback connection.
 
-### Frame Formats
+Git, worktree, editor, CLI status and SDD requests keep their HTTP API surface but
+execute through the matching agent. Use `projectId` and optional full `taskId`;
+raw server paths are not interpreted as workstation paths. Legacy repository
+path parameters only resolve an exact configured project identity. A missing
+agent, disconnect or unconfirmed operation returns a structured `error` and never
+falls back to execution on the server.
 
-#### Client to Server
-1. **Raw Keystrokes**: Standard text or binary bytes representing user keystrokes (e.g. `ls -la\n`, `agy\n`, `\x03` for Ctrl+C).
-2. **Control Message (Window Resize)**:
-   ```json
-   {
-     "type": "resize",
-     "cols": 120,
-     "rows": 36
-   }
-   ```
-
-#### Server to Client
-- Raw ANSI streaming output chunk (text or binary).
-- Output is simultaneously appended to the 64KB circular replay buffer.
+For transport addresses, authentication, operation envelopes, cancellation and
+MCP tool ownership, see [the version 1 contract](contracts/server-agent-v1.md).

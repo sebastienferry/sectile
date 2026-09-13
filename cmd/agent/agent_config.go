@@ -79,7 +79,7 @@ func repositoryIdentity(remote string) string {
 
 // localProjectRoot resolves workstation mappings. Remote filesystem paths are
 // deliberately absent from the contract and never used as local working dirs.
-func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config) (string, agentconfig.Overrides, error) {
+func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config, allowUninitialized ...bool) (string, agentconfig.Overrides, error) {
 	root := d.repoRoot
 	if root == "" {
 		root, _ = os.Getwd()
@@ -107,7 +107,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if err != nil {
 		return "", overrides, err
 	}
-	if _, err := gitLocal(ctx, root, "rev-parse", "--show-toplevel"); err != nil {
+	if _, err := gitLocal(ctx, root, "rev-parse", "--show-toplevel"); err != nil && !(len(allowUninitialized) > 0 && allowUninitialized[0]) {
 		return "", overrides, err
 	}
 	local, err := agentconfig.ReadOverrides(root)

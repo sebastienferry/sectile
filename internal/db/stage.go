@@ -100,18 +100,6 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 
 	// Merge Request / PR URL
 	mrURL := strings.TrimSpace(prURL)
-	if mrURL == "" && (task.PrURL == nil || strings.TrimSpace(*task.PrURL) == "") {
-		branchForMR := ""
-		if task.BranchName != nil {
-			branchForMR = *task.BranchName
-		}
-		if branch != "" {
-			branchForMR = branch
-		}
-		if detectedURL, _ := d.runner.MergeRequestForStep(d.ResolveTaskRepoPath(task), branchForMR, note); detectedURL != "" {
-			mrURL = detectedURL
-		}
-	}
 
 	branchName := task.BranchName
 	if strings.TrimSpace(branch) != "" {

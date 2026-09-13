@@ -2,11 +2,10 @@ package db
 
 import (
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"strings"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
-	"tasks/internal/runner"
+	"tasks/internal/trackerapi"
 )
 
 func (d *DB) prCreationOwner(task *models.Task) string {
@@ -17,15 +16,15 @@ func (d *DB) prCreationOwner(task *models.Task) string {
 	return "implement"
 }
 
-func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (runner.PullRequestEvidence, error) {
+func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (trackerapi.PullRequest, error) {
 	origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(task.ProjectID))
 	settings, _ := d.GetSettings()
 	project, _ := d.GetProjectByID(task.ProjectID)
 	if origin != "adjust" && project != nil && strings.TrimSpace(project.SkillOverrides["adjust"]) == "" && (strings.TrimSpace(project.SkillOverrides["review"]) != "") {
-		return runner.PullRequestEvidence{}, fmt.Errorf("legacy command override requires reconciliation in Skills")
+		return trackerapi.PullRequest{}, fmt.Errorf("legacy command override requires reconciliation in Skills")
 	}
 	if origin == "review" || (origin != "adjust" && settings != nil && strings.TrimSpace(settings.PromptCreatePR) != "") {
-		return runner.PullRequestEvidence{}, fmt.Errorf("legacy adjustment customization requires reconciliation in Skills: review and save under Adjust or reset")
+		return trackerapi.PullRequest{}, fmt.Errorf("legacy adjustment customization requires reconciliation in Skills: review and save under Adjust or reset")
 	}
 	branch := ""
 	if task.BranchName != nil {
@@ -53,7 +52,7 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (runner.PullR
 	return pr, nil
 }
 
-func validatePullRequestEvidence(pr runner.PullRequestEvidence, branch, url, expected string, ready bool) error {
+func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url, expected string, ready bool) error {
 	if !pr.Open || pr.Branch != branch || pr.URL == "" || pr.URL != url {
 		return fmt.Errorf("forge does not confirm the matching open PR")
 	}
@@ -85,38 +84,37 @@ func (d *DB) validateStagePR(task *models.Task, skillID, repoPath, branch, url, 
 	if err = validatePullRequestEvidence(pr, branch, url, expected, skillID == "adjust" || skillID == "pickup"); err != nil {
 		return "", err
 	}
-	if skillID == "adjust" || skillID == "pickup" {
-		status, err := exec.Command("git", "-C", repoPath, "status", "--porcelain").Output()
-		if err != nil || strings.TrimSpace(string(status)) != "" {
-			return "", fmt.Errorf("adjustment checkout contains uncommitted changes")
-		}
+	var evidence struct {
+		SHA    string
+		Branch string
+		Clean  bool
 	}
-	head, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
-	if err != nil || strings.TrimSpace(string(head)) != pr.SHA {
-		return "", fmt.Errorf("PR does not contain the final checkout commit")
+	if err = d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_evidence"}, &evidence); err != nil {
+		return "", err
 	}
+	if evidence.Branch != branch || evidence.SHA != pr.SHA {
+		return "", fmt.Errorf("PR does not contain the agent checkout commit")
+	}
+	if (skillID == "adjust" || skillID == "pickup") && !evidence.Clean {
+		return "", fmt.Errorf("agent checkout contains uncommitted changes")
+	}
+
 	return url, nil
 }
 
 func (d *DB) adjustmentCheckout(task *models.Task) string {
-	if task.WorktreePath != nil && *task.WorktreePath != "" {
-		return *task.WorktreePath
-	}
-	repo := d.ResolveTaskRepoPath(task)
-	if task.BranchName != nil {
-		for _, path := range getGitWorktreePaths(repo) {
-			out, err := exec.Command("git", "-C", path, "branch", "--show-current").Output()
-			if err == nil && strings.TrimSpace(string(out)) == *task.BranchName {
-				return filepath.Clean(path)
-			}
+	if p, _ := d.GetProjectByID(task.ProjectID); p != nil {
+		if p.GithubRepo != "" {
+			return p.GithubRepo
 		}
+		return p.GitRemoteUrl
 	}
-	return repo
+	return ""
 }
 
-func (d *DB) lookupStagePR(repo, branch string) (runner.PullRequestEvidence, error) {
+func (d *DB) lookupStagePR(repo, branch string) (trackerapi.PullRequest, error) {
 	if d.prEvidenceLookup != nil {
 		return d.prEvidenceLookup(repo, branch)
 	}
-	return d.runner.BranchPullRequest(repo, branch)
+	return d.trackers.BranchPullRequest(repo, branch)
 }

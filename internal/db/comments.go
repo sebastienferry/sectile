@@ -68,7 +68,7 @@ func (d *DB) GetTaskComments(taskIDOrKey string) ([]models.TaskComment, error) {
 			repo = settings.GithubRepo
 			repoPath = settings.RepoPath
 		}
-		comments, err := d.runner.GetGithubIssueComments(repo, repoPath, task.Key)
+		comments, err := d.trackers.GetGithubIssueComments(repo, repoPath, task.Key)
 		if err == nil {
 			for i := range comments {
 				comments[i].TaskID = task.ID
@@ -89,7 +89,7 @@ func (d *DB) GetTaskComments(taskIDOrKey string) ([]models.TaskComment, error) {
 		if repoPath == "" && settings != nil {
 			repoPath = settings.RepoPath
 		}
-		comments, err := d.runner.GetLinearIssueComments(repoPath, task.Key)
+		comments, err := d.trackers.GetLinearIssueComments(repoPath, task.Key)
 		if err == nil {
 			for i := range comments {
 				comments[i].TaskID = task.ID

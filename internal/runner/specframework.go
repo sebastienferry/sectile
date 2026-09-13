@@ -44,20 +44,7 @@ func SpecFrameworkLabel(framework string) string {
 
 // NormalizeSpecFramework maps user input (and the legacy "openfeature" value
 // that used to be stored in the database) onto a supported framework id.
-func NormalizeSpecFramework(framework string) string {
-	switch strings.ToLower(strings.TrimSpace(framework)) {
-	case "openspec", "open-spec", "open spec":
-		return "openspec"
-	case "speckit", "spec-kit", "spec kit", "specify":
-		return "speckit"
-	case "":
-		return "speckit"
-	default:
-		// "openfeature" and anything unknown falls back to Spec Kit rather than
-		// silently installing the wrong toolchain.
-		return "speckit"
-	}
-}
+func NormalizeSpecFramework(framework string) string { return models.NormalizeSpecFramework(framework) }
 
 // specKitIntegration maps a TaskFlow AI provider onto the value accepted by
 // `specify init --integration`. Spec Kit's own non-interactive default is

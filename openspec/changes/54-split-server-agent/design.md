@@ -3,7 +3,7 @@
 ## Boundaries
 `cmd/server` starts only the control plane. `cmd/agent` starts the agent daemon by default and owns `mcp` (stdio bridge) and its internal execution command. Move agent source and its tests out of `cmd/server`. Shared protocol types belong in a dependency-light package, not server handlers, so importing a message envelope does not link the database into the agent.
 
-The server remains the owner of tracker queues and workflow transitions. Replace GitHub/Linear CLI transports with native REST/GraphQL adapters and remove Jira CLI fallbacks, retaining existing Jira HTTP behavior. Use explicit repository identity rather than Git discovery on the server. Authentication failures must remain visible and queued writes must not be falsely completed. Tracker synchronization must work without a connected workstation.
+The server remains the owner of tracker queues and workflow transitions. Replace GitHub/Linear CLI transports with native REST/GraphQL adapters and remove Jira CLI fallbacks. Inspection of current main confirms Jira synchronization is unsupported; preserve its metadata without inventing a new Jira integration. Use explicit repository identity rather than Git discovery on the server. Authentication failures must remain visible and queued writes must not be falsely completed. Tracker synchronization must work without a connected workstation.
 
 Local workspace and execution capabilities are routed to the authenticated project's agent. A disconnected agent yields an actionable error; never fall back to server filesystem operations. Preserve task/project identity, cancellation, request correlation, timeout and completion semantics. Server-side transitions use returned evidence and tracker information rather than opening an agent checkout. LLM digest generation follows the same agent-only execution rule.
 
@@ -23,3 +23,9 @@ Build both commands independently; exercise server routes without Git/CLIs or a 
 
 ## Baseline
 Assigned branch: `feat/54`, fast-forwarded to `origin/main` at `ed4052d`. Pre-existing generated skill/configuration changes are preserved and excluded from ticket commits. The full `go test ./...` baseline passed, including terminal tests (22.774s). A bounded isolated terminal run and a Bash comparison also passed; no shell workaround is required.
+
+## Confirmed tracker availability
+The user explicitly confirmed that synchronization must continue with all local agents offline. Use server-side tracker APIs and explicit server credentials. Entrypoint and packaging changes are implemented together so launchers remain consistent.
+
+## Integration decisions
+Legacy server `/ws/terminal` and session operations return 410, consistent with the existing agent-owned desktop console architecture. Background workflow jobs now dispatch native skills to the agent, whose MCP reports own stage and remote-run completion; the old server-side result-file execution worker is retired. PR transition verification combines server HTTP forge evidence with connection-bound agent checkout evidence. Personal project configuration and AGENTS.md sections are preserved when the agent refreshes skills. No server project save writes into a repository.

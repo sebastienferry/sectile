@@ -3,11 +3,10 @@ package db
 import (
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 )
 
@@ -127,7 +126,7 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []Pro
 
 // ListProjectSkillEditor feeds the in-app editor.
 func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEditorEntry, error) {
-	projectID, repoPath, framework := d.projectSkillContext(projectIDOrPath)
+	projectID, _, framework := d.projectSkillContext(projectIDOrPath)
 	overrides := d.projectSkillOverrides(projectID)
 	defaults := ProjectSkillTemplates(framework)
 
@@ -185,24 +184,7 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 				entry.IsCustom = true
 			}
 		}
-		// État sur disque : le premier fichier trouvé fait référence, et on
-		// signale l'écart plutôt que de le corriger d'autorité.
-		for _, dir := range SkillDirsFor(repoPath, stage.DirName) {
-			p := filepath.Join(dir, "SKILL.md")
-			raw, err := os.ReadFile(p)
-			if err != nil {
-				continue
-			}
-			entry.Paths = append(entry.Paths, p)
-			if !entry.Installed {
-				entry.Installed = true
-				entry.RepoPath = p
-				if strings.TrimSpace(string(raw)) != strings.TrimSpace(content) {
-					entry.Diverged = true
-					entry.RepoContent = string(raw)
-				}
-			}
-		}
+
 		entries = append(entries, entry)
 	}
 	return entries, nil
@@ -278,91 +260,21 @@ func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.
 // ImportProjectSkillFromRepo takes the file on disk as the new content: the way
 // out when a SKILL.md was edited by hand and that edit is the one to keep.
 func (d *DB) ImportProjectSkillFromRepo(projectIDOrPath, skillID string) (*models.SkillEditorEntry, error) {
-	stage, ok := StageSkillByID(skillID)
-	if !ok {
-		return nil, fmt.Errorf("skill %q inconnue", skillID)
+	var result struct{ Content string }
+	if err := d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "read_skill", SkillID: skillID}, &result); err != nil {
+		return nil, err
 	}
-	_, repoPath, _ := d.projectSkillContext(projectIDOrPath)
-
-	for _, dir := range SkillDirsFor(repoPath, stage.DirName) {
-		p := filepath.Join(dir, "SKILL.md")
-		raw, err := os.ReadFile(p)
-		if err != nil {
-			continue
-		}
-		if strings.TrimSpace(string(raw)) == "" {
-			continue
-		}
-		return d.SaveProjectSkillContent(projectIDOrPath, stage.ID, string(raw))
-	}
-	return nil, fmt.Errorf("aucun SKILL.md de %s trouvé sous %s", stage.DirName, repoPath)
+	return d.SaveProjectSkillContent(projectIDOrPath, skillID, result.Content)
 }
 
-// WriteProjectSkillToRepo regenerates one skill in every agent directory of the
-// main checkout and of each worktree. It returns how many files were written.
 func (d *DB) WriteProjectSkillToRepo(projectIDOrPath, skillID string) (int, error) {
-	stage, ok := StageSkillByID(skillID)
-	if !ok {
-		return 0, fmt.Errorf("skill %q inconnue", skillID)
-	}
-	_, repoPath, _ := d.projectSkillContext(projectIDOrPath)
-
-	content := ""
-	for _, s := range d.EffectiveProjectSkills(projectIDOrPath, "") {
-		if s.ID == stage.ID {
-			content = s.Content
-			break
-		}
-	}
-	if content == "" {
-		return 0, fmt.Errorf("contenu introuvable pour %s", stage.ID)
-	}
-
-	_, _, framework := d.projectSkillContext(projectIDOrPath)
-
-	written := 0
-	var lastErr error
-	for _, root := range getGitWorktreePaths(repoPath) {
-		// La commande slash suit le même contenu : c'est par elle que l'étape est
-		// appelée, la skill seule n'est pas invocable par « /nom ».
-		if cmdContent, ok := commandContentFromSkill(stage, content, framework); ok {
-			cmdPath := SkillCommandPath(root, stage.DirName)
-			if err := os.MkdirAll(filepath.Dir(cmdPath), 0755); err == nil {
-				if err := os.WriteFile(cmdPath, []byte(cmdContent), 0644); err == nil {
-					written++
-				}
-			}
-		}
-
-		for _, dir := range SkillDirsFor(root, stage.DirName) {
-			if err := os.MkdirAll(dir, 0755); err != nil {
-				lastErr = err
-				continue
-			}
-			if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644); err != nil {
-				lastErr = err
-				continue
-			}
-			written++
-		}
-	}
-	if written == 0 && lastErr != nil {
-		return 0, lastErr
-	}
-	return written, nil
+	var result struct{ Written int }
+	err := d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "sync_config", SkillID: skillID}, &result)
+	return result.Written, err
 }
 
-// WriteAllProjectSkillsToRepo regenerates all workflow skills across all agent directories.
 func (d *DB) WriteAllProjectSkillsToRepo(projectIDOrPath string) (int, error) {
-	total := 0
-	for _, s := range StageSkills {
-		n, err := d.WriteProjectSkillToRepo(projectIDOrPath, s.ID)
-		if err != nil {
-			return total, err
-		}
-		total += n
-	}
-	return total, nil
+	return d.WriteProjectSkillToRepo(projectIDOrPath, "")
 }
 
 func (d *DB) projectSkillEntry(projectIDOrPath, skillID string) (*models.SkillEditorEntry, error) {
@@ -425,36 +337,6 @@ func resolvedSkillOverride(overrides map[string]projectSkillOverride, id string)
 	}
 	value, ok := overrides[id]
 	return value, ok
-}
-
-const legacyAdjustmentForwarder = "---\nname: create-pr\ndescription: Compatibility alias for adjust-issue.\n---\nInvoke adjust-issue with the same task and arguments. Verify an existing matching open PR before changes. Never create a PR here. Apply the complete adjustment quality gate.\n"
-
-func installAdjustmentForwarders(root string) error {
-	paths := []string{SkillCommandPath(root, "create-pr")}
-	for _, dir := range SkillDirsFor(root, "create-pr") {
-		paths = append(paths, filepath.Join(dir, "SKILL.md"))
-	}
-	var divergences []string
-	for _, path := range paths {
-		raw, err := os.ReadFile(path)
-		if err == nil && string(raw) != legacyAdjustmentForwarder {
-			divergences = append(divergences, path)
-			continue
-		}
-		if err != nil && !os.IsNotExist(err) {
-			return err
-		}
-		if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return err
-		}
-		if err = os.WriteFile(path, []byte(legacyAdjustmentForwarder), 0644); err != nil {
-			return err
-		}
-	}
-	if len(divergences) > 0 {
-		return fmt.Errorf("legacy command divergence preserved; reconcile these files before native use: %s", strings.Join(divergences, ", "))
-	}
-	return nil
 }
 
 // Preserve canonical metadata when a legacy document is reconciled under Adjust.

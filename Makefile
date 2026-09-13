@@ -1,8 +1,8 @@
 .DEFAULT_GOAL := all
+EXE := $(if $(filter windows,$(shell go env GOOS)),.exe,)
 .PHONY: all server agent desktop start serve run binary-build dev dev-server dev-web build server-build agent-build test clean release reset-db
 
-# Développement : le serveur Go d'un côté, Vite de l'autre, avec son proxy vers
-# l'API. L'interface n'est pas embarquée dans ce mode, elle est rechargée à chaud.
+# Development runs the Go API and Vite hot reload independently.
 dev:
 	@echo "Starting Go backend & Vite frontend in development mode..."
 	@(go run ./cmd/server & cd web && npm run dev)
@@ -13,8 +13,7 @@ dev-server:
 dev-web:
 	cd web && npm run dev
 
-# Build : l'interface est compilée dans internal/webui/dist, d'où go:embed la
-# prend. Le binaire produit ne dépend d'aucun fichier voisin.
+# The server embeds the compiled web UI.
 all: server agent desktop
 	@echo "Built server, local agent and desktop app."
 
@@ -23,36 +22,35 @@ build: all
 server-build: server
 agent-build: agent
 
-# Server and agent currently share the same executable and entrypoint.
-server: binary-build
-agent: binary-build
-
-binary-build:
-	@echo "Building interface..."
+# The server embeds the UI; the agent builds independently of Node dependencies.
+server:
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
-	@echo "Building binary with the interface embedded..."
 	@mkdir -p bin
-	go build -o bin/sectile.new ./cmd/server
-	mv -f bin/sectile.new bin/sectile
-	cp -f bin/sectile bin/taskflow
-	@echo "Done: bin/sectile"
+	go build -o bin/taskflow-server$(EXE).new ./cmd/server
+	mv -f bin/taskflow-server$(EXE).new bin/taskflow-server$(EXE)
+
+agent:
+	@mkdir -p bin
+	go build -o bin/taskflow-agent$(EXE).new ./cmd/agent
+	mv -f bin/taskflow-agent$(EXE).new bin/taskflow-agent$(EXE)
+
+binary-build: server agent
 
 start:
-	./bin/sectile agent $(ARGS)
+	./bin/taskflow-agent$(EXE) $(ARGS)
 
 serve:
-	./bin/sectile $(ARGS)
+	./bin/taskflow-server$(EXE) $(ARGS)
 
 run:
 	cd desktop && npm start
 
 test:
-	go test ./internal/...
+	go test ./...
 	cd web && npm test && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
 
-# Release : un fichier par plateforme, sans dépendance système. SQLite est en Go
-# pur (modernc.org/sqlite), donc rien n'oblige à compiler sur la cible.
+# Both components cross-compile with pure Go dependencies.
 release: 
 	@echo "Building interface..."
 	cd web && npm run build
@@ -60,10 +58,12 @@ release:
 	@mkdir -p dist
 	@for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do \
 		os=$${target%/*}; arch=$${target#*/}; \
-		out=dist/sectile-$$os-$$arch; \
-		if [ "$$os" = "windows" ]; then out=$$out.exe; fi; \
-		echo "  $$os/$$arch"; \
-		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o $$out ./cmd/server || exit 1; \
+		for component in server agent; do \
+			out=dist/taskflow-$$component-$$os-$$arch; \
+			if [ "$$os" = "windows" ]; then out=$$out.exe; fi; \
+			echo "  $$component $$os/$$arch"; \
+			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o $$out ./cmd/$$component || exit 1; \
+		done; \
 	done
 	@echo "Binaries in dist/:"
 	@ls -lh dist/ | tail -n +2 | awk '{print "  " $$9 " (" $$5 ")"}'
@@ -89,8 +89,8 @@ clean:
 .PHONY: desktop-build desktop desktop-package
 desktop-build: agent
 	mkdir -p desktop/bin
-	cp bin/taskflow desktop/bin/taskflow.new
-	mv -f desktop/bin/taskflow.new desktop/bin/taskflow
+	cp bin/taskflow-agent$(EXE) desktop/bin/taskflow-agent$(EXE).new
+	mv -f desktop/bin/taskflow-agent$(EXE).new desktop/bin/taskflow-agent$(EXE)
 	cd desktop && npm ci
 	cd desktop && node node_modules/electron/install.js
 	cd desktop && npm run build
