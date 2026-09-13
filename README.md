@@ -380,6 +380,9 @@ To regenerate skills from the desktop app, open the project gear menu, select **
 
 ### Desktop console host
 
+Use **Open agent console** on a configured project to start Codex or Claude in a
+local TTY without a task or initial prompt. See [Free agent console](desktop/README.md#free-agent-console).
+
 The desktop **Agent logs** toolbar action shows recent local-agent diagnostics even
 when disconnected, with a bounded snapshot and Refresh. See [desktop usage](desktop/README.md#use).
 

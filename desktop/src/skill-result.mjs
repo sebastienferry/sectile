@@ -3,6 +3,10 @@ const stages=['new','clarified','specified','implemented','reviewed','finished']
 const expected={clarify:'clarified',specify:'specified',implement:'implemented',adjust:'reviewed',review:'reviewed',handoff:'finished'}
 export function skillResult(run,result){
  if(!run)return null
+ if(run.kind==='console'){
+  const status=run.cancelRequested?'stopping':run.status
+  return {kind:status==='completed'?'completed':status==='failed'||status==='canceled'?status:'pending',icon:status==='completed'?'✓':status==='failed'?'!':status==='canceled'?'⊘':'◷',label:({queued:'Console queued',preparing:'Opening console',running:'Console running',completed:'Console ended',failed:'Console failed',canceled:'Console stopped',stopping:'Stopping console'})[status]||'Console pending'}
+ }
  const activity=result?.activity
  const matched=activity?.id===run.id&&activity.taskId===run.taskId&&activity.skillId===run.skill
  const state=matched?activity.status:null

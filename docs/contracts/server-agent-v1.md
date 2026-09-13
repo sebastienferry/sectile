@@ -418,3 +418,21 @@ and unavailable server data 502. No logs or prompts are included.
 This read-only result is independent of the console process status. The desktop
 uses an exact execution match and completed workflow stage to display completion;
 process exit, a prior execution's success, or an idle console are insufficient.
+
+### Free desktop agent consoles
+
+`GET /desktop/status` advertises `free-console`. Authenticated
+`POST /desktop/consoles` accepts `{"projectId":"...","provider":"codex"}` or
+`provider: "claude"` and returns HTTP 202 with the admitted local run. Browser
+Origin headers are rejected. Invalid input returns 400, unavailable server
+configuration returns 502, and local mapping or shutdown conflicts return 409.
+
+The run has `kind: "console"`, a `provider`, a unique local ID, and empty task,
+skill, and prompt fields. Its CLI receives no arguments. Project mappings and
+execution limits apply; the console reserves the mapped shared checkout through
+the existing queue. It does not scaffold tooling, create a worktree, or mutate
+remote tasks. The daemon owns the launch after admission even if the request ends.
+
+These runs use the usual runs, terminal, stop, restart protection, and history
+endpoints. Completion updates only local process status. Task result lookup
+returns 404, and clients must omit task workflow and PR controls for these runs.
