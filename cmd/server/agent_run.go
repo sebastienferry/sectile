@@ -258,6 +258,9 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 				continue
 			}
 			if other.desktop.Status == "queued" {
+				if other.canceled {
+					continue
+				}
 				if other.sequence < run.sequence {
 					blocked = true
 				}

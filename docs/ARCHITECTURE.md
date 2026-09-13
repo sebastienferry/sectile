@@ -89,7 +89,7 @@ When a task requires execution (via AI skill or Interactive Terminal), `EnsureTa
 To make the worktree fully functional immediately without re-downloading dependencies or losing project configurations, the engine automatically symlinks:
 - `.env*` (execution environement).
 - `.agents/`, `.taskflow/` (agent configurations, skills, and memory).
-- Automatically writes default skill files (`clarify-issue`, `specify-issue`, `code-issue`, `create-pr`, `pick-issue`) `.agents/skills/` within the worktree.
+- Automatically writes default skill files (`clarify-issue`, `specify-issue`, `code-issue`, `adjust-issue`, `pick-issue`) `.agents/skills/` within the worktree.
 
 ---
 

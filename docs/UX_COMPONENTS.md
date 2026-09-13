@@ -75,7 +75,7 @@ with the agent happens in the shell where the agent CLI actually runs.
 - Connects directly to the Go WebSocket endpoint `/ws/terminal?taskId=<id>`.
 - Embeds a full Xterm.js terminal emulator with auto-fit addon and dark obsidian theme.
 - Directly controls the shell running in `.tasks/worktrees/<taskKey>`.
-- Action toolbar: `Launch agent`, `/clarify`, `/specify`, `/code`, `/create-pr`, `Ctrl+C`, `Clear`, `Reset`.
+- Action toolbar: `Launch agent`, `/clarify`, `/specify`, `/code`, `/adjust-issue`, `Ctrl+C`, `Clear`, `Reset`.
 
 ### 2.5 Task Detail Modal (`TaskDetailModal.tsx`)
 - Supports two display modes: **Sliding Panel** (default) or **Center Modal Dialog** (switchable via settings).

@@ -22,3 +22,32 @@ Review retained the effective worktree preference across the admission helper an
 ## Environment recovery
 
 The first sandboxed Go test attempt could not write the shared Go cache; tests passed with execution permission for the cache and local test servers. The first Electron suite launch raced concurrent lazy downloads into the same dependency directory: one test failed installation while the removal test passed. After installation completed, the full suite passed, including a further run after final code changes. A project-memory note about preinstalling Electron before the first parallel UI suite would prevent this setup collision.
+
+## Final review and base integration — 2026-09-13
+
+Reviewed the complete task diff against the accepted scenarios and fetched the configured default branch, `origin/main` at `8011586`. PR #84 was already open and ready; both review and inline-comment retrieval succeeded with no feedback. The ticket's request to fix conflicts is addressed. Merged the published base into `feat/80`, preserving shared branch history.
+
+Resolved three conflicts:
+
+- `cmd/server/agent.go`: retain the new task return value used by prompt expansion and the effective isolation choice captured during synchronized admission.
+- `desktop/src/main.js`: retain authoritative disconnection polling and the new next-step refresh cadence.
+- `docs/contracts/server-agent-v1.md`: retain both project disconnection and adjustment ownership contracts.
+
+Extended `desktop/tests/disconnect.ui.cjs` to start with an available next-step action and verify that removal clears that action and its status along with the console. No further defects were found in the task diff. Server/tracker data and repository files remain preserved; finished history stays subject to agent-lifetime retention.
+
+Final checks:
+
+- `go test ./...` — passed for all packages, including `tasks/cmd/server`, `tasks/internal/agentconfig`, database, handlers, runner, terminal, and tracker.
+- `go test -race ./internal/agentconfig ./cmd/server` — passed (`1.579s`, `6.185s`); no races reported.
+- `go vet ./...` — passed without output.
+- `go build -o /tmp/taskflow-80-review ./cmd/server` — passed, including after web assets were generated.
+- `npm --prefix desktop run build` — passed: 11 modules transformed.
+- `npm --prefix desktop run test:ui` — `tests 11`, `pass 11`, `fail 0`.
+- `node --test desktop/tests/disconnect.ui.cjs` — after the added integration assertions: `tests 1`, `pass 1`, `fail 0`.
+- `npm --prefix web test` — `tests 22`, `pass 22`, `fail 0`.
+- `npm --prefix web run build` — TypeScript and Vite passed; 2095 modules transformed.
+- `npm --prefix web run lint -- src` — exit 0 with React warnings in files identical to `origin/main`; no web source changes belong to this PR.
+- `openspec validate 80-remove-project-from-desktop-app --strict` — `Change '80-remove-project-from-desktop-app' is valid`.
+- `git diff --check` — passed.
+
+The first web check lacked installed TypeScript. `npm --prefix web ci` restored lockfile dependencies; subsequent tests/build/lint passed. Builds retain the existing warning about `#` in the assigned worktree path and the web bundle-size warning. Local pre-existing generated skill edits were saved separately before integration and excluded from the commit.

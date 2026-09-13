@@ -27,4 +27,4 @@
 - [x] 4.4 Run `npm --prefix desktop run build` and `npm --prefix desktop run test:ui`.
 - [x] 4.5 Run `openspec validate 80-remove-project-from-desktop-app --strict` and `git diff --check`; review the final change against every scenario.
 
-Implementation completed and validated. The existing PR remains draft pending the separate review stage.
+Implementation and final review completed and validated after integrating the current default branch. Existing PR #84 remains ready for human review and merge. See `validation.md` for replayable checks and conflict resolutions.

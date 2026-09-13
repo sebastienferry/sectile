@@ -28,12 +28,12 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
   if(url.pathname==='/desktop/project'){
    if(failDetails){res.writeHead(503).end('Server settings unavailable');return}
    const id=url.searchParams.get('id')
-   res.end(JSON.stringify({server:{projectName:'Project '+id,skills:[],parallelism:1},path:disconnected.has(id)?'':'/tmp/repository',configured:!disconnected.has(id)}));return
+   res.end(JSON.stringify({server:{projectName:'Project '+id,skills:[{id:'specify'}],parallelism:1},path:disconnected.has(id)?'':'/tmp/repository',configured:!disconnected.has(id)}));return
   }
   if(url.pathname==='/desktop/runs'){
    res.end(JSON.stringify(['a',...(other?['b']:[])].map(id=>({id:'run-'+id,projectId:id,taskId:'task-'+id,taskKey:'#'+id,sessionId:'run-'+id,skill:'specify',status:'completed',directory:'/tmp/repository'}))));return
   }
-  if(url.pathname==='/desktop/tasks'){res.end('[]');return}
+  if(url.pathname==='/desktop/tasks'){const id=url.searchParams.get('projectId');res.end(JSON.stringify([{id:'task-'+id,key:'#'+id,labels:['#clarified']}]));return}
   res.writeHead(404).end()
  })
  const ws=new WebSocketServer({noServer:true})
@@ -48,6 +48,7 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
   application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   const page=await application.firstWindow()
   await page.getByText('#a · specify',{exact:true}).waitFor()
+  await page.getByRole('button',{name:'Next: Specify',exact:true}).waitFor()
   const openRemoval=async(id='a')=>{
    await page.getByRole('button',{name:'Configure Project '+id,exact:true}).click()
    await page.getByRole('button',{name:'Remove from desktop',exact:true}).click()
@@ -77,6 +78,8 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
   assert.equal(await page.locator('#directory').textContent(),'')
   assert.equal(await page.locator('#rerun').isHidden(),true)
   assert.equal(await page.locator('#stop').isDisabled(),true)
+  assert.equal(await page.locator('#next-step').isHidden(),true)
+  assert.equal(await page.locator('#next-step-status').textContent(),'Select a task to see its next step')
   await page.waitForTimeout(100)
   assert.ok(detached>beforeDetach)
   failDiscovery=false
