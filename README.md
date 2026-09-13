@@ -1,5 +1,8 @@
 # Sectile (React + Go + SQLite)
 
+The desktop supports persistent workstation project disconnection, with active
+execution protection and explicit re-add. See [Remove a local project](desktop/README.md#remove-a-local-project).
+
 Outil moderne et agentique de gestion des tâches pour développeurs et équipes techniques, construit avec **Go**, **React 19**, **Tailwind CSS v4**, et **SQLite**.
 
 ---

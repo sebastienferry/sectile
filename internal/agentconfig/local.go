@@ -12,14 +12,15 @@ import (
 
 // Overrides stays on the workstation and is never uploaded to the server.
 type Overrides struct {
-	Commands          map[string]string `json:"commands,omitempty"`
-	Parallelism       map[string]int    `json:"parallelism,omitempty"`
-	Worktrees         map[string]bool   `json:"worktrees,omitempty"`
-	Projects          map[string]string `json:"projects"`
-	AIProvider        string            `json:"aiProvider"`
-	AICommandTemplate string            `json:"aiCommandTemplate"`
-	Terminal          string            `json:"terminal"`
-	Skills            map[string]string `json:"skills"`
+	DisconnectedProjects map[string]bool   `json:"disconnectedProjects,omitempty"`
+	Commands             map[string]string `json:"commands,omitempty"`
+	Parallelism          map[string]int    `json:"parallelism,omitempty"`
+	Worktrees            map[string]bool   `json:"worktrees,omitempty"`
+	Projects             map[string]string `json:"projects"`
+	AIProvider           string            `json:"aiProvider"`
+	AICommandTemplate    string            `json:"aiCommandTemplate"`
+	Terminal             string            `json:"terminal"`
+	Skills               map[string]string `json:"skills"`
 }
 
 func ReadOverrides(root string) (Overrides, error) {
@@ -32,6 +33,8 @@ func ReadOverrides(root string) (Overrides, error) {
 		return result, err
 	}
 	err = json.Unmarshal(raw, &result)
+	// Disconnection is workstation-owned, never a repository override.
+	result.DisconnectedProjects = nil
 	return result, err
 }
 

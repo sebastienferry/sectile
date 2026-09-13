@@ -164,6 +164,11 @@ ipcMain.handle('create-task',async(_,input)=>{
 ipcMain.handle('project',(_,id)=>api('/desktop/project?id='+encodeURIComponent(id)))
 ipcMain.handle('deploy-project',(_,id,action)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))
+ipcMain.handle('remove-project',async(_,id)=>{
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('remove-project'))throw Error('The running local agent does not support project removal. Update it, then stop and restart the agent. Closing the desktop alone does not restart it.')
+ return api('/desktop/projects?id='+encodeURIComponent(id),'DELETE')
+})
 ipcMain.handle('map-project',(_,mapping)=>api('/desktop/projects','POST',mapping))
 ipcMain.handle('clear-history',()=>api('/desktop/history','DELETE'))
 ipcMain.handle('runs',()=>api('/desktop/runs'))

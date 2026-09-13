@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  project:id=>ipcRenderer.invoke('project',id),
  deployProject:(id,action)=>ipcRenderer.invoke('deploy-project',id,action),
  projects:()=>ipcRenderer.invoke('projects'),
+ removeProject:id=>ipcRenderer.invoke('remove-project',id),
  mapProject:mapping=>ipcRenderer.invoke('map-project',mapping),
  clearHistory:()=>ipcRenderer.invoke('clear-history'),
  runs:()=>ipcRenderer.invoke('runs'),

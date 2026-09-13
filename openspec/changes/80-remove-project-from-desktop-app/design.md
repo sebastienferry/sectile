@@ -51,4 +51,4 @@ Test settings round trips and preservation, absent-marker compatibility, legacy 
 
 Extend the Electron UI harness for confirmation/cancel, agent conflict/failure, stale history groups, selected-console detach, another-project selection, restart/reload persistence, polling-only state changes, re-add, archive preservation, and old-agent capability feedback. Document the local endpoint and settings in `desktop/README.md` and relevant API/architecture documentation; add a changelog entry if a changelog exists at implementation. This extends the existing local-agent architecture and does not require a separate architectural redesign.
 
-No product questions remain. Specification stage changes documentation only.
+No product questions remain. Implementation adds a synchronized reconnect-time configuration helper so disconnected projects do not redeploy tooling and do not prevent the agent from reconnecting. When server project details are unavailable, local settings still offer removal for known local/history projects. These recovery details preserve the agreed workstation-only behavior.
