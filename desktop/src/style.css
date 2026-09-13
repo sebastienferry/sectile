@@ -40,4 +40,6 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 
 .queue-heading{display:flex;align-items:center;justify-content:space-between;font-size:12px}.queue-heading .icon-button{width:28px;height:28px;padding:5px}
 
-.project-row>button.project-queue-toggle{opacity:1}
+
+.project-heading{display:flex;align-items:center;gap:6px}.project-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.project-capacity{flex-shrink:0;color:#91a1b7;font-size:11px;font-weight:400;white-space:nowrap}

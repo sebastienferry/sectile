@@ -121,6 +121,15 @@ function render(){
 
   const projectRow=document.createElement('div');projectRow.className='project-row'
   const heading=document.createElement('button');heading.className='project-heading';heading.textContent=(collapsedProjects.has(project.id)?'▸ ':'▾ ')+project.name;heading.setAttribute('aria-expanded',String(!collapsedProjects.has(project.id)))
+  heading.setAttribute('aria-label',heading.textContent)
+  const name=document.createElement('span');name.className='project-name';name.textContent=heading.textContent
+  const capacity=document.createElement('span');capacity.className='project-capacity'
+  const running=runs.filter(run=>run.projectId===project.id&&['running','preparing'].includes(run.status)).length
+  const maximum=Number.isInteger(project.executionLimit)&&project.executionLimit>0?project.executionLimit:'?'
+  capacity.textContent='('+running+'/'+maximum+')'
+  capacity.title=running+' running / '+(maximum==='?'?'maximum unavailable':maximum+' maximum')+' · Includes preparing and stopping executions'
+  capacity.setAttribute('aria-label',capacity.title)
+  heading.replaceChildren(name,capacity)
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
   const configure=document.createElement('button');configure.textContent='⚙';configure.setAttribute('aria-label','Configure '+project.name);configure.onclick=()=>openProject(project.id)
   const browse=document.createElement('button');browse.textContent='+';browse.title='New task';browse.setAttribute('aria-label','New task in '+project.name);browse.onclick=()=>newProjectTask(project.id)
@@ -268,7 +277,16 @@ function showDialog(title){
  if(!dialog.open)dialog.showModal()
 }
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
-async function loadProjects(){projects=[...new Map((await api.projects()).map(project=>[project.id,project])).values()];render()}
+async function loadProjects(){
+ const loaded=[...new Map((await api.projects()).map(project=>[project.id,project])).values()]
+ projects=loaded;render()
+ const limits=await Promise.allSettled(loaded.map(project=>api.project(project.id)))
+ if(projects!==loaded)return
+ for(const [index,result] of limits.entries()){
+  if(result.status==='fulfilled')loaded[index].executionLimit=result.value.parallelism
+ }
+ render()
+}
 document.querySelector('#toggle-sidebar').onclick=event=>{
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
  event.currentTarget.setAttribute('aria-expanded',String(!hidden));localStorage.setItem('sidebarCollapsed',String(hidden));resize()
