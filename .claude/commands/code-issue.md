@@ -1,10 +1,17 @@
 ---
-description: "Exécute le plan d'implémentation et valide par les tests."
-argument-hint: <TICKET-KEY> [contexte]
+description: "Implement the ticket from its specification and prove it works with the project's own build, linters and tests."
+argument-hint: <TICKET-KEY> [context]
 ---
 # Implement Code
 
 Stage: specified -> implemented.
+
+## TaskFlow task access
+- Use the local TaskFlow agent's exposed task-management interface first for ticket reads, updates, comments, creation, and workflow results. Discover its actual tools or documented commands from the session/project context; do not invent an endpoint or launch another agent daemon as a substitute.
+- Resolve the project against its repository, then verify the task's full ID and external URL. A bare key such as #47 can match another project's ticket. Use the full task ID for mutations and an explicit project ID for creation.
+- If the local agent interface is unavailable or fails after a bounded attempt, use http://localhost:8090 as a temporary fallback. Record the missing capability or error, check for an existing bug in the same project, and register or update that bug when authorized. If reporting is unavailable or not authorized, preserve the report locally and state what remains pending. Do not bypass TaskFlow by writing directly to its database or remote tracker.
+- For a managed run, submit only through its supplied result contract and let TaskFlow validate and synchronize the result. An active run without a usable completion contract is a reportable integration failure. Preserve the artifacts and report the blocked transition; do not cancel the activity, forge launch/completion status, or use another endpoint to evade result validation.
+- This routing does not authorize mutations excluded by the skill or user request. Verify each mutation's response and report partial success explicitly.
 
 ## Goal
 Ship the change described by the specification, in code that reads like the code
@@ -47,7 +54,8 @@ Use `taskflow_add_comment` for an authorized ticket discussion update. Managed r
 Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
 
 ## Project pull request policy
-PR creation stage: specified. Read this setting from taskflow_get_project_context before executing. After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep it draft while implementing; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.
+PR creation stage: specified. Read this setting from taskflow_get_project_context before executing. After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep newly created PRs draft while implementing; preserve an existing ready PR; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.
+
 
 ## Ticket
 $ARGUMENTS

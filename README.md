@@ -1,5 +1,8 @@
 # Sectile (React + Go + SQLite)
 
+The desktop supports persistent workstation project disconnection, with active
+execution protection and explicit re-add. See [Remove a local project](desktop/README.md#remove-a-local-project).
+
 Outil moderne et agentique de gestion des tâches pour développeurs et équipes techniques, construit avec **Go**, **React 19**, **Tailwind CSS v4**, et **SQLite**.
 
 ---
@@ -44,7 +47,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     1. 🔍 **Clarify** (`/clarify-issue`) : Analyse les ambiguïtés et génère les questions de cadrage.
     2. 📝 **Specify** (`/specify-issue`) : Rédige la spec (Spec Kit ou OpenSpec, selon le framework du projet) et initialise la branche Git.
     3. 💻 **Implement** (`/code-issue`) : Plan de code, modification des fichiers et tests unitaires.
-    4. 🚀 **Create PR** (`/create-pr`) : Commit sémantique et description Markdown complète de la PR.
+    4. **Adjust** (`/adjust-issue`): Review the full branch, address findings and available PR feedback, run final checks, and update the existing PR before human merge.
     5. ⚡ **Auto-Pilot** (`/pick-issue`) : Routeur intelligent qui enchaîne automatiquement l'étape optimale.
   - **Panneau de statut des CLI** : Vérification en temps réel de l'installation et de l'authentification de `git`, `gh`, `linear`, `acli`, `agy`, `vibe`, `claude`, `gemini`, `codex`, ainsi que des outils SDD `uv`, `specify` et `openspec`.
 
@@ -172,6 +175,8 @@ taskflow agent --url https://taskflow.example.com --project '<project-id>' --rep
 
 The agent fetches `GET /api/v1/agent/config`, creates or validates local Git
 worktrees, installs effective project skills, and launches the configured AI CLI.
+Local command templates support task and repository placeholders, including
+`{prompt}`, `{issueTitle}` and `{repoPath}`; see the [desktop placeholder guide](desktop/README.md).
 It does not open a database. Server filesystem paths and tracker credentials are
 excluded from the configuration contract. The old agent `--db` option is removed.
 A disconnected or incompatible configuration API prevents execution.
@@ -359,9 +364,10 @@ canceled. Worktree changes are preserved. This requires restarting the local
 agent with the updated binary; previously launched or independent Codex/Claude
 processes cannot be controlled by the new supervisor.
 
-Project settings include **Create PR/MR**: choose the default after implementation
-and review, or **Draft after specification** to review specs in an early draft.
-Skills reuse the same PR/MR during implementation and attach its URL through MCP.
+Project settings include **Create PR/MR**: choose the default **Draft after implementation**, or **Draft after specification** to review specs in an early draft.
+Skills reuse the same PR/MR during implementation and attach its URL through MCP. Adjust never creates a PR. Missing PRs recover through the configured earlier stage without downgrading completed work. `Create PR` (`create_pr`, `/create-pr`) remains available under Additional skills. It creates or reuses a PR without advancing the task stage or joining the automatic workflow. The legacy `review` invocation resolves to Adjust; inherited review customizations require reconciliation in Skills.
+
+To regenerate skills from the desktop app, open the project gear menu, select **Deployment**, and click **Deploy server skills**. Configure and save the local repository first, and stop active executions before deployment. The agent fetches the current server skill content; **Refresh from server** alone refreshes settings without deploying files. Skills are also refreshed when preparing task executions.
 
 ### Desktop console host
 
@@ -375,7 +381,9 @@ npm start
 
 Configure the server connection in the desktop window, then launch tasks from
 the web. The desktop hosts consoles, stop controls, log export and local project
-mappings. Closing the window keeps the agent running. The integrated terminal,
+mappings. A status line beneath the task console offers the next workflow skill,
+using current task state and blocking duplicate active executions. Closing the
+window keeps the agent running. The integrated terminal,
 branch switcher, diff viewer and worktree controls have been removed from the web.
 
 See [desktop setup](desktop/README.md) and [ADR 0003](docs/adrs/0003-local-desktop-consoles.md).
@@ -469,6 +477,12 @@ builds and do not rebuild. Pass agent arguments with, for example,
 `TASKFLOW_AGENT_TOKEN`.
 
 ### Desktop Quick add
+
+Click **New task (+)** beside a desktop project to choose **Run an existing
+ticket** or **Quick add task**. Both paths target the clicked project, even
+when another project's execution is selected. Existing tickets open the search
+and skill launcher; Quick add preselects the project and offers **Launch task**
+after successful creation.
 
 Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette and choose
 **Quick add task**. The selected project's identity is prefilled; without a

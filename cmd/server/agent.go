@@ -24,6 +24,8 @@ import (
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/handlers"
+	"tasks/internal/models"
+	"tasks/internal/runner"
 	"tasks/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -343,18 +345,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("configuration sync: %w", err)
 		}
-		root, overrides, err := d.localProjectRoot(ctx, config)
-		if err != nil {
-			return err
-		}
-		config = agentconfig.ApplyOverrides(config, overrides)
-		if err := config.Validate(); err != nil {
-			return err
-		}
-		if _, err := agentconfig.Scaffold(root, config); err != nil {
-			return err
-		}
-		if err := d.bootstrapLocalMCP(root, &config); err != nil {
+		if err := d.syncLocalProject(ctx, config); err != nil {
 			return err
 		}
 	}
@@ -601,15 +592,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "Dispatch project does not match task")
 		return
 	}
-	d.prepareMu.Lock()
-	root, overrides, err := d.localProjectRoot(ctx, queueConfig)
-	d.prepareMu.Unlock()
-	if err != nil {
-		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
-		return
-	}
-	queueConfig = agentconfig.ApplyOverrides(queueConfig, overrides)
-	run, err := d.enqueueRun(taskRef, payload, queueConfig.ProjectID, root, agentconfig.ExecutionLimit(queueConfig.ProjectID, queueConfig.UseWorktrees, overrides, queueConfig.Parallelism), queueConfig.UseWorktrees)
+	run, err := d.admitProjectRun(ctx, taskRef, payload, queueConfig)
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
@@ -633,7 +616,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if err := d.awaitRunSlot(ctx, run); err != nil {
 		return
 	}
-	config, workDir, branch, err := d.prepareDispatch(ctx, taskRef, queueConfig.UseWorktrees)
+	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
@@ -643,11 +626,54 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	payload.ProjectID = config.ProjectID
+	payload.SkillID = models.NormalizeSkillID(payload.SkillID)
+	if payload.SkillID == "" && models.NormalizeSkillID(payload.Action) == "adjust" {
+		payload.SkillID = "adjust"
+	}
+	if payload.SkillID == "adjust" {
+		pr, verifyErr := runner.NewRunner().BranchPullRequest(workDir, branch)
+		if verifyErr != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
+			return
+		}
+		var task models.Task
+		if verifyErr = d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); verifyErr != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
+			return
+		}
+		if task.PrURL != nil && *task.PrURL != "" && *task.PrURL != pr.URL {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "recorded PR does not match task branch")
+			return
+		}
+		if task.PrURL == nil || *task.PrURL == "" {
+			raw, _ := json.Marshal(map[string]string{"prUrl": pr.URL})
+			req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.serverURL+"/api/tasks/"+url.PathEscape(taskRef), strings.NewReader(string(raw)))
+			if err != nil {
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := agentHTTPClient(d.token).Do(req)
+			if err != nil {
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+				return
+			}
+			resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "could not persist existing PR identity")
+				return
+			}
+		}
+		payload.Prompt += "\nExisting PR identity: " + pr.URL + ". Update this same PR; never create or replace it."
+	}
+	if payload.SkillID == "specify" || payload.SkillID == "implement" {
+		payload.Prompt += "\nPreserve accepted artifacts and code on retry. If this is PR recovery, retain the attained task stage and complete the configured creation owner checks without advancing to reviewed."
+	}
 
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with taskflow_start_run and finish it using taskflow_finish_run when the entire skill ends.", payload.RunID)
 	}
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command)
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
@@ -715,7 +741,17 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 
 	time.Sleep(350 * time.Millisecond)
 	log.Printf("⚡ [Agent] Launching skill command in local PTY terminal: %s (workdir: %s)", fullLine, workDir)
-	return d.terminalMgr.SendInput(sessionID, fullLine+"\n")
+	startedAt := time.Now().UTC()
+	if err := d.terminalMgr.SendInput(sessionID, fullLine+"\n"); err != nil {
+		return err
+	}
+	// Controlled executions use their run ID as the session ID.
+	d.runsMu.Lock()
+	if run := d.runs[sessionID]; run != nil && run.desktop.StartedAt.IsZero() {
+		run.desktop.StartedAt = startedAt
+	}
+	d.runsMu.Unlock()
+	return nil
 }
 
 // sendStatus sends a step_status message back to the remote server.

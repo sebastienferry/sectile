@@ -40,7 +40,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta } from '../types'
-import { WORKFLOW_ORDER } from '../lib/workflow'
+import { WORKFLOW_ORDER, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
 import { TaskComments } from './TaskComments'
 import { LookupField, type LookupOption } from './LookupField'
 import { MarkdownEditor } from './Markdown'
@@ -619,7 +619,9 @@ export const TaskDetailModal: React.FC = () => {
         return skills.find(s => s.id === 'implement') || skills[2]
       case 'to_test':
       case 'to_validate':
-        return skills.find(s => s.id === 'create_pr' || s.id === 'review') || skills[3]
+        return skills.find(s => s.id === 'adjust' || s.id === 'review') || skills[3]
+      case 'finished':
+        return undefined
       case 'to_close':
         return skills.find(s => s.id === 'handoff') || skills[4]
       default:
@@ -1264,6 +1266,7 @@ export const TaskDetailModal: React.FC = () => {
       </div>
 
       {/* Main Recommended Action Callout */}
+      {selectedTask && !selectedTask.prUrl && resolveTaskStage(selectedTask, taskProject) === 'implemented' && <button type="button" onClick={() => handleTriggerSkill(prRecoverySkill(taskProject), 'PR recovery: preserve accepted work and attained stage; complete owner checks and create/reuse/link the PR. Do not advance to reviewed.')} className="px-4 py-2 text-purple-400 text-sm">Complete PR setup through {prRecoverySkill(taskProject)}</button>}
       {nextSkill && (
         <div className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-linear-to-r from-[var(--accent-light)] to-[var(--bg-tertiary)] border border-[var(--accent-color)]/40 shadow-xs">
           <div className="flex items-center gap-2">

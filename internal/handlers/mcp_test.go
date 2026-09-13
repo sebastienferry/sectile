@@ -93,17 +93,13 @@ func TestMCPToolsEndToEnd(t *testing.T) {
 		t.Fatalf("transition failed: %+v %v", updated, err)
 	}
 	for _, link := range []string{"https://github.com/example/repo/pull/42", "https://gitlab.com/example/repo/-/merge_requests/42"} {
-		call("taskflow_transition_stage", map[string]any{"taskKey": task.ID, "stage": "reviewed", "note": "Review complete", "prUrl": link}, false)
+		call("taskflow_transition_stage", map[string]any{"taskKey": task.ID, "stage": "reviewed", "note": "Unverified URL", "prUrl": link}, true)
 		persisted, err := database.GetTaskByID(task.ID)
-		if err != nil || persisted.PrURL == nil || *persisted.PrURL != link {
-			t.Fatalf("PR/MR link not persisted: %+v %v", persisted, err)
-		}
-		call("taskflow_transition_stage", map[string]any{"taskKey": task.ID, "stage": "reviewed", "note": "Review confirmed"}, false)
-		persisted, err = database.GetTaskByID(task.ID)
-		if err != nil || persisted.PrURL == nil || *persisted.PrURL != link {
-			t.Fatalf("existing PR/MR link lost: %+v %v", persisted, err)
+		if err != nil || persisted.PrURL != nil {
+			t.Fatalf("unverified PR was persisted: %+v %v", persisted, err)
 		}
 	}
+
 	for _, args := range []map[string]any{
 		{"taskKey": task.Key, "stage": "invented", "note": "bad"},
 		{"taskKey": task.Key, "stage": "implemented"},

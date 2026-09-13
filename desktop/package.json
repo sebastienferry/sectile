@@ -7,7 +7,7 @@
     "build": "vite build",
     "start": "electron .",
     "package": "electron-packager . TaskFlow --out=release --overwrite --extra-resource=bin/taskflow --ignore='^/(bin|tests|release[^/]*)(/|$)'",
-    "test:ui": "node --test tests/*.ui.cjs"
+    "test:ui": "node --test --test-concurrency=1 tests/*.ui.cjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.11.0",

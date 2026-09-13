@@ -53,3 +53,34 @@ func TestLocalQueueCancellationAndFIFO(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLocalQueueCanceledWaitingRunDoesNotBlockAdmission(t *testing.T) {
+	d := &agentDaemon{}
+	first, _ := d.enqueueRun("task1", agentconfig.Dispatch{RunID: "one"}, "project", "/repo", 1, true)
+	second, _ := d.enqueueRun("task2", agentconfig.Dispatch{RunID: "two"}, "project", "/repo", 1, true)
+	first.canceled = true
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := d.awaitRunSlot(ctx, second); err != nil {
+		t.Fatal("canceled queued execution blocked admission before cleanup:", err)
+	}
+}
+
+func TestLocalQueueCanceledActiveRunHoldsSlotUntilExit(t *testing.T) {
+	d := &agentDaemon{}
+	first, _ := d.enqueueRun("task1", agentconfig.Dispatch{RunID: "one"}, "project", "/repo", 1, true)
+	second, _ := d.enqueueRun("task2", agentconfig.Dispatch{RunID: "two"}, "project", "/repo", 1, true)
+	if err := d.awaitRunSlot(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	first.canceled = true
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if d.awaitRunSlot(ctx, second) == nil {
+		t.Fatal("admitted work before canceled active execution exited")
+	}
+	close(first.exited)
+	if err := d.awaitRunSlot(context.Background(), second); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -12,7 +12,7 @@
     "clarify-issue",
     "specify-issue",
     "code-issue",
-    "create-pr",
+    "adjust-issue",
     "handoff-issue",
     "pickup-issue",
     "rewrite-story",
@@ -22,13 +22,13 @@
   "specFramework": "openspec",
   "updatedAt": "2026-09-10T23:08:31+02:00",
   "workflow": {
-    "operator": "TaskFlow",
+    "operator": "Sectile",
     "useWorktrees": true,
     "stages": [
       "clarify",
       "specify",
       "implement",
-      "review",
+      "adjust",
       "handoff"
     ]
   }

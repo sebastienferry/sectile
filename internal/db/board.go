@@ -436,7 +436,7 @@ var stageSteps = map[string]StageStep{
 	"new":         {SkillID: "clarify", Interactive: false, Label: "Clarifier les exigences"},
 	"clarified":   {SkillID: "specify", Interactive: false, Label: "Spécifier la solution (SDD)"},
 	"specified":   {SkillID: "implement", Interactive: false, Label: "Implémenter le code et tests"},
-	"implemented": {SkillID: "create_pr", Interactive: false, Label: "Créer la PR/MR, la fusion reste manuelle"},
+	"implemented": {SkillID: "adjust", Interactive: false, Label: "Adjust the existing PR/MR; merge remains manual"},
 	"reviewed":    {SkillID: "handoff", Interactive: false, Label: "Handoff et nettoyage local"},
 }
 

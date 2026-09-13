@@ -76,7 +76,7 @@ func WriteSettings(settings Overrides) error {
 	if err = json.Unmarshal(raw, &updates); err != nil {
 		return err
 	}
-	for _, key := range []string{"projects", "worktrees", "parallelism", "commands", "aiProvider", "aiCommandTemplate", "terminal", "skills"} {
+	for _, key := range []string{"disconnectedProjects", "projects", "worktrees", "parallelism", "commands", "aiProvider", "aiCommandTemplate", "terminal", "skills"} {
 		delete(fields, key)
 	}
 	for _, key := range []string{"projects", "worktrees", "parallelism", "commands"} {

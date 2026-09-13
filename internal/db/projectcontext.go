@@ -50,7 +50,7 @@ func projectTaskflowConfig(project *models.Project) taskflowProjectConfig {
 		Workflow: taskflowWorkflowConfig{
 			Operator:     "Sectile",
 			UseWorktrees: project.UseWorktrees,
-			Stages:       []string{"clarify", "specify", "implement", "review", "handoff"},
+			Stages:       []string{"clarify", "specify", "implement", "adjust", "handoff"},
 		},
 	}
 }
@@ -138,7 +138,7 @@ func renderTaskflowAgentsBlock(project *models.Project) string {
 	if project.GitRemoteUrl != "" {
 		fmt.Fprintf(&b, "- Git remote: `%s`\n", project.GitRemoteUrl)
 	}
-	b.WriteString("\nDevelopment work follows Sectile's stages: clarify, specify, implement, review and pull request, then human merge and handoff. Keep the assigned branch/worktree, use Sectile's local stage handler for standalone runs, and let managed Sectile runs own stage transitions and tracker synchronization.\n")
+	b.WriteString("\nDevelopment work follows Sectile's stages: clarify, specify, implement, adjust the existing pull request, then human merge and handoff. Keep the assigned branch/worktree, use Sectile's local stage handler for standalone runs, and let managed Sectile runs own stage transitions and tracker synchronization.\n")
 	b.WriteString(taskflowAgentsBlockEnd + "\n")
 	return b.String()
 }

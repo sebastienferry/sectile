@@ -55,6 +55,21 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 		return nil, nil, fmt.Errorf("étape de workflow inconnue : %s", cleanStage)
 	}
 
+	branchForPR := strings.TrimSpace(branch)
+	if branchForPR == "" && task.BranchName != nil {
+		branchForPR = *task.BranchName
+	}
+	skillForStage := map[string]string{"specified": "specify", "implemented": "implement", "reviewed": "adjust"}[cleanStage]
+	if skillForStage != "" {
+		verified, err := d.validateStagePR(task, skillForStage, d.adjustmentCheckout(task), branchForPR, strings.TrimSpace(prURL), "")
+		if err != nil {
+			return nil, nil, err
+		}
+		prURL = verified
+	}
+	if d.StageOfTask(task) == "implemented" && cleanStage == "specified" {
+		cleanStage = "implemented"
+	}
 	proj, _ := d.GetProjectByID(task.ProjectID)
 
 	// Determine internal status for the stage

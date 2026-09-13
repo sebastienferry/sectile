@@ -4,14 +4,17 @@ package agentconfig
 const Version = 1
 
 type Skill struct {
-	ID             string `json:"id"`
-	Directory      string `json:"directory"`
-	Command        string `json:"command"`
-	Content        string `json:"content"`
-	CommandContent string `json:"commandContent"`
+	RequiresReconciliation bool   `json:"requiresReconciliation,omitempty"`
+	ID                     string `json:"id"`
+	Directory              string `json:"directory"`
+	Command                string `json:"command"`
+	Content                string `json:"content"`
+	CommandContent         string `json:"commandContent"`
 }
 
 type Config struct {
+	GithubRepo              string  `json:"githubRepo,omitempty"`
+	IssueTracker            string  `json:"issueTracker,omitempty"`
 	Parallelism             int     `json:"parallelism"`
 	PRCreationStage         string  `json:"prCreationStage"`
 	SchemaVersion           int     `json:"schemaVersion"`

@@ -153,3 +153,50 @@ func TestProjectCommandOverrideAndServerReset(t *testing.T) {
 		t.Fatal("server reset failed", got)
 	}
 }
+
+func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
+	root := t.TempDir()
+	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue", Content: "adjustment contract", CommandContent: "adjustment contract"}}}
+	if _, err := Scaffold(root, c); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, ".agents/skills/create-pr/SKILL.md")
+	if err := os.WriteFile(path, []byte("personal legacy edits"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		reports, err := Scaffold(root, c)
+		if err != nil || len(reports) == 0 {
+			t.Fatalf("missing divergence report: %v %v", reports, err)
+		}
+	}
+	raw, _ := os.ReadFile(path)
+	if string(raw) != "personal legacy edits" {
+		t.Fatal("legacy edits overwritten")
+	}
+	c = ApplyOverrides(c, Overrides{Skills: map[string]string{"review": "old review"}})
+	if !c.Skills[0].RequiresReconciliation {
+		t.Fatal("legacy local override not flagged")
+	}
+}
+
+func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
+	root := t.TempDir()
+	c := Config{SchemaVersion: Version, Skills: []Skill{
+		{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue", Content: "Adjust the existing PR", CommandContent: "Adjust the existing PR"},
+		{ID: "create_pr", Directory: "create-pr", Command: "/create-pr", Content: "Create a draft PR", CommandContent: "Create a draft PR"},
+	}}
+	if _, err := Scaffold(root, c); err != nil {
+		t.Fatal(err)
+	}
+	for _, skill := range c.Skills {
+		raw, err := os.ReadFile(filepath.Join(root, ".agents/skills", skill.Directory, "SKILL.md"))
+		if err != nil || string(raw) != skill.Content {
+			t.Fatalf("%s: %s %v", skill.ID, raw, err)
+		}
+	}
+	got := ApplyOverrides(c, Overrides{Skills: map[string]string{"create_pr": "Custom creation"}})
+	if got.Skills[0].RequiresReconciliation || got.Skills[0].Content != c.Skills[0].Content {
+		t.Fatal("creation override changed Adjust")
+	}
+}

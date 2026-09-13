@@ -1,4 +1,4 @@
-# TaskFlow Desktop
+# Sectile Desktop
 
 Local task execution consoles without a separate chatbot UI.
 
@@ -24,8 +24,12 @@ project scope. Subsequent launches reconnect to the application's existing agent
 ## Use
 
 Launch a skill from the web. Select its local execution to see the Codex/Claude
-console, type answers, resize it, stop it, or export its scrollback. Project
-directories discovers server projects and saves local Git repository mappings.
+console, type answers, resize it, stop it, or export its scrollback. The square
+stop icon in the terminal toolbar cancels the selected execution; its tooltip
+and accessible label are **Stop execution**. The selected
+task uses a highlighted background without a selection border; keyboard focus
+remains visible. The project directory browser discovers server projects and
+saves local Git repository mappings.
 
 Closing the window or quitting Electron keeps the detached agent and tasks alive.
 Reopening restores the connection. Agent diagnostics are in agent.log under
@@ -40,6 +44,31 @@ explanation instead of opening a terminal connection. For launch failures, check
 the task activity and `agent.log` in the application's data directory.
 When a task's assigned branch is already open in the main repository checkout,
 the agent reuses that checkout and preserves its local changes.
+
+### Execution queue
+
+Hover over a project's heading to reveal its small funnel-shaped queue icon alongside the other
+project actions (also available on keyboard focus and touch). Use the queue icon to switch that project's task
+list to its execution queue directly below the project heading. Close the queue
+with its small cross button, or click the queue icon again, to restore the task list. Its badge
+shows the number of waiting executions; the highlighted icon indicates queue
+mode. Each project switches independently, and opening queue mode expands a
+collapsed project.
+
+The gray `(running/maximum)` counter beside each project name uses the agent's
+effective concurrency limit, including local overrides and shared-checkout
+serialization. Its numerator includes preparing and stopping executions that
+still hold a slot, and excludes queued and finished runs. If the agent cannot
+provide the limit, `?` is shown instead. Saving project settings refreshes it.
+
+The queue shows only that project's active, waiting and stopping executions,
+including multiple executions of one task. Select an entry to open its console.
+Waiting executions appear first in submission order, using the daemon sequence
+or creation time for older agents. Project concurrency and shared checkouts
+still determine when work can start. Counts update with the desktop refresh.
+Canceled runs are excluded from waiting counts. An updated agent reports pending
+cancellation separately as **Stopping / canceling**; running processes retain
+their scheduler slot until exit is confirmed.
 
 ## Package and verify
 
@@ -119,6 +148,23 @@ content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
 
+### Remove a local project
+
+In project settings, choose **Local → Remove from desktop**, then confirm
+**Disconnect project**. Removal clears that project's workstation mapping and
+execution overrides. It preserves repository files, worktrees, deployed tooling,
+server projects, tracker tasks, and other local settings. Stop the project's
+executions first: queued, preparing, running, and not-yet-exited processes block
+removal, and removal never cancels them automatically.
+
+Disconnected projects and their consoles stay hidden after desktop or agent
+restart. Choose **Add project** and save a valid repository to reconnect explicitly.
+Finished history remains available after re-add for the agent's existing lifetime;
+archived tasks remain archived. Disconnection is stored in workstation settings
+under `disconnectedProjects`, a project-ID-to-boolean map. Repository detection
+and legacy mappings cannot override a true marker. Older agents must be updated
+and restarted before this action is available.
+
 ### Execution defaults and local overrides
 
 The server project supplies `useWorktrees` and `parallelism` (1–3) defaults.
@@ -182,7 +228,29 @@ The launcher shows results only after a search. Each result shows its status and
 The Local project tab includes the effective **CLI command**. Edit it to save a
 per-project override under `commands` in user settings; the reset icon restores
 the server template (or provider default when empty). Save to apply to subsequent
-executions. Command templates support `{prompt}` and execute on the local agent.
+executions. Command templates execute on the local agent and support these placeholders:
+
+| Placeholder | Value |
+| --- | --- |
+| `{prompt}` | Assembled task instructions and run metadata (required) |
+| `{issueKey}` | Task display key, for example `#63` |
+| `{issueTitle}` | Current task title |
+| `{issueDesc}` | Current task description, possibly empty |
+| `{branchName}` | Resolved local execution branch |
+| `{repoPath}` | Absolute local execution directory, including the task worktree when enabled |
+| `{tracker}` | Lowercase task source, then effective tracker, then `github` |
+| `{repo}` | Effective configured GitHub repository, otherwise local directory basename |
+
+For example: `codex --cd "{repoPath}" "Task {issueKey}: {prompt}"`.
+Use placeholders as ordinary CLI arguments, either unquoted, single-quoted or
+double-quoted, including inside a larger argument. Inserted values remain literal
+shell data and are not expanded again. Unknown tokens remain literal. Templates
+are trusted shell commands; do not place placeholders inside shell programs,
+command substitutions or here-documents. Explicit raw terminal commands and
+interactive launches without a skill retain their existing behavior.
+
+Values are refreshed for every launch, including relaunches and custom instructions.
+Saving or resetting settings stores the template, never the expanded task values.
 
 **Refresh from server** reloads project metadata, skills and inherited execution
 settings in the open dialog. Local overrides and unsaved local edits remain
@@ -195,13 +263,28 @@ and submits a new execution using current project settings. The previous run
 and console remain in history. Instructions are retained in agent memory;
 older executions without saved instructions open with an empty field.
 
-The sidebar groups executions by project and task. Projects can be collapsed;
+The sidebar groups executions by project and task. Projects are alphabetical;
+tasks show active (running/preparing), queued, then finished executions, newest
+first within each group. Actual execution start determines recency, with submission
+time used for queued/preparing runs and older records without a start timestamp.
+A task with several runs uses its highest-priority state and newest run in that
+state. Equal times use task/run identities for stable ordering. Refreshes preserve
+the selected execution and the history selector stays in submission order.
+Linked pull requests appear as an icon on the same task row, after the title and
+status. Hover for the URL or activate the icon to open the PR externally without
+changing the selected console. Long titles truncate to keep controls inline.
+Projects can be collapsed;
 their **+** button opens the task launcher. A task's **…** menu provides relaunch,
 local rename and archive actions. Archiving hides its existing executions without
 changing the server task. Active executions require explicit confirmation and
 confirmed stop before archiving. A new execution makes the task visible again.
 The TTY toolbar's execution selector provides access to previous runs of the
-selected task. Local names and archive visibility persist in companion storage.
+selected task. Its header shows the task key (or full ID), current task title, and
+selected execution skill. Local names take precedence over tracker titles and
+persist alongside archive visibility in companion storage. Titles refresh without
+reconnecting the console; unavailable titles fall back to identity and skill.
+Long headers truncate on one line, with their full text available on hover and
+to assistive technology. Toolbar controls wrap at narrow window widths.
 
 ### Desktop Quick add
 
@@ -218,3 +301,14 @@ The task launcher excludes finished tasks, including the finished workflow
 label. Each result shows its current workflow stage and tracker status when
 available. The agent checks again before submitting a launch, so a task finished
 after the search must be reopened on the server first.
+
+### Next workflow step
+
+The status line beneath the task console shows its current server workflow stage.
+Use **Next: Clarify**, **Next: Specify**, **Next: Implement**, or
+**Next: Review and create PR** to launch one step with the project's current
+configuration. Historical consoles use the task's current state too. The action
+is disabled while that task has an active execution or a launch is pending.
+The desktop rechecks state before submission; if the next step changed, review
+the updated button and click again. Metadata failures offer **Retry**.
+Reviewed tasks show **Awaiting human merge**; finished tasks have no next action.
