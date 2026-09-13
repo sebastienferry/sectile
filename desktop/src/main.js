@@ -1,3 +1,4 @@
+import { orderedTaskGroups } from './task-order.mjs'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -92,9 +93,7 @@ function render(){
   for(const run of children){const key=taskKey(run);if(!taskGroups.has(key))taskGroups.set(key,[]);taskGroups.get(key).push(run)}
   if(!collapsedProjects.has(project.id)){
    if(!children.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='No local tasks';group.append(empty)}
-   for(const executions of taskGroups.values()){
-    executions.sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||'')||a.id.localeCompare(b.id))
-    const run=executions.findLast(activeRun)||executions.at(-1)
+   for(const {executions,run} of orderedTaskGroups(taskGroups.values())){
     const row=document.createElement('div');row.className='local-task'
     const button=document.createElement('button');button.className='run '+(executions.some(item=>item.id===selected)?'selected':'')
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||run.skill

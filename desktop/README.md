@@ -217,7 +217,14 @@ and submits a new execution using current project settings. The previous run
 and console remain in history. Instructions are retained in agent memory;
 older executions without saved instructions open with an empty field.
 
-The sidebar groups executions by project and task. Projects can be collapsed;
+The sidebar groups executions by project and task. Projects are alphabetical;
+tasks show active (running/preparing), queued, then finished executions, newest
+first within each group. Actual execution start determines recency, with submission
+time used for queued/preparing runs and older records without a start timestamp.
+A task with several runs uses its highest-priority state and newest run in that
+state. Equal times use task/run identities for stable ordering. Refreshes preserve
+the selected execution and the history selector stays in submission order.
+Projects can be collapsed;
 their **+** button opens the task launcher. A task's **…** menu provides relaunch,
 local rename and archive actions. Archiving hides its existing executions without
 changing the server task. Active executions require explicit confirmation and

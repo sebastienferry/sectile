@@ -1,0 +1,56 @@
+const {test}=require('node:test')
+const assert=require('node:assert/strict')
+const {_electron:electron,expect}=require('@playwright/test')
+const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
+
+test('sidebar orders tasks across refreshes while retaining selection and history',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-task-order-'))
+ const run=(id,taskId,status,hour,start)=>({id,taskId,taskKey:'#'+taskId,projectId:'project-a',skill:'clarify',status,createdAt:`2026-09-13T${hour}:00:00Z`,...(start?{startedAt:`2026-09-13T${start}:00:00Z`}:{})})
+ let runs=[run('recent','5','failed','11'),run('done','3','completed','10'),run('queued','2','queued','09'),run('active','1','running','01','08'),run('old','1','completed','02'),run('next','1','queued','12'),run('other','4','running','05','07')]
+ let requests=0
+ const server=http.createServer((req,res)=>{
+  res.setHeader('Content-Type','application/json')
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
+  if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-z',name:'Zebra',path:'/tmp/z'},{id:'project-a',name:'Alpha',path:'/tmp/a'}]));return}
+  if(req.url==='/desktop/runs'){requests++;res.end(JSON.stringify(runs));return}
+  if(req.url.startsWith('/desktop/tasks?')){res.end('[]');return}
+  res.writeHead(404).end()
+ })
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
+ const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ let app
+ try{
+  app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  const page=await app.firstWindow();page.setDefaultTimeout(7000)
+  const order=()=>page.locator('.task-number').allTextContents()
+  await page.waitForFunction(()=>document.querySelectorAll('.local-task').length===5)
+  assert.deepEqual(await order(),['#1','#4','#2','#5','#3'])
+  assert.deepEqual(await page.locator('.project-heading').allTextContents(),['▾ Alpha','▾ Zebra'])
+  await page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #1 in TaskFlow',exact:true})}).locator('.run').click()
+  assert.match(await page.locator('#title').textContent(),/#1/)
+  assert.equal(await page.locator('#execution-history').inputValue(),'active')
+  assert.deepEqual(await page.locator('#execution-history option').evaluateAll(options=>options.map(option=>option.value)),['active','old','next'])
+  await page.locator('#execution-history').selectOption('old')
+  runs=runs.map(item=>item.id==='queued'?{...item,status:'running',startedAt:'2026-09-13T13:00:00Z'}:item).reverse()
+  await page.waitForFunction(()=>document.querySelector('.task-number').textContent==='#2')
+  assert.deepEqual(await order(),['#2','#1','#4','#5','#3'])
+  assert.equal(await page.locator('#execution-history').inputValue(),'old')
+  assert.equal(await page.locator('.run.selected').count(),1)
+  const before=requests;runs.reverse()
+  await expect.poll(()=>requests,{timeout:7000}).toBeGreaterThan(before)
+  assert.deepEqual(await order(),['#2','#1','#4','#5','#3'])
+  assert.equal(await page.locator('#execution-history').inputValue(),'old')
+  // An archived newest finished execution must not elevate its visible older run.
+  runs.push(run('archived','3','completed','23'))
+  await page.evaluate(()=>localStorage.setItem('localTasks',JSON.stringify({'["project-a","3"]':{archivedRuns:['archived']}})))
+  await page.reload()
+  await page.waitForFunction(()=>document.querySelectorAll('.local-task').length===5)
+  assert.deepEqual(await order(),['#2','#1','#4','#5','#3'])
+  await page.screenshot({path:path.join(root,'task-order.png')})
+  console.log('Task-order screenshot: '+path.join(root,'task-order.png'))
+ }finally{
+  if(app)await app.close()
+  await new Promise(resolve=>server.close(resolve))
+ }
+})

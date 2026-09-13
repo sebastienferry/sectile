@@ -208,6 +208,12 @@ are authenticated loopback-only capabilities. Browser Origins are rejected.
 Project mappings are saved locally and never uploaded. MCP remains available
 to native clients through the local gateway.
 
+`GET /desktop/runs` exposes `createdAt` (submission time) and optional `startedAt`
+(UTC time when the command is successfully submitted to its PTY). Runs that have
+not launched omit `startedAt`; completion preserves both timestamps. Desktop
+clients fall back to `createdAt` for legacy records without a valid start time.
+This display metadata does not change queue scheduling.
+
 Web skill launches without a connected agent fail explicitly rather than falling
 back to server-side execution.
 

@@ -20,6 +20,7 @@ import (
 
 type desktopRun struct {
 	CreatedAt time.Time `json:"createdAt"`
+	StartedAt time.Time `json:"startedAt,omitzero"`
 	Prompt    string    `json:"prompt,omitempty"`
 	ID        string    `json:"id"`
 	TaskID    string    `json:"taskId"`
