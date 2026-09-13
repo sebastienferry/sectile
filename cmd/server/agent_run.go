@@ -217,6 +217,11 @@ func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payloa
 func (d *agentDaemon) enqueueRun(taskID string, payload agentconfig.Dispatch, projectID, root string, limit int, isolated bool) (*controlledRun, error) {
 	d.runsMu.Lock()
 	defer d.runsMu.Unlock()
+	return d.enqueueRunLocked(taskID, payload, projectID, root, limit, isolated)
+}
+
+// enqueueRunLocked lets local admission publish complete metadata atomically.
+func (d *agentDaemon) enqueueRunLocked(taskID string, payload agentconfig.Dispatch, projectID, root string, limit int, isolated bool) (*controlledRun, error) {
 	if d.shuttingDown {
 		return nil, fmt.Errorf("agent is stopping")
 	}

@@ -23,6 +23,25 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ## Use
 
+### Free agent console
+
+Click **>_ Open agent console** in a configured project's heading, choose **Codex**
+or **Claude**, and click **Open console**. The app launches `codex` or `claude`
+with no arguments in that project's mapped local repository. Type your first
+instructions directly in the TTY. The selected CLI must be installed locally;
+its own sign-in and permission prompts remain available in the console.
+
+Each launch is a separate local console. It uses no task, skill, initial prompt,
+or workflow command template. It does not create a tracker activity or change a
+workflow stage. The sidebar shows process status, and the toolbar supports stop,
+export, and relaunch. Rename and archive are available through the console menu.
+Closing and reopening the app reconnects while the daemon remains running.
+
+Free consoles use the existing execution queue and reserve the project's shared
+checkout while active. Other executions that need that checkout wait until the
+console exits. No branch or worktree is created for a free console.
+
+
 Launch a skill from the web. Select its local execution to see the Codex/Claude
 console, type answers, resize it, stop it, or export its scrollback. The square
 stop icon in the terminal toolbar cancels the selected execution; its tooltip

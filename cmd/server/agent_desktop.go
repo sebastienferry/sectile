@@ -21,6 +21,8 @@ import (
 
 type desktopRun struct {
 	Branch          string    `json:"branch,omitempty"`
+	Kind            string    `json:"kind,omitempty"`
+	Provider        string    `json:"provider,omitempty"`
 	CancelRequested bool      `json:"cancelRequested,omitempty"`
 	QueueSequence   uint64    `json:"queueSequence,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -58,7 +60,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		sort.Strings(disconnected)
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.serverURL, "capabilities": []string{"git-diff", "create-task", "remove-project"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.serverURL, "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -89,6 +91,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/git-diff" {
 		d.desktopGitDiff(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/consoles" {
+		d.desktopConsole(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/create-task" {
@@ -218,6 +224,9 @@ func (d *agentDaemon) writeDesktopInfo() error {
 
 // Report process exit using the server's authenticated MCP endpoint.
 func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status string) error {
+	if taskID == "" {
+		return nil
+	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	client := mcp.NewClient(&mcp.Implementation{Name: "sectile-desktop-agent", Version: "1"}, nil)
@@ -687,6 +696,10 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 	}
 	taskID, projectID := run.taskID, run.desktop.ProjectID
 	d.runsMu.Unlock()
+	if taskID == "" {
+		http.Error(w, "Free consoles have no task result", http.StatusNotFound)
+		return
+	}
 	var task models.Task
 	if err := d.readAPI(r.Context(), "/api/tasks/"+url.PathEscape(taskID), &task); err != nil {
 		http.Error(w, err.Error(), 502)

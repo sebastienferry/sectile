@@ -141,6 +141,7 @@ ipcMain.handle('choose-repository',async()=>{
  return result.canceled?null:result.filePaths[0]
 })
 ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId='+encodeURIComponent(id)+'&q='+encodeURIComponent(q||'')+'&launchable='+Boolean(launchable)))
+ipcMain.handle('launch-console',(_,projectId,provider)=>api('/desktop/consoles','POST',{projectId,provider}))
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',{taskID,skillID,prompt}))
 ipcMain.handle('open-task',async(_,id)=>{
  if(typeof id!=='string'||!id.trim())throw Error('Invalid task ID')
