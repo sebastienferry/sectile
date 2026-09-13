@@ -89,6 +89,9 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if err != nil {
 		return "", overrides, err
 	}
+	if overrides.DisconnectedProjects[c.ProjectID] {
+		return "", overrides, fmt.Errorf("project %s is disconnected; add it again in the desktop before launching", c.ProjectID)
+	}
 	if mapped := overrides.Projects[c.ProjectID]; mapped != "" {
 		if !filepath.IsAbs(mapped) {
 			mapped = filepath.Join(root, mapped)
@@ -366,4 +369,25 @@ func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Project
 		return projects, fmt.Errorf("unsupported project discovery schemaVersion %d", projects.SchemaVersion)
 	}
 	return projects, nil
+}
+
+// syncLocalProject does not redeploy a disconnected project during reconnection.
+func (d *agentDaemon) syncLocalProject(ctx context.Context, config agentconfig.Config) error {
+	d.prepareMu.Lock()
+	defer d.prepareMu.Unlock()
+	root, overrides, err := d.localProjectRoot(ctx, config)
+	if overrides.DisconnectedProjects[config.ProjectID] {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	config = agentconfig.ApplyOverrides(config, overrides)
+	if err := config.Validate(); err != nil {
+		return err
+	}
+	if _, err := agentconfig.Scaffold(root, config); err != nil {
+		return err
+	}
+	return d.bootstrapLocalMCP(root, &config)
 }

@@ -141,6 +141,23 @@ content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
 
+### Remove a local project
+
+In project settings, choose **Local → Remove from desktop**, then confirm
+**Disconnect project**. Removal clears that project's workstation mapping and
+execution overrides. It preserves repository files, worktrees, deployed tooling,
+server projects, tracker tasks, and other local settings. Stop the project's
+executions first: queued, preparing, running, and not-yet-exited processes block
+removal, and removal never cancels them automatically.
+
+Disconnected projects and their consoles stay hidden after desktop or agent
+restart. Choose **Add project** and save a valid repository to reconnect explicitly.
+Finished history remains available after re-add for the agent's existing lifetime;
+archived tasks remain archived. Disconnection is stored in workstation settings
+under `disconnectedProjects`, a project-ID-to-boolean map. Repository detection
+and legacy mappings cannot override a true marker. Older agents must be updated
+and restarted before this action is available.
+
 ### Execution defaults and local overrides
 
 The server project supplies `useWorktrees` and `parallelism` (1–3) defaults.

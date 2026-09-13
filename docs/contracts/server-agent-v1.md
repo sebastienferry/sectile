@@ -306,6 +306,27 @@ builds and do not rebuild. Pass agent arguments with, for example,
 `make start ARGS="--url http://localhost:8090"`; provide authentication through
 `TASKFLOW_AGENT_TOKEN`.
 
+## Local project disconnection
+
+The authenticated loopback API supports `DELETE /desktop/projects?id=<project-id>`.
+It returns 204 after atomically recording workstation disconnection and removing
+the project's mapping, worktree preference, parallelism, and command override.
+Repeated removal is safe. Missing IDs return 400, unauthorized requests return
+401, active work or busy configuration returns 409, and settings failures return
+500. No remote project mutation or repository deletion occurs.
+
+`GET /desktop/status` advertises `remove-project` in `capabilities` and returns
+`disconnectedProjects` as an array of IDs. Project discovery includes a
+`disconnected` boolean; disconnected entries have empty `path` and false
+`configured`. Retained `/desktop/runs` history does not imply reconnection.
+
+Workstation settings store `disconnectedProjects` as a map of true markers. The
+field is not imported from repository configuration. Resolution rejects marked
+projects before implicit matching, and reconnect-time tooling deployment skips
+them. A successful validated project mapping POST clears the marker atomically.
+Execution registration and removal share the preparation lock, followed by the
+run lock, so removal cannot succeed concurrently with admission of unfinished
+work. Existing processes must have confirmed exit before disconnection succeeds.
 
 ## Adjustment and PR ownership
 
