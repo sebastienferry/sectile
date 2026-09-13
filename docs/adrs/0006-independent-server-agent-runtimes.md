@@ -24,7 +24,8 @@ and require a correlated response from the connection that received them.
 Disconnects never cause a server execution fallback.
 
 Background skill jobs dispatch native skills. MCP stage reports and remote run
-completion stay separate from launch acknowledgements. PR checks combine forge
+completion stay separate from launch acknowledgements. Server startup preserves
+active remote executions because their processes are owned outside the server. PR checks combine forge
 HTTP evidence with local checkout evidence from the agent. The old server-local
 result-file worker and terminal endpoints are retired.
 

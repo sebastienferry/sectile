@@ -181,3 +181,53 @@ func TestSkillEditorUsesAgentEvidenceAndFrameworkOverride(t *testing.T) {
 	}
 	t.Fatal("clarify entry missing")
 }
+
+func TestServerRestartPreservesRemoteExecutionOwnership(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{Title: "Survive server restart", Source: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := d.StartRemoteRun(task.ID, "pickup", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := d.StartAgentRemoteRun(task.ID, "clarify")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddTaskActivity(models.TaskActivity{ID: "interrupted-server-job", TaskID: task.ID, SkillID: "tracker_update", Status: "running", CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	restarted, err := NewDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Close()
+	for _, id := range []string{remote.ID, agent.ID} {
+		activity, err := restarted.GetActivityByID(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if activity.Status != "running" {
+			t.Fatalf("restart finished external execution: %#v", activity)
+		}
+		if _, err := restarted.FinishRemoteRun(task.ID, id, "completed", "External execution finished after restart"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	local, err := restarted.GetActivityByID("interrupted-server-job")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.Status != "failed" {
+		t.Fatalf("server job falsely survived process loss: %#v", local)
+	}
+}
