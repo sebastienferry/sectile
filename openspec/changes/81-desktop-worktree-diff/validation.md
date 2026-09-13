@@ -101,3 +101,30 @@ network fetch, persistent source snapshots and web source relay remain outside s
 All implementation and review checks pass. Publication reuses PR #85; the workflow
 report records the verified pushed commit and ready status. Human merge and ticket
 handoff remain separate from this invocation.
+
+## Conflict adjustment — 2026-09-13
+
+PR #85 became conflicting after eight further commits landed on main. Integrated
+`origin/main` at `ed4052d` through merge commit `a218048`. The only textual conflict
+was in `docs/contracts/server-agent-v1.md`: both branches inserted a contract section
+at the same location. Retained both the local worktree comparison and MCP naming
+contracts. Reviewed automatic merges in the agent and Desktop task-status code;
+Changes, terminal-header results and task-list status indicators remain available.
+The previously reviewed comparison engine, endpoint, viewer and focused tests are
+unchanged. PR discussion, reviews and inline comments were retrieved; none were present.
+
+Repeated validation on the integrated branch:
+
+- `go test ./...`: all packages pass, including the new MCP contract tests.
+- `go vet ./...`: exit 0, no diagnostics.
+- `make test`: exit 0; 22 web tests pass, TypeScript and lint succeed.
+- `make server-build`: exit 0, `Done: bin/sectile`.
+- Desktop build: exit 0, 13 modules transformed.
+- Desktop UI suite: 15 passed, 0 failed (85.4 seconds), including Changes and the
+  updated terminal/task-list skill-status scenarios.
+- Electron main/preload syntax checks, strict OpenSpec validation and whitespace:
+  all pass. Previously documented web/Vite warnings remain.
+
+The existing ready PR is reused. Local configuration edits remain excluded from
+feature commits and are restored after publication verification. Human merge and
+handoff remain pending.
