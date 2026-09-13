@@ -309,8 +309,7 @@ builds and do not rebuild. Pass agent arguments with, for example,
 
 ## Adjustment and PR ownership
 
-The canonical review action is `adjust` (`adjust-issue`). Legacy `create_pr`,
-`review`, and `create-pr` normalize to it without rewriting activity history.
+The canonical review action is `adjust` (`adjust-issue`). Legacy `review` normalizes to it without rewriting activity history. `create_pr` and `create-pr` identify the standalone Create PR utility, which has no stage transition.
 States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finished`.
 A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
 

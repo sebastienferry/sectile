@@ -15,7 +15,7 @@ import (
 )
 
 func TestAdjustmentAliasesAndHumanBoundary(t *testing.T) {
-	for _, id := range []string{"adjust", "adjust-issue", "create_pr", "create-pr", "review"} {
+	for _, id := range []string{"adjust", "adjust-issue", "review"} {
 		s, ok := StageSkillByID(id)
 		if !ok || s.ID != "adjust" || s.ToStage != "reviewed" {
 			t.Fatalf("alias %s: %+v", id, s)
@@ -51,12 +51,12 @@ func TestAdjustmentEvidenceRejectsInvalidPR(t *testing.T) {
 func TestAdjustmentOverridePrecedence(t *testing.T) {
 	overrides := map[string]projectSkillOverride{"review": {content: "review"}, "create_pr": {content: "create"}}
 	origin, conflicts := adjustmentOverrideOrigin(overrides)
-	if origin != "create_pr" || len(conflicts) != 1 {
+	if origin != "review" || len(conflicts) != 0 {
 		t.Fatal(origin, conflicts)
 	}
 	overrides["adjust"] = projectSkillOverride{content: "adjust"}
 	origin, conflicts = adjustmentOverrideOrigin(overrides)
-	if origin != "adjust" || len(conflicts) != 2 || overrides["review"].content != "review" {
+	if origin != "adjust" || len(conflicts) != 1 || overrides["review"].content != "review" {
 		t.Fatal(origin, conflicts)
 	}
 }
@@ -134,8 +134,8 @@ func TestLegacyForwarderPreservesDivergence(t *testing.T) {
 	}
 }
 
-func TestManagedAdjustmentPinsPRAndStopsAtReview(t *testing.T) {
-	for _, outcome := range []string{"ready", "draft", "replacement", "failed-check", "feedback-failure"} {
+func TestManagedPRSkillsPreserveTheirStageBoundaries(t *testing.T) {
+	for _, outcome := range []string{"ready", "draft", "replacement", "failed-check", "feedback-failure", "standalone-create"} {
 		t.Run(outcome, func(t *testing.T) {
 			repo := testSkillRepo(t)
 			d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
@@ -164,7 +164,11 @@ func TestManagedAdjustmentPinsPRAndStopsAtReview(t *testing.T) {
 			head, _ := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
 			pr := runner.PullRequestEvidence{URL: "https://forge/pull/1", Branch: "ticket", SHA: strings.TrimSpace(string(head)), Open: true, Draft: true}
 			d.prEvidenceLookup = func(string, string) (runner.PullRequestEvidence, error) { return pr, nil }
-			activity := models.TaskActivity{ID: "adjust-run", TaskID: task.ID, SkillID: "create_pr", Status: "queued", CreatedAt: time.Now()}
+			skillID := "review"
+			if outcome == "standalone-create" {
+				skillID = "create_pr"
+			}
+			activity := models.TaskActivity{ID: "adjust-run", TaskID: task.ID, SkillID: skillID, Status: "queued", CreatedAt: time.Now()}
 			if err := d.addTaskActivityDirect(activity); err != nil {
 				t.Fatal(err)
 			}
@@ -177,7 +181,7 @@ func TestManagedAdjustmentPinsPRAndStopsAtReview(t *testing.T) {
 				if err := json.Unmarshal([]byte(match[1]), &path); err != nil {
 					t.Fatal(err)
 				}
-				pr.Draft = outcome == "draft"
+				pr.Draft = outcome == "draft" || outcome == "standalone-create"
 				if outcome == "replacement" {
 					pr.URL = "https://forge/pull/2"
 				}
@@ -195,8 +199,17 @@ func TestManagedAdjustmentPinsPRAndStopsAtReview(t *testing.T) {
 					t.Fatal(err)
 				}
 			}})
-			d.processSkillJob(SkillJob{TaskID: task.ID, ActivityID: activity.ID, SkillID: "create_pr", AutoChain: true})
+			d.processSkillJob(SkillJob{TaskID: task.ID, ActivityID: activity.ID, SkillID: skillID, AutoChain: true})
 			got, _ := d.GetTaskByID(task.ID)
+			if outcome == "standalone-create" {
+				var status string
+				if err := d.conn.QueryRow("SELECT status FROM task_activities WHERE id = ?", activity.ID).Scan(&status); err != nil || status != "completed" {
+					t.Fatalf("standalone creation did not complete: %s %v", status, err)
+				}
+				if got.PrURL == nil || *got.PrURL != pr.URL {
+					t.Fatal("standalone creation did not link the PR")
+				}
+			}
 			want := "implemented"
 			if outcome == "ready" {
 				want = "reviewed"
@@ -230,7 +243,7 @@ func TestAdjustmentReconciliationRetainsHistoryAndReset(t *testing.T) {
 		}
 	}
 	entry, err := d.projectSkillEntry(p.ID, "adjust")
-	if err != nil || !entry.RequiresReconciliation || entry.OverrideOrigin != "create_pr" || entry.LegacyContents["review"] != "legacy review" {
+	if err != nil || !entry.RequiresReconciliation || entry.OverrideOrigin != "review" || entry.Content != "legacy review" {
 		t.Fatalf("%+v %v", entry, err)
 	}
 	entry, err = d.SaveProjectSkillContent(p.ID, "adjust", "Reviewed custom instructions")
@@ -284,5 +297,37 @@ func TestCompositePRPoliciesCreateBeforeAdjustment(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestWebWorkflowSkillNamesAndTransitions(t *testing.T) {
+	expected := []struct{ id, name, from, to string }{
+		{"clarify", "Clarify", "new", "clarified"},
+		{"specify", "Specify", "clarified", "specified"},
+		{"implement", "Implement", "specified", "implemented"},
+		{"adjust", "Adjust", "implemented", "reviewed"},
+		{"handoff", "Handoff", "reviewed", "finished"},
+	}
+	for _, framework := range []string{"openspec", "speckit"} {
+		templates := ProjectSkillTemplates(framework)
+		for i, want := range expected {
+			stage := StageSkills[i]
+			if stage.ID != want.id || stage.Name != want.name || stage.FromStage != want.from || stage.ToStage != want.to || templates[i].Name != want.name {
+				t.Fatalf("%s: stage %+v, template name %q, want %+v", framework, stage, templates[i].Name, want)
+			}
+		}
+	}
+}
+
+func TestCreatePRIsIndependentOfWorkflow(t *testing.T) {
+	for _, alias := range []string{"create_pr", "create-pr"} {
+		s, ok := StageSkillByID(alias)
+		if !ok || s.ID != "create_pr" || s.Command != "/create-pr" || s.FromStage != "" || s.ToStage != "" || skillStageLabel[s.ID] != "" {
+			t.Fatalf("standalone creation was mapped to a workflow stage: %+v", s)
+		}
+	}
+	overrides := map[string]projectSkillOverride{"create_pr": {content: "Custom PR creation"}}
+	if origin, _ := adjustmentOverrideOrigin(overrides); origin != "" {
+		t.Fatalf("creation customization leaked into Adjust: %s", origin)
 	}
 }

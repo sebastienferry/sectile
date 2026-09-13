@@ -82,10 +82,10 @@ export const SkillsView: React.FC = () => {
         <div className="px-3 py-2.5 border-b border-[var(--border-color)]">
           <h2 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-1.5">
             <FileCode2 size={13} className="text-[var(--accent-color)]" />
-            <span>Skills du workflow</span>
+            <span>Workflow skills</span>
           </h2>
           <p className="text-[10px] text-[var(--text-muted)] mt-1 leading-snug">
-            Une skill par pas. Le même fichier est écrit dans tous les répertoires d'agent du dépôt.
+            Clarify → Specify → Implement → Adjust → Handoff.
           </p>
         </div>
 
@@ -97,67 +97,69 @@ export const SkillsView: React.FC = () => {
             </div>
           ) : (
             entries.map((entry, index) => (
-              <button
-                key={entry.id}
-                type="button"
-                onClick={() => select(entry)}
-                className={`w-full text-left px-2.5 py-2 rounded-xl border transition-colors cursor-pointer ${
-                  entry.id === selectedId
-                    ? 'bg-[var(--accent-light)] border-[var(--accent-color)]/40'
-                    : 'bg-[var(--bg-secondary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/30'
-                }`}
-              >
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] font-mono font-bold text-[var(--text-muted)]">{index + 1}</span>
-                  <span className="text-[11px] font-bold text-[var(--text-primary)] truncate">{entry.name}</span>
-                  {entry.scope === 'macro' && (
-                    <span
-                      className="ml-auto text-[8px] font-bold px-1 rounded text-orange-400 bg-orange-500/10 border border-orange-500/30 shrink-0"
-                      title="Skill de cadrage et raffinage Macro"
-                    >
-                      MACRO
-                    </span>
-                  )}
-                  {entry.isCustom && (
-                    <span
-                      className={`${entry.scope === 'macro' ? '' : 'ml-auto'} text-[8px] font-bold px-1 rounded text-[var(--accent-color)] bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shrink-0`}
-                      title="Contenu propre à ce projet"
-                    >
-                      PERSO
-                    </span>
-                  )}
-                </div>
-                <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-[var(--text-muted)]">
-                  {entry.scope === 'macro' ? (
-                    <span className="text-orange-400 font-bold">Raffinage Macro</span>
-                  ) : (
-                    <>
-                      <span>{entry.fromStage}</span>
-                      <span className="text-[var(--accent-color)]">➔</span>
-                      <span>{entry.toStage}</span>
-                    </>
-                  )}
-                  {entry.interactive && (
-                    <span className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)]" title="Session interactive">
-                      <Terminal size={8} />
-                      Interactive
-                    </span>
-                  )}
-                </div>
-                <div className="mt-1 flex items-center gap-1.5">
-                  <code className="text-[9px] text-[var(--text-secondary)]">{entry.command}</code>
-                  {!entry.installed && (
-                    <span className="text-[8px] font-bold text-amber-400" title="Aucun SKILL.md dans le dépôt">
-                      NON INSTALLÉE
-                    </span>
-                  )}
-                  {entry.diverged && (
-                    <span className="text-[8px] font-bold text-rose-400" title="Le fichier du dépôt diffère">
-                      DIVERGENTE
-                    </span>
-                  )}
-                </div>
-              </button>
+              <React.Fragment key={entry.id}>
+                {index === 5 && <h3 className="px-2 pt-4 pb-1 text-[10px] font-bold uppercase text-[var(--text-muted)]">Additional skills</h3>}
+                <button
+                  type="button"
+                  onClick={() => select(entry)}
+                  className={`w-full text-left px-2.5 py-2 rounded-xl border transition-colors cursor-pointer ${
+                    entry.id === selectedId
+                      ? 'bg-[var(--accent-light)] border-[var(--accent-color)]/40'
+                      : 'bg-[var(--bg-secondary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/30'
+                  }`}
+                >
+                  <div className="flex items-center gap-1.5">
+                    {index < 5 && <span className="text-[9px] font-mono font-bold text-[var(--text-muted)]">{index + 1}</span>}
+                    <span className="text-[11px] font-bold text-[var(--text-primary)] truncate">{entry.name}</span>
+                    {entry.scope === 'macro' && (
+                      <span
+                        className="ml-auto text-[8px] font-bold px-1 rounded text-orange-400 bg-orange-500/10 border border-orange-500/30 shrink-0"
+                        title="Skill de cadrage et raffinage Macro"
+                      >
+                        MACRO
+                      </span>
+                    )}
+                    {entry.isCustom && (
+                      <span
+                        className={`${entry.scope === 'macro' ? '' : 'ml-auto'} text-[8px] font-bold px-1 rounded text-[var(--accent-color)] bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shrink-0`}
+                        title="Contenu propre à ce projet"
+                      >
+                        PERSO
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-[var(--text-muted)]">
+                    {entry.scope === 'macro' ? (
+                      <span className="text-orange-400 font-bold">Raffinage Macro</span>
+                    ) : entry.fromStage && entry.toStage ? (
+                      <>
+                        <span>#{entry.fromStage}</span>
+                        <span className="text-[var(--accent-color)]">➔</span>
+                        <span>#{entry.toStage}</span>
+                      </>
+                    ) : <span>Additional skill</span>}
+                    {entry.interactive && (
+                      <span className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)]" title="Session interactive">
+                        <Terminal size={8} />
+                        Interactive
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <code className="text-[9px] text-[var(--text-secondary)]">{entry.command}</code>
+                    {!entry.installed && (
+                      <span className="text-[8px] font-bold text-amber-400" title="Aucun SKILL.md dans le dépôt">
+                        NON INSTALLÉE
+                      </span>
+                    )}
+                    {entry.diverged && (
+                      <span className="text-[8px] font-bold text-rose-400" title="Le fichier du dépôt diffère">
+                        DIVERGENTE
+                      </span>
+                    )}
+                  </div>
+                </button>
+              </React.Fragment>
             ))
           )}
         </div>

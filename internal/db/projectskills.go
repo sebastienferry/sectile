@@ -164,7 +164,7 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 		if stage.ID == "adjust" {
 			entry.OverrideOrigin = origin
 			if p, _ := d.GetProjectByID(projectID); p != nil && origin != "adjust" {
-				for _, id := range []string{"create_pr", "review"} {
+				for _, id := range []string{"review"} {
 					if command := strings.TrimSpace(p.SkillOverrides[id]); command != "" && strings.TrimSpace(p.SkillOverrides["adjust"]) == "" {
 						entry.Content += "\n\nLegacy command override (" + id + "): " + command
 						entry.RequiresReconciliation = true
@@ -177,7 +177,7 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 			for _, id := range conflicts {
 				entry.LegacyContents[id] = overrides[id].content
 			}
-			entry.RequiresReconciliation = entry.RequiresReconciliation || origin == "create_pr" || origin == "review"
+			entry.RequiresReconciliation = entry.RequiresReconciliation || origin == "review"
 			settings, _ := d.GetSettings()
 			if settings != nil && strings.TrimSpace(settings.PromptCreatePR) != "" && origin != "adjust" {
 				entry.RequiresReconciliation = true
@@ -406,7 +406,7 @@ func commandContentFromSkill(stage StageSkill, content, specFramework string) (s
 func adjustmentOverrideOrigin(overrides map[string]projectSkillOverride) (string, []string) {
 	origin := ""
 	conflicts := []string{}
-	for _, id := range []string{"adjust", "create_pr", "review"} {
+	for _, id := range []string{"adjust", "review"} {
 		if strings.TrimSpace(overrides[id].content) != "" {
 			if origin == "" {
 				origin = id

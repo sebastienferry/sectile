@@ -397,7 +397,7 @@ func TestDiscoverProjects(t *testing.T) {
 
 func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
 	c := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/echo {prompt}", Skills: []agentconfig.Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue"}}}
-	for _, id := range []string{"adjust", "adjust-issue", "create_pr", "create-pr", "review"} {
+	for _, id := range []string{"adjust", "adjust-issue", "review"} {
 		line, err := dispatchCommand(c, "task-61", id, "", "", "")
 		if err != nil || !strings.Contains(line, "adjust-issue") || !strings.Contains(line, "Never create or replace a PR") {
 			t.Fatalf("%s: %s %v", id, line, err)
@@ -406,5 +406,15 @@ func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
 	c.Skills[0].RequiresReconciliation = true
 	if _, err := dispatchCommand(c, "task-61", "review", "", "", ""); err == nil {
 		t.Fatal("unreconciled legacy customization launched")
+	}
+}
+
+func TestNativeCreatePRDoesNotInvokeAdjustment(t *testing.T) {
+	c := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/echo {prompt}", Skills: []agentconfig.Skill{{ID: "create_pr", Directory: "create-pr", Command: "/create-pr"}}}
+	for _, id := range []string{"create_pr", "create-pr"} {
+		line, err := dispatchCommand(c, "task-61", id, "", "", "")
+		if err != nil || !strings.Contains(line, "create-pr") || strings.Contains(line, "Never create or replace a PR") {
+			t.Fatalf("%s: %s %v", id, line, err)
+		}
 	}
 }

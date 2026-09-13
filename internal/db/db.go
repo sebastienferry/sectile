@@ -3815,17 +3815,9 @@ func NormalizeUIScale(scale int) int {
 }
 
 func (d *DB) GetAvailableSkills() []models.Skill {
-	specFramework := "speckit"
-	if st, _ := d.GetSettings(); st != nil && strings.TrimSpace(st.SpecFramework) != "" {
-		specFramework = st.SpecFramework
-	}
-
 	out := make([]models.Skill, 0, len(StageSkills))
 	for _, s := range StageSkills {
 		name := s.Name
-		if s.ID == "specify" {
-			name = specifyFrameworkName(specFramework)
-		}
 		in, _ := InternalStatusForStage(s.FromStage)
 		outStatus, _ := InternalStatusForStage(s.ToStage)
 		out = append(out, models.Skill{
@@ -4118,7 +4110,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 			if result.Branch != "" && job.SkillID != "clarify" && job.SkillID != "handoff" {
 				task.BranchName = &result.Branch
 			}
-			if result.PRURL != "" && (job.SkillID == "adjust" || job.SkillID == "pickup" || job.SkillID == "specify" || job.SkillID == "implement") {
+			if result.PRURL != "" && (job.SkillID == "create_pr" || job.SkillID == "adjust" || job.SkillID == "pickup" || job.SkillID == "specify" || job.SkillID == "implement") {
 				task.PrURL = &result.PRURL
 			}
 			runnerSteps = append(runnerSteps, "✅ Résultat structuré et pièces requises vérifiés")
@@ -4203,13 +4195,17 @@ func (d *DB) processSkillJob(job SkillJob) {
 		action = fmt.Sprintf("Handoff et nettoyage exécutés avec %s", strings.ToUpper(settings.AIProvider))
 		summary = fmt.Sprintf("Tâche clôturée : handoff documenté et espace local nettoyé ➔ Étape: %s [Label: #finished]", task.Status)
 
-	case "adjust", "create_pr", "review":
+	case "adjust", "review":
 		task.Status = resolveMappedStatus("reviewed", models.StatusToClose)
 		task.Labels = SetWorkflowLabel(task.Labels, "reviewed")
 
 		action = fmt.Sprintf("Revue & Pull Request vérifiées avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
 		summary = fmt.Sprintf("PR prête pour revue : %s ➔ Étape: reviewed", result.PRURL)
 		// Keep the checkout for reviewer feedback and retries; handoff owns cleanup.
+
+	case "create_pr":
+		action = "Standalone pull request prepared"
+		summary = fmt.Sprintf("Pull request: %s; workflow stage preserved", result.PRURL)
 
 	case "pickup":
 		task.Status = resolveMappedStatus("reviewed", models.StatusToClose)
@@ -4274,7 +4270,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 	// Chaîne autonome : le pas suivant est mis en file, sauf si l'étape atteinte
 	// demande une revue humaine. C'est le seul point d'arrêt volontaire : plus
 	// loin, l'agent créerait la MR et clôturerait sans qu'un humain ait vu le diff.
-	if job.AutoChain {
+	if job.AutoChain && skill.ID != "create_pr" {
 		reached := d.StageOfTask(task)
 		if reached == AutonomousStopStage || reached == "finished" {
 			d.appendActivityStep(job.ActivityID, "⏸ Chaîne autonome terminée : Pull Request créée, la fusion reste manuelle")
@@ -4298,7 +4294,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 			commentHeader = "### 📋 [TaskFlow] Spécification Technique & Plan d'Implémentation\n\n"
 		case "implement":
 			commentHeader = "### ⚡ [TaskFlow] Rapport d'Implémentation\n\n"
-		case "adjust", "create_pr", "review":
+		case "adjust", "review":
 			commentHeader = "### 🚀 [TaskFlow] Revue de Code & Préparation PR\n\n"
 		default:
 			commentHeader = fmt.Sprintf("### 🤖 [TaskFlow] Rapport d'exécution : %s\n\n", skill.Name)
@@ -4563,7 +4559,6 @@ var skillStageLabel = map[string]string{
 	"specify":   "specified",
 	"implement": "implemented",
 	"adjust":    "reviewed",
-	"create_pr": "reviewed",
 	"review":    "reviewed",
 	"pickup":    "reviewed",
 	"handoff":   "finished",
@@ -5673,7 +5668,7 @@ func applySkillCommandOverride(settings *models.Settings, proj *models.Project, 
 		if settings.PromptImplement == "" {
 			settings.PromptImplement = cmd + " {issueKey}"
 		}
-	case "adjust", "create_pr", "review":
+	case "adjust", "review":
 		if settings.PromptCreatePR == "" {
 			settings.PromptCreatePR = cmd + " {issueKey}"
 		}
@@ -6575,11 +6570,7 @@ func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (
 	skillsToInstall := d.EffectiveProjectSkills(projectID, specFramework)
 
 	// Install skills into each target path (root repo and all worktrees)
-	var legacyDivergence error
 	for _, targetDir := range targetPaths {
-		if err := installAdjustmentForwarders(targetDir); err != nil {
-			legacyDivergence = err
-		}
 		for _, s := range skillsToInstall {
 			// La commande slash, en plus de la skill : c'est elle que Taskflow
 			// invoque, et sans elle « /clarify-issue » n'est que du texte.
@@ -6631,9 +6622,6 @@ func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (
 	}
 
 	status, err := d.GetProjectSkillsStatus(projectID)
-	if err == nil && legacyDivergence != nil {
-		return status, legacyDivergence
-	}
 	return status, err
 }
 

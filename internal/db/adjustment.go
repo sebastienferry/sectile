@@ -21,10 +21,10 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (runner.PullR
 	origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(task.ProjectID))
 	settings, _ := d.GetSettings()
 	project, _ := d.GetProjectByID(task.ProjectID)
-	if origin != "adjust" && project != nil && strings.TrimSpace(project.SkillOverrides["adjust"]) == "" && (strings.TrimSpace(project.SkillOverrides["create_pr"]) != "" || strings.TrimSpace(project.SkillOverrides["review"]) != "") {
+	if origin != "adjust" && project != nil && strings.TrimSpace(project.SkillOverrides["adjust"]) == "" && (strings.TrimSpace(project.SkillOverrides["review"]) != "") {
 		return runner.PullRequestEvidence{}, fmt.Errorf("legacy command override requires reconciliation in Skills")
 	}
-	if origin == "create_pr" || origin == "review" || (origin != "adjust" && settings != nil && strings.TrimSpace(settings.PromptCreatePR) != "") {
+	if origin == "review" || (origin != "adjust" && settings != nil && strings.TrimSpace(settings.PromptCreatePR) != "") {
 		return runner.PullRequestEvidence{}, fmt.Errorf("legacy adjustment customization requires reconciliation in Skills: review and save under Adjust or reset")
 	}
 	branch := ""
@@ -68,7 +68,7 @@ func validatePullRequestEvidence(pr runner.PullRequestEvidence, branch, url, exp
 
 func (d *DB) validateStagePR(task *models.Task, skillID, repoPath, branch, url, expected string) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
-	required := skillID == "adjust" || skillID == "pickup" || skillID == "implement" || (skillID == "specify" && d.prCreationOwner(task) == "specify")
+	required := skillID == "create_pr" || skillID == "adjust" || skillID == "pickup" || skillID == "implement" || (skillID == "specify" && d.prCreationOwner(task) == "specify")
 	if !required {
 		return url, nil
 	}

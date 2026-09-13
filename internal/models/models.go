@@ -377,8 +377,8 @@ var SkillDirNames = map[string]string{
 	"implement":     "code-issue",
 	"adjust":        "adjust-issue",
 	"adjust-issue":  "adjust-issue",
-	"create-pr":     "adjust-issue",
-	"create_pr":     "adjust-issue",
+	"create-pr":     "create-pr",
+	"create_pr":     "create-pr",
 	"review":        "adjust-issue",
 	"handoff":       "handoff-issue",
 	"pickup":        "pickup-issue",
@@ -936,7 +936,9 @@ type ProposedMacroTask struct {
 // NormalizeSkillID preserves legacy invocations without rewriting history.
 func NormalizeSkillID(id string) string {
 	switch strings.TrimSpace(id) {
-	case "adjust", "adjust-issue", "create_pr", "create-pr", "review":
+	case "create_pr", "create-pr":
+		return "create_pr"
+	case "adjust", "adjust-issue", "review":
 		return "adjust"
 	default:
 		return strings.TrimSpace(id)

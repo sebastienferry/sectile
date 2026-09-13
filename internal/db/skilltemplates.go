@@ -51,7 +51,7 @@ type StageSkill struct {
 var StageSkills = []StageSkill{
 	{
 		ID:          "clarify",
-		Name:        "Clarify Issue",
+		Name:        "Clarify",
 		DirName:     models.SkillDirNames["clarify"],
 		Command:     "/clarify-issue",
 		FromStage:   "new",
@@ -97,7 +97,7 @@ would be expensive to reverse later, not for a list of everything unknown.`,
 	},
 	{
 		ID:          "specify",
-		Name:        "Specify Issue",
+		Name:        "Specify",
 		DirName:     models.SkillDirNames["specify"],
 		Command:     "/specify-issue",
 		FromStage:   "clarified",
@@ -127,7 +127,7 @@ and the two kept in separate files.`,
 	},
 	{
 		ID:          "implement",
-		Name:        "Implement Code",
+		Name:        "Implement",
 		DirName:     models.SkillDirNames["implement"],
 		Command:     "/code-issue",
 		FromStage:   "specified",
@@ -215,7 +215,7 @@ found and fixed, the risky parts pointed out, the test plan written down.`,
 	},
 	{
 		ID:          "handoff",
-		Name:        "Handoff & clôture",
+		Name:        "Handoff",
 		DirName:     models.SkillDirNames["handoff"],
 		Command:     "/handoff-issue",
 		FromStage:   "reviewed",
@@ -254,6 +254,31 @@ and a local workspace with nothing stale in it.`,
 - The acceptance checklist, as checkboxes.
 - What was cleaned locally, and what could not be, with the reason.
 - Follow-up tickets worth creating.`,
+	},
+	{
+		ID:              "create_pr",
+		Name:            "Create PR",
+		DirName:         models.SkillDirNames["create_pr"],
+		Command:         "/create-pr",
+		Description:     "Create or reuse a pull request independently of the workflow stages.",
+		Icon:            "GitPullRequest",
+		Color:           "purple",
+		Steps:           []string{"Inspect the branch and existing pull requests", "Run the required checks", "Create or update the pull request without changing the workflow stage"},
+		title:           "Create PR",
+		frontmatterDesc: "Create or reuse a pull request for the current task branch without advancing its workflow stage.",
+		goal:            "Publish the current task branch as a reviewable pull request. This is a standalone utility, outside the five-stage agentic workflow.",
+		readFirst:       "- The task, specification, repository instructions, current branch, diff and existing pull requests.",
+		stepsBody: `1. Reuse the assigned worktree and branch. Inspect the complete diff and verify the target repository and base branch.
+2. Run git fetch origin and reconcile the remote default branch (for example origin/main). Do not publish while behind the remote default branch. Preserve shared history; prefer rebase when the branch is private, and use git push --force-with-lease only when an authorized private-branch rebase requires it. Run the repository's required build, lint and tests. Fix findings before publishing and record the results.
+3. Commit and push the authorized changes. Look up the matching open PR for this branch before creating one; reuse it if present.
+4. Create a draft PR if none exists, or update the existing PR description with the final scope and validation. Preserve its existing draft/ready state.
+5. Verify the remote PR URL and head commit. Report the PR URL and evidence without transitioning the task.`,
+		guardTitle: "Do not",
+		guard: `- Do not advance workflow stages, mark the task reviewed, merge, approve or clean up the worktree.
+- Do not create duplicate PRs or publish with failing checks.`,
+		report: `- PR URL and branch.
+- Scope of the change and validation results.
+- Confirmation that the task workflow stage was preserved.`,
 	},
 	{
 		ID:          "pickup",
@@ -609,9 +634,6 @@ func ProjectSkillTemplates(specFramework string) []ProjectSkillTemplate {
 	out := make([]ProjectSkillTemplate, 0, len(StageSkills))
 	for _, s := range StageSkills {
 		name := s.Name
-		if s.ID == "specify" {
-			name = specifyFrameworkName(specFramework)
-		}
 		if s.ID == "refine_macro" {
 			name = refineMacroFrameworkName(specFramework)
 		}
