@@ -218,3 +218,14 @@ The task launcher excludes finished tasks, including the finished workflow
 label. Each result shows its current workflow stage and tracker status when
 available. The agent checks again before submitting a launch, so a task finished
 after the search must be reopened on the server first.
+
+### Next workflow step
+
+The status line beneath the task console shows its current server workflow stage.
+Use **Next: Clarify**, **Next: Specify**, **Next: Implement**, or
+**Next: Review and create PR** to launch one step with the project's current
+configuration. Historical consoles use the task's current state too. The action
+is disabled while that task has an active execution or a launch is pending.
+The desktop rechecks state before submission; if the next step changed, review
+the updated button and click again. Metadata failures offer **Retry**.
+Reviewed tasks show **Awaiting human merge**; finished tasks have no next action.

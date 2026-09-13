@@ -375,7 +375,9 @@ npm start
 
 Configure the server connection in the desktop window, then launch tasks from
 the web. The desktop hosts consoles, stop controls, log export and local project
-mappings. Closing the window keeps the agent running. The integrated terminal,
+mappings. A status line beneath the task console offers the next workflow skill,
+using current task state and blocking duplicate active executions. Closing the
+window keeps the agent running. The integrated terminal,
 branch switcher, diff viewer and worktree controls have been removed from the web.
 
 See [desktop setup](desktop/README.md) and [ADR 0003](docs/adrs/0003-local-desktop-consoles.md).

@@ -2,15 +2,20 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
+import { taskStage, nextTaskStep } from './workflow.mjs'
 const api=window.localAgent
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><span class="brand">TF</span><strong>TaskFlow Local</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
 <form id="start"><label>TaskFlow server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><strong id="title">Select an execution</strong><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" disabled>Stop execution</button></div><div id="terminal"></div><footer>Interactive native console · Input goes directly to the running client</footer></article></main>
+<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><strong id="title">Select an execution</strong><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" disabled>Stop execution</button></div><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
 <dialog id="project-dialog"><button id="close-dialog" aria-label="Close">×</button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:'Menlo, monospace',scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
 const fit=new FitAddon();terminal.loadAddon(fit)
+let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
+const submittingSteps=new Set()
+const submittedSteps=new Map()
+const nextStepErrors=new Map()
 const taskTitles=new Map()
 const pullRequests=new Map()
 let localTasks={}
@@ -54,6 +59,7 @@ function ready(){
 function select(run){
  selectedProject=run.projectId
  selected=run.id
+ refreshNextStep()
  document.querySelector('#title').textContent=(taskState(run).name||run.taskKey||run.taskId)+' · '+run.skill
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
@@ -124,10 +130,11 @@ function render(){
  if(link){selectedPR.textContent=prLabel(link);selectedPR.title=link;selectedPR.onclick=()=>api.openPR(link).catch(error)}
  document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
+ renderNextStep()
 }
 async function refresh(){
  if(restarting||!document.querySelector('#setup').hidden)return
- try{const next=await api.runs();ready();refreshPRs(next);const status=await api.status();document.querySelector('#connection').textContent=status.connected?'Connected to '+status.server:'Local agent ready · Server disconnected';const serialized=JSON.stringify(next);if(serialized!==last){const previous=runs.find(run=>run.id===selected);last=serialized;runs=next;render();const current=runs.find(run=>run.id===selected);if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current);if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}}}
+ try{const next=await api.runs();ready();refreshPRs(next);const status=await api.status();document.querySelector('#connection').textContent=status.connected?'Connected to '+status.server:'Local agent ready · Server disconnected';const serialized=JSON.stringify(next);if(serialized!==last){const previous=runs.find(run=>run.id===selected);last=serialized;runs=next;render();const current=runs.find(run=>run.id===selected);if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current);if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}refreshNextStep()}else if(Date.now()-nextStepUpdated>15000)refreshNextStep()}
  catch{agentUnavailable()}
 }
 document.querySelector('#start').onsubmit=async event=>{
@@ -582,8 +589,63 @@ async function quickAdd(){
 function isFinishedTask(task){
  return ['finished','done'].includes(task.status)||(task.labels||[]).some(label=>label.trim().replace(/^#/,'').toLowerCase()==='finished')
 }
-function taskStage(task){
- const stages=['new','clarified','specified','implemented','reviewed','finished']
- for(const label of task.labels||[]){const stage=label.trim().replace(/^#/,'').toLowerCase();if(stages.includes(stage))return stage}
- return ({to_clarify:'new',backlog:'new',to_implement:'specified',to_test:'implemented',to_close:'reviewed',done:'finished'})[task.status]||task.status||'Unknown'
+
+function currentTaskRun(){return runs.find(run=>run.id===selected)}
+function renderNextStep(){
+ const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),retry=document.querySelector('#retry-next-step')
+ button.hidden=true;button.disabled=true;retry.hidden=true
+ if(!run){status.textContent='Select a task to see its next step';return}
+ const key=taskKey(run)
+ if(!nextStepData||nextStepData.key!==key){status.textContent='Loading task workflow…';return}
+ if(nextStepData.error){status.textContent=nextStepData.error;retry.hidden=false;return}
+ const step=nextStepData.step
+ const busy=runs.some(item=>taskKey(item)===key&&activeRun(item))
+ const submitted=submittedSteps.get(key)
+ if(submitted&&(submitted.skillId!==step.skillId||runs.some(item=>taskKey(item)===key&&!submitted.runIds.includes(item.id))))submittedSteps.delete(key)
+ const pending=submittingSteps.has(key)||submittedSteps.has(key)
+ const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?'Execution in progress':nextStepErrors.get(key)||step.message
+ status.textContent=(nextStepData.task.key||run.taskKey||run.taskId)+' · '+step.stage+' · '+message
+ if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
+}
+new ResizeObserver(resize).observe(document.querySelector('#task-status'))
+async function readNextStep(run){
+ const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
+ const task=tasks.find(task=>task.id===run.taskId)
+ if(!task)throw Error('Task workflow unavailable. Refresh to try again.')
+ return {key:taskKey(run),task,step:nextTaskStep(task,project)}
+}
+async function refreshNextStep(){
+ const run=currentTaskRun()
+ if(run&&submittingSteps.has(taskKey(run)))return
+ const generation=++nextStepGeneration
+ nextStepUpdated=Date.now()
+ if(!run){nextStepData=null;renderNextStep();return}
+ if(nextStepData?.key!==taskKey(run))nextStepData=null
+ renderNextStep()
+ try{
+  const data=await readNextStep(run)
+  if(generation===nextStepGeneration)nextStepData=data
+ }catch(err){if(generation===nextStepGeneration)nextStepData={key:taskKey(run),error:'Cannot load next step: '+err.message}}
+ if(generation===nextStepGeneration)renderNextStep()
+}
+document.querySelector('#retry-next-step').onclick=refreshNextStep
+document.querySelector('#next-step').onclick=async()=>{
+ const run=currentTaskRun(),displayed=nextStepData
+ if(!run||displayed?.key!==taskKey(run)||!displayed.step?.skillId)return
+ const key=taskKey(run)
+ if(submittingSteps.has(key)||submittedSteps.has(key)||runs.some(item=>taskKey(item)===key&&activeRun(item)))return
+ nextStepGeneration++;nextStepErrors.delete(key);submittingSteps.add(key);renderNextStep()
+ try{
+  const [fresh,latestRuns]=await Promise.all([readNextStep(run),api.runs()])
+  if(taskKey(currentTaskRun()||{})!==key)return
+  nextStepData=fresh
+  if(fresh.step.skillId!==displayed.step.skillId||latestRuns.some(item=>taskKey(item)===key&&activeRun(item))){await refresh();return}
+  await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'')
+  submittedSteps.set(key,{skillId:fresh.step.skillId,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
+  await refresh()
+  if(taskKey(currentTaskRun()||{})===key){
+   const launched=runs.find(item=>taskKey(item)===key&&!latestRuns.some(previous=>previous.id===item.id))
+   if(launched)select(launched)
+  }
+ }catch(err){nextStepErrors.set(key,'Could not launch next step: '+err.message)}finally{submittingSteps.delete(key);renderNextStep()}
 }
