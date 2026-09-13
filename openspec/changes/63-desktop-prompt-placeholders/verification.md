@@ -22,6 +22,6 @@
 Baseline checks passed before implementation. Vite reports the existing worktree `#` path warning and the existing web bundle-size warning; builds succeed. Electron tests use local mock servers and do not launch real coding clients.
 
 ## Review
-Reviewed the complete task diff against fetched `origin/main` (`bfc68e5`), requirements, changed tests, and existing PR feedback. PR #74 had no reviews, comments, inline comments or configured checks at review time. No unresolved code findings. The interactive history edge case was fixed and regression-tested. Specification draft: https://github.com/sebastienferry/taskflow/pull/74.
+Reviewed the complete task diff against fetched `origin/main` (`bfc68e5`), requirements, changed tests, and existing PR feedback. PR #74 had no reviews, comments, inline comments or configured checks at review time. No unresolved code findings. The interactive history edge case was fixed and regression-tested. PR #74 was updated and verified open and ready for review with implementation commit `0c83ddc`: https://github.com/sebastienferry/taskflow/pull/74. No remote CI checks are configured; local check evidence is recorded above.
 
 Server execution redesign, arbitrary shell-program interpolation, raw terminal commands and interactive launches without a skill remain outside the requested scope. The template itself is trusted shell code; placeholders are ordinary CLI argument data. No new dependency or migration is required. Existing unrelated local workflow changes remain preserved outside this PR.
