@@ -473,6 +473,15 @@ builds and do not rebuild. Pass agent arguments with, for example,
 `make start ARGS="--url http://localhost:8090"`; provide authentication through
 `TASKFLOW_AGENT_TOKEN`.
 
+### Browse desktop project tasks
+
+Hover or keyboard-focus a desktop project row and activate its **Open tasks**
+list icon to browse that project's unfinished server tickets immediately.
+Search by title or key, or submit an empty search to restore the full open list.
+Choose a skill and **Launch** to pick up a ticket; pickup is the default when
+available. Loading the list never starts an execution. Failed requests can be
+retried with Search, and launching requires a configured local repository.
+
 ### Desktop Quick add
 
 Click **New task (+)** beside a desktop project to choose **Run an existing

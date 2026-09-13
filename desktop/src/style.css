@@ -25,3 +25,8 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 #task-status button:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
 #workspace{overflow:hidden}
 #toolbar{flex-shrink:0;overflow-x:auto;gap:8px}
+
+.project-row .project-open-tasks{opacity:0;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center}
+.project-row:hover .project-open-tasks,.project-row:focus-within .project-open-tasks{opacity:1}
+.project-open-tasks:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
+@media (hover:none){.project-row .project-open-tasks{opacity:1}}

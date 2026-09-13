@@ -1,0 +1,37 @@
+# Validation
+
+Branch: `feat/62`. Pull request: https://github.com/sebastienferry/taskflow/pull/88.
+
+## Changes and review
+
+- `desktop/src/main.js`: independent project-row list action; immediate project-scoped open-task requests; searchable results; stale success/error suppression; default pickup skill when available; explicit missing-mapping and request failure messages. Quick-add passes its initial query directly to avoid a second request and late writes into another dialog.
+- `desktop/src/style.css`: icon hover/focus visibility, focus outline and touch-device visibility.
+- `desktop/tests/project-open-tasks.ui.cjs`: isolated Electron mock-server regression covering empty search, query/clear, finished status/label exclusion, equal task keys in different projects, launch identity, launch failure/retry, missing mapping, loading/empty/error states, stale successes/failures, collapsed rows, keyboard entry/Escape and minimum sidebar width.
+- `README.md` and `desktop/README.md`: discovery, search, launch defaults and retry behavior.
+- OpenSpec artifacts: clarified scope, executable requirements, design and completed implementation checklist.
+
+Reviewed the complete task diff against the specification and the current `origin/main`. No PR comments, inline review comments or reviews were present when retrieved. The branch includes the current default branch. Existing unrelated skill-file edits and `.codex/` content were preserved and excluded from task commits.
+
+The first UI test attempt asserted opacity before the existing 120 ms transition completed. Changed the assertion to wait for computed opacity; the focused regression and full suite then passed. This was a test synchronization issue. Screenshot inspection confirmed readable task rows and controls.
+
+## Replayable checks and actual output
+
+- [x] `openspec validate 62-project-open-tasks --strict`: `Change '62-project-open-tasks' is valid`.
+- [x] `npm run build --prefix desktop`: `10 modules transformed`, build completed.
+- [x] `npm run test:ui --prefix desktop`: `tests 9`, `pass 9`, `fail 0`.
+- [x] `web/node_modules/.bin/oxlint desktop/src desktop/tests/project-open-tasks.ui.cjs`: exit 0, no diagnostics.
+- [x] `npm run build --prefix web`: TypeScript and Vite passed, `2095 modules transformed`.
+- [x] `npm run lint --prefix web`: exit 0; warnings in unchanged web components/hooks remain.
+- [x] `npm test --prefix web`: `tests 22`, `pass 22`, `fail 0`.
+- [x] `go test ./...`: all tested packages reported `ok`, including `tasks/cmd/server` and `tasks/internal/terminal`.
+- [x] `go build -o /tmp/taskflow-62-server ./cmd/server`: exit 0.
+- [x] `go vet ./...`: exit 0.
+- [x] `git diff --check`: exit 0.
+
+Both Vite builds warn about the assigned worktree's `#` character; the web build also reports its existing large bundle warning. Builds and Electron tests succeeded from the assigned path. Go checks required sandbox escalation for the existing build cache and local listeners.
+
+## Workflow reporting blocker
+
+The supplied run `946b328f-a648-41a0-8080-bbe92874e171` was already failed by a server restart. `taskflow_start_run` rejected reuse with `remote run does not match an active execution on this task`. No replacement run or status was fabricated.
+
+Automatic approval review rejected `taskflow_transition_stage` for clarified twice, treating the invocation as managed and requiring its completion contract. Clarification and all subsequent evidence are preserved here; no stage was advanced through a substitute endpoint or direct tracker mutation. User approval is needed before reporting verified stages through MCP. PR creation and feature work proceeded independently within the requested pickup scope. The ticket must not be represented as reviewed until reporting succeeds.

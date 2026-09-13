@@ -176,12 +176,15 @@ Worktrees use Yes/No buttons; parallelism uses 1/2/3 buttons. Reset icons restor
 inheritance from server defaults. Changes take effect after **Save local
 configuration**. Server metadata and skill content remain read-only.
 
-Use **Launch task** beneath a project to search its server tasks, select a
-server-provided skill and **Launch**. Submission uses the server's
+Hover or keyboard-focus a project row and activate **Open tasks** to list its
+open server tasks immediately, even when the project is collapsed. Search by title
+or task key to narrow the list; submit an empty search to restore all open tasks.
+Select a server-provided skill and **Launch**; pickup is selected by default when
+available. Submission uses the server's
 existing run-skill dispatch and local queue; it does not create a duplicate task.
 The project must have a valid local repository mapping.
 
-The launcher shows results only after a search. Each result shows its status and a skill selector; Custom instructions sends a free-text request to the configured AI client. Executions appear in the local task list.
+Each result shows its status and a skill selector; Custom instructions sends a free-text request to the configured AI client. Loading, empty and error states are shown in the list; use Search to retry a failed request. Executions appear in the local task list. Opening the list does not start an execution.
 
 The Local project tab includes the effective **CLI command**. Edit it to save a
 per-project override under `commands` in user settings; the reset icon restores
