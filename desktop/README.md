@@ -24,7 +24,9 @@ project scope. Subsequent launches reconnect to the application's existing agent
 ## Use
 
 Launch a skill from the web. Select its local execution to see the Codex/Claude
-console, type answers, resize it, stop it, or export its scrollback. The selected
+console, type answers, resize it, stop it, or export its scrollback. The square
+stop icon in the terminal toolbar cancels the selected execution; its tooltip
+and accessible label are **Stop execution**. The selected
 task uses a highlighted background without a selection border; keyboard focus
 remains visible. The project directory browser discovers server projects and
 saves local Git repository mappings.
