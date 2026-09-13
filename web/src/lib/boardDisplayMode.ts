@@ -12,8 +12,12 @@ function resolveStorage(customStorage?: StorageLike): StorageLike | null {
   if (customStorage) {
     return customStorage
   }
-  if (typeof window !== 'undefined' && window.localStorage) {
-    return window.localStorage
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      return window.localStorage
+    }
+  } catch {
+    return null
   }
   return null
 }

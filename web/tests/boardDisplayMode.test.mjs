@@ -65,3 +65,25 @@ test('toggles between condensed and expanded', () => {
   assert.equal(toggleBoardCardDisplayMode('condensed'), 'expanded')
   assert.equal(toggleBoardCardDisplayMode('expanded'), 'condensed')
 })
+
+test('falls back to condensed when value is unrecognized or empty', () => {
+  const storageInvalid = createMockStorage({ [BOARD_DISPLAY_MODE_STORAGE_KEY]: 'unknown_mode' })
+  assert.equal(loadBoardCardDisplayMode(storageInvalid), 'condensed')
+
+  const storageWhitespace = createMockStorage({ [BOARD_DISPLAY_MODE_STORAGE_KEY]: '   ' })
+  assert.equal(loadBoardCardDisplayMode(storageWhitespace), 'condensed')
+})
+
+test('handles storage exceptions gracefully when reading or saving', () => {
+  const throwingStorage = {
+    getItem() {
+      throw new Error('Access denied')
+    },
+    setItem() {
+      throw new Error('Quota exceeded')
+    },
+  }
+
+  assert.equal(loadBoardCardDisplayMode(throwingStorage), 'condensed')
+  assert.doesNotThrow(() => saveBoardCardDisplayMode('expanded', throwingStorage))
+})
