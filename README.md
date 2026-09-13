@@ -472,6 +472,12 @@ builds and do not rebuild. Pass agent arguments with, for example,
 
 ### Desktop Quick add
 
+Click **New task (+)** beside a desktop project to choose **Run an existing
+ticket** or **Quick add task**. Both paths target the clicked project, even
+when another project's execution is selected. Existing tickets open the search
+and skill launcher; Quick add preselects the project and offers **Launch task**
+after successful creation.
+
 Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette and choose
 **Quick add task**. The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.

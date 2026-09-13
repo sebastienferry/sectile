@@ -85,7 +85,7 @@ function render(){
   const heading=document.createElement('button');heading.className='project-heading';heading.textContent=(collapsedProjects.has(project.id)?'▸ ':'▾ ')+project.name;heading.setAttribute('aria-expanded',String(!collapsedProjects.has(project.id)))
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
   const configure=document.createElement('button');configure.textContent='⚙';configure.setAttribute('aria-label','Configure '+project.name);configure.onclick=()=>openProject(project.id)
-  const browse=document.createElement('button');browse.textContent='+';browse.title='New task';browse.setAttribute('aria-label','New task in '+project.name);browse.onclick=()=>browseTasks(project.id)
+  const browse=document.createElement('button');browse.textContent='+';browse.title='New task';browse.setAttribute('aria-label','New task in '+project.name);browse.onclick=()=>newProjectTask(project.id)
   projectRow.append(heading,browse,configure);group.append(projectRow)
   const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run))
   const taskGroups=new Map()
@@ -388,6 +388,16 @@ document.querySelector('#start-agent').onclick=async()=>{
  if(form.reportValidity())form.requestSubmit()
 }
 
+function newProjectTask(projectID){
+ selectedProject=projectID
+ showDialog('New task')
+ const existing=document.createElement('button');existing.className='discovered-project';existing.textContent='Run an existing ticket'
+ existing.onclick=()=>browseTasks(projectID)
+ const create=document.createElement('button');create.className='discovered-project';create.textContent='Quick add task'
+ create.onclick=()=>quickAdd(projectID)
+ dialogBody.append(existing,create);existing.focus()
+}
+
 async function browseTasks(projectID){
  selectedProject=projectID
  showDialog('Launch task')
@@ -557,13 +567,13 @@ document.querySelector('#command-palette').onclick=openCommandPalette
 window.addEventListener('keydown',event=>{
  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();event.stopPropagation();openCommandPalette()}
 },true)
-async function quickAdd(){
+async function quickAdd(projectID=selectedProject){
  showDialog('Quick add task')
  const form=document.createElement('form'),projectLabel=document.createElement('label'),project=document.createElement('select')
  projectLabel.textContent='Project';project.setAttribute('aria-label','Quick add project')
  try{await loadProjects()}catch(err){paragraph(err.message);return}
  for(const item of projects){const option=document.createElement('option');option.value=item.id;option.textContent=item.name;project.append(option)}
- project.value=selectedProject||''
+ project.value=projectID||''
  if(!project.value){const empty=document.createElement('option');empty.value='';empty.textContent='Select a project';project.prepend(empty);project.value=''}
  project.required=true;projectLabel.append(project)
  const title=document.createElement('input');title.placeholder='Task title';title.setAttribute('aria-label','Task title');title.required=true;title.maxLength=500
