@@ -45,6 +45,20 @@ the task activity and `agent.log` in the application's data directory.
 When a task's assigned branch is already open in the main repository checkout,
 the agent reuses that checkout and preserves its local changes.
 
+### Execution queue
+
+The sidebar's **Execution queue** shows active and waiting execution counts,
+including multiple executions of the same task. Expand **View executions** to
+see each task, project, skill and status, and select an entry to open its console.
+Waiting executions appear in submission order, using the daemon's queue sequence
+or creation time for older agents. This is not a global start-order guarantee:
+project concurrency limits and shared checkouts determine admission, and
+independent projects can run concurrently. The list updates with the desktop's
+regular refresh and is independent of collapsed project groups. Canceled runs
+are excluded from the waiting list. With an updated agent, cancellation requests
+appear separately as **Stopping / canceling** until cleanup completes; running
+processes retain their scheduler slot until their exit is confirmed.
+
 ## Package and verify
 
 ```sh

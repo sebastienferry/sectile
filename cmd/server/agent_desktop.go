@@ -19,17 +19,19 @@ import (
 )
 
 type desktopRun struct {
-	CreatedAt time.Time `json:"createdAt"`
-	StartedAt time.Time `json:"startedAt,omitzero"`
-	Prompt    string    `json:"prompt,omitempty"`
-	ID        string    `json:"id"`
-	TaskID    string    `json:"taskId"`
-	TaskKey   string    `json:"taskKey"`
-	ProjectID string    `json:"projectId"`
-	Skill     string    `json:"skill"`
-	SessionID string    `json:"sessionId"`
-	Directory string    `json:"directory"`
-	Status    string    `json:"status"`
+	CancelRequested bool      `json:"cancelRequested,omitempty"`
+	QueueSequence   uint64    `json:"queueSequence,omitempty"`
+	CreatedAt       time.Time `json:"createdAt"`
+	StartedAt       time.Time `json:"startedAt,omitzero"`
+	Prompt          string    `json:"prompt,omitempty"`
+	ID              string    `json:"id"`
+	TaskID          string    `json:"taskId"`
+	TaskKey         string    `json:"taskKey"`
+	ProjectID       string    `json:"projectId"`
+	Skill           string    `json:"skill"`
+	SessionID       string    `json:"sessionId"`
+	Directory       string    `json:"directory"`
+	Status          string    `json:"status"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +119,8 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		for key, run := range d.runs {
 			entry := run.desktop
 			entry.ID = key
+			entry.QueueSequence = run.sequence
+			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running")
 			if entry.Status != "" {
 				runs = append(runs, entry)
 			}

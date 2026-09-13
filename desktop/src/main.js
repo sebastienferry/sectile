@@ -1,3 +1,4 @@
+import { orderedQueueRuns } from './queue.mjs'
 import { orderedTaskGroups } from './task-order.mjs'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
@@ -9,7 +10,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><span class="brand">S</span><strong>Sectile Local</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
 <form id="start"><label>TaskFlow server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><strong id="title">Select an execution</strong><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
+<main id="workspace" hidden><aside><section id="execution-queue" aria-label="Execution queue"><h2>Execution queue</h2><p id="queue-summary" role="status" aria-live="polite"></p><details id="queue-details" open><summary>View executions</summary><div id="queue-list"></div></details></section><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><strong id="title">Select an execution</strong><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
 <dialog id="project-dialog"><button id="close-dialog" aria-label="Close">×</button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:'Menlo, monospace',scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
 const fit=new FitAddon();terminal.loadAddon(fit)
@@ -74,7 +75,34 @@ function select(run){
  api.attach(run.id).then(()=>{setTimeout(resize,150);terminal.focus()}).catch(error)
  render()
 }
+function renderQueue(){
+ const active=runs.filter(run=>['running','preparing'].includes(run.status)&&!run.cancelRequested)
+ const stopping=runs.filter(run=>activeRun(run)&&run.cancelRequested)
+ const waiting=orderedQueueRuns(runs)
+ const summary=document.querySelector('#queue-summary')
+ const text=active.length+' active · '+waiting.length+' waiting'+(stopping.length?' · '+stopping.length+' stopping':'')
+ if(summary.textContent!==text)summary.textContent=text
+ const list=document.querySelector('#queue-list');list.replaceChildren()
+ if(!active.length&&!waiting.length&&!stopping.length){
+  const empty=document.createElement('p');empty.textContent='No active or queued executions';list.append(empty);return
+ }
+ for(const [label,items] of [['Waiting · submission order',waiting],['Stopping / canceling',stopping],['Running / preparing',active]]){
+  if(!items.length)continue
+  const heading=document.createElement('h3');heading.textContent=label;list.append(heading)
+  const entries=document.createElement('ul');list.append(entries)
+  for(const run of items){
+   const item=document.createElement('li'),button=document.createElement('button')
+   button.className='queue-execution';button.dataset.runId=run.id
+   button.setAttribute('aria-pressed',String(run.id===selected))
+   const title=document.createElement('strong');title.textContent=(run.taskKey||run.taskId)+' · '+(taskState(run).name||taskTitles.get(run.taskId)||run.skill)
+   const context=document.createElement('small');context.textContent=(projects.find(project=>project.id===run.projectId)?.name||run.projectId)+' · '+run.skill+' · '+(run.cancelRequested?(run.status==='queued'?'Canceling':'Stopping; waiting for exit'):run.status)
+   button.append(title,context);button.onclick=()=>select(run);item.append(button);entries.append(item)
+  }
+ }
+ if(waiting.length){const note=document.createElement('p');note.className='queue-note';note.textContent='Starts when project capacity and checkout availability permit. Independent projects may start separately.';list.append(note)}
+}
 function render(){
+ renderQueue()
  const list=document.querySelector('#runs');list.replaceChildren()
 
  const groups=new Map(projects.filter(project=>project.path).map(project=>[project.id,project]))
