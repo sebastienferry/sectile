@@ -1,14 +1,21 @@
 ---
-description: "Exécute en autonomie complète toutes les étapes d'un ticket jusqu'à la création de la Pull Request."
-argument-hint: <TICKET-KEY> [contexte]
+description: "Pick a ticket and autonomously execute all development steps up to Pull Request creation."
+argument-hint: <TICKET-KEY> [context]
 ---
 # Pickup Issue (Auto-Pilot to PR)
 
 Stage: new -> reviewed.
 
+## TaskFlow task access
+- Use the local TaskFlow agent's exposed task-management interface first for ticket reads, updates, comments, creation, and workflow results. Discover its actual tools or documented commands from the session/project context; do not invent an endpoint or launch another agent daemon as a substitute.
+- Resolve the project against its repository, then verify the task's full ID and external URL. A bare key such as #47 can match another project's ticket. Use the full task ID for mutations and an explicit project ID for creation.
+- If the local agent interface is unavailable or fails after a bounded attempt, use http://localhost:8090 as a temporary fallback. Record the missing capability or error, check for an existing bug in the same project, and register or update that bug when authorized. If reporting is unavailable or not authorized, preserve the report locally and state what remains pending. Do not bypass TaskFlow by writing directly to its database or remote tracker.
+- For a managed run, submit only through its supplied result contract and let TaskFlow validate and synchronize the result. An active run without a usable completion contract is a reportable integration failure. Preserve the artifacts and report the blocked transition; do not cancel the activity, forge launch/completion status, or use another endpoint to evade result validation.
+- This routing does not authorize mutations excluded by the skill or user request. Verify each mutation's response and report partial success explicitly.
+
 ## Goal
 Autonomously take a ticket from its current stage through clarification, specification,
-implementation, and testing, all the way to opening a clean Pull Request, updating each stage via TaskFlow.
+implementation, and testing, all the way to opening a clean Pull Request, updating each stage via Sectile.
 
 ## Read first
 - The ticket: key, title, description, parent macro, and tracker comments.
@@ -110,29 +117,30 @@ Report and persist before continuing:
 - The real output of build, linters and tests, remaining failures included.
 - What you deliberately left out, and what it would take to finish it.
 
-### Review and Pull Request
+### Adjust Existing Pull Request
 - The full diff of the branch against the default branch. All of it, not the summary.
 - The specification, to check that what was asked is what was built.
 - The current remote default branch: fetch the remote and identify its configured
   default branch before reviewing or publishing.
 
-1. Fetch the remote (`git fetch origin`) and compare the work branch with the
+1. Verify a matching open PR exists for the task repository and branch before changing files. Record its URL. If missing, stop and recover through the configured creation owner (specify or implement). Never create a PR during adjustment. Read available PR feedback; retrieval failure is a blocker, not absence of feedback.
+   Fetch the remote (`git fetch origin`) and compare the work branch with the
    remote default branch (normally `origin/main`; use the repository's configured default when different).
    Integrate missing base commits before the final review: prefer rebase when the branch is private, or merge when
    repository policy or shared-branch state requires it. Resolve conflicts and do not continue until the working tree is clean.
-2. Review the resulting diff for correctness, side effects, security, and edge cases with no test.
+2. Review the complete resulting diff against the specification for correctness, side effects, security, and edge cases with no test. Address actionable feedback and record dispositions. No human feedback is required.
 3. Update documentation affected by the change. Fix what the review finds, now. A known defect belongs in the code, not in the
    description of the merge request.
 4. Re-run build, static analysis and tests after integrating the default branch and on the final state.
 5. Commit with a conventional message: type, scope, and why the change exists.
-6. Push the branch and create or update its existing merge request: summary, test plan, and the specific
+6. Push the branch and update the same existing merge request: summary, test plan, and the specific
    places where you want a reviewer's eyes.
    If rebasing an already-pushed branch, use `git push --force-with-lease`, never an unguarded force push.
-7. If the repository has no remote, say so and stop rather than merging locally.
+7. Verify the same PR is open and contains the pushed final commit, update its description and check evidence, then mark it ready. If any check, feedback retrieval, push or readiness verification fails, preserve work and report the blocker. If the repository has no remote, stop.
 
 - Do not merge, do not approve, do not close the ticket. That is the user's call.
-- Do not open a merge request on a red build. Report the failure instead.
-- Do not open a merge request from a branch known to be behind the remote default branch.
+- Do not create a PR. Do not mark a PR ready on a red build. Report the failure instead.
+- Do not complete adjustment on a branch known to be behind the remote default branch.
 
 Report and persist before continuing:
 - What the review found, and which findings you fixed.
@@ -160,7 +168,8 @@ Use `taskflow_add_comment` for an authorized ticket discussion update. Managed r
 Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
 
 ## Project pull request policy
-PR creation stage: specified. Read this setting from taskflow_get_project_context before executing. After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep it draft while implementing; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.
+PR creation stage: specified. Read this setting from taskflow_get_project_context before executing. After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep newly created PRs draft while implementing; preserve an existing ready PR; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.
+
 
 ## Ticket
 $ARGUMENTS

@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"strings"
 	"tasks/internal/agentconfig"
 )
 
@@ -52,6 +53,11 @@ func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error)
 	if c.ExternalTerminalCommand == "" {
 		c.ExternalTerminalCommand = s.ExternalTerminalCommand
 	}
+	origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(p.ID))
+	reconcile := origin == "create_pr" || origin == "review" || (origin != "adjust" && strings.TrimSpace(s.PromptCreatePR) != "")
+	if origin != "adjust" && strings.TrimSpace(p.SkillOverrides["adjust"]) == "" && (strings.TrimSpace(p.SkillOverrides["create_pr"]) != "" || strings.TrimSpace(p.SkillOverrides["review"]) != "") {
+		reconcile = true
+	}
 	for _, skill := range d.EffectiveProjectSkills(p.ID, c.SpecFramework) {
 		stage, ok := StageSkillByID(skill.ID)
 		if !ok {
@@ -62,7 +68,7 @@ func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error)
 			command = override
 		}
 		content, _ := commandContentFromSkill(stage, skill.Content, c.SpecFramework)
-		c.Skills = append(c.Skills, agentconfig.Skill{ID: skill.ID, Directory: stage.DirName, Command: command, Content: skill.Content, CommandContent: content})
+		c.Skills = append(c.Skills, agentconfig.Skill{RequiresReconciliation: skill.ID == "adjust" && reconcile, ID: skill.ID, Directory: stage.DirName, Command: command, Content: skill.Content, CommandContent: content})
 	}
 	if err := c.Validate(); err != nil {
 		return nil, err

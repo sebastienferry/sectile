@@ -721,6 +721,10 @@ export interface ProjectGitInitResult {
  * qu'un SKILL.md a été retouché à la main dans le dépôt.
  */
 export interface SkillEditorEntry {
+  overrideOrigin?: string
+  legacyConflicts?: string[]
+  legacyContents?: Record<string, string>
+  requiresReconciliation?: boolean
   id: string
   name: string
   dirName: string

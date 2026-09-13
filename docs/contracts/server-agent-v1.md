@@ -298,3 +298,27 @@ Server and agent currently share `bin/taskflow`. Launch targets use existing
 builds and do not rebuild. Pass agent arguments with, for example,
 `make start ARGS="--url http://localhost:8090"`; provide authentication through
 `TASKFLOW_AGENT_TOKEN`.
+
+
+## Adjustment and PR ownership
+
+The canonical review action is `adjust` (`adjust-issue`). Legacy `create_pr`,
+`review`, and `create-pr` normalize to it without rewriting activity history.
+States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finished`.
+A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
+
+The `prCreationStage` policy assigns draft creation to specification or implementation
+(default). Adjustment requires an existing matching open PR, performs full review
+and feedback disposition, checks the final code, updates the same PR and verifies
+readiness. Lookup failure is not absence. Creation-owner recovery retains an already
+implemented stage. Completion records the PR URL at the owning stage.
+
+Skill records may include `requiresReconciliation`. Native dispatch refuses these
+customizations until their legacy content has been reviewed and saved under Adjust
+or reset in the skill editor. Legacy entries and divergent installed files remain
+available; custom adjustment content also receives the current built-in contract.
+
+Managed adjustment pins the original PR identity before running and verifies the
+same ready PR, branch, pushed commit, clean checkout and reported build/lint/test
+checks at completion. Standalone transitions verify forge identity and readiness;
+check output remains agent-reported. Human merge and handoff remain separate.

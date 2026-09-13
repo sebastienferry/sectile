@@ -316,6 +316,8 @@ func sameDirectory(a, b string) bool {
 
 // dispatchCommand distinguishes opening an interactive agent from running a skill.
 func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command string) (string, error) {
+	skillID = models.NormalizeSkillID(skillID)
+	action = models.NormalizeSkillID(action)
 	if action == "open_terminal" {
 		if strings.TrimSpace(command) != "" {
 			return command, nil
@@ -333,6 +335,9 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	skillCmd := ""
 	for _, skill := range config.Skills {
 		if skillID == skill.ID || skillID == skill.Directory || action == skill.ID {
+			if skill.RequiresReconciliation {
+				return "", fmt.Errorf("legacy customization requires reconciliation in Skills before adjustment")
+			}
 			skillCmd = skill.Command
 			break
 		}
@@ -348,6 +353,9 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		promptArg = prompt
 	} else if strings.TrimSpace(prompt) != "" {
 		promptArg += "\n\n" + prompt
+	}
+	if skillID == "adjust" {
+		promptArg += "\n\n" + runner.AdjustmentContract
 	}
 	return agentCommandLine(config.AIProvider, config.AICommandTemplate, promptArg)
 }

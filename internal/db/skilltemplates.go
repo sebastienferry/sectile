@@ -168,46 +168,47 @@ already there, with the project's checks green.`,
 - What you deliberately left out, and what it would take to finish it.`,
 	},
 	{
-		ID:          "create_pr",
-		Name:        "Review & Pull Request",
-		DirName:     models.SkillDirNames["create_pr"],
-		Command:     "/create-pr",
+		ID:          "adjust",
+		Name:        "Adjust",
+		DirName:     models.SkillDirNames["adjust"],
+		Command:     "/adjust-issue",
 		FromStage:   "implemented",
 		ToStage:     "reviewed",
-		Description: "Relit le diff, prépare le commit et ouvre la merge request.",
+		Description: "Review the complete branch, fix findings and update the existing pull request.",
 		Icon:        "ShieldCheck",
 		Color:       "purple",
 		Steps: []string{
 			"Relecture du diff complet",
 			"Commit conventionnel et poussée de la branche",
-			"Ouverture de la merge request, fusion laissée à l'utilisateur",
+			"Update the existing pull request and verify readiness; human merge",
 			"Label 'reviewed' et transition posés par TaskFlow",
 		},
-		title:           "Review and Pull Request",
-		frontmatterDesc: "Review the branch like a peer would, fix what the review finds, then open the merge request and leave the merge to the user.",
+		title:           "Adjust Existing Pull Request",
+		frontmatterDesc: "Review the branch like a peer would, fix what the review finds, then update the existing merge request and leave the merge to the user.",
 		goal: `Hand a reviewer a branch that is already worth reading: the obvious problems
 found and fixed, the risky parts pointed out, the test plan written down.`,
 		readFirst: `- The full diff of the branch against the default branch. All of it, not the summary.
 - The specification, to check that what was asked is what was built.
 - The current remote default branch: fetch the remote and identify its configured
   default branch before reviewing or publishing.`,
-		stepsBody: `1. Fetch the remote (` + tick + `git fetch origin` + tick + `) and compare the work branch with the
+		stepsBody: `1. Verify a matching open PR exists for the task repository and branch before changing files. Record its URL. If missing, stop and recover through the configured creation owner (specify or implement). Never create a PR during adjustment. Read available PR feedback; retrieval failure is a blocker, not absence of feedback.
+   Fetch the remote (` + tick + `git fetch origin` + tick + `) and compare the work branch with the
    remote default branch (normally ` + tick + `origin/main` + tick + `; use the repository's configured default when different).
    Integrate missing base commits before the final review: prefer rebase when the branch is private, or merge when
    repository policy or shared-branch state requires it. Resolve conflicts and do not continue until the working tree is clean.
-2. Review the resulting diff for correctness, side effects, security, and edge cases with no test.
+2. Review the complete resulting diff against the specification for correctness, side effects, security, and edge cases with no test. Address actionable feedback and record dispositions. No human feedback is required.
 3. Update documentation affected by the change. Fix what the review finds, now. A known defect belongs in the code, not in the
    description of the merge request.
 4. Re-run build, static analysis and tests after integrating the default branch and on the final state.
 5. Commit with a conventional message: type, scope, and why the change exists.
-6. Push the branch and create or update its existing merge request: summary, test plan, and the specific
+6. Push the branch and update the same existing merge request: summary, test plan, and the specific
    places where you want a reviewer's eyes.
    If rebasing an already-pushed branch, use ` + tick + `git push --force-with-lease` + tick + `, never an unguarded force push.
-7. If the repository has no remote, say so and stop rather than merging locally.`,
+7. Verify the same PR is open and contains the pushed final commit, update its description and check evidence, then mark it ready. If any check, feedback retrieval, push or readiness verification fails, preserve work and report the blocker. If the repository has no remote, stop.`,
 		guardTitle: "Do not",
 		guard: `- Do not merge, do not approve, do not close the ticket. That is the user's call.
-- Do not open a merge request on a red build. Report the failure instead.
-- Do not open a merge request from a branch known to be behind the remote default branch.`,
+- Do not create a PR. Do not mark a PR ready on a red build. Report the failure instead.
+- Do not complete adjustment on a branch known to be behind the remote default branch.`,
 		report: `- What the review found, and which findings you fixed.
 - The merge request URL, or why there is none.
 - The test plan a reviewer can replay, as a checklist.`,
@@ -269,7 +270,7 @@ and a local workspace with nothing stale in it.`,
 			"Cadrage des ambiguïtés (Clarify)",
 			"Rédaction de la spécification technique SDD (Specify)",
 			"Implémentation incrémentale et passage des tests (Code)",
-			"Revue du diff, commit et ouverture de la PR/MR (Create PR)",
+			"Adjust the complete diff and existing PR after earlier-stage creation",
 			"Mise à jour à chaque étape via le handler local Sectile",
 		},
 		title:           "Pickup Issue (Auto-Pilot to PR)",
@@ -385,13 +386,9 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 	},
 }
 
-// StageSkillByID returns the unified skill for an internal id. "review" is the
-// historical alias of create_pr, still used by queued jobs.
+// StageSkillByID resolves canonical and legacy workflow identities.
 func StageSkillByID(skillID string) (StageSkill, bool) {
-	skillID = strings.TrimSpace(skillID)
-	if skillID == "review" {
-		skillID = "create_pr"
-	}
+	skillID = models.NormalizeSkillID(skillID)
 	if skillID == "pick_issues" || skillID == "pickup_issues" || skillID == "pickup-issues" {
 		skillID = "pickup_issues"
 	}
@@ -522,7 +519,7 @@ func renderTicketTransitionContract(s StageSkill) string {
 		b.WriteString("Record clarified, specified and implemented after each corresponding step. After PR verification, record reviewed with the PR URL. For a batch, use the same actual branch and combined PR URL for every completed ticket; never mark unfinished work reviewed.\n")
 	} else {
 		fmt.Fprintf(&b, "Transition %s → %s only when this step is complete.\n", s.FromStage, s.ToStage)
-		if s.ID == "create_pr" {
+		if s.ID == "adjust" {
 			b.WriteString("Include prUrl with the verified pull request URL.\n")
 		}
 	}
@@ -530,18 +527,19 @@ func renderTicketTransitionContract(s StageSkill) string {
 	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
 	return b.String()
 }
+
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs
 // cannot silently omit a validation rule added to a standalone step.
 func renderPickupSteps(specFramework string, batch bool) string {
 	var b strings.Builder
 	b.WriteString("1. Inspect the current ticket state AND existing artifacts. Reuse assigned branches, specifications, checklist progress and PRs. Verify completed work before skipping it.\n")
 	if batch {
-		b.WriteString("2. Use one dedicated worktree and branch for the ordered batch. Run clarification, specification and implementation for each ticket in order. If one blocks, preserve the batch and report completed tickets and the next action; never include unfinished work as completed.\n3. Once all tickets are implemented, run review and final checks across the whole batch and create or update ONE combined PR.\n")
+		b.WriteString("2. Use one dedicated worktree and branch for the ordered batch. Run clarification, specification and implementation for each ticket in order. If one blocks, preserve the batch and report completed tickets and the next action; never include unfinished work as completed.\n3. Once all tickets are implemented, run adjustment and final checks across the whole batch and update the ONE combined PR created during the configured earlier stage.\n")
 	} else {
 		b.WriteString("2. Reuse or create a dedicated worktree and work branch. Continue through the stages below from the first incomplete stage to a verified PR.\n")
 	}
 	b.WriteString("Stop before merge. Stage-local boundaries apply while that stage is active; after its requirements are met, continue to the next stage without asking for routine confirmation.\n")
-	for _, id := range []string{"clarify", "specify", "implement", "create_pr"} {
+	for _, id := range []string{"clarify", "specify", "implement", "adjust"} {
 		step, _ := StageSkillByID(id)
 		readFirst, body := step.readFirst, step.stepsBody
 		if id == "specify" {

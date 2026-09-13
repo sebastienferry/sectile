@@ -34,6 +34,45 @@ func (d *DB) notifyPostBackListeners(task *models.Task, activity *models.TaskAct
 // local actions or background tracker operations, records activity auditing logs,
 // and notifies listeners.
 func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *models.TaskActivity, error) {
+	if payload.Stage != nil {
+		stage := strings.TrimPrefix(strings.TrimSpace(*payload.Stage), "#")
+		skill := map[string]string{"specified": "specify", "implemented": "implement", "reviewed": "adjust"}[stage]
+		if skill != "" {
+			id := strings.TrimSpace(payload.TaskID)
+			if id == "" {
+				id = payload.TaskKey
+			}
+			task, err := d.GetTaskByID(id)
+			if err != nil || task == nil {
+				return nil, nil, fmt.Errorf("postback task not found")
+			}
+			branch, url := "", ""
+			if task.BranchName != nil {
+				branch = *task.BranchName
+			}
+			if payload.BranchName != nil {
+				branch = *payload.BranchName
+			}
+			if payload.PrURL != nil {
+				url = *payload.PrURL
+			}
+			verified, err := d.validateStagePR(task, skill, d.adjustmentCheckout(task), branch, url, "")
+			if err != nil {
+				return nil, nil, err
+			}
+			if verified != "" {
+				payload.PrURL = &verified
+			}
+			if d.StageOfTask(task) == "implemented" && stage == "specified" {
+				stage = "implemented"
+				payload.Stage = &stage
+				payload.Status = nil
+				payload.Labels = nil
+				payload.TrackerStatus = nil
+			}
+		}
+	}
+
 	d.mu.Lock()
 
 	targetIdentifier := strings.TrimSpace(payload.TaskID)

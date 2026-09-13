@@ -7,7 +7,7 @@ const actions = [
   { id: 'clarify', command: '/clarify-issue', label: 'Clarify' },
   { id: 'specify', command: '/specify-issue', label: 'Specify' },
   { id: 'implement', command: '/code-issue', label: 'Implement' },
-  { id: 'create_pr', command: '/create-pr', label: 'Review and create PR/MR' },
+  { id: 'adjust', command: '/adjust-issue', label: 'Adjust existing PR/MR' },
   { id: 'handoff', command: '/handoff-issue', label: 'Handoff' },
 ]
 

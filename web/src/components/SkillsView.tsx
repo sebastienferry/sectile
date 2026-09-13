@@ -49,7 +49,7 @@ export const SkillsView: React.FC = () => {
     setDraft(entry.content)
   }
 
-  const isDirty = Boolean(selected && draft !== selected.content)
+  const isDirty = Boolean(selected && (draft !== selected.content || selected.requiresReconciliation))
 
   const applyEntry = (entry: SkillEditorEntry | null) => {
     if (!entry) return
@@ -173,6 +173,8 @@ export const SkillsView: React.FC = () => {
           <>
             <div className="px-4 py-2.5 border-b border-[var(--border-color)] flex items-center gap-2 flex-wrap">
               <div className="min-w-0">
+                {selected.requiresReconciliation && <p role="alert" className="text-amber-400 text-xs">Legacy customization requires reconciliation. Review the complete content and save under Adjust, or reset to the default. Automatic adjustment is blocked.</p>}
+                {selected.overrideOrigin && <p className="text-xs">Source: {selected.overrideOrigin}. Other saved entries: {selected.legacyConflicts?.join(', ') || 'none'}</p>}
                 <h3 className="text-[13px] font-bold text-[var(--text-primary)] truncate">{selected.name}</h3>
                 <p className="text-[10px] text-[var(--text-muted)] truncate">{selected.description}</p>
               </div>
@@ -206,6 +208,7 @@ export const SkillsView: React.FC = () => {
 
 
 
+            {Object.entries(selected.legacyContents || {}).map(([id, content]) => <details key={id} className="px-4 text-xs"><summary>Preserved customization: {id}</summary><pre className="whitespace-pre-wrap">{content}</pre></details>)}
             <textarea
               value={draft}
               onChange={e => setDraft(e.target.value)}

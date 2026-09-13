@@ -24,6 +24,8 @@ import (
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/handlers"
+	"tasks/internal/models"
+	"tasks/internal/runner"
 	"tasks/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -643,6 +645,49 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	payload.ProjectID = config.ProjectID
+	payload.SkillID = models.NormalizeSkillID(payload.SkillID)
+	if payload.SkillID == "" && models.NormalizeSkillID(payload.Action) == "adjust" {
+		payload.SkillID = "adjust"
+	}
+	if payload.SkillID == "adjust" {
+		pr, verifyErr := runner.NewRunner().BranchPullRequest(workDir, branch)
+		if verifyErr != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
+			return
+		}
+		var task models.Task
+		if verifyErr = d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); verifyErr != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
+			return
+		}
+		if task.PrURL != nil && *task.PrURL != "" && *task.PrURL != pr.URL {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "recorded PR does not match task branch")
+			return
+		}
+		if task.PrURL == nil || *task.PrURL == "" {
+			raw, _ := json.Marshal(map[string]string{"prUrl": pr.URL})
+			req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.serverURL+"/api/tasks/"+url.PathEscape(taskRef), strings.NewReader(string(raw)))
+			if err != nil {
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+				return
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := agentHTTPClient(d.token).Do(req)
+			if err != nil {
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+				return
+			}
+			resp.Body.Close()
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "could not persist existing PR identity")
+				return
+			}
+		}
+		payload.Prompt += "\nExisting PR identity: " + pr.URL + ". Update this same PR; never create or replace it."
+	}
+	if payload.SkillID == "specify" || payload.SkillID == "implement" {
+		payload.Prompt += "\nPreserve accepted artifacts and code on retry. If this is PR recovery, retain the attained task stage and complete the configured creation owner checks without advancing to reviewed."
+	}
 
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with taskflow_start_run and finish it using taskflow_finish_run when the entire skill ends.", payload.RunID)

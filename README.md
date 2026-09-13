@@ -44,7 +44,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     1. 🔍 **Clarify** (`/clarify-issue`) : Analyse les ambiguïtés et génère les questions de cadrage.
     2. 📝 **Specify** (`/specify-issue`) : Rédige la spec (Spec Kit ou OpenSpec, selon le framework du projet) et initialise la branche Git.
     3. 💻 **Implement** (`/code-issue`) : Plan de code, modification des fichiers et tests unitaires.
-    4. 🚀 **Create PR** (`/create-pr`) : Commit sémantique et description Markdown complète de la PR.
+    4. **Adjust** (`/adjust-issue`): Review the full branch, address findings and available PR feedback, run final checks, and update the existing PR before human merge.
     5. ⚡ **Auto-Pilot** (`/pick-issue`) : Routeur intelligent qui enchaîne automatiquement l'étape optimale.
   - **Panneau de statut des CLI** : Vérification en temps réel de l'installation et de l'authentification de `git`, `gh`, `linear`, `acli`, `agy`, `vibe`, `claude`, `gemini`, `codex`, ainsi que des outils SDD `uv`, `specify` et `openspec`.
 
@@ -359,9 +359,8 @@ canceled. Worktree changes are preserved. This requires restarting the local
 agent with the updated binary; previously launched or independent Codex/Claude
 processes cannot be controlled by the new supervisor.
 
-Project settings include **Create PR/MR**: choose the default after implementation
-and review, or **Draft after specification** to review specs in an early draft.
-Skills reuse the same PR/MR during implementation and attach its URL through MCP.
+Project settings include **Create PR/MR**: choose the default **Draft after implementation**, or **Draft after specification** to review specs in an early draft.
+Skills reuse the same PR/MR during implementation and attach its URL through MCP. Adjust never creates a PR. Missing PRs recover through the configured earlier stage without downgrading completed work. Legacy `create_pr`, `review`, and `/create-pr` invocations resolve to Adjust; inherited custom instructions require reconciliation in Skills.
 
 ### Desktop console host
 
