@@ -57,7 +57,7 @@ Use `taskflow_add_comment` for an authorized ticket discussion update. Managed r
 Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
 
 ## Project pull request policy
-PR creation stage: implemented. Read this setting from taskflow_get_project_context before executing. Create the PR/MR after implementation and review, reusing any existing PR/MR for the task branch. Do not create one during specification.
+PR creation stage: specified. Read this setting from taskflow_get_project_context before executing. After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep it draft while implementing; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.
 
 ## Ticket
 $ARGUMENTS
