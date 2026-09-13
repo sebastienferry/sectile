@@ -226,6 +226,9 @@ time used for queued/preparing runs and older records without a start timestamp.
 A task with several runs uses its highest-priority state and newest run in that
 state. Equal times use task/run identities for stable ordering. Refreshes preserve
 the selected execution and the history selector stays in submission order.
+Linked pull requests appear as an icon on the same task row, after the title and
+status. Hover for the URL or activate the icon to open the PR externally without
+changing the selected console. Long titles truncate to keep controls inline.
 Projects can be collapsed;
 their **+** button opens the task launcher. A task's **…** menu provides relaunch,
 local rename and archive actions. Archiving hides its existing executions without

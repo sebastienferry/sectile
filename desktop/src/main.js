@@ -107,12 +107,14 @@ function render(){
     archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
     archive.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></svg>'
     archive.onclick=()=>requestArchive(run)
-    row.append(context,button,archive,menu);group.append(row)
+    row.append(context,button)
     const link=pullRequests.get(run.taskId)
     if(link){
-     const pr=document.createElement('button');pr.className='pr-indicator';pr.textContent=prLabel(link);pr.title=link;pr.setAttribute('aria-label','Open '+prLabel(link)+' for '+(run.taskKey||run.taskId))
-     pr.onclick=()=>api.openPR(link).catch(error);group.append(pr)
+     const pr=document.createElement('button');pr.className='pr-indicator';pr.title=link;pr.setAttribute('aria-label','Open '+prLabel(link)+' for '+(run.taskKey||run.taskId))
+     pr.innerHTML='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><path d="M6 8v8M18 16V9a4 4 0 0 0-4-4h-2m3-3-3 3 3 3"/></svg>'
+     pr.onclick=()=>api.openPR(link).catch(error);row.append(pr)
     }
+    row.append(archive,menu);group.append(row)
    }
   }
   list.append(group)
