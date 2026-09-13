@@ -80,6 +80,7 @@ export const ActivitiesView: React.FC = () => {
         return <FileCode size={size} className="text-blue-400" />
       case 'implement':
         return <Flame size={size} className="text-indigo-400" />
+      case 'adjust':
       case 'create_pr':
       case 'review':
         return <ShieldCheck size={size} className="text-purple-400" />

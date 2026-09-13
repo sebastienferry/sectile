@@ -63,7 +63,7 @@ const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: st
   { id: 'vibe', label: 'Mistral Vibe', sub: 'CLI Agentic Mistral Open Source', defaultCmd: 'vibe -p "{prompt}" --auto-approve', icon: '⚡' },
   { id: 'gemini', label: 'Gemini Code Assist CLI', sub: 'Google Cloud Gemini CLI', defaultCmd: 'gemini -p "{prompt}"', icon: '✨' },
   { id: 'cursor', label: 'Cursor Agent CLI', sub: 'Cursor Editor Agent Headless', defaultCmd: 'cursor agent -p "{prompt}"', icon: '📐' },
-  { id: 'codex', label: 'Codex / Custom Shell', sub: 'CLI personnalisé ou script zsh / bash', defaultCmd: 'codex run "{prompt}"', icon: '💻' },
+  { id: 'codex', label: 'Codex', sub: 'Codex CLI', defaultCmd: "codex --approve-for-me '{prompt}'", icon: '💻' },
   { id: 'custom', label: 'Commande Personnalisée', sub: 'Modèle de commande arbitraire', defaultCmd: '{prompt}', icon: '⚙️' },
 ]
 
@@ -111,7 +111,7 @@ const WORKFLOW_SKILLS: { id: string; defaultName: string; code: string; desc: st
   { id: 'clarify', defaultName: 'Clarify', code: 'clarify-issue', desc: 'Questions de cadrage & inputs produit', icon: HelpCircle, color: 'amber' },
   { id: 'specify', defaultName: 'Specify', code: 'specify-issue', desc: 'Spécification technique (Spec Kit / OpenSpec)', icon: FileCode, color: 'blue' },
   { id: 'implement', defaultName: 'Implement', code: 'code-issue', desc: 'Développement & codage de la story', icon: Flame, color: 'indigo' },
-  { id: 'create_pr', defaultName: 'Review & PR', code: 'create-pr', desc: 'Revue de code, tests & Pull Request', icon: ShieldCheck, color: 'purple' },
+  { id: 'adjust', defaultName: 'Adjust', code: 'adjust-issue', desc: 'Revue de code, tests & Pull Request', icon: ShieldCheck, color: 'purple' },
   { id: 'handoff', defaultName: 'Handoff', code: 'handoff-issue', desc: 'Compte-rendu de passation & nettoyage local', icon: Sparkles, color: 'emerald' },
 ]
 
@@ -674,7 +674,40 @@ export const ProjectModal: React.FC = () => {
           {/* ========================================================= */}
           {/* SECTION 2: GIT (Chemin Local CWD, Remote URL, Init Git)   */}
           {/* ========================================================= */}
-          {activeTab === 'git' && <div className="space-y-4"><label className="block">Git remote URL<input className="w-full rounded border p-2" value={gitRemoteUrl} onChange={e=>setGitRemoteUrl(e.target.value)} /></label><label className="block">Create PR/MR<select value={prCreationStage} onChange={e=>setPRCreationStage(e.target.value as 'specified'|'implemented')}><option value="implemented">After implementation and review</option><option value="specified">Draft after specification</option></select></label><p>Local repositories and execution consoles are managed in the desktop agent.</p></div>}
+          {activeTab === 'git' && (
+            <div className="space-y-4 animate-in fade-in duration-150">
+              <div>
+                <label htmlFor="gitRemoteUrl" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Git remote URL
+                </label>
+                <input
+                  id="gitRemoteUrl"
+                  type="text"
+                  value={gitRemoteUrl}
+                  onChange={e => setGitRemoteUrl(e.target.value)}
+                  placeholder="git@github.com:owner/repository.git"
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                />
+              </div>
+              <div>
+                <label htmlFor="prCreationStage" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Create PR/MR
+                </label>
+                <select
+                  id="prCreationStage"
+                  value={prCreationStage}
+                  onChange={e => setPRCreationStage(e.target.value as 'specified' | 'implemented')}
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                >
+                  <option value="implemented">Draft after implementation</option>
+                  <option value="specified">Draft after specification</option>
+                </select>
+              </div>
+              <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                Local repositories and execution consoles are managed in the desktop agent.
+              </p>
+            </div>
+          )}
 
           {/* ========================================================= */}
           {/* SECTION 3: AGENT IA & CLI (Configuration du moteur/CLI)   */}

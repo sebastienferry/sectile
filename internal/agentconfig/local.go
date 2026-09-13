@@ -8,18 +8,20 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Overrides stays on the workstation and is never uploaded to the server.
 type Overrides struct {
-	Commands          map[string]string `json:"commands,omitempty"`
-	Parallelism       map[string]int    `json:"parallelism,omitempty"`
-	Worktrees         map[string]bool   `json:"worktrees,omitempty"`
-	Projects          map[string]string `json:"projects"`
-	AIProvider        string            `json:"aiProvider"`
-	AICommandTemplate string            `json:"aiCommandTemplate"`
-	Terminal          string            `json:"terminal"`
-	Skills            map[string]string `json:"skills"`
+	DisconnectedProjects map[string]bool   `json:"disconnectedProjects,omitempty"`
+	Commands             map[string]string `json:"commands,omitempty"`
+	Parallelism          map[string]int    `json:"parallelism,omitempty"`
+	Worktrees            map[string]bool   `json:"worktrees,omitempty"`
+	Projects             map[string]string `json:"projects"`
+	AIProvider           string            `json:"aiProvider"`
+	AICommandTemplate    string            `json:"aiCommandTemplate"`
+	Terminal             string            `json:"terminal"`
+	Skills               map[string]string `json:"skills"`
 }
 
 func ReadOverrides(root string) (Overrides, error) {
@@ -32,6 +34,8 @@ func ReadOverrides(root string) (Overrides, error) {
 		return result, err
 	}
 	err = json.Unmarshal(raw, &result)
+	// Disconnection is workstation-owned, never a repository override.
+	result.DisconnectedProjects = nil
 	return result, err
 }
 
@@ -54,7 +58,18 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 		c.ExternalTerminalCommand = overrides.Terminal
 	}
 	for i := range c.Skills {
-		if content, ok := overrides.Skills[c.Skills[i].ID]; ok {
+		id := c.Skills[i].ID
+		if id == "adjust" {
+			for _, legacy := range []string{"review"} {
+				if strings.TrimSpace(overrides.Skills[id]) == "" && strings.TrimSpace(overrides.Skills[legacy]) != "" {
+					c.Skills[i].RequiresReconciliation = true
+				}
+			}
+		}
+		if content, ok := overrides.Skills[id]; ok {
+			if id == "adjust" {
+				content += "\n" + c.Skills[i].Content
+			}
 			c.Skills[i].Content = content
 			c.Skills[i].CommandContent = content + "\n\n## Ticket\n$ARGUMENTS\n"
 		}
@@ -68,6 +83,15 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 	return c
 }
 
+func hasCreatePR(skills []Skill) bool {
+	for _, skill := range skills {
+		if skill.ID == "create_pr" {
+			return true
+		}
+	}
+	return false
+}
+
 // Scaffold installs the fresh server-owned skill set. Changed local copies are
 // backed up before replacement. Unrelated personal skill paths are never touched.
 func Scaffold(root string, config Config) ([]string, error) {
@@ -77,6 +101,15 @@ func Scaffold(root string, config Config) ([]string, error) {
 	files, err := skillFiles(config.Skills)
 	if err != nil {
 		return nil, err
+	}
+	for _, skill := range config.Skills {
+		if skill.ID == "adjust" && !hasCreatePR(config.Skills) {
+			forward := "---\nname: create-pr\ndescription: Compatibility alias for adjust-issue.\n---\nInvoke adjust-issue with the same arguments. Require the existing task-branch PR and the full adjustment quality gate. Never create a PR.\n"
+			for _, prefix := range []string{".agents/skills/", ".claude/skills/", ".gemini/skills/", ".agy/skills/", ".skills/"} {
+				files[prefix+"create-pr/SKILL.md"] = forward
+			}
+			files[".claude/commands/create-pr.md"] = forward + "\n$ARGUMENTS\n"
+		}
 	}
 	fs, err := os.OpenRoot(root)
 	if err != nil {
@@ -134,6 +167,11 @@ func Scaffold(root string, config Config) ([]string, error) {
 		}
 		if err == nil && string(raw) != content {
 			if manifest[p] != digest(raw) {
+				if !hasCreatePR(config.Skills) && (strings.Contains(p, "/create-pr/") || strings.HasSuffix(p, "/create-pr.md")) {
+					backups = append(backups, "Divergent legacy command preserved: "+p)
+					next[p] = manifest[p]
+					continue
+				}
 				if err := backup(p, raw); err != nil {
 					return backups, err
 				}

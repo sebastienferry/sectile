@@ -93,11 +93,12 @@ func (l *ProjectLimiter) Release(projectID string) {
 }
 
 type DB struct {
-	conn     *sql.DB
-	runner   *runner.Runner
-	mu       sync.RWMutex
-	jobQueue chan SkillJob
-	limiter  *ProjectLimiter
+	prEvidenceLookup func(string, string) (runner.PullRequestEvidence, error)
+	conn             *sql.DB
+	runner           *runner.Runner
+	mu               sync.RWMutex
+	jobQueue         chan SkillJob
+	limiter          *ProjectLimiter
 	// auto porte l'état de la boucle de synchronisation de fond.
 	auto      *autoSync
 	cancelMap map[string]context.CancelFunc
@@ -3814,17 +3815,9 @@ func NormalizeUIScale(scale int) int {
 }
 
 func (d *DB) GetAvailableSkills() []models.Skill {
-	specFramework := "speckit"
-	if st, _ := d.GetSettings(); st != nil && strings.TrimSpace(st.SpecFramework) != "" {
-		specFramework = st.SpecFramework
-	}
-
 	out := make([]models.Skill, 0, len(StageSkills))
 	for _, s := range StageSkills {
 		name := s.Name
-		if s.ID == "specify" {
-			name = specifyFrameworkName(specFramework)
-		}
 		in, _ := InternalStatusForStage(s.FromStage)
 		outStatus, _ := InternalStatusForStage(s.ToStage)
 		out = append(out, models.Skill{
@@ -4024,7 +4017,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 
 	var skill models.Skill
 	for _, s := range d.GetAvailableSkills() {
-		if s.ID == job.SkillID || (job.SkillID == "review" && s.ID == "create_pr") {
+		if s.ID == job.SkillID || (job.SkillID == "review" && s.ID == "adjust") {
 			skill = s
 			break
 		}
@@ -4058,6 +4051,14 @@ func (d *DB) processSkillJob(job SkillJob) {
 	var realAIOutput string
 	var runnerSteps []string
 	execErr := setupErr
+	expectedPR := ""
+	originalStage := d.StageOfTask(task)
+	if execErr == nil && job.SkillID == "adjust" {
+		pr, err := d.adjustmentPrerequisite(task, false)
+		execErr = err
+		expectedPR = pr.URL
+	}
+
 	var result *skillResult
 	runPrompt := job.Prompt
 	resultPath := ""
@@ -4094,13 +4095,22 @@ func (d *DB) processSkillJob(job SkillJob) {
 			realAIOutput += "\n\nTaskFlow result:\n" + string(receipt)
 		}
 		if execErr == nil {
-			execErr = validateSkillResult(result, job.SkillID, executionDir, d.runner.OpenBranchMergeRequestURL)
+			execErr = validateSkillResult(result, job.SkillID, executionDir, func(repo, branch string) string {
+				pr, err := d.lookupStagePR(repo, branch)
+				if err != nil {
+					return ""
+				}
+				return pr.URL
+			})
+			if execErr == nil {
+				result.PRURL, execErr = d.validateStagePR(task, job.SkillID, executionDir, result.Branch, result.PRURL, expectedPR)
+			}
 		}
 		if execErr == nil {
 			if result.Branch != "" && job.SkillID != "clarify" && job.SkillID != "handoff" {
 				task.BranchName = &result.Branch
 			}
-			if result.PRURL != "" && (job.SkillID == "create_pr" || job.SkillID == "pickup") {
+			if result.PRURL != "" && (job.SkillID == "create_pr" || job.SkillID == "adjust" || job.SkillID == "pickup" || job.SkillID == "specify" || job.SkillID == "implement") {
 				task.PrURL = &result.PRURL
 			}
 			runnerSteps = append(runnerSteps, "✅ Résultat structuré et pièces requises vérifiés")
@@ -4185,13 +4195,17 @@ func (d *DB) processSkillJob(job SkillJob) {
 		action = fmt.Sprintf("Handoff et nettoyage exécutés avec %s", strings.ToUpper(settings.AIProvider))
 		summary = fmt.Sprintf("Tâche clôturée : handoff documenté et espace local nettoyé ➔ Étape: %s [Label: #finished]", task.Status)
 
-	case "create_pr", "review":
+	case "adjust", "review":
 		task.Status = resolveMappedStatus("reviewed", models.StatusToClose)
 		task.Labels = SetWorkflowLabel(task.Labels, "reviewed")
 
 		action = fmt.Sprintf("Revue & Pull Request vérifiées avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
 		summary = fmt.Sprintf("PR prête pour revue : %s ➔ Étape: reviewed", result.PRURL)
 		// Keep the checkout for reviewer feedback and retries; handoff owns cleanup.
+
+	case "create_pr":
+		action = "Standalone pull request prepared"
+		summary = fmt.Sprintf("Pull request: %s; workflow stage preserved", result.PRURL)
 
 	case "pickup":
 		task.Status = resolveMappedStatus("reviewed", models.StatusToClose)
@@ -4201,6 +4215,10 @@ func (d *DB) processSkillJob(job SkillJob) {
 
 	}
 
+	if originalStage == "implemented" && (job.SkillID == "specify" || job.SkillID == "implement") {
+		task.Status = resolveMappedStatus("implemented", models.StatusToTest)
+		task.Labels = SetWorkflowLabel(task.Labels, "implemented")
+	}
 	if result != nil {
 		summary += " — " + result.Summary
 	}
@@ -4252,7 +4270,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 	// Chaîne autonome : le pas suivant est mis en file, sauf si l'étape atteinte
 	// demande une revue humaine. C'est le seul point d'arrêt volontaire : plus
 	// loin, l'agent créerait la MR et clôturerait sans qu'un humain ait vu le diff.
-	if job.AutoChain {
+	if job.AutoChain && skill.ID != "create_pr" {
 		reached := d.StageOfTask(task)
 		if reached == AutonomousStopStage || reached == "finished" {
 			d.appendActivityStep(job.ActivityID, "⏸ Chaîne autonome terminée : Pull Request créée, la fusion reste manuelle")
@@ -4276,7 +4294,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 			commentHeader = "### 📋 [TaskFlow] Spécification Technique & Plan d'Implémentation\n\n"
 		case "implement":
 			commentHeader = "### ⚡ [TaskFlow] Rapport d'Implémentation\n\n"
-		case "create_pr", "review":
+		case "adjust", "review":
 			commentHeader = "### 🚀 [TaskFlow] Revue de Code & Préparation PR\n\n"
 		default:
 			commentHeader = fmt.Sprintf("### 🤖 [TaskFlow] Rapport d'exécution : %s\n\n", skill.Name)
@@ -4288,6 +4306,9 @@ func (d *DB) processSkillJob(job SkillJob) {
 		// Le tracker ne fait pas le remplacement tout seul, contrairement à
 		// SetWorkflowLabel en local.
 		stageLabel := skillStageLabel[skill.ID]
+		if originalStage == "implemented" && (skill.ID == "specify" || skill.ID == "implement") {
+			stageLabel = "implemented"
+		}
 		staleLabels := StaleWorkflowLabels(stageLabel)
 
 		// Statut visé : celui de la colonne que le projet associe à l'étape,
@@ -4537,7 +4558,7 @@ var skillStageLabel = map[string]string{
 	"clarify":   "clarified",
 	"specify":   "specified",
 	"implement": "implemented",
-	"create_pr": "reviewed",
+	"adjust":    "reviewed",
 	"review":    "reviewed",
 	"pickup":    "reviewed",
 	"handoff":   "finished",
@@ -5088,6 +5109,7 @@ func (d *DB) EnqueueAutonomousRun(taskID string) (*models.Task, *models.TaskActi
 }
 
 func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, autoChain bool) (*models.Task, *models.TaskActivity, error) {
+	skillID = models.NormalizeSkillID(skillID)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	d.mu.RUnlock()
@@ -5095,6 +5117,14 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 		return nil, nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
+	if skillID == "adjust" {
+		if _, err := d.adjustmentPrerequisite(task, false); err != nil {
+			return nil, nil, err
+		}
+	}
+	if (skillID == "specify" || skillID == "implement") && d.StageOfTask(task) == "implemented" {
+		prompt += "\nPR recovery: preserve all accepted work and the implemented stage. Complete only remaining owner checks and PR creation/reuse/linking. Never advance to reviewed."
+	}
 	skills := d.GetAvailableSkills()
 	var targetSkill *models.Skill
 	for _, s := range skills {
@@ -5638,7 +5668,7 @@ func applySkillCommandOverride(settings *models.Settings, proj *models.Project, 
 		if settings.PromptImplement == "" {
 			settings.PromptImplement = cmd + " {issueKey}"
 		}
-	case "create_pr", "review":
+	case "adjust", "review":
 		if settings.PromptCreatePR == "" {
 			settings.PromptCreatePR = cmd + " {issueKey}"
 		}
@@ -6544,7 +6574,8 @@ func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (
 		for _, s := range skillsToInstall {
 			// La commande slash, en plus de la skill : c'est elle que Taskflow
 			// invoque, et sans elle « /clarify-issue » n'est que du texte.
-			if cmdContent, ok := CommandContentFor(s.ID, specFramework); ok {
+			if stage, ok := StageSkillByID(s.ID); ok {
+				cmdContent, _ := commandContentFromSkill(stage, s.Content, specFramework)
 				cmdPath := SkillCommandPath(targetDir, s.DirName)
 				if err := os.MkdirAll(filepath.Dir(cmdPath), 0755); err == nil {
 					_ = os.WriteFile(cmdPath, []byte(cmdContent), 0644)
@@ -6590,7 +6621,8 @@ func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (
 		}
 	}
 
-	return d.GetProjectSkillsStatus(projectID)
+	status, err := d.GetProjectSkillsStatus(projectID)
+	return status, err
 }
 
 func (d *DB) InitProjectGit(projectIDOrPath string) (*models.ProjectGitInitResult, error) {
@@ -6920,6 +6952,12 @@ func (d *DB) applyProjectSettings(settings *models.Settings, task *models.Task, 
 	// scaffolded default (for instance /clarify-workitem instead of
 	// /clarify-issue). The executed slash command has to follow the override,
 	// otherwise the board shows one command and runs another.
+	if models.NormalizeSkillID(skillID) == "adjust" {
+		if origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(task.ProjectID)); origin == "adjust" {
+			// Reconciled project instructions supersede the retained legacy global prompt at execution only.
+			settings.PromptCreatePR = ""
+		}
+	}
 	applySkillCommandOverride(settings, proj, skillID)
 }
 

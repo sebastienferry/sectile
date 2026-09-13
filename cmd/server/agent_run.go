@@ -202,6 +202,18 @@ func runAgentExec(args []string) error {
 	}
 }
 
+// admitProjectRun serializes repository resolution and registration with disconnection.
+func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payload agentconfig.Dispatch, config agentconfig.Config) (*controlledRun, error) {
+	d.prepareMu.Lock()
+	defer d.prepareMu.Unlock()
+	root, overrides, err := d.localProjectRoot(ctx, config)
+	if err != nil {
+		return nil, err
+	}
+	config = agentconfig.ApplyOverrides(config, overrides)
+	return d.enqueueRun(taskID, payload, config.ProjectID, root, agentconfig.ExecutionLimit(config.ProjectID, config.UseWorktrees, overrides, config.Parallelism), config.UseWorktrees)
+}
+
 func (d *agentDaemon) enqueueRun(taskID string, payload agentconfig.Dispatch, projectID, root string, limit int, isolated bool) (*controlledRun, error) {
 	d.runsMu.Lock()
 	defer d.runsMu.Unlock()
@@ -246,6 +258,9 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 				continue
 			}
 			if other.desktop.Status == "queued" {
+				if other.canceled {
+					continue
+				}
 				if other.sequence < run.sequence {
 					blocked = true
 				}

@@ -10,10 +10,11 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
  const server=http.createServer((req,res)=>{
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
-  if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'}]));return}
-  if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,parallelism:2,aiCommandTemplate:serverCommand,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
+  if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'},{id:'project-b',name:'Other project',path:'/tmp/other-worktree'}]));return}
+  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,parallelism:2,aiCommandTemplate:serverCommand,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
   if(req.url.startsWith('/desktop/tasks?')){
-   if(req.method==='POST'){submitted=true;let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>launches.push(JSON.parse(raw)));res.end(JSON.stringify({status:'running'}));return}
+   if(req.method==='POST'){submitted=true;let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{launches.push({...JSON.parse(raw),projectID:new URL(req.url,'http://localhost').searchParams.get('projectId')});res.end(JSON.stringify({status:'running'}))});return}
+   if(createdInput&&new URL(req.url,'http://localhost').searchParams.get('q')==='#49'){res.end(JSON.stringify([{id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title,status:'to_clarify'}]));return}
    res.end(JSON.stringify([{id:'task-1',key:'#48',title:'Server specification task',status:'to_implement',labels:['#specified'],trackerStatus:'Ready for development',prUrl:'https://github.com/example/repo/pull/48'}]));return
   }
   if(req.url==='/desktop/create-task'){
@@ -42,7 +43,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
  try{
   application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   let page=await application.firstWindow()
-  await page.getByText('#48 · specify',{exact:true}).waitFor()
+  await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.xterm-screen').waitFor()
   withoutConsole=true
   await page.locator('.run[data-status=failed]').waitFor()
@@ -81,6 +82,10 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.getByRole('button',{name:'2',exact:true}).isDisabled(),false)
   await page.getByRole('button',{name:'3',exact:true}).click()
   await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).click()
+  const placeholderHelp=await page.locator('p').filter({hasText:'Required: {prompt}'}).textContent()
+  for(const token of ['{prompt}','{issueKey}','{issueTitle}','{issueDesc}','{branchName}','{repoPath}','{tracker}','{repo}']){
+   assert.ok(placeholderHelp.includes(token),`Missing placeholder help: ${token}`)
+  }
   await page.getByRole('textbox',{name:'CLI command',exact:true}).fill('claude {prompt}')
   await page.getByRole('button',{name:'Reset CLI command to server default',exact:true}).click()
   assert.equal(await page.getByRole('textbox',{name:'CLI command',exact:true}).inputValue(),'codex {prompt}')
@@ -121,6 +126,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Quick add task',exact:true}).waitFor()
   await page.getByRole('button',{name:'Close',exact:true}).click()
   await page.getByRole('button',{name:'New task in Example project',exact:true}).click()
+  await page.getByRole('button',{name:'Run an existing ticket',exact:true}).click()
   await page.getByRole('textbox',{name:'Search server tasks'}).fill('48')
   await page.getByRole('button',{name:'Search',exact:true}).click()
   await page.getByText('#48 · Server specification task',{exact:true}).waitFor()
@@ -128,6 +134,35 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Launch',exact:true}).click()
   await page.waitForFunction(()=>!document.querySelector('#project-dialog').open)
   assert.equal(submitted,true)
+  assert.equal(launches.at(-1).projectID,'project-a')
+  assert.equal(launches.at(-1).taskID,'task-1')
+
+  const launchCount=launches.length
+  const previousCreated=createdInput
+  await page.getByRole('button',{name:'New task in Other project',exact:true}).click()
+  await page.getByRole('button',{name:'Run an existing ticket',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Quick add task',exact:true}).waitFor()
+  await page.screenshot({path:path.join(root,'new-task-choice.png')})
+  console.log('Choice screenshot:',path.join(root,'new-task-choice.png'))
+  await page.getByRole('button',{name:'Close',exact:true}).click()
+  assert.equal(launches.length,launchCount,'Dismissing the choice does not launch')
+  assert.equal(createdInput,previousCreated,'Dismissing the choice does not create')
+  await page.locator('.run[data-status=running]').click()
+  await page.getByRole('button',{name:'New task in Other project',exact:true}).click()
+  await page.getByRole('button',{name:'Quick add task',exact:true}).click()
+  assert.equal(await page.getByRole('combobox',{name:'Quick add project'}).inputValue(),'project-b')
+  await page.getByRole('textbox',{name:'Task title',exact:true}).fill('Created in clicked project')
+  await page.getByRole('button',{name:'Create task',exact:true}).click()
+  await page.getByText('Created #49 · Created in clicked project',{exact:true}).waitFor()
+  assert.equal(createdInput.projectID,'project-b')
+  assert.equal(launches.length,launchCount,'Creation requires an explicit launch')
+  await page.getByRole('button',{name:'Launch task',exact:true}).click()
+  await page.getByText('#49 · Created in clicked project',{exact:true}).waitFor()
+  await page.getByRole('button',{name:'Launch',exact:true}).click()
+  await page.waitForFunction(()=>!document.querySelector('#project-dialog').open)
+  assert.equal(launches.length,launchCount+1)
+  assert.equal(launches.at(-1).taskID,'created')
+  assert.equal(launches.at(-1).projectID,'project-b')
 
   await page.getByRole('button',{name:'Stop execution',exact:true}).click()
   await page.locator('.run[data-status=canceled]').waitFor()
@@ -145,7 +180,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await application.close()
   application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   page=await application.firstWindow()
-  await page.getByText('#48 · specify',{exact:true}).waitFor()
+  await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.run[data-status=canceled]').waitFor()
   extraRun=true
   await page.waitForFunction(()=>document.querySelector('#execution-history').options.length===2)

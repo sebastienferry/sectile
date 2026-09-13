@@ -228,18 +228,29 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	}))
 	defer srv.Close()
 	d := &agentDaemon{serverURL: srv.URL, token: "token", repoRoot: root, projectID: "remote-project", agentURL: "http://127.0.0.1:8091"}
-	effective, path, branch, err := d.prepareDispatch(ctx, "TASK-46")
+	effective, path, branch, task, err := d.prepareDispatch(ctx, "TASK-46")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if effective.AIProvider != "claude" || effective.ExternalTerminalCommand != "pty" || branch != "feat/task-46" || !strings.HasPrefix(path, root) {
+	if task.ID != "task" || task.Key != "TASK-46" || effective.AIProvider != "claude" || effective.ExternalTerminalCommand != "pty" || branch != "feat/task-46" || !strings.HasPrefix(path, root) {
 		t.Fatalf("invalid execution config %+v %s %s", effective, path, branch)
 	}
 	if _, err := os.Stat(filepath.Join(path, ".agents/skills/code-issue/SKILL.md")); err != nil {
 		t.Fatal(err)
 	}
+	for _, template := range []string{`printf '%s\000' {repoPath} {branchName} {issueKey} {prompt}`, `printf '%s\000' "{repoPath}" '{branchName}' {issueKey} {prompt}`} {
+		effective.AICommandTemplate = template
+		line, err := dispatchCommand(effective, task.ID, "implement", "implement", "", "", agentCommandContext{Task: task, Branch: branch, Directory: path})
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := shellArguments(t, "sh", line)
+		if len(args) != 4 || args[0] != path || args[1] != branch || args[2] != "TASK-46" || args[3] != "/code-issue task" {
+			t.Fatalf("local context: %#v", args)
+		}
+	}
 	config.SchemaVersion = 99
-	if _, _, _, err := d.prepareDispatch(ctx, "TASK-46"); err == nil {
+	if _, _, _, _, err := d.prepareDispatch(ctx, "TASK-46"); err == nil {
 		t.Fatal("unknown remote contract version accepted")
 	}
 }
@@ -381,5 +392,29 @@ func TestDiscoverProjects(t *testing.T) {
 	projects, err := daemon.discoverProjects(context.Background())
 	if err != nil || len(projects.Projects) != 2 {
 		t.Fatalf("projects: %+v, %v", projects, err)
+	}
+}
+
+func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
+	c := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/echo {prompt}", Skills: []agentconfig.Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue"}}}
+	for _, id := range []string{"adjust", "adjust-issue", "review"} {
+		line, err := dispatchCommand(c, "task-61", id, "", "", "")
+		if err != nil || !strings.Contains(line, "adjust-issue") || !strings.Contains(line, "Never create or replace a PR") {
+			t.Fatalf("%s: %s %v", id, line, err)
+		}
+	}
+	c.Skills[0].RequiresReconciliation = true
+	if _, err := dispatchCommand(c, "task-61", "review", "", "", ""); err == nil {
+		t.Fatal("unreconciled legacy customization launched")
+	}
+}
+
+func TestNativeCreatePRDoesNotInvokeAdjustment(t *testing.T) {
+	c := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/echo {prompt}", Skills: []agentconfig.Skill{{ID: "create_pr", Directory: "create-pr", Command: "/create-pr"}}}
+	for _, id := range []string{"create_pr", "create-pr"} {
+		line, err := dispatchCommand(c, "task-61", id, "", "", "")
+		if err != nil || !strings.Contains(line, "create-pr") || strings.Contains(line, "Never create or replace a PR") {
+			t.Fatalf("%s: %s %v", id, line, err)
+		}
 	}
 }

@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 type Priority string
 
@@ -372,8 +375,11 @@ var SkillDirNames = map[string]string{
 	"clarify":       "clarify-issue",
 	"specify":       "specify-issue",
 	"implement":     "code-issue",
+	"adjust":        "adjust-issue",
+	"adjust-issue":  "adjust-issue",
+	"create-pr":     "create-pr",
 	"create_pr":     "create-pr",
-	"review":        "create-pr",
+	"review":        "adjust-issue",
 	"handoff":       "handoff-issue",
 	"pickup":        "pickup-issue",
 	"pick":          "pickup-issue",
@@ -398,24 +404,28 @@ var SkillAgentDirs = []string{".claude", ".agents", ".gemini", ".agy", ""}
 // file on disk still matches. Divergence is surfaced rather than overwritten:
 // the repository file may carry hand edits worth keeping.
 type SkillEditorEntry struct {
-	ID             string   `json:"id"`
-	Name           string   `json:"name"`
-	DirName        string   `json:"dirName"`
-	Command        string   `json:"command"`
-	Description    string   `json:"description"`
-	FromStage      string   `json:"fromStage"`
-	ToStage        string   `json:"toStage"`
-	Scope          string   `json:"scope,omitempty"`
-	Interactive    bool     `json:"interactive"`
-	Content        string   `json:"content"`
-	DefaultContent string   `json:"defaultContent"`
-	IsCustom       bool     `json:"isCustom"`
-	UpdatedAt      string   `json:"updatedAt,omitempty"`
-	Installed      bool     `json:"installed"`
-	Paths          []string `json:"paths"`
-	Diverged       bool     `json:"diverged"`
-	RepoContent    string   `json:"repoContent,omitempty"`
-	RepoPath       string   `json:"repoPath,omitempty"`
+	LegacyContents         map[string]string `json:"legacyContents,omitempty"`
+	OverrideOrigin         string            `json:"overrideOrigin,omitempty"`
+	LegacyConflicts        []string          `json:"legacyConflicts,omitempty"`
+	RequiresReconciliation bool              `json:"requiresReconciliation"`
+	ID                     string            `json:"id"`
+	Name                   string            `json:"name"`
+	DirName                string            `json:"dirName"`
+	Command                string            `json:"command"`
+	Description            string            `json:"description"`
+	FromStage              string            `json:"fromStage"`
+	ToStage                string            `json:"toStage"`
+	Scope                  string            `json:"scope,omitempty"`
+	Interactive            bool              `json:"interactive"`
+	Content                string            `json:"content"`
+	DefaultContent         string            `json:"defaultContent"`
+	IsCustom               bool              `json:"isCustom"`
+	UpdatedAt              string            `json:"updatedAt,omitempty"`
+	Installed              bool              `json:"installed"`
+	Paths                  []string          `json:"paths"`
+	Diverged               bool              `json:"diverged"`
+	RepoContent            string            `json:"repoContent,omitempty"`
+	RepoPath               string            `json:"repoPath,omitempty"`
 }
 
 type ProjectSkillsStatus struct {
@@ -921,4 +931,16 @@ type ProposedMacroTask struct {
 	Title       string `json:"title"`
 	IssueType   string `json:"issueType"`
 	Description string `json:"description"`
+}
+
+// NormalizeSkillID preserves legacy invocations without rewriting history.
+func NormalizeSkillID(id string) string {
+	switch strings.TrimSpace(id) {
+	case "create_pr", "create-pr":
+		return "create_pr"
+	case "adjust", "adjust-issue", "review":
+		return "adjust"
+	default:
+		return strings.TrimSpace(id)
+	}
 }

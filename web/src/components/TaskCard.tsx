@@ -28,7 +28,7 @@ import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
-import { resolveTaskStage, getNextStepInfo } from '../lib/workflow'
+import { resolveTaskStage, getNextStepInfo, prRecoverySkill } from '../lib/workflow'
 
 interface TaskCardProps {
   task: Task
@@ -49,7 +49,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     activities,
     openCloneModal,
     deleteTask,
-    moveTaskWorkflowStage,
     projects,
     settings,
     parentFilter,
@@ -237,16 +236,16 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             await runSkill(task.id, 'implement')
           },
         }
-      case 'create_pr':
+      case 'adjust':
         return {
-          id: 'create_pr',
-          label: skillLabel('create_pr', 'Créer PR'),
+          id: 'adjust',
+          label: skillLabel('adjust', 'Adjust'),
           icon: <GitPullRequest size={11} className="text-purple-400" />,
-          title: 'Lancer la revue de code et générer la Pull Request',
+          title: 'Review the complete branch and adjust the existing PR',
           action: async (e: React.MouseEvent) => {
             e.stopPropagation()
             if (isSkillRunning) return
-            await runSkill(task.id, 'create_pr')
+            await runSkill(task.id, 'adjust')
           },
         }
       default:
@@ -266,32 +265,30 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     setAdvancing(null)
   }
 
-  // Determine current workflow stage action (Clarifier ➔ Spécifier ➔ Coder ➔ Créer PR ➔ Merge ➔ #finished)
+  // Determine current workflow stage action (Clarifier ➔ Spécifier ➔ Coder ➔ Adjust ➔ Merge ➔ #finished)
   const getWorkflowAction = () => {
     const stage = resolveTaskStage(task, taskProject)
     if (stage === 'finished') return null
 
     // If PR is already created or task is in reviewed stage -> Action is "Merge"
     if (
-      stage === 'reviewed' ||
-      task.status === 'to_close' ||
-      Boolean(task.prUrl && (task.status === 'to_test' || task.status === 'to_validate'))
+      stage === 'reviewed' || task.status === 'to_close'
     ) {
       return {
-        id: 'merge',
-        label: 'Merge',
+        id: 'handoff',
+        label: 'Handoff',
         icon: <CheckCircle2 size={11} className="text-emerald-400" />,
-        title: 'Fusionner la Pull Request / branche et finaliser la tâche (#finished)',
+        title: 'Verify human merge and hand off the task',
         action: async (e: React.MouseEvent) => {
           e.stopPropagation()
-          await moveTaskWorkflowStage(task.id, 'finished')
+          await runSkill(task.id, 'handoff')
         },
       }
     }
 
-    // If code is implemented / to_test (and no PR created yet) -> Action is "Créer PR"
+    // If code is implemented / to_test (and no PR created yet) -> Action is "Adjust"
     if (stage === 'implemented' || task.status === 'to_test' || task.status === 'to_validate') {
-      return skillAction('create_pr')
+      return skillAction('adjust')
     }
 
     // If spec is ready / to_implement -> Action is "Coder"
@@ -411,33 +408,34 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
           </button>
 
 
-          {/* Créer PR : masqué quand c'est déjà l'action de l'étape courante */}
-          {!task.prUrl && task.status !== 'finished' && workflowAction?.id !== 'create_pr' && (
+          {/* Adjust : masqué quand c'est déjà l'action de l'étape courante */}
+          {!task.prUrl && resolveTaskStage(task, taskProject) === 'implemented' && (
             <button
               type="button"
               onClick={async () => {
                 setIsMenuOpen(false)
-                await runSkill(task.id, 'create_pr')
+                await runSkill(task.id, prRecoverySkill(taskProject), 'PR recovery: preserve accepted work and attained stage; create/reuse/link the PR after owner checks. Do not advance to reviewed.')
               }}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-purple-400 hover:bg-purple-500/10 transition-colors cursor-pointer"
             >
               <GitPullRequest size={12} />
-              <span>Créer la Pull Request</span>
+              <span>Complete PR setup in the earlier stage</span>
             </button>
           )}
 
+          {task.prUrl && resolveTaskStage(task, taskProject) === 'reviewed' && <button type="button" onClick={async () => { setIsMenuOpen(false); await runSkill(task.id, 'adjust') }} className="w-full px-2.5 py-1.5 text-purple-400 text-left text-xs">Adjust again</button>}
           {/* Merge / Finaliser : masqué quand c'est déjà l'action de l'étape courante */}
-          {task.status !== 'finished' && workflowAction?.id !== 'merge' && (
+          {task.status !== 'finished' && workflowAction?.id !== 'handoff' && (
             <button
               type="button"
               onClick={async () => {
                 setIsMenuOpen(false)
-                await moveTaskWorkflowStage(task.id, 'finished')
+                await runSkill(task.id, 'handoff')
               }}
               className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-emerald-400 hover:bg-emerald-500/10 transition-colors cursor-pointer"
             >
               <CheckCircle2 size={12} />
-              <span>Fusionner & Finir (#finished)</span>
+              <span>Handoff after human merge</span>
             </button>
           )}
 

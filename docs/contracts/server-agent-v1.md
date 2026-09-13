@@ -19,10 +19,11 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `schemaVersion` | Must be `1`. Unsupported versions stop preparation. |
 | `projectId`, `projectName`, `description` | Identity and project context. The ID must match an explicit project request. |
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
+| `githubRepo`, `issueTracker` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
 | `useWorktrees` | Create/reuse task worktrees when true; validate the existing checkout when false. |
 | `aiProvider` | `codex`, `claude`, `agy`, `gemini`, `cursor`, `vibe`, or `custom`; empty uses the legacy `agy` default. |
-| `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; prompt replacement is shell-quoted. Custom providers still require supported native MCP bootstrap. |
+| `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; argument placeholders are shell-safe: `{prompt}`, `{issueKey}`, `{issueTitle}`, `{issueDesc}`, `{branchName}`, `{repoPath}`, `{tracker}`, `{repo}`. Task values are fetched for each launch; branch/path identify local execution. See [desktop usage](../../desktop/README.md). Custom providers still require supported native MCP bootstrap. |
 | `externalTerminalCommand` | Terminal application/launcher selection. No silent fallback to a hidden PTY after launch failure. |
 | `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. |
 
@@ -207,6 +208,12 @@ are authenticated loopback-only capabilities. Browser Origins are rejected.
 Project mappings are saved locally and never uploaded. MCP remains available
 to native clients through the local gateway.
 
+`GET /desktop/runs` exposes `createdAt` (submission time) and optional `startedAt`
+(UTC time when the command is successfully submitted to its PTY). Runs that have
+not launched omit `startedAt`; completion preserves both timestamps. Desktop
+clients fall back to `createdAt` for legacy records without a valid start time.
+This display metadata does not change queue scheduling.
+
 Web skill launches without a connected agent fail explicitly rather than falling
 back to server-side execution.
 
@@ -298,3 +305,47 @@ Server and agent currently share `bin/taskflow`. Launch targets use existing
 builds and do not rebuild. Pass agent arguments with, for example,
 `make start ARGS="--url http://localhost:8090"`; provide authentication through
 `TASKFLOW_AGENT_TOKEN`.
+
+## Local project disconnection
+
+The authenticated loopback API supports `DELETE /desktop/projects?id=<project-id>`.
+It returns 204 after atomically recording workstation disconnection and removing
+the project's mapping, worktree preference, parallelism, and command override.
+Repeated removal is safe. Missing IDs return 400, unauthorized requests return
+401, active work or busy configuration returns 409, and settings failures return
+500. No remote project mutation or repository deletion occurs.
+
+`GET /desktop/status` advertises `remove-project` in `capabilities` and returns
+`disconnectedProjects` as an array of IDs. Project discovery includes a
+`disconnected` boolean; disconnected entries have empty `path` and false
+`configured`. Retained `/desktop/runs` history does not imply reconnection.
+
+Workstation settings store `disconnectedProjects` as a map of true markers. The
+field is not imported from repository configuration. Resolution rejects marked
+projects before implicit matching, and reconnect-time tooling deployment skips
+them. A successful validated project mapping POST clears the marker atomically.
+Execution registration and removal share the preparation lock, followed by the
+run lock, so removal cannot succeed concurrently with admission of unfinished
+work. Existing processes must have confirmed exit before disconnection succeeds.
+
+## Adjustment and PR ownership
+
+The canonical review action is `adjust` (`adjust-issue`). Legacy `review` normalizes to it without rewriting activity history. `create_pr` and `create-pr` identify the standalone Create PR utility, which has no stage transition.
+States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finished`.
+A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
+
+The `prCreationStage` policy assigns draft creation to specification or implementation
+(default). Adjustment requires an existing matching open PR, performs full review
+and feedback disposition, checks the final code, updates the same PR and verifies
+readiness. Lookup failure is not absence. Creation-owner recovery retains an already
+implemented stage. Completion records the PR URL at the owning stage.
+
+Skill records may include `requiresReconciliation`. Native dispatch refuses these
+customizations until their legacy content has been reviewed and saved under Adjust
+or reset in the skill editor. Legacy entries and divergent installed files remain
+available; custom adjustment content also receives the current built-in contract.
+
+Managed adjustment pins the original PR identity before running and verifies the
+same ready PR, branch, pushed commit, clean checkout and reported build/lint/test
+checks at completion. Standalone transitions verify forge identity and readiness;
+check output remains agent-reported. Human merge and handoff remain separate.

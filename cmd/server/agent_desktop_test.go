@@ -23,7 +23,7 @@ func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer d.terminalMgr.CloseSession("run")
-	d.runs = map[string]*controlledRun{"run": {desktop: desktopRun{SessionID: "run", Directory: root, Status: "running"}, exited: make(chan struct{})}}
+	d.runs = map[string]*controlledRun{"run": {sequence: 7, desktop: desktopRun{SessionID: "run", Directory: root, Status: "running"}, exited: make(chan struct{})}}
 	server := httptest.NewServer(http.HandlerFunc(d.desktopHandler))
 	defer server.Close()
 	request := httptest.NewRequest("GET", "/desktop/runs", nil)
@@ -76,6 +76,9 @@ func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
 	var runs []desktopRun
 	if err := json.Unmarshal(response.Body.Bytes(), &runs); err != nil || len(runs) != 1 {
 		t.Fatalf("%s %v", response.Body.String(), err)
+	}
+	if runs[0].QueueSequence != 7 {
+		t.Fatal("desktop response lost scheduler submission order")
 	}
 }
 
@@ -200,5 +203,86 @@ func TestFinishedTasksCannotLaunch(t *testing.T) {
 	}
 	if desktopTaskFinished(models.Task{Status: models.StatusToTest, Labels: []string{"#implemented"}}) {
 		t.Fatal("unfinished task rejected")
+	}
+}
+
+func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	created := time.Now().UTC().Add(-time.Hour)
+	for _, status := range []string{"queued", "preparing", "failed", "canceled"} {
+		raw, err := json.Marshal(desktopRun{CreatedAt: created, Status: status})
+		if err != nil || bytes.Contains(raw, []byte(`"startedAt"`)) {
+			t.Fatalf("unstarted %s exposes start: %s (%v)", status, raw, err)
+		}
+	}
+	d := &agentDaemon{desktopToken: "private", terminalMgr: terminal.NewManager()}
+	d.runs = map[string]*controlledRun{"run": {
+		token: "control", exited: make(chan struct{}),
+		desktop: desktopRun{CreatedAt: created, Status: "running", SessionID: "run"},
+	}}
+	before := time.Now().UTC()
+	if err := d.runInPty("run", t.TempDir(), nil, "true"); err != nil {
+		t.Fatal(err)
+	}
+	defer d.terminalMgr.CloseSession("run")
+	started := d.runs["run"].desktop.StartedAt
+	if started.Before(before) || started.After(time.Now()) {
+		t.Fatalf("start is not launch time: %v", started)
+	}
+	if err := d.runInPty("run", t.TempDir(), nil, "true"); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/control/runs/run", strings.NewReader(`{"status":"completed"}`))
+	request.Header.Set("Authorization", "Bearer control")
+	response := httptest.NewRecorder()
+	d.handleRunControl(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Code)
+	}
+	request = httptest.NewRequest(http.MethodGet, "/desktop/runs", nil)
+	request.Header.Set("Authorization", "Bearer private")
+	response = httptest.NewRecorder()
+	d.desktopHandler(response, request)
+	var runs []desktopRun
+	if err := json.Unmarshal(response.Body.Bytes(), &runs); err != nil || len(runs) != 1 {
+		t.Fatalf("%s: %v", response.Body.String(), err)
+	}
+	if runs[0].Status != "completed" || !runs[0].CreatedAt.Equal(created) || !runs[0].StartedAt.Equal(started) {
+		t.Fatalf("timestamps changed through completion/reuse: %+v", runs[0])
+	}
+
+	d.runs["failed"] = &controlledRun{desktop: desktopRun{CreatedAt: created, Status: "preparing"}}
+	invalidDir := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(invalidDir, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.runInPty("failed", invalidDir, nil, "true"); err == nil {
+		t.Fatal("launch with a file as working directory succeeded")
+	}
+	if !d.runs["failed"].desktop.StartedAt.IsZero() {
+		t.Fatal("failed launch recorded a start")
+	}
+}
+
+func TestDesktopQueueCancellationMetadata(t *testing.T) {
+	d := &agentDaemon{desktopToken: "private", runs: map[string]*controlledRun{
+		"waiting":  {sequence: 2, canceled: true, desktop: desktopRun{Status: "queued"}},
+		"finished": {sequence: 1, canceled: true, desktop: desktopRun{Status: "canceled"}},
+	}}
+	request := httptest.NewRequest("GET", "/desktop/runs", nil)
+	request.Header.Set("Authorization", "Bearer private")
+	response := httptest.NewRecorder()
+	d.desktopHandler(response, request)
+	var runs []desktopRun
+	if err := json.Unmarshal(response.Body.Bytes(), &runs); err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 2 {
+		t.Fatalf("expected two executions, got %d", len(runs))
+	}
+	for _, run := range runs {
+		if run.CancelRequested != (run.ID == "waiting") {
+			t.Fatalf("incorrect cancellation metadata: %+v", run)
+		}
 	}
 }

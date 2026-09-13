@@ -289,6 +289,7 @@ func (d *DB) StartAgentInTTY(taskID string, force bool) (*TTYSkillLaunch, error)
 // session. It refuses when no agent runs there: the call would land in the
 // shell, which answers "no such file or directory: /clarify-issue".
 func (d *DB) InjectSkillInTTY(taskID, skillID string) (*TTYSkillLaunch, error) {
+	skillID = models.NormalizeSkillID(skillID)
 	if _, ok := StageSkillByID(skillID); !ok {
 		return nil, fmt.Errorf("skill %q inconnue", skillID)
 	}
