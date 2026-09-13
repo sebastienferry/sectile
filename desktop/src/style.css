@@ -26,6 +26,10 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 #workspace{overflow:hidden}
 #toolbar{flex-shrink:0;overflow-x:auto;gap:8px}
 
+.project-row .project-open-tasks{opacity:0;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center}
+.project-row:hover .project-open-tasks,.project-row:focus-within .project-open-tasks{opacity:1}
+.project-open-tasks:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
+@media (hover:none){.project-row .project-open-tasks{opacity:1}}
 .execution-queue{border-bottom:1px solid #293242;margin-bottom:16px;padding-bottom:14px}
 .queue-summary{color:#80e6ce;margin:8px 0}
 .queue-list{max-height:32vh;overflow:auto}
@@ -50,3 +54,6 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 #toolbar>div{flex:1 1 200px;max-width:100%}
 #title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #toolbar>button,#toolbar>select{flex-shrink:0;max-width:100%;margin:0}
+
+.terminal-title-line{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}.terminal-title-line #title{min-width:0}
+.skill-result{font-size:11px;color:#91a1b7;white-space:nowrap}.skill-result.completed{color:#80e6ce}.skill-result.failed{color:#ff9292}.skill-result.canceled{color:#b1a7b2}

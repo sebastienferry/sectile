@@ -172,6 +172,7 @@ ipcMain.handle('remove-project',async(_,id)=>{
 ipcMain.handle('map-project',(_,mapping)=>api('/desktop/projects','POST',mapping))
 ipcMain.handle('clear-history',()=>api('/desktop/history','DELETE'))
 ipcMain.handle('runs',()=>api('/desktop/runs'))
+ipcMain.handle('run-result',(_,id)=>api('/desktop/run-result?id='+encodeURIComponent(id)))
 ipcMain.handle('stop',(_,id)=>api('/desktop/stop?id='+encodeURIComponent(id),'POST'))
 ipcMain.handle('detach',()=>{if(socket){socket.removeAllListeners();socket.close();socket=null}})
 ipcMain.handle('attach',(_,id)=>{

@@ -45,6 +45,19 @@ the task activity and `agent.log` in the application's data directory.
 When a task's assigned branch is already open in the main repository checkout,
 the agent reuses that checkout and preserves its local changes.
 
+### Skill result indicator
+
+The terminal header shows the selected skill's result independently of its console
+process. A checkmark means the server reports that exact execution completed;
+for workflow stages, the task must also have reached the corresponding stage.
+An open console can therefore show **Skill completed**. Process exit alone shows
+**Execution ended · skill completion unconfirmed**, and pending stage validation,
+failures, cancellations and in-progress executions have distinct labels.
+The indicator refreshes without reattaching or resetting the terminal. It requires
+an updated local agent for server-result lookup; unavailable results never produce
+a success checkmark. The server does not yet expose a reliable waiting-for-answer
+state, so inactivity is not interpreted as a request for input.
+
 ### Execution queue
 
 Hover over a project's heading to reveal its small funnel-shaped queue icon alongside the other
@@ -218,12 +231,15 @@ Worktrees use Yes/No buttons; parallelism uses 1/2/3 buttons. Reset icons restor
 inheritance from server defaults. Changes take effect after **Save local
 configuration**. Server metadata and skill content remain read-only.
 
-Use **Launch task** beneath a project to search its server tasks, select a
-server-provided skill and **Launch**. Submission uses the server's
+Hover or keyboard-focus a project row and activate **Open tasks** to list its
+open server tasks immediately, even when the project is collapsed. Search by title
+or task key to narrow the list; submit an empty search to restore all open tasks.
+Select a server-provided skill and **Launch**; pickup is selected by default when
+available. Submission uses the server's
 existing run-skill dispatch and local queue; it does not create a duplicate task.
 The project must have a valid local repository mapping.
 
-The launcher shows results only after a search. Each result shows its status and a skill selector; Custom instructions sends a free-text request to the configured AI client. Executions appear in the local task list.
+Each result shows its status and a skill selector; Custom instructions sends a free-text request to the configured AI client. Loading, empty and error states are shown in the list; use Search to retry a failed request. Executions appear in the local task list. Opening the list does not start an execution.
 
 The Local project tab includes the effective **CLI command**. Edit it to save a
 per-project override under `commands` in user settings; the reset icon restores
