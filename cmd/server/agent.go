@@ -760,7 +760,17 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 
 	time.Sleep(350 * time.Millisecond)
 	log.Printf("⚡ [Agent] Launching skill command in local PTY terminal: %s (workdir: %s)", fullLine, workDir)
-	return d.terminalMgr.SendInput(sessionID, fullLine+"\n")
+	startedAt := time.Now().UTC()
+	if err := d.terminalMgr.SendInput(sessionID, fullLine+"\n"); err != nil {
+		return err
+	}
+	// Controlled executions use their run ID as the session ID.
+	d.runsMu.Lock()
+	if run := d.runs[sessionID]; run != nil && run.desktop.StartedAt.IsZero() {
+		run.desktop.StartedAt = startedAt
+	}
+	d.runsMu.Unlock()
+	return nil
 }
 
 // sendStatus sends a step_status message back to the remote server.
