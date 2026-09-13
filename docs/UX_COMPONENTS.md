@@ -19,7 +19,7 @@ App.tsx
 │   ├── TaskDetailModal.tsx (Sliding Drawer / Modal Dialog for ticket management)
 │   ├── TaskChatDrawer.tsx (Dual-mode Chat Assistant & Interactive Xterm.js PTY Terminal)
 │   ├── QuickAddModal.tsx (Rapid task creation with project binding)
-│   ├── GitDiffModal.tsx (File-tree and side-by-side Git Diff viewer)
+│   ├── (Local Git inspection belongs to Desktop; see section 2.6)
 │   ├── ActivityCenter.tsx (Job queue monitor and task output stream)
 │   ├── ProjectModal.tsx (Workspace & repository settings)
 │   └── SettingsModal.tsx (AI provider, themes, language, Linear/GitHub tokens)
@@ -85,10 +85,22 @@ with the agent happens in the shell where the agent CLI actually runs.
   - **Skills**: Manual skill runner with prompt overrides.
   - **History**: Complete chronological audit log of all activities, commands, and outputs.
 
-### 2.6 Git Diff Inspector (`GitDiffModal.tsx`)
-- Displays real-time diffs between the task worktree branch and the base `main` branch.
-- Left column: Changed files tree with addition/deletion line counters.
-- Right pane: Syntax-highlighted unified diff with chunk navigators and raw diff toggle.
+### 2.6 Desktop Changes inspector (`desktop/src/gitDiff.js`)
+
+The selected execution has keyboard-operable **Console** and **Changes** controls.
+Changes loads a local comparison on opening and offers explicit **Refresh**. A
+selectable file list accompanies a unified patch pane; paths, code, and warning
+text are inert text nodes. Additions, deletions, and hunk headers have distinct
+colors. Narrow windows keep file navigation and patch scrolling accessible.
+
+Context identifies the actual directory, branch, local default reference, ancestor,
+and read time. Loading, empty, error, and partial states are explicit; binary,
+submodule, oversized, and unsupported contents have markers. File selection survives
+refresh when still present. Failed refreshes clear source results. Request generations
+discard obsolete responses after selection changes, view closure, or disconnect.
+Switching views preserves the PTY; returning to Console restores focus and size.
+The web app does not retrieve or display this local source comparison (ADR 0003).
+
 
 ### 2.7 Activity Center (`ActivityCenter.tsx`)
 - Drawer monitoring all background agent executions across the entire workspace.

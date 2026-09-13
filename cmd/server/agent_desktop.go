@@ -20,6 +20,7 @@ import (
 )
 
 type desktopRun struct {
+	Branch          string    `json:"branch,omitempty"`
 	CancelRequested bool      `json:"cancelRequested,omitempty"`
 	QueueSequence   uint64    `json:"queueSequence,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -57,7 +58,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		sort.Strings(disconnected)
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.serverURL, "capabilities": []string{"create-task", "remove-project"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.serverURL, "capabilities": []string{"git-diff", "create-task", "remove-project"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -84,6 +85,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.restartRequested = r.URL.Path == "/desktop/restart"
 		w.WriteHeader(http.StatusNoContent)
 		d.restartAgent()
+		return
+	}
+	if r.URL.Path == "/desktop/git-diff" {
+		d.desktopGitDiff(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/create-task" {

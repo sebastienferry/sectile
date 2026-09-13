@@ -714,7 +714,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		}
 		d.runsMu.Lock()
 		if run := d.runs[payload.RunID]; run != nil {
-			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Status: "running"}
+			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Branch: branch, Status: "running"}
 		}
 		d.runsMu.Unlock()
 	}

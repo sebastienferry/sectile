@@ -45,6 +45,44 @@ the task activity and `agent.log` in the application's data directory.
 When a task's assigned branch is already open in the main repository checkout,
 the agent reuses that checkout and preserves its local changes.
 
+### Inspect worktree changes
+
+Select a local execution and open **Changes**. Choose a file to read its unified
+patch, or use **Refresh** after edits. **Console** restores terminal focus without
+restarting, stopping, or detaching the execution. Inspection also works for stopped
+runs while their recorded checkout and agent session remain available.
+
+The comparison includes committed, staged, unstaged, and non-ignored untracked
+contents as one net result. Reverted edits disappear, and a recreated staged
+deletion is compared once with its original contents. The header identifies the
+actual directory, branch, local default reference, common ancestor, and read time.
+Inspection reads current files even when selecting an older execution.
+
+The baseline uses the local symbolic `origin/HEAD`, then remote `origin/main` or
+`origin/master`, then local `main` or `master`. A broken recorded default or missing
+or ambiguous common ancestor produces an explanation. The viewer does not fetch;
+update local history outside the viewer if necessary. Branch changes, missing
+checkouts, unmerged indexes, and detected concurrent edits require recovery or retry.
+
+Binary and submodule changes have explicit markers and unavailable text counts.
+Symlinks show their link text, executable-bit changes remain visible, and paths and
+patches render as plain text. Git detects renames at 50% similarity, with a bounded
+rename search that may represent a rename as deletion plus addition.
+
+Inspection has a 10-second deadline, 1,000 displayed entries, 256 KiB per patch,
+and a 4 MiB response budget. File reads and Git metadata are bounded to 8 MiB each;
+the temporary content snapshot has a 64 MiB budget. Omitted patches and incomplete
+results are identified, and totals are labeled partial. Large metadata may prevent
+inspection entirely. Files using non-UTF-8 names produce an explicit unsupported
+path error; non-UTF-8 contents receive a non-text marker.
+
+The local agent retains the credential. Source contents remain on the workstation,
+with temporary Git storage removed after the request. Refresh does not stage,
+commit, alter repository objects, or execute external diff/textconv/fsmonitor
+helpers. There is no automatic refresh or persistent source snapshot. Upgrade and
+restart older agents to enable inspection; runs without recorded branch metadata
+need a new execution. A failed refresh clears the previous result.
+
 ### Skill result indicator
 
 The terminal header and each visible task row show the skill's result independently of its console

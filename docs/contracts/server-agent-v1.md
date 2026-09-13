@@ -350,6 +350,47 @@ same ready PR, branch, pushed commit, clean checkout and reported build/lint/tes
 checks at completion. Standalone transitions verify forge identity and readiness;
 check output remains agent-reported. Human merge and handoff remain separate.
 
+## Local Desktop worktree comparison
+
+The authenticated local agent advertises `git-diff` in `/desktop/status` and accepts
+`GET /desktop/git-diff?id=<runID>`. Electron exposes only `localAgent.gitDiff(runID)`;
+the main process retains the credential. Existing bearer-token and Origin rejection
+rules apply. No server relay or caller-selected filesystem path is supported.
+Responses use `Cache-Control: no-store`.
+
+Run metadata includes the verified assigned `branch`. The handler copies execution
+identity and its repository root under the run lock, then inspects outside that lock.
+An existing checkout must match the recorded directory, repository common Git
+directory, and branch. Inspection never prepares or creates a worktree.
+
+Success returns `runId`, `taskId`, `projectId`, `directory`, `branch`, `baseRef`,
+`baseCommit`, `mergeBase`, `headCommit`, and UTC `generatedAt`; `isClean`, `complete`,
+`countsPartial`, `filesChanged`, `additions`, `deletions`; and `warnings` plus `files`.
+Each file has `path`, optional `oldPath`, `status`, `kind`, nullable text counts,
+`patch`, and optional `omittedReason`. Status is added/modified/deleted/renamed/type-changed;
+kind is text/binary/symlink/submodule/unsupported. Counts sum displayed known text
+changes only. Incomplete results cannot be clean.
+
+The baseline resolves existing local refs in this order: symbolic `origin/HEAD`,
+remote main/master, local main/master. An invalid recorded default does not permit
+fallback. Exactly one merge base is required. The comparison uses a private temporary
+index/object directory, with the real object store available only for reads, so
+Git can detect net changes and renames without altering repository state. External
+diff, textconv, and filesystem-monitor helpers are disabled. HEAD, branch, default
+ref, index bytes, file membership and metadata, and inspected submodule HEADs are
+rechecked; a detected change retries once within the request deadline.
+
+Bounds: 10 seconds, 1,000 returned files, 256 KiB per patch, 4 MiB aggregate patch
+collection and serialized response, 8 MiB metadata/per-file reads, and 64 MiB of
+materialized content. Limits produce explicit omissions/partial totals, or an error
+when metadata cannot be interpreted. Temporary storage is removed on return.
+
+Errors use `{ "error": { "code": "...", "message": "..." } }`: unknown runs are
+404; unavailable/mismatched checkouts, baseline history, unmerged indexes, unsupported
+paths, and concurrent changes are 409; unusable metadata limits are 413; timeouts
+are 504; other Git/read failures are 500. Unsupported methods are 405 with `Allow: GET`.
+Messages explain recovery without returning subprocess output or source contents.
+
 ## MCP naming contract
 
 HTTP and stdio initialize with server name `sectile`; managed native registrations
