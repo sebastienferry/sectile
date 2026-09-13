@@ -349,3 +349,16 @@ Managed adjustment pins the original PR identity before running and verifies the
 same ready PR, branch, pushed commit, clean checkout and reported build/lint/test
 checks at completion. Standalone transitions verify forge identity and readiness;
 check output remains agent-reported. Human merge and handoff remain separate.
+
+### Desktop skill result lookup
+
+`GET /desktop/run-result?id=<run-id>` is authenticated with the loopback agent
+credential and accepts only an execution owned by that agent. It checks the
+server task identity/project, then returns the matching activity's `id`, `taskId`,
+`skillId` and `status`, plus task `status` and `labels`. `activity` is null if no
+matching activity exists. Unknown runs return 404, mismatched task identity 409,
+and unavailable server data 502. No logs or prompts are included.
+
+This read-only result is independent of the console process status. The desktop
+uses an exact execution match and completed workflow stage to display completion;
+process exit, a prior execution's success, or an idle console are insufficient.

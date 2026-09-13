@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  mapProject:mapping=>ipcRenderer.invoke('map-project',mapping),
  clearHistory:()=>ipcRenderer.invoke('clear-history'),
  runs:()=>ipcRenderer.invoke('runs'),
+ runResult:id=>ipcRenderer.invoke('run-result',id),
  stop:id=>ipcRenderer.invoke('stop',id),
  detach:()=>ipcRenderer.invoke('detach'),
  attach:id=>ipcRenderer.invoke('attach',id),
