@@ -10,7 +10,7 @@ import './style.css'
 import { taskStage, nextTaskStep } from './workflow.mjs'
 const api=window.localAgent
 document.querySelector('#app').innerHTML=`
-<header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
+<header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
 <form id="start"><label>TaskFlow server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
@@ -361,11 +361,35 @@ const dialog=document.querySelector('#project-dialog'),dialogBody=document.query
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
 document.querySelector('#dismiss-dialog').onclick=()=>dialog.close()
 function showDialog(title){
+ document.querySelector('#dismiss-dialog').textContent=title==='Agent logs'?'Close logs':'Close settings'
  dialogBody.replaceChildren()
  const heading=document.createElement('h2');heading.textContent=title;dialogBody.append(heading)
  if(!dialog.open)dialog.showModal()
 }
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
+document.querySelector('#agent-logs').onclick=()=>{
+ showDialog('Agent logs')
+ paragraph('Diagnostics captured by this desktop app. Agents started elsewhere may write to their original terminal instead.')
+ const source=paragraph('');source.className='agent-log-source'
+ const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh'
+ const status=document.createElement('p');status.setAttribute('role','status')
+ const output=document.createElement('pre');output.className='agent-log-output';output.tabIndex=0;output.setAttribute('aria-label','Agent log contents')
+ dialogBody.append(refresh,status,output)
+ const load=async()=>{
+  refresh.disabled=true;output.textContent='';status.textContent='Loading agent log…'
+  try{
+   const snapshot=await api.agentLogs()
+   source.textContent=snapshot.path
+   status.textContent=snapshot.missing?'No desktop agent log exists yet.':!snapshot.text?'The agent log is empty.':snapshot.truncated?'Showing the latest 256 KiB; earlier output omitted.':'Showing the current log snapshot.'
+   output.textContent=snapshot.text
+   output.scrollTop=output.scrollHeight
+  }catch(err){status.textContent='Unable to read agent log: '+(err.message||String(err))}
+  finally{refresh.disabled=false}
+ }
+ refresh.onclick=load
+ load()
+}
+
 async function loadProjects(){
  const version=projectStateVersion
  const status=await api.status(),next=await api.projects()
