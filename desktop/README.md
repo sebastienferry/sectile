@@ -1,4 +1,4 @@
-# TaskFlow Desktop
+# Sectile Desktop
 
 Local task execution consoles without a separate chatbot UI.
 
