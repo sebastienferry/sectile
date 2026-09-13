@@ -12,6 +12,7 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-z',name:'Zebra',path:'/tmp/z'},{id:'project-a',name:'Alpha',path:'/tmp/a'}]));return}
+  if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify({parallelism:3}));return}
   if(req.url==='/desktop/runs'){requests++;res.end(JSON.stringify(runs));return}
   if(req.url.startsWith('/desktop/tasks?')){res.end('[]');return}
   res.writeHead(404).end()
@@ -30,7 +31,12 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   const alphaQueue=page.getByRole('button',{name:'Queue view for Alpha',exact:true})
   const zebraQueue=page.getByRole('button',{name:'Queue view for Zebra',exact:true})
   await expect(alphaQueue.locator('.queue-count')).toHaveText('2')
+  await page.locator('#terminal').hover()
+  await expect(alphaQueue).toHaveCSS('opacity','0')
+  await page.getByRole('button',{name:'▾ Alpha',exact:true}).hover()
   await expect(alphaQueue).toHaveCSS('opacity','1')
+  await expect(page.locator('.project-capacity').first()).toHaveText('(2/3)')
+  await expect(page.locator('.project-capacity').last()).toHaveText('(0/?)')
   await alphaQueue.click()
   assert.equal(await page.locator('.local-task').count(),0)
   await expect(page.locator('.queue-summary')).toHaveText('2 active · 2 waiting')
@@ -42,7 +48,7 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   await page.locator('.queue-list [data-run-id="next"]').click()
   assert.equal(await page.locator('#execution-history').inputValue(),'next')
   await expect(page.locator('#title')).toContainText('#1')
-  assert.deepEqual(await page.locator('.project-heading').allTextContents(),['▾ Alpha','▾ Zebra'])
+  assert.deepEqual(await page.locator('.project-name').allTextContents(),['▾ Alpha','▾ Zebra'])
   await page.getByRole('button',{name:'Close queue for Alpha',exact:true}).click()
   await expect(alphaQueue).toBeFocused()
   assert.equal(await page.locator('.execution-queue').count(),0)
@@ -55,6 +61,7 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   await page.waitForFunction(()=>document.querySelector('.task-number').textContent==='#2')
   assert.deepEqual(await order(),['#2','#1','#4','#5','#3'])
   await expect(alphaQueue.locator('.queue-count')).toHaveText('1')
+  await expect(page.locator('.project-capacity').first()).toHaveText('(3/3)')
   assert.equal(await page.locator('#execution-history').inputValue(),'old')
   assert.equal(await page.locator('.run.selected').count(),1)
   const before=requests;runs.reverse()
@@ -74,11 +81,13 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   await expect(page.getByRole('button',{name:'▾ Alpha',exact:true})).toHaveAttribute('aria-expanded','true')
   assert.equal(await page.locator('.queue-list .queue-execution').count(),4)
   await page.screenshot({path:path.join(root,'task-order.png')})
-  runs=runs.map(item=>item.id==='next'?{...item,cancelRequested:true}:item)
-  await expect(page.locator('.queue-summary')).toHaveText('3 active · 0 waiting · 1 stopping')
+  runs=runs.map(item=>['next','active'].includes(item.id)?{...item,cancelRequested:true}:item)
+  await expect(page.locator('.queue-summary')).toHaveText('2 active · 0 waiting · 2 stopping')
   await expect(page.locator('.queue-list [data-run-id="next"]')).toContainText('Canceling')
+  await expect(page.locator('.project-capacity').first()).toHaveText('(3/3)')
   runs=runs.map(item=>({...item,status:'completed',cancelRequested:false}))
   await expect(page.locator('.queue-summary')).toHaveText('0 active · 0 waiting')
+  await expect(page.locator('.project-capacity').first()).toHaveText('(0/3)')
   await expect(page.locator('.queue-list')).toHaveText('No active or queued executions')
   console.log('Task-order screenshot: '+path.join(root,'task-order.png'))
  }finally{

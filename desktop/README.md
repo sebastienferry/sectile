@@ -47,12 +47,19 @@ the agent reuses that checkout and preserves its local changes.
 
 ### Execution queue
 
-Use the small queue icon on a project's heading to switch that project's task
+Hover over a project's heading to reveal its small funnel-shaped queue icon alongside the other
+project actions (also available on keyboard focus and touch). Use the queue icon to switch that project's task
 list to its execution queue directly below the project heading. Close the queue
 with its small cross button, or click the queue icon again, to restore the task list. Its badge
 shows the number of waiting executions; the highlighted icon indicates queue
 mode. Each project switches independently, and opening queue mode expands a
 collapsed project.
+
+The gray `(running/maximum)` counter beside each project name uses the agent's
+effective concurrency limit, including local overrides and shared-checkout
+serialization. Its numerator includes preparing and stopping executions that
+still hold a slot, and excludes queued and finished runs. If the agent cannot
+provide the limit, `?` is shown instead. Saving project settings refreshes it.
 
 The queue shows only that project's active, waiting and stopping executions,
 including multiple executions of one task. Select an entry to open its console.
