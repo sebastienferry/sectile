@@ -182,7 +182,29 @@ The launcher shows results only after a search. Each result shows its status and
 The Local project tab includes the effective **CLI command**. Edit it to save a
 per-project override under `commands` in user settings; the reset icon restores
 the server template (or provider default when empty). Save to apply to subsequent
-executions. Command templates support `{prompt}` and execute on the local agent.
+executions. Command templates execute on the local agent and support these placeholders:
+
+| Placeholder | Value |
+| --- | --- |
+| `{prompt}` | Assembled task instructions and run metadata (required) |
+| `{issueKey}` | Task display key, for example `#63` |
+| `{issueTitle}` | Current task title |
+| `{issueDesc}` | Current task description, possibly empty |
+| `{branchName}` | Resolved local execution branch |
+| `{repoPath}` | Absolute local execution directory, including the task worktree when enabled |
+| `{tracker}` | Lowercase task source, then effective tracker, then `github` |
+| `{repo}` | Effective configured GitHub repository, otherwise local directory basename |
+
+For example: `codex --cd "{repoPath}" "Task {issueKey}: {prompt}"`.
+Use placeholders as ordinary CLI arguments, either unquoted, single-quoted or
+double-quoted, including inside a larger argument. Inserted values remain literal
+shell data and are not expanded again. Unknown tokens remain literal. Templates
+are trusted shell commands; do not place placeholders inside shell programs,
+command substitutions or here-documents. Explicit raw terminal commands and
+interactive launches without a skill retain their existing behavior.
+
+Values are refreshed for every launch, including relaunches and custom instructions.
+Saving or resetting settings stores the template, never the expanded task values.
 
 **Refresh from server** reloads project metadata, skills and inherited execution
 settings in the open dialog. Local overrides and unsaved local edits remain

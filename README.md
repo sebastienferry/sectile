@@ -172,6 +172,8 @@ taskflow agent --url https://taskflow.example.com --project '<project-id>' --rep
 
 The agent fetches `GET /api/v1/agent/config`, creates or validates local Git
 worktrees, installs effective project skills, and launches the configured AI CLI.
+Local command templates support task and repository placeholders, including
+`{prompt}`, `{issueTitle}` and `{repoPath}`; see the [desktop placeholder guide](desktop/README.md).
 It does not open a database. Server filesystem paths and tracker credentials are
 excluded from the configuration contract. The old agent `--db` option is removed.
 A disconnected or incompatible configuration API prevents execution.
