@@ -1,6 +1,6 @@
 ---
-description: "Interactively clarify macro framing text with the user and break it down into structured todos and TaskFlow tickets."
-argument-hint: <MACRO-KEY> [contexte]
+description: "Clarifie de manière interactive le cadrage d'une macro et le décompose en TODOs structurés et cartes TaskFlow."
+argument-hint: <TICKET-KEY> [contexte]
 ---
 # Refine Macro (OpenSpec SDD)
 

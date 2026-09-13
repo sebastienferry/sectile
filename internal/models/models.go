@@ -86,7 +86,8 @@ type Project struct {
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
 	// nothing. Default true, which is the historical behaviour.
-	UseWorktrees bool `json:"useWorktrees"`
+	UseWorktrees    bool   `json:"useWorktrees"`
+	PRCreationStage string `json:"prCreationStage"`
 	// BoardID / TrackerColumns mirror the tracker's board: its columns in order,
 	// with the statuses each one groups. Imported from the tracker, not typed by
 	// hand.
@@ -274,6 +275,7 @@ type CreateProjectRequest struct {
 	Color                   string            `json:"color,omitempty"`
 	RepoPath                string            `json:"repoPath,omitempty"`
 	RepoPaths               []string          `json:"repoPaths,omitempty"`
+	PRCreationStage         string            `json:"prCreationStage,omitempty"`
 	UseWorktrees            *bool             `json:"useWorktrees,omitempty"`
 	BoardID                 string            `json:"boardId,omitempty"`
 	GitRemoteUrl            string            `json:"gitRemoteUrl,omitempty"`
@@ -304,6 +306,7 @@ type UpdateProjectRequest struct {
 	Color                   *string              `json:"color,omitempty"`
 	RepoPath                *string              `json:"repoPath,omitempty"`
 	RepoPaths               *[]string            `json:"repoPaths,omitempty"`
+	PRCreationStage         *string              `json:"prCreationStage,omitempty"`
 	UseWorktrees            *bool                `json:"useWorktrees,omitempty"`
 	BoardID                 *string              `json:"boardId,omitempty"`
 	TrackerColumns          *[]TrackerColumn     `json:"trackerColumns,omitempty"`
@@ -684,22 +687,23 @@ type MoveTaskRequest struct {
 }
 
 type CreateTaskRequest struct {
-	ProjectID      string   `json:"projectId,omitempty"`
-	Title          string   `json:"title"`
-	Description    string   `json:"description"`
-	Status         Status   `json:"status"`
-	Priority       Priority `json:"priority"`
-	Labels         []string `json:"labels"`
-	Assignee       string   `json:"assignee"`
-	AssigneeAvatar string   `json:"assigneeAvatar"`
-	DueDate        *string  `json:"dueDate"`
-	Source         string   `json:"source,omitempty"`
-	ExternalURL    *string  `json:"externalUrl,omitempty"`
-	Sprint         string   `json:"sprint,omitempty"`
-	IssueType      string   `json:"issueType,omitempty"`
-	ParentKey      string   `json:"parentKey,omitempty"`
-	ParentTitle    string   `json:"parentTitle,omitempty"`
-	ParentType     string   `json:"parentType,omitempty"`
+	RequireRemoteCreation bool     `json:"requireRemoteCreation,omitempty"`
+	ProjectID             string   `json:"projectId,omitempty"`
+	Title                 string   `json:"title"`
+	Description           string   `json:"description"`
+	Status                Status   `json:"status"`
+	Priority              Priority `json:"priority"`
+	Labels                []string `json:"labels"`
+	Assignee              string   `json:"assignee"`
+	AssigneeAvatar        string   `json:"assigneeAvatar"`
+	DueDate               *string  `json:"dueDate"`
+	Source                string   `json:"source,omitempty"`
+	ExternalURL           *string  `json:"externalUrl,omitempty"`
+	Sprint                string   `json:"sprint,omitempty"`
+	IssueType             string   `json:"issueType,omitempty"`
+	ParentKey             string   `json:"parentKey,omitempty"`
+	ParentTitle           string   `json:"parentTitle,omitempty"`
+	ParentType            string   `json:"parentType,omitempty"`
 }
 
 type CloneTaskRequest struct {
@@ -918,4 +922,3 @@ type ProposedMacroTask struct {
 	IssueType   string `json:"issueType"`
 	Description string `json:"description"`
 }
-

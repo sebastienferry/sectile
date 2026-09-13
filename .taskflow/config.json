@@ -1,11 +1,13 @@
 {
   "aiCommandTemplate": "codex --dangerously-bypass-approvals-and-sandbox \"{prompt}\"",
   "aiProvider": "codex",
-  "githubRepo": "",
-  "issueTracker": "local",
+  "gitRemoteUrl": "git@github.com:sebastienferry/taskflow.git",
+  "githubRepo": "sebastienferry/taskflow",
+  "issueTracker": "github",
   "linearTeam": "",
-  "projectId": "/Users/sferry/Sources/taskflow",
-  "projectName": "/Users/sferry/Sources/taskflow",
+  "projectId": "9dc93da8-0cb4-4fd5-af38-663433d960ff",
+  "projectName": "taskflow",
+  "schemaVersion": 1,
   "skills": [
     "clarify-issue",
     "specify-issue",
@@ -18,5 +20,16 @@
     "pickup-issues"
   ],
   "specFramework": "openspec",
-  "updatedAt": "2026-09-10T23:08:31+02:00"
+  "updatedAt": "2026-09-10T23:08:31+02:00",
+  "workflow": {
+    "operator": "TaskFlow",
+    "useWorktrees": true,
+    "stages": [
+      "clarify",
+      "specify",
+      "implement",
+      "review",
+      "handoff"
+    ]
+  }
 }

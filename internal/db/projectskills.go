@@ -93,12 +93,28 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []Pro
 	}
 	overrides := d.projectSkillOverrides(projectID)
 
+	timing := "implemented"
+	if project, err := d.GetProjectByID(projectID); err == nil && project != nil && project.PRCreationStage == "specified" {
+		timing = "specified"
+	}
 	out := ProjectSkillTemplates(framework)
 	for i := range out {
 		if ov, ok := overrides[out[i].ID]; ok && strings.TrimSpace(ov.content) != "" {
 			out[i].Content = ov.content
 		}
 	}
+	for i := range out {
+		if out[i].ID != "specify" && out[i].ID != "implement" && out[i].ID != "create_pr" && out[i].ID != "pickup" && out[i].ID != "pickup_issues" {
+			continue
+		}
+		out[i].Content += "\n## Project pull request policy\nPR creation stage: " + timing + ". Read this setting from taskflow_get_project_context before executing. "
+		if timing == "specified" {
+			out[i].Content += "After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep it draft while implementing; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.\n"
+		} else {
+			out[i].Content += "Create the PR/MR after implementation and review, reusing any existing PR/MR for the task branch. Do not create one during specification.\n"
+		}
+	}
+
 	return out
 }
 

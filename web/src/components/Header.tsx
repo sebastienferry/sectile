@@ -7,10 +7,7 @@ import {
   Activity,
   X,
   RefreshCw,
-  GitBranch,
-  Code2,
   Settings,
-  Terminal as TerminalIcon,
   Target,
   SlidersHorizontal,
   Map as MapIcon,
@@ -25,9 +22,7 @@ export const Header: React.FC = () => {
     projects,
     setIsProjectModalOpen,
     setEditingProject,
-    gitStatus,
     activeJobCount,
-    openInEditor,
     searchQuery,
     setSearchQuery,
     activeView,
@@ -49,11 +44,7 @@ export const Header: React.FC = () => {
     assigneeFilter,
     setAssigneeFilter,
     setIsQuickAddOpen,
-    setIsBranchModalOpen,
-    isTerminalPanelOpen,
-    toggleTerminalPanel,
     isSyncing,
-    settings,
     t,
   } = useApp()
 
@@ -272,49 +263,13 @@ export const Header: React.FC = () => {
         {/* Branche Git active. Masquée sur un projet multi-dépôts : elle y
             désignerait la branche d'un dépôt parmi d'autres, et le sélecteur
             ferait changer de branche dans ce dépôt là seulement. */}
-        {gitStatus?.branch && currentProject?.monoRepo !== false && (
-          <div
-            onClick={() => setIsBranchModalOpen(true)}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-mono font-semibold bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-cyan-500/50 hover:bg-cyan-500/15 cursor-pointer transition-all shadow-xs"
-            title={`Branche Git active : ${gitStatus.branch} (${gitStatus.isClean ? 'Clean' : '*' + (gitStatus.modifiedCount + gitStatus.untrackedCount)}) - Cliquer pour changer de branche`}
-          >
-            <GitBranch size={13} className="text-cyan-400 shrink-0" />
-            <span className="text-cyan-300 font-bold truncate max-w-[140px]">{gitStatus.branch}</span>
-            {gitStatus.isClean ? (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Arbre propre" />
-            ) : (
-              <span className="text-[10px] text-amber-400 font-bold" title="Fichiers modifiés">
-                *{(gitStatus.modifiedCount + gitStatus.untrackedCount)}
-              </span>
-            )}
-          </div>
-        )}
+
 
         {/* Open Project in Editor Button */}
-        <button
-          type="button"
-          onClick={() => openInEditor({ projectId: currentProject?.id })}
-          className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-cyan-300 hover:border-cyan-500/40 hover:bg-cyan-500/10 transition-all cursor-pointer shadow-xs"
-          title={`Ouvrir le projet '${currentProject?.name || 'actuel'}' dans ${settings.editorCommand || 'VS Code'}`}
-        >
-          <Code2 size={13} className="text-cyan-400" />
-          <span>Code</span>
-        </button>
+
 
         {/* Toggle the docked workspace CLI */}
-        <button
-          type="button"
-          onClick={toggleTerminalPanel}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer shadow-xs ${
-            isTerminalPanelOpen
-              ? 'bg-[var(--accent-light)] border-[var(--accent-color)]/50 accent-text'
-              : 'bg-[var(--bg-tertiary)]/70 border-[var(--border-color)] text-[var(--text-secondary)] hover:text-indigo-300 hover:border-indigo-500/40 hover:bg-indigo-500/10'
-          }`}
-          title={`${isTerminalPanelOpen ? 'Fermer' : 'Ouvrir'} le terminal du workspace (Cmd+$ / Ctrl+$)`}
-        >
-          <TerminalIcon size={13} className={isTerminalPanelOpen ? '' : 'text-indigo-400'} />
-          <span className="hidden md:inline">CLI</span>
-        </button>
+
 
         {/* Quick Add Button (+) */}
         <button

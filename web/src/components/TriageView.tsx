@@ -11,7 +11,6 @@ import {
   EyeOff,
   Search,
   CheckCircle2,
-  Terminal as TerminalIcon,
   X,
   SlidersHorizontal,
   Sparkles,
@@ -46,7 +45,6 @@ export const TriageView: React.FC = () => {
     updateTask,
     fetchProjectMacros,
     setSelectedTask,
-    setChatTask,
     activeJobCount,
     hideDone,
     toggleHideDone,
@@ -473,7 +471,7 @@ export const TriageView: React.FC = () => {
             type="button"
             onClick={() => startBatchPickup(selectedIds)}
             className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold cursor-pointer text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 shrink-0 shadow-xs"
-            title="Démarrer un unique Git Worktree et exécuter le lot de tâches en auto-pilot"
+            title="Run the selected tasks on the local agent"
           >
             <Sparkles size={13} className="text-purple-400 animate-pulse" />
             Lancer le lot (Git tree + Auto-pilot)
@@ -687,14 +685,7 @@ export const TriageView: React.FC = () => {
 
                     {/* Quick Actions */}
                     <td className="py-2 px-3 text-center">
-                      <button
-                        type="button"
-                        onClick={() => setChatTask(task)}
-                        className="p-1 rounded text-[var(--text-muted)] hover:text-cyan-400 hover:bg-cyan-500/10 cursor-pointer transition-colors"
-                        title={`Ouvrir le terminal de ${task.key}`}
-                      >
-                        <TerminalIcon size={13} />
-                      </button>
+
                     </td>
                   </tr>
                 )

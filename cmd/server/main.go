@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -170,6 +171,19 @@ func main() {
 
 	if len(os.Args) >= 2 {
 		cmd := strings.ToLower(os.Args[1])
+		if cmd == "mcp" {
+			if err := runMCPCommand(context.Background(), os.Args[2:]); err != nil {
+				log.Fatalf("MCP server: %v", err)
+			}
+			return
+		}
+		if cmd == "agent-exec" {
+			if err := runAgentExec(os.Args[2:]); err != nil {
+				log.Print(err)
+				os.Exit(1)
+			}
+			return
+		}
 		if cmd == "agent" {
 			runAgentCommand(os.Args[2:])
 			return
@@ -269,6 +283,10 @@ func main() {
 	mux.HandleFunc("/api/terminal/sessions", h.HandleTerminalSessions)
 	mux.HandleFunc("/api/terminal/send", h.HandleTerminalSend)
 	mux.HandleFunc("/api/terminal/reset", h.HandleTerminalReset)
+
+	mux.Handle("/mcp", h.MCPHandler())
+	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
+	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
 
 	// Remote Agent WebSocket & Dispatch Routes
 	mux.HandleFunc("/ws/agent-connect", h.HandleAgentConnect)
@@ -377,23 +395,14 @@ func main() {
 			return true
 		}
 
-		appEnv := strings.ToLower(strings.TrimSpace(os.Getenv("APP_ENV")))
-		if appEnv == "dev" || appEnv == "development" || appEnv == "debug" {
-			return false
-		}
-
-		// Désactivé en dev quand le front n'est pas embarqué (ex: Vite tourne à côté)
-		if !uiEmbedded {
-			return false
-		}
-
-		return true
+		// Opening a browser requires an explicit opt-in, including packaged builds.
+		return false
 	}()
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		if alreadyServing(url) {
-			log.Printf("TaskFlow tourne déjà sur %s : ouverture de la fenêtre existante.", url)
+			log.Printf("TaskFlow is already running at %s.", url)
 			if shouldOpenBrowser {
 				openBrowser(url)
 			}
@@ -503,4 +512,3 @@ func handleCliStageCommand(defaultPort string, args []string) {
 		fmt.Printf("   Activité enregistrée : %s\n", act.ID)
 	}
 }
-

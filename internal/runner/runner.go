@@ -2478,46 +2478,20 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 	}
 	scriptPath := tmpFile.Name()
 
-	var sb strings.Builder
-	sb.WriteString("#!/bin/bash\n")
-	sb.WriteString("# TaskFlow External Terminal Session\n\n")
-
-	customPath := GetDynamicCustomPath()
-	if customPath != "" {
-		sb.WriteString(fmt.Sprintf("export PATH=%q:$PATH\n", customPath))
+	script, err := externalTerminalScript(targetPath, initialCommand, envVars)
+	if err != nil {
+		_ = tmpFile.Close()
+		_ = os.Remove(scriptPath)
+		return err
 	}
 
-	for k, v := range envVars {
-		if strings.TrimSpace(k) != "" {
-			sb.WriteString(fmt.Sprintf("export %s=%q\n", k, v))
-		}
-	}
-
-	sb.WriteString(fmt.Sprintf("cd %q || exit 1\n\n", targetPath))
-	sb.WriteString("echo -e \"\\033[1;36m┌──────────────────────────────────────────────────┐\\033[0m\"\n")
-	sb.WriteString("echo -e \"\\033[1;36m│          TaskFlow External Terminal             │\\033[0m\"\n")
-	sb.WriteString("echo -e \"\\033[1;36m└──────────────────────────────────────────────────┘\\033[0m\"\n")
-	sb.WriteString(fmt.Sprintf("echo -e \"\\033[0;32m📁 Dossier :\\033[0m %s\"\n", targetPath))
-	if taskKey, ok := envVars["TASKFLOW_TASK_KEY"]; ok && taskKey != "" {
-		sb.WriteString(fmt.Sprintf("echo -e \"\\033[0;35m🎯 Tâche   :\\033[0m %s\"\n", taskKey))
-	}
-	sb.WriteString("echo \"\"\n\n")
-
-	initialCommand = strings.TrimSpace(initialCommand)
-	if initialCommand != "" {
-		sb.WriteString(fmt.Sprintf("echo -e \"\\033[0;33m▶ Exécution :\\033[0m %s\"\n", initialCommand))
-		sb.WriteString(fmt.Sprintf("%s\n\n", initialCommand))
-	}
-
-	sb.WriteString("exec \"${SHELL:-/bin/zsh}\" -l\n")
-
-	if _, err := tmpFile.WriteString(sb.String()); err != nil {
+	if _, err := tmpFile.WriteString(script); err != nil {
 		tmpFile.Close()
 		return fmt.Errorf("failed to write terminal script: %w", err)
 	}
 	tmpFile.Close()
 
-	if err := os.Chmod(scriptPath, 0755); err != nil {
+	if err := os.Chmod(scriptPath, 0700); err != nil {
 		return fmt.Errorf("failed to make terminal script executable: %w", err)
 	}
 
@@ -2603,7 +2577,8 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 		} else if _, err := exec.LookPath("xterm"); err == nil {
 			cmd = exec.Command("xterm", "-e", scriptPath)
 		} else {
-			cmd = exec.Command("sh", scriptPath)
+			_ = os.Remove(scriptPath)
+			return fmt.Errorf("no external terminal emulator found; configure externalTerminalCommand")
 		}
 	}
 
@@ -2612,8 +2587,23 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 	}
 
 	cmd.Env = append(os.Environ(), "PATH="+GetDynamicCustomPath()+":"+os.Getenv("PATH"))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
+		_ = os.Remove(scriptPath)
 		return fmt.Errorf("failed to start external terminal: %w", err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			_ = os.Remove(scriptPath)
+			return fmt.Errorf("external terminal launcher failed: %w: %s", err, strings.TrimSpace(stderr.String()))
+		}
+	case <-time.After(250 * time.Millisecond):
+		// Terminal emulators may remain alive until their window closes. The
+		// waiter reaps them without blocking the HTTP request for that lifetime.
 	}
 	return nil
 }

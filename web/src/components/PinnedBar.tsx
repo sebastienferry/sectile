@@ -23,7 +23,7 @@ const PRIORITY_DOT: Record<Priority, string> = {
  * quand les filtres du board le cachent ou qu'il appartient à un autre projet.
  */
 export const PinnedBar: React.FC = () => {
-  const { pinnedTasks, togglePin, hotSwitch, chatTask, setSelectedTask } = useApp()
+  const { pinnedTasks, togglePin, hotSwitch, selectedTask, setSelectedTask } = useApp()
 
   useEffect(() => {
     if (pinnedTasks.length === 0) return
@@ -50,7 +50,7 @@ export const PinnedBar: React.FC = () => {
       </span>
 
       {pinnedTasks.map((task, index) => {
-        const isCurrent = chatTask?.id === task.id
+        const isCurrent = selectedTask?.id === task.id
         const dot = PRIORITY_DOT[task.priority] || 'var(--text-muted)'
         return (
           <div
@@ -70,7 +70,7 @@ export const PinnedBar: React.FC = () => {
               type="button"
               onClick={() => hotSwitch(task.id)}
               className="flex items-center gap-1.5 cursor-pointer min-w-0"
-              title={`Basculer sur la console de ${task.key} (${index < 9 ? `Cmd+${index + 1}` : 'clic'})`}
+              title={`Ouvrir la tâche ${task.key} (${index < 9 ? `Cmd+${index + 1}` : 'clic'})`}
             >
               <span
                 className={`text-[10px] font-mono font-bold ${

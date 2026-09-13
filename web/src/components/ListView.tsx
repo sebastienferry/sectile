@@ -1,7 +1,7 @@
+import { RemoteRunBadge } from './RemoteRunBadge'
 import React, { useState, useMemo, useRef, useEffect } from "react"
 import {
   Flame,
-  AlertCircle,
   Clock,
   CheckCircle2,
   Calendar,
@@ -15,8 +15,6 @@ import {
   FolderGit2,
   Eye,
   EyeOff,
-  MessageSquare,
-  Code2,
   Layers,
   Pin,
   HelpCircle,
@@ -42,17 +40,12 @@ export const ListView: React.FC = () => {
     isPinned,
     togglePin,
     setSelectedTask,
-    setChatTask,
-    setDiffTask,
     updateTask,
     deleteTask,
     openCloneModal,
     activities,
     hideDone,
     toggleHideDone,
-    openInEditor,
-    openExternalTerminal,
-    settings,
     boardGrouping,
     setBoardGrouping,
     moveTaskWorkflowStage,
@@ -63,18 +56,6 @@ export const ListView: React.FC = () => {
     t,
   } = useApp()
 
-  const formatRelativeTime = (dateStr?: string) => {
-    if (!dateStr) return ""
-    try {
-      const diff = Math.max(0, (Date.now() - new Date(dateStr).getTime()) / 1000)
-      if (diff < 60) return "à l'instant"
-      if (diff < 3600) return `${Math.floor(diff / 60)}m`
-      if (diff < 86400) return `${Math.floor(diff / 3600)}h`
-      return `${Math.floor(diff / 86400)}j`
-    } catch {
-      return ""
-    }
-  }
 
   // Par défaut, le plus urgent en premier.
   const [sortField, setSortField] = useState<"key" | "title" | "status" | "priority" | "dueDate" | "createdAt">("priority")
@@ -506,39 +487,9 @@ export const ListView: React.FC = () => {
             </div>
           )}
 
+          <RemoteRunBadge taskId={task.id} />
           {/* Activity badge if exists */}
-          {latestActivity && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation()
-                setChatTask(task)
-              }}
-              className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] mt-1 border transition-colors ${
-                latestActivity.status === "running"
-                  ? "bg-indigo-500/10 border-indigo-500/30 text-indigo-300 animate-pulse"
-                  : latestActivity.status === "failed"
-                  ? "bg-rose-500/10 border-rose-500/25 text-rose-300"
-                  : latestActivity.status === "queued" || latestActivity.status === "pending"
-                  ? "bg-amber-500/10 border-amber-500/25 text-amber-300"
-                  : "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
-              }`}
-              title={`Activité: ${latestActivity.skillName || latestActivity.action} (${latestActivity.status}) - Cliquer pour ouvrir`}
-            >
-              {latestActivity.status === "running" ? (
-                <Loader2 size={9} className="animate-spin text-indigo-400" />
-              ) : latestActivity.status === "failed" ? (
-                <AlertCircle size={9} className="text-rose-400" />
-              ) : latestActivity.status === "queued" || latestActivity.status === "pending" ? (
-                <Clock size={9} className="text-amber-400" />
-              ) : (
-                <CheckCircle2 size={9} className="text-emerald-400" />
-              )}
-              <span className="font-bold">{latestActivity.skillName || latestActivity.action}</span>
-              <span className="opacity-70 font-mono text-[9px]">
-                • {latestActivity.status === "running" ? "en cours" : formatRelativeTime(latestActivity.completedAt || latestActivity.startedAt || latestActivity.createdAt)}
-              </span>
-            </div>
-          )}
+
 
           {task.description && !latestActivity && (
             <div className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">
@@ -681,19 +632,7 @@ export const ListView: React.FC = () => {
                 </span>
               )}
 
-              {task.branchName && (
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setDiffTask(task)
-                  }}
-                  className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] font-mono text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/25 transition-colors cursor-pointer group/branch"
-                  title={`Branche: ${task.branchName} (Cliquer pour voir le Diff Git)`}
-                >
-                  <GitBranch size={10} className="text-indigo-400 shrink-0 group-hover/branch:scale-110 transition-transform" />
-                  <span className="truncate max-w-[100px]">{task.branchName}</span>
-                </div>
-              )}
+
             </div>
 
             {task.prUrl && (
@@ -732,31 +671,6 @@ export const ListView: React.FC = () => {
               <Pin size={13} />
             </button>
 
-            <button
-              onClick={() => setChatTask(task)}
-              className="p-1 rounded text-[var(--text-muted)] hover:text-cyan-400 hover:bg-cyan-500/10 transition-colors cursor-pointer"
-              title="💬 Ouvrir le terminal interactif intégré"
-            >
-              <MessageSquare size={13} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openExternalTerminal({ taskId: task.id })}
-              className="p-1 rounded text-[var(--text-muted)] hover:text-amber-400 hover:bg-amber-500/10 transition-colors cursor-pointer"
-              title="💻 Lancer dans un terminal externe OS"
-            >
-              <ExternalLink size={13} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => openInEditor({ taskId: task.id })}
-              className="p-1 rounded text-[var(--text-muted)] hover:text-indigo-400 hover:bg-indigo-500/10 transition-colors cursor-pointer"
-              title={`Ouvrir dans ${settings.editorCommand || "l'éditeur"}`}
-            >
-              <Code2 size={13} />
-            </button>
 
             <button
               type="button"

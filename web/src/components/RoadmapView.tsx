@@ -12,7 +12,6 @@ import {
   Plus,
   Check,
   Trash2,
-  Terminal as TerminalIcon,
   AlertTriangle,
   Save,
   X,
@@ -76,7 +75,6 @@ export const RoadmapView: React.FC = () => {
     projects,
     currentProject,
     setSelectedTask,
-    setChatTask,
     fetchProjectMacros,
     saveMacroMeta,
     createStoryFromMacroTodo,
@@ -104,9 +102,6 @@ export const RoadmapView: React.FC = () => {
     migrateMacro,
     refineMacro,
     createBatchTasks,
-    setIsTerminalPanelOpen,
-    injectTaskSkill,
-    sendTerminalInput,
   } = useApp()
 
   const [tab, setTab] = useState<HorizonTab>('now')
@@ -447,14 +442,6 @@ export const RoadmapView: React.FC = () => {
     if (draftDirty) {
       await persist(selected.key, { description: draftDescription })
       setDraftDirty(false)
-    }
-
-    setIsTerminalPanelOpen(true)
-    if (orderedOpen.length > 0) {
-      setChatTask(orderedOpen[0])
-      await injectTaskSkill(orderedOpen[0].id, 'refine_macro')
-    } else {
-      await sendTerminalInput(`/refine-macro ${selected.key}\n`)
     }
 
     setIsRefining(true)
@@ -1185,11 +1172,7 @@ export const RoadmapView: React.FC = () => {
                                   {task.sprint || meta.label}
                                 </span>
                               )}
-                              <button type="button" onClick={() => setChatTask(task)}
-                                className="p-0.5 rounded text-[var(--text-muted)] hover:text-cyan-300 cursor-pointer shrink-0"
-                                title={`Terminal de ${task.key}`}>
-                                <TerminalIcon size={12} />
-                              </button>
+
                               <button
                                 type="button"
                                 disabled={busyKey === task.id}

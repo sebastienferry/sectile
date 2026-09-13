@@ -112,23 +112,48 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	nowT := time.Now()
 	now := nowT.Format("2006-01-02 15:04:05")
 
-	d.mu.Lock()
-	var execErr error
-	if mrURL != "" {
-		_, execErr = d.conn.Exec(`
-			UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, branch_name = ?, updated_at = ?
-			WHERE id = ?
-		`, string(newStatus), string(labelsJSON), trackerStatus, mrURL, branchName, now, task.ID)
-	} else {
-		_, execErr = d.conn.Exec(`
-			UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, branch_name = ?, updated_at = ?
-			WHERE id = ?
-		`, string(newStatus), string(labelsJSON), trackerStatus, branchName, now, task.ID)
+	activity, job, err := buildTrackerOpJob(TrackerOp{
+		Kind: TrackerOpStage, ProjectID: task.ProjectID, TaskID: task.ID,
+		TaskKey: task.Key, Stage: cleanStage, TargetStatus: trackerStatusTarget,
+		Note: note, PrURL: mrURL, BranchName: branch,
+	})
+	if err != nil {
+		return nil, nil, err
 	}
-	d.mu.Unlock()
-	if execErr != nil {
-		return nil, nil, execErr
+	// Commit state and its tracker activity together. A failed activity insert
+	// must not leave the task advanced without a report or synchronization job.
+	err = func() error {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		running, err := d.managedStageRunningUnsafe(task.ID)
+		if err != nil {
+			return err
+		}
+		if running {
+			return fmt.Errorf("a managed TaskFlow stage is still running")
+		}
+		tx, err := d.conn.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		pr := task.PrURL
+		if mrURL != "" {
+			pr = &mrURL
+		}
+		if _, err := tx.Exec(`UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, branch_name = ?, updated_at = ? WHERE id = ?`,
+			string(newStatus), string(labelsJSON), trackerStatus, pr, branchName, now, task.ID); err != nil {
+			return err
+		}
+		if err := insertTaskActivity(tx, *activity); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}()
+	if err != nil {
+		return nil, nil, err
 	}
+	d.pushTrackerOpJob(job)
 
 	task.Status = newStatus
 	task.Labels = newLabels
@@ -140,22 +165,6 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 		task.BranchName = branchName
 	}
 	task.UpdatedAt = nowT
-
-	// Enqueue tracker synchronization operation in the activity queue
-	activity, opErr := d.EnqueueTrackerOp(TrackerOp{
-		Kind:         TrackerOpStage,
-		ProjectID:    task.ProjectID,
-		TaskID:       task.ID,
-		TaskKey:      task.Key,
-		Stage:        cleanStage,
-		TargetStatus: trackerStatusTarget,
-		Note:         note,
-		PrURL:        mrURL,
-		BranchName:   branch,
-	})
-	if opErr != nil {
-		return task, nil, opErr
-	}
 
 	return task, activity, nil
 }

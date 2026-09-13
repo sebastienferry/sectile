@@ -1,5 +1,5 @@
 ---
-description: "Reformat a story or task description into structured markdown, optionally incorporating task comments."
+description: "Reformate la description d'une tâche en User Story structurée GFM, avec inclusion facultative des commentaires."
 argument-hint: <TICKET-KEY> [contexte]
 ---
 # Rewrite Story
@@ -31,6 +31,10 @@ Reformat a task's title, description, and optional comments into a clean GitHub-
 ## Report
 - The reformatted GFM description preview.
 - List of comment points integrated into acceptance criteria (if any).
+
+## Execution and ticket state
+- **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
+- **Remote execution indicator (standalone only)**: Before doing work, call taskflow_start_run with the full task primary key and skill name. If TASKFLOW_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call taskflow_finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.
 
 ## Ticket
 $ARGUMENTS

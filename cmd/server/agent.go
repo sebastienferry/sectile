@@ -1,16 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"os"
 	"os/exec"
@@ -22,9 +22,8 @@ import (
 	"syscall"
 	"time"
 
-	"tasks/internal/db"
+	"tasks/internal/agentconfig"
 	"tasks/internal/handlers"
-	"tasks/internal/runner"
 	"tasks/internal/terminal"
 
 	"github.com/gorilla/websocket"
@@ -33,6 +32,14 @@ import (
 // agentDaemon runs the local TaskFlow agent that connects outward to a remote
 // TaskFlow server and executes workflow steps locally inside Git worktrees.
 type agentDaemon struct {
+	queueSequence    uint64
+	restartRequested bool
+	shuttingDown     bool
+	restartAgent     context.CancelFunc
+	desktopToken     string
+	desktopInfo      string
+	runsMu           sync.Mutex
+	runs             map[string]*controlledRun
 	serverURL        string
 	token            string
 	projectID        string
@@ -45,7 +52,8 @@ type agentDaemon struct {
 	conn             *websocket.Conn
 	connMu           sync.Mutex
 	terminalMgr      *terminal.Manager
-	database         *db.DB
+	repoRoot         string
+	prepareMu        sync.Mutex
 	done             chan struct{}
 }
 
@@ -69,11 +77,14 @@ func runAgentCommand(args []string) {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
 	serverURL := fs.String("url", "", "Remote TaskFlow server URL (e.g. https://taskflow.example.com)")
 	token := fs.String("token", "", "Authentication token for the remote server")
-	projectID := fs.String("project", "default", "Project ID to register with")
+	projectID := fs.String("project", "all", "Project primary key, or all for multi-project operation")
 	deviceID := fs.String("device", "", "Device identifier (defaults to hostname)")
-	terminalApp := fs.String("terminal", "", "Terminal application to launch for interactive jobs (ghostty, iterm, terminal, warp, pty)")
-	dbPath := fs.String("db", "", "Local database path (optional, for task metadata)")
+	terminalApp := fs.String("terminal", "", "Deprecated compatibility option; executions use agent-owned consoles")
+	repoRoot := fs.String("repo", "", "Local repository root (defaults to current Git checkout)")
 
+	fs.Bool("desktop", false, "Deprecated compatibility flag; local consoles are always available")
+	desktopInfo := fs.String("desktop-info", "", "Private local connection file (default: ~/.taskflow/agent-connection.json)")
+	listProjects := fs.Bool("list-projects", false, "List server projects and exit")
 	_ = fs.Parse(args)
 
 	if *serverURL == "" {
@@ -115,19 +126,8 @@ func runAgentCommand(args []string) {
 		termChoice = detectDefaultTerminal()
 	}
 
-	// Optional local database for task metadata caching.
-	var database *db.DB
-	if *dbPath != "" {
-		var err error
-		database, err = db.NewDB(*dbPath)
-		if err != nil {
-			log.Printf("[Agent] Warning: could not open local database: %v", err)
-		} else {
-			defer database.Close()
-		}
-	}
-
 	daemon := &agentDaemon{
+		desktopInfo: *desktopInfo, desktopToken: os.Getenv("TASKFLOW_DESKTOP_TOKEN"),
 		serverURL:        strings.TrimRight(*serverURL, "/"),
 		token:            *token,
 		projectID:        *projectID,
@@ -135,13 +135,60 @@ func runAgentCommand(args []string) {
 		terminalApp:      termChoice,
 		terminalExplicit: termExplicit,
 		terminalMgr:      terminal.NewManager(),
-		database:         database,
+		repoRoot:         *repoRoot,
 		done:             make(chan struct{}),
 	}
 
+	if *listProjects {
+		projects, err := daemon.discoverProjects(context.Background())
+		if err != nil {
+			log.Printf("[Agent] Project discovery failed: %v", err)
+			return
+		}
+		for _, p := range projects.Projects {
+			fmt.Printf("%s\t%s\t%s\n", p.ID, p.Name, p.GitRemoteURL)
+		}
+		return
+	}
+
+	if daemon.desktopToken == "" {
+		daemon.desktopToken = rand.Text()
+	}
+	if daemon.desktopInfo == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			log.Printf("[Agent] Cannot locate local configuration: %v", err)
+			return
+		}
+		daemon.desktopInfo = filepath.Join(home, ".taskflow", "agent-connection.json")
+	}
+	if localAgentAvailable(daemon.desktopInfo) {
+		log.Printf("[Agent] An agent is already available through %s; connect the companion to it or stop it first", daemon.desktopInfo)
+		return
+	}
 	// Graceful shutdown on SIGINT / SIGTERM.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	daemon.restartAgent = cancel
+	// Run after console and gateway cleanup, preserving the original arguments.
+	defer func() {
+		if !daemon.restartRequested {
+			return
+		}
+		binary, err := os.Executable()
+		if err != nil {
+			log.Printf("[Agent] Restart failed: %v", err)
+			return
+		}
+		child := exec.Command(binary, os.Args[1:]...)
+		child.Env = os.Environ()
+		child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if err := child.Start(); err != nil {
+			log.Printf("[Agent] Restart failed: %v", err)
+			return
+		}
+		_ = child.Process.Release()
+	}()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -156,7 +203,12 @@ func runAgentCommand(args []string) {
 
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
-		log.Printf("[Agent] Warning: could not start local proxy: %v", err)
+		log.Printf("[Agent] Cannot bootstrap MCP without the local gateway: %v", err)
+		return
+	}
+	if err := daemon.writeDesktopInfo(); err != nil {
+		log.Printf("Desktop connection: %v", err)
+		return
 	}
 	defer func() {
 		if daemon.httpServer != nil {
@@ -164,6 +216,11 @@ func runAgentCommand(args []string) {
 		}
 	}()
 
+	defer func() {
+		for _, session := range daemon.terminalMgr.ListSessions() {
+			_ = daemon.terminalMgr.CloseSession(session.ID)
+		}
+	}()
 	daemon.connectLoop(ctx)
 }
 
@@ -201,7 +258,8 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 	var ln net.Listener
 	var err error
-	ln, err = net.Listen("tcp", "127.0.0.1:8091")
+	address := "127.0.0.1:8091"
+	ln, err = net.Listen("tcp", address)
 	if err != nil {
 		ln, err = net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
@@ -216,50 +274,31 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 
-	// Forward /api/ requests to the remote server with authentication
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		targetURL := fmt.Sprintf("%s%s", d.serverURL, r.URL.RequestURI())
-		log.Printf("🔄 [Agent Proxy] Forwarding %s %s -> %s", r.Method, r.URL.Path, targetURL)
-
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to read request body: %v", err), http.StatusBadRequest)
+	upstream, err := url.Parse(d.serverURL)
+	if err != nil || (upstream.Scheme != "http" && upstream.Scheme != "https") || upstream.Host == "" {
+		_ = ln.Close()
+		return fmt.Errorf("invalid upstream server URL")
+	}
+	proxy := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
+		pr.SetURL(upstream)
+		pr.Out.Header.Set("Authorization", "Bearer "+d.token)
+	}}
+	forward := func(w http.ResponseWriter, r *http.Request) {
+		// Reject browser requests before attaching the daemon's credential.
+		if r.Header.Get("Origin") != "" {
+			http.Error(w, "Browser origins are not allowed", http.StatusForbidden)
 			return
 		}
-
-		req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, bytes.NewReader(bodyBytes))
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to create upstream request: %v", err), http.StatusInternalServerError)
+		if r.Host != fmt.Sprintf("127.0.0.1:%d", d.agentPort) && r.Host != fmt.Sprintf("localhost:%d", d.agentPort) {
+			http.Error(w, "Invalid gateway host", http.StatusForbidden)
 			return
 		}
-
-		for k, vv := range r.Header {
-			for _, v := range vv {
-				req.Header.Add(k, v)
-			}
-		}
-
-		if d.token != "" && req.Header.Get("Authorization") == "" {
-			req.Header.Set("Authorization", "Bearer "+d.token)
-		}
-
-		client := &http.Client{Timeout: 30 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			log.Printf("⚠️ [Agent Proxy] Upstream request failed: %v", err)
-			http.Error(w, fmt.Sprintf("agent proxy upstream error: %v", err), http.StatusBadGateway)
-			return
-		}
-		defer resp.Body.Close()
-
-		for k, vv := range resp.Header {
-			for _, v := range vv {
-				w.Header().Add(k, v)
-			}
-		}
-		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
-	})
+		proxy.ServeHTTP(w, r)
+	}
+	mux.HandleFunc("/api/", forward)
+	mux.HandleFunc("/mcp", forward)
+	mux.HandleFunc("/control/runs/", d.handleRunControl)
+	mux.HandleFunc("/desktop/", d.desktopHandler)
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -268,7 +307,8 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 	})
 
 	server := &http.Server{
-		Handler: mux,
+		Handler:           mux,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
 	d.httpServer = server
 
@@ -284,6 +324,40 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 // connect establishes a single WebSocket connection and runs the message loop
 // until the connection is lost or the context is cancelled.
 func (d *agentDaemon) connect(ctx context.Context) error {
+	if d.projectID == "all" {
+		projects, err := d.discoverProjects(ctx)
+		if err != nil {
+			return fmt.Errorf("project discovery: %w", err)
+		}
+		for _, p := range projects.Projects {
+			_, _, err := d.localProjectRoot(ctx, agentconfig.Config{ProjectID: p.ID, GitRemoteURL: p.GitRemoteURL})
+			if err != nil {
+				log.Printf("[Agent] Project %s (%s) requires a local mapping: %v", p.Name, p.ID, err)
+			} else {
+				log.Printf("[Agent] Local project available: %s (%s)", p.Name, p.ID)
+			}
+		}
+	}
+	if d.projectID != "" && d.projectID != "default" && d.projectID != "all" {
+		config, err := d.fetchConfig(ctx, d.projectID, "")
+		if err != nil {
+			return fmt.Errorf("configuration sync: %w", err)
+		}
+		root, overrides, err := d.localProjectRoot(ctx, config)
+		if err != nil {
+			return err
+		}
+		config = agentconfig.ApplyOverrides(config, overrides)
+		if err := config.Validate(); err != nil {
+			return err
+		}
+		if _, err := agentconfig.Scaffold(root, config); err != nil {
+			return err
+		}
+		if err := d.bootstrapLocalMCP(root, &config); err != nil {
+			return err
+		}
+	}
 	wsURL, err := d.buildWSURL()
 	if err != nil {
 		return fmt.Errorf("invalid server URL: %w", err)
@@ -310,6 +384,8 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 		_ = conn.Close()
 	}()
 
+	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stopClose()
 	log.Printf("[Agent] Connected to remote server")
 	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur TaskFlow (%s)\n", d.serverURL)
 	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.projectID, d.deviceID)
@@ -475,74 +551,24 @@ func findRepoRoot(startDir string) string {
 	return startDir
 }
 
-// readProjectTerminalConfig checks for terminal preference in .taskflow/config.json
-func readProjectTerminalConfig(dir string) string {
-	configPath := filepath.Join(dir, ".taskflow", "config.json")
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		return ""
-	}
-	var cfg struct {
-		Terminal                string `json:"terminal"`
-		TerminalApp             string `json:"terminalApp"`
-		ExternalTerminalCommand string `json:"externalTerminalCommand"`
-	}
-	if err := json.Unmarshal(data, &cfg); err == nil {
-		if cfg.Terminal != "" {
-			return cfg.Terminal
-		}
-		if cfg.TerminalApp != "" {
-			return cfg.TerminalApp
-		}
-		if cfg.ExternalTerminalCommand != "" {
-			return cfg.ExternalTerminalCommand
-		}
-	}
-	return ""
-}
-
-// resolveTaskWorktreeDir looks for the worktree directory under .tasks/worktrees/
-func resolveTaskWorktreeDir(root, taskKey string) string {
-	cleanKey := strings.TrimSpace(taskKey)
-	candidates := []string{
-		filepath.Join(root, ".tasks", "worktrees", cleanKey),
-	}
-	if !strings.HasPrefix(cleanKey, "#") {
-		candidates = append(candidates, filepath.Join(root, ".tasks", "worktrees", "#"+cleanKey))
-	}
-	if strings.HasPrefix(cleanKey, "gh-") {
-		num := strings.TrimPrefix(cleanKey, "gh-")
-		candidates = append(candidates, filepath.Join(root, ".tasks", "worktrees", "#"+num))
-	}
-	for _, c := range candidates {
-		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
-			return c
-		}
-	}
-	return root
-}
-
 // handleDispatchStep executes a workflow step locally inside a Git worktree.
 func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Conn, msg handlers.AgentMessage) {
-	var payload struct {
-		TaskKey                 string `json:"taskKey"`
-		TaskID                  string `json:"taskId"`
-		SkillID                 string `json:"skillId"`
-		Action                  string `json:"action"` // clarify, specify, code, etc.
-		WorkDir                 string `json:"workDir"`
-		ProjectID               string `json:"projectId"`
-		Provider                string `json:"provider"`
-		Prompt                  string `json:"prompt"`
-		ExternalTerminalCommand string `json:"externalTerminalCommand"`
-		TTYMode                 string `json:"ttyMode"`
-		AICommandTemplate       string `json:"aiCommandTemplate"`
-	}
+	var payload agentconfig.Dispatch
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		log.Printf("[Agent] Invalid dispatch_step payload: %v", err)
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "Invalid payload")
 		return
 	}
 
+	if payload.SchemaVersion != 0 && payload.SchemaVersion != agentconfig.Version {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "Unsupported dispatch schemaVersion")
+		return
+	}
+
+	if payload.Action == "cancel_run" {
+		d.cancelRun(ctx, conn, msg, payload)
+		return
+	}
 	log.Printf("🚀 [Agent] Received job dispatch for task %s (id=%s): action=%s skill=%s", payload.TaskKey, msg.TaskID, payload.Action, payload.SkillID)
 	fmt.Printf("\n⚡ ========================================================\n")
 	fmt.Printf("🚀 [Agent] Received job dispatch for task %s\n", payload.TaskKey)
@@ -551,130 +577,136 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 
 	d.sendStatus(conn, msg.MsgID, msg.TaskID, "running", fmt.Sprintf("Executing %s", payload.Action))
 
-	// Resolve target worktree directory
-	cwd, _ := os.Getwd()
-	root := findRepoRoot(cwd)
-	workDir := payload.WorkDir
-	if workDir == "" || workDir == "." {
-		workDir = resolveTaskWorktreeDir(root, payload.TaskKey)
+	if msg.TaskID != "" && payload.TaskID != "" && msg.TaskID != payload.TaskID {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "Conflicting task primary keys")
+		return
+	}
+	taskRef := msg.TaskID
+	if taskRef == "" {
+		taskRef = payload.TaskID
+	}
+	if taskRef == "" {
+		taskRef = payload.TaskKey
+	}
+	if payload.RunID == "" {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "A run ID is required for supervised execution")
+		return
+	}
+	queueConfig, err := d.fetchConfig(ctx, "", taskRef)
+	if err != nil {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	if payload.ProjectID != "" && payload.ProjectID != queueConfig.ProjectID {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "Dispatch project does not match task")
+		return
+	}
+	d.prepareMu.Lock()
+	root, overrides, err := d.localProjectRoot(ctx, queueConfig)
+	d.prepareMu.Unlock()
+	if err != nil {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	queueConfig = agentconfig.ApplyOverrides(queueConfig, overrides)
+	run, err := d.enqueueRun(taskRef, payload, queueConfig.ProjectID, root, agentconfig.ExecutionLimit(queueConfig.ProjectID, queueConfig.UseWorktrees, overrides, queueConfig.Parallelism), queueConfig.UseWorktrees)
+	if err != nil {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	// Admission is acknowledged promptly; process completion remains MCP-owned.
+	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution accepted into the local queue")
+	launched := false
+	defer func() {
+		if !launched {
+			d.runsMu.Lock()
+			status := "failed"
+			if run.canceled {
+				status = "canceled"
+			}
+			run.desktop.Status = status
+			run.once.Do(func() { close(run.exited) })
+			d.runsMu.Unlock()
+			_ = d.finishDesktopRun(context.Background(), taskRef, payload.RunID, status)
+		}
+	}()
+	if err := d.awaitRunSlot(ctx, run); err != nil {
+		return
+	}
+	config, workDir, branch, err := d.prepareDispatch(ctx, taskRef, queueConfig.UseWorktrees)
+	if err != nil {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	if payload.ProjectID != "" && payload.ProjectID != config.ProjectID {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "Dispatch project does not match task")
+		return
+	}
+	payload.ProjectID = config.ProjectID
+
+	if payload.RunID != "" {
+		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with taskflow_start_run and finish it using taskflow_finish_run when the entire skill ends.", payload.RunID)
+	}
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command)
+	if err != nil {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
 	}
 
-	// Determine skill command name
-	skillCmd := "/" + payload.Action
-	switch strings.ToLower(payload.SkillID) {
-	case "clarify", "clarify-issue", "clarify_issue":
-		skillCmd = "/clarify-issue"
-	case "specify", "specify-issue", "specify_issue":
-		skillCmd = "/specify-issue"
-	case "code", "code-issue", "code_issue", "implement":
-		skillCmd = "/code-issue"
-	case "create_pr", "create-pr", "createpr":
-		skillCmd = "/create-pr"
-	case "handoff", "handoff-issue", "handoff_issue":
-		skillCmd = "/handoff-issue"
-	default:
-		if !strings.HasPrefix(skillCmd, "/") {
-			skillCmd = "/" + payload.SkillID
+	if payload.RunID != "" {
+		fullLine, err = d.wrapRun(taskRef, payload.RunID, fullLine)
+		if err != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+			return
 		}
 	}
-
-	// Resolve AI provider CLI tool
-	provider := payload.Provider
-	if provider == "" {
-		if _, err := exec.LookPath("agy"); err == nil {
-			provider = "agy"
-		} else if _, err := exec.LookPath("claude"); err == nil {
-			provider = "claude"
-		} else if _, err := exec.LookPath("codex"); err == nil {
-			provider = "codex"
-		} else {
-			provider = "agy"
-		}
-	}
-
-	promptArg := skillCmd
-	trimmedPrompt := strings.TrimSpace(payload.Prompt)
-	if trimmedPrompt != "" && strings.HasPrefix(trimmedPrompt, "/") {
-		promptArg = trimmedPrompt
-	} else if payload.TaskKey != "" && !strings.Contains(promptArg, payload.TaskKey) {
-		promptArg = fmt.Sprintf("%s %s", promptArg, payload.TaskKey)
-	}
-
-	var fullLine string
-	switch strings.ToLower(provider) {
-	case "agy":
-		fullLine = fmt.Sprintf("agy -i %q", promptArg)
-	case "claude":
-		fullLine = fmt.Sprintf("claude %q", promptArg)
-	case "codex":
-		fullLine = fmt.Sprintf("codex %q", promptArg)
-	case "vibe":
-		fullLine = fmt.Sprintf("vibe -p %q", promptArg)
-	default:
-		fullLine = fmt.Sprintf("%s -i %q", provider, promptArg)
-	}
-
 	// Create or reuse a PTY session for this task.
-	sessionID := "task-" + payload.TaskKey
+	sessionID := "task-" + config.ProjectID + "-" + taskRef
+	if payload.RunID != "" {
+		sessionID = payload.RunID
+	}
+
 	envVars := map[string]string{
-		"TASKFLOW_TASK_KEY":    payload.TaskKey,
-		"TASKFLOW_TASK_ID":     msg.TaskID,
-		"TASKFLOW_REMOTE_MODE": "true",
-		"TASKFLOW_AGENT_URL":   d.agentURL,
-		"TASKFLOW_SERVER_URL":  d.serverURL,
-		"TASKFLOW_AGENT_TOKEN": d.token,
+		"TASKFLOW_TASK_KEY":      payload.TaskKey,
+		"TASKFLOW_TASK_BRANCH":   branch,
+		"TASKFLOW_TASK_WORKTREE": workDir,
+		"TASKFLOW_TASK_ID":       taskRef,
+		"TASKFLOW_RUN_ID":        payload.RunID,
+		"TASKFLOW_REMOTE_MODE":   "true",
+		"TASKFLOW_AGENT_URL":     d.agentURL,
+		"TASKFLOW_SERVER_URL":    d.serverURL,
+		"TASKFLOW_AGENT_TOKEN":   d.token,
 	}
 	if payload.ProjectID != "" {
 		envVars["TASKFLOW_PROJECT_ID"] = payload.ProjectID
 	}
 
-	// Determine terminal application:
-	// 1. Explicit CLI flag --terminal
-	// 2. Project/server external terminal configuration from payload
-	// 3. Local project .taskflow/config.json in workDir or root
-	// 4. Configured daemon default (TASKFLOW_TERMINAL or detectDefaultTerminal())
-	termApp := ""
-	if d.terminalExplicit {
-		termApp = d.terminalApp
-	} else if payload.ExternalTerminalCommand != "" {
-		termApp = payload.ExternalTerminalCommand
-	} else if localTerm := readProjectTerminalConfig(workDir); localTerm != "" {
-		termApp = localTerm
-	} else if rootTerm := readProjectTerminalConfig(root); rootTerm != "" {
-		termApp = rootTerm
-	} else if d.terminalApp != "" {
-		termApp = d.terminalApp
-	} else {
-		termApp = detectDefaultTerminal()
-	}
-
-	if termApp != "" && termApp != "none" && termApp != "pty" {
-		// Launch in configured external desktop terminal (Ghostty, iTerm, etc.)
-		r := runner.NewRunner()
-		log.Printf("🚀 [Agent] Launching external terminal (%s) for task %s: %s (workdir: %s)", termApp, payload.TaskKey, fullLine, workDir)
-		fmt.Printf("\n🖥️  [Agent] Ouverture du terminal externe (%s) pour %s...\n", strings.ToUpper(termApp), payload.TaskKey)
-		fmt.Printf("   Dossier : %s\n", workDir)
-		fmt.Printf("   Commande: %s\n\n", fullLine)
-
-		if err := r.OpenExternalTerminal(termApp, workDir, fullLine, envVars); err != nil {
-			log.Printf("[Agent] Failed to open external terminal %s: %v, falling back to background PTY", termApp, err)
-			d.runInPty(sessionID, workDir, envVars, fullLine)
-		} else {
-			d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Terminal externe (%s) ouvert pour %s", termApp, payload.TaskKey))
+	if payload.RunID != "" {
+		if _, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars); err != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 			return
 		}
-	} else {
-		d.runInPty(sessionID, workDir, envVars, fullLine)
-		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in local PTY", payload.Action))
+		d.runsMu.Lock()
+		if run := d.runs[payload.RunID]; run != nil {
+			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Status: "running"}
+		}
+		d.runsMu.Unlock()
 	}
+	// The agent owns consoles independently of any attached companion.
+	if err := d.runInPty(sessionID, workDir, envVars, fullLine); err != nil {
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+	launched = true
+	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in local PTY", payload.Action))
 }
 
 // runInPty starts or reuses an embedded PTY session and injects the command line.
-func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]string, fullLine string) {
+func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]string, fullLine string) error {
 	sess, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars)
 	if err != nil {
 		log.Printf("[Agent] Failed to create PTY session: %v", err)
-		return
+		return err
 	}
 
 	sess.AddOutputListener(func(chunk []byte) {
@@ -683,11 +715,14 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 
 	time.Sleep(350 * time.Millisecond)
 	log.Printf("⚡ [Agent] Launching skill command in local PTY terminal: %s (workdir: %s)", fullLine, workDir)
-	_ = d.terminalMgr.SendInput(sessionID, fullLine+"\n")
+	return d.terminalMgr.SendInput(sessionID, fullLine+"\n")
 }
 
 // sendStatus sends a step_status message back to the remote server.
 func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, summary string) {
+	if status == "failed" {
+		log.Printf("[Agent] Task %s failed: %s", taskID, summary)
+	}
 	payload, _ := json.Marshal(map[string]string{
 		"status":  status,
 		"summary": summary,
@@ -703,4 +738,20 @@ func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, su
 	d.connMu.Lock()
 	_ = conn.WriteJSON(msg)
 	d.connMu.Unlock()
+}
+
+func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override string) string {
+	if d.terminalExplicit {
+		return d.terminalApp
+	}
+	if override != "" {
+		return override
+	}
+	if config.ExternalTerminalCommand != "" {
+		return config.ExternalTerminalCommand
+	}
+	if d.terminalApp != "" {
+		return d.terminalApp
+	}
+	return detectDefaultTerminal()
 }

@@ -11,7 +11,6 @@ import {
   Search,
   Check,
   X,
-  MessageSquare,
   LayoutGrid,
   Tag,
   CheckSquare,
@@ -51,7 +50,6 @@ export const SprintTimelineView: React.FC = () => {
     setTaskSprint,
     setTasksSprint,
     setSelectedTask,
-    setChatTask,
     addToast,
     startBatchPickup,
   } = useApp()
@@ -787,7 +785,7 @@ export const SprintTimelineView: React.FC = () => {
               type="button"
               onClick={() => startBatchPickup(selectedTaskIds)}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 cursor-pointer shadow-xs"
-              title="Démarrer un unique Git Worktree et exécuter le lot de tâches en auto-pilot"
+              title="Run the selected tasks on the local agent"
             >
               <Sparkles size={13} className="text-purple-400 animate-pulse" />
               <span>Lancer le lot (Git tree + Auto-pilot)</span>
@@ -1225,17 +1223,7 @@ export const SprintTimelineView: React.FC = () => {
                                   {task.assignee && (
                                     <Avatar name={task.assignee} url={task.assigneeAvatar} size={15} />
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={e => {
-                                      e.stopPropagation()
-                                      setChatTask(task)
-                                    }}
-                                    className="text-[var(--text-muted)] hover:text-cyan-300 p-0.5 transition-colors opacity-0 group-hover:opacity-100"
-                                    title="Discuter avec l'agent IA"
-                                  >
-                                    <MessageSquare size={11} />
-                                  </button>
+
                                   <button
                                     type="button"
                                     onClick={e => {
@@ -1376,17 +1364,7 @@ export const SprintTimelineView: React.FC = () => {
                                 <div className="flex items-center justify-between text-[10px] pt-1 border-t border-[var(--border-color)]/40 text-[var(--text-muted)]">
                                   {getTaskStageBadge(task)}
 
-                                  <button
-                                    type="button"
-                                    onClick={e => {
-                                      e.stopPropagation()
-                                      setChatTask(task)
-                                    }}
-                                    className="text-[var(--text-muted)] hover:text-cyan-300 p-0.5 transition-colors cursor-pointer"
-                                    title="Discuter avec l'agent IA"
-                                  >
-                                    <MessageSquare size={11} />
-                                  </button>
+
                                 </div>
                               </div>
                             ))}
@@ -1524,7 +1502,7 @@ export const SprintTimelineView: React.FC = () => {
                   type="button"
                   onClick={() => startBatchPickup(selectedBacklogList.map(t => t.id))}
                   className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 cursor-pointer shadow-xs shrink-0"
-                  title="Démarrer un unique Git Worktree et exécuter le lot de tâches du backlog"
+                  title="Run the backlog tasks on the local agent"
                 >
                   <Sparkles size={12} className="text-purple-400 animate-pulse" />
                   <span>Auto-pilot</span>

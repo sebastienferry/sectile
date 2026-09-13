@@ -3,7 +3,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import type {
   MacroRequiredField,
   SkillEditorEntry,
-  TTYLaunchResult,
   Task,
   CloneTaskRequest,
   Status,
@@ -21,14 +20,9 @@ import type {
   Project,
   TrackerBoard,
   TaskComment,
-  TerminalSession,
-  TerminalDockPosition,
   MacroMeta,
   MacroHorizon,
   MacroTodo,
-  GitDiffResult,
-  GitStatusInfo,
-  GitBranchesInfo,
   DailyDigest,
   TrackerTeam,
   TeamMember,
@@ -43,6 +37,7 @@ import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
 import {
   INTERNAL_STATUS_BY_STAGE,
+  resolveTaskStage, skillForStage,
   stageForInternalStatus,
   stageForTrackerStatuses,
   trackerStatusesForStage,
@@ -64,14 +59,10 @@ interface AppContextType {
   tasks: Task[]
   skills: Skill[]
   cliStatuses: CliStatus[]
-  gitStatus: GitStatusInfo | null
+
   isFetchingGitStatus: boolean
-  fetchGitStatus: (targetPathOrProject?: string, isManual?: boolean) => Promise<GitStatusInfo | null>
-  gitBranches: GitBranchesInfo | null
-  fetchGitBranches: (projectIdOrPath?: string) => Promise<GitBranchesInfo | null>
-  switchGitBranch: (branch: string, create?: boolean, projectIdOrPath?: string) => Promise<boolean>
-  isBranchModalOpen: boolean
-  setIsBranchModalOpen: (open: boolean) => void
+
+
   isLoading: boolean
   isSkillRunning: boolean
   isSyncing: boolean
@@ -164,7 +155,7 @@ interface AppContextType {
   parentFilter: string | null
   setParentFilter: (parentKey: string | null) => void
   /** Distinct parents present in the loaded tasks, most populated first. */
-  availableParents: { key: string; title: string; type: string; count: number }[] 
+  availableParents: { key: string; title: string; type: string; count: number }[]
   /**
    * Resolves the display name of a workflow skill, honouring the project's
    * `skillOverrides`. Pass `projectId` to resolve against a specific project —
@@ -178,11 +169,8 @@ interface AppContextType {
    */
   skillCommand: (skillId: string, fallback: string, projectId?: string) => string
   /** Docked workspace terminal on the right side of the app. */
-  isTerminalPanelOpen: boolean
-  setIsTerminalPanelOpen: (open: boolean) => void
-  toggleTerminalPanel: () => void
-  terminalDockPosition: TerminalDockPosition
-  setTerminalDockPosition: (pos: TerminalDockPosition) => void
+
+
   /** True when the selected project is a personal board, the only kind the digest is served for. */
   isDigestAvailable: boolean
   /** Daily digest of the active project: task sections plus an optional AI agenda. */
@@ -195,17 +183,16 @@ interface AppContextType {
   setSidebarCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void
   selectedTask: Task | null
   setSelectedTask: (task: Task | null) => void
-  chatTask: Task | null
-  setChatTask: (task: Task | null) => void
+
+
   /**
    * Session de terminal ouverte par son identifiant, sans passer par une tâche
    * chargée. Une exécution autonome crée sa session côté serveur, et elle doit
    * pouvoir s'ouvrir même quand la tâche est filtrée ou appartient à un autre
    * projet.
    */
-  terminalSessionOverride: string | null
-  openTerminalSession: (sessionId: string) => void
-  openTerminalForTask: (taskId: string) => void
+
+
   hideDone: boolean
   setHideDone: (hide: boolean | ((prev: boolean) => boolean)) => void
   toggleHideDone: () => void
@@ -241,8 +228,8 @@ interface AppContextType {
   updateTask: (id: string, updates: Partial<Task> & { assigneeAccountId?: string }) => Promise<Task | null>
   moveTaskToTrackerStatus: (id: string, status: string) => Promise<Task | null>
   getTaskComments: (id: string) => Promise<TaskComment[]>
-  listTerminalSessions: () => Promise<TerminalSession[]>
-  resetTerminalSession: (sessionId: string) => Promise<void>
+
+
   postTaskComment: (id: string, body: string) => Promise<TaskComment[] | null>
   listProjectBoards: (projectId: string) => Promise<TrackerBoard[]>
   importProjectBoardColumns: (projectId: string, boardId: string) => Promise<Project | null>
@@ -253,7 +240,7 @@ interface AppContextType {
   fetchProjectEpics: (projectId: string) => Promise<MacroMeta[]>
   refineMacro: (key: string, projectId?: string) => Promise<RefineMacroResult | null>
   createBatchTasks: (reqs: CreateTaskPayload[]) => Promise<Task[]>
-  sendTerminalInput: (input: string, taskId?: string, sessionId?: string) => Promise<boolean>
+
   saveMacroMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
@@ -294,9 +281,9 @@ interface AppContextType {
   hotSwitch: (taskId: string) => void
   /** Éditeur de skills : les cinq pas du workflow du projet courant. */
   /** Démarre l'agent du projet dans la session d'une tâche. */
-  startTaskAgent: (taskId: string, force?: boolean) => Promise<TTYLaunchResult | null>
+
   /** Tape l'appel d'une skill dans l'agent déjà démarré. */
-  injectTaskSkill: (taskId: string, skillId: string) => Promise<TTYLaunchResult | null>
+
   fetchSkillEditor: () => Promise<SkillEditorEntry[]>
   saveSkillContent: (skillId: string, content: string) => Promise<SkillEditorEntry | null>
   resetSkillContent: (skillId: string) => Promise<SkillEditorEntry | null>
@@ -332,15 +319,8 @@ interface AppContextType {
   availableAssignees: string[]
   /** Valeur sentinelle du filtre « non assigné » : le vide veut dire « pas de filtre ». */
   unassignedFilterValue: string
-  diffTask: Task | null
-  setDiffTask: (task: Task | null) => void
-  fetchGitDiff: (taskId: string) => Promise<GitDiffResult | null>
-  checkoutTaskBranch: (taskId: string) => Promise<boolean>
-  cleanLocalBranches: (projectIdOrPath?: string) => Promise<boolean>
-  deleteGitBranch: (branch: string, deleteRemote?: boolean, projectIdOrPath?: string) => Promise<boolean>
-  openInEditor: (options?: { taskId?: string; projectId?: string; path?: string; editorCommand?: string }) => Promise<boolean>
-  openExternalTerminal: (options?: { taskId?: string; projectId?: string; path?: string; command?: string; skillId?: string; terminalCommand?: string }) => Promise<boolean>
-  startTaskTty: (task: Task, options?: { mode?: 'integrated' | 'external'; command?: string; skillId?: string }) => Promise<void>
+
+
   startBatchPickup: (taskIds: string[]) => Promise<void>
 }
 
@@ -449,56 +429,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [])
 
-  // The docked terminal keeps its open state and width across reloads: it is a
-  // workspace tool, not a transient modal.
-  const [isTerminalPanelOpen, setIsTerminalPanelOpenState] = useState<boolean>(() => {
-    try {
-      const val = localStorage.getItem('taskflow_terminal_panel_open') ?? localStorage.getItem('taskacao_terminal_panel_open')
-      return val === 'true'
-    } catch {
-      return false
-    }
-  })
-
-  const setIsTerminalPanelOpen = useCallback((open: boolean) => {
-    setIsTerminalPanelOpenState(open)
-    try {
-      localStorage.setItem('taskflow_terminal_panel_open', String(open))
-    } catch {
-      // private mode / blocked storage: the panel just won't be remembered
-    }
-  }, [])
-
-  const toggleTerminalPanel = useCallback(() => {
-    setIsTerminalPanelOpenState(prev => {
-      const next = !prev
-      try {
-        localStorage.setItem('taskflow_terminal_panel_open', String(next))
-      } catch {
-        // ignore
-      }
-      return next
-    })
-  }, [])
-
-  const [terminalDockPosition, setTerminalDockPositionState] = useState<TerminalDockPosition>(() => {
-    try {
-      const val = localStorage.getItem('taskflow_terminal_dock_position') as TerminalDockPosition
-      if (val === 'bottom' || val === 'left' || val === 'right') return val
-    } catch {
-      // ignore
-    }
-    return 'right'
-  })
-
-  const setTerminalDockPosition = useCallback((pos: TerminalDockPosition) => {
-    setTerminalDockPositionState(pos)
-    try {
-      localStorage.setItem('taskflow_terminal_dock_position', pos)
-    } catch {
-      // ignore
-    }
-  }, [])
   const [boardGrouping, setBoardGroupingState] = useState<BoardGroupingMode>(() => {
     try {
       const val = (localStorage.getItem('taskflow_board_grouping') ?? localStorage.getItem('taskacao_board_grouping')) as BoardGroupingMode
@@ -566,7 +496,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // chatTask désigne la tâche dont le PTY est affiché. Il vit dans le panneau
   // latéral ancré, pas dans une modale : on garde le board visible à côté du
   // terminal, et une session par tâche reste accessible d'un clic.
-  const [chatTask, setChatTaskState] = useState<Task | null>(null)
+
   // Le pas interactif attend une confirmation humaine : la skill du dépôt ne
   // produit que du texte dans le terminal, elle ne touche jamais au ticket.
   const [pendingInteractive, setPendingInteractive] = useState<{
@@ -576,32 +506,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     label: string
   } | null>(null)
 
-  const [terminalSessionOverride, setTerminalSessionOverride] = useState<string | null>(null)
+
   const [pinnedTasks, setPinnedTasks] = useState<Task[]>([])
 
-  const setChatTask = useCallback((task: Task | null) => {
-    setChatTaskState(task)
-    if (task) {
-      setTerminalSessionOverride(null)
-      setIsTerminalPanelOpenState(true)
-      try {
-        localStorage.setItem('taskflow_terminal_panel_open', 'true')
-      } catch {}
-    }
-  }, [])
 
   // Ouvre une session par son identifiant. C'est le chemin qui marche toujours :
   // il ne dépend pas de la présence de la tâche dans la liste courante.
-  const openTerminalSession = useCallback((sessionId: string) => {
-    setChatTaskState(null)
-    setTerminalSessionOverride(sessionId)
-    setIsTerminalPanelOpenState(true)
-    try {
-      localStorage.setItem('taskflow_terminal_panel_open', 'true')
-    } catch {}
-  }, [])
 
-  const [diffTask, setDiffTask] = useState<Task | null>(null)
+
   const [hideDone, setHideDoneState] = useState<boolean>(() => {
     try {
       const val = localStorage.getItem('taskflow_hide_done') ?? localStorage.getItem('taskacao_hide_done')
@@ -792,10 +704,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   ])
 
   // Git Status & Branches State
-  const [gitStatus, setGitStatus] = useState<GitStatusInfo | null>(null)
-  const [gitBranches, setGitBranches] = useState<GitBranchesInfo | null>(null)
-  const [isFetchingGitStatus, setIsFetchingGitStatus] = useState(false)
-  const [isBranchModalOpen, setIsBranchModalOpen] = useState(false)
+
+
+  const [isFetchingGitStatus] = useState(false)
+
 
   // Activities & Queue State
   const [activities, setActivities] = useState<TaskActivity[]>([])
@@ -987,44 +899,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [selectedProjectId])
 
-  const fetchGitStatus = useCallback(async (targetPathOrProject?: string, isManual = false): Promise<GitStatusInfo | null> => {
-    try {
-      if (isManual) setIsFetchingGitStatus(true)
-      const params = new URLSearchParams()
-      if (targetPathOrProject) {
-        params.append('path', targetPathOrProject)
-      } else if (currentProject?.repoPath) {
-        params.append('path', currentProject.repoPath)
-      } else if (settings.repoPath) {
-        params.append('path', settings.repoPath)
-      }
-
-      const res = await fetch(`${API_BASE}/git-status?${params.toString()}`)
-      if (res.ok) {
-        const data: GitStatusInfo = await res.json()
-        setGitStatus(prev => {
-          if (
-            prev &&
-            prev.branch === data.branch &&
-            prev.isClean === data.isClean &&
-            prev.modifiedCount === data.modifiedCount &&
-            prev.untrackedCount === data.untrackedCount &&
-            prev.repoPath === data.repoPath
-          ) {
-            return prev
-          }
-          return data
-        })
-        return data
-      }
-      return null
-    } catch (err) {
-      console.warn('Failed to load git status', err)
-      return null
-    } finally {
-      if (isManual) setIsFetchingGitStatus(false)
-    }
-  }, [currentProject?.repoPath, settings.repoPath])
 
   // Projet et filtres actifs, en un seul endroit : le rafraîchissement de fond
   // après une synchro ou une skill doit interroger exactement la même liste,
@@ -1054,6 +928,25 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (pinnedOnly) params.append('pinned', '1')
     return params.toString()
   }, [selectedProjectId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, trackerStatusFilters, issueTypeFilters, pinnedOnly])
+
+  // Resolve desktop deep links independently of board filters and pagination.
+  useEffect(() => {
+    const taskId = new URLSearchParams(window.location.search).get('task')
+    if (!taskId) return
+    const controller = new AbortController()
+    fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}`, { signal: controller.signal })
+      .then(async response => {
+        if (!response.ok) throw new Error(`Unable to open task (HTTP ${response.status})`)
+        const task: Task = await response.json()
+        if (controller.signal.aborted) return
+        if (task.projectId) setSelectedProjectId(task.projectId)
+        setSelectedTask(task)
+      })
+      .catch(error => {
+        if (!controller.signal.aborted) setError(error.message)
+      })
+    return () => controller.abort()
+  }, [setSelectedProjectId])
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -1323,11 +1216,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     fetchActivities()
     fetchActivityStats()
   }, [fetchTasks, fetchActivities, fetchActivityStats])
-
-  // Git status reload when active repo path changes
-  useEffect(() => {
-    fetchGitStatus()
-  }, [fetchGitStatus])
 
   // Real-time SSE post-back and state update listener
   useEffect(() => {
@@ -1975,28 +1863,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // la demande plutôt que de les recopier en base, ce qui divergerait.
   // Les sessions PTY survivent à leurs spectateurs : la liste dit ce qui tourne
   // encore et permet d'y revenir.
-  const listTerminalSessions = async (): Promise<TerminalSession[]> => {
-    try {
-      const res = await fetch(`${API_BASE}/terminal/sessions`)
-      if (!res.ok) return []
-      return (await res.json()) || []
-    } catch {
-      return []
-    }
-  }
 
-  const resetTerminalSession = async (sessionId: string): Promise<void> => {
-    try {
-      await fetch(`${API_BASE}/terminal/reset`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      })
-      addToast({ type: 'info', title: 'Session terminée', description: sessionId })
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Session non terminée', description: err.message })
-    }
-  }
 
   const getTaskComments = async (id: string): Promise<TaskComment[]> => {
     try {
@@ -2546,118 +2413,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
   // l'étape de la tâche : l'interface ne fait qu'ouvrir le terminal quand le pas
   // est interactif.
-  const advanceTask = async (
-    taskId: string,
-    auto?: boolean
-  ): Promise<{ mode: string; skillId?: string; label?: string } | null> => {
-    try {
-      const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/advance`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ auto: Boolean(auto) }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Avance refusée')
-      if (data.mode === 'queued') {
-        addToast({
-          type: 'success',
-          title: 'Étape lancée',
-          description: `${data.label || ''}${data.label ? '. ' : ''}Console ouvrable depuis la tâche pendant le run.`,
-        })
-        fetchActivities()
-      } else if (data.mode === 'auto') {
-        addToast({
-          type: 'success',
-          title: 'Chaîne autonome lancée',
-          description: "L'agent s'arrêtera à l'étape de revue. Sa console est ouvrable pendant le run.",
-        })
-        fetchActivities()
-      }
-      return data
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Avance impossible', description: err.message })
-      return null
-    }
+  const advanceTask = async (taskId: string, auto?: boolean): Promise<{mode:string;skillId?:string;label?:string}|null> => {
+    const task = tasks.find(task => task.id === taskId)
+    if (!task) return null
+    const project = projects.find(project => project.id === task.projectId)
+    const skillId = auto ? 'pickup' : skillForStage(resolveTaskStage(task,project))
+    if (!skillId) return null
+    const activity = await runSkill(taskId,skillId)
+    return activity ? {mode:'remote',skillId} : null
   }
 
-  // Lance un pas interactif : ouvre le terminal de la tâche, attend que la
-  // session PTY existe vraiment, puis y écrit la commande. L'attente est une
-  // vraie boucle et non un délai fixe : la création du worktree peut prendre
-  // plusieurs secondes, et un envoi trop tôt échouait en silence.
-  const startTaskAgent = async (taskId: string, force?: boolean): Promise<TTYLaunchResult | null> => {
-    try {
-      const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/tty-agent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: Boolean(force) }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Démarrage impossible')
-      addToast({
-        type: 'success',
-        title: data.agentLaunched ? `Agent ${data.provider || ''} démarré` : `Agent ${data.provider || ''} déjà en cours`,
-        description: data.launchCommand || data.cwd,
-      })
-      return data as TTYLaunchResult
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Agent non démarré', description: err.message, duration: 8000 })
-      return null
-    }
-  }
-
-  const injectTaskSkill = async (taskId: string, skillId: string): Promise<TTYLaunchResult | null> => {
-    try {
-      const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/tty-skill`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skillId }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error || 'Injection impossible')
-      addToast({ type: 'success', title: 'Skill lancée', description: data.call })
-      return data as TTYLaunchResult
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Skill non lancée', description: err.message, duration: 8000 })
-      return null
-    }
-  }
-
-  const sendTerminalInput = async (input: string, taskId?: string, sessionId?: string): Promise<boolean> => {
-    try {
-      const res = await fetch(`${API_BASE}/terminal/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ taskId, sessionId, input }),
-      })
-      return res.ok
-    } catch {
-      return false
-    }
-  }
-
-  // Un pas interactif ouvre la console de la tâche et arme la confirmation. Le
-  // démarrage de l'agent et le lancement de la skill sont deux boutons de cette
-  // console : enchaîner les trois tout seul supposait de deviner quand l'invite
-  // de l'agent était prête, ce qui ne marchait pas d'un moteur à l'autre.
-  const launchInteractiveStep = async (task: Task, skillId: string, label: string): Promise<void> => {
-    const proj = task.projectId ? projects.find(p => p.id === task.projectId) : currentProject
-    const isExternal = proj?.ttyMode === 'external'
-
-    setPendingInteractive({ taskId: task.id, taskKey: task.key, skillId, label })
-
-    if (isExternal) {
-      await openExternalTerminal({ taskId: task.id, skillId })
-      return
-    }
-
-    setChatTask(task)
-    setIsTerminalPanelOpen(true)
-    addToast({
-      type: 'info',
-      title: `${label} : console ouverte`,
-      description: `Démarre l'agent puis lance ${skillId} depuis la barre de la console.`,
-      duration: 7000,
-    })
+  const launchInteractiveStep = async (task: Task, skillId: string, _label: string): Promise<void> => {
+    await runSkill(task.id,skillId)
   }
 
   // Clôture le pas interactif : c'est ici que le ticket bouge enfin (label
@@ -2685,14 +2452,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Ouvre la console d'une tâche : la tâche chargée quand elle est là, pour
   // l'étiquette et le worktree, sa session sinon.
-  const openTerminalForTask = (taskId: string) => {
-    const task = tasks.find(t => t.id === taskId)
-    if (task) {
-      setChatTask(task)
-      return
-    }
-    openTerminalSession(`task-${taskId}`)
-  }
 
   // Épingles. Elles vivent côté serveur : elles survivent au rechargement, et la
   // barre affiche un ticket même quand les filtres courants le cachent.
@@ -2731,12 +2490,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // ticket devient celui sur lequel on travaille. C'est le geste qu'on répète
   // vingt fois par jour quand trois chantiers avancent en parallèle.
   const hotSwitch = (taskId: string) => {
-    const task = pinnedTasks.find(t => t.id === taskId) || tasks.find(t => t.id === taskId)
-    if (task) {
-      setChatTask(task)
-      return
-    }
-    openTerminalSession(`task-${taskId}`)
+    const task = pinnedTasks.find(task => task.id === taskId) || tasks.find(task => task.id === taskId)
+    if (task) setSelectedTask(task)
   }
 
   const dismissInteractiveStep = () => setPendingInteractive(null)
@@ -3333,309 +3088,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return Array.from(names).sort((a, b) => a.localeCompare(b))
   }, [teams, teamFilter, taskFacets.assignees, tasks])
 
-  const fetchGitDiff = useCallback(async (taskId: string): Promise<GitDiffResult | null> => {
-    try {
-      const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/git-diff`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: GitDiffResult = await res.json()
-      return data
-    } catch (err: any) {
-      console.error('Failed to fetch git diff', err)
-      return null
-    }
-  }, [])
 
-  const fetchGitBranches = useCallback(async (projectIdOrPath?: string): Promise<GitBranchesInfo | null> => {
-    try {
-      const target = projectIdOrPath || selectedProjectId || ''
-      const res = await fetch(`${API_BASE}/git/branches?projectId=${encodeURIComponent(target)}`)
-      if (!res.ok) throw new Error('Failed to fetch branches')
-      const data: GitBranchesInfo = await res.json()
-      setGitBranches(data)
-      return data
-    } catch (err) {
-      console.error('Failed to fetch git branches', err)
-      return null
-    }
-  }, [selectedProjectId])
-
-  const checkoutTaskBranch = useCallback(async (taskId: string): Promise<boolean> => {
-    try {
-      const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/checkout-branch`, {
-        method: 'POST',
-      })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Failed to switch branch')
-      }
-      const data = await res.json()
-      if (data.status) {
-        setGitStatus(data.status)
-      }
-      await fetchGitStatus()
-      await fetchGitBranches()
-      await fetchTasks()
-      addToast({
-        type: 'success',
-        title: 'Branche Git active',
-        description: data.message || `Bascule effectuée sur ${data.branch}`,
-      })
-      return true
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Erreur Git checkout',
-        description: err.message,
-      })
-      return false
-    }
-  }, [addToast, fetchTasks, fetchGitStatus, fetchGitBranches])
-
-  const switchGitBranch = useCallback(async (branch: string, create: boolean = false, projectIdOrPath?: string): Promise<boolean> => {
-    try {
-      const target = projectIdOrPath || selectedProjectId || ''
-      const res = await fetch(`${API_BASE}/git/checkout`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          branch,
-          create,
-          projectId: target,
-        }),
-      })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Erreur lors du changement de branche')
-      }
-      const data = await res.json()
-      if (data.status) {
-        setGitStatus(data.status)
-      }
-      await fetchGitBranches(target)
-      await fetchGitStatus()
-      addToast({
-        type: 'success',
-        title: 'Branche Git active',
-        description: data.message || `Bascule effectuée sur '${branch}'`,
-      })
-      return true
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Échec de bascule de branche',
-        description: err.message,
-      })
-      return false
-    }
-  }, [selectedProjectId, fetchGitBranches, fetchGitStatus, addToast])
-
-  const cleanLocalBranches = useCallback(async (projectIdOrPath?: string): Promise<boolean> => {
-    try {
-      const target = projectIdOrPath || selectedProjectId || ''
-      const res = await fetch(`${API_BASE}/git/branches/clean`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projectId: target }),
-      })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Erreur lors du nettoyage des branches')
-      }
-      const data = await res.json()
-      await fetchGitBranches(target)
-      await fetchGitStatus()
-      addToast({
-        type: 'success',
-        title: 'Nettoyage des branches locales',
-        description: data.message || `${data.deletedBranches?.length || 0} branches supprimées.`,
-      })
-      return true
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Échec du nettoyage',
-        description: err.message,
-      })
-      return false
-    }
-  }, [selectedProjectId, fetchGitBranches, fetchGitStatus, addToast])
-
-  const deleteGitBranch = useCallback(async (branch: string, deleteRemote: boolean = false, projectIdOrPath?: string): Promise<boolean> => {
-    try {
-      const target = projectIdOrPath || selectedProjectId || ''
-      const res = await fetch(`${API_BASE}/git/branches/delete`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          branch,
-          deleteRemote,
-          projectId: target,
-        }),
-      })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Erreur lors de la suppression de la branche')
-      }
-      const data = await res.json()
-      await fetchGitBranches(target)
-      await fetchGitStatus()
-      addToast({
-        type: 'success',
-        title: 'Branche supprimée',
-        description: data.message || `Branche '${branch}' supprimée.`,
-      })
-      return true
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Échec de la suppression',
-        description: err.message,
-      })
-      return false
-    }
-  }, [selectedProjectId, fetchGitBranches, fetchGitStatus, addToast])
-
-  const openInEditor = useCallback(async (options?: { taskId?: string; projectId?: string; path?: string; editorCommand?: string }): Promise<boolean> => {
-    try {
-      const res = await fetch(`${API_BASE}/open-editor`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          taskId: options?.taskId,
-          projectId: options?.projectId || (currentProject?.id !== 'default' ? currentProject?.id : undefined),
-          path: options?.path,
-          editorCommand: options?.editorCommand || settings.editorCommand || 'code',
-        }),
-      })
-      const text = await res.text()
-      let data: any = {}
-      try {
-        data = JSON.parse(text)
-      } catch {
-        if (res.status === 404) {
-          throw new Error("Route /api/open-editor non trouvée (404). Veuillez relancer le serveur Go (cmd/server).")
-        }
-        throw new Error(text || `Erreur HTTP ${res.status}`)
-      }
-      if (!res.ok) {
-        throw new Error(data.error || "Impossible d'ouvrir l'éditeur")
-      }
-      addToast({
-        type: 'success',
-        title: 'Éditeur ouvert',
-        description: `Dossier ouvert dans ${data.editor || 'l\'éditeur'} (${data.path || ''})`,
-      })
-      return true
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Erreur éditeur',
-        description: err.message,
-      })
-      return false
-    }
-  }, [currentProject, settings.editorCommand, addToast])
-
-  const openExternalTerminal = useCallback(async (options?: {
-    taskId?: string
-    projectId?: string
-    path?: string
-    command?: string
-    skillId?: string
-    terminalCommand?: string
-  }): Promise<boolean> => {
-    try {
-      const res = await fetch(`${API_BASE}/terminal/external`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          taskId: options?.taskId,
-          projectId: options?.projectId || (currentProject?.id !== 'default' ? currentProject?.id : undefined),
-          path: options?.path,
-          command: options?.command,
-          skillId: options?.skillId,
-          terminalCommand: options?.terminalCommand || settings.externalTerminalCommand || undefined,
-        }),
-      })
-      const text = await res.text()
-      let data: any = {}
-      try {
-        data = JSON.parse(text)
-      } catch {
-        if (res.status === 404) {
-          throw new Error("Route /api/terminal/external non trouvée (404).")
-        }
-        throw new Error(text || `Erreur HTTP ${res.status}`)
-      }
-      if (!res.ok) {
-        throw new Error(data.error || "Impossible d'ouvrir le terminal externe")
-      }
-      addToast({
-        type: 'success',
-        title: 'Terminal externe ouvert',
-        description: data.message || `Terminal lancé dans ${data.path || ''}`,
-      })
-      return true
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Erreur terminal externe',
-        description: err.message,
-      })
-      return false
-    }
-  }, [currentProject, settings.externalTerminalCommand, addToast])
-
-  const startTaskTty = useCallback(async (
-    task: Task,
-    options?: { mode?: 'integrated' | 'external'; command?: string; skillId?: string }
-  ): Promise<void> => {
-    const proj = task.projectId ? projects.find(p => p.id === task.projectId) : currentProject
-    const targetMode = options?.mode || proj?.ttyMode || 'integrated'
-
-    if (targetMode === 'external') {
-      await openExternalTerminal({
-        taskId: task.id,
-        command: options?.command,
-        skillId: options?.skillId,
-      })
-    } else {
-      setChatTask(task)
-      setIsTerminalPanelOpen(true)
-      if (options?.skillId) {
-        await injectTaskSkill(task.id, options.skillId)
-      }
-    }
-  }, [projects, currentProject, openExternalTerminal, injectTaskSkill])
-
-  const startBatchPickup = useCallback(async (taskIds: string[]): Promise<void> => {
-    if (taskIds.length === 0) return
-    const batchTasks = tasks.filter(t => taskIds.includes(t.id))
-    if (batchTasks.length === 0) return
-
-    const keysStr = batchTasks.map(t => t.key).join(' ')
-    const primaryTask = batchTasks[0]
-    const proj = primaryTask.projectId ? projects.find(p => p.id === primaryTask.projectId) : currentProject
-    const isExternal = proj?.ttyMode === 'external'
-
-    const command = `/pickup-issues ${keysStr}`
-
-    addToast({
-      type: 'info',
-      title: `Lancement du lot (${batchTasks.length} tâches)`,
-      description: `Commande : ${command}`,
-      duration: 6000,
-    })
-
-    if (isExternal) {
-      await openExternalTerminal({ taskId: primaryTask.id, command, skillId: 'pickup_issues' })
+  const startBatchPickup = async (taskIds: string[]): Promise<void> => {
+    const batch = tasks.filter(task => taskIds.includes(task.id))
+    if (!batch.length) return
+    if (batch.some(task => task.projectId !== batch[0].projectId)) {
+      addToast({type:'error',title:'Select tasks from one project for a batch'})
       return
     }
-
-    setChatTask(primaryTask)
-    setIsTerminalPanelOpen(true)
-    await injectTaskSkill(primaryTask.id, 'pickup_issues')
-  }, [tasks, projects, currentProject, addToast, openExternalTerminal, injectTaskSkill])
+    await runSkill(batch[0].id,'pickup_issues','/pickup-issues '+batch.map(task=>task.id).join(' '))
+  }
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -3649,13 +3111,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const activeTag = (document.activeElement?.tagName || '').toLowerCase()
       const isXterm = Boolean(document.activeElement?.closest('.xterm') || document.activeElement?.classList.contains('xterm-helper-textarea'))
       const isInputActive = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || isXterm
-
-      // Ctrl/Cmd + $ (or Ctrl/Cmd + `) toggles the docked terminal, as in an IDE.
-      if ((e.metaKey || e.ctrlKey) && (e.key === '$' || e.code === 'Dollar' || e.key === '`' || e.code === 'Backquote')) {
-        e.preventDefault()
-        toggleTerminalPanel()
-        return
-      }
 
       if (e.key === '/' && !isInputActive) {
         e.preventDefault()
@@ -3695,17 +3150,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setActiveView('sync')
           return
         }
-        if (key === 'o') {
-          e.preventDefault()
-          openInEditor()
-          return
-        }
+
       }
 
       if (e.key === 'Escape') {
-        if (diffTask) {
-          setDiffTask(null)
-        } else if (isCommandPaletteOpen) {
+        if (isCommandPaletteOpen) {
           setIsCommandPaletteOpen(false)
         } else if (isQuickAddOpen) {
           setIsQuickAddOpen(false)
@@ -3723,7 +3172,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isCommandPaletteOpen, isQuickAddOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, diffTask, toggleTerminalPanel, setActiveView, openInEditor])
+  }, [isCommandPaletteOpen, isQuickAddOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, setActiveView])
 
   return (
     <AppContext.Provider
@@ -3743,14 +3192,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         tasks: filteredTasks,
         skills,
         cliStatuses,
-        gitStatus,
+
         isFetchingGitStatus,
-        fetchGitStatus,
-        gitBranches,
-        fetchGitBranches,
-        switchGitBranch,
-        isBranchModalOpen,
-        setIsBranchModalOpen,
+
+
         isLoading,
         isSkillRunning,
         isSyncing,
@@ -3796,11 +3241,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         availableParents,
         skillLabel,
         skillCommand,
-        isTerminalPanelOpen,
-        setIsTerminalPanelOpen,
-        toggleTerminalPanel,
-        terminalDockPosition,
-        setTerminalDockPosition,
+
+
         isDigestAvailable,
         dailyDigest,
         isDigestLoading,
@@ -3811,15 +3253,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setSidebarCollapsed,
         selectedTask,
         setSelectedTask,
-        chatTask,
-        terminalSessionOverride,
-        openTerminalSession,
-        openTerminalForTask,
-        setChatTask,
-        diffTask,
-        setDiffTask,
-        fetchGitDiff,
-        checkoutTaskBranch,
+
+
         hideDone,
         setHideDone,
         toggleHideDone,
@@ -3847,8 +3282,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         updateTask,
         moveTaskToTrackerStatus,
         getTaskComments,
-        listTerminalSessions,
-        resetTerminalSession,
+
+
         postTaskComment,
         listProjectBoards,
         importProjectBoardColumns,
@@ -3858,7 +3293,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         fetchProjectEpics,
         refineMacro,
         createBatchTasks,
-        sendTerminalInput,
+
         saveMacroMeta,
         saveEpicMeta,
         createStoryFromMacroTodo,
@@ -3887,8 +3322,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isPinned,
         togglePin,
         hotSwitch,
-        startTaskAgent,
-        injectTaskSkill,
+
+
         fetchSkillEditor,
         saveSkillContent,
         resetSkillContent,
@@ -3933,11 +3368,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setTaskSprint,
         setTasksSprint,
         setTasksTeam,
-        cleanLocalBranches,
-        deleteGitBranch,
-        openInEditor,
-        openExternalTerminal,
-        startTaskTty,
+
+
         startBatchPickup,
       }}
     >

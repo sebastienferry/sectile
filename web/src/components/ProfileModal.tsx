@@ -11,7 +11,6 @@ import {
   Sliders,
   PanelRight,
   Square,
-  Code2,
   Bot,
   Terminal,
   FileCode,
@@ -22,6 +21,7 @@ import {
   Info,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { LocalAgentSetup } from './LocalAgentSetup'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
 
 type SettingsTab = 'appearance' | 'agentic' | 'prompts'
@@ -55,8 +55,6 @@ export const ProfileModal: React.FC = () => {
   const [density, setDensity] = useState<Density>(settings.density)
   const [defaultView, setDefaultView] = useState<ViewMode>(settings.defaultView)
   const [detailMode, setDetailMode] = useState<DetailMode>(settings.detailMode || 'panel')
-  const [editorCommand, setEditorCommand] = useState(settings.editorCommand || 'code')
-  const [externalTerminalCommand, setExternalTerminalCommand] = useState(settings.externalTerminalCommand || '')
 
   // Agentic AI & CLI Configuration
   const [aiProvider, setAiProvider] = useState<AIProvider>(settings.aiProvider || 'agy')
@@ -79,8 +77,6 @@ export const ProfileModal: React.FC = () => {
       setDensity(settings.density)
       setDefaultView(settings.defaultView)
       setDetailMode(settings.detailMode || 'panel')
-      setEditorCommand(settings.editorCommand || 'code')
-      setExternalTerminalCommand(settings.externalTerminalCommand || '')
       setAiProvider(settings.aiProvider || 'agy')
       setAiCommandTemplate(settings.aiCommandTemplate || 'agy -p "{prompt}"')
       setSpecFramework(settings.specFramework || 'speckit')
@@ -128,8 +124,6 @@ export const ProfileModal: React.FC = () => {
       density,
       defaultView,
       detailMode,
-      editorCommand: editorCommand.trim() || 'code',
-      externalTerminalCommand: externalTerminalCommand.trim(),
       aiProvider,
       aiCommandTemplate: aiCommandTemplate.trim() || `${aiProvider} -p "{prompt}"`,
       specFramework,
@@ -215,6 +209,7 @@ export const ProfileModal: React.FC = () => {
           {/* TAB 1: APPEARANCE & PROFILE */}
           {activeTab === 'appearance' && (
             <div className="space-y-6 animate-in fade-in duration-150">
+              <LocalAgentSetup />
               {/* User info */}
               <div className="space-y-3">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
@@ -395,110 +390,10 @@ export const ProfileModal: React.FC = () => {
               </div>
 
               {/* Default Code Editor */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                    <Code2 size={13} className="text-[var(--accent-color)]" />
-                    <span>Éditeur de code (Ouvrir le dossier / code)</span>
-                  </label>
-                  <span className="text-[10px] text-[var(--text-muted)] font-mono">Défaut : code (VS Code)</span>
-                </div>
-                
-                {/* Quick Presets */}
-                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-                  {[
-                    { cmd: 'code', label: 'VS Code' },
-                    { cmd: 'cursor', label: 'Cursor' },
-                    { cmd: 'zed', label: 'Zed' },
-                    { cmd: 'subl', label: 'Sublime' },
-                    { cmd: 'idea', label: 'IntelliJ' },
-                    { cmd: 'webstorm', label: 'WebStorm' },
-                  ].map(preset => {
-                    const isSelected = editorCommand === preset.cmd
-                    return (
-                      <button
-                        key={preset.cmd}
-                        type="button"
-                        onClick={() => setEditorCommand(preset.cmd)}
-                        className={`py-1.5 px-2 rounded-lg text-xs font-semibold border transition-all cursor-pointer text-center ${
-                          isSelected
-                            ? 'bg-[var(--accent-light)] border-[var(--accent-color)] accent-text shadow-xs'
-                            : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)]'
-                        }`}
-                      >
-                        {preset.label}
-                      </button>
-                    )
-                  })}
-                </div>
 
-                {/* Custom Command Input */}
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    type="text"
-                    value={editorCommand}
-                    onChange={e => setEditorCommand(e.target.value)}
-                    placeholder="Ex: code, cursor, zed"
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                  />
-                </div>
-              </div>
 
               {/* Default External Terminal */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                    <Terminal size={13} className="text-[var(--accent-color)]" />
-                    <span>Application de Terminal externe</span>
-                  </label>
-                  <span className="text-[10px] text-[var(--text-muted)] font-mono">Défaut : Terminal OS par défaut</span>
-                </div>
 
-                {/* Quick Presets */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                  {[
-                    { cmd: '', label: 'Auto (OS)', desc: 'Terminal par défaut' },
-                    { cmd: 'Ghostty', label: 'Ghostty', desc: 'macOS & Linux' },
-                    { cmd: 'Terminal', label: 'Terminal.app', desc: 'macOS natif' },
-                    { cmd: 'iTerm', label: 'iTerm2', desc: 'macOS' },
-                    { cmd: 'Alacritty', label: 'Alacritty', desc: 'GPU accéléré' },
-                    { cmd: 'kitty', label: 'Kitty', desc: 'GPU accéléré' },
-                    { cmd: 'WezTerm', label: 'WezTerm', desc: 'Multiplexeur' },
-                    { cmd: 'Warp', label: 'Warp', desc: 'AI Terminal' },
-                  ].map(preset => {
-                    const isSelected = externalTerminalCommand === preset.cmd
-                    return (
-                      <button
-                        key={preset.cmd}
-                        type="button"
-                        onClick={() => setExternalTerminalCommand(preset.cmd)}
-                        className={`py-2 px-2.5 rounded-xl text-left border transition-all cursor-pointer ${
-                          isSelected
-                            ? 'bg-[var(--accent-light)] border-[var(--accent-color)] accent-text shadow-xs'
-                            : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)]'
-                        }`}
-                      >
-                        <div className="font-bold text-xs">{preset.label}</div>
-                        <div className="text-[9.5px] opacity-75">{preset.desc}</div>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                {/* Custom Command Input */}
-                <div className="space-y-1 pt-1">
-                  <input
-                    type="text"
-                    value={externalTerminalCommand}
-                    onChange={e => setExternalTerminalCommand(e.target.value)}
-                    placeholder="Ex: Ghostty, Terminal, iTerm, alacritty, kitty ou modèle custom"
-                    className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                  />
-                  <p className="text-[10px] text-[var(--text-muted)]">
-                    Pour une commande sur mesure, vous pouvez utiliser le placeholder <code className="text-amber-400 font-bold">{'{script}'}</code> (ex: <code className="text-[var(--text-secondary)]">ghostty -e {'{script}'}</code> ou <code className="text-[var(--text-secondary)]">open -na Ghostty --args -e {'{script}'}</code>).
-                  </p>
-                </div>
-              </div>
 
             </div>
           )}

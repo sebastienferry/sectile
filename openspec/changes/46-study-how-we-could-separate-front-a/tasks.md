@@ -23,3 +23,36 @@
 - [x] 4.1 Write Go unit tests in `internal/handlers/agent_dispatcher_test.go` for connection registration, auth matching, and dispatching.
 - [x] 4.2 Test outbound WebSocket connection, auto-reconnect, and PTY stream relay.
 - [x] 4.3 Validate OpenSpec change specification (`openspec validate 46-study-how-we-could-separate-front-a --strict`).
+
+## 5. MCP and API configuration follow-up
+
+- [x] 5.1 Expose five typed MCP tools over authenticated Streamable HTTP using existing task services.
+- [x] 5.2 Add the database-free `taskflow mcp` stdio bridge and gateway forwarding.
+- [x] 5.3 Publish and consume a versioned, secret-free project execution configuration.
+- [x] 5.4 Prepare local worktrees and scaffold effective skills with local overrides and edit preservation.
+- [x] 5.5 Replace generated curl instructions with native MCP calls, retaining managed-run ownership.
+- [x] 5.6 Verify protocol, authentication, API configuration, local execution and existing project checks.
+
+## 6. Native client simplification
+
+- [x] 6.1 Remove the experimental Electron chat client and companion-only endpoints.
+- [x] 6.2 Bootstrap native MCP on explicit project connection for direct skill pickup.
+- [x] 6.3 Verify Codex/Claude pickup command construction and MCP gateway read/write integration.
+- [x] 6.4 Document native CLI and web dispatch entry points and launcher setup.
+
+## 7. Stabilized server/agent v1 contract
+
+- [x] 7.1 Validate configuration identity, version, provider, command template, terminal mode and skill destinations.
+- [x] 7.2 Download fresh configuration per launch and report API diagnostics before explicit-project registration.
+- [x] 7.3 Make managed skill refresh authoritative with backups and safe retirement; preserve unrelated personal skills.
+- [x] 7.4 Share a versioned dispatch DTO containing launch intent and apply documented terminal precedence.
+- [x] 7.5 Document the contract and test refresh, failure, ownership and override behavior.
+
+## 8. Local desktop console host
+- [x] Remove web PTY, branch, diff and worktree controls.
+- [x] Delegate web skill and batch launches to the connected agent.
+- [x] Add sandboxed Electron console UI and authenticated loopback endpoints.
+- [x] Preserve sessions across window close/reopen.
+- [x] Provide local project mappings, stop and log export.
+- [x] Verify input, stop and reconnect with isolated UI tests.
+- [x] Document packaging and daemon-lifetime history limits.

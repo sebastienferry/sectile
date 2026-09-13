@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 	"tasks/internal/models"
 	"tasks/internal/runner"
@@ -891,8 +892,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		case http.MethodPost, http.MethodPut, http.MethodPatch:
 			var req struct {
-				Key         string              `json:"key"`
-				Title       *string             `json:"title,omitempty"`
+				Key            string              `json:"key"`
+				Title          *string             `json:"title,omitempty"`
 				Horizon        *string             `json:"horizon,omitempty"`
 				Description    *string             `json:"description,omitempty"`
 				FramingComment *string             `json:"framingComment,omitempty"`
@@ -1617,6 +1618,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	var id string
 
 	switch {
+	case strings.HasSuffix(rawPath, "/cancel-run"):
+		subAction = "cancel-run"
+		id = strings.TrimSuffix(rawPath, "/cancel-run")
 	case strings.HasSuffix(rawPath, "/run-skill"):
 		subAction = "run-skill"
 		id = strings.TrimSuffix(rawPath, "/run-skill")
@@ -1730,6 +1734,11 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if subAction == "cancel-run" && r.Method == http.MethodPost {
+		h.handleCancelRemoteRun(w, r, id)
+		return
+	}
+
 	// Sub-action: /api/tasks/{id}/move
 	if subAction == "move" && (r.Method == http.MethodPatch || r.Method == http.MethodPost) {
 		var req models.MoveTaskRequest
@@ -1792,7 +1801,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			act := models.TaskActivity{
 				ID:        activityID,
 				TaskID:    task.ID,
-				SkillID:   req.SkillID,
+				SkillID:   "agent_launch",
 				SkillName: req.SkillID,
 				Action:    fmt.Sprintf("Exécution de %s sur l'agent local", req.SkillID),
 				Status:    string(models.ActivityStatusRunning),
@@ -1808,42 +1817,33 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = h.db.AddTaskActivity(act)
 
-			provider := "agy"
-			cmdTemplate := ""
-			termCmd := ""
-			ttyMode := ""
-			if proj, err := h.db.GetProjectByID(task.ProjectID); err == nil && proj != nil {
-				if proj.AIProvider != "" {
-					provider = proj.AIProvider
-				}
-				cmdTemplate = proj.AICommandTemplate
-				termCmd = proj.ExternalTerminalCommand
-				ttyMode = proj.TtyMode
+			remoteRun, runErr := h.db.StartAgentRemoteRun(task.ID, req.SkillID)
+			if runErr != nil {
+				act.Status = "failed"
+				act.Error = runErr.Error()
+				finished := time.Now()
+				act.CompletedAt = &finished
+				_ = h.db.FinishAgentLaunch(act)
+				writeError(w, http.StatusInternalServerError, "Cannot track remote execution")
+				return
 			}
-			if settings, err := h.db.GetSettings(); err == nil && settings != nil {
-				if provider == "agy" && settings.AIProvider != "" {
-					provider = settings.AIProvider
-				}
-				if cmdTemplate == "" {
-					cmdTemplate = settings.AICommandTemplate
-				}
-				if termCmd == "" {
-					termCmd = settings.ExternalTerminalCommand
-				}
-			}
-
-			err := h.agentDispatcher.Dispatch(ac.UserID, ac.ProjectID, "dispatch_step", task.ID, map[string]interface{}{
-				"taskKey":                 task.Key,
-				"taskId":                  task.ID,
-				"skillId":                 req.SkillID,
-				"action":                  req.SkillID,
-				"prompt":                  req.Prompt,
-				"projectId":               ac.ProjectID,
-				"provider":                provider,
-				"externalTerminalCommand": termCmd,
-				"ttyMode":                 ttyMode,
-				"aiCommandTemplate":       cmdTemplate,
+			launchCtx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+			defer cancel()
+			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
+				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
+				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
 			})
+			finished := time.Now()
+			act.CompletedAt = &finished
+			act.Status = "completed"
+			act.Summary = "Native client launched; workflow stages are reported through MCP."
+			if err != nil {
+				act.Status = "failed"
+				act.Error = err.Error()
+				act.Summary = "Local agent launch failed."
+				_, _ = h.db.FinishRemoteRun(task.ID, remoteRun.ID, "failed", err.Error())
+			}
+			_ = h.db.FinishAgentLaunch(act)
 			if err != nil {
 				writeError(w, http.StatusBadGateway, "Erreur lors de la délégation à l'agent local: "+err.Error())
 				return
@@ -1857,18 +1857,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// 2. Fallback to local server queue execution when no local agent daemon is connected
-		enqueuedTask, activity, err := h.db.EnqueueSkillOnTask(id, req.SkillID, req.Prompt)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-
-		writeJSON(w, http.StatusOK, models.RunSkillResponse{
-			Task:     *enqueuedTask,
-			Activity: *activity,
-			Message:  "Skill " + req.SkillID + " ajoutée à la file d'exécution locale",
-		})
+		writeError(w, http.StatusConflict, "Connect the local agent to launch this skill.")
 		return
 	}
 
@@ -2006,39 +1995,23 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "skillId manquant")
 			return
 		}
+		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
+			if ac := h.agentDispatcher.Lookup("default", task.ProjectID); ac != nil {
+				err := h.agentDispatcher.Dispatch("default", task.ProjectID, "dispatch_step", task.ID, map[string]string{
+					"taskKey": task.Key, "taskId": task.ID, "projectId": task.ProjectID, "skillId": req.SkillID, "action": req.SkillID,
+				})
+				if err != nil {
+					writeError(w, http.StatusBadGateway, err.Error())
+					return
+				}
+				writeJSON(w, http.StatusOK, map[string]any{"success": true, "taskId": task.ID, "message": "Skill dispatched to local agent"})
+				return
+			}
+		}
 		launch, err := h.db.InjectSkillInTTY(id, req.SkillID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
-		}
-
-		// Also notify connected local agent if active
-		if task, _ := h.db.GetTaskByID(id); task != nil {
-			projectID := "default"
-			if task.ProjectID != "" {
-				projectID = task.ProjectID
-			}
-			userID := "default"
-			if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
-				log.Printf("🚀 [Dispatch] Local agent active. Dispatching TTY skill %s on task %s", req.SkillID, task.Key)
-				termCmd := ""
-				if proj, err := h.db.GetProjectByID(task.ProjectID); err == nil && proj != nil {
-					termCmd = proj.ExternalTerminalCommand
-				}
-				if termCmd == "" {
-					if settings, err := h.db.GetSettings(); err == nil && settings != nil {
-						termCmd = settings.ExternalTerminalCommand
-					}
-				}
-				_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
-					"taskKey":                 task.Key,
-					"taskId":                  task.ID,
-					"skillId":                 req.SkillID,
-					"action":                  req.SkillID,
-					"projectId":               projectID,
-					"externalTerminalCommand": termCmd,
-				})
-			}
 		}
 
 		writeJSON(w, http.StatusOK, launch)
@@ -2055,7 +2028,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		res, err := h.LaunchTaskExternalTerminal(id, req.Command, req.SkillID, req.TerminalCommand)
+		res, err := h.launchTaskExternalTerminal(r.Context(), id, req.Command, req.SkillID, req.TerminalCommand)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2891,6 +2864,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 				Type: "agent_pty_output",
 			})
 		case "step_status":
+			h.agentDispatcher.ReportLaunchStatus(ac, msg)
 			// The local agent reports progress on a dispatched workflow step.
 			h.BroadcastEvent(Event{
 				Type: "agent_step_status",
@@ -2904,7 +2878,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 // resolveAgentUser maps an agent authentication token to a user ID. In the
 // current single-user deployment, any non-empty token resolves to "default".
 func (h *Handler) resolveAgentUser(token string) string {
-	if token == "" {
+	if !validAgentToken(token) {
 		return ""
 	}
 	// Future: validate against a user/token store.
@@ -3067,7 +3041,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 	}
 
 	if req.TaskID != "" {
-		res, err := h.LaunchTaskExternalTerminal(req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
+		res, err := h.launchTaskExternalTerminal(r.Context(), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3129,6 +3103,10 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 
 // LaunchTaskExternalTerminal launches an external terminal window for a specific task.
 func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
+	return h.launchTaskExternalTerminal(context.Background(), taskID, command, skillID, customTermCmd)
+}
+
+func (h *Handler) launchTaskExternalTerminal(ctx context.Context, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
@@ -3141,6 +3119,7 @@ func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTer
 	}
 
 	customTermCmd = strings.TrimSpace(customTermCmd)
+	terminalOverride := customTermCmd
 	if customTermCmd == "" && proj != nil && proj.ExternalTerminalCommand != "" {
 		customTermCmd = proj.ExternalTerminalCommand
 	}
@@ -3155,19 +3134,19 @@ func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTer
 	userID := "default"
 	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
 		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
-		_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
-			"taskKey":                 task.Key,
-			"taskId":                  task.ID,
-			"skillId":                 skillID,
-			"action":                  skillID,
-			"prompt":                  command,
-			"projectId":               projectID,
-			"externalTerminalCommand": customTermCmd,
+		launchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+		defer cancel()
+		err := h.agentDispatcher.DispatchAndWait(launchCtx, userID, projectID, task.ID, agentconfig.Dispatch{
+			SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
+			SkillID: skillID, Action: "open_terminal", Command: command, Prompt: command, TerminalOverride: terminalOverride,
 		})
+		if err != nil {
+			return nil, err
+		}
 		return map[string]interface{}{
 			"success": true,
 			"taskId":  task.ID,
-			"message": fmt.Sprintf("External terminal dispatched to local agent (%s)", ac.DeviceID),
+			"message": fmt.Sprintf("External terminal opened by local agent (%s)", ac.DeviceID),
 		}, nil
 	}
 

@@ -1,4 +1,5 @@
-.PHONY: dev dev-server dev-web build run test clean release reset-db
+.DEFAULT_GOAL := all
+.PHONY: all server agent desktop start serve run binary-build dev dev-server dev-web build server-build agent-build test clean release reset-db
 
 # Développement : le serveur Go d'un côté, Vite de l'autre, avec son proxy vers
 # l'API. L'interface n'est pas embarquée dans ce mode, elle est rechargée à chaud.
@@ -14,16 +15,36 @@ dev-web:
 
 # Build : l'interface est compilée dans internal/webui/dist, d'où go:embed la
 # prend. Le binaire produit ne dépend d'aucun fichier voisin.
-build:
+all: server agent desktop
+	@echo "Built server, local agent and desktop app."
+
+# Compatibility aliases for existing scripts.
+build: all
+server-build: server
+agent-build: agent
+
+# Server and agent currently share the same executable and entrypoint.
+server: binary-build
+agent: binary-build
+
+binary-build:
 	@echo "Building interface..."
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
 	@echo "Building binary with the interface embedded..."
-	go build -o bin/taskflow ./cmd/server
+	@mkdir -p bin
+	go build -o bin/taskflow.new ./cmd/server
+	mv -f bin/taskflow.new bin/taskflow
 	@echo "Done: bin/taskflow"
 
-run: build
-	./bin/taskflow
+start:
+	./bin/taskflow agent $(ARGS)
+
+serve:
+	./bin/taskflow $(ARGS)
+
+run:
+	cd desktop && npm start
 
 test:
 	go test ./internal/...
@@ -64,3 +85,16 @@ clean:
 	rm -rf internal/webui/dist
 	@mkdir -p internal/webui/dist && touch internal/webui/dist/.gitkeep
 
+.PHONY: desktop-build desktop desktop-package
+desktop-build: agent
+	mkdir -p desktop/bin
+	cp bin/taskflow desktop/bin/taskflow.new
+	mv -f desktop/bin/taskflow.new desktop/bin/taskflow
+	cd desktop && npm ci
+	cd desktop && node node_modules/electron/install.js
+	cd desktop && npm run build
+
+desktop: desktop-package
+
+desktop-package: desktop-build
+	cd desktop && npm run package
