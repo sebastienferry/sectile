@@ -25,7 +25,9 @@ try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const taskKey=run=>JSON.stringify([run.projectId,run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
-const hiddenRun=run=>(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
+let disconnectedProjects=new Set(),projectStateVersion=0,refreshing=false
+const hiddenProject=id=>disconnectedProjects.has(id)
+const hiddenRun=run=>hiddenProject(run.projectId)||(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
 function saveLocalTasks(){localStorage.setItem('localTasks',JSON.stringify(localTasks))}
 const collapsedProjects=new Set(JSON.parse(localStorage.getItem('collapsedProjects')||'[]'))
 
@@ -61,10 +63,10 @@ function ready(){
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
 }
 function select(run){
+ if(hiddenProject(run.projectId))return
  selectedProject=run.projectId
  selected=run.id
  refreshNextStep()
- document.querySelector('#title').textContent=(taskState(run).name||run.taskKey||run.taskId)+' · '+run.skill
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
  terminal.reset()
@@ -111,11 +113,23 @@ function renderQueue(project,group){
  }
  if(waiting.length){const note=document.createElement('p');note.className='queue-note';note.textContent='Starts when project capacity and checkout availability permit. Independent projects may start separately.';list.append(note)}
 }
+function renderHeader(){
+ const run=runs.find(item=>item.id===selected)
+ let text='Select an execution'
+ if(run){
+  const identity=run.taskKey||run.taskId
+  const name=taskState(run).name?.trim()||taskTitles.get(run.taskId)?.trim()
+  text=[identity,...(name&&name!==identity?[name]:[]),run.skill].join(' · ')
+ }
+ const title=document.querySelector('#title')
+ title.textContent=text;title.title=text
+}
 function render(){
+ renderHeader()
  const list=document.querySelector('#runs');list.replaceChildren()
 
- const groups=new Map(projects.filter(project=>project.path).map(project=>[project.id,project]))
- for(const run of runs)if(!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
+ const groups=new Map(projects.filter(project=>project.path&&!hiddenProject(project.id)).map(project=>[project.id,project]))
+ for(const run of runs)if(!hiddenProject(run.projectId)&&!groups.has(run.projectId))groups.set(run.projectId,{id:run.projectId,name:run.projectId})
  for(const project of [...groups.values()].sort((a,b)=>a.name.localeCompare(b.name))){
   const group=document.createElement('section');group.className='project-group'
 
@@ -188,10 +202,38 @@ function render(){
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
  renderNextStep()
 }
+async function updateDisconnected(ids,force=false){
+ const changed=ids.length!==disconnectedProjects.size||ids.some(id=>!disconnectedProjects.has(id))
+ disconnectedProjects=new Set(ids)
+ if(hiddenProject(selectedProject))selectedProject=null
+ const current=runs.find(run=>run.id===selected)
+ if(current&&hiddenProject(current.projectId)){
+  selected=null;terminal.reset()
+  document.querySelector('#title').textContent='Select an execution'
+  document.querySelector('#directory').textContent=''
+  await api.detach().catch(error)
+ }
+ if(changed||force)render()
+}
 async function refresh(){
- if(restarting||!document.querySelector('#setup').hidden)return
- try{const next=await api.runs();ready();refreshPRs(next);const status=await api.status();document.querySelector('#connection').textContent=status.connected?'Connected to '+status.server:'Local agent ready · Server disconnected';const serialized=JSON.stringify(next);if(serialized!==last){const previous=runs.find(run=>run.id===selected);last=serialized;runs=next;render();const current=runs.find(run=>run.id===selected);if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current);if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}refreshNextStep()}else if(Date.now()-nextStepUpdated>15000)refreshNextStep()}
- catch{agentUnavailable()}
+ if(refreshing||restarting||!document.querySelector('#setup').hidden)return
+ refreshing=true
+ const version=projectStateVersion
+ try{
+  const next=await api.runs(),status=await api.status()
+  if(version!==projectStateVersion)return
+  ready();refreshPRs(next)
+  document.querySelector('#connection').textContent=status.connected?'Connected to '+status.server:'Local agent ready · Server disconnected'
+  const previous=runs.find(run=>run.id===selected)
+  const serialized=JSON.stringify(next),changed=serialized!==last
+  runs=next;last=serialized
+  await updateDisconnected(status.disconnectedProjects||[],changed)
+  const current=runs.find(run=>run.id===selected)
+  if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current)
+  if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}
+  if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
+ }catch{agentUnavailable()}
+ finally{refreshing=false}
 }
 document.querySelector('#start').onsubmit=async event=>{
  event.preventDefault();const button=event.target.querySelector('button');button.disabled=true
@@ -223,7 +265,7 @@ document.querySelector('#restart').onclick=async()=>{
  try{
   if(await api.restart()){
    selected=null;runs=[];last='';terminal.reset();render()
-   document.querySelector('#title').textContent='Select an execution'
+   renderHeader()
    document.querySelector('#directory').textContent=''
    document.querySelector('#error').textContent=''
   }
@@ -261,7 +303,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   const {removed}=await api.clearHistory()
   if(removed.includes(selected)){
    selected=null;terminal.reset()
-   document.querySelector('#title').textContent='Select an execution'
+   renderHeader()
    document.querySelector('#directory').textContent=''
   }
   await refresh()
@@ -278,10 +320,14 @@ function showDialog(title){
 }
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
 async function loadProjects(){
- const loaded=[...new Map((await api.projects()).map(project=>[project.id,project])).values()]
- projects=loaded;render()
+ const version=projectStateVersion
+ const status=await api.status(),next=await api.projects()
+ if(version!==projectStateVersion)return
+ const loaded=[...new Map(next.map(project=>[project.id,project])).values()]
+ projects=loaded
+ await updateDisconnected(status.disconnectedProjects||[],true)
  const limits=await Promise.allSettled(loaded.map(project=>api.project(project.id)))
- if(projects!==loaded)return
+ if(version!==projectStateVersion||projects!==loaded)return
  for(const [index,result] of limits.entries()){
   if(result.status==='fulfilled')loaded[index].executionLimit=result.value.parallelism
  }
@@ -303,13 +349,30 @@ document.querySelector('#add-project').onclick=async()=>{
   if(!projects.length)paragraph('No projects available on the server.')
   for(const project of projects){
    const button=document.createElement('button');button.className='discovered-project'
-   const added=project.configured||!!project.path||runs.some(run=>run.projectId===project.id)
+   const added=!hiddenProject(project.id)&&(project.configured||!!project.path||runs.some(run=>run.projectId===project.id))
    button.textContent=project.name+(added?' · Already added':'')
    button.disabled=added
    if(added)button.title='Use the project settings button in the sidebar to edit this project.'
    button.onclick=()=>openProject(project.id);dialogBody.append(button)
   }
  }catch(err){error(err)}
+}
+function requestRemoveProject(id,name){
+ showDialog('Remove '+name+' from desktop?')
+ paragraph('Disconnect this project from this workstation and remove its local configuration. Repository files and server data are preserved. Add the project again before launching new executions.')
+ const confirm=document.createElement('button');confirm.textContent='Disconnect project'
+ const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
+ const notice=document.createElement('p');notice.setAttribute('role','status')
+ confirm.onclick=async()=>{
+  confirm.disabled=true;cancel.disabled=true
+  try{await api.removeProject(id)}
+  catch(err){notice.textContent=err.message;confirm.disabled=false;cancel.disabled=false;return}
+  projectStateVersion++
+  await updateDisconnected([...disconnectedProjects,id])
+  dialog.close()
+  try{await loadProjects()}catch(err){error('Project disconnected, but refreshing projects failed: '+err.message)}
+ }
+ dialogBody.append(confirm,cancel,notice)
 }
 async function openProject(id){
  selectedProject=id
@@ -376,12 +439,16 @@ async function openProject(id){
   const notice=document.createElement('p');notice.setAttribute('role','status')
   form.append(label,controls.worktrees.section,controls.parallel.section,commandLabel,save)
   panels.Local.append(form)
+  const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop'
+  remove.onclick=()=>requestRemoveProject(id,config.projectName)
+  if(info.configured||runs.some(run=>run.projectId===id))panels.Local.append(remove)
   dialogBody.append(notice)
   const tools=document.createElement('div');tools.className='deployment-actions'
   form.onsubmit=async event=>{
    event.preventDefault();save.disabled=true
    try{
     await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,inheritParallelism,aiCommandTemplate:command.value,inheritCommand})
+    projectStateVersion++;disconnectedProjects.delete(id)
     notice.textContent='Local configuration saved';await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
@@ -428,7 +495,14 @@ async function openProject(id){
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
   }
 
- }catch(err){paragraph(err.message)}
+ }catch(err){
+  paragraph(err.message)
+  if(!hiddenProject(id)&&(projects.some(project=>project.id===id&&project.path)||runs.some(run=>run.projectId===id))){
+   const remove=document.createElement('button');remove.textContent='Remove from desktop'
+   remove.onclick=()=>requestRemoveProject(id,projects.find(project=>project.id===id)?.name||id)
+   dialogBody.append(remove)
+  }
+ }
 }
 
 const iconPaths={
@@ -559,7 +633,8 @@ async function refreshPRs(executions){
     const tasks=await api.serverTasks(projectID,'')
     for(const run of executions.filter(run=>run.projectId===projectID)){
      const task=tasks.find(task=>task.id===run.taskId)
-     if(task?.title)taskTitles.set(run.taskId,task.title)
+     if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
+     else taskTitles.delete(run.taskId)
      if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,task.prUrl)
      else pullRequests.delete(run.taskId)
     }
@@ -577,7 +652,7 @@ function taskMenu(run){
  const rename=document.createElement('form'),name=document.createElement('input'),save=document.createElement('button')
  name.setAttribute('aria-label','Local task name');name.value=taskState(run).name||run.taskKey||run.taskId;name.maxLength=120;name.required=true
  save.textContent='Rename locally';rename.append(name,save)
- rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render();const current=runs.find(item=>item.id===selected);if(current&&taskKey(current)===taskKey(run))document.querySelector('#title').textContent=name.value.trim()+' · '+current.skill}
+ rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render()}
  const archive=document.createElement('button');archive.textContent='Archive'
  archive.onclick=()=>requestArchive(run)
  dialogBody.append(relaunch,rename,archive)
@@ -600,7 +675,7 @@ async function archiveTask(run){
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
   selected=null;terminal.reset();await api.detach()
-  document.querySelector('#title').textContent='Select an execution';document.querySelector('#directory').textContent=''
+  renderHeader();document.querySelector('#directory').textContent=''
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()
 }
@@ -684,6 +759,7 @@ function renderNextStep(){
  if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
 }
 new ResizeObserver(resize).observe(document.querySelector('#task-status'))
+new ResizeObserver(resize).observe(document.querySelector('#toolbar'))
 async function readNextStep(run){
  const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
  const task=tasks.find(task=>task.id===run.taskId)

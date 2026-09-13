@@ -45,3 +45,8 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .project-capacity{flex-shrink:0;color:#91a1b7;font-size:11px;font-weight:400;white-space:nowrap}
 
 .project-queue-toggle{width:28px;height:28px}.project-queue-toggle svg{width:14px;height:14px}
+
+#toolbar{height:auto;min-height:72px;flex-wrap:wrap;overflow:visible}
+#toolbar>div{flex:1 1 200px;max-width:100%}
+#title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#toolbar>button,#toolbar>select{flex-shrink:0;max-width:100%;margin:0}

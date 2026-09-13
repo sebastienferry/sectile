@@ -148,6 +148,23 @@ content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
 
+### Remove a local project
+
+In project settings, choose **Local → Remove from desktop**, then confirm
+**Disconnect project**. Removal clears that project's workstation mapping and
+execution overrides. It preserves repository files, worktrees, deployed tooling,
+server projects, tracker tasks, and other local settings. Stop the project's
+executions first: queued, preparing, running, and not-yet-exited processes block
+removal, and removal never cancels them automatically.
+
+Disconnected projects and their consoles stay hidden after desktop or agent
+restart. Choose **Add project** and save a valid repository to reconnect explicitly.
+Finished history remains available after re-add for the agent's existing lifetime;
+archived tasks remain archived. Disconnection is stored in workstation settings
+under `disconnectedProjects`, a project-ID-to-boolean map. Repository detection
+and legacy mappings cannot override a true marker. Older agents must be updated
+and restarted before this action is available.
+
 ### Execution defaults and local overrides
 
 The server project supplies `useWorktrees` and `parallelism` (1–3) defaults.
@@ -262,7 +279,12 @@ local rename and archive actions. Archiving hides its existing executions withou
 changing the server task. Active executions require explicit confirmation and
 confirmed stop before archiving. A new execution makes the task visible again.
 The TTY toolbar's execution selector provides access to previous runs of the
-selected task. Local names and archive visibility persist in companion storage.
+selected task. Its header shows the task key (or full ID), current task title, and
+selected execution skill. Local names take precedence over tracker titles and
+persist alongside archive visibility in companion storage. Titles refresh without
+reconnecting the console; unavailable titles fall back to identity and skill.
+Long headers truncate on one line, with their full text available on hover and
+to assistive technology. Toolbar controls wrap at narrow window widths.
 
 ### Desktop Quick add
 
