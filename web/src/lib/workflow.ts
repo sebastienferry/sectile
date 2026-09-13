@@ -111,8 +111,9 @@ export const skillForStage = (stage: WorkflowStage): string | null => {
     case 'specified':
       return 'implement'
     case 'implemented':
+      return 'adjust'
     case 'reviewed':
-      return 'create_pr'
+      return 'handoff'
     case 'finished':
     default:
       return null
@@ -209,8 +210,8 @@ export const getNextStepInfo = (task: Task, project?: Project | null): NextStepI
         stepLabel: 'Clarifier',
         stepDescription: 'Clarifier les exigences et questions non tranchées',
         stepTooltip: "Avancer d'un pas : Clarifier les exigences (clarify-issue)",
-        autoTooltip: "Avancer en autonomie : Clarifier ➔ Spécifier ➔ Coder ➔ Créer PR",
-        remainingSteps: ['Clarifier', 'Spécifier', 'Coder', 'Créer PR'],
+        autoTooltip: "Avancer en autonomie : Clarifier ➔ Spécifier ➔ Coder ➔ Adjust",
+        remainingSteps: ['Clarifier', 'Spécifier', 'Coder', 'Adjust'],
       }
     case 'clarified':
       return {
@@ -219,8 +220,8 @@ export const getNextStepInfo = (task: Task, project?: Project | null): NextStepI
         stepLabel: 'Spécifier',
         stepDescription: 'Rédiger la spécification technique (Spec Kit / OpenSpec)',
         stepTooltip: "Avancer d'un pas : Spécifier la solution technique (specify-issue)",
-        autoTooltip: "Avancer en autonomie : Spécifier ➔ Coder ➔ Créer PR",
-        remainingSteps: ['Spécifier', 'Coder', 'Créer PR'],
+        autoTooltip: "Avancer en autonomie : Spécifier ➔ Coder ➔ Adjust",
+        remainingSteps: ['Spécifier', 'Coder', 'Adjust'],
       }
     case 'specified':
       return {
@@ -229,18 +230,18 @@ export const getNextStepInfo = (task: Task, project?: Project | null): NextStepI
         stepLabel: 'Coder',
         stepDescription: 'Implémenter le code sur la branche et passer les tests',
         stepTooltip: "Avancer d'un pas : Implémenter le code et tests (code-issue)",
-        autoTooltip: "Avancer en autonomie : Coder ➔ Créer PR",
-        remainingSteps: ['Coder', 'Créer PR'],
+        autoTooltip: "Avancer en autonomie : Coder ➔ Adjust",
+        remainingSteps: ['Coder', 'Adjust'],
       }
     case 'implemented':
       return {
         currentStage: 'implemented',
-        nextSkillId: 'create_pr',
-        stepLabel: 'Créer PR',
-        stepDescription: 'Revue de code peer-review et ouverture de la Pull Request',
-        stepTooltip: "Avancer d'un pas : Revue de code & Création de PR (create-pr)",
-        autoTooltip: "Avancer en autonomie : Revue & Création de PR",
-        remainingSteps: ['Créer PR'],
+        nextSkillId: 'adjust',
+        stepLabel: 'Adjust',
+        stepDescription: 'Review the complete branch and update the existing pull request',
+        stepTooltip: "Adjust the existing pull request (adjust-issue)",
+        autoTooltip: "Adjust the existing PR and stop for human review",
+        remainingSteps: ['Adjust'],
       }
     case 'reviewed':
       return {
@@ -265,3 +266,6 @@ export const getNextStepInfo = (task: Task, project?: Project | null): NextStepI
       }
   }
 }
+
+export const prRecoverySkill = (project?: Project | null): 'specify' | 'implement' =>
+  project?.prCreationStage === 'specified' ? 'specify' : 'implement'

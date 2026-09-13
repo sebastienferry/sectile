@@ -99,19 +99,26 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []Pro
 	}
 	out := ProjectSkillTemplates(framework)
 	for i := range out {
-		if ov, ok := overrides[out[i].ID]; ok && strings.TrimSpace(ov.content) != "" {
+		if ov, ok := resolvedSkillOverride(overrides, out[i].ID); ok && strings.TrimSpace(ov.content) != "" {
 			out[i].Content = ov.content
+			if out[i].ID == "adjust" {
+				stage, _ := StageSkillByID("adjust")
+				contract := RenderSkillContent(stage, framework)
+				if strings.TrimSpace(out[i].Content) != strings.TrimSpace(contract) {
+					out[i].Content = adjustmentCustomContent(out[i].Content, contract)
+				}
+			}
 		}
 	}
 	for i := range out {
-		if out[i].ID != "specify" && out[i].ID != "implement" && out[i].ID != "create_pr" && out[i].ID != "pickup" && out[i].ID != "pickup_issues" {
+		if out[i].ID != "specify" && out[i].ID != "implement" && out[i].ID != "adjust" && out[i].ID != "pickup" && out[i].ID != "pickup_issues" {
 			continue
 		}
 		out[i].Content += "\n## Project pull request policy\nPR creation stage: " + timing + ". Read this setting from taskflow_get_project_context before executing. "
 		if timing == "specified" {
-			out[i].Content += "After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep it draft while implementing; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.\n"
+			out[i].Content += "After the specification is written and validated, commit and push the specification on the task branch and open a draft PR/MR for specification review. Reuse an existing PR/MR for that branch. Include its URL as prUrl in the specified transition. Keep newly created PRs draft while implementing; preserve an existing ready PR; update the same PR/MR and mark it ready only after implementation and review. Do not mark the task reviewed merely because a draft exists.\n"
 		} else {
-			out[i].Content += "Create the PR/MR after implementation and review, reusing any existing PR/MR for the task branch. Do not create one during specification.\n"
+			out[i].Content += "After successful implementation checks, commit and push the branch, discover and reuse its open PR/MR or create a draft when absence is confirmed. Include its URL as prUrl in the implemented transition. Do not create one during specification or adjustment. Lookup failure is not absence. Preserve an existing ready PR.\n"
 		}
 	}
 
@@ -130,12 +137,13 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 		content := def.Content
 		updatedAt := ""
 		isCustom := false
-		if ov, ok := overrides[stage.ID]; ok && strings.TrimSpace(ov.content) != "" {
+		if ov, ok := resolvedSkillOverride(overrides, stage.ID); ok && strings.TrimSpace(ov.content) != "" {
 			content = ov.content
 			updatedAt = ov.updatedAt
-			isCustom = true
+			isCustom = strings.TrimSpace(content) != strings.TrimSpace(def.Content)
 		}
 
+		origin, conflicts := adjustmentOverrideOrigin(overrides)
 		entry := models.SkillEditorEntry{
 			ID:             stage.ID,
 			Name:           def.Name,
@@ -153,6 +161,30 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 			Paths:          []string{},
 		}
 
+		if stage.ID == "adjust" {
+			entry.OverrideOrigin = origin
+			if p, _ := d.GetProjectByID(projectID); p != nil && origin != "adjust" {
+				for _, id := range []string{"create_pr", "review"} {
+					if command := strings.TrimSpace(p.SkillOverrides[id]); command != "" && strings.TrimSpace(p.SkillOverrides["adjust"]) == "" {
+						entry.Content += "\n\nLegacy command override (" + id + "): " + command
+						entry.RequiresReconciliation = true
+						entry.IsCustom = true
+					}
+				}
+			}
+			entry.LegacyConflicts = conflicts
+			entry.LegacyContents = map[string]string{}
+			for _, id := range conflicts {
+				entry.LegacyContents[id] = overrides[id].content
+			}
+			entry.RequiresReconciliation = entry.RequiresReconciliation || origin == "create_pr" || origin == "review"
+			settings, _ := d.GetSettings()
+			if settings != nil && strings.TrimSpace(settings.PromptCreatePR) != "" && origin != "adjust" {
+				entry.RequiresReconciliation = true
+				entry.Content += "\n\nLegacy global prompt:\n" + settings.PromptCreatePR
+				entry.IsCustom = true
+			}
+		}
 		// État sur disque : le premier fichier trouvé fait référence, et on
 		// signale l'écart plutôt que de le corriger d'autorité.
 		for _, dir := range SkillDirsFor(repoPath, stage.DirName) {
@@ -228,7 +260,13 @@ func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.
 	d.ensureProjectSkillsTable()
 
 	d.mu.Lock()
-	_, err := d.conn.Exec(`DELETE FROM project_skills WHERE project_id = ? AND skill_id = ?`, projectID, stage.ID)
+	var err error
+	if stage.ID == "adjust" {
+		// An explicit reset selects the default while retaining legacy entries.
+		_, err = d.conn.Exec(`INSERT INTO project_skills(project_id, skill_id, content, updated_at) VALUES (?, 'adjust', ?, ?) ON CONFLICT(project_id,skill_id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at`, projectID, RenderSkillContent(stage, ""), time.Now().Format(time.RFC3339))
+	} else {
+		_, err = d.conn.Exec(`DELETE FROM project_skills WHERE project_id = ? AND skill_id = ?`, projectID, stage.ID)
+	}
 	d.mu.Unlock()
 	if err != nil && err != sql.ErrNoRows {
 		return nil, err
@@ -362,4 +400,74 @@ func commandContentFromSkill(stage StageSkill, content, specFramework string) (s
 	b.WriteString(strings.TrimSpace(body))
 	b.WriteString("\n\n## Ticket\n$ARGUMENTS\n")
 	return b.String(), true
+}
+
+// Canonical customization wins; losing entries remain available for reconciliation.
+func adjustmentOverrideOrigin(overrides map[string]projectSkillOverride) (string, []string) {
+	origin := ""
+	conflicts := []string{}
+	for _, id := range []string{"adjust", "create_pr", "review"} {
+		if strings.TrimSpace(overrides[id].content) != "" {
+			if origin == "" {
+				origin = id
+			} else {
+				conflicts = append(conflicts, id)
+			}
+		}
+	}
+	return origin, conflicts
+}
+func resolvedSkillOverride(overrides map[string]projectSkillOverride, id string) (projectSkillOverride, bool) {
+	if id == "adjust" {
+		origin, _ := adjustmentOverrideOrigin(overrides)
+		value, ok := overrides[origin]
+		return value, ok
+	}
+	value, ok := overrides[id]
+	return value, ok
+}
+
+const legacyAdjustmentForwarder = "---\nname: create-pr\ndescription: Compatibility alias for adjust-issue.\n---\nInvoke adjust-issue with the same task and arguments. Verify an existing matching open PR before changes. Never create a PR here. Apply the complete adjustment quality gate.\n"
+
+func installAdjustmentForwarders(root string) error {
+	paths := []string{SkillCommandPath(root, "create-pr")}
+	for _, dir := range SkillDirsFor(root, "create-pr") {
+		paths = append(paths, filepath.Join(dir, "SKILL.md"))
+	}
+	var divergences []string
+	for _, path := range paths {
+		raw, err := os.ReadFile(path)
+		if err == nil && string(raw) != legacyAdjustmentForwarder {
+			divergences = append(divergences, path)
+			continue
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+		if err = os.WriteFile(path, []byte(legacyAdjustmentForwarder), 0644); err != nil {
+			return err
+		}
+	}
+	if len(divergences) > 0 {
+		return fmt.Errorf("legacy command divergence preserved; reconcile these files before native use: %s", strings.Join(divergences, ", "))
+	}
+	return nil
+}
+
+// Preserve canonical metadata when a legacy document is reconciled under Adjust.
+func adjustmentCustomContent(custom, contract string) string {
+	strip := func(content string) string {
+		if strings.HasPrefix(content, "---\n") {
+			if end := strings.Index(content[4:], "\n---\n"); end >= 0 {
+				return content[4+end+5:]
+			}
+		}
+		return content
+	}
+	body := strip(contract)
+	header := strings.TrimSuffix(contract, body)
+	return header + "## Project instructions\n\n" + strip(custom) + "\n\n## Mandatory adjustment requirements\n\n" + body
 }

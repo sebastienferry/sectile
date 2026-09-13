@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Overrides stays on the workstation and is never uploaded to the server.
@@ -54,7 +55,18 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 		c.ExternalTerminalCommand = overrides.Terminal
 	}
 	for i := range c.Skills {
-		if content, ok := overrides.Skills[c.Skills[i].ID]; ok {
+		id := c.Skills[i].ID
+		if id == "adjust" {
+			for _, legacy := range []string{"create_pr", "review"} {
+				if strings.TrimSpace(overrides.Skills[id]) == "" && strings.TrimSpace(overrides.Skills[legacy]) != "" {
+					c.Skills[i].RequiresReconciliation = true
+				}
+			}
+		}
+		if content, ok := overrides.Skills[id]; ok {
+			if id == "adjust" {
+				content += "\n" + c.Skills[i].Content
+			}
 			c.Skills[i].Content = content
 			c.Skills[i].CommandContent = content + "\n\n## Ticket\n$ARGUMENTS\n"
 		}
@@ -77,6 +89,15 @@ func Scaffold(root string, config Config) ([]string, error) {
 	files, err := skillFiles(config.Skills)
 	if err != nil {
 		return nil, err
+	}
+	for _, skill := range config.Skills {
+		if skill.ID == "adjust" {
+			forward := "---\nname: create-pr\ndescription: Compatibility alias for adjust-issue.\n---\nInvoke adjust-issue with the same arguments. Require the existing task-branch PR and the full adjustment quality gate. Never create a PR.\n"
+			for _, prefix := range []string{".agents/skills/", ".claude/skills/", ".gemini/skills/", ".agy/skills/", ".skills/"} {
+				files[prefix+"create-pr/SKILL.md"] = forward
+			}
+			files[".claude/commands/create-pr.md"] = forward + "\n$ARGUMENTS\n"
+		}
 	}
 	fs, err := os.OpenRoot(root)
 	if err != nil {
@@ -134,6 +155,11 @@ func Scaffold(root string, config Config) ([]string, error) {
 		}
 		if err == nil && string(raw) != content {
 			if manifest[p] != digest(raw) {
+				if strings.Contains(p, "/create-pr/") || strings.HasSuffix(p, "/create-pr.md") {
+					backups = append(backups, "Divergent legacy command preserved: "+p)
+					next[p] = manifest[p]
+					continue
+				}
 				if err := backup(p, raw); err != nil {
 					return backups, err
 				}

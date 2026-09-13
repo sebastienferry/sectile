@@ -111,7 +111,7 @@ const WORKFLOW_SKILLS: { id: string; defaultName: string; code: string; desc: st
   { id: 'clarify', defaultName: 'Clarify', code: 'clarify-issue', desc: 'Questions de cadrage & inputs produit', icon: HelpCircle, color: 'amber' },
   { id: 'specify', defaultName: 'Specify', code: 'specify-issue', desc: 'Spécification technique (Spec Kit / OpenSpec)', icon: FileCode, color: 'blue' },
   { id: 'implement', defaultName: 'Implement', code: 'code-issue', desc: 'Développement & codage de la story', icon: Flame, color: 'indigo' },
-  { id: 'create_pr', defaultName: 'Review & PR', code: 'create-pr', desc: 'Revue de code, tests & Pull Request', icon: ShieldCheck, color: 'purple' },
+  { id: 'adjust', defaultName: 'Adjust', code: 'adjust-issue', desc: 'Revue de code, tests & Pull Request', icon: ShieldCheck, color: 'purple' },
   { id: 'handoff', defaultName: 'Handoff', code: 'handoff-issue', desc: 'Compte-rendu de passation & nettoyage local', icon: Sparkles, color: 'emerald' },
 ]
 
@@ -674,7 +674,7 @@ export const ProjectModal: React.FC = () => {
           {/* ========================================================= */}
           {/* SECTION 2: GIT (Chemin Local CWD, Remote URL, Init Git)   */}
           {/* ========================================================= */}
-          {activeTab === 'git' && <div className="space-y-4"><label className="block">Git remote URL<input className="w-full rounded border p-2" value={gitRemoteUrl} onChange={e=>setGitRemoteUrl(e.target.value)} /></label><label className="block">Create PR/MR<select value={prCreationStage} onChange={e=>setPRCreationStage(e.target.value as 'specified'|'implemented')}><option value="implemented">After implementation and review</option><option value="specified">Draft after specification</option></select></label><p>Local repositories and execution consoles are managed in the desktop agent.</p></div>}
+          {activeTab === 'git' && <div className="space-y-4"><label className="block">Git remote URL<input className="w-full rounded border p-2" value={gitRemoteUrl} onChange={e=>setGitRemoteUrl(e.target.value)} /></label><label className="block">Create PR/MR<select value={prCreationStage} onChange={e=>setPRCreationStage(e.target.value as 'specified'|'implemented')}><option value="implemented">Draft after implementation</option><option value="specified">Draft after specification</option></select></label><p>Local repositories and execution consoles are managed in the desktop agent.</p></div>}
 
           {/* ========================================================= */}
           {/* SECTION 3: AGENT IA & CLI (Configuration du moteur/CLI)   */}

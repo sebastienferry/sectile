@@ -1698,6 +1698,7 @@ func (r *Runner) RunAI(settings *models.Settings, skillID string, task *models.T
 // PrepareAI resolves the working directory, the engine and the prompt of one
 // workflow step, without running anything.
 func (r *Runner) PrepareAI(settings *models.Settings, skillID string, task *models.Task, customPrompt string) (*AIInvocation, error) {
+	skillID = models.NormalizeSkillID(skillID)
 	repoDir := ""
 	if task != nil && task.WorktreePath != nil && *task.WorktreePath != "" {
 		repoDir = *task.WorktreePath
@@ -1804,25 +1805,16 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 3. Exécute les commandes de test et de build du projet (ex: npm run build ou go test ./... selon la stack) pour vérifier que le code compile et fonctionne parfaitement sans régression.
 4. Fournis un compte-rendu clair des fichiers modifiés/créés et des résultats des validations.`
 		}
-	case "create_pr":
-		promptTemplate = settings.PromptCreatePR
-		if promptTemplate == "" {
-			promptTemplate = `Tu es l'ingénieur DevOps & Release pour Sectile. Tu dois finaliser la tâche, commiter et créer la Pull Request, puis laisser la fusion à l’utilisateur :
-Clé : {issueKey}
-Titre : {issueTitle}
-Description : {issueDesc}
-Branche Git : {branchName}
-Dossier du projet : {repoPath}
-
-INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
-1. Vérifie l'état Git dans '{repoPath}' ('git status' et 'git remote').
-2. Assure-toi que toutes les modifications sur la branche '{branchName}' sont commitées proprement avec un message conventionnel (ex: 'feat({issueKey}): {issueTitle}').
-3. CAS A : Si un dépôt distant (remote 'origin' ou GitHub/GitLab) est configuré :
-   - Pousse la branche vers le remote : 'git push -u origin {branchName}'
-   - Crée la Pull Request via 'gh pr create' ou 'glab mr create' si disponible.
-4. Si aucun remote n'est configuré, signale le blocage et conserve la branche et le worktree.
-5. Fournis l'URL réelle de la Pull Request et les résultats des vérifications. Ne fusionne jamais localement ou à distance.`
+	case "adjust":
+		promptTemplate = `Adjust the existing PR for {issueKey}: {issueTitle}.
+Repository: {repoPath}. Assigned branch: {branchName}.
+Before modifying files, verify and record the matching open PR. If missing, stop and use the configured earlier creation stage. Never create or replace a PR here.
+Fetch and reconcile the remote default branch, review the complete diff against the specification, retrieve available review feedback, fix findings and record feedback dispositions. Feedback retrieval failure blocks completion; no human comments is valid.
+Run build, lint and tests on the final code; commit and push changes; update the same PR description and evidence and verify it is ready and contains the pushed final commit. Preserve work on any failure. Never merge, approve, close the ticket or clean up the worktree.`
+		if settings.PromptCreatePR != "" {
+			promptTemplate += "\n" + settings.PromptCreatePR
 		}
+
 	case "handoff":
 		promptTemplate = `Tu es responsable de la clôture propre de la tâche pour Sectile. Le code a été revu et fusionné : il reste à documenter le handoff et à nettoyer.
 
@@ -1855,6 +1847,12 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 		promptTemplate += "\n\nInstructions supplémentaires fournies par l'utilisateur :\n" + customPrompt
 	}
 
+	if skillID == "specify" || skillID == "implement" {
+		promptTemplate += "\nRead the project PR creation policy through TaskFlow. Specification owns creation only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
+	}
+	if skillID == "adjust" {
+		promptTemplate += "\n\n" + AdjustmentContract
+	}
 	branchName := ""
 	if task.BranchName != nil {
 		branchName = *task.BranchName
@@ -2630,7 +2628,7 @@ func settingsPromptOverridden(settings *models.Settings, skillID string) bool {
 		return strings.TrimSpace(settings.PromptSpecify) != ""
 	case "implement":
 		return strings.TrimSpace(settings.PromptImplement) != ""
-	case "create_pr", "review":
+	case "adjust", "create_pr", "review":
 		return strings.TrimSpace(settings.PromptCreatePR) != ""
 	}
 	return false

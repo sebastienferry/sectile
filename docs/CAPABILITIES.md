@@ -165,10 +165,10 @@ framework value; the database migrates that value to `openspec` on startup.
 
 ### Stage 3: Implementation (`code-issue` / `/code`)
 - **Objective**: Implements the required code changes directly inside the task's isolated Git worktree.
-- **Output**: Edits codebase, verifies build, prepares clean atomic commits.
+- **Output**: Edits codebase, verifies build, prepares clean atomic commits, and creates or reuses a draft PR when implementation owns PR creation. The specification-time policy creates the draft earlier.
 
-### Stage 4: Review and Pull Request (`create-pr`)
-- **Objective**: Reviews and repairs the diff, updates affected documentation, runs final checks, then pushes and creates or updates the branch's PR.
+### Stage 4: Adjust (`adjust-issue`)
+- **Objective**: Reviews and repairs the diff, updates affected documentation, runs final checks, then pushes and updates the same existing branch PR and verifies readiness. Available review feedback is addressed; absence of comments does not block review.
 - **Output**: Verified Pull Request URL attached to the task card and external issue tracker. The autonomous chain stops here for human review and merge.
 
 ### Stage 5: Handoff (`handoff-issue`)
@@ -185,7 +185,7 @@ For hands-on pair programming and manual debugging:
 - Injects task context variables (`$TASKFLOW_TASK_KEY`, `$TASKFLOW_TASK_WORKTREE`).
 - Action toolbar provides one-click triggers:
   - **`⚡ Run agent`**: Starts interactive conversation with the chosen agent.
-  - **Skill actions** (`clarify-issue`, `specify-issue`, `code-issue`, `create-pr`): Send the skill name and ticket context to the running agent. Codex receives the plain name; other providers retain a leading `/`. Button labels and tooltips follow that syntax and any project skill-name overrides. Start the agent before selecting a skill; calls are rejected when no agent is running.
+  - **Skill actions** (`clarify-issue`, `specify-issue`, `code-issue`, `adjust-issue`): Send the skill name and ticket context to the running agent. Codex receives the plain name; other providers retain a leading `/`. Button labels and tooltips follow that syntax and any project skill-name overrides. Start the agent before selecting a skill; calls are rejected when no agent is running.
   - The project's agent setting takes precedence over the global setting. Codex is supported by the interactive launcher. Workflow steps reusing an open agent use the same invocation syntax; headless prompts are unchanged.
   - **`Ctrl+C`**: Sends interrupt signal to running processes.
   - **`Reset`**: Gracefully terminates and respawns a fresh shell.

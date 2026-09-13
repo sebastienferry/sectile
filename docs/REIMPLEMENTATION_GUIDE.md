@@ -35,7 +35,7 @@ This document is an actionable, step-by-step blueprint designed to enable anothe
    - Run `git worktree add .tasks/worktrees/<taskKey> -b <branchName> main`.
    - Symlink `node_modules`, `web/node_modules`, `.env`, `.env.local`.
    - Symlink `.gemini`, `.agents`, `.agy`, `.taskflow` folders.
-   - Ensure the 5 default skill templates (`clarify-issue`, `specify-issue`, `code-issue`, `create-pr`, `pick-issue`) are written into `.gemini/skills/` and `.agents/skills/`.
+   - Ensure the 5 default skill templates (`clarify-issue`, `specify-issue`, `code-issue`, `adjust-issue`, `pick-issue`) are written into `.gemini/skills/` and `.agents/skills/`.
 2. Implement `RemoveTaskWorktree(mainRepoPath, taskKey)`:
    - Run `git worktree remove --force` and `git worktree prune`.
 

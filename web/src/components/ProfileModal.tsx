@@ -648,7 +648,7 @@ export const ProfileModal: React.FC = () => {
                 <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-purple-400">
                     <GitPullRequest size={13} />
-                    <span>Prompt de Pull Request & Release (/create-pr)</span>
+                    <span>Legacy adjustment prompt (requires reconciliation in Skills)</span>
                   </span>
                   <span className="text-[10px] text-[var(--text-muted)] font-mono">Commit, Push & PR / Merge</span>
                 </label>
