@@ -14,3 +14,5 @@ The first test run failed because its 10-second link-removal timeout was shorter
 Reviewed the complete task diff against `origin/main` at `97bdf2d`, with zero missing base commits. The PR icon remains a sibling of the execution button, so activating it cannot trigger execution selection. SVG content is static, existing URL validation and opening behavior are retained, and styling is scoped to the PR control. No further defects were found. PR #83 had no review or inline comments at review time, and no remote checks were reported.
 
 Only the desktop renderer, PR styling, usage documentation, focused test, and #79 OpenSpec artifacts are included. Existing generated skill edits and local Codex configuration remain outside the commits. Web/backend checks were not rerun because those components are unchanged.
+
+PR #83 was verified open and ready for review with implementation commit `4147b06` published. The final documentation commit completes the checklist; merge remains a human action.
