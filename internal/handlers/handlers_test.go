@@ -1,12 +1,13 @@
 package handlers_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
+	"tasks/internal/agentprotocol"
 	"testing"
 
 	"tasks/internal/db"
@@ -26,11 +27,13 @@ func TestHandleGitStatus(t *testing.T) {
 
 	h := handlers.NewHandler(database)
 
-	cwd, _ := os.Getwd()
-	req, err := http.NewRequest(http.MethodGet, "/api/git-status?path="+cwd, nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		if op.Action != "git_status" || op.ProjectID != "default" {
+			t.Fatalf("wrong agent request: %#v", op)
+		}
+		return json.Marshal(models.GitStatusInfo{IsGitRepo: true, Branch: "agent-branch"})
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/git-status?projectId=default", nil)
 
 	rr := httptest.NewRecorder()
 	h.HandleGitStatus(rr, req)
@@ -113,18 +116,13 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 	rr2 := httptest.NewRecorder()
 	h.HandleTasks(rr2, req2)
 
-	if rr2.Code != http.StatusCreated {
-		t.Fatalf("Expected status 201 Created, got %d: %s", rr2.Code, rr2.Body.String())
+	if rr2.Code < 400 {
+		t.Fatalf("unconfigured remote creation succeeded: %d %s", rr2.Code, rr2.Body.String())
+	}
+	if !strings.Contains(rr2.Body.String(), "Linear issue creation failed") {
+		t.Fatalf("remote error missing: %s", rr2.Body.String())
 	}
 
-	var task2 models.Task
-	if err := json.Unmarshal(rr2.Body.Bytes(), &task2); err != nil {
-		t.Fatalf("Failed to decode response JSON: %v", err)
-	}
-
-	if task2.Source != "linear" {
-		t.Errorf("Expected task2.Source='linear' (from project test-proj), got '%s'", task2.Source)
-	}
 }
 
 func TestHandleOpenEditor(t *testing.T) {
@@ -139,8 +137,14 @@ func TestHandleOpenEditor(t *testing.T) {
 
 	h := handlers.NewHandler(database)
 
-	// Test HandleOpenEditor with echo command
-	body := `{"path": ".", "editorCommand": "echo"}`
+	// The server confirms only a successful agent response.
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		if op.Action != "open_editor" || op.Editor != "code" || op.ProjectID != "default" {
+			t.Fatalf("wrong request: %#v", op)
+		}
+		return json.RawMessage(`null`), nil
+	})
+	body := `{"projectId":"default","editorCommand":"code"}`
 	req, err := http.NewRequest(http.MethodPost, "/api/open-editor", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
@@ -342,7 +346,25 @@ func TestHandleGitBranchesAndCheckoutWithAll(t *testing.T) {
 
 	h := handlers.NewHandler(database)
 
-	// 1. GET /api/git/branches?projectId=all should succeed using repo fallback
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		if op.ProjectID != "default" {
+			t.Fatalf("wrong project: %#v", op)
+		}
+		switch op.Action {
+		case "git_branches":
+			return json.Marshal(models.GitBranchesInfo{CurrentBranch: "agent-branch"})
+		case "git_checkout":
+			if op.Branch != "agent-branch" || op.Create {
+				t.Fatalf("wrong checkout: %#v", op)
+			}
+			return json.RawMessage(`{}`), nil
+		default:
+			t.Fatalf("wrong action: %#v", op)
+			return nil, nil
+		}
+	})
+
+	// 1. GET /api/git/branches?projectId=all should resolve the default project and use its agent
 	reqBranches, err := http.NewRequest(http.MethodGet, "/api/git/branches?projectId=all", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)

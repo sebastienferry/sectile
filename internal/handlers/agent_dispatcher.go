@@ -6,25 +6,20 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"tasks/internal/agentprotocol"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
-// AgentMessage is the envelope for all messages exchanged between the remote
-// server and a connected local agent over the agent WebSocket relay.
-type AgentMessage struct {
-	MsgID   string          `json:"msgId"`
-	Type    string          `json:"type"` // dispatch_step, pty_input, pty_resize, step_status, pty_output, heartbeat, error
-	TaskID  string          `json:"taskId,omitempty"`
-	UserID  string          `json:"userId,omitempty"`
-	Payload json.RawMessage `json:"payload,omitempty"`
-}
+type AgentMessage = agentprotocol.Message
 
 // AgentConn represents a single connected local agent daemon. The connection
 // belongs to the user who authenticated and covers one project workspace.
 type AgentConn struct {
+	done        chan struct{}
+	closeOnce   sync.Once
 	UserID      string
 	ProjectID   string
 	DeviceID    string
@@ -39,13 +34,22 @@ type AgentConn struct {
 func (ac *AgentConn) Send(msg AgentMessage) error {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
+	if err := ac.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return err
+	}
 	return ac.Conn.WriteJSON(msg)
 }
 
 // Close terminates the WebSocket connection with an optional close code.
 func (ac *AgentConn) Close(code int, reason string) {
+	ac.closeOnce.Do(func() {
+		if ac.done != nil {
+			close(ac.done)
+		}
+	})
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
+	_ = ac.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	closeMsg := websocket.FormatCloseMessage(code, reason)
 	_ = ac.Conn.WriteMessage(websocket.CloseMessage, closeMsg)
 	_ = ac.Conn.Close()
@@ -62,9 +66,10 @@ type agentKey struct {
 // When a user triggers a workflow action on the remote Web UI, the dispatcher
 // routes the command to the matching local agent.
 type AgentDispatcher struct {
-	agents  map[agentKey]*AgentConn
-	pending map[string]*pendingAgentLaunch
-	mu      sync.RWMutex
+	operations map[string]*pendingOperation
+	agents     map[agentKey]*AgentConn
+	pending    map[string]*pendingAgentLaunch
+	mu         sync.RWMutex
 }
 
 // NewAgentDispatcher creates a dispatcher ready to accept agent connections.
@@ -91,6 +96,7 @@ func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *web
 	}
 
 	ac := &AgentConn{
+		done:        make(chan struct{}),
 		UserID:      userID,
 		ProjectID:   projectID,
 		DeviceID:    deviceID,
@@ -112,6 +118,7 @@ func (d *AgentDispatcher) Unregister(userID, projectID string, conn *websocket.C
 
 	key := agentKey{UserID: userID, ProjectID: projectID}
 	if existing, ok := d.agents[key]; ok && existing.Conn == conn {
+		existing.closeOnce.Do(func() { close(existing.done) })
 		delete(d.agents, key)
 		log.Printf("[AgentDispatcher] Agent unregistered: user=%s project=%s", userID, projectID)
 	}
@@ -234,6 +241,8 @@ func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID
 			return fmt.Errorf("local terminal launch failed: %s", result.Summary)
 		}
 		return nil
+	case <-ac.done:
+		return fmt.Errorf("agent disconnected before confirming terminal launch; check the local agent before retrying")
 	case <-ctx.Done():
 		return fmt.Errorf("terminal launch was not confirmed before timeout or cancellation; check the local agent before retrying: %w", ctx.Err())
 	}

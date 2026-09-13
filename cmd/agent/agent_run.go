@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"tasks/internal/agentconfig"
-	"tasks/internal/handlers"
+	"tasks/internal/agentprotocol"
 )
 
 type controlledRun struct {
@@ -96,7 +96,7 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]bool{"canceled": canceled})
 }
 
-func (d *agentDaemon) cancelRun(ctx context.Context, conn *websocket.Conn, msg handlers.AgentMessage, payload agentconfig.Dispatch) {
+func (d *agentDaemon) cancelRun(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message, payload agentconfig.Dispatch) {
 	d.runsMu.Lock()
 	run := d.runs[payload.RunID]
 	if run == nil || run.taskID != msg.TaskID {

@@ -47,7 +47,7 @@ func (h *Handler) HandleAgentConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	config, err := h.db.AgentConfig(r.URL.Query().Get("projectId"), r.URL.Query().Get("taskKey"))
+	config, err := h.db.AgentConfig(r.URL.Query().Get("projectId"), r.URL.Query().Get("taskKey"), r.URL.Query().Get("framework"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return

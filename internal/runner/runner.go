@@ -580,25 +580,7 @@ type GithubIssueItem struct {
 }
 
 // CleanGithubRepo extracts the owner/repo string from a Git URL or plain repo identifier.
-func CleanGithubRepo(repo string) string {
-	raw := strings.TrimSpace(repo)
-	raw = strings.TrimSuffix(raw, ".git")
-	if strings.Contains(raw, "github.com/") {
-		parts := strings.Split(raw, "github.com/")
-		if len(parts) > 1 {
-			return strings.TrimSpace(parts[1])
-		}
-	} else if strings.Contains(raw, "github.com:") {
-		parts := strings.Split(raw, "github.com:")
-		if len(parts) > 1 {
-			return strings.TrimSpace(parts[1])
-		}
-	}
-	if strings.Contains(raw, "/") && !strings.Contains(raw, ":") && !strings.Contains(raw, " ") {
-		return raw
-	}
-	return raw
-}
+func CleanGithubRepo(repo string) string { return models.CleanGithubRepo(repo) }
 
 // ResolveGithubRepo attempts to determine the target repository and path dynamically.
 func ResolveGithubRepo(repo string, repoPath string) (string, string) {
@@ -1362,22 +1344,7 @@ func (r *Runner) TransferGithubIssue(sourceRepo string, sourceRepoPath string, i
 const jiraSearchFields = "key,summary,description,status,priority,assignee,labels,issuetype"
 
 // NormalizeIssueTypes cleans a configured list of work item types.
-func NormalizeIssueTypes(types []string) []string {
-	out := make([]string, 0, len(types))
-	seen := map[string]bool{}
-	for _, t := range types {
-		t = strings.TrimSpace(t)
-		if t == "" || seen[strings.ToLower(t)] {
-			continue
-		}
-		seen[strings.ToLower(t)] = true
-		out = append(out, t)
-	}
-	if len(out) == 0 {
-		return []string{"Task", "Story"}
-	}
-	return out
-}
+func NormalizeIssueTypes(types []string) []string { return models.NormalizeIssueTypes(types) }
 
 func (r *Runner) AddIssueComment(source string, repo string, repoPath string, key string, body string) error {
 	if body == "" {

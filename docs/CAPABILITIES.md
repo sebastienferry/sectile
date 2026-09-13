@@ -8,7 +8,7 @@ Skills first use the local TaskFlow agent's exposed task-management interface, d
 
 Resolve the project by repository and verify the full task ID and external URL before a mutation. List tasks with the explicit project ID and send `taskId`, rather than a potentially ambiguous key such as `#47`, to the stage endpoint. Task creation also requires the explicit project ID.
 
-A managed run's supplied result contract takes precedence over standalone transitions. The worker validates the result and owns tracker synchronization. An active run with no usable completion contract must be reported; do not clear its activity or use another endpoint to bypass validation. A successful terminal launch is not proof that a workflow step completed.
+A managed run's supplied result contract takes precedence over standalone transitions. The agent validates local evidence and the server owns tracker synchronization. An active run with no usable completion contract must be reported; do not clear its activity or use another endpoint to bypass validation. A successful terminal launch is not proof that a workflow step completed.
 
 These instructions are maintained in `internal/db/skilltemplates.go` and mirrored in the repository's skill and command files. Project-specific skill overrides remain authoritative and must receive the same correction through the supported project skill editor before redistribution. The known local-agent integration gap is tracked in [issue #50](https://github.com/sebastienferry/taskflow/issues/50).
 
@@ -33,35 +33,16 @@ TaskFlow supports multiple concurrent software repositories and projects from a 
 
 ## 2. Issue Tracker Abstraction Layer
 
-TaskFlow provides a unified domain model over four issue sources
+The server owns native GitHub REST/GraphQL and Linear GraphQL adapters. It
+synchronizes, creates and updates issues and comments using explicit server
+credentials, even with all local agents offline. GitHub also supports milestone
+operations and issue transfer. Local tasks stay in SQLite. Jira metadata remains
+readable, but Jira synchronization is unsupported in this baseline.
 
-- Local (SQLite) : native SQLite storage for full offline support.
-- Linear : through the `linear` CLI (https://github.com/schpet/linear-cli)
-- Jira : through the Atlassian CLI `acli`
-- GitHub : through `gh`
-
-Each project carries its own tracker configuration: `linearTeam` for Linear,
-`githubRepo` for GitHub, and `jiraProject` (the Jira project key passed to
-`acli --project`) plus `trackerUrl` (the Jira base URL used to build
-`/browse/<KEY>` links) for Jira.
-
-Stage and status synchronisation is bidirectional: moving a card in
-TaskFlow translates into `linear issue update --state`, `gh issue
-close/reopen` or `acli jira workitem transition --state`. Comments from
-skill runs are posted back to the remote issue.
-
-| Operation | Linear | GitHub | Jira |
-|---|---|---|---|
-| Import | `linear issue list` | `gh issue list` | `acli jira workitem list --project <KEY>` |
-| Create | `linear issue create` | `gh issue create` | `acli jira workitem create --project <KEY>` |
-| Edit fields | `linear issue update` | `gh issue edit` | `acli jira workitem edit` |
-| Transition | `linear issue update --state` | `gh issue close` / `reopen` | `acli jira workitem transition --state` |
-| Comment | `linear issue comment` | `gh issue comment` | `acli jira workitem comment` |
-
-Remote writes are queued as background jobs and surface in the Activities view,
-so a failing CLI call is reported rather than silently dropped.
-
----
+Projects specify `githubRepo` (`owner/repository`) or `linearTeam` (team key).
+Workstation CLI credentials and local repository paths are never used by the
+server. Remote writes remain queued and their actual HTTP/API failures appear
+in Activities. See [server credential configuration](../README.md#server-tracker-credentials).
 
 ## 3. Autonomous AI Skill Pipeline
 
@@ -80,43 +61,21 @@ flowchart LR
 - **Objective**: Identifies functional gaps, edge cases, and architectural ambiguities.
 - **Output**: Records settled scope and reversible technical assumptions. Only essential product decisions or unavailable dependencies block an unattended run; the presence of a PTY does not itself require interactive questions.
 
-### Completion contract for managed runs
+### Workflow completion
 
-Each background workflow step receives a unique temporary result-file path and
-run ID in its invocation, including when an agent is already open in a PTY.
-The agent writes JSON with `runId`, `outcome` (`completed`, `blocked`, or
-`retryable`), `summary`, `branch`, `prUrl`, `artifacts`, and `checks`.
-Missing, stale, malformed or non-completed results fail the activity and stop the
-chain without advancing the ticket. The report remains in the activity output;
-the temporary file is removed after processing. A retry uses a fresh result file
-and receives the previous local workflow report so it can resume existing work.
+Local skills execute on the agent. Background jobs dispatch the same native skill
+contract and track launch acknowledgement separately from remote completion.
+Skills call MCP `start_run`, submit verified stages through `transition_stage`,
+and call `finish_run` when the invocation ends. A process exit or launch
+acknowledgement alone never advances the ticket. The former server-side result-file
+worker is retired; the server does not open an agent checkout or receipt file.
 
-Before advancing, TaskFlow checks specification files exist and are nonempty
-(`spec.md`, `tasks.md`, and `plan.md` or `design.md`), the actual work branch, and
-reported build/lint/test evidence. Each check carries its command, exit code and
-output, or a specific reason why it does not apply. Check execution remains the
-agent's responsibility: TaskFlow validates the receipt rather than rerunning its
-commands. Handoff additionally requires a successful merge-check receipt.
-
-Review completion requires a clean checkout and a forge-confirmed open PR whose
-source branch and commit match the checkout. A missing remote, unavailable CLI
-or unconfirmed PR stops progress; TaskFlow never substitutes a local merge.
-Worktree setup failures stop execution rather than falling back to the main
-checkout. Worktrees remain available for review feedback and are only cleaned
-up during confirmed handoff.
-
-The worker owns transitions during managed runs; standalone stage and post-back
-state updates are rejected while that workflow step is running. Standalone skill
-invocations instead call the local TaskFlow stage handler after completing each step. Single and
-batch pickup templates embed the same maintained stage instructions. Batch
-invocations retain one branch and one combined PR, recording each ticket's
-progress individually. Rewrite-story and macro refinement have no ticket-stage
-transition contract.
-
-Existing project-specific skill overrides and installed files are preserved.
-Use the project's skill editor to compare or reset an override and reinstall
-the generated defaults when adopting the revised templates. The managed result
-contract is injected at runtime even with an older installed skill.
+PR-bearing transitions require matching forge evidence from the server HTTP
+adapter and checkout branch/commit evidence from the connected agent. Review
+requires a ready PR and a clean checkout. Missing credentials, disconnected agents,
+unpushed commits and replacement PRs prevent completion. Human merge remains
+separate. Pickup skills retain ownership of their ordered stage checklist and
+must run the project's checks before submitting a transition.
 
 ### Stage 2: Technical Specification (`specify-issue` / `/specify`)
 - **Objective**: Generates an actionable, implementation-ready technical specification, following the Spec-Driven Design framework configured on the project.
@@ -177,20 +136,12 @@ framework value; the database migrates that value to `openspec` on startup.
 
 ---
 
-## 4. Interactive ZSH Pseudo-Terminal (PTY Live)
+## 4. Agent-owned consoles
 
-For hands-on pair programming and manual debugging:
-- Spawns an interactive login shell (`/bin/zsh -l`) in the task's dedicated worktree directory.
-- Features Xterm.js emulation with full ANSI colors, cursor control, and keyboard navigation.
-- Injects task context variables (`$TASKFLOW_TASK_KEY`, `$TASKFLOW_TASK_WORKTREE`).
-- Action toolbar provides one-click triggers:
-  - **`⚡ Run agent`**: Starts interactive conversation with the chosen agent.
-  - **Skill actions** (`clarify-issue`, `specify-issue`, `code-issue`, `adjust-issue`): Send the skill name and ticket context to the running agent. Codex receives the plain name; other providers retain a leading `/`. Button labels and tooltips follow that syntax and any project skill-name overrides. Start the agent before selecting a skill; calls are rejected when no agent is running.
-  - The project's agent setting takes precedence over the global setting. Codex is supported by the interactive launcher. Workflow steps reusing an open agent use the same invocation syntax; headless prompts are unchanged.
-  - **`Ctrl+C`**: Sends interrupt signal to running processes.
-  - **`Reset`**: Gracefully terminates and respawns a fresh shell.
-
----
+The agent hosts native coding CLI sessions in local PTYs. The optional desktop
+connects through the private loopback API and displays console replay, input and
+execution status. Closing the desktop leaves active executions running. Legacy
+server terminal endpoints return 410 and do not create a shell.
 
 ## 5. Live Git Diff & Branch Management
 

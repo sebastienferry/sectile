@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -13,13 +12,10 @@ import (
 	"io"
 	"io/fs"
 	"net"
-	"os/exec"
-	"runtime"
 	"time"
 
 	"tasks/internal/db"
 	"tasks/internal/handlers"
-	"tasks/internal/models"
 	"tasks/internal/webui"
 )
 
@@ -134,27 +130,6 @@ func alreadyServing(baseURL string) bool {
 	return strings.Contains(lower, "sectile") || strings.Contains(lower, "taskflow") || strings.Contains(lower, "taskacao")
 }
 
-// openBrowser opens the interface once the server listens. It is best effort by
-// design: a machine without a browser, or a headless run, must not turn a
-// cosmetic step into a failure to start.
-func openBrowser(url string) {
-	var cmd string
-	var args []string
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = "open"
-	case "windows":
-		cmd = "cmd"
-		args = []string{"/c", "start", ""}
-	default:
-		cmd = "xdg-open"
-	}
-	args = append(args, url)
-	if err := exec.Command(cmd, args...).Start(); err != nil {
-		log.Printf("Navigateur non ouvert (%v). Ouvrez %s à la main.", err, url)
-	}
-}
-
 func main() {
 	// .env.local last: it overrides nothing already exported, but is the usual
 	// place for a machine-specific secret.
@@ -169,48 +144,8 @@ func main() {
 		port = "8090"
 	}
 
-	if len(os.Args) >= 2 {
-		cmd := strings.ToLower(os.Args[1])
-		if cmd == "mcp" {
-			if err := runMCPCommand(context.Background(), os.Args[2:]); err != nil {
-				log.Fatalf("MCP server: %v", err)
-			}
-			return
-		}
-		if cmd == "agent-exec" {
-			if err := runAgentExec(os.Args[2:]); err != nil {
-				log.Print(err)
-				os.Exit(1)
-			}
-			return
-		}
-		if cmd == "agent" {
-			runAgentCommand(os.Args[2:])
-			return
-		}
-		if cmd == "stage" || cmd == "transition" || cmd == "set-stage" {
-			handleCliStageCommand(port, os.Args[2:])
-			return
-		}
-		if cmd == "sync-skills" || cmd == "install-skills" {
-			dbPath, _ := resolveDBPath(os.Getenv("DB_PATH"))
-			database, err := db.NewDB(dbPath)
-			if err != nil {
-				log.Fatalf("Fatal database error: %v", err)
-			}
-			defer database.Close()
-
-			target := "."
-			if len(os.Args) > 2 {
-				target = os.Args[2]
-			}
-			n, err := database.WriteAllProjectSkillsToRepo(target)
-			if err != nil {
-				log.Fatalf("Error writing skills: %v", err)
-			}
-			fmt.Printf("✅ %d skill files synchronized across all agent directories (.agents, .agy, .claude, .gemini, .skills)\n", n)
-			return
-		}
+	if len(os.Args) > 1 {
+		log.Fatal("taskflow-server accepts configuration through environment variables; use taskflow-agent for local execution and MCP")
 	}
 
 	dbPath, dbOrigin := resolveDBPath(os.Getenv("DB_PATH"))
@@ -228,10 +163,6 @@ func main() {
 	// est éteint, et ne lit ensuite que ce qui a changé depuis sa passe
 	// précédente.
 	database.StartAutoSync()
-
-	// Les pas du workflow tournent dans la session PTY de leur tâche : visibles
-	// pendant qu'ils travaillent, ouvrables d'un clic, et interrogeables.
-	database.SetTerminalRunner(h.TerminalRunner())
 
 	mux := http.NewServeMux()
 
@@ -370,48 +301,10 @@ func main() {
 	addr := ":" + port
 	url := fmt.Sprintf("http://localhost%s", addr)
 
-	// Le port est réservé avant toute autre chose. Ouvrir le navigateur d'abord,
-	// comme le faisait la version précédente, ouvrait un onglet même quand
-	// l'écoute échouait ensuite : lancer l'application une seconde fois
-	// rechargeait l'onglet de la première, puis mourait sur « address already in
-	// use ».
-	shouldOpenBrowser := func() bool {
-		noBrowserEnv := strings.ToLower(strings.TrimSpace(os.Getenv("SECTILE_NO_BROWSER")))
-		if noBrowserEnv == "" {
-			noBrowserEnv = strings.ToLower(strings.TrimSpace(os.Getenv("TASKFLOW_NO_BROWSER")))
-		}
-		if noBrowserEnv == "" {
-			noBrowserEnv = strings.ToLower(strings.TrimSpace(os.Getenv("TASKACAO_NO_BROWSER")))
-		}
-		if noBrowserEnv == "1" || noBrowserEnv == "true" || noBrowserEnv == "yes" {
-			return false
-		}
-
-		openBrowserEnv := strings.ToLower(strings.TrimSpace(os.Getenv("SECTILE_OPEN_BROWSER")))
-		if openBrowserEnv == "" {
-			openBrowserEnv = strings.ToLower(strings.TrimSpace(os.Getenv("TASKFLOW_OPEN_BROWSER")))
-		}
-		if openBrowserEnv == "" {
-			openBrowserEnv = strings.ToLower(strings.TrimSpace(os.Getenv("TASKACAO_OPEN_BROWSER")))
-		}
-		if openBrowserEnv == "0" || openBrowserEnv == "false" || openBrowserEnv == "no" {
-			return false
-		}
-		if openBrowserEnv == "1" || openBrowserEnv == "true" || openBrowserEnv == "yes" {
-			return true
-		}
-
-		// Opening a browser requires an explicit opt-in, including packaged builds.
-		return false
-	}()
-
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		if alreadyServing(url) {
 			log.Printf("Sectile is already running at %s.", url)
-			if shouldOpenBrowser {
-				openBrowser(url)
-			}
 			return
 		}
 		log.Fatalf("Port %s indisponible et occupé par autre chose que Sectile: %v", addr, err)
@@ -420,103 +313,7 @@ func main() {
 	log.Printf("🚀 Sectile Server listening on %s", url)
 	log.Printf("   base : %s (%s)", dbPath, dbOrigin)
 
-	if shouldOpenBrowser {
-		go openBrowser(url)
-	}
-
 	if err := http.Serve(listener, handlerWithCORS); err != nil {
 		log.Fatalf("Server failed: %v", err)
-	}
-}
-
-func handleCliStageCommand(defaultPort string, args []string) {
-	if len(args) < 2 {
-		fmt.Println("Usage: sectile stage <TASK_KEY_OR_ID> <STAGE> [NOTE] [--pr-url <URL>] [--branch <BRANCH>]")
-		fmt.Println("Stages: new, clarified, specified, implemented, reviewed, finished")
-		fmt.Println("Example: sectile stage PROJ-123 clarified \"Questions answered, scope validated\"")
-		os.Exit(1)
-	}
-
-	taskIDOrKey := args[0]
-	stage := args[1]
-	note := ""
-	prURL := ""
-	branch := ""
-
-	for i := 2; i < len(args); i++ {
-		arg := args[i]
-		if arg == "--pr-url" && i+1 < len(args) {
-			prURL = args[i+1]
-			i++
-		} else if arg == "--branch" && i+1 < len(args) {
-			branch = args[i+1]
-			i++
-		} else {
-			if note == "" {
-				note = arg
-			} else {
-				note += " " + arg
-			}
-		}
-	}
-
-	baseURL := fmt.Sprintf("http://127.0.0.1:%s", defaultPort)
-	if envURL := os.Getenv("SECTILE_API_URL"); envURL != "" {
-		baseURL = strings.TrimRight(envURL, "/")
-	} else if envURL := os.Getenv("TASKFLOW_API_URL"); envURL != "" {
-		baseURL = strings.TrimRight(envURL, "/")
-	}
-
-	// 1. If server is already running, invoke HTTP endpoint
-	if alreadyServing(baseURL) {
-		payload, _ := json.Marshal(map[string]string{
-			"taskId": taskIDOrKey,
-			"stage":  stage,
-			"note":   note,
-			"prUrl":  prURL,
-			"branch": branch,
-		})
-		client := &http.Client{Timeout: 10 * time.Second}
-		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/api/tasks/stage", baseURL), strings.NewReader(string(payload)))
-		if err == nil {
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := client.Do(req)
-			if err == nil {
-				defer resp.Body.Close()
-				bodyBytes, _ := io.ReadAll(resp.Body)
-				if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted {
-					var res struct {
-						Success bool         `json:"success"`
-						Message string       `json:"message"`
-						Task    *models.Task `json:"task"`
-					}
-					_ = json.Unmarshal(bodyBytes, &res)
-					if res.Message != "" {
-						fmt.Printf("✅ %s\n", res.Message)
-					} else {
-						fmt.Printf("✅ Tâche %s passée à l'étape %s\n", taskIDOrKey, stage)
-					}
-					return
-				}
-				log.Printf("⚠️ Erreur API (%d): %s, repli vers base locale...", resp.StatusCode, string(bodyBytes))
-			}
-		}
-	}
-
-	// 2. Direct local DB fallback
-	dbPath, _ := resolveDBPath(os.Getenv("DB_PATH"))
-	database, err := db.NewDB(dbPath)
-	if err != nil {
-		log.Fatalf("❌ Erreur d'ouverture de la base locale: %v", err)
-	}
-	defer database.Close()
-
-	task, act, err := database.TransitionTaskStage(taskIDOrKey, stage, note, prURL, branch)
-	if err != nil {
-		log.Fatalf("❌ Impossible de changer l'étape de la tâche: %v", err)
-	}
-	fmt.Printf("✅ Tâche %s (%s) passée à l'étape « %s » [#%s]\n", task.Key, task.Title, stage, stage)
-	if act != nil {
-		fmt.Printf("   Activité enregistrée : %s\n", act.ID)
 	}
 }

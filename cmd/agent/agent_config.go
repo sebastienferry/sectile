@@ -41,13 +41,16 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
 }
 
-func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string) (agentconfig.Config, error) {
+func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string, framework ...string) (agentconfig.Config, error) {
 	var c agentconfig.Config
 	q := url.Values{}
 	if taskKey != "" {
 		q.Set("taskKey", taskKey)
 	} else {
 		q.Set("projectId", projectID)
+	}
+	if len(framework) > 0 && framework[0] != "" {
+		q.Set("framework", framework[0])
 	}
 	err := d.readAPI(ctx, "/api/v1/agent/config?"+q.Encode(), &c)
 	if err == nil {
@@ -79,7 +82,7 @@ func repositoryIdentity(remote string) string {
 
 // localProjectRoot resolves workstation mappings. Remote filesystem paths are
 // deliberately absent from the contract and never used as local working dirs.
-func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config) (string, agentconfig.Overrides, error) {
+func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config, allowUninitialized ...bool) (string, agentconfig.Overrides, error) {
 	root := d.repoRoot
 	if root == "" {
 		root, _ = os.Getwd()
@@ -107,7 +110,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if err != nil {
 		return "", overrides, err
 	}
-	if _, err := gitLocal(ctx, root, "rev-parse", "--show-toplevel"); err != nil {
+	if _, err := gitLocal(ctx, root, "rev-parse", "--show-toplevel"); err != nil && !(len(allowUninitialized) > 0 && allowUninitialized[0]) {
 		return "", overrides, err
 	}
 	local, err := agentconfig.ReadOverrides(root)

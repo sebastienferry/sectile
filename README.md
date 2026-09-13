@@ -11,24 +11,11 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 
 ## ✨ Fonctionnalités implémentées
 
-- 🔄 **Support Multi-Trackers Hybride (Linear, GitHub CLI, Jira & Local)** :
-  - **Chargement & Synchronisation complète** :
-    - `POST /api/sync/all` : Synchronise Linear, GitHub et Jira en un seul clic.
-    - `POST /api/sync/linear` : Synchronise les tickets d'équipe Linear.
-    - `POST /api/sync/github` : Synchronise les issues GitHub du repository configuré.
-    - `POST /api/sync/jira` : Synchronise les tickets du projet Jira via la CLI Atlassian (`acli jira workitem list`).
-  - **Création d'Issues avec routage CLI** :
-    - Choix de la destination lors de l'ajout rapide (<kbd>N</kbd> ou `+`) : 🟣 **Linear**, 🐙 **GitHub**, 🔷 **Jira**, ou 📁 **Local SQLite**.
-    - Exécution transparente de `linear issue create`, `gh issue create` ou `acli jira workitem create` en arrière-plan avec récupération automatique des identifiants et URLs.
-  - **Mise à jour d'état bidirectionnelle** :
-    - Déplacer une carte dans le Kanban ou la Liste met à jour automatiquement l'état sur Linear (`linear issue update --state`), sur GitHub (`gh issue close` / `reopen`) et sur Jira (`acli jira workitem transition --state`).
-    - Les rapports d'exécution des skills sont postés en commentaire sur le ticket distant (`acli jira workitem comment` pour Jira).
-  - **Configuration Jira par projet** :
-    - Champ *Projet Jira* (clé passée à `acli --project`) et *URL Jira* pour construire les liens `/browse/<KEY>`.
-    - Détection des statuts réels du workflow Jira via `acli jira workitem search`, avec repli sur *To Do / In Progress / In Review / Done*.
-  - **Filtres par source & Badges d'origine** :
-    - Filtrez en 1 clic dans la barre latérale : *Toutes les sources*, *Linear*, *GitHub*, *Jira*, *Local*, avec compteurs en temps réel.
-    - Badges d'origine avec lien direct vers le ticket dans le navigateur.
+- **Server-side tracker integration**:
+  - GitHub REST and Linear GraphQL support synchronization, issue creation, updates and comments without an online agent.
+  - Configure explicit server credentials and repository/team identifiers. CLI login state is not used by the server.
+  - Local tasks remain in SQLite. Jira metadata remains readable, but this baseline does not implement Jira synchronization or mutations.
+  - Tracker queues expose actual API errors in Activities.
 
 - 📐 **Frameworks Spec-Driven Design installables (Spec Kit & OpenSpec)** :
   - **Installation réelle de la chaîne d'outils depuis l'interface** (onglet *Compétences IA & SDD* d'un projet, ou palette <kbd>Cmd+K</kbd>) :
@@ -83,57 +70,82 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 
 Workflow skills use the local TaskFlow agent's exposed task-management interface first. When that interface is unavailable, `http://localhost:8090` is a temporary fallback and the integration failure must be recorded. Resolve the project and full task ID before mutations: a ticket key alone can match another repository. Managed runs retain ownership of result validation and stage transitions. See [the workflow access policy](docs/CAPABILITIES.md#task-access-from-agent-sessions).
 
-## 🚀 Quick Start / Démarrage rapide
+## Quick start
 
-### 1. Mode Production (Serveur unique Go servant le frontend React & l'API)
-```bash
-make build # compile le frontend et produit bin/sectile
-make run   # lance ./bin/sectile
+Install Go and the web dependencies, then build the two runtimes:
+
+```sh
+npm ci --prefix web
+make server agent
 ```
-L'application est disponible sur **http://localhost:8080**.
 
----
+Start the server with its persistent database and shared agent credential:
 
-### 2. Mode Développement (Hot-Reloading React + Go API)
-Dans deux terminaux séparés :
-```bash
-# Terminal 1: Go Backend API sur le port 8080
-make dev-server
-
-# Terminal 2: React Vite Dev Server sur le port 5173 (avec proxy API automatique)
-make dev-web
+```sh
+export TASKFLOW_SERVER_TOKEN='<shared agent credential>'
+export TASKFLOW_GITHUB_TOKEN='<GitHub API token>'
+# For Linear projects: export TASKFLOW_LINEAR_API_KEY='<Linear API key>'
+DB_PATH=/path/to/tasks.db PORT=8090 ./bin/taskflow-server
 ```
-Puis ouvrez **http://localhost:5173**.
 
----
+Open **http://localhost:8090**. The server never opens a browser or starts local
+Git, tracker CLI, terminal, editor or LLM processes. A server deployment needs
+only its binary, writable database/configuration storage and network access to
+its trackers. Put it behind your deployment's access-control boundary; the
+existing browser REST API is still a single-user interface.
 
-### 3. Release Multiplateforme
-```bash
-make release
+On the workstation:
+
+```sh
+export TASKFLOW_AGENT_TOKEN='<same shared agent credential>'
+./bin/taskflow-agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
-Génère les exécutables autonomes dans `dist/` :
-- `dist/sectile-darwin-arm64`
-- `dist/sectile-darwin-amd64`
-- `dist/sectile-linux-amd64`
-- `dist/sectile-linux-arm64`
-- `dist/sectile-windows-amd64.exe`
 
----
+Install and authenticate the coding CLI and Git tools on that workstation.
+`make agent` requires only Go; it does not build the web UI. `make desktop`
+packages the agent with the optional console companion. `make run` opens it.
+For development, use `make dev-server` and `make dev-web` in separate terminals.
 
-## 🔄 Upgrade & Backwards Compatibility
+### Server tracker credentials
 
-TaskFlow has been renamed to **Sectile** (executable `bin/sectile`). All existing databases, local configurations, and automation remain fully backwards-compatible without manual migration:
-
-| Contract | Retained Compatibility Policy |
+| Setting | Meaning |
 | --- | --- |
-| **Database resolution** | Existing search order is preserved: explicit `DB_PATH` > `./tasks.db` > `$APP_DIR/taskflow/tasks.db` > legacy `$APP_DIR/taskacao/tasks.db`. No database files are moved or deleted. |
-| **Configuration** | Projects continue using the `.taskflow/` configuration directory (`.taskflow/config.json`) and `.tasks/` worktree paths. Ownership markers (`<!-- taskflow:project-context:start -->`) remain intact. |
-| **Environment variables** | `TASKFLOW_*` and legacy `TASKACAO_*` variables (`TASKFLOW_TASK_KEY`, `TASKFLOW_TASK_ID`, `TASKFLOW_API_URL`, etc.) continue to be injected and supported. |
-| **Health & Protocol** | Machine-facing health check identifier remains `taskflow-api` (`GET /api/health`). Terminal execution protocol markers remain `__TASKFLOW_*`. |
-| **Custom launchers** | Existing launchers pointing to `taskflow` can be updated to `sectile`, or aliased locally via `alias taskflow=sectile` or a symlink `ln -s bin/sectile bin/taskflow`. |
-| **Repository coordinates** | Git remote and tracker URLs remain unchanged (`git@github.com:sebastienferry/taskflow.git`). |
+| `TASKFLOW_GITHUB_TOKEN` | GitHub API credential; `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
+| `TASKFLOW_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
+| `TASKFLOW_LINEAR_API_KEY` | Linear API credential; `LINEAR_API_KEY` is an environment-only fallback. |
+| `TASKFLOW_LINEAR_API_URL` | GraphQL endpoint; defaults to `https://api.linear.app/graphql`. |
 
----
+Credentials are read at server startup and are excluded from agent configuration.
+Supply access to the configured repositories/teams and the operations you use
+(issues, comments, milestones and PR reads). Configure `githubRepo` as
+`owner/repository` and `linearTeam` as the team key. The server never discovers
+these through a local clone or CLI credential store. Missing credentials and
+API failures fail the operation visibly; there is no workstation fallback.
+
+### Releases and migration
+
+`make release` emits `taskflow-server-<os>-<arch>` and
+`taskflow-agent-<os>-<arch>` under `dist/`, with `.exe` for Windows.
+Supported targets are Darwin arm64/amd64, Linux arm64/amd64 and Windows amd64.
+
+| Previous invocation | Replacement |
+| --- | --- |
+| `taskflow` or `sectile` (server) | `taskflow-server` |
+| `taskflow agent ...` | `taskflow-agent ...` |
+| `taskflow mcp ...` or `sectile mcp ...` | `taskflow-agent mcp ...` |
+| Unified `stage` / `sync-skills` commands | Agent MCP `transition_stage` / project skill deployment through the agent |
+
+Upgrade the server and agent together. No unified compatibility executable is
+built. Update service units, native client MCP registrations and custom launchers.
+The agent refreshes generated MCP registrations on dispatch. `TASKFLOW_OPEN_BROWSER`
+and `TASKFLOW_NO_BROWSER` are obsolete. The old server `/ws/terminal` and terminal
+session routes return 410; use the agent-owned desktop console.
+
+The product remains **Sectile**. Database lookup, `.taskflow/` configuration,
+`.tasks/` worktrees, `TASKFLOW_*`/legacy `TASKACAO_*` execution context and the
+`taskflow-api` health identifier remain compatible. No database files are moved
+or deleted. Local CLI credentials remain available to agent-side coding and PR
+commands; configure the server credentials separately.
 
 ## 📚 Documentation Technique Complète
 
@@ -142,7 +154,7 @@ Une suite documentaire complète pour développeurs et LLMs est disponible dans 
 - 🏛️ [**Architecture & Conception Générale** (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md) : Modèle de concurrence, persistance SQLite, isolation Git Worktrees, PTY ZSH & WebSockets.
 - ⚡ [**Capacités & Workflows Agentiques** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md) : Multi-projets, pipeline de 5 skills, Auto-Pilot, synchronisation Linear / GitHub.
 - 🎨 [**Composants UX & Design Frontend** (`docs/UX_COMPONENTS.md`)](./docs/UX_COMPONENTS.md) : Kanban drag-and-drop, vue liste, terminal interactif Xterm.js, inspecteur de Diff Git.
-- 🔌 [**Spécification API & Schéma de Données** (`docs/API_AND_DATA_SPEC.md`)](./docs/API_AND_DATA_SPEC.md) : Schéma SQLite complet, endpoints REST et protocole WebSocket `/ws/terminal`.
+- 🔌 [**Spécification API & Schéma de Données** (`docs/API_AND_DATA_SPEC.md`)](./docs/API_AND_DATA_SPEC.md) : Schéma SQLite complet, endpoints REST et agent-owned console protocol.
 - 🤖 [**Guide de Ré-implémentation pour LLMs** (`docs/REIMPLEMENTATION_GUIDE.md`)](./docs/REIMPLEMENTATION_GUIDE.md) : Blueprint étape par étape pour reconstruire TaskFlow de zéro.
 
 ---
@@ -178,7 +190,7 @@ credential, then start the workstation agent in an existing clone:
 
 ```sh
 export TASKFLOW_AGENT_TOKEN='<same credential as TASKFLOW_SERVER_TOKEN>'
-taskflow agent --url https://taskflow.example.com --project '<project-id>' --repo /path/to/clone
+taskflow-agent --url https://taskflow.example.com --project '<project-id>' --repo /path/to/clone
 ```
 
 The agent fetches `GET /api/v1/agent/config`, creates or validates local Git
@@ -190,7 +202,7 @@ excluded from the configuration contract. The old agent `--db` option is removed
 A disconnected or incompatible configuration API prevents execution.
 
 Before launching an LLM CLI, the local agent automatically registers its own
-`sectile mcp --url <active-gateway>` bridge in that CLI's project configuration.
+`taskflow-agent mcp --url <active-gateway>` bridge in that CLI's project configuration.
 It refreshes the entry on each dispatch, including dynamic gateway ports. Existing
 settings and other MCP servers are preserved; bearer tokens are not written.
 Antigravity uses its shared user-level registry; other providers use project files.
@@ -235,7 +247,7 @@ A typical JSON client configuration is:
 The gateway attaches the daemon's authentication token. If port 8091 is occupied,
 use the gateway URL printed by the agent. Terminals launched by the agent inherit
 the actual `TASKFLOW_AGENT_URL`, including a dynamically allocated port.
-For direct server access, use `sectile mcp --url https://taskflow.example.com`
+For direct server access, use `taskflow-agent mcp --url https://taskflow.example.com`
 and set `TASKFLOW_AGENT_TOKEN` in that client's environment. Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
@@ -280,9 +292,9 @@ application, see the desktop setup section below. Start the server in one termin
 
 ```sh
 npm ci --prefix web
-make build
+make server agent
 export TASKFLOW_SERVER_TOKEN='<your shared token>'
-./bin/taskflow
+./bin/taskflow-server
 ```
 
 Start the local launcher in another terminal, using the project ID shown in
@@ -290,7 +302,7 @@ TaskFlow and an existing local clone:
 
 ```sh
 export TASKFLOW_AGENT_TOKEN='<the same shared token>'
-./bin/taskflow agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
+./bin/taskflow-agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
 ```
 
 `terminal` selects Terminal.app on macOS. Other supported choices include
@@ -310,17 +322,13 @@ The agent prepares the task worktree, installs MCP there, and launches the nativ
 CLI. Execution and approvals stay in that CLI. The server owns task data and
 tracker synchronization; the launcher has no local task database.
 
-### Browser startup
+### Browser startup and workflow completion
 
-Starting the server does not open a browser automatically. Open
-`http://localhost:8090` manually. Set `TASKFLOW_OPEN_BROWSER=1` to opt in to
-automatic opening; `TASKFLOW_NO_BROWSER=1` always disables it.
-
-Native agent launches are recorded as launch activities, not managed workflow
-steps. The native skill reports its verified stage through MCP; only actual
-server-managed workflow steps retain the structured-result transition gate.
-Server-managed skills are refreshed during skill sync, including their MCP
-transition instructions. Local differences are backed up before replacement.
+Open `http://localhost:8090` manually. The server does not launch a browser.
+Agent launch acknowledgements and remote run completion are separate from workflow
+transitions. Native skills submit verified stages through MCP. PR stages combine
+server-side forge evidence with agent checkout evidence; the server never opens
+that checkout. The old server-managed temporary result-file worker is retired.
 
 ### Server/agent contract
 
@@ -333,8 +341,8 @@ launch downloads fresh configuration; there is no offline execution fallback.
 With `TASKFLOW_AGENT_TOKEN` set, discover projects and start the agent:
 
 ```sh
-taskflow agent --url http://localhost:8090 --list-projects
-taskflow agent --url http://localhost:8090
+taskflow-agent --url http://localhost:8090 --list-projects
+taskflow-agent --url http://localhost:8090
 ```
 
 The agent defaults to all projects. The current checkout is matched by its Git
@@ -415,7 +423,7 @@ agent without the app:
 
 ```sh
 export TASKFLOW_AGENT_TOKEN='your-server-token'
-taskflow agent --url http://localhost:8090 --repo /path/to/repository
+taskflow-agent --url http://localhost:8090 --repo /path/to/repository
 ```
 
 The agent owns PTYs, supervision and console history. The desktop discovers it
@@ -430,9 +438,9 @@ default file and its legacy private connection file.
 ### Build all components
 
 Run `make all` to build the embedded web server, standalone local agent and
-packaged desktop app. Server and agent currently share `bin/taskflow`; start
-the agent with its `agent` subcommand. Use `make server-build` or
-`make agent-build` for the shared executable only, and `make desktop-build`
+packaged desktop app. The outputs are `bin/taskflow-server` and
+`bin/taskflow-agent`; the agent starts directly. Use `make server` or
+`make agent` to build independently, and `make desktop-build`
 for the desktop development assets. On Apple Silicon the app is produced at
 `desktop/release/TaskFlow-darwin-arm64/TaskFlow.app`.
 
@@ -486,7 +494,7 @@ Legacy repository mappings remain readable and are migrated on the next save.
 | `make serve` | Start the server |
 | `make run` | Start the desktop |
 
-Server and agent currently share `bin/taskflow`. Launch targets use existing
+Server and agent are built as `bin/taskflow-server` and `bin/taskflow-agent`. Launch targets use existing
 builds and do not rebuild. Pass agent arguments with, for example,
 `make start ARGS="--url http://localhost:8090"`; provide authentication through
 `TASKFLOW_AGENT_TOKEN`.

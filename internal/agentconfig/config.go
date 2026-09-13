@@ -13,6 +13,9 @@ type Skill struct {
 }
 
 type Config struct {
+	TrackerURL              string  `json:"trackerUrl,omitempty"`
+	LinearTeam              string  `json:"linearTeam,omitempty"`
+	JiraProject             string  `json:"jiraProject,omitempty"`
 	GithubRepo              string  `json:"githubRepo,omitempty"`
 	IssueTracker            string  `json:"issueTracker,omitempty"`
 	Parallelism             int     `json:"parallelism"`

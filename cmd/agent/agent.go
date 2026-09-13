@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"tasks/internal/agentconfig"
-	"tasks/internal/handlers"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 	"tasks/internal/runner"
 	"tasks/internal/terminal"
@@ -34,6 +34,8 @@ import (
 // agentDaemon runs the local TaskFlow agent that connects outward to a remote
 // TaskFlow server and executes workflow steps locally inside Git worktrees.
 type agentDaemon struct {
+	operationMu      sync.Mutex
+	operations       map[string]context.CancelFunc
 	queueSequence    uint64
 	restartRequested bool
 	shuttingDown     bool
@@ -73,7 +75,7 @@ func detectDefaultTerminal() string {
 	return "pty"
 }
 
-// runAgentCommand is the entrypoint for "taskflow agent". It parses flags,
+// runAgentCommand is the entrypoint for "taskflow-agent". It parses flags,
 // connects to the remote server, and enters the main event loop.
 func runAgentCommand(args []string) {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
@@ -400,13 +402,17 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 			return fmt.Errorf("read error: %w", err)
 		}
 
-		var msg handlers.AgentMessage
+		var msg agentprotocol.Message
 		if err := json.Unmarshal(msgData, &msg); err != nil {
 			log.Printf("[Agent] Malformed message from server: %v", err)
 			continue
 		}
 
-		d.handleMessage(ctx, conn, msg)
+		messageCtx := ctx
+		if strings.HasPrefix(msg.Type, "workspace_") {
+			messageCtx = heartbeatCtx
+		}
+		d.handleMessage(messageCtx, conn, msg)
 	}
 }
 
@@ -444,7 +450,7 @@ func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			msg := handlers.AgentMessage{
+			msg := agentprotocol.Message{
 				Type: "heartbeat",
 			}
 			d.connMu.Lock()
@@ -459,8 +465,17 @@ func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
 }
 
 // handleMessage processes a single message received from the remote server.
-func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, msg handlers.AgentMessage) {
+func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
 	switch msg.Type {
+	case "workspace_cancel":
+		d.operationMu.Lock()
+		cancel := d.operations[msg.MsgID]
+		d.operationMu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
+	case "workspace_request":
+		d.startOperation(ctx, conn, msg)
 	case "heartbeat":
 		// Server heartbeat response; nothing to do.
 		return
@@ -543,7 +558,7 @@ func findRepoRoot(startDir string) string {
 }
 
 // handleDispatchStep executes a workflow step locally inside a Git worktree.
-func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Conn, msg handlers.AgentMessage) {
+func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
 	var payload agentconfig.Dispatch
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		log.Printf("[Agent] Invalid dispatch_step payload: %v", err)
@@ -764,7 +779,7 @@ func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, su
 		"summary": summary,
 	})
 
-	msg := handlers.AgentMessage{
+	msg := agentprotocol.Message{
 		MsgID:   msgID,
 		Type:    "step_status",
 		TaskID:  taskID,

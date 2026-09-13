@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strings"
 	"tasks/internal/agentconfig"
+	"tasks/internal/models"
 )
 
 // AgentConfig exposes only execution settings, never server paths or tracker credentials.
-func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error) {
+func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agentconfig.Config, error) {
 	if taskKey != "" {
 		task, err := d.GetTaskByID(taskKey)
 		if err != nil {
@@ -37,7 +38,7 @@ func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error)
 	}
 	c := &agentconfig.Config{
 		Skills: []agentconfig.Skill{}, SchemaVersion: agentconfig.Version, ProjectID: p.ID, ProjectName: p.Name, Description: p.Description,
-		GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
+		TrackerURL: p.TrackerUrl, LinearTeam: p.LinearTeam, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
 		Parallelism: p.Parallelism, SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage,
 		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, ExternalTerminalCommand: p.ExternalTerminalCommand,
 	}
@@ -58,6 +59,15 @@ func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error)
 	}
 	if c.ExternalTerminalCommand == "" {
 		c.ExternalTerminalCommand = s.ExternalTerminalCommand
+	}
+	if c.LinearTeam == "" {
+		c.LinearTeam = s.LinearTeam
+	}
+	if len(framework) > 0 && framework[0] != "" {
+		if !isKnownFrameworkAlias(framework[0]) {
+			return nil, fmt.Errorf("unknown specification framework")
+		}
+		c.SpecFramework = models.NormalizeSpecFramework(framework[0])
 	}
 	origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(p.ID))
 	reconcile := origin == "review" || (origin != "adjust" && strings.TrimSpace(s.PromptCreatePR) != "")

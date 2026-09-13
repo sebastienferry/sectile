@@ -3,23 +3,20 @@ package handlers
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
-	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
+	"tasks/internal/trackerapi"
 	"time"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/models"
-	"tasks/internal/runner"
-	"tasks/internal/terminal"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -33,8 +30,7 @@ type Event struct {
 }
 
 type Handler struct {
-	db          *db.DB
-	terminalMgr *terminal.Manager
+	db *db.DB
 	// dataDir is where the application keeps its own files, the environment file
 	// holding the tracker token included. Empty when the process could not
 	// resolve one, in which case the token can only go to the database.
@@ -47,11 +43,11 @@ type Handler struct {
 func NewHandler(database *db.DB) *Handler {
 	h := &Handler{
 		db:              database,
-		terminalMgr:     terminal.NewManager(),
 		subscribers:     make(map[chan Event]bool),
 		agentDispatcher: NewAgentDispatcher(),
 	}
 	if database != nil {
+		database.SetAgentOperations(h.agentDispatcher.CallOperation)
 		database.RegisterPostBackListener(func(task *models.Task, activity *models.TaskActivity, err error) {
 			errStr := ""
 			if err != nil {
@@ -131,13 +127,12 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleCliStatus(w http.ResponseWriter, r *http.Request) {
-	settings, _ := h.db.GetSettings()
-	repoPath := ""
-	if settings != nil {
-		repoPath = settings.RepoPath
+	var result []models.CliStatus
+	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: r.URL.Query().Get("projectId"), Action: "cli_status"}, &result); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
 	}
-	statuses := h.db.GetRunner().CheckCliTools(repoPath)
-	writeJSON(w, http.StatusOK, statuses)
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) HandleGitStatus(w http.ResponseWriter, r *http.Request) {
@@ -502,57 +497,17 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			// Temporary DB query for draft project
 			_ = dummyProj
-			// Use runner directly for draft
+			// Query tracker HTTP metadata for a draft project
 			seen := map[string]bool{}
 			if tracker == "github" {
-				rRepo, rRepoPath := runner.ResolveGithubRepo(repo, repoPath)
+				rRepo := models.CleanGithubRepo(repo)
 				if rRepo != "" {
-					ghPath, _ := runner.FindCliTool("gh")
-					if ghPath == "" {
-						ghPath = "gh"
-					}
 
 					parts := strings.Split(rRepo, "/")
 					if len(parts) == 2 {
-						owner, repoName := parts[0], parts[1]
-						gqlQuery := fmt.Sprintf(`query {
-						  repository(owner: "%s", name: "%s") {
-						    projectsV2(first: 5) {
-						      nodes {
-						        title
-						        fields(first: 20) {
-						          nodes {
-						            ... on ProjectV2SingleSelectField {
-						              name
-						              options { name }
-						            }
-						          }
-						        }
-						      }
-						    }
-						  }
-						  user(login: "%s") {
-						    projectsV2(first: 5) {
-						      nodes {
-						        title
-						        fields(first: 20) {
-						          nodes {
-						            ... on ProjectV2SingleSelectField {
-						              name
-						              options { name }
-						            }
-						          }
-						        }
-						      }
-						    }
-						  }
-						}`, owner, repoName, owner)
+						gqlQuery, _ := trackerapi.GithubStatusQuery(rRepo)
 
-						cmdGql := exec.Command(ghPath, "api", "graphql", "-f", "query="+gqlQuery)
-						if rRepoPath != "" {
-							cmdGql.Dir = rRepoPath
-						}
-						if output, err := cmdGql.Output(); err == nil {
+						if output, err := h.db.TrackerGraphQL(gqlQuery); err == nil {
 							var gqlRes struct {
 								Data struct {
 									Repository struct {
@@ -2347,7 +2302,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			repoPath := h.db.ResolveTaskRepoPath(task)
-			if err := h.db.RemoveTaskWorktree(repoPath, task.Key); err != nil {
+			if err := h.db.RemoveTaskWorktree(repoPath, task.ID); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
@@ -2613,169 +2568,21 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 // HandleTerminalWs upgrades the connection to WebSocket and streams the interactive PTY session
 func (h *Handler) HandleTerminalWs(w http.ResponseWriter, r *http.Request) {
-	taskID := r.URL.Query().Get("taskId")
-	sessionID := r.URL.Query().Get("sessionId")
-	customCwd := r.URL.Query().Get("cwd")
-
-	if sessionID == "" {
-		if taskID != "" {
-			sessionID = "task-" + taskID
-		} else {
-			sessionID = "global-workspace"
-		}
-	}
-
-	workDir := customCwd
-	envVars := make(map[string]string)
-
-	if taskID != "" {
-		task, _ := h.db.GetTaskByID(taskID)
-		if task != nil {
-			envVars["TASKFLOW_TASK_ID"] = task.ID
-			envVars["TASKFLOW_TASK_KEY"] = task.Key
-			envVars["TASKFLOW_TASK_TITLE"] = task.Title
-			envVars["TASKFLOW_TASK_PROJECT"] = task.ProjectID
-			// Legacy compatibility
-			envVars["TASKACAO_TASK_ID"] = task.ID
-			envVars["TASKACAO_TASK_KEY"] = task.Key
-			envVars["TASKACAO_TASK_TITLE"] = task.Title
-			envVars["TASKACAO_TASK_PROJECT"] = task.ProjectID
-
-			baseRepo := h.db.ResolveTaskRepoPath(task)
-			if baseRepo == "" {
-				baseRepo = "."
-			}
-			if task.ProjectID != "" {
-				if proj, _ := h.db.GetProjectByID(task.ProjectID); proj != nil {
-					envVars["TASKFLOW_PROJECT_NAME"] = proj.Name
-					envVars["TASKFLOW_GITHUB_REPO"] = proj.GithubRepo
-					envVars["TASKFLOW_LINEAR_TEAM"] = proj.LinearTeam
-					// Legacy compatibility
-					envVars["TASKACAO_PROJECT_NAME"] = proj.Name
-					envVars["TASKACAO_GITHUB_REPO"] = proj.GithubRepo
-					envVars["TASKACAO_LINEAR_TEAM"] = proj.LinearTeam
-				}
-			}
-
-			// Ensure the task worktree, unless the project opted out: then the
-			// shell simply opens in the clone, and TASKFLOW_TASK_WORKTREE stays
-			// unset so a script can tell the two situations apart.
-			if baseRepo != "" {
-				wtPath, branch, err := h.db.EnsureTaskWorktree(baseRepo, task)
-				switch {
-				case err == nil && wtPath != "" && wtPath != baseRepo:
-					workDir = wtPath
-					envVars["TASKFLOW_TASK_WORKTREE"] = wtPath
-					envVars["TASKFLOW_TASK_BRANCH"] = branch
-					// Legacy compatibility
-					envVars["TASKACAO_TASK_WORKTREE"] = wtPath
-					envVars["TASKACAO_TASK_BRANCH"] = branch
-				case workDir == "":
-					workDir = baseRepo
-				}
-			}
-		}
-	}
-
-	if workDir == "" {
-		workDir, _ = os.Getwd()
-	}
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8090"
-	}
-	apiURL := fmt.Sprintf("http://127.0.0.1:%s", port)
-	envVars["TASKFLOW_API_URL"] = apiURL
-	envVars["TASKFLOW_PORT"] = port
-	envVars["TASKACAO_API_URL"] = apiURL
-
-	h.terminalMgr.HandleWebSocket(w, r, sessionID, workDir, envVars)
+	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
 }
 
-// HandleTerminalSessions lists the live PTY sessions. They outlive their viewers,
-// so the UI needs a way to see what is still running and to jump back into it.
 func (h *Handler) HandleTerminalSessions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-	writeJSON(w, http.StatusOK, h.terminalMgr.ListSessions())
+	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
 }
 
-// HandleTerminalSend allows sending command strings / keystrokes into a running terminal session
 func (h *Handler) HandleTerminalSend(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	var req struct {
-		TaskID    string `json:"taskId"`
-		SessionID string `json:"sessionId"`
-		Input     string `json:"input"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	sessionID := req.SessionID
-	if sessionID == "" {
-		if req.TaskID != "" {
-			sessionID = "task-" + req.TaskID
-		} else {
-			sessionID = "global-workspace"
-		}
-	}
-
-	if err := h.terminalMgr.SendInput(sessionID, req.Input); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Input sent successfully"})
+	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
 }
 
-// HandleTerminalReset terminates the running PTY session so a clean shell can spawn
 func (h *Handler) HandleTerminalReset(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	var req struct {
-		TaskID    string `json:"taskId"`
-		SessionID string `json:"sessionId"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	sessionID := req.SessionID
-	if sessionID == "" {
-		if req.TaskID != "" {
-			sessionID = "task-" + req.TaskID
-		} else {
-			sessionID = "global-workspace"
-		}
-	}
-
-	_ = h.terminalMgr.CloseSession(sessionID)
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Terminal session reset successfully"})
+	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
 }
 
-// ---------------------------------------------------------------------------
-// Remote Agent WebSocket & Dispatch Endpoints
-// ---------------------------------------------------------------------------
-
-// HandleAgentConnect handles the WebSocket upgrade for a local agent daemon
-// connecting to the remote server. The agent authenticates via a Bearer token
-// in the Authorization header or the "token" query parameter. Each connection
-// is registered in the AgentDispatcher under (userID, projectID).
 func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	// Extract authentication token from Authorization header or query param.
 	token := ""
@@ -2863,6 +2670,8 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 			h.BroadcastEvent(Event{
 				Type: "agent_pty_output",
 			})
+		case "workspace_result":
+			h.agentDispatcher.ReportOperation(ac, msg)
 		case "step_status":
 			h.agentDispatcher.ReportLaunchStatus(ac, msg)
 			// The local agent reports progress on a dispatched workflow step.
@@ -2927,7 +2736,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 	// Session guard: verify the requesting user matches the agent owner.
 	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
 	if ac == nil {
-		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'taskflow agent' on your workstation.")
+		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'taskflow-agent' on your workstation.")
 		return
 	}
 
@@ -2945,163 +2754,63 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-
 	var req struct {
-		Path          string `json:"path"`
 		TaskID        string `json:"taskId"`
 		ProjectID     string `json:"projectId"`
 		EditorCommand string `json:"editorCommand"`
 	}
-
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
-	}
-
-	settings, _ := h.db.GetSettings()
-	editorCmd := req.EditorCommand
-	if editorCmd == "" && settings != nil && settings.EditorCommand != "" {
-		editorCmd = settings.EditorCommand
-	}
-	if editorCmd == "" {
-		editorCmd = "code"
-	}
-
-	targetPath := req.Path
-	if targetPath == "" && req.TaskID != "" {
-		task, err := h.db.GetTaskByID(req.TaskID)
-		if err == nil && task != nil {
-			if task.WorktreePath != nil && *task.WorktreePath != "" {
-				if _, statErr := os.Stat(*task.WorktreePath); statErr == nil {
-					targetPath = *task.WorktreePath
-				}
-			}
-			repoPath := h.db.ResolveTaskRepoPath(task)
-			if repoPath == "" {
-				repoPath = "."
-			}
-
-			if targetPath == "" {
-				wtPath, _, wtErr := h.db.EnsureTaskWorktree(repoPath, task)
-				if wtErr == nil && wtPath != "" {
-					targetPath = wtPath
-				}
-			}
-			if targetPath == "" {
-				targetPath = repoPath
-			}
-		}
-	}
-
-	if targetPath == "" && req.ProjectID != "" {
-		proj, err := h.db.GetProjectByID(req.ProjectID)
-		if err == nil && proj != nil && proj.RepoPath != "" {
-			targetPath = proj.RepoPath
-		}
-	}
-
-	if targetPath == "" && settings != nil && settings.RepoPath != "" {
-		targetPath = settings.RepoPath
-	}
-
-	if targetPath == "" {
-		targetPath, _ = os.Getwd()
-	}
-
-	if err := h.db.GetRunner().OpenInEditor(editorCmd, targetPath); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to open '%s' in '%s': %v", targetPath, editorCmd, err))
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"path":    targetPath,
-		"editor":  editorCmd,
-		"message": fmt.Sprintf("Opened %s in %s", targetPath, editorCmd),
-	})
+	if req.TaskID != "" {
+		task, err := h.db.GetTaskByID(req.TaskID)
+		if err != nil || task == nil {
+			writeError(w, http.StatusNotFound, "Task not found")
+			return
+		}
+		req.ProjectID = task.ProjectID
+	}
+	if req.EditorCommand == "" {
+		settings, _ := h.db.GetSettings()
+		if settings != nil {
+			req.EditorCommand = settings.EditorCommand
+		}
+	}
+	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor", Editor: req.EditorCommand}, nil); err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
 
-// HandleOpenExternalTerminal opens an external system terminal window on the requested path or task.
 func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-
 	var req struct {
-		Path            string `json:"path"`
 		TaskID          string `json:"taskId"`
-		ProjectID       string `json:"projectId"`
-		Command         string `json:"command"`
 		SkillID         string `json:"skillId"`
+		Command         string `json:"command"`
 		TerminalCommand string `json:"terminalCommand"`
 	}
-
-	if r.Body != nil {
-		_ = json.NewDecoder(r.Body).Decode(&req)
-	}
-
-	if req.TaskID != "" {
-		res, err := h.launchTaskExternalTerminal(r.Context(), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, res)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-
-	settings, _ := h.db.GetSettings()
-	termCmd := strings.TrimSpace(req.TerminalCommand)
-
-	targetPath := req.Path
-	var proj *models.Project
-	if req.ProjectID != "" {
-		p, err := h.db.GetProjectByID(req.ProjectID)
-		if err == nil && p != nil {
-			proj = p
-			if targetPath == "" && p.RepoPath != "" {
-				targetPath = p.RepoPath
-			}
-		}
-	}
-
-	if termCmd == "" && proj != nil && proj.ExternalTerminalCommand != "" {
-		termCmd = proj.ExternalTerminalCommand
-	}
-	if termCmd == "" && settings != nil && settings.ExternalTerminalCommand != "" {
-		termCmd = settings.ExternalTerminalCommand
-	}
-
-	if targetPath == "" && settings != nil && settings.RepoPath != "" {
-		targetPath = settings.RepoPath
-	}
-	if targetPath == "" {
-		targetPath, _ = os.Getwd()
-	}
-
-	envVars := make(map[string]string)
-	if proj != nil {
-		envVars["TASKFLOW_PROJECT_ID"] = proj.ID
-		envVars["TASKFLOW_PROJECT_NAME"] = proj.Name
-		if proj.GithubRepo != "" {
-			envVars["TASKFLOW_GITHUB_REPO"] = proj.GithubRepo
-		}
-	}
-
-	if err := h.db.GetRunner().OpenExternalTerminal(termCmd, targetPath, req.Command, envVars); err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to open external terminal in '%s': %v", targetPath, err))
+	if req.TaskID == "" {
+		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success": true,
-		"path":    targetPath,
-		"command": req.Command,
-		"message": fmt.Sprintf("Opened external terminal in %s", targetPath),
-	})
+	result, err := h.launchTaskExternalTerminal(r.Context(), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
-// LaunchTaskExternalTerminal launches an external terminal window for a specific task.
 func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
 	return h.launchTaskExternalTerminal(context.Background(), taskID, command, skillID, customTermCmd)
 }
@@ -3150,158 +2859,9 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, taskID, comman
 		}, nil
 	}
 
-	repoPath := h.db.ResolveTaskRepoPath(task)
-	if repoPath == "" && settings != nil {
-		repoPath = settings.RepoPath
-	}
-	if repoPath == "" {
-		repoPath = "."
-	}
-
-	targetPath := ""
-	if task.WorktreePath != nil && *task.WorktreePath != "" {
-		if _, statErr := os.Stat(*task.WorktreePath); statErr == nil {
-			targetPath = *task.WorktreePath
-		}
-	}
-
-	useWorktrees := true
-	if proj != nil {
-		useWorktrees = proj.UseWorktrees
-	}
-
-	if targetPath == "" && useWorktrees {
-		wtPath, _, wtErr := h.db.EnsureTaskWorktree(repoPath, task)
-		if wtErr == nil && wtPath != "" {
-			targetPath = wtPath
-		}
-	}
-	if targetPath == "" {
-		targetPath = repoPath
-	}
-
-	envVars := map[string]string{
-		"TASKFLOW_TASK_ID":    task.ID,
-		"TASKFLOW_TASK_KEY":   task.Key,
-		"TASKFLOW_TASK_TITLE": task.Title,
-		"TASKFLOW_TASK_PATH":  targetPath,
-	}
-	if task.ProjectID != "" {
-		envVars["TASKFLOW_PROJECT_ID"] = task.ProjectID
-	}
-	if task.BranchName != nil && *task.BranchName != "" {
-		envVars["TASKFLOW_TASK_BRANCH"] = *task.BranchName
-	}
-	if proj != nil && proj.GithubRepo != "" {
-		envVars["TASKFLOW_GITHUB_REPO"] = proj.GithubRepo
-	}
-
-	// If command is empty but skillID is provided, compose skill call command
-	if command == "" && skillID != "" {
-		trackerName := task.Source
-		if trackerName == "" && settings != nil {
-			trackerName = settings.IssueTracker
-		}
-		skillCmd := h.db.ProjectSkillCommand(task, skillID)
-		call := runner.SkillCallLineWithCommand(skillCmd, task, strings.ToLower(trackerName))
-
-		agentLaunch, _ := runner.InteractiveAgentLaunch(settings)
-		if agentLaunch != "" {
-			command = fmt.Sprintf("%s\n%s", agentLaunch, call)
-		} else {
-			command = call
-		}
-	} else if command == "" {
-		if agentLaunch, err := runner.InteractiveAgentLaunch(settings); err == nil && agentLaunch != "" {
-			command = agentLaunch
-		}
-	}
-
-	if err := h.db.GetRunner().OpenExternalTerminal(customTermCmd, targetPath, command, envVars); err != nil {
-		return nil, fmt.Errorf("failed to open external terminal: %w", err)
-	}
-
-	return map[string]interface{}{
-		"success": true,
-		"taskId":  task.ID,
-		"path":    targetPath,
-		"command": command,
-		"message": fmt.Sprintf("Opened external terminal for %s in %s", task.Key, targetPath),
-	}, nil
+	return nil, fmt.Errorf("connect a local agent before opening a terminal")
 }
 
-// TerminalRunner exposes the PTY manager so the worker can run a workflow step
-// inside the task's session instead of anonymous pipes. The adapter lives here
-// because the handler owns the manager, and it flattens the terminal package's
-// result into the plain values the database expects.
-func (h *Handler) TerminalRunner() *TerminalRunAdapter {
-	return &TerminalRunAdapter{mgr: h.terminalMgr}
-}
-
-type TerminalRunAdapter struct {
-	mgr *terminal.Manager
-}
-
-func (a *TerminalRunAdapter) RunCommandInSession(
-	ctx context.Context,
-	sessionID string,
-	cwd string,
-	envVars map[string]string,
-	commandLine string,
-	idleBudget time.Duration,
-) (string, int, bool, error) {
-	res, err := a.mgr.RunCommandInSession(ctx, sessionID, cwd, envVars, commandLine, idleBudget)
-	if err != nil {
-		// Une session occupée n'est pas une erreur d'exécution : l'appelant doit
-		// pouvoir se replier sans croire que la commande a tourné.
-		if errors.Is(err, terminal.ErrSessionBusy) {
-			return "", 0, false, db.ErrTerminalBusy
-		}
-		if res != nil {
-			return res.Output, res.ExitCode, res.IdleStopped, err
-		}
-		return "", 0, false, err
-	}
-	return res.Output, res.ExitCode, res.IdleStopped, nil
-}
-
-func (a *TerminalRunAdapter) EnsureAgentReady(
-	ctx context.Context,
-	sessionID string,
-	cwd string,
-	envVars map[string]string,
-	launchLine string,
-) (bool, error) {
-	return a.mgr.EnsureAgentReady(ctx, sessionID, cwd, envVars, launchLine)
-}
-
-func (a *TerminalRunAdapter) InjectLine(sessionID string, line string) error {
-	return a.mgr.InjectLine(sessionID, line)
-}
-
-func (a *TerminalRunAdapter) AgentLaunched(sessionID string) bool {
-	return a.mgr.AgentLaunched(sessionID)
-}
-
-func (a *TerminalRunAdapter) RunInAgentSession(
-	ctx context.Context,
-	sessionID string,
-	line string,
-	turnQuiet time.Duration,
-) (string, int, bool, error) {
-	res, err := a.mgr.RunInAgentSession(ctx, sessionID, line, turnQuiet)
-	if res == nil {
-		return "", 0, false, err
-	}
-	return res.Output, res.ExitCode, res.IdleStopped, err
-}
-
-func (a *TerminalRunAdapter) ForgetAgent(sessionID string) {
-	a.mgr.ForgetAgent(sessionID)
-}
-
-// HandleTaskPins lists the pinned tickets, most recently pinned first. They are
-// returned whole so the pin bar can show a ticket the current filters hide.
 func (h *Handler) HandleTaskPins(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")

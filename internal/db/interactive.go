@@ -53,15 +53,15 @@ func (d *DB) pushStageToTracker(task *models.Task, stageLabel, statusTarget, tra
 	go func(src, repo, rPath, key string, st models.Status, lbls, staleLbls []string, target, url, comment string) {
 		switch {
 		case src == "linear" || strings.HasPrefix(key, "FRE-"):
-			_ = d.runner.UpdateLinearIssueState(key, st)
-			_ = d.runner.UpdateLinearIssue(key, nil, nil, nil, &st, lbls)
+			_ = d.trackers.UpdateLinearIssueState(key, st)
+			_ = d.trackers.UpdateLinearIssue(key, nil, nil, nil, &st, lbls)
 
 		default:
-			_ = d.runner.UpdateGithubIssueState(repo, rPath, key, st)
-			_ = d.runner.UpdateGithubIssue(repo, rPath, key, nil, nil, &st, lbls, staleLbls)
+			_ = d.trackers.UpdateGithubIssueState(repo, rPath, key, st)
+			_ = d.trackers.UpdateGithubIssue(repo, rPath, key, nil, nil, &st, lbls, staleLbls)
 		}
 		if comment != "" {
-			_ = d.runner.AddIssueComment(src, repo, rPath, key, comment)
+			_ = d.trackers.AddIssueComment(src, repo, rPath, key, comment)
 		}
 	}(task.Source, settings.GithubRepo, repoPath, task.Key, task.Status, task.Labels, stale, statusTarget, trackerURL, body)
 }
