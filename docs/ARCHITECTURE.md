@@ -175,7 +175,7 @@ The architecture strictly decouples the centralized governance and visualization
 3. **Local-First Execution Privacy**:
    - All LLM interactions, API keys, Git worktrees, code edits, and compiler/test runs remain strictly on the developer's machine.
 
-### 6.2 Interactive Execution UX: Option 1 & Option 2
+### 6.3 Interactive Execution UX: Option 1 & Option 2
 
 #### Option 1: Native External Terminal Launch (Current Implementation)
 To provide a smooth developer experience without dumping interactive AI sessions into a background daemon's raw stdout:
@@ -183,34 +183,36 @@ To provide a smooth developer experience without dumping interactive AI sessions
 - **Interactive AI Session**: Launches the configured CLI provider tool (`agy -i "/clarify-issue"`, `claude`, `codex`, or `vibe`), enabling interactive prompts, diff approvals, and conversation directly in the user's preferred terminal.
 - **Hierarchy of Terminal Selection**:
   1. CLI flag `--terminal <app>` passed to `taskflow agent` (e.g., `ghostty`, `iterm`, `terminal`, `pty`).
-  2. Project/server settings (`external_terminal_command` in Project configuration).
-  3. Local project configuration (`.taskflow/config.json` in the worktree or repository root).
+  2. Workstation overrides in `.taskflow/agent.json`, then project/server settings (`externalTerminalCommand`).
+  3. Legacy local project configuration (`.taskflow/config.json` in the worktree).
   4. Environment variable `TASKFLOW_TERMINAL`.
   5. Auto-detection on macOS (`/Applications/Ghostty.app` -> `ghostty`, then `iTerm.app` -> `iterm`, then `Terminal.app` -> `terminal`, with fallback to embedded `pty`).
 
-#### Option 2: Dedicated Desktop Companion App (Future Roadmap)
-As the local agent matures, a dedicated Desktop Companion App (built with **Tauri**, **Wails**, or **Electron**) will provide a unified local interface:
-- **Left Sidebar**: Displays the local agent status, live WebSocket connection to the remote TaskFlow server, and the list of active task worktrees.
-- **Main Chat & Execution Pane**: Interactive chat with the local agent running the skill, complete with rich Markdown rendering, collapsible tool call outputs, diff viewers, and inline user input prompts.
-- **Terminal & Logs Drawer**: Optional embedded PTY console tab for inspecting low-level compiler, test, or linter output.
-- **System Tray & Notifications**: Native desktop notifications when an AI agent completes a stage or requests human clarification.
+#### Desktop console host (current architecture)
+The Electron application in desktop/ hosts native coding terminals through the
+local agent's authenticated loopback API. Its sandboxed renderer uses a narrow
+IPC bridge; Electron holds the connection credential. The agent owns PTYs and
+supervised processes independently of window lifetime. Users can select a task,
+type into its terminal, stop execution, export logs and map local project paths.
+The web has no embedded terminal, local branch switcher, diff viewer or worktree
+controls. See ADR 0003 for boundaries and recovery limitations.
 
-### 6.3 Local Agent HTTP Gateway & Skill Access
+### 6.4 Local Agent HTTP Gateway & Skill Access
 When workflow skills execute in local worktrees, they require access to TaskFlow task management (e.g. reporting stage transitions, updating ticket state):
 1. **Embedded Agent Reverse Proxy**:
    - The `taskflow agent` daemon launches an embedded HTTP reverse proxy on `127.0.0.1:8091` (or dynamic loopback port).
    - Injects `TASKFLOW_AGENT_URL`, `TASKFLOW_SERVER_URL`, and `TASKFLOW_AGENT_TOKEN` into the environment of every terminal and PTY session.
    - Forwards local skill calls (`POST /api/tasks/stage`, `GET /api/tasks/...`) upstream to the remote server, transparently attaching Bearer token authentication.
-2. **Resilient Fallback**:
-   - Skills attempt transitions via `$TASKFLOW_AGENT_URL` first.
-   - If the local agent proxy is unreachable or offline, skills automatically fall back to the direct server URL (`http://localhost:8090/api/tasks/stage`), logging a warning.
+2. **Explicit Endpoint Selection**:
+   - `taskflow mcp` uses `$TASKFLOW_AGENT_URL`, then `$TASKFLOW_SERVER_URL`, then the local default.
+   - Errors are returned to the caller. No retry against another database/server is performed after a failed mutation.
 
 ---
 
 ## 7. Model Context Protocol (MCP) Server Architecture
 
 ### 7.1 Motivation: Replacing Prompt-Injected Bash Curl Calls
-Currently, TaskFlow instructs AI agents to update tickets using markdown prompt instructions with embedded `curl` commands. This pattern suffers from:
+Before MCP, TaskFlow instructed AI agents to update tickets using markdown prompt instructions with embedded `curl` commands. This pattern suffers from:
 - **Syntax & Escaping Fragility**: LLMs frequently introduce formatting errors, mis-escape quotes or newlines in `<REPORT_NOTE>`, or omit critical headers.
 - **One-Way Execution**: Agents cannot easily query ticket context (e.g. comments, parent epics, reviewer notes, sprint metadata) without manual file reading or guesswork.
 - **Lack of Verification**: There is no direct feedback loop between the LLM and the server's validation rules prior to attempting a transition.
@@ -290,3 +292,88 @@ The boundary between the Remote Web UX / Central Server and the Local Agent is s
      - Launch the configured desktop terminal (Ghostty/iTerm) and AI CLI (`agy`/`claude`).
    - Supports local overrides layered on top of the remote contract (e.g. locally preferred terminal emulator, offline custom prompts) without polluting central state.
 
+
+### 7.6 Implemented configuration contract
+
+`GET /api/v1/agent/config?projectId=<id>` or `?taskKey=<key>` returns
+`schemaVersion: 1`, project and tracker identity, description, specification
+framework, workflow stages/mappings, resolved AI and terminal settings, and skill
+content (including project overrides). Server repository paths and tracker secrets
+are excluded. Repository conventions such as AGENTS.md remain local; MCP returns
+the central project description and skill instructions and directs agents to read
+those local conventions.
+
+Concrete project agents synchronize on connection. Every dispatch refreshes the
+actual task project's configuration; wildcard registration IDs are not used as
+project IDs in the dispatch payload. A failed fetch or unknown schema version
+prevents launching. `.taskflow/agent.json` provides local repository mappings and
+AI, terminal and skill overrides. Scaffolded files use a hash manifest so subsequent
+refreshes back up manual edits before installing the current managed content. Git worktrees are created and validated on the
+workstation, independently of the central database.
+
+The implementation uses Streamable HTTP at `/mcp`; legacy `/sse` is not exposed.
+The stdio process discovers and forwards the remote tool schemas using the official
+MCP Go SDK. Both machine endpoints share bearer validation with the agent
+handshake, optionally pinned by `TASKFLOW_SERVER_TOKEN`. This remains a single-user
+credential policy, not multi-tenant identity management. Tracker updates retain
+the existing asynchronous queue semantics and tool results identify queued sync.
+
+### 7.7 Automatic client bootstrap and terminal confirmation
+
+Before starting the targeted LLM CLI, the local agent merges a `taskflow` stdio
+server entry into its project-scoped MCP configuration. The command is the absolute
+path of the running TaskFlow executable with `mcp --url <gateway>` arguments.
+The gateway holds authentication; generated client files contain no TaskFlow token.
+Updates preserve unrelated settings and MCP entries, reject malformed files, and
+use atomic replacement. Provider trust prompts are not bypassed.
+
+Supported configuration formats follow the official documentation for
+[Codex](https://developers.openai.com/codex/mcp/),
+[Antigravity](https://www.antigravity.google/docs/mcp),
+[Gemini](https://geminicli.com/docs/tools/mcp-server/), and
+[Vibe](https://docs.mistral.ai/vibe/code/cli/mcp-servers), plus Claude and Cursor's
+project MCP JSON formats. Codex and Vibe use native TOML parsing; the other clients
+use JSON. Bootstrap runs before agent-owned PTY launches.
+
+External terminal dispatch carries `action: open_terminal` and `ttyMode: external`,
+independently of an optional skill ID. The initiating HTTP request waits up to 45
+seconds for a result from the same agent connection and dispatch ID. A failure is
+returned to the browser. A timeout reports an unconfirmed launch and does not
+resend the command. OS launcher processes are reaped, and immediate failures
+include stderr. Shell script display strings, paths and environment values are
+quoted as literal data; displaying a command cannot execute it a second time.
+
+### Native coding clients and the local launcher
+
+TaskFlow uses its web UI for task management and Codex/Claude's native interface
+for coding conversations and approvals. The experimental Electron chat client
+has been removed. The launcher prepares repositories/worktrees and registers MCP;
+it does not maintain a separate conversation or approval protocol.
+
+```text
+Web TaskFlow -> outbound-connected local agent -> native terminal / coding CLI
+Native coding CLI -> local MCP bridge -> agent gateway -> TaskFlow task services
+```
+
+An explicit project connection also bootstraps the selected repository so a user
+can invoke pickup directly in a native client. Both entry points share skills and
+MCP tools. See ADR 0002 for the scope of the native-client architecture.
+
+### Optional desktop companion
+
+The server, local agent and desktop app are independent components. Start the
+agent without the app:
+
+```sh
+export TASKFLOW_AGENT_TOKEN='your-server-token'
+taskflow agent --url http://localhost:8090 --repo /path/to/repository
+```
+
+The agent owns PTYs, supervision and console history. The desktop discovers it
+through `~/.taskflow/agent-connection.json` (private, mode 0600), including when
+opened after executions begin. Closing the app leaves executions running.
+The desktop can also start the same agent when none is running.
+`--desktop` is a deprecated no-op; `--terminal` is accepted for compatibility
+but executions always use agent-owned consoles. `--desktop-info` can override
+the discovery file for isolated instances; the app automatically discovers the
+default file and its legacy private connection file.

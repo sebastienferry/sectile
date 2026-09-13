@@ -1,3 +1,5 @@
+import { RemoteRunBadge } from './RemoteRunBadge'
+import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
 import React, { useState, useEffect, useMemo } from 'react'
 import {
   X,
@@ -13,7 +15,6 @@ import {
   FileCode,
   Flame,
   ShieldCheck,
-  GitBranch,
   ExternalLink,
   Loader2,
   CheckCircle2,
@@ -32,8 +33,6 @@ import {
   ArrowRight,
   Folder,
   FolderGit2,
-  GitPullRequest,
-  Code2,
   Maximize2,
   Minimize2,
   RefreshCw,
@@ -42,7 +41,6 @@ import {
 import { useApp } from '../context/AppContext'
 import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta } from '../types'
 import { WORKFLOW_ORDER } from '../lib/workflow'
-import { InteractiveTerminal } from './InteractiveTerminal'
 import { TaskComments } from './TaskComments'
 import { LookupField, type LookupOption } from './LookupField'
 import { MarkdownEditor } from './Markdown'
@@ -53,8 +51,6 @@ export const TaskDetailModal: React.FC = () => {
   const {
     selectedTask,
     setSelectedTask,
-    setChatTask,
-    setDiffTask,
     updateTask,
     deleteTask,
     openCloneModal,
@@ -66,17 +62,9 @@ export const TaskDetailModal: React.FC = () => {
     projects,
     tasks,
     activities: globalActivities,
-    gitStatus,
-    checkoutTaskBranch,
-    switchGitBranch,
     settings,
     updateSettings,
-    openInEditor,
-    openExternalTerminal,
-    setIsTerminalPanelOpen,
     addToast,
-    skillLabel,
-    skillCommand,
     membersForTeam,
     searchAssignableUsers,
     searchTrackerTeams,
@@ -144,10 +132,8 @@ export const TaskDetailModal: React.FC = () => {
   // the same CLI, otherwise the badge says AGY while the command runs Claude.
   const activeProvider = taskProject?.aiProvider || settings.aiProvider || 'agy'
 
-  const clarifySkillLabel = skillLabel('clarify', 'Cadrage Produit', taskProject?.id)
-  const specifySkillLabel = skillLabel('specify', 'Spécifications', taskProject?.id)
 
-  const [isSwitchingBranch, setIsSwitchingBranch] = useState(false)
+
   const [isSyncingTask, setIsSyncingTask] = useState(false)
 
   const [title, setTitle] = useState('')
@@ -172,26 +158,14 @@ export const TaskDetailModal: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'skills' | 'git' | 'cadrage' | 'history'>('details')
   const [customPrompt, setCustomPrompt] = useState('')
-  const [copiedBranch, setCopiedBranch] = useState(false)
+
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
   const [isExpandedSpec, setIsExpandedSpec] = useState(false)
   const [copiedSpec, setCopiedSpec] = useState(false)
   const [withComments, setWithComments] = useState(false)
   const [dismissedRewriteId, setDismissedRewriteId] = useState<string | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
-  const [isTtyOpen, setIsTtyOpenState] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('taskflow_modal_tty_open') === 'true'
-    } catch {
-      return false
-    }
-  })
-  const setIsTtyOpen = (open: boolean) => {
-    setIsTtyOpenState(open)
-    try {
-      localStorage.setItem('taskflow_modal_tty_open', String(open))
-    } catch {}
-  }
+
 
   const [isTtyExpanded, setIsTtyExpandedState] = useState<boolean>(() => {
     try {
@@ -209,7 +183,7 @@ export const TaskDetailModal: React.FC = () => {
       return next
     })
   }
-  const [ttyCommand, setTtyCommand] = useState('')
+
 
   const detailMode: DetailMode = settings.detailMode || 'panel'
 
@@ -272,13 +246,6 @@ export const TaskDetailModal: React.FC = () => {
     }
   }
 
-  const knownRepoPaths = Array.from(
-    new Set(
-      [taskProject?.repoPath || '', ...(taskProject?.repoPaths || [])]
-        .map(p => p.trim())
-        .filter(Boolean)
-    )
-  )
 
   useEffect(() => {
     if (selectedTask) {
@@ -686,11 +653,6 @@ export const TaskDetailModal: React.FC = () => {
     }
   }
 
-  const copyBranchCommand = (branch: string) => {
-    navigator.clipboard.writeText(`git checkout -b ${branch}`)
-    setCopiedBranch(true)
-    setTimeout(() => setCopiedBranch(false), 2000)
-  }
 
   const activities = selectedTask
     ? globalActivities.filter(a => a.taskId === selectedTask.id || a.taskKey === selectedTask.key)
@@ -799,627 +761,25 @@ export const TaskDetailModal: React.FC = () => {
   // -------------------------------------------------------------
   // Séparé de la Story : ces champs ne servent qu'au moment de coder, et ils
   // occupaient un tiers de l'onglet pour tous les autres moments.
-  const renderGitSection = () => (
-    <div className="space-y-6">
-
-      {/* Git Branch & Pull Request / Merge Request Section */}
-      <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-            <GitBranch size={13} className="text-indigo-400" />
-            Contrôle de Version Git & Revue (PR / MR)
-          </span>
-          <button
-            type="button"
-            onClick={() => setDiffTask(selectedTask)}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold text-indigo-300 bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 transition-all shadow-2xs hover:scale-105 active:scale-95"
-            title="Inspecter le diff Git et les fichiers modifiés pour cette tâche"
-          >
-            <Code2 size={11} className="text-indigo-400" />
-            <span>👁️ Voir le Diff Git</span>
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {/* Git Branch Field */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
-                <span>Branche Git</span>
-                {branchName && gitStatus?.branch === branchName && (
-                  <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.2 rounded">
-                    Active
-                  </span>
-                )}
-              </label>
-              <div className="flex items-center gap-2">
-                {branchName && (
-                  <button
-                    type="button"
-                    disabled={isSwitchingBranch}
-                    onClick={async () => {
-                      setIsSwitchingBranch(true)
-                      try {
-                        if (selectedTask?.id) {
-                          await checkoutTaskBranch(selectedTask.id)
-                        } else if (branchName) {
-                          await switchGitBranch(branchName)
-                        }
-                      } finally {
-                        setIsSwitchingBranch(false)
-                      }
-                    }}
-                    className={`text-[9px] font-mono font-bold flex items-center gap-1 px-1.5 py-0.5 rounded cursor-pointer transition-colors ${
-                      gitStatus?.branch === branchName
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-                        : 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/30'
-                    }`}
-                    title="Basculer le projet sur cette branche"
-                  >
-                    <GitBranch size={10} className={isSwitchingBranch ? 'animate-spin text-cyan-400' : ''} />
-                    <span>{gitStatus?.branch === branchName ? '✓ Active' : isSwitchingBranch ? 'Bascule...' : 'Basculer'}</span>
-                  </button>
-                )}
-                {branchName && (
-                  <button
-                    type="button"
-                    onClick={() => copyBranchCommand(branchName)}
-                    className="text-[9px] font-mono font-bold text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
-                    title="Copier la commande git checkout"
-                  >
-                    {copiedBranch ? <Check size={10} className="text-emerald-400" /> : <Copy size={10} />}
-                    <span>{copiedBranch ? 'Copié !' : 'Copier'}</span>
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => selectedTask && openInEditor({ taskId: selectedTask.id })}
-                  className="text-[9px] font-mono font-bold text-cyan-400 hover:underline flex items-center gap-1 cursor-pointer"
-                  title={`Ouvrir le dossier / worktree dans ${settings.editorCommand || 'VS Code'}`}
-                >
-                  <Code2 size={10} className="text-cyan-400" />
-                  <span>Code</span>
-                </button>
-              </div>
-            </div>
-            <div className="relative">
-              <input
-                type="text"
-                value={branchName}
-                onChange={e => setBranchName(e.target.value)}
-                placeholder={selectedTask.key ? `${selectedTask.key}-feature-name` : 'main'}
-                className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono text-[11px] focus:outline-none focus:border-[var(--accent-color)]"
-              />
-              <GitBranch size={12} className="absolute left-2.5 top-2.5 text-indigo-400" />
-            </div>
-          </div>
-
-          {/* Merge Request / Pull Request Field */}
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] font-medium text-[var(--text-secondary)]">
-                Merge Request / Pull Request
-              </label>
-              {prUrl && (
-                <a
-                  href={prUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className={`text-[9px] font-bold flex items-center gap-1 hover:underline ${
-                    prUrl.includes('gitlab') ? 'text-orange-400' : 'text-purple-400'
-                  }`}
-                  title="Ouvrir la Pull/Merge Request dans le navigateur"
-                >
-                  <span>{prUrl.includes('gitlab') ? 'Ouvrir GitLab MR' : 'Ouvrir GitHub PR'}</span>
-                  <ExternalLink size={9} />
-                </a>
-              )}
-            </div>
-            <div className="relative">
-              <input
-                type="url"
-                value={prUrl}
-                onChange={e => setPrUrl(e.target.value)}
-                placeholder="https://github.com/.../pull/123 ou GitLab MR"
-                className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono text-[11px] focus:outline-none focus:border-[var(--accent-color)]"
-              />
-              <GitPullRequest size={12} className={`absolute left-2.5 top-2.5 ${prUrl.includes('gitlab') ? 'text-orange-400' : 'text-purple-400'}`} />
-            </div>
-          </div>
-        </div>
-
-        {/* Per-task working directory: an epic spanning several repositories
-            cannot rely on the project's single repoPath. */}
-        <div className="mt-3">
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
-              <span>Répertoire de travail (CWD)</span>
-            </label>
-            {repoPath.trim() ? (
-              <button
-                type="button"
-                onClick={() => setRepoPath('')}
-                className="text-[9px] font-mono font-bold text-rose-400 hover:underline flex items-center gap-1 cursor-pointer"
-                title="Revenir au répertoire du projet"
-              >
-                <X size={10} />
-                <span>Hériter du projet</span>
-              </button>
-            ) : (
-              <span className="text-[9px] font-mono text-[var(--text-muted)]">
-                Hérité : {inheritedRepoPath || 'non configuré'}
-              </span>
-            )}
-          </div>
-          <div className="relative">
-            <input
-              type="text"
-              list="task-cwd-options"
-              value={repoPath}
-              onChange={e => setRepoPath(e.target.value)}
-              placeholder={inheritedRepoPath || '/chemin/vers/le/depot'}
-              className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono text-[11px] focus:outline-none focus:border-[var(--accent-color)]"
-            />
-            <FolderGit2 size={12} className={`absolute left-2.5 top-2.5 ${repoPath.trim() ? 'text-amber-400' : 'text-[var(--text-muted)]'}`} />
-            <datalist id="task-cwd-options">
-              {knownRepoPaths.map(path => (
-                <option key={path} value={path} />
-              ))}
-            </datalist>
-          </div>
-
-          {/* Choix rapides : le dépôt du projet et ceux déjà utilisés par
-              d'autres tickets. Saisir un chemin inédit l'ajoute à cette liste. */}
-          {knownRepoPaths.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
-              <button
-                type="button"
-                onClick={() => setRepoPath('')}
-                className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono border transition-colors cursor-pointer ${
-                  repoPath.trim() === ''
-                    ? 'bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/40 font-bold'
-                    : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
-                }`}
-                title={inheritedRepoPath ? `Hériter du projet : ${inheritedRepoPath}` : 'Hériter du projet'}
-              >
-                Hériter du projet
-              </button>
-              {knownRepoPaths.map(path => (
-                <button
-                  key={path}
-                  type="button"
-                  onClick={() => setRepoPath(path)}
-                  className={`px-1.5 py-0.5 rounded-md text-[10px] font-mono border transition-colors cursor-pointer max-w-[220px] truncate ${
-                    repoPath.trim() === path
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 font-bold'
-                      : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
-                  }`}
-                  title={path}
-                >
-                  {path.split('/').pop() || path}
-                </button>
-              ))}
-            </div>
-          )}
-          <p className="mt-1 text-[9px] text-[var(--text-muted)] font-mono truncate" title={effectiveRepoPath}>
-            Worktree, terminal TTY, skills et diff Git s'exécutent dans {effectiveRepoPath || 'le dossier courant du serveur'}
-          </p>
-        </div>
-      </div>
-    </div>
-  )
   // -------------------------------------------------------------
   // DEDICATED TAB: Cadrage & Spécifications
   // -------------------------------------------------------------
-  const renderCadrageSection = () => {
-    if (!selectedTask) return null
-
-    const currentProject = projects.find(p => p.id === (selectedTask.projectId || taskProjectId))
-    const issueTracker = currentProject?.issueTracker || selectedTask.source || 'github'
-    const repoName = taskProject?.githubRepo || taskProject?.name || settings.repoPath?.split('/').pop() || 'repo'
-    const provider = activeProvider
-    const cmdTemplate = taskProject?.aiCommandTemplate || settings.aiCommandTemplate
-
-    const buildCliCommand = (prompt: string): string => {
-      if (cmdTemplate && cmdTemplate.includes('{prompt}')) {
-        return cmdTemplate
-          .replace('{prompt}', prompt)
-          .replace('{issueKey}', selectedTask.key)
-          .replace('{issueTitle}', selectedTask.title)
-          .replace('{branchName}', selectedTask.branchName || '')
-          .replace('{repoPath}', effectiveRepoPath)
-          .replace('{tracker}', issueTracker)
-          .replace('{repo}', repoName)
-      }
-      if (provider === 'agy') {
-        return `agy --dangerously-skip-permissions -p "${prompt}"`
-      }
-      if (provider === 'claude') {
-        return `claude --dangerously-skip-permissions -p "${prompt}"`
-      }
-      if (provider === 'vibe') {
-        return `vibe -p "${prompt}" --auto-approve`
-      }
-      return `${provider} -p "${prompt}"`
-    }
-
-    const clarifyCommand = skillCommand('clarify', '/clarify-issue', taskProject?.id)
-    const clarifyPrompt = `${clarifyCommand} ${selectedTask.key} tracked on ${issueTracker} in ${repoName}`
-    const clarifyCliCommand = buildCliCommand(clarifyPrompt)
-
-    const specifyCommand = skillCommand('specify', '/specify-issue', taskProject?.id)
-    const specifyPrompt = `${specifyCommand} ${selectedTask.key} --framework ${specFramework}`
-    const specifyCliCommand = buildCliCommand(specifyPrompt)
-
-    return (
-      <div className="space-y-6">
-        {/* Cadrage Header & Stage Banner */}
-        <div className="p-4 rounded-2xl bg-linear-to-r from-amber-500/10 via-blue-500/10 to-[var(--bg-tertiary)] border border-[var(--border-color)] flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold shrink-0 shadow-2xs">
-              <HelpCircle size={20} />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-[var(--text-primary)] flex items-center gap-2">
-                <span>{clarifySkillLabel} & {specifySkillLabel} ({specFramework === 'openspec' ? 'OpenSpec' : 'Spec Kit'})</span>
-                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  {status === 'to_clarify' || status === 'backlog' ? '#new' : status === 'clarified' ? '#clarified' : status === 'to_implement' ? '#specified' : `#${status}`}
-                </span>
-              </h3>
-              <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                {clarifySkillLabel} interactif en console TTY, puis {specifySkillLabel} pour générer la spécification formelle (Spec Kit ou OpenSpec).
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[10px] font-mono px-2 py-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-muted)]">
-              {repoName}
-            </span>
-          </div>
+  const renderCadrageSection = () => (
+    <div className="space-y-5">
+      <RemoteRunBadge taskId={selectedTask.id} />
+      <CopyTaskSkillMenu key={selectedTask.id} task={selectedTask} />
+      <div className="rounded-xl border border-[var(--border-color)] p-4 space-y-3">
+        <h3 className="font-semibold">Clarification and specification</h3>
+        <p className="text-xs text-[var(--text-muted)]">Launch a skill on your local agent. Follow its execution in TaskFlow Desktop.</p>
+        <div className="flex gap-2">
+          <button type="button" disabled={isSkillRunning} onClick={()=>handleTriggerSkill('clarify')} className="rounded-lg bg-amber-500/15 text-amber-400 px-3 py-2">Clarify</button>
+          <button type="button" disabled={isSkillRunning} onClick={()=>handleTriggerSkill('specify')} className="rounded-lg bg-blue-500/15 text-blue-400 px-3 py-2">Specify</button>
         </div>
-
-        {/* 1. Interactive TTY Cadrage Runner Card */}
-        <div className="p-4 rounded-2xl bg-[var(--bg-tertiary)]/70 border border-amber-500/30 shadow-md space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <Terminal size={16} className="text-amber-400" />
-              <h4 className="text-xs font-bold text-[var(--text-primary)]">
-                1. Cadrage Interactif TTY (/clarify-issue)
-              </h4>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 font-bold border border-amber-500/30">
-                {provider.toUpperCase()} CLI
-              </span>
-            </div>
-          </div>
-
-          {/* Code block with exact prompt */}
-          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3 text-xs font-mono">
-            <div className="flex items-center gap-2 truncate min-w-0">
-              <span className="text-amber-400 font-bold">$</span>
-              <span className="text-slate-200 select-all truncate">
-                {clarifyPrompt}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(clarifyPrompt)
-                  addToast({
-                    type: 'success',
-                    title: 'Prompt copié',
-                    description: `Prompt copié : ${clarifyPrompt}`,
-                  })
-                }}
-                className="px-2 py-1 rounded-lg text-[10.5px] font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-                title="Copier le prompt"
-              >
-                <Copy size={11} />
-                <span>Copier prompt</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(clarifyCliCommand)
-                  addToast({
-                    type: 'success',
-                    title: 'Commande CLI copiée',
-                    description: `Commande copiée : ${clarifyCliCommand}`,
-                  })
-                }}
-                className="px-2 py-1 rounded-lg text-[10.5px] font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-                title="Copier la commande CLI complète"
-              >
-                <Code2 size={11} />
-                <span>Copier CLI</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Action trigger buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            <div className="text-[11px] text-[var(--text-muted)]">
-              Pose les questions d'arbitrage et clarifie le périmètre en direct dans la console TTY.
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const willOpen = !isTtyOpen || ttyCommand !== clarifyCliCommand
-                  setIsTtyOpen(willOpen)
-                  setTtyCommand(clarifyCliCommand)
-                }}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 ${
-                  isTtyOpen && ttyCommand === clarifyCliCommand
-                    ? 'bg-amber-600 text-white hover:bg-amber-500'
-                    : 'bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30'
-                }`}
-                title="Ouvrir la console TTY interactive intégrée et exécuter /clarify-issue"
-              >
-                <Terminal size={13} className={isTtyOpen && ttyCommand === clarifyCliCommand ? 'text-white' : 'text-amber-400'} />
-                <span>{isTtyOpen && ttyCommand === clarifyCliCommand ? 'Masquer TTY' : `Lancer Console TTY ${clarifySkillLabel}`}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => selectedTask && openExternalTerminal({ taskId: selectedTask.id, skillId: 'clarify' })}
-                className="p-1.5 rounded-xl text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-                title="Lancer /clarify-issue dans le terminal externe OS"
-              >
-                <ExternalLink size={13} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleTriggerSkill('clarify', clarifyPrompt)}
-                disabled={isSkillRunning}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
-                title="Lancer le prompt /clarify-issue via l'agent en arrière-plan"
-              >
-                {isSkillRunning && runningSkillId === 'clarify' ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Sparkles size={13} className="text-amber-200" />
-                )}
-                <span>Lancer en tâche de fond</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* 2. Spec-Driven Design Framework & Specification Runner Card */}
-        <div className="p-4 rounded-2xl bg-[var(--bg-tertiary)]/70 border border-blue-500/30 shadow-md space-y-3.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <FileCode size={16} className="text-blue-400" />
-              <h4 className="text-xs font-bold text-[var(--text-primary)]">
-                2. Framework Spec-Driven Design & Spécification (/specify-issue)
-              </h4>
-            </div>
-
-            {/* Framework Toggle Buttons: Spec Kit vs OpenSpec */}
-            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-              <button
-                type="button"
-                onClick={() => setSpecFramework('speckit')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  specFramework === 'speckit'
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                }`}
-              >
-                <span>📑</span>
-                <span>Spec Kit</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setSpecFramework('openspec')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  specFramework === 'openspec'
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                }`}
-              >
-                <span>🚩</span>
-                <span>OpenSpec</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="text-[11px] text-[var(--text-muted)] flex items-center gap-2">
-            {specFramework === 'openspec' ? (
-              <span>
-                <strong className="text-emerald-400">Framework OpenSpec :</strong> Proposition de changement sous openspec/changes/, deltas de specs ADDED / MODIFIED / REMOVED et checklist de tâches, validés avant le code.
-              </span>
-            ) : (
-              <span>
-                <strong className="text-blue-400">Framework Spec Kit :</strong> spec.md, plan.md et tasks.md sous specs/, avec user stories, architecture et critères BDD (Given/When/Then).
-              </span>
-            )}
-          </div>
-
-          {/* Code block with exact specify prompt */}
-          <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3 text-xs font-mono">
-            <div className="flex items-center gap-2 truncate min-w-0">
-              <span className={specFramework === 'openspec' ? 'text-emerald-400 font-bold' : 'text-blue-400 font-bold'}>$</span>
-              <span className="text-slate-200 select-all truncate">
-                {specifyPrompt}
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(specifyPrompt)
-                  addToast({
-                    type: 'success',
-                    title: 'Prompt copié',
-                    description: `Prompt copié : ${specifyPrompt}`,
-                  })
-                }}
-                className="px-2 py-1 rounded-lg text-[10.5px] font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-                title="Copier le prompt specify"
-              >
-                <Copy size={11} />
-                <span>Copier prompt</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  navigator.clipboard?.writeText(specifyCliCommand)
-                  addToast({
-                    type: 'success',
-                    title: 'Commande CLI copiée',
-                    description: `Commande copiée : ${specifyCliCommand}`,
-                  })
-                }}
-                className="px-2 py-1 rounded-lg text-[10.5px] font-medium text-slate-300 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
-                title="Copier la commande CLI complète"
-              >
-                <Code2 size={11} />
-                <span>Copier CLI</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Action trigger buttons */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-            <div className="text-[11px] text-[var(--text-muted)]">
-              Génère la spécification formelle selon la norme <span className="font-bold text-[var(--text-primary)]">{specFramework === 'openspec' ? 'OpenSpec' : 'Spec Kit'}</span>.
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const willOpen = !isTtyOpen || ttyCommand !== specifyCliCommand
-                  setIsTtyOpen(willOpen)
-                  setTtyCommand(specifyCliCommand)
-                }}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 ${
-                  isTtyOpen && ttyCommand === specifyCliCommand
-                    ? specFramework === 'openspec' ? 'bg-emerald-600 text-white hover:bg-emerald-500' : 'bg-blue-600 text-white hover:bg-blue-500'
-                    : specFramework === 'openspec'
-                      ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 border border-emerald-500/30'
-                      : 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 border border-blue-500/30'
-                }`}
-                title="Ouvrir la console TTY interactive intégrée et exécuter /specify-issue"
-              >
-                <Terminal size={13} />
-                <span>{isTtyOpen && ttyCommand === specifyCliCommand ? 'Masquer TTY' : `Lancer Console TTY ${specifySkillLabel}`}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => selectedTask && openExternalTerminal({ taskId: selectedTask.id, skillId: 'specify' })}
-                className="p-1.5 rounded-xl text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-                title="Lancer /specify-issue dans le terminal externe OS"
-              >
-                <ExternalLink size={13} />
-              </button>
-
-              <button
-                type="button"
-                onClick={async () => {
-                  if (status === 'to_clarify' || status === 'backlog') {
-                    await updateTask(selectedTask.id, { status: 'clarified' })
-                    setStatus('clarified')
-                  }
-                  await handleTriggerSkill('specify', specifyPrompt)
-                }}
-                disabled={isSkillRunning}
-                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50 ${
-                  specFramework === 'openspec'
-                    ? 'bg-emerald-600 hover:bg-emerald-500'
-                    : 'bg-blue-600 hover:bg-blue-500'
-                }`}
-                title="Lancer la génération de spécification en arrière-plan"
-              >
-                {isSkillRunning && runningSkillId === 'specify' ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Sparkles size={13} className="text-blue-200" />
-                )}
-                <span>Lancer en tâche de fond</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Embedded Interactive Terminal if toggled */}
-        {isTtyOpen && !isTtyExpanded && (
-          <div className="pt-1">
-            <div className="h-96 w-full rounded-xl overflow-hidden border border-slate-800 shadow-xl">
-              <InteractiveTerminal
-                task={selectedTask}
-                isExpanded={false}
-                initialCommand={ttyCommand}
-                onToggleExpand={() => setIsTtyExpanded(true)}
-                onClose={() => setIsTtyOpen(false)}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Fullscreen Expanded Interactive Terminal Modal Overlay */}
-        {isTtyOpen && isTtyExpanded && (
-          <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
-            <div className="relative w-full h-[calc(var(--app-h)*0.92)] rounded-2xl overflow-hidden shadow-2xl border border-indigo-500/40 bg-[#070b14] flex flex-col">
-              <InteractiveTerminal
-                task={selectedTask}
-                isExpanded={true}
-                initialCommand={ttyCommand}
-                onToggleExpand={() => setIsTtyExpanded(false)}
-                onClose={() => {
-                  setIsTtyExpanded(false)
-                  setIsTtyOpen(false)
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* 3. Technical Specification (Spec Kit / OpenSpec) Section Box */}
-        {renderSpecificationSection()}
-
-        {/* 4. Empty state helper if no clarification or spec yet */}
-        {!clarifyActivity && !specifyActivity && (
-          <div className="p-8 rounded-2xl border border-dashed border-[var(--border-color)] bg-[var(--bg-tertiary)]/20 text-center space-y-3">
-            <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center justify-center mx-auto">
-              <Sparkles size={24} />
-            </div>
-            <div className="max-w-md mx-auto space-y-1">
-              <h4 className="text-xs font-bold text-[var(--text-primary)]">
-                Prêt pour le cadrage assisté par IA
-              </h4>
-              <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                Lancez l'agent Clarify en mode interactif TTY pour cadrer les besoins, ou démarrez directement la rédaction de la spécification technique ({specFramework === 'openspec' ? 'OpenSpec' : 'Spec Kit'}).
-              </p>
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setIsTtyOpen(true)
-                  setTtyCommand(clarifyCliCommand)
-                }}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 transition-all shadow-xs cursor-pointer active:scale-95"
-              >
-                <Terminal size={14} />
-                <span>Ouvrir Console TTY Cadrage</span>
-              </button>
-            </div>
-          </div>
-        )}
       </div>
-    )
-  }
+      {renderSpecificationSection()}
+    </div>
+  )
 
-  // SHARED: Story Info Section Content
   const renderStoryInfoSection = () => (
     <div className="space-y-5">
       {/* Title Input */}
@@ -2072,59 +1432,16 @@ export const TaskDetailModal: React.FC = () => {
               {/* Right: Quick switcher to Modal, PR Link, Delete, Close */}
               <div className="flex items-center gap-1.5 shrink-0">
                 {/* Integrated TTY Terminal Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedTask) {
-                      setChatTask(selectedTask)
-                      setIsTerminalPanelOpen(true)
-                    }
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold text-white bg-[var(--accent-color)] hover:opacity-90 transition-all shadow-xs cursor-pointer active:scale-95"
-                  title="📟 Ouvrir le terminal interactif intégré (xterm)"
-                >
-                  <Terminal size={12} />
-                  <span>Terminal Intégré</span>
-                </button>
+
 
                 {/* External TTY Terminal Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedTask) openExternalTerminal({ taskId: selectedTask.id })
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-                  title="💻 Lancer dans une vraie fenêtre de terminal OS externe (Terminal.app, iTerm...)"
-                >
-                  <ExternalLink size={12} className="text-amber-400" />
-                  <span className="hidden sm:inline">Terminal Externe</span>
-                </button>
+
 
                 {/* Open in Editor Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedTask) openInEditor({ taskId: selectedTask.id })
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-                  title={`Ouvrir le code / worktree dans ${settings.editorCommand || 'VS Code'}`}
-                >
-                  <Code2 size={12} className="text-cyan-400" />
-                  <span className="hidden sm:inline">Code</span>
-                </button>
+
 
                 {/* Git Diff Button */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (selectedTask) setDiffTask(selectedTask)
-                  }}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-                  title="Inspecter le diff Git et les modifications de code pour cette tâche"
-                >
-                  <Code2 size={12} className="text-indigo-400" />
-                  <span className="hidden sm:inline">Diff Git</span>
-                </button>
+
 
                 {/* Switch to Modal Button */}
                 <button
@@ -2249,18 +1566,6 @@ export const TaskDetailModal: React.FC = () => {
                 <span>Skills & Copilot</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setActiveTab('git')}
-                className={`pb-2 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-                  activeTab === 'git'
-                    ? 'border-indigo-400 text-indigo-400 font-bold'
-                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                <GitBranch size={13} className="text-indigo-400" />
-                <span>Git</span>
-              </button>
 
               <button
                 type="button"
@@ -2284,7 +1589,7 @@ export const TaskDetailModal: React.FC = () => {
               {activeTab === 'details' && renderStoryInfoSection()}
               {activeTab === 'comments' && <TaskComments task={selectedTask} />}
               {activeTab === 'skills' && renderSkillsCopilotSection()}
-              {activeTab === 'git' && renderGitSection()}
+
               {activeTab === 'cadrage' && renderCadrageSection()}
             </div>
 
@@ -2340,59 +1645,16 @@ export const TaskDetailModal: React.FC = () => {
 
           <div className="flex items-center gap-2">
             {/* Integrated TTY Terminal Button */}
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedTask) {
-                  setChatTask(selectedTask)
-                  setIsTerminalPanelOpen(true)
-                }
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-[var(--accent-color)] hover:opacity-90 transition-all shadow-xs cursor-pointer active:scale-95"
-              title="📟 Ouvrir le terminal interactif intégré (xterm)"
-            >
-              <Terminal size={13} />
-              <span>Terminal Intégré</span>
-            </button>
+
 
             {/* External TTY Terminal Button */}
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedTask) openExternalTerminal({ taskId: selectedTask.id })
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-              title="💻 Lancer dans une vraie fenêtre de console OS (Terminal.app, iTerm...)"
-            >
-              <ExternalLink size={13} className="text-amber-400" />
-              <span>Terminal Externe</span>
-            </button>
+
 
             {/* Open in Editor Button */}
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedTask) openInEditor({ taskId: selectedTask.id })
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-              title={`Ouvrir le code / worktree dans ${settings.editorCommand || 'VS Code'}`}
-            >
-              <Code2 size={13} className="text-cyan-400" />
-              <span>Code</span>
-            </button>
+
 
             {/* Git Diff Button */}
-            <button
-              type="button"
-              onClick={() => {
-                if (selectedTask) setDiffTask(selectedTask)
-              }}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95"
-              title="Inspecter le diff Git et les modifications de code pour cette tâche"
-            >
-              <Code2 size={13} className="text-indigo-400" />
-              <span>Diff Git</span>
-            </button>
+
 
             {/* Switch to Right Panel Button */}
             <button
@@ -2528,18 +1790,6 @@ export const TaskDetailModal: React.FC = () => {
               <span>Skills & Agent Copilot</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setActiveTab('git')}
-              className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-                activeTab === 'git'
-                  ? 'border-indigo-400 text-indigo-400 font-bold'
-                  : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              <GitBranch size={14} className="text-indigo-400" />
-              <span>Git & Revue</span>
-            </button>
 
             <button
               type="button"
@@ -2564,7 +1814,7 @@ export const TaskDetailModal: React.FC = () => {
           {activeTab === 'details' && renderStoryInfoSection()}
           {activeTab === 'comments' && <TaskComments task={selectedTask} />}
           {activeTab === 'skills' && renderSkillsCopilotSection()}
-          {activeTab === 'git' && renderGitSection()}
+
           {activeTab === 'cadrage' && renderCadrageSection()}
         </div>
 
@@ -2593,7 +1843,6 @@ export const TaskDetailModal: React.FC = () => {
           </div>
         </div>
       </div>
-
 
 
       {/* Fullscreen Expanded Specification Reader Modal */}

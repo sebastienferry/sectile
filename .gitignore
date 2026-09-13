@@ -33,3 +33,16 @@ scratch/
 # Interface compilée, embarquée dans le binaire au moment du build
 internal/webui/dist/*
 !internal/webui/dist/.gitkeep
+
+# Agent installation bookkeeping and recovery copies (never an execution cache)
+.taskflow/agent-manifest.json
+.taskflow/remote-config.json
+.taskflow/skill-backups/
+
+# Local desktop build outputs
+desktop/bin/
+desktop/dist/
+desktop/release/
+desktop/release-*/
+
+/desktop/release-companion/

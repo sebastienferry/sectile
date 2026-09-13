@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -15,7 +16,7 @@ import (
 // server and a connected local agent over the agent WebSocket relay.
 type AgentMessage struct {
 	MsgID   string          `json:"msgId"`
-	Type    string          `json:"type"`    // dispatch_step, pty_input, pty_resize, step_status, pty_output, heartbeat, error
+	Type    string          `json:"type"` // dispatch_step, pty_input, pty_resize, step_status, pty_output, heartbeat, error
 	TaskID  string          `json:"taskId,omitempty"`
 	UserID  string          `json:"userId,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
@@ -61,14 +62,16 @@ type agentKey struct {
 // When a user triggers a workflow action on the remote Web UI, the dispatcher
 // routes the command to the matching local agent.
 type AgentDispatcher struct {
-	agents map[agentKey]*AgentConn
-	mu     sync.RWMutex
+	agents  map[agentKey]*AgentConn
+	pending map[string]*pendingAgentLaunch
+	mu      sync.RWMutex
 }
 
 // NewAgentDispatcher creates a dispatcher ready to accept agent connections.
 func NewAgentDispatcher() *AgentDispatcher {
 	return &AgentDispatcher{
-		agents: make(map[agentKey]*AgentConn),
+		agents:  make(map[agentKey]*AgentConn),
+		pending: make(map[string]*pendingAgentLaunch),
 	}
 }
 
@@ -136,19 +139,6 @@ func (d *AgentDispatcher) Lookup(userID, projectID string) *AgentConn {
 		return ac
 	}
 
-	// 3. Fallback: if there is only 1 agent connected in total (or for this user), route to it!
-	var fallback *AgentConn
-	matchCount := 0
-	for k, ac := range d.agents {
-		if k.UserID == userID || userID == "default" || k.UserID == "default" {
-			fallback = ac
-			matchCount++
-		}
-	}
-	if matchCount == 1 {
-		return fallback
-	}
-
 	return nil
 }
 
@@ -207,4 +197,61 @@ type AgentConnInfo struct {
 	DeviceID    string    `json:"deviceId"`
 	ConnectedAt time.Time `json:"connectedAt"`
 	LastPingAt  time.Time `json:"lastPingAt"`
+}
+
+type agentLaunchStatus struct {
+	Status  string `json:"status"`
+	Summary string `json:"summary"`
+}
+type pendingAgentLaunch struct {
+	agent  *AgentConn
+	result chan agentLaunchStatus
+}
+
+// DispatchAndWait confirms a terminal launch before the HTTP caller reports
+// success. Responses are bound to the connection that received the command.
+func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID, taskID string, payload any) error {
+	ac := d.Lookup(userID, projectID)
+	if ac == nil {
+		return fmt.Errorf("no local agent connected")
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	id := uuid.NewString()
+	pending := &pendingAgentLaunch{agent: ac, result: make(chan agentLaunchStatus, 1)}
+	d.mu.Lock()
+	d.pending[id] = pending
+	d.mu.Unlock()
+	defer func() { d.mu.Lock(); delete(d.pending, id); d.mu.Unlock() }()
+	if err := ac.Send(AgentMessage{MsgID: id, Type: "dispatch_step", TaskID: taskID, UserID: userID, Payload: raw}); err != nil {
+		return err
+	}
+	select {
+	case result := <-pending.result:
+		if result.Status == "failed" {
+			return fmt.Errorf("local terminal launch failed: %s", result.Summary)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("terminal launch was not confirmed before timeout or cancellation; check the local agent before retrying: %w", ctx.Err())
+	}
+}
+
+func (d *AgentDispatcher) ReportLaunchStatus(ac *AgentConn, msg AgentMessage) {
+	var status agentLaunchStatus
+	if json.Unmarshal(msg.Payload, &status) != nil || (status.Status != "completed" && status.Status != "failed") {
+		return
+	}
+	d.mu.RLock()
+	pending := d.pending[msg.MsgID]
+	d.mu.RUnlock()
+	if pending == nil || pending.agent != ac {
+		return
+	}
+	select {
+	case pending.result <- status:
+	default:
+	}
 }

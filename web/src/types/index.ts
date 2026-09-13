@@ -184,6 +184,7 @@ export interface Project {
    * Chaque tâche travaille dans son propre worktree Git isolé, ou directement
    * dans le clone si l'option est désactivée. Vrai par défaut.
    */
+  prCreationStage?: 'specified' | 'implemented'
   useWorktrees?: boolean
   /** Board du tracker retenu pour ce projet. */
   boardId?: string

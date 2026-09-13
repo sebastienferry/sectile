@@ -1,3 +1,5 @@
+import { RemoteRunBadge } from './RemoteRunBadge'
+import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
 import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
@@ -7,14 +9,11 @@ import {
   Clock,
   Sparkles,
   Loader2,
-  GitBranch,
   GitPullRequest,
   ExternalLink,
-  Code2,
   MoreHorizontal,
   ChevronsRight,
   ChevronRight,
-  Terminal as TerminalIcon,
   FileCode,
   CheckCircle2,
   Eye,
@@ -41,18 +40,13 @@ interface TaskCardProps {
 export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStart, compact = false }) => {
   const {
     setSelectedTask,
-    setChatTask,
     advanceTask,
     isPinned,
     togglePin,
-    setDiffTask,
     runSkill,
     isSkillRunning,
     runningSkillId,
     activities,
-    openInEditor,
-    openExternalTerminal,
-    setIsTerminalPanelOpen,
     openCloneModal,
     deleteTask,
     moveTaskWorkflowStage,
@@ -379,6 +373,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               <div className="h-px bg-[var(--border-color)] my-1" />
             </>
           )}
+          <CopyTaskSkillMenu task={task} />
           {/* Action de l'étape courante du workflow (nom du skill) */}
           {workflowAction && (
             <>
@@ -415,45 +410,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             <span>Voir les détails</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setIsMenuOpen(false)
-              setChatTask(task)
-              setIsTerminalPanelOpen(true)
-            }}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-            title="Ouvrir le terminal interactif dans l'application"
-          >
-            <TerminalIcon size={12} className="text-cyan-400" />
-            <span>Lancer le terminal intégré</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setIsMenuOpen(false)
-              openExternalTerminal({ taskId: task.id })
-            }}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-            title="Ouvrir une fenêtre de console native (Terminal.app, iTerm...)"
-          >
-            <ExternalLink size={12} className="text-amber-400" />
-            <span>Lancer le terminal externe</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setIsMenuOpen(false)
-              openInEditor({ taskId: task.id })
-            }}
-            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-            title={`Ouvrir dans ${settings.editorCommand || 'VS Code'}`}
-          >
-            <Code2 size={12} className="text-blue-400" />
-            <span>Ouvrir dans l'éditeur</span>
-          </button>
 
           {/* Créer PR : masqué quand c'est déjà l'action de l'étape courante */}
           {!task.prUrl && task.status !== 'finished' && workflowAction?.id !== 'create_pr' && (
@@ -485,19 +441,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             </button>
           )}
 
-          {task.branchName && (
-            <button
-              type="button"
-              onClick={() => {
-                setIsMenuOpen(false)
-                setDiffTask(task)
-              }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-            >
-              <GitBranch size={12} className="text-indigo-400" />
-              <span>Inspecter le Diff Git</span>
-            </button>
-          )}
 
           {externalUrl && (
             <a
@@ -599,6 +542,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
           <button type="button" title={task.title} onClick={e => { e.stopPropagation(); setSelectedTask(task) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
             {task.title}
           </button>
+          <RemoteRunBadge taskId={task.id} />
           {actionsMenu}
         </div>
       ) : (
@@ -678,17 +622,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
         <div className="flex items-center gap-1.5 flex-wrap min-w-0" onClick={e => e.stopPropagation()}>
           {/* Lien Branche Git, sur un projet mono-dépôt seulement : ailleurs la
               branche d'un ticket ne dit pas dans quel dépôt elle vit. */}
-          {task.branchName && taskProject?.monoRepo !== false && (
-            <button
-              type="button"
-              onClick={() => setDiffTask(task)}
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium text-cyan-300 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/25 transition-colors cursor-pointer"
-              title={`Branche: ${task.branchName} (Cliquer pour voir le Diff)`}
-            >
-              <GitBranch size={11} className="text-cyan-400 shrink-0" />
-              <span className="truncate max-w-[130px]">{task.branchName}</span>
-            </button>
-          )}
+
 
           {/* Icône PR uniquement */}
           {task.prUrl && (
@@ -745,29 +679,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
 
       {/* Ligne 4 : Activité live / queued + menu d'actions (...) */}
       <div className="pt-2 border-t border-[var(--border-color)]/50 flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+        <RemoteRunBadge taskId={task.id} />
         {/* Live / Queued Activity indicator */}
-        {latestActivity && (isRunning || isQueued) && (
-          <span
-            onClick={() => setChatTask(task)}
-            className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-mono font-bold cursor-pointer transition-colors ${
-              isRunning
-                ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 animate-pulse'
-                : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-            }`}
-            title={
-              isRunning
-                ? `Activité IA en cours d'exécution (${latestActivity.skillName || latestActivity.action}) - Cliquer pour ouvrir la console`
-                : `Activité IA en file d'attente (${latestActivity.skillName || latestActivity.action}) - Cliquer pour ouvrir la console`
-            }
-          >
-            {isRunning ? (
-              <Loader2 size={9} className="animate-spin text-indigo-400" />
-            ) : (
-              <Clock size={9} className="text-amber-400" />
-            )}
-            <span>{isRunning ? 'Live' : 'Queued'}</span>
-          </span>
-        )}
+
 
         {/* Épingle : le ticket rejoint la barre de bascule à chaud, en haut. */}
         <button
@@ -814,17 +728,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
           {advancing === 'auto' ? <Loader2 size={14} className="animate-spin" /> : <ChevronsRight size={14} />}
         </button>
 
-        <button
-          type="button"
-          onClick={e => {
-            e.stopPropagation()
-            setChatTask(task)
-          }}
-          className="p-1 rounded-md text-[var(--text-muted)] hover:text-cyan-300 hover:bg-cyan-500/10 border border-transparent hover:border-cyan-500/30 transition-colors cursor-pointer"
-          title={`Ouvrir le terminal de ${task.key} dans le panneau latéral`}
-        >
-          <TerminalIcon size={14} />
-        </button>
 
         {actionsMenu}
       </div>

@@ -67,3 +67,42 @@ graph TD
   - *Mitigation*: Local agent implements exponential backoff reconnection logic; PTY history buffer in local agent retains 64KB output for seamless replay upon reconnect.
 - **Risk**: Command execution lag over WebSocket network link.
   - *Mitigation*: Binary/compressed text frame transport over WebSocket for ANSI terminal streams.
+
+## MCP and configuration implementation (September 2026)
+
+The follow-up implements architecture sections 7.2–7.5. The official MCP Go SDK
+owns protocol negotiation, typed tool schemas and Streamable HTTP at `/mcp`.
+`taskflow mcp` bridges stdio to that endpoint through the loopback agent gateway
+or directly to the configured server; neither agent command opens a database.
+The existing database services remain authoritative for stage validation, managed
+run guards, comments, and queued tracker synchronization. Tool results explicitly
+report tracker synchronization as queued, rather than claiming immediate completion.
+
+`GET /api/v1/agent/config?projectId=...` (or `taskKey=...`) returns schema version 1,
+project and tracker identity, specification framework, workflow mappings, effective
+AI/terminal settings and effective skill content. It excludes tracker credentials
+and server filesystem paths. Concrete project agents synchronize on connection;
+wildcard agents resolve the actual task project on dispatch. Each dispatch refreshes
+configuration before execution. Unknown contract versions fail before launching.
+
+Workstation repository mappings and overrides live in `.taskflow/agent.json`.
+The agent prepares Git worktrees locally, verifies existing branches and preserves
+locally modified skills through a hash manifest. Server paths are never interpreted
+as local paths. The CLI terminal flag takes precedence over local overrides, which
+take precedence over remote configuration. No offline stale-config execution is
+attempted when the authoritative API is unavailable.
+
+Both machine endpoints share the agent bearer identity policy. Setting
+`TASKFLOW_SERVER_TOKEN` pins a credential; without it, legacy single-user mode
+accepts a nonempty token. This is not multi-user authentication. The gateway binds
+only to loopback, rejects browser Origin and unexpected Host headers, and attaches
+the daemon credential itself. Existing public REST/UI authentication is unchanged.
+
+## Native-client execution scope
+
+The agreed implementation uses the web UI and native Codex/Claude clients. The
+experimental Electron chat companion is superseded. An explicit project agent
+connection scaffolds skills and registers MCP in the selected local repository,
+allowing a user to invoke pickup directly. Web dispatch prepares a task worktree
+and launches the same skill in a native terminal. Conversations and approvals
+remain entirely in the coding client; task reads and updates use MCP.

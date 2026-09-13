@@ -2,8 +2,6 @@ package db_test
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -35,17 +33,17 @@ func TestGeneratedSkillContracts(t *testing.T) {
 					}
 				}
 				if stage.FromStage == "" || stage.Scope == "macro" {
-					if strings.Contains(content, "/api/tasks/stage") {
+					if strings.Contains(content, "taskflow_transition_stage") {
 						t.Fatal("non-workflow skill received a task transition")
 					}
 				}
 				if stage.ID == "implement" || stage.ID == "specify" {
-					if !strings.Contains(content, "http://localhost:8090/api/tasks/stage") || !strings.Contains(content, `"branch":"<ACTUAL_BRANCH>"`) {
+					if !strings.Contains(content, "taskflow_transition_stage") || !strings.Contains(content, "actual branch") {
 						t.Fatal("transition does not record the actual assigned branch")
 					}
 				}
-				if stage.FromStage != "" && stage.Scope != "macro" && strings.Contains(content, "taskflow stage") {
-					t.Fatal("workflow skill must call the local handler instead of a CLI")
+				if stage.FromStage != "" && stage.Scope != "macro" && (strings.Contains(content, "taskflow stage") || strings.Contains(content, "curl --")) {
+					t.Fatal("workflow skill must use native MCP tools")
 				}
 			})
 		}
@@ -158,18 +156,6 @@ func TestRefineMacroSkillTemplate(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Expected ProjectSkillTemplates(%s) to include 'refine_macro'", fw)
-		}
-	}
-}
-
-func TestUpdateWorkspaceSkills(t *testing.T) {
-	root := "../.."
-	for _, stage := range db.StageSkills {
-		content := db.RenderSkillContent(stage, "openspec")
-		for _, dir := range db.SkillDirsFor(root, stage.DirName) {
-			if _, err := os.Stat(dir); err == nil {
-				_ = os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(content), 0644)
-			}
 		}
 	}
 }

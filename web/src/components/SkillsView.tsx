@@ -1,8 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  AlertTriangle,
-  Check,
-  Download,
   FileCode2,
   Loader2,
   RotateCcw,
@@ -21,7 +18,7 @@ import type { SkillEditorEntry } from '../types'
  * silence, il est signalé comme divergent et peut être réimporté.
  */
 export const SkillsView: React.FC = () => {
-  const { currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent, importSkillFromRepo } = useApp()
+  const { currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent } = useApp()
 
   const [entries, setEntries] = useState<SkillEditorEntry[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -143,7 +140,7 @@ export const SkillsView: React.FC = () => {
                   {entry.interactive && (
                     <span className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)]" title="Session interactive">
                       <Terminal size={8} />
-                      TTY
+                      Interactive
                     </span>
                   )}
                 </div>
@@ -181,18 +178,7 @@ export const SkillsView: React.FC = () => {
               </div>
 
               <div className="ml-auto flex items-center gap-1.5">
-                {selected.diverged && (
-                  <button
-                    type="button"
-                    onClick={() => run('import', () => importSkillFromRepo(selected.id))}
-                    disabled={busy !== null}
-                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 disabled:opacity-40 cursor-pointer"
-                    title="Prendre le fichier du dépôt comme nouveau contenu"
-                  >
-                    {busy === 'import' ? <Loader2 size={11} className="animate-spin" /> : <Download size={11} />}
-                    <span>Importer du dépôt</span>
-                  </button>
-                )}
+
                 {selected.isCustom && (
                   <button
                     type="button"
@@ -210,7 +196,7 @@ export const SkillsView: React.FC = () => {
                   onClick={() => run('save', () => saveSkillContent(selected.id, draft))}
                   disabled={busy !== null || !isDirty}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white accent-bg hover:opacity-90 disabled:opacity-40 cursor-pointer"
-                  title="Enregistrer et régénérer les SKILL.md du dépôt"
+                  title="Save skill instructions for the local agent"
                 >
                   {busy === 'save' ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
                   <span>{isDirty ? 'Enregistrer' : 'À jour'}</span>
@@ -218,15 +204,7 @@ export const SkillsView: React.FC = () => {
               </div>
             </div>
 
-            {selected.diverged && (
-              <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/30 flex items-start gap-2">
-                <AlertTriangle size={12} className="text-amber-400 mt-0.5 shrink-0" />
-                <p className="text-[10px] text-amber-200 leading-snug">
-                  Le fichier <code className="font-mono">{selected.repoPath}</code> diffère de ce contenu : il a été
-                  retouché à la main. Enregistrer ici l'écrasera, importer le reprendra.
-                </p>
-              </div>
-            )}
+
 
             <textarea
               value={draft}
@@ -237,14 +215,7 @@ export const SkillsView: React.FC = () => {
 
             <div className="px-4 py-1.5 border-t border-[var(--border-color)] flex items-center gap-3 text-[9px] font-mono text-[var(--text-muted)] flex-wrap">
               <span>{draft.split('\n').length} lignes</span>
-              {selected.installed ? (
-                <span className="flex items-center gap-1">
-                  <Check size={9} className="text-emerald-400" />
-                  {selected.paths.length} fichier(s) dans le dépôt
-                </span>
-              ) : (
-                <span className="text-amber-400">Aucun fichier dans le dépôt : enregistre pour les créer</span>
-              )}
+
               {selected.updatedAt && <span>modifiée le {new Date(selected.updatedAt).toLocaleString()}</span>}
               <span className="ml-auto">
                 {selected.isCustom ? 'contenu propre à ce projet' : 'modèle intégré de TaskFlow'}

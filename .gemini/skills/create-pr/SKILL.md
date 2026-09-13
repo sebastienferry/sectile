@@ -43,18 +43,12 @@ found and fixed, the risky parts pointed out, the test plan written down.
 
 ## Execution and ticket state
 - **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
-- **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+- **Remote execution indicator (standalone only)**: Before doing work, call taskflow_start_run with the full task primary key and skill name. If TASKFLOW_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call taskflow_finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.
+- **Standalone invocation**: Read live context with `taskflow_get_task` and `taskflow_get_project_context`. After verifying each completed step, invoke `taskflow_transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.
 Transition implemented → reviewed only when this step is complete.
-```bash
-# Route via local agent if available, fallback to http://localhost:8090/api/tasks/stage
-ENDPOINT="${TASKFLOW_AGENT_URL:-${TASKFLOW_SERVER_URL:-http://localhost:8090}}/api/tasks/stage"
-curl --fail-with-body --silent --show-error -X POST "${ENDPOINT}" \
-  ${TASKFLOW_AGENT_TOKEN:+-H "Authorization: Bearer $TASKFLOW_AGENT_TOKEN"} \
-  -H 'Content-Type: application/json' \
-  -d '{"taskKey":"<KEY>","stage":"reviewed","note":"<REPORT_NOTE>","prUrl":"<PR_URL>"}' || \
-curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
-  -H 'Content-Type: application/json' \
-  -d '{"taskKey":"<KEY>","stage":"reviewed","note":"<REPORT_NOTE>","prUrl":"<PR_URL>"}'
-```
-This POST calls the local TaskFlow handler directly. Confirm HTTP success before continuing. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
+Include prUrl with the verified pull request URL.
+Use `taskflow_add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by TaskFlow. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.
 Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.
+
+## Project pull request policy
+PR creation stage: implemented. Read this setting from taskflow_get_project_context before executing. Create the PR/MR after implementation and review, reusing any existing PR/MR for the task branch. Do not create one during specification.

@@ -10,7 +10,6 @@ import {
   Globe,
   Settings,
   RefreshCw,
-  Code2,
   ArrowRight,
   Sparkles,
   HelpCircle,
@@ -18,9 +17,7 @@ import {
   Flame,
   ShieldCheck,
   Layers,
-  MessageSquare,
   Download,
-  Terminal as TerminalIcon,
   Map as MapIcon,
   SlidersHorizontal,
   Clock,
@@ -38,18 +35,13 @@ export const CommandPalette: React.FC = () => {
     setIsProjectModalOpen,
     setEditingProject,
     setActiveView,
-    isTerminalPanelOpen,
-    toggleTerminalPanel,
     setIsQuickAddOpen,
     setIsProfileOpen,
     setSelectedTask,
-    setChatTask,
     settings,
     updateSettings,
     skills,
     runSkill,
-    openInEditor,
-    openExternalTerminal,
     syncCurrentProject,
     syncJira,
     currentProject,
@@ -241,17 +233,7 @@ export const CommandPalette: React.FC = () => {
         setIsCommandPaletteOpen(false)
       },
     },
-    {
-      id: 'toggle_terminal',
-      title: isTerminalPanelOpen ? '🖥️ Fermer le terminal du workspace' : '🖥️ Ouvrir le terminal du workspace (CLI)',
-      icon: <TerminalIcon size={16} className="text-indigo-400" />,
-      shortcut: 'Cmd+$',
-      keywords: ['terminal', 'cli', 'shell', 'zsh', 'console', 'tty', 'pty', 'commande'],
-      action: () => {
-        toggleTerminalPanel()
-        setIsCommandPaletteOpen(false)
-      },
-    },
+    ...[],
     {
       id: 'sync_now',
       title: '🚀 Lancer la synchronisation du projet actif',
@@ -296,28 +278,8 @@ export const CommandPalette: React.FC = () => {
         void installSpecFrameworkFromPalette('openspec')
       },
     },
-    {
-      id: 'open_editor',
-      title: `💻 Ouvrir le code dans l'éditeur (${settings.editorCommand || 'code'})`,
-      icon: <Code2 size={16} className="text-cyan-400" />,
-      shortcut: 'O',
-      keywords: ['code', 'editeur', 'editor', 'vscode', 'cursor', 'zed', 'sublime', 'idea', 'ouvrir', 'worktree'],
-      action: () => {
-        setIsCommandPaletteOpen(false)
-        openInEditor()
-      },
-    },
-    {
-      id: 'open_external_terminal',
-      title: `🖥 Ouvrir le terminal externe OS (${settings.externalTerminalCommand || 'Terminal'})`,
-      icon: <TerminalIcon size={16} className="text-amber-400" />,
-      shortcut: 'Shift+T',
-      keywords: ['terminal', 'console', 'tty', 'iterm', 'ghostty', 'warp', 'alacritty', 'ouvrir', 'shell'],
-      action: () => {
-        setIsCommandPaletteOpen(false)
-        openExternalTerminal()
-      },
-    },
+    ...[],
+    ...[],
     {
       id: 'new_project',
       title: '📁 Créer un nouveau projet...',
@@ -617,19 +579,7 @@ export const CommandPalette: React.FC = () => {
                             <span className="truncate font-medium">{task.title}</span>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setIsCommandPaletteOpen(false)
-                                setChatTask(task)
-                              }}
-                              className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-white/20 hover:bg-white/30 text-white flex items-center gap-1 transition-colors"
-                              title="💬 Discuter avec l'agent"
-                            >
-                              <MessageSquare size={10} />
-                              <span>Discuter</span>
-                            </button>
+
                             <ArrowRight size={14} className="opacity-60" />
                           </div>
                         </div>

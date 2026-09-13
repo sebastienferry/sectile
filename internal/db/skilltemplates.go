@@ -494,56 +494,30 @@ func specifyFrameworkBody(specFramework string) (readFirst, steps string) {
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
 func renderTicketTransitionContract(s StageSkill) string {
-	if s.FromStage == "" || s.Scope == "macro" {
+	if s.Scope == "macro" {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("## Execution and ticket state\n")
 	b.WriteString("- **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.\n")
-	b.WriteString("- **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.\n")
-	if s.ID == "pickup" || s.ID == "pickup_issues" {
-		if s.ID == "pickup_issues" {
-			b.WriteString("For each ticket key in the batch, record clarified, specified and implemented after that ticket's corresponding step. Use the SAME actual batch branch for every ticket. After the combined PR is verified, record reviewed and the SAME PR URL for every implemented ticket. Never mark an unfinished ticket reviewed.\n")
-		}
-		b.WriteString("```bash\n")
-		b.WriteString(renderStageHandlerCommand("clarified", "<settled scope and assumptions>", false, false))
-		b.WriteString(renderStageHandlerCommand("specified", "<spec paths>", true, false))
-		b.WriteString(renderStageHandlerCommand("implemented", "<check results>", true, false))
-		b.WriteString(renderStageHandlerCommand("reviewed", "<review summary>", false, true))
-		b.WriteString("```\n")
-	} else {
-		fmt.Fprintf(&b, "Transition %s → %s only when this step is complete.\n```bash\n", s.FromStage, s.ToStage)
-		b.WriteString(renderStageHandlerCommand(s.ToStage, "<REPORT_NOTE>", s.ID == "implement" || s.ID == "specify", s.ID == "create_pr"))
-		b.WriteString("```\n")
+	b.WriteString("- **Remote execution indicator (standalone only)**: Before doing work, call taskflow_start_run with the full task primary key and skill name. If TASKFLOW_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call taskflow_finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.\n")
+	if s.FromStage == "" {
+		return b.String()
 	}
-	b.WriteString("This POST calls the local TaskFlow handler directly. Confirm HTTP success before continuing. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.\n")
+
+	b.WriteString("- **Standalone invocation**: Read live context with `taskflow_get_task` and `taskflow_get_project_context`. After verifying each completed step, invoke `taskflow_transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.\n")
+	if s.ID == "pickup" || s.ID == "pickup_issues" {
+		b.WriteString("Record clarified, specified and implemented after each corresponding step. After PR verification, record reviewed with the PR URL. For a batch, use the same actual branch and combined PR URL for every completed ticket; never mark unfinished work reviewed.\n")
+	} else {
+		fmt.Fprintf(&b, "Transition %s → %s only when this step is complete.\n", s.FromStage, s.ToStage)
+		if s.ID == "create_pr" {
+			b.WriteString("Include prUrl with the verified pull request URL.\n")
+		}
+	}
+	b.WriteString("Use `taskflow_add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by TaskFlow. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.\n")
+
 	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
 	return b.String()
-}
-
-func renderStageHandlerCommand(stage, note string, includesBranch, includesPRURL bool) string {
-	fields := []string{
-		`"taskKey":"<KEY>"`,
-		fmt.Sprintf(`"stage":"%s"`, stage),
-		fmt.Sprintf(`"note":"%s"`, note),
-	}
-	if includesBranch {
-		fields = append(fields, `"branch":"<ACTUAL_BRANCH>"`)
-	}
-	if includesPRURL {
-		fields = append(fields, `"prUrl":"<PR_URL>"`)
-	}
-	payload := "{" + strings.Join(fields, ",") + "}"
-
-	return `# Route via local agent if available, fallback to http://localhost:8090/api/tasks/stage
-ENDPOINT="${TASKFLOW_AGENT_URL:-${TASKFLOW_SERVER_URL:-http://localhost:8090}}/api/tasks/stage"
-curl --fail-with-body --silent --show-error -X POST "${ENDPOINT}" \
-  ${TASKFLOW_AGENT_TOKEN:+-H "Authorization: Bearer $TASKFLOW_AGENT_TOKEN"} \
-  -H 'Content-Type: application/json' \
-  -d '` + payload + `' || \
-curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
-  -H 'Content-Type: application/json' \
-  -d '` + payload + "'\n"
 }
 
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs

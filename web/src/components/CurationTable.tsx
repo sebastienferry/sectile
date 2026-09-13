@@ -292,7 +292,7 @@ export const CurationTable: React.FC = () => {
             type="button"
             onClick={() => startBatchPickup(selectedIds)}
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 shrink-0 shadow-xs"
-            title="Démarrer un unique Git Worktree et exécuter le lot de tâches en auto-pilot"
+            title="Run the selected tasks on the local agent"
           >
             <Sparkles size={12} className="text-purple-400 animate-pulse" />
             Lancer le lot (Git tree + Auto-pilot)

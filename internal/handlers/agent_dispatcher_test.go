@@ -48,6 +48,12 @@ func TestAgentDispatcher_RegisterAndLookup(t *testing.T) {
 		t.Fatalf("expected non-nil AgentConn")
 	}
 
+	if dispatcher.Lookup("default", "proj1") != nil {
+		t.Fatal("default user matched another user agent")
+	}
+	if dispatcher.Lookup("user1", "other-project") != nil {
+		t.Fatal("scoped agent received another project")
+	}
 	found := dispatcher.Lookup("user1", "proj1")
 	if found == nil || found.DeviceID != "laptop" {
 		t.Errorf("expected to find agent with device laptop, got %v", found)
@@ -299,15 +305,16 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	runSkillBody := `{"skillId":"clarify"}`
 	runSkillReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/tasks/"+task.ID+"/run-skill", strings.NewReader(runSkillBody))
 	runSkillReq.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(runSkillReq)
-	if err != nil {
-		t.Fatalf("run-skill HTTP request error: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK from run-skill, got %d", resp.StatusCode)
-	}
+	responses := make(chan *http.Response, 1)
+	requestErrors := make(chan error, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(runSkillReq)
+		if err != nil {
+			requestErrors <- err
+			return
+		}
+		responses <- resp
+	}()
 
 	// Verify the agent received dispatch_step message
 	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
@@ -321,11 +328,83 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 		t.Fatalf("unmarshal error: %v", err)
 	}
 
+	payload, _ := json.Marshal(map[string]string{"status": "completed", "summary": "Native CLI opened"})
+	if err := conn.WriteJSON(handlers.AgentMessage{MsgID: agentMsg.MsgID, TaskID: task.ID, Type: "step_status", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case resp := <-responses:
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("run-skill status %d", resp.StatusCode)
+		}
+	case err := <-requestErrors:
+		t.Fatal(err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("launch acknowledgement not handled")
+	}
+
+	var dispatch struct {
+		RunID string `json:"runId"`
+	}
+	if err := json.Unmarshal(agentMsg.Payload, &dispatch); err != nil || dispatch.RunID == "" {
+		t.Fatalf("missing remote run identity: %s %v", agentMsg.Payload, err)
+	}
+	active, err := database.GetActivityByID(dispatch.RunID)
+	if err != nil || active.Status != "running" || active.SkillID != "remote_run" {
+		t.Fatalf("launch acknowledgement finished execution: %+v %v", active, err)
+	}
+
 	if agentMsg.Type != "dispatch_step" {
 		t.Errorf("expected msg type dispatch_step, got %s", agentMsg.Type)
 	}
 	if agentMsg.TaskID != task.ID {
 		t.Errorf("expected taskID %s, got %s", task.ID, agentMsg.TaskID)
 	}
-}
+	cancelBody := strings.NewReader(`{"runId":"` + dispatch.RunID + `"}`)
+	cancelRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/api/tasks/"+task.ID+"/cancel-run", cancelBody)
+	cancelRequest.Header.Set("Content-Type", "application/json")
+	go func() {
+		resp, err := http.DefaultClient.Do(cancelRequest)
+		if err != nil {
+			requestErrors <- err
+			return
+		}
+		responses <- resp
+	}()
+	var stopMessage handlers.AgentMessage
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if err := conn.ReadJSON(&stopMessage); err != nil {
+		t.Fatal(err)
+	}
+	var stopPayload struct {
+		Action string `json:"action"`
+		RunID  string `json:"runId"`
+	}
+	if err := json.Unmarshal(stopMessage.Payload, &stopPayload); err != nil || stopPayload.Action != "cancel_run" || stopPayload.RunID != dispatch.RunID {
+		t.Fatalf("bad stop payload: %s %v", stopMessage.Payload, err)
+	}
+	active, err = database.GetActivityByID(dispatch.RunID)
+	if err != nil || active.Status != "running" {
+		t.Fatal("run canceled before exit acknowledgement")
+	}
+	if err := conn.WriteJSON(handlers.AgentMessage{MsgID: stopMessage.MsgID, TaskID: task.ID, Type: "step_status", Payload: payload}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case resp := <-responses:
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatal(resp.StatusCode)
+		}
+	case err := <-requestErrors:
+		t.Fatal(err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("cancel acknowledgement not handled")
+	}
+	active, err = database.GetActivityByID(dispatch.RunID)
+	if err != nil || active.Status != "canceled" {
+		t.Fatalf("run not canceled: %+v %v", active, err)
+	}
 
+}

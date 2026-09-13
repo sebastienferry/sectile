@@ -256,7 +256,6 @@ export const BoardColumnsEditor: React.FC<Props> = ({
     WORKFLOW_STAGES.filter(st => (stageColumns[st.id] || []).includes(columnName)).map(st => st.id)
 
 
-
   const chipBase =
     'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono border cursor-grab active:cursor-grabbing select-none'
 

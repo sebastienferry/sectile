@@ -16,9 +16,7 @@ import {
   FolderGit2,
   CalendarDays,
   Check,
-  Download,
   CheckCircle2,
-  Loader2,
   FileCode,
   ShieldCheck,
   HelpCircle,
@@ -31,7 +29,6 @@ import {
   RotateCcw,
   Bot,
   Info,
-  ExternalLink,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { BoardColumnsEditor } from './BoardColumnsEditor'
@@ -47,7 +44,6 @@ import type {
   SpecFramework,
   SpecFrameworkStatus,
   SpecFrameworkInstallResult,
-  TtyMode,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 
@@ -55,7 +51,7 @@ type ProjectTab = 'general' | 'git' | 'agent' | 'tracker' | 'skills'
 
 const TABS: { id: ProjectTab; label: string; icon: React.FC<{ size?: number; className?: string }> }[] = [
   { id: 'general', label: 'Général', icon: Folder },
-  { id: 'git', label: 'Git & Worktrees', icon: GitBranch },
+  { id: 'git', label: 'Repository', icon: GitBranch },
   { id: 'tracker', label: 'Tracker', icon: Sliders },
   { id: 'agent', label: 'Agent IA & CLI', icon: Bot },
   { id: 'skills', label: 'Compétences IA & SDD', icon: Sparkles },
@@ -145,7 +141,7 @@ export const ProjectModal: React.FC = () => {
   } = useApp()
 
   const [activeTab, setActiveTab] = useState<ProjectTab>('general')
-  
+
   // Section 1: Général (Titre, description, icône, couleur, projet par défaut)
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
@@ -157,38 +153,35 @@ export const ProjectModal: React.FC = () => {
 
   // Section 2: Git (Local path, URL distante git@..., init git)
   const [repoPath, setRepoPath] = useState('')
-  const [repoPaths, setRepoPaths] = useState<string[]>([])
-  const [useWorktrees, setUseWorktrees] = useState(true)
+  const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
   // Mono-dépôt : conditionne tout ce qui parle de « la » branche courante.
-  const [monoRepo, setMonoRepo] = useState(true)
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
-  const [newRepoPathInput, setNewRepoPathInput] = useState('')
+
   const [gitRemoteUrl, setGitRemoteUrl] = useState('')
 
   // Section 3: Agent IA & CLI
   const [aiProvider, setAiProvider] = useState<AIProvider | ''>('')
   const [aiCommandTemplate, setAiCommandTemplate] = useState('')
   const [useCustomAgent, setUseCustomAgent] = useState(false)
+  const [useWorktrees, setUseWorktrees] = useState(true)
   const [parallelism, setParallelism] = useState<number>(1)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
-  const [ttyMode, setTtyMode] = useState<TtyMode>('integrated')
-  const [externalTerminalCommand, setExternalTerminalCommand] = useState('')
 
   // Section 4: Compétences IA & Framework SDD
   const [specFramework, setSpecFramework] = useState<SpecFramework>('speckit')
   const [skillOverrides, setSkillOverrides] = useState<Record<string, string>>({})
   const [skillsStatus, setSkillsStatus] = useState<ProjectSkillsStatus | null>(null)
-  const [isLoadingSkills, setIsLoadingSkills] = useState(false)
-  const [isInstallingSkills, setIsInstallingSkills] = useState(false)
-  const [isInitializingGit, setIsInitializingGit] = useState(false)
+
+
+
 
   // Spec-Driven Design toolchain (GitHub Spec Kit / OpenSpec) install state
-  const [sddStatuses, setSddStatuses] = useState<SpecFrameworkStatus[]>([])
-  const [isLoadingSdd, setIsLoadingSdd] = useState(false)
-  const [installingSdd, setInstallingSdd] = useState<SpecFramework | null>(null)
-  const [sddResult, setSddResult] = useState<SpecFrameworkInstallResult | null>(null)
+  const [, setSddStatuses] = useState<SpecFrameworkStatus[]>([])
+
+
+  const [, setSddResult] = useState<SpecFrameworkInstallResult | null>(null)
 
   // Section 5: Tracker (Type, pas de défaut, URL, Clef, Mapping)
   const [issueTracker, setIssueTracker] = useState<IssueTracker>('linear')
@@ -216,154 +209,6 @@ export const ProjectModal: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
-  const handleInitGit = async () => {
-    const targetPath = repoPath.trim()
-    if (!targetPath || isInitializingGit) return
-
-    setIsInitializingGit(true)
-    try {
-      const target = editingProject ? editingProject.id : targetPath
-      const res = await fetch(`/api/projects/${encodeURIComponent(target)}/init-git`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repoPath: targetPath,
-          projectId: editingProject?.id || slug || 'project',
-        }),
-      })
-
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Erreur lors de l\'initialisation Git')
-      }
-
-      const result = await res.json()
-      await fetchSkillsStatus(target)
-
-      addToast({
-        type: 'success',
-        title: 'Dépôt Git initialisé !',
-        description: result.message || `Dépôt Git configuré dans ${targetPath}`,
-      })
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Échec de git init',
-        description: err.message,
-      })
-    } finally {
-      setIsInitializingGit(false)
-    }
-  }
-
-  const fetchSkillsStatus = async (targetProjectId: string) => {
-    setIsLoadingSkills(true)
-    try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(targetProjectId)}/skills-status`)
-      if (res.ok) {
-        const data: ProjectSkillsStatus = await res.json()
-        if (data) {
-          setSkillsStatus({
-            ...data,
-            skills: Array.isArray(data.skills) ? data.skills : [],
-          })
-          if (data.specFramework) {
-            setSpecFramework(data.specFramework)
-          }
-        }
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsLoadingSkills(false)
-    }
-  }
-
-  /**
-   * Reads whether GitHub Spec Kit and OpenSpec are reachable on the host and
-   * already initialized in the project working directory.
-   */
-  const fetchSddStatuses = async (targetProjectIdOrPath: string) => {
-    const target = targetProjectIdOrPath.trim()
-    if (!target) {
-      setSddStatuses([])
-      return
-    }
-    setIsLoadingSdd(true)
-    try {
-      const params = new URLSearchParams()
-      if (editingProject) {
-        params.append('projectId', editingProject.id)
-      } else {
-        params.append('repoPath', target)
-      }
-      const res = await fetch(`/api/spec-framework/status?${params.toString()}`)
-      if (res.ok) {
-        const data: { frameworks: SpecFrameworkStatus[] } = await res.json()
-        setSddStatuses(Array.isArray(data.frameworks) ? data.frameworks : [])
-      }
-    } catch {
-      // Status is informational only; a failure just leaves the panel unknown.
-    } finally {
-      setIsLoadingSdd(false)
-    }
-  }
-
-  /**
-   * Runs the real toolchain installer for the chosen framework:
-   * Spec Kit via uv/uvx (`specify init --here`), OpenSpec via npm/npx (`openspec init`).
-   */
-  const handleInstallSddFramework = async (framework: SpecFramework, force = false) => {
-    const targetPath = repoPath.trim()
-    if (!targetPath) {
-      addToast({
-        type: 'warning',
-        title: 'Répertoire de travail manquant',
-        description: 'Renseignez le CWD du projet (onglet Git & Worktrees) avant d\'installer un framework SDD.',
-      })
-      return
-    }
-    if (installingSdd) return
-
-    setInstallingSdd(framework)
-    setSddResult(null)
-    try {
-      const res = await fetch('/api/spec-framework/install', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          framework,
-          repoPath: targetPath,
-          projectId: editingProject?.id || '',
-          aiAgent: aiProvider || settings.aiProvider || '',
-          force,
-        }),
-      })
-      const result: SpecFrameworkInstallResult & { error?: string } = await res.json()
-      if (!res.ok) {
-        throw new Error(result?.error || 'Installation impossible')
-      }
-
-      setSddResult(result)
-      await fetchSddStatuses(editingProject?.id || targetPath)
-
-      addToast({
-        type: result.installed ? 'success' : 'error',
-        title: result.installed
-          ? `${result.frameworkLabel} prêt`
-          : `Échec de l'installation de ${result.frameworkLabel}`,
-        description: result.message,
-      })
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Échec de l\'installation SDD',
-        description: err.message,
-      })
-    } finally {
-      setInstallingSdd(null)
-    }
-  }
 
   const fetchDetectedStatuses = async (team?: string, tracker?: IssueTracker, ghRepo?: string) => {
     setIsDetectingStatuses(true)
@@ -400,9 +245,7 @@ export const ProjectModal: React.FC = () => {
       setIsDefault(editingProject.isDefault || false)
 
       setRepoPath(editingProject.repoPath || '')
-      setRepoPaths(editingProject.repoPaths || [])
-      setUseWorktrees(editingProject.useWorktrees !== false)
-      setMonoRepo(editingProject.monoRepo !== false)
+      setPRCreationStage(editingProject.prCreationStage || 'implemented')
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
@@ -412,11 +255,10 @@ export const ProjectModal: React.FC = () => {
       setAiProvider(editingProject.aiProvider || '')
       setAiCommandTemplate(editingProject.aiCommandTemplate || '')
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
+      setUseWorktrees(editingProject.useWorktrees !== false)
       setParallelism(editingProject.parallelism && editingProject.parallelism >= 1 && editingProject.parallelism <= 3 ? editingProject.parallelism : 1)
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
-      setTtyMode(editingProject.ttyMode || 'integrated')
-      setExternalTerminalCommand(editingProject.externalTerminalCommand || '')
 
       setIssueTracker(editingProject.issueTracker || 'linear')
       setTrackerUrl(editingProject.trackerUrl || '')
@@ -431,8 +273,7 @@ export const ProjectModal: React.FC = () => {
       )
       setSkillOverrides(editingProject.skillOverrides || {})
 
-      fetchSkillsStatus(editingProject.id)
-      fetchSddStatuses(editingProject.id)
+
       fetchDetectedStatuses(editingProject.linearTeam, editingProject.issueTracker, editingProject.githubRepo)
       // Types réellement exposés par le projet Jira : sans eux, le réglage se
       // ferait à l'aveugle, et c'est justement là que se cache un projet qui ne
@@ -445,6 +286,7 @@ export const ProjectModal: React.FC = () => {
         })
       }
     } else {
+      setPRCreationStage('implemented')
       setName('')
       setSlug('')
       setDescription('')
@@ -459,11 +301,10 @@ export const ProjectModal: React.FC = () => {
       setAiProvider('')
       setAiCommandTemplate('')
       setSpecFramework(settings.specFramework || 'speckit')
+      setUseWorktrees(true)
       setParallelism(1)
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
-      setTtyMode('integrated')
-      setExternalTerminalCommand('')
 
       setIssueTracker('linear')
       setTrackerUrl('')
@@ -480,75 +321,6 @@ export const ProjectModal: React.FC = () => {
     setActiveTab('general')
   }, [editingProject, isProjectModalOpen, settings.specFramework])
 
-  const addRepoPath = () => {
-    const candidate = newRepoPathInput.trim()
-    if (!candidate) return
-    // The project's own CWD is always offered, no need to duplicate it here.
-    if (candidate === repoPath.trim() || repoPaths.includes(candidate)) {
-      setNewRepoPathInput('')
-      return
-    }
-    setRepoPaths(prev => [...prev, candidate])
-    setNewRepoPathInput('')
-  }
-
-  // Trigger skills check when repoPath changes
-  useEffect(() => {
-    if (!editingProject && repoPath && repoPath.length > 5 && repoPath.includes('/')) {
-      const timeout = setTimeout(() => {
-        fetchSkillsStatus(repoPath)
-        fetchSddStatuses(repoPath)
-      }, 500)
-      return () => clearTimeout(timeout)
-    }
-  }, [repoPath, editingProject])
-
-  const handleInstallSkills = async () => {
-    const targetPath = repoPath.trim()
-    if (!targetPath || !targetPath.trim() || isInstallingSkills) return
-
-    setIsInstallingSkills(true)
-    try {
-      const target = editingProject ? editingProject.id : targetPath
-      const res = await fetch(`/api/projects/${encodeURIComponent(target)}/install-skills`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repoPath: targetPath,
-          projectId: editingProject?.id || slug || 'project',
-          specFramework,
-          aiProvider: useCustomAgent ? (aiProvider || settings.aiProvider) : settings.aiProvider,
-          aiCommandTemplate: useCustomAgent ? aiCommandTemplate : settings.aiCommandTemplate,
-        }),
-      })
-
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Erreur lors de l\'installation des skills')
-      }
-
-      const result = await res.json()
-      if (result.status) {
-        setSkillsStatus(result.status)
-      } else {
-        await fetchSkillsStatus(target)
-      }
-
-      addToast({
-        type: 'success',
-        title: 'Compétences IA & SDD scaffoldées !',
-        description: `Compétences (${specFramework === 'openspec' ? 'OpenSpec' : 'Spec Kit'}) installées dans le projet racine et tous les worktrees.`,
-      })
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: 'Échec du scaffolding',
-        description: err.message,
-      })
-    } finally {
-      setIsInstallingSkills(false)
-    }
-  }
 
   useEffect(() => {
     if (!isProjectModalOpen) return
@@ -575,13 +347,6 @@ export const ProjectModal: React.FC = () => {
     }
   }
 
-  const handleGitRemoteChange = (val: string) => {
-    setGitRemoteUrl(val)
-    const extracted = extractGithubRepoFromGitUrl(val)
-    if (extracted && (!githubRepo || githubRepo.includes('/'))) {
-      setGithubRepo(extracted)
-    }
-  }
 
   const handleSkillOverrideChange = (skillId: string, customName: string) => {
     setSkillOverrides(prev => ({
@@ -606,20 +371,17 @@ export const ProjectModal: React.FC = () => {
         projectType,
         isDefault,
         repoPath: repoPath.trim(),
-        repoPaths,
-        useWorktrees,
-        monoRepo,
+        prCreationStage,
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
         aiProvider: useCustomAgent && aiProvider ? (aiProvider as AIProvider) : undefined,
         aiCommandTemplate: useCustomAgent && aiCommandTemplate.trim() ? aiCommandTemplate.trim() : undefined,
         specFramework,
-        parallelism,
+        useWorktrees,
+        parallelism: useWorktrees ? parallelism : 1,
         autoSyncEnabled,
         autoSyncIntervalMin,
-        ttyMode,
-        externalTerminalCommand: externalTerminalCommand.trim() || undefined,
         issueTracker,
         trackerUrl: trackerUrl.trim(),
         linearTeam: linearTeam.trim().toUpperCase(),
@@ -683,7 +445,7 @@ export const ProjectModal: React.FC = () => {
                 {editingProject ? `Paramètres : ${editingProject.name}` : 'Nouveau Projet'}
               </h3>
               <p className="text-[11px] text-[var(--text-muted)]">
-                {editingProject ? `Espace dédié avec son CWD Git, agent IA, tracker et compétences SDD` : 'Créez un espace dédié avec son propre dépôt Git, agent IA et tracker'}
+                {editingProject ? `Project settings, AI provider, tracker and skills` : 'Créez un espace dédié avec son propre dépôt Git, agent IA et tracker'}
               </p>
             </div>
           </div>
@@ -912,214 +674,7 @@ export const ProjectModal: React.FC = () => {
           {/* ========================================================= */}
           {/* SECTION 2: GIT (Chemin Local CWD, Remote URL, Init Git)   */}
           {/* ========================================================= */}
-          {activeTab === 'git' && (
-            <div className="space-y-3.5 animate-in fade-in duration-150">
-              {/* Repo Local Path */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                    Dossier du Dépôt Local (CWD pour les Skills IA)
-                  </label>
-                  {skillsStatus && (
-                    <span className={`text-[10px] font-mono font-bold flex items-center gap-1 ${
-                      skillsStatus.pathExists ? 'text-emerald-400' : 'text-rose-400'
-                    }`}>
-                      {skillsStatus.pathExists ? '✓ Dossier existant' : '✗ Dossier introuvable'}
-                    </span>
-                  )}
-                </div>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={repoPath}
-                    onChange={e => setRepoPath(e.target.value)}
-                    placeholder="/Users/username/Sources/my-app ou ."
-                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                  />
-                  <FolderGit2 size={14} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
-                </div>
-                <span className="text-[10px] text-[var(--text-muted)] mt-1 block">
-                  Répertoire racine dans lequel s'exécutent les commandes git, worktrees et agents autonomes.
-                </span>
-              </div>
-
-              {/* Additional working directories. Fed automatically whenever a
-                  ticket pins a CWD, so an epic spanning several repositories
-                  builds its own list of choices. */}
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  Autres répertoires de travail (choisissables sur un ticket)
-                </label>
-
-                {repoPaths.length > 0 ? (
-                  <div className="space-y-1.5 mb-2">
-                    {repoPaths.map(path => (
-                      <div
-                        key={path}
-                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]"
-                      >
-                        <span className="text-[11px] font-mono text-[var(--text-secondary)] truncate" title={path}>
-                          {path}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setRepoPaths(prev => prev.filter(p => p !== path))}
-                          className="p-1 rounded-md text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
-                          title="Retirer ce répertoire de la liste"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-[10px] text-[var(--text-muted)] mb-2">
-                    Aucun autre répertoire. La liste se remplit d'elle-même dès qu'un ticket épingle un nouveau CWD.
-                  </p>
-                )}
-
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      value={newRepoPathInput}
-                      onChange={e => setNewRepoPathInput(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          addRepoPath()
-                        }
-                      }}
-                      placeholder="/Users/username/Sources/autre-depot"
-                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                    />
-                    <FolderGit2 size={14} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={addRepoPath}
-                    disabled={!newRepoPathInput.trim()}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow-xs hover:opacity-90 disabled:opacity-40 transition-all cursor-pointer shrink-0"
-                  >
-                    Ajouter
-                  </button>
-                </div>
-              </div>
-
-              {/* Un projet réparti sur plusieurs dépôts n'a pas de branche
-                  courante : afficher celle d'un dépôt au hasard trompe plus
-                  qu'elle n'informe. */}
-              <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="text-xs font-bold text-[var(--text-primary)] block">
-                    Projet mono-dépôt
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] block mt-0.5">
-                    {monoRepo
-                      ? "Le projet tient dans un seul dépôt : la branche courante est affichée dans l'en-tête, avec le sélecteur de branche, et sur les cartes."
-                      : 'Les tickets de ce projet vivent dans plusieurs dépôts : la branche courante et son sélecteur sont masqués, faute de dépôt unique à désigner.'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setMonoRepo(v => !v)}
-                  role="switch"
-                  aria-checked={monoRepo}
-                  className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${
-                    monoRepo ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)]'
-                  }`}
-                  title={monoRepo ? 'Marquer ce projet comme multi-dépôts' : 'Marquer ce projet comme mono-dépôt'}
-                >
-                  <span
-                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-                      monoRepo ? 'left-[22px]' : 'left-0.5'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {/* Isolation par worktree : utile quand plusieurs agents
-                  travaillent en parallèle, coût inutile sur un projet solo. */}
-              <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <span className="text-xs font-bold text-[var(--text-primary)] block">
-                    Worktree Git isolé par tâche
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] block mt-0.5">
-                    {useWorktrees
-                      ? 'Chaque tâche obtient son propre checkout dans .tasks/worktrees, sur sa branche. Utile quand plusieurs agents travaillent en parallèle.'
-                      : "Les tâches s'exécutent directement dans le dépôt, sans checkout dédié et sans changer ta branche courante. Adapté à un projet solo."}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUseWorktrees(v => !v)}
-                  role="switch"
-                  aria-checked={useWorktrees}
-                  className={`relative w-10 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${
-                    useWorktrees ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)]'
-                  }`}
-                  title={useWorktrees ? 'Désactiver les worktrees pour ce projet' : 'Activer les worktrees pour ce projet'}
-                >
-                  <span
-                    className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all ${
-                      useWorktrees ? 'left-[22px]' : 'left-0.5'
-                    }`}
-                  />
-                </button>
-              </div>
-
-              {/* Remote URL */}
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  URL du Dépôt Distant (Git Remote)
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={gitRemoteUrl}
-                    onChange={e => handleGitRemoteChange(e.target.value)}
-                    placeholder="git@github.com:owner/repo.git ou https://github.com/owner/repo"
-                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                  />
-                  <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
-                </div>
-              </div>
-
-              {/* Status & Git Init card */}
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                    skillsStatus?.isGitRepo ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
-                  }`}>
-                    <GitBranch size={15} />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-[var(--text-primary)] block">
-                      {skillsStatus?.isGitRepo ? `Dépôt Git actif (branche: ${skillsStatus.gitBranch || 'main'})` : 'Aucun dépôt Git initialisé'}
-                    </span>
-                    <span className="text-[10px] text-[var(--text-muted)] truncate block">
-                      {skillsStatus?.isGitRepo
-                        ? `Worktrees & commits opérationnels dans ce répertoire`
-                        : `Initialisez git dans le dossier pour activer les worktrees et les branches de tâches`}
-                    </span>
-                  </div>
-                </div>
-
-                {!skillsStatus?.isGitRepo && repoPath && (
-                  <button
-                    type="button"
-                    disabled={isInitializingGit}
-                    onClick={handleInitGit}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition-all cursor-pointer shrink-0 disabled:opacity-50"
-                  >
-                    {isInitializingGit ? <Loader2 size={13} className="animate-spin text-white" /> : <Sparkles size={13} />}
-                    <span>{isInitializingGit ? 'Initialisation...' : 'Initialiser Git'}</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
+          {activeTab === 'git' && <div className="space-y-4"><label className="block">Git remote URL<input className="w-full rounded border p-2" value={gitRemoteUrl} onChange={e=>setGitRemoteUrl(e.target.value)} /></label><label className="block">Create PR/MR<select value={prCreationStage} onChange={e=>setPRCreationStage(e.target.value as 'specified'|'implemented')}><option value="implemented">After implementation and review</option><option value="specified">Draft after specification</option></select></label><p>Local repositories and execution consoles are managed in the desktop agent.</p></div>}
 
           {/* ========================================================= */}
           {/* SECTION 3: AGENT IA & CLI (Configuration du moteur/CLI)   */}
@@ -1283,7 +838,12 @@ export const ProjectModal: React.FC = () => {
                 </div>
               )}
 
-              {/* Parallelism Setting */}
+              {/* Server execution defaults; local agents can override these values. */}
+              <div className="p-3.5 rounded-xl border border-[var(--border-color)]">
+                <h3>Local agent execution defaults</h3>
+                <p className="text-xs text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
+                <label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={useWorktrees} onChange={e=>setUseWorktrees(e.target.checked)} />Use a worktree for each task</label>
+              </div>
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-2.5">
@@ -1292,10 +852,10 @@ export const ProjectModal: React.FC = () => {
                     </div>
                     <div>
                       <span className="text-xs font-bold text-[var(--text-primary)] block">
-                        Parallélisme d'Exécution IA (Workers)
+                        Parallel executions per local agent
                       </span>
                       <span className="text-[10px] text-[var(--text-muted)] block">
-                        Nombre de compétences ou agents pouvant s'exécuter simultanément en arrière-plan pour ce projet (1 à 3).
+                        {useWorktrees ? 'Project default: 1 to 3 concurrent executions. Additional tasks wait in the local queue.' : 'Without worktrees, executions are limited to one.'}
                       </span>
                     </div>
                   </div>
@@ -1305,9 +865,10 @@ export const ProjectModal: React.FC = () => {
                       <button
                         key={val}
                         type="button"
+                        disabled={!useWorktrees}
                         onClick={() => setParallelism(val)}
                         className={`px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer ${
-                          parallelism === val
+                          (useWorktrees ? parallelism : 1) === val
                             ? 'bg-[var(--accent-color)] text-white shadow-xs'
                             : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
                         }`}
@@ -1376,108 +937,7 @@ export const ProjectModal: React.FC = () => {
               </div>
 
               {/* TTY Terminal Mode Setting */}
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center shrink-0 border border-cyan-500/20">
-                      <Terminal size={16} />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-[var(--text-primary)] block">
-                        Mode de Terminal Interactif (TTY)
-                      </span>
-                      <span className="text-[10px] text-[var(--text-muted)] block">
-                        Choisissez le terminal par défaut pour les sessions et tâches de ce projet.
-                      </span>
-                    </div>
-                  </div>
 
-                  <div className="flex items-center gap-1 bg-[var(--bg-secondary)] p-1 rounded-xl border border-[var(--border-color)] self-start sm:self-auto shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setTtyMode('integrated')}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                        ttyMode === 'integrated'
-                          ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                      }`}
-                    >
-                      <Terminal size={13} />
-                      Terminal Intégré
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setTtyMode('external')}
-                      className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
-                        ttyMode === 'external'
-                          ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                      }`}
-                    >
-                      <ExternalLink size={13} />
-                      Terminal Externe (OS)
-                    </button>
-                  </div>
-                </div>
-
-                {ttyMode === 'external' && (
-                  <div className="pt-2 border-t border-[var(--border-color)] space-y-2 animate-in fade-in duration-150">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                        Émulateur de Terminal pour ce projet (Optionnel)
-                      </label>
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                        Défaut : {settings.externalTerminalCommand || 'Auto (Profil)'}
-                      </span>
-                    </div>
-
-                    {/* Presets */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
-                      {[
-                        { cmd: '', label: 'Hériter du Profil', desc: settings.externalTerminalCommand || 'Auto (OS)' },
-                        { cmd: 'Ghostty', label: 'Ghostty', desc: 'macOS & Linux' },
-                        { cmd: 'Terminal', label: 'Terminal.app', desc: 'macOS natif' },
-                        { cmd: 'iTerm', label: 'iTerm2', desc: 'macOS' },
-                        { cmd: 'Alacritty', label: 'Alacritty', desc: 'GPU accéléré' },
-                        { cmd: 'kitty', label: 'Kitty', desc: 'GPU accéléré' },
-                        { cmd: 'WezTerm', label: 'WezTerm', desc: 'Multiplexeur' },
-                        { cmd: 'Warp', label: 'Warp', desc: 'AI Terminal' },
-                      ].map(preset => {
-                        const isSelected = externalTerminalCommand === preset.cmd
-                        return (
-                          <button
-                            key={preset.cmd}
-                            type="button"
-                            onClick={() => setExternalTerminalCommand(preset.cmd)}
-                            className={`py-1.5 px-2 rounded-xl text-left border transition-all cursor-pointer ${
-                              isSelected
-                                ? 'bg-[var(--accent-light)] border-[var(--accent-color)] accent-text shadow-xs'
-                                : 'bg-[var(--bg-secondary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)]'
-                            }`}
-                          >
-                            <div className="font-bold text-xs">{preset.label}</div>
-                            <div className="text-[9px] opacity-75">{preset.desc}</div>
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    {/* Custom Input */}
-                    <div className="space-y-1 pt-1">
-                      <input
-                        type="text"
-                        value={externalTerminalCommand}
-                        onChange={e => setExternalTerminalCommand(e.target.value)}
-                        placeholder={`Laissez vide pour hériter (${settings.externalTerminalCommand || 'Auto OS'}) ou personnalisez`}
-                        className="w-full px-3 py-1.5 text-xs font-mono rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                      />
-                      <p className="text-[10px] text-[var(--text-muted)]">
-                        Supporte le placeholder <code className="text-amber-400 font-bold">{'{script}'}</code> (ex: <code className="text-[var(--text-secondary)]">ghostty -e {'{script}'}</code> ou <code className="text-[var(--text-secondary)]">open -na Ghostty --args -e {'{script}'}</code>).
-                      </p>
-                    </div>
-                  </div>
-                )}
-              </div>
 
               {/* Stage Mapping Table Card */}
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2.5">
@@ -2134,205 +1594,7 @@ export const ProjectModal: React.FC = () => {
               </div>
 
               {/* SDD toolchain installer: installs the real CLI and initializes it */}
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2.5">
-                <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                    Chaîne d'outils SDD (installation réelle)
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {isLoadingSdd && <Loader2 size={11} className="animate-spin text-[var(--accent-color)]" />}
-                    <button
-                      type="button"
-                      onClick={() => fetchSddStatuses(editingProject?.id || repoPath.trim())}
-                      disabled={!repoPath.trim()}
-                      className="flex items-center gap-1 text-[10px] font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
-                      title="Revérifier l'état des CLI et des répertoires"
-                    >
-                      <RefreshCw size={11} />
-                      <span>Revérifier</span>
-                    </button>
-                  </div>
-                </div>
 
-                <div className="space-y-2">
-                  {(['speckit', 'openspec'] as SpecFramework[]).map(fw => {
-                    const st = sddStatuses.find(s => s.framework === fw)
-                    const label = fw === 'openspec' ? 'OpenSpec' : 'GitHub Spec Kit'
-                    const isBusy = installingSdd === fw
-                    return (
-                      <div
-                        key={fw}
-                        className="p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-bold text-xs text-[var(--text-primary)]">{label}</span>
-                            {st?.initialized ? (
-                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
-                                Initialisé
-                              </span>
-                            ) : (
-                              <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]">
-                                Non initialisé
-                              </span>
-                            )}
-                            <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
-                              st?.cliAvailable
-                                ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40'
-                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                            }`}>
-                              {st?.cliAvailable ? 'CLI trouvée' : 'CLI absente'}
-                            </span>
-                          </div>
-                          <span className="text-[10px] text-[var(--text-muted)] block mt-0.5 font-mono truncate">
-                            {st?.cliAvailable
-                              ? st.cliCommand
-                              : st?.installHint || (fw === 'openspec'
-                                ? 'npm install -g @fission-ai/openspec@latest'
-                                : 'uv tool install specify-cli --from git+https://github.com/github/spec-kit.git')}
-                          </span>
-                        </div>
-
-                        <button
-                          type="button"
-                          disabled={Boolean(installingSdd) || !repoPath.trim()}
-                          onClick={() => handleInstallSddFramework(fw, Boolean(st?.initialized))}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold shadow-xs transition-all active:scale-95 disabled:opacity-50 cursor-pointer shrink-0 ${
-                            st?.initialized
-                              ? 'bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                              : 'bg-[var(--accent-color)] hover:opacity-90 text-white'
-                          }`}
-                        >
-                          {isBusy ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                          <span>
-                            {isBusy
-                              ? 'Installation...'
-                              : st?.initialized
-                              ? 'Réinitialiser'
-                              : `Installer ${fw === 'openspec' ? 'OpenSpec' : 'Spec Kit'}`}
-                          </span>
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {!repoPath.trim() && (
-                  <p className="text-[10px] text-amber-400">
-                    Renseignez le répertoire de travail (onglet « Git & Worktrees ») avant d'installer une chaîne d'outils.
-                  </p>
-                )}
-
-                {/* Command-by-command report of the last install */}
-                {sddResult && (
-                  <div className="p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] space-y-1.5">
-                    <div className="flex items-center gap-1.5">
-                      {sddResult.installed ? (
-                        <CheckCircle2 size={12} className="text-emerald-400" />
-                      ) : (
-                        <Info size={12} className="text-amber-400" />
-                      )}
-                      <span className="text-[11px] font-bold text-[var(--text-primary)]">
-                        {sddResult.frameworkLabel}
-                      </span>
-                      {sddResult.version && (
-                        <span className="text-[9px] font-mono text-[var(--text-muted)]">{sddResult.version}</span>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-[var(--text-secondary)]">{sddResult.message}</p>
-                    {sddResult.steps.length > 0 && (
-                      <div className="space-y-1 max-h-40 overflow-y-auto">
-                        {sddResult.steps.map((step, i) => (
-                          <div key={`${step.label}-${i}`} className="text-[10px]">
-                            <div className="flex items-center gap-1">
-                              <span>{step.skipped ? '⏭️' : step.success ? '✅' : '❌'}</span>
-                              <span className="text-[var(--text-secondary)]">{step.label}</span>
-                            </div>
-                            <code className="block font-mono text-[9px] text-cyan-400 pl-4 break-all">
-                              $ {step.command}
-                            </code>
-                            {step.error && (
-                              <span className="block pl-4 text-[9px] text-rose-400 break-all">{step.error}</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Scaffolding Action Header */}
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-[var(--accent-light)] accent-text flex items-center justify-center shrink-0 border border-[var(--accent-color)]/30">
-                    <Sparkles size={16} />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-[var(--text-primary)]">
-                        Scaffolding des Compétences & Worktrees
-                      </span>
-                      {isLoadingSkills ? (
-                        <span className="inline-flex items-center gap-1 text-[9px] font-mono text-[var(--text-muted)]">
-                          <Loader2 size={10} className="animate-spin text-[var(--accent-color)]" />
-                          <span>Vérification...</span>
-                        </span>
-                      ) : skillsStatus ? (
-                        <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
-                          skillsStatus.installedAll ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                        }`}>
-                          {skillsStatus.installedAll ? '5/5 Prêtes' : `${(skillsStatus.skills || []).filter(s => s.installed).length}/5 installées`}
-                        </span>
-                      ) : null}
-                    </div>
-                    <span className="text-[10px] text-[var(--text-muted)] truncate block">
-                      📁 CWD : {repoPath ? repoPath.split('/').slice(-2).join('/') : 'Non configuré'}
-                      {skillsStatus?.worktreesCount ? ` • ${skillsStatus.worktreesCount} worktree(s) couvert(s)` : ''}
-                    </span>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  disabled={isInstallingSkills || !repoPath.trim()}
-                  onClick={handleInstallSkills}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[var(--accent-color)] hover:opacity-90 text-white shadow-xs transition-all hover:scale-102 active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
-                >
-                  {isInstallingSkills ? (
-                    <Loader2 size={13} className="animate-spin text-white" />
-                  ) : (
-                    <Download size={13} />
-                  )}
-                  <span>
-                    {isInstallingSkills
-                      ? 'Scaffolding en cours...'
-                      : skillsStatus?.installedAll
-                      ? 'Réinstaller / Sync Worktrees'
-                      : '⚡ Scaffolder dans le projet & worktrees'}
-                  </span>
-                </button>
-              </div>
-
-              {/* Worktrees Coverage Notice */}
-              {skillsStatus && skillsStatus.worktreePaths && skillsStatus.worktreePaths.length > 0 && (
-                <div className="p-3 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[11px] text-[var(--text-secondary)]">
-                  <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)] mb-1">
-                    <FolderGit2 size={13} className="text-[var(--accent-color)]" />
-                    <span>Dépôts et Worktrees synchronisés ({skillsStatus.worktreePaths.length}) :</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {skillsStatus.worktreePaths.map(wp => (
-                      <span key={wp} className="font-mono text-[10px] px-2 py-0.5 rounded-md bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]">
-                        {wp.split('/').slice(-2).join('/')}
-                      </span>
-                    ))}
-                  </div>
-                  <span className="text-[9px] text-[var(--text-muted)] mt-1.5 block">
-                    Les fichiers de skills sont écrits dans <code className="text-cyan-400">.agents/skills/</code>, <code className="text-cyan-400">.gemini/skills/</code>, <code className="text-cyan-400">.agy/skills/</code> et <code className="text-cyan-400">.skills/</code> de chaque worktree.
-                  </span>
-                </div>
-              )}
 
               {/* Skills Overrides Table List */}
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2.5">

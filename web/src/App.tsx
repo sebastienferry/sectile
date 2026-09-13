@@ -20,10 +20,7 @@ import { TaskDetailModal } from './components/TaskDetailModal'
 import { CommandPalette } from './components/CommandPalette'
 import { ProfileModal } from './components/ProfileModal'
 import { ProjectModal } from './components/ProjectModal'
-import { GitDiffModal } from './components/GitDiffModal'
-import { BranchSwitcherModal } from './components/BranchSwitcherModal'
 import { StatusBar } from './components/StatusBar'
-import { WorkspaceTerminalPanel } from './components/WorkspaceTerminalPanel'
 import { ToastContainer } from './components/ToastContainer'
 import { Loader2 } from 'lucide-react'
 
@@ -35,11 +32,8 @@ const MainContent: React.FC = () => {
     tasks,
     isTrackerSetupOpen,
     setIsTrackerSetupOpen,
-    isTerminalPanelOpen,
-    terminalDockPosition,
   } = useApp()
 
-  const dockPos = terminalDockPosition || 'right'
 
   return (
     <>
@@ -49,9 +43,7 @@ const MainContent: React.FC = () => {
         <Sidebar />
 
         {/* Docked workspace CLI on LEFT */}
-        {isTerminalPanelOpen && dockPos === 'left' && (
-          <WorkspaceTerminalPanel position="left" />
-        )}
+
 
         {/* Main Workspace Area */}
         <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 min-h-0">
@@ -96,15 +88,11 @@ const MainContent: React.FC = () => {
           </main>
 
           {/* Docked workspace CLI on BOTTOM */}
-          {isTerminalPanelOpen && dockPos === 'bottom' && (
-            <WorkspaceTerminalPanel position="bottom" />
-          )}
+
         </div>
 
         {/* Docked workspace CLI on RIGHT */}
-        {isTerminalPanelOpen && dockPos === 'right' && (
-          <WorkspaceTerminalPanel position="right" />
-        )}
+
       </div>
 
       {/* Global Bottom Status Bar with CWD Git Branch, Project, Engine & Live Jobs */}
@@ -115,8 +103,8 @@ const MainContent: React.FC = () => {
       <CloneTaskModal />
       <TaskDetailModal />
       <ProjectModal />
-      <GitDiffModal />
-      <BranchSwitcherModal />
+
+
       <CommandPalette />
       <ProfileModal />
       <ToastContainer />
