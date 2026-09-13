@@ -2,6 +2,8 @@
 
 Branch: `feat/62`. Pull request: https://github.com/sebastienferry/taskflow/pull/88.
 
+PR #88 was verified open and ready for review with implementation commit `bc247090470560b4a1e5c498de740c937b3c79f8`. GitHub reports no configured status checks; the local checks below supply validation evidence. No merge was performed.
+
 ## Changes and review
 
 - `desktop/src/main.js`: independent project-row list action; immediate project-scoped open-task requests; searchable results; stale success/error suppression; default pickup skill when available; explicit missing-mapping and request failure messages. Quick-add passes its initial query directly to avoid a second request and late writes into another dialog.
