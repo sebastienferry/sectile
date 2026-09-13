@@ -1,5 +1,10 @@
 import { sameTask, tasksInProject } from '../lib/taskIdentity'
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
+import {
+  loadBoardCardDisplayMode,
+  saveBoardCardDisplayMode,
+  toggleBoardCardDisplayMode as toggleDisplayModeValue,
+} from '../lib/boardDisplayMode'
 import type {
   MacroRequiredField,
   SkillEditorEntry,
@@ -10,6 +15,7 @@ import type {
   UserSettings,
   ViewMode,
   BoardGroupingMode,
+  BoardCardDisplayMode,
   WorkflowStage,
   ToastMessage,
   Skill,
@@ -72,6 +78,9 @@ interface AppContextType {
   setActiveView: (view: ViewMode) => void
   boardGrouping: BoardGroupingMode
   setBoardGrouping: (mode: BoardGroupingMode) => void
+  boardCardDisplayMode: BoardCardDisplayMode
+  setBoardCardDisplayMode: (mode: BoardCardDisplayMode) => void
+  toggleBoardCardDisplayMode: () => void
   searchQuery: string
   setSearchQuery: (query: string) => void
   statusFilter: Status | null
@@ -445,6 +454,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch {
       // stockage indisponible : le mode vaut pour cette session
     }
+  }, [])
+
+  const [boardCardDisplayMode, setBoardCardDisplayModeState] = useState<BoardCardDisplayMode>(() => {
+    return loadBoardCardDisplayMode()
+  })
+
+  const setBoardCardDisplayMode = useCallback((mode: BoardCardDisplayMode) => {
+    setBoardCardDisplayModeState(mode)
+    saveBoardCardDisplayMode(mode)
+  }, [])
+
+  const toggleBoardCardDisplayMode = useCallback(() => {
+    setBoardCardDisplayModeState(prev => {
+      const next = toggleDisplayModeValue(prev)
+      saveBoardCardDisplayMode(next)
+      return next
+    })
   }, [])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilterState] = useState<Status | null>(null)
@@ -3205,6 +3231,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setActiveView,
         boardGrouping,
         setBoardGrouping,
+        boardCardDisplayMode,
+        setBoardCardDisplayMode,
+        toggleBoardCardDisplayMode,
         moveTaskWorkflowStage,
         searchQuery,
         setSearchQuery,

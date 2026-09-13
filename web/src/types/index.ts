@@ -445,6 +445,8 @@ export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'a
 
 export type BoardGroupingMode = 'workflow' | 'status'
 
+export type BoardCardDisplayMode = 'condensed' | 'expanded'
+
 export type WorkflowStage = 'new' | 'clarified' | 'specified' | 'implemented' | 'reviewed' | 'finished'
 
 export type DetailMode = 'modal' | 'panel'
