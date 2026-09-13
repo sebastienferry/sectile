@@ -3,6 +3,7 @@ const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypt
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
+const {readAgentLog}=require('./agent-log.cjs')
 if(process.env.TASKFLOW_DESKTOP_DATA_DIR)app.setPath('userData',process.env.TASKFLOW_DESKTOP_DATA_DIR)
 let window,connection,socket,starting=false
 const defaultInfoPath=()=>process.env.TASKFLOW_DESKTOP_DATA_DIR
@@ -130,6 +131,7 @@ async function lifecycle(action){
 }
 ipcMain.handle('restart',()=>lifecycle('restart'))
 ipcMain.handle('shutdown',()=>lifecycle('stop'))
+ipcMain.handle('agent-logs',()=>readAgentLog(path.join(app.getPath('userData'),'agent.log')))
 ipcMain.handle('save-log',async(_,text)=>{
  if(typeof text!=='string'||text.length>10_000_000)throw Error('Invalid log')
  const result=await dialog.showSaveDialog(window,{defaultPath:'taskflow-execution.log'})

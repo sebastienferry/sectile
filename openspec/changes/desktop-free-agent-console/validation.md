@@ -22,3 +22,12 @@ git-diff capability/endpoint, and desktop Changes view.
 - Desktop production build: passed.
 - Full desktop UI suite after rebase: **16 passed, 0 failed**.
 - No task workflow stage was changed.
+
+## Main integration after PR #96
+
+Merged `origin/main` at `5d556a4` without rewriting the published branch. Resolved
+the README conflict by retaining both free-console and offline agent-log usage.
+The Electron integrations merged automatically and were reviewed together.
+
+Desktop build, the free-console UI scenario, all five agent-log reader/UI tests,
+and `git diff --check` passed. No backend behavior changed in this integration.

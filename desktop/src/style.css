@@ -76,3 +76,5 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .skill-result{font-size:11px;color:#91a1b7;white-space:nowrap}.skill-result.completed{color:#80e6ce}.skill-result.failed{color:#ff9292}.skill-result.canceled{color:#b1a7b2}
 
 .task-skill-status.completed{color:#80e6ce}.task-skill-status.pending{color:#91a1b7}.task-skill-status.canceled{color:#b1a7b2}
+
+.agent-log-source{overflow-wrap:anywhere;font-family:monospace}dialog .agent-log-output{max-height:32vh;min-height:120px;white-space:pre-wrap;overflow-wrap:anywhere}.agent-log-output:focus-visible{outline:2px solid #62d3be;outline-offset:2px}

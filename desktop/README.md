@@ -51,8 +51,13 @@ remains visible. The project directory browser discovers server projects and
 saves local Git repository mappings.
 
 Closing the window or quitting Electron keeps the detached agent and tasks alive.
-Reopening restores the connection. Agent diagnostics are in agent.log under
-Electron's user data directory. Its private connection file contains a credential.
+Reopening restores the connection. Open **Agent logs** in the top toolbar to read
+agent diagnostics, including while disconnected or after a failed start. The viewer
+shows the desktop-owned `agent.log` path and the latest 256 KiB, with a notice when
+earlier output is omitted. Use **Refresh** for a new snapshot; missing, empty, and
+unreadable files have explicit messages. The view stays local and does not alter
+the log or selected execution. Agents started outside the desktop may write to
+their original terminal instead. The private connection file contains a credential.
 
 History and the execution index last for the daemon's lifetime. Restarting the
 agent does not recover processes or historical sessions. Replay is bounded;
@@ -60,7 +65,7 @@ exported logs contain plain text scrollback.
 
 Executions that fail or are canceled before a console is created show an
 explanation instead of opening a terminal connection. For launch failures, check
-the task activity and `agent.log` in the application's data directory.
+the task activity and **Agent logs** in the top toolbar.
 When a task's assigned branch is already open in the main repository checkout,
 the agent reuses that checkout and preserves its local changes.
 
