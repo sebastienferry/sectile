@@ -41,3 +41,8 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .queue-heading{display:flex;align-items:center;justify-content:space-between;font-size:12px}.queue-heading .icon-button{width:28px;height:28px;padding:5px}
 
 .project-row>button.project-queue-toggle{opacity:1}
+
+#toolbar{height:auto;min-height:72px;flex-wrap:wrap;overflow:visible}
+#toolbar>div{flex:1 1 200px;max-width:100%}
+#title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#toolbar>button,#toolbar>select{flex-shrink:0;max-width:100%;margin:0}
