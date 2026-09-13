@@ -95,6 +95,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopCreateTask(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/run-result" && r.Method == http.MethodGet {
+		d.desktopRunResult(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/tasks" {
 		d.desktopTasks(w, r)
 		return
@@ -669,4 +673,41 @@ func desktopTaskFinished(task models.Task) bool {
 		}
 	}
 	return false
+}
+
+// Resolve the selected execution against server activity, independently of PTY exit.
+func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	d.runsMu.Lock()
+	run := d.runs[id]
+	if run == nil {
+		d.runsMu.Unlock()
+		http.Error(w, "Run not found", 404)
+		return
+	}
+	taskID, projectID := run.taskID, run.desktop.ProjectID
+	d.runsMu.Unlock()
+	var task models.Task
+	if err := d.readAPI(r.Context(), "/api/tasks/"+url.PathEscape(taskID), &task); err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	if task.ID != taskID || task.ProjectID != projectID {
+		http.Error(w, "Task does not match execution", 409)
+		return
+	}
+	var activities []models.TaskActivity
+	if err := d.readAPI(r.Context(), "/api/tasks/"+url.PathEscape(taskID)+"/activities", &activities); err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	var activity any
+	for _, item := range activities {
+		if item.ID == id && item.TaskID == taskID {
+			activity = map[string]string{"id": item.ID, "taskId": item.TaskID, "skillId": item.SkillID, "status": item.Status}
+			break
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"activity": activity, "task": map[string]any{"status": task.Status, "labels": task.Labels}})
 }

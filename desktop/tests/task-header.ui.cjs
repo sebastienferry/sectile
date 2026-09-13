@@ -8,6 +8,7 @@ test('TTY header follows metadata and selection without disturbing the console',
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-task-header-'))
  const run=(id,taskId,skill,status='completed')=>({id,taskId,taskKey:taskId==='a'?'#82':'',projectId:'project',skill,status,sessionId:id,directory:'/tmp/example/worktree',createdAt:id==='old'?'2026-09-12T10:00:00Z':'2026-09-13T10:00:00Z'})
  let runs=[run('current','a','implement'),run('old','a','clarify'),run('other','full-task-id','specify','running')]
+ let reported=null,resultUnavailable=false
  let tasks=[],pending=[],hold=true,fail=false,requests=0,attachments=0,disconnections=0
  const respond=res=>{if(fail)res.writeHead(503).end();else res.end(JSON.stringify(tasks))}
  const server=http.createServer((req,res)=>{
@@ -15,6 +16,7 @@ test('TTY header follows metadata and selection without disturbing the console',
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project',name:'Example project',path:'/tmp/example'}]));return}
   if(req.url==='/desktop/project?id=project'){res.end(JSON.stringify({server:{skills:[{id:'implement',name:'Implement'}]}}));return}
+  if(req.url.startsWith('/desktop/run-result?')){if(resultUnavailable)res.writeHead(503).end();else res.end(JSON.stringify(reported||{activity:null}));return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify(runs));return}
   if(req.url.startsWith('/desktop/tasks?')){requests++;if(hold)pending.push(res);else respond(res);return}
   res.writeHead(404).end()
@@ -104,9 +106,23 @@ test('TTY header follows metadata and selection without disturbing the console',
   // A failed initial request keeps identity usable without a cached title.
   fail=true;runs=[run('other','full-task-id','specify','running')];await page.reload()
   await expect(header()).toHaveText('full-task-id · specify')
+  const consoleCounts=[attachments,disconnections]
+  reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
+  await expect(page.locator('#skill-result')).toHaveText('✓ Skill completed')
+  await page.screenshot({path:path.join(root,'skill-completed.png')})
+  console.log('Skill-result screenshot: '+path.join(root,'skill-completed.png'))
+  assert.equal(runs[0].status,'running')
+  assert.deepEqual([attachments,disconnections],consoleCounts)
+  reported.task.labels=['clarified']
+  await expect(page.locator('#skill-result')).toContainText('Awaiting stage validation')
+  reported.activity.status='failed'
+  await expect(page.locator('#skill-result')).toHaveText('! Skill failed')
+  resultUnavailable=true
+  await expect(page.locator('#skill-result')).toHaveText('◷ In progress')
   runs=[];await page.reload()
   await expect(header()).toHaveText('Select an execution')
   await expect(header()).toHaveAttribute('title','Select an execution')
+  await expect(page.locator('#skill-result')).toBeHidden()
  }finally{
   if(app)await app.close()
   for(const res of pending)res.end('[]')

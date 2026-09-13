@@ -83,6 +83,19 @@ helpers. There is no automatic refresh or persistent source snapshot. Upgrade an
 restart older agents to enable inspection; runs without recorded branch metadata
 need a new execution. A failed refresh clears the previous result.
 
+### Skill result indicator
+
+The terminal header shows the selected skill's result independently of its console
+process. A checkmark means the server reports that exact execution completed;
+for workflow stages, the task must also have reached the corresponding stage.
+An open console can therefore show **Skill completed**. Process exit alone shows
+**Execution ended · skill completion unconfirmed**, and pending stage validation,
+failures, cancellations and in-progress executions have distinct labels.
+The indicator refreshes without reattaching or resetting the terminal. It requires
+an updated local agent for server-result lookup; unavailable results never produce
+a success checkmark. The server does not yet expose a reliable waiting-for-answer
+state, so inactivity is not interpreted as a request for input.
+
 ### Execution queue
 
 Hover over a project's heading to reveal its small funnel-shaped queue icon alongside the other

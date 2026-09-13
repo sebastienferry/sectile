@@ -71,3 +71,6 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .diff-patch span{display:block;white-space:pre;min-width:max-content}.diff-add{color:#a7ebbb;background:#173426}.diff-delete{color:#ffc0ba;background:#3b2326}.diff-hunk{color:#9ecbff}
 #changes button:focus-visible,#changes pre:focus-visible,.execution-views button:focus-visible{outline:2px solid #8dc4ff;outline-offset:2px}
 @media(max-width:750px){.diff-body{grid-template-columns:minmax(0,1fr)}.diff-files{max-height:150px}}
+
+.terminal-title-line{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}.terminal-title-line #title{min-width:0}
+.skill-result{font-size:11px;color:#91a1b7;white-space:nowrap}.skill-result.completed{color:#80e6ce}.skill-result.failed{color:#ff9292}.skill-result.canceled{color:#b1a7b2}

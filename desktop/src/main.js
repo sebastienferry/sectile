@@ -1,4 +1,6 @@
 import { createGitDiff } from './gitDiff.js'
+
+import { skillResult } from './skill-result.mjs'
 import { orderedQueueRuns } from './queue.mjs'
 import { orderedTaskGroups } from './task-order.mjs'
 import { Terminal } from '@xterm/xterm'
@@ -11,7 +13,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
 <form id="start"><label>TaskFlow server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><strong id="title">Select an execution</strong><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
+<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
 <dialog id="project-dialog"><button id="close-dialog" aria-label="Close">×</button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:'Menlo, monospace',scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
 const fit=new FitAddon();terminal.loadAddon(fit)
@@ -20,6 +22,7 @@ const submittingSteps=new Set()
 const submittedSteps=new Map()
 const nextStepErrors=new Map()
 const taskTitles=new Map()
+const skillResults=new Map(),loadingSkillResults=new Set()
 const pullRequests=new Map()
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
@@ -70,6 +73,8 @@ function select(run){
  selectedProject=run.projectId
  selected=run.id
  changes.select(selected)
+
+ refreshSkillResult()
  refreshNextStep()
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
@@ -117,6 +122,13 @@ function renderQueue(project,group){
  }
  if(waiting.length){const note=document.createElement('p');note.className='queue-note';note.textContent='Starts when project capacity and checkout availability permit. Independent projects may start separately.';list.append(note)}
 }
+async function refreshSkillResult(){
+ const run=runs.find(item=>item.id===selected)
+ if(!run||loadingSkillResults.has(run.id))return
+ loadingSkillResults.add(run.id)
+ try{skillResults.set(run.id,await api.runResult(run.id))}catch{skillResults.delete(run.id)}
+ finally{loadingSkillResults.delete(run.id);renderHeader()}
+}
 function renderHeader(){
  const run=runs.find(item=>item.id===selected)
  let text='Select an execution'
@@ -127,6 +139,9 @@ function renderHeader(){
  }
  const title=document.querySelector('#title')
  title.textContent=text;title.title=text
+ const badge=document.querySelector('#skill-result'),result=skillResult(run,skillResults.get(run?.id))
+ badge.hidden=!result
+ if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title=result.label;badge.setAttribute('aria-label',result.label)}
 }
 function render(){
  changes.select(selected)
@@ -240,6 +255,7 @@ async function refresh(){
   if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current)
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
+  refreshSkillResult()
  }catch{agentUnavailable()}
  finally{refreshing=false}
 }

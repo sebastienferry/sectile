@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  clearHistory:()=>ipcRenderer.invoke('clear-history'),
  gitDiff:id=>ipcRenderer.invoke('git-diff',id),
  runs:()=>ipcRenderer.invoke('runs'),
+ runResult:id=>ipcRenderer.invoke('run-result',id),
  stop:id=>ipcRenderer.invoke('stop',id),
  detach:()=>ipcRenderer.invoke('detach'),
  attach:id=>ipcRenderer.invoke('attach',id),
