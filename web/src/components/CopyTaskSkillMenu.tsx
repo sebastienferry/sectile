@@ -18,7 +18,7 @@ export function CopyTaskSkillMenu({ task }: { task: Task }) {
   const [message, setMessage] = useState('')
   const action = actions.find(item => item.id === actionId) || actions[0]
   const skill = skillCommand(action.id, action.command, task.projectId)
-  const prompt = `${skill} ${task.id}. Use TaskFlow MCP to read the task and comments and record workflow transitions. First call taskflow_start_run and save its returned ID. Call taskflow_finish_run with that runId when this entire skill ends, including failure or stopping for user input. Task primary key: ${task.id}.${task.projectId ? ` Project primary key: ${task.projectId}.` : ''}`
+  const prompt = `${skill} ${task.id}. Use Sectile MCP to read the task and comments and record workflow transitions. First call start_run and save its returned ID. Call finish_run with that runId when this entire skill ends, including failure or stopping for user input. Task primary key: ${task.id}.${task.projectId ? ` Project primary key: ${task.projectId}.` : ''}`
   const command = provider + " '" + prompt.replace(/'/g, "'\\''") + "'"
   const fieldClass = 'w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] p-2 text-[var(--text-primary)]'
 
@@ -46,7 +46,7 @@ export function CopyTaskSkillMenu({ task }: { task: Task }) {
             {actions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
           </select>
         </label>
-        <p className="text-[var(--text-muted)]">Run in the local repository with the project skills and TaskFlow MCP configured.</p>
+        <p className="text-[var(--text-muted)]">Run in the local repository with the project skills and Sectile MCP configured.</p>
         <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--bg-primary)] p-2 select-text"><code>{command}</code></pre>
         <button type="button" className={fieldClass + ' cursor-pointer'} onClick={copy}>Copy command</button>
         <p role="status">{message}</p>

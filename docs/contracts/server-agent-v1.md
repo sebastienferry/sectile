@@ -98,7 +98,7 @@ Upgrade server and agent together for the initial v1 rollout.
 `step_status` correlates with `msgId` and reports `running`, `completed` or
 `failed`, with a summary. `completed` acknowledges launch only, not completion of
 the requested workflow stage. Web launch requests wait up to 45 seconds. The
-native client uses TaskFlow MCP to read tasks/comments and submit verified stage
+native client uses Sectile MCP to read tasks/comments and submit verified stage
 reports. True server-managed workers retain their separate result-file contract.
 
 ## Future binary separation
@@ -143,11 +143,11 @@ The agent contract does not carry tracker fields, stages, stage mappings or ttyM
 
 ## MCP project discovery and review links
 
-Native clients can call `taskflow_list_projects({})` to discover the same
+Native clients can call `list_projects({})` to discover the same
 secret-free project records as the HTTP discovery endpoint, then pass an ID to
-`taskflow_get_project_context` or `taskflow_list_tasks`.
+`get_project_context` or `list_tasks`.
 
-`taskflow_transition_stage` accepts `prUrl` for either a pull request or a merge
+`transition_stage` accepts `prUrl` for either a pull request or a merge
 request. The server persists this link on the task alongside the stage update and
 includes it in the tracker synchronization job. Omitting the argument preserves
 an existing link. For example:
@@ -162,9 +162,9 @@ A delegated skill creates a `remote_run` activity before dispatch. Its ID travel
 as `runId` and `TASKFLOW_RUN_ID`. Launch failure closes the run as failed;
 successful process launch leaves it running.
 
-Standalone skills call `taskflow_start_run(taskKey, skill, runId?)`, retaining
+Standalone skills call `start_run(taskKey, skill, runId?)`, retaining
 the returned activity ID. A supplied launcher run ID reuses the existing run.
-The invocation owner calls `taskflow_finish_run(taskKey, runId, status, note)`
+The invocation owner calls `finish_run(taskKey, runId, status, note)`
 with completed, failed or canceled when it ends, including a stop for user input.
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
@@ -349,6 +349,21 @@ Managed adjustment pins the original PR identity before running and verifies the
 same ready PR, branch, pushed commit, clean checkout and reported build/lint/test
 checks at completion. Standalone transitions verify forge identity and readiness;
 check output remains agent-reported. Human merge and handoff remain separate.
+
+## MCP naming contract
+
+HTTP and stdio initialize with server name `sectile`; managed native registrations
+use the same name. The catalog is exactly `get_task`, `transition_stage`,
+`add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`
+and `finish_run`. The former `taskflow_` names are unsupported on both transports.
+Tool schemas, return values, run ownership and managed-run validation are unchanged.
+
+Agent launch prompts, desktop exit reporting and built-in policy text use the
+canonical names. User-owned stored instructions remain untouched. Upgrade server
+and agent together, migrate registration through normal bootstrap, reconcile any
+explicit policies requiring manual migration, and reconnect clients. See the
+[upgrade guide](../../README.md#mcp-naming-upgrade). No change is made to the
+versioned agent DTO, `TASKFLOW_RUN_ID`, filesystem paths or protocol markers.
 
 ### Desktop skill result lookup
 

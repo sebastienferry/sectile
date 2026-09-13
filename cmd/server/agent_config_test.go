@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"tasks/internal/mcptest"
 	"tasks/internal/models"
 )
 
@@ -161,18 +162,25 @@ func TestMCPStdioBridge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command(os.Args[0], "-test.run=^TestMCPStdioHelper$")
-	command.Env = append(os.Environ(), "TASKFLOW_MCP_HELPER=1", "TASKFLOW_AGENT_URL="+d.agentURL, "TASKFLOW_AGENT_TOKEN=")
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
-	if err != nil {
-		t.Fatal(err)
+	connect := func() *mcp.ClientSession {
+		t.Helper()
+		command := exec.Command(os.Args[0], "-test.run=^TestMCPStdioHelper$")
+		command.Env = append(os.Environ(), "TASKFLOW_MCP_HELPER=1", "TASKFLOW_AGENT_URL="+d.agentURL, "TASKFLOW_AGENT_TOKEN=")
+		session, err := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return session
 	}
+	session := connect()
 	defer session.Close()
+	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
 	if err != nil || len(list.Tools) != 8 {
 		t.Fatalf("stdio discovery %v %v", list, err)
 	}
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "taskflow_list_tasks", Arguments: map[string]any{"projectId": "default"}})
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_tasks", Arguments: map[string]any{"projectId": "default"}})
 	if err != nil || result.IsError {
 		t.Fatalf("stdio call %v %v", result, err)
 	}
@@ -180,15 +188,15 @@ func TestMCPStdioBridge(t *testing.T) {
 		name string
 		args map[string]any
 	}{
-		{"taskflow_add_comment", map[string]any{"taskKey": task.ID, "body": "Comment through local MCP"}},
-		{"taskflow_transition_stage", map[string]any{"taskKey": task.ID, "stage": "clarified", "note": "Verified via local agent"}},
-		{"taskflow_get_task", map[string]any{"taskKey": task.ID}},
+		{"add_comment", map[string]any{"taskKey": task.ID, "body": "Comment through local MCP"}},
+		{"transition_stage", map[string]any{"taskKey": task.ID, "stage": "clarified", "note": "Verified via local agent"}},
+		{"get_task", map[string]any{"taskKey": task.ID}},
 	} {
 		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: call.name, Arguments: call.args})
 		if err != nil || result.IsError {
 			t.Fatalf("%s: %v %v", call.name, result, err)
 		}
-		if call.name == "taskflow_get_task" {
+		if call.name == "get_task" {
 			raw, _ := json.Marshal(result)
 			for _, want := range []string{"Read this description through the local agent", "Comment through local MCP"} {
 				if !strings.Contains(string(raw), want) {
@@ -279,6 +287,7 @@ func TestExternalTerminalCommandWithoutSkill(t *testing.T) {
 }
 
 func TestNativePickupBootstrapAndLaunch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	for _, provider := range []string{"codex", "claude"} {
 		t.Run(provider, func(t *testing.T) {
 			root := t.TempDir()

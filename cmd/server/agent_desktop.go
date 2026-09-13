@@ -215,13 +215,13 @@ func (d *agentDaemon) writeDesktopInfo() error {
 func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status string) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	client := mcp.NewClient(&mcp.Implementation{Name: "taskflow-desktop-agent", Version: "1"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "sectile-desktop-agent", Version: "1"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: d.serverURL + "/mcp", HTTPClient: agentHTTPClient(d.token)}, nil)
 	if err != nil {
 		return err
 	}
 	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "taskflow_finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": "Local console process exited"}})
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": "Local console process exited"}})
 	if err != nil {
 		return err
 	}

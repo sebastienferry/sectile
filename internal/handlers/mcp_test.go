@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/agentconfig"
+	"tasks/internal/mcptest"
 	"tasks/internal/models"
 )
 
@@ -32,11 +33,18 @@ func TestMCPToolsEndToEnd(t *testing.T) {
 	srv := httptest.NewServer(h.MCPHandler())
 	defer srv.Close()
 	ctx := context.Background()
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{"integration-secret"}}}, nil)
-	if err != nil {
-		t.Fatal(err)
+	connect := func() *mcp.ClientSession {
+		t.Helper()
+		session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{"integration-secret"}}}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return session
 	}
+	session := connect()
 	defer session.Close()
+	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
 	if err != nil || len(list.Tools) != 8 {
 		t.Fatalf("tools = %+v, %v", list, err)
@@ -55,45 +63,45 @@ func TestMCPToolsEndToEnd(t *testing.T) {
 		}
 		return result
 	}
-	started := call("taskflow_start_run", map[string]any{"taskKey": task.ID, "skill": "pickup"}, false)
+	started := call("start_run", map[string]any{"taskKey": task.ID, "skill": "pickup"}, false)
 	startedJSON, _ := json.Marshal(started.StructuredContent)
 	var run models.TaskActivity
 	if err := json.Unmarshal(startedJSON, &run); err != nil || run.ID == "" {
 		t.Fatalf("invalid run: %s %v", startedJSON, err)
 	}
-	call("taskflow_start_run", map[string]any{"taskKey": task.ID, "skill": "pickup", "runId": run.ID}, false)
-	call("taskflow_transition_stage", map[string]any{"taskKey": task.ID, "stage": "clarified", "note": "Intermediate step"}, false)
+	call("start_run", map[string]any{"taskKey": task.ID, "skill": "pickup", "runId": run.ID}, false)
+	call("transition_stage", map[string]any{"taskKey": task.ID, "stage": "clarified", "note": "Intermediate step"}, false)
 	active, err := database.GetActivityByID(run.ID)
 	if err != nil || active.Status != "running" {
 		t.Fatalf("transition finished remote run: %+v %v", active, err)
 	}
-	call("taskflow_finish_run", map[string]any{"taskKey": task.ID, "runId": run.ID, "status": "completed", "note": "Done"}, false)
+	call("finish_run", map[string]any{"taskKey": task.ID, "runId": run.ID, "status": "completed", "note": "Done"}, false)
 	active, err = database.GetActivityByID(run.ID)
 	if err != nil || active.Status != "completed" {
 		t.Fatalf("run not finished: %+v %v", active, err)
 	}
-	call("taskflow_finish_run", map[string]any{"taskKey": task.ID, "runId": run.ID, "status": "invented", "note": "Bad"}, true)
-	call("taskflow_add_comment", map[string]any{"taskKey": task.Key, "body": "Quotes: \"yes\"\nsecond line $(literal)"}, false)
-	result := call("taskflow_get_task", map[string]any{"taskKey": task.Key}, false)
+	call("finish_run", map[string]any{"taskKey": task.ID, "runId": run.ID, "status": "invented", "note": "Bad"}, true)
+	call("add_comment", map[string]any{"taskKey": task.Key, "body": "Quotes: \"yes\"\nsecond line $(literal)"}, false)
+	result := call("get_task", map[string]any{"taskKey": task.Key}, false)
 	raw, _ := json.Marshal(result)
 	if !strings.Contains(string(raw), "second line $(literal)") {
 		t.Fatalf("missing comments: %s", raw)
 	}
-	projects := call("taskflow_list_projects", map[string]any{}, false)
+	projects := call("list_projects", map[string]any{}, false)
 	projectJSON, _ := json.Marshal(projects)
 	if !strings.Contains(string(projectJSON), "default") || strings.Contains(string(projectJSON), "repoPath") {
 		t.Fatalf("invalid project discovery: %s", projectJSON)
 	}
-	call("taskflow_get_project_context", map[string]any{"projectId": "default"}, false)
-	call("taskflow_list_tasks", map[string]any{"projectId": "default"}, false)
-	call("taskflow_get_project_context", map[string]any{"taskKey": task.Key}, false)
-	call("taskflow_transition_stage", map[string]any{"taskKey": task.Key, "stage": "clarified", "note": "Scope checked", "branch": "feat/mcp"}, false)
+	call("get_project_context", map[string]any{"projectId": "default"}, false)
+	call("list_tasks", map[string]any{"projectId": "default"}, false)
+	call("get_project_context", map[string]any{"taskKey": task.Key}, false)
+	call("transition_stage", map[string]any{"taskKey": task.Key, "stage": "clarified", "note": "Scope checked", "branch": "feat/mcp"}, false)
 	updated, err := database.GetTaskByID(task.ID)
 	if err != nil || updated.BranchName == nil || *updated.BranchName != "feat/mcp" {
 		t.Fatalf("transition failed: %+v %v", updated, err)
 	}
 	for _, link := range []string{"https://github.com/example/repo/pull/42", "https://gitlab.com/example/repo/-/merge_requests/42"} {
-		call("taskflow_transition_stage", map[string]any{"taskKey": task.ID, "stage": "reviewed", "note": "Unverified URL", "prUrl": link}, true)
+		call("transition_stage", map[string]any{"taskKey": task.ID, "stage": "reviewed", "note": "Unverified URL", "prUrl": link}, true)
 		persisted, err := database.GetTaskByID(task.ID)
 		if err != nil || persisted.PrURL != nil {
 			t.Fatalf("unverified PR was persisted: %+v %v", persisted, err)
@@ -105,11 +113,11 @@ func TestMCPToolsEndToEnd(t *testing.T) {
 		{"taskKey": task.Key, "stage": "implemented"},
 		{"taskKey": task.Key, "stage": "implemented", "note": "   "},
 	} {
-		call("taskflow_transition_stage", args, true)
+		call("transition_stage", args, true)
 	}
-	call("taskflow_get_task", map[string]any{"taskKey": "missing"}, true)
-	call("taskflow_add_comment", map[string]any{"taskKey": task.Key, "body": ""}, true)
-	call("taskflow_get_project_context", map[string]any{}, true)
+	call("get_task", map[string]any{"taskKey": "missing"}, true)
+	call("add_comment", map[string]any{"taskKey": task.Key, "body": ""}, true)
+	call("get_project_context", map[string]any{}, true)
 }
 
 func TestAgentConfigAuthAndProjection(t *testing.T) {

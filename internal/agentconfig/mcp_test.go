@@ -127,7 +127,7 @@ func TestBootstrapMCPVisibleToAgy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agy mcp list: %v: %s", err, output)
 	}
-	if !strings.Contains(string(output), "taskflow") || !strings.Contains(string(output), "/usr/bin/true") {
-		t.Fatalf("agy did not discover TaskFlow: %s", output)
+	if !strings.Contains(string(output), "sectile") || !strings.Contains(string(output), "/usr/bin/true") {
+		t.Fatalf("agy did not discover Sectile: %s", output)
 	}
 }
