@@ -228,7 +228,7 @@ export const QuickAddModal: React.FC = () => {
               {([
                 { id: 'linear', label: 'Linear', icon: '🟣', hint: activeProject?.linearTeam || 'équipe non configurée' },
                 { id: 'github', label: 'GitHub', icon: '🐙', hint: activeProject?.githubRepo || 'dépôt non configuré' },
-                { id: 'local', label: 'TaskFlow', icon: '📁', hint: 'SQLite' },
+                { id: 'local', label: 'Sectile', icon: '📁', hint: 'SQLite' },
               ] as { id: TaskSource; label: string; icon: string; hint: string }[]).map(opt => (
                 <button
                   key={opt.id}

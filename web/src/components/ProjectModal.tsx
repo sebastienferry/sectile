@@ -1100,7 +1100,7 @@ export const ProjectModal: React.FC = () => {
                                   </optgroup>
                                 )}
 
-                                <optgroup label="📋 Statuts TaskFlow">
+                                <optgroup label="📋 Statuts Sectile">
                                   {STATUS_OPTIONS.map(opt => (
                                     <option key={opt.id} value={opt.id}>
                                       {opt.label}
@@ -1153,7 +1153,7 @@ export const ProjectModal: React.FC = () => {
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
                 >
-                  <option value="local">TaskFlow (Local)</option>
+                  <option value="local">Sectile (Local)</option>
                   <option value="github">GitHub Issues</option>
                   <option value="linear">Linear</option>
                 </select>
@@ -1165,7 +1165,7 @@ export const ProjectModal: React.FC = () => {
                   <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
                     <Info size={13} className="text-[var(--accent-color)]" />
                     <span>
-                      {issueTracker === 'local' && 'TaskFlow (Stockage Local)'}
+                      {issueTracker === 'local' && 'Sectile (Stockage Local)'}
                       {issueTracker === 'github' && 'GitHub Issues'}
                       {issueTracker === 'linear' && 'Linear'}
                       {issueTracker === 'jira' && 'Jira'}
@@ -1243,7 +1243,7 @@ export const ProjectModal: React.FC = () => {
                         <CheckCircle2 size={11} className="shrink-0" />
                         <span>Pull Requests liées</span>
                       </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-amber-400 font-medium" title="GitHub Issues n'a pas de colonnes de statut natives (uniquement Open/Closed). TaskFlow utilise les labels d'étapes.">
+                      <div className="flex items-center gap-1 text-[10.5px] text-amber-400 font-medium" title="GitHub Issues n'a pas de colonnes de statut natives (uniquement Open/Closed). Sectile utilise les labels d'étapes.">
                         <Info size={11} className="shrink-0" />
                         <span>Statuts via Labels</span>
                       </div>

@@ -27,8 +27,12 @@ Thumbs.db
 tmp/
 scratch/
 
-# TaskFlow parallel agent worktrees
+# TaskFlow parallel agent worktrees and local runtime state
 .tasks/
+.taskflow/agent-manifest.json
+.taskflow/remote-config.json
+.taskflow/skill-backups/
+.agents/mcp_config.json
 
 # Interface compilée, embarquée dans le binaire au moment du build
 internal/webui/dist/*

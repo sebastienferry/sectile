@@ -1752,7 +1752,7 @@ func (r *Runner) PrepareAI(settings *models.Settings, skillID string, task *mode
 		promptTemplate = settings.PromptSpecify
 		if promptTemplate == "" {
 			if NormalizeSpecFramework(settings.SpecFramework) == "openspec" {
-				promptTemplate = `Tu es le Lead Architecte pour TaskFlow. Rédige une proposition de changement OpenSpec complète pour la tâche :
+				promptTemplate = `Tu es le Lead Architecte pour Sectile. Rédige une proposition de changement OpenSpec complète pour la tâche :
 Clé : {issueKey}
 Titre : {issueTitle}
 Description : {issueDesc}
@@ -1769,7 +1769,7 @@ openspec/changes/{issueKey}-<titre-slug>/ :
 
 Si le répertoire openspec/ est absent, signale-le au lieu de deviner la structure.`
 			} else {
-				promptTemplate = `Tu es le Product Owner & Architecte technique pour TaskFlow. Rédige une spécification GitHub Spec Kit complète pour la tâche :
+				promptTemplate = `Tu es le Product Owner & Architecte technique pour Sectile. Rédige une spécification GitHub Spec Kit complète pour la tâche :
 Clé : {issueKey}
 Titre : {issueTitle}
 Description : {issueDesc}
@@ -1789,7 +1789,7 @@ clarifier au lieu de les deviner.`
 	case "implement":
 		promptTemplate = settings.PromptImplement
 		if promptTemplate == "" {
-			promptTemplate = `Tu es le développeur senior autonome pour TaskFlow. Tu dois IMPLÉMENTER ET ÉCRIRE DIRECTEMENT les modifications de code dans le projet ({repoPath}) pour accomplir cette tâche.
+			promptTemplate = `Tu es le développeur senior autonome pour Sectile. Tu dois IMPLÉMENTER ET ÉCRIRE DIRECTEMENT les modifications de code dans le projet ({repoPath}) pour accomplir cette tâche.
 
 Contexte de la tâche :
 Clé : {issueKey}
@@ -1807,7 +1807,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	case "create_pr":
 		promptTemplate = settings.PromptCreatePR
 		if promptTemplate == "" {
-			promptTemplate = `Tu es l'ingénieur DevOps & Release pour TaskFlow. Tu dois finaliser la tâche, commiter et créer la Pull Request, puis laisser la fusion à l’utilisateur :
+			promptTemplate = `Tu es l'ingénieur DevOps & Release pour Sectile. Tu dois finaliser la tâche, commiter et créer la Pull Request, puis laisser la fusion à l’utilisateur :
 Clé : {issueKey}
 Titre : {issueTitle}
 Description : {issueDesc}
@@ -1824,7 +1824,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 5. Fournis l'URL réelle de la Pull Request et les résultats des vérifications. Ne fusionne jamais localement ou à distance.`
 		}
 	case "handoff":
-		promptTemplate = `Tu es responsable de la clôture propre de la tâche pour TaskFlow. Le code a été revu et fusionné : il reste à documenter le handoff et à nettoyer.
+		promptTemplate = `Tu es responsable de la clôture propre de la tâche pour Sectile. Le code a été revu et fusionné : il reste à documenter le handoff et à nettoyer.
 
 Clé : {issueKey}
 Titre : {issueTitle}
@@ -1841,7 +1841,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	case "pick":
 		promptTemplate = settings.PromptPick
 		if promptTemplate == "" {
-			promptTemplate = "Tu es le routeur d'orchestration pour TaskFlow. Analyse l'état de la tâche {issueKey} ({issueTitle}) et détermine la prochaine action requise dans le cycle SDLC."
+			promptTemplate = "Tu es le routeur d'orchestration pour Sectile. Analyse l'état de la tâche {issueKey} ({issueTitle}) et détermine la prochaine action requise dans le cycle SDLC."
 		}
 	}
 
