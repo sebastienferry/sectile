@@ -17,3 +17,5 @@ No persistent test was added for this reversible title-only correction. To repla
 Build warnings: the assigned worktree contains a # character, and the web bundle exceeds Vite's chunk warning threshold. Both builds succeeded. No web source was changed.
 
 Review covered the full specification and desktop diff against current origin/main. No defects found. PR #76 had no comments or reviews when checked. Pre-existing local skill edits are excluded from the PR. Packaging and configuration identifiers intentionally remain unchanged.
+
+PR https://github.com/sebastienferry/taskflow/pull/76 was verified open and ready for review after publishing the implementation. No hosted status checks were configured/reported. Human merge remains pending.
