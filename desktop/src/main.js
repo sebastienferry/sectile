@@ -301,7 +301,7 @@ async function openProject(id){
   command.value=info.aiCommandTemplate??config.aiCommandTemplate??''
   command.placeholder='Server provider default command'
   const commandHint=document.createElement('p')
-  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Use {prompt} for the task instructions.'}
+  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Required: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}.'}
   command.oninput=()=>{inheritCommand=false;commandState()}
   const commandReset=document.createElement('button');commandReset.type='button';commandReset.className='reset-setting'
   commandReset.setAttribute('aria-label','Reset CLI command to server default');commandReset.title='Reset CLI command to server default';commandReset.innerHTML=controls.worktrees.reset.innerHTML

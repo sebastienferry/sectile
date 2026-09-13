@@ -635,7 +635,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if err := d.awaitRunSlot(ctx, run); err != nil {
 		return
 	}
-	config, workDir, branch, err := d.prepareDispatch(ctx, taskRef, queueConfig.UseWorktrees)
+	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, queueConfig.UseWorktrees)
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
@@ -692,7 +692,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with taskflow_start_run and finish it using taskflow_finish_run when the entire skill ends.", payload.RunID)
 	}
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command)
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return

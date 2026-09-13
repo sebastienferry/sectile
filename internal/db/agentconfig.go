@@ -37,9 +37,15 @@ func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error)
 	}
 	c := &agentconfig.Config{
 		Skills: []agentconfig.Skill{}, SchemaVersion: agentconfig.Version, ProjectID: p.ID, ProjectName: p.Name, Description: p.Description,
-		GitRemoteURL: p.GitRemoteUrl,
-		Parallelism:  p.Parallelism, SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage,
+		GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
+		Parallelism: p.Parallelism, SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage,
 		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, ExternalTerminalCommand: p.ExternalTerminalCommand,
+	}
+	if c.GithubRepo == "" {
+		c.GithubRepo = s.GithubRepo
+	}
+	if c.IssueTracker == "" {
+		c.IssueTracker = s.IssueTracker
 	}
 	if c.SpecFramework == "" {
 		c.SpecFramework = s.SpecFramework

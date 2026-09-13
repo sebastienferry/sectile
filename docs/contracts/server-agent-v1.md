@@ -19,10 +19,11 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `schemaVersion` | Must be `1`. Unsupported versions stop preparation. |
 | `projectId`, `projectName`, `description` | Identity and project context. The ID must match an explicit project request. |
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
+| `githubRepo`, `issueTracker` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
 | `useWorktrees` | Create/reuse task worktrees when true; validate the existing checkout when false. |
 | `aiProvider` | `codex`, `claude`, `agy`, `gemini`, `cursor`, `vibe`, or `custom`; empty uses the legacy `agy` default. |
-| `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; prompt replacement is shell-quoted. Custom providers still require supported native MCP bootstrap. |
+| `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; argument placeholders are shell-safe: `{prompt}`, `{issueKey}`, `{issueTitle}`, `{issueDesc}`, `{branchName}`, `{repoPath}`, `{tracker}`, `{repo}`. Task values are fetched for each launch; branch/path identify local execution. See [desktop usage](../../desktop/README.md). Custom providers still require supported native MCP bootstrap. |
 | `externalTerminalCommand` | Terminal application/launcher selection. No silent fallback to a hidden PTY after launch failure. |
 | `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. |
 

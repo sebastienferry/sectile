@@ -82,6 +82,10 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.getByRole('button',{name:'2',exact:true}).isDisabled(),false)
   await page.getByRole('button',{name:'3',exact:true}).click()
   await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).click()
+  const placeholderHelp=await page.locator('p').filter({hasText:'Required: {prompt}'}).textContent()
+  for(const token of ['{prompt}','{issueKey}','{issueTitle}','{issueDesc}','{branchName}','{repoPath}','{tracker}','{repo}']){
+   assert.ok(placeholderHelp.includes(token),`Missing placeholder help: ${token}`)
+  }
   await page.getByRole('textbox',{name:'CLI command',exact:true}).fill('claude {prompt}')
   await page.getByRole('button',{name:'Reset CLI command to server default',exact:true}).click()
   assert.equal(await page.getByRole('textbox',{name:'CLI command',exact:true}).inputValue(),'codex {prompt}')

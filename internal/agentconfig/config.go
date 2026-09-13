@@ -13,6 +13,8 @@ type Skill struct {
 }
 
 type Config struct {
+	GithubRepo              string  `json:"githubRepo,omitempty"`
+	IssueTracker            string  `json:"issueTracker,omitempty"`
 	Parallelism             int     `json:"parallelism"`
 	PRCreationStage         string  `json:"prCreationStage"`
 	SchemaVersion           int     `json:"schemaVersion"`

@@ -217,44 +217,44 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	return target, branch, nil
 }
 
-func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, error) {
+func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, error) {
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
+	var task models.Task
 	config, err := d.fetchConfig(ctx, "", taskKey)
 	if err != nil {
-		return config, "", "", err
+		return config, "", "", task, err
 	}
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
-		return config, "", "", err
+		return config, "", "", task, err
 	}
-	var task models.Task
 	if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskKey), &task); err != nil {
-		return config, "", "", err
+		return config, "", "", task, err
 	}
 	if task.ProjectID != config.ProjectID {
-		return config, "", "", fmt.Errorf("task project changed during configuration sync")
+		return config, "", "", task, fmt.Errorf("task project changed during configuration sync")
 	}
 	config = agentconfig.ApplyOverrides(config, overrides)
 	if len(useWorktrees) > 0 {
 		config.UseWorktrees = useWorktrees[0]
 	}
 	if err := config.Validate(); err != nil {
-		return config, "", "", err
+		return config, "", "", task, err
 	}
 	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees)
 	if err != nil {
-		return config, "", "", err
+		return config, "", "", task, err
 	}
 	preserved, err := agentconfig.Scaffold(workDir, config)
 	for _, path := range preserved {
 		log.Printf("[Agent] Saved previous skill content: %s", path)
 	}
 	if err != nil {
-		return config, workDir, branch, err
+		return config, workDir, branch, task, err
 	}
 	err = d.bootstrapLocalMCP(workDir, &config)
-	return config, workDir, branch, err
+	return config, workDir, branch, task, err
 }
 
 func (d *agentDaemon) bootstrapLocalMCP(workDir string, config *agentconfig.Config) error {
@@ -280,16 +280,13 @@ func (d *agentDaemon) bootstrapLocalMCP(workDir string, config *agentconfig.Conf
 // quoteShell protects task text when it is passed through an interactive shell.
 func quoteShell(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-func agentCommandLine(provider, template, prompt string) (string, error) {
+func agentCommandLine(provider, template, prompt string, contexts ...agentCommandContext) (string, error) {
 	if strings.TrimSpace(template) != "" {
-		// Templates may quote the placeholder. Remove those wrapper quotes because
-		// the replacement is already a complete shell argument.
-		template = strings.ReplaceAll(template, `"{prompt}"`, "{prompt}")
-		template = strings.ReplaceAll(template, "'{prompt}'", "{prompt}")
-		if !strings.Contains(template, "{prompt}") {
-			return "", fmt.Errorf("AI command template must contain {prompt}")
+		var launch agentCommandContext
+		if len(contexts) > 0 {
+			launch = contexts[0]
 		}
-		return strings.ReplaceAll(template, "{prompt}", quoteShell(prompt)), nil
+		return expandAgentTemplate(template, launch.values(prompt))
 	}
 	switch provider {
 	case "agy":
@@ -315,7 +312,7 @@ func sameDirectory(a, b string) bool {
 }
 
 // dispatchCommand distinguishes opening an interactive agent from running a skill.
-func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command string) (string, error) {
+func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command string, contexts ...agentCommandContext) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
 	if action == "open_terminal" {
@@ -330,7 +327,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		if strings.TrimSpace(prompt) == "" {
 			return "", fmt.Errorf("custom instructions required")
 		}
-		return agentCommandLine(config.AIProvider, config.AICommandTemplate, "TaskFlow task: "+taskKey+"\n\n"+prompt)
+		return agentCommandLine(config.AIProvider, config.AICommandTemplate, "TaskFlow task: "+taskKey+"\n\n"+prompt, contexts...)
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
@@ -357,7 +354,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return agentCommandLine(config.AIProvider, config.AICommandTemplate, promptArg)
+	return agentCommandLine(config.AIProvider, config.AICommandTemplate, promptArg, contexts...)
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {
