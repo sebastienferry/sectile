@@ -29,3 +29,6 @@ The user explicitly confirmed that synchronization must continue with all local 
 
 ## Integration decisions
 Legacy server `/ws/terminal` and session operations return 410, consistent with the existing agent-owned desktop console architecture. Background workflow jobs now dispatch native skills to the agent, whose MCP reports own stage and remote-run completion; the old server-side result-file execution worker is retired. PR transition verification combines server HTTP forge evidence with connection-bound agent checkout evidence. Personal project configuration and AGENTS.md sections are preserved when the agent refreshes skills. No server project save writes into a repository.
+
+## Final integration review
+Integrated `origin/main` through `4ff2e05`, retaining newly merged free consoles, agent logs and worktree diff inspection under `cmd/agent`. Removed obsolete receipt-only helpers after retiring the server-local worker. Local Git operations no longer reset existing branches, auto-commit personal changes, or force-remove dirty worktrees as fallback behavior. Failed remote issue creation cannot create phantom local tracker identities; global sync and export-state failures remain observable. See `docs/implementation/54.md` for validation evidence.

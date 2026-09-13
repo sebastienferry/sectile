@@ -32,6 +32,9 @@ type GithubIssueItem struct {
 func CleanGithubRepo(repo string) string { return models.CleanGithubRepo(repo) }
 
 func githubTask(repo string, item GithubIssueItem) (*models.Task, error) {
+	if item.Number < 1 {
+		return nil, fmt.Errorf("GitHub returned an invalid issue identity")
+	}
 	var labels []string
 	for _, l := range item.Labels {
 		labels = append(labels, l.Name)
@@ -188,6 +191,9 @@ type LinearQueryResponse struct {
 func linearTasks(resp LinearQueryResponse) ([]models.Task, error) {
 	var tasks []models.Task
 	for i, node := range resp.Nodes {
+		if node.ID == "" || node.Identifier == "" {
+			return nil, fmt.Errorf("Linear returned an invalid issue identity")
+		}
 		var priority models.Priority
 		switch node.Priority {
 		case 1:

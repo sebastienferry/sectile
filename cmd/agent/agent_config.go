@@ -41,13 +41,16 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
 }
 
-func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string) (agentconfig.Config, error) {
+func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string, framework ...string) (agentconfig.Config, error) {
 	var c agentconfig.Config
 	q := url.Values{}
 	if taskKey != "" {
 		q.Set("taskKey", taskKey)
 	} else {
 		q.Set("projectId", projectID)
+	}
+	if len(framework) > 0 && framework[0] != "" {
+		q.Set("framework", framework[0])
 	}
 	err := d.readAPI(ctx, "/api/v1/agent/config?"+q.Encode(), &c)
 	if err == nil {

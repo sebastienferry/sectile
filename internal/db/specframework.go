@@ -76,6 +76,9 @@ func (d *DB) InstallSpecFramework(req models.SpecFrameworkInstallRequest) (*mode
 		return nil, fmt.Errorf("unknown specification framework %q", req.Framework)
 	}
 	var result models.SpecFrameworkInstallResult
+	if req.ProjectID == "" {
+		req.ProjectID = req.RepoPath
+	}
 	err := d.callAgent(agentprotocol.Operation{ProjectID: req.ProjectID, Action: "spec_install", Framework: req.Framework, Provider: req.AIAgent, Force: req.Force}, &result)
 	if err != nil {
 		return nil, err

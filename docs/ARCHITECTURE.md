@@ -27,7 +27,7 @@ flowchart LR
 | `cmd/agent` | Workstation daemon, loopback/control APIs, MCP bridge, launch queue and execution supervision |
 | `internal/agentprotocol` | Shared message envelope and workspace operation DTOs |
 | `internal/agentconfig` | Secret-free configuration contract and agent-owned installation helpers |
-| `internal/workspace`, `internal/runner`, `internal/terminal` | Local Git, tool execution, evidence helpers and PTYs |
+| `internal/workspace`, `internal/runner`, `internal/terminal` | Local Git, tool execution and PTYs |
 | `desktop` | Electron UI for existing agent consoles; packages only the agent executable |
 
 Agent production imports exclude DB, server handlers, SQLite and embedded web
@@ -88,8 +88,8 @@ connection. Requests and responses carry a unique `msgId`; responses from anothe
 connection are ignored. Agent absence, disconnect, timeout and reported errors
 fail visibly. No local server fallback or automatic mutation retry occurs.
 The agent validates task/project identity and resolves directories from its local
-mapping and Git metadata. The shared operation type does not accept executables
-or arbitrary directories.
+mapping and Git metadata. The shared operation type accepts named capabilities and explicit editor/provider
+settings; it does not accept arbitrary working directories.
 
 The agent owns PTYs, queue admission, process supervision and in-memory history.
 Electron discovers it through the private `~/.taskflow/agent-connection.json` file.

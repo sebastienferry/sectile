@@ -3,7 +3,6 @@ package workspace
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,13 +38,7 @@ func (d *Workspace) GetGitBranches(projectIDOrPath string) (*models.GitBranchesI
 	cmd := exec.CommandContext(d.ctx, "git", "-C", repoPath, "branch", "-a", "--format="+format)
 	out, err := cmd.Output()
 	if err != nil {
-		return &models.GitBranchesInfo{
-			RepoPath:      repoPath,
-			CurrentBranch: currentBranch,
-			Branches: []models.GitBranchItem{
-				{Name: currentBranch, IsCurrent: true},
-			},
-		}, nil
+		return nil, fmt.Errorf("list Git branches: %w", err)
 	}
 
 	var branches []models.GitBranchItem
@@ -185,7 +178,9 @@ func (d *Workspace) CleanAllLocalBranches(projectIDOrPath string) (*models.Clean
 	_ = exec.CommandContext(d.ctx, "git", "-C", repoPath, "worktree", "prune").Run()
 
 	// 3. Checkout default branch in main repo
-	_ = exec.CommandContext(d.ctx, "git", "-C", repoPath, "checkout", defaultBranch).Run()
+	if out, err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "checkout", defaultBranch).CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("checkout default branch: %s (%w)", out, err)
+	}
 
 	// 4. List all local branches
 	out, err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "branch", "--format=%(refname:short)").Output()
@@ -205,7 +200,7 @@ func (d *Workspace) CleanAllLocalBranches(projectIDOrPath string) (*models.Clean
 		if delOut, delErr := delCmd.CombinedOutput(); delErr == nil {
 			deleted = append(deleted, branch)
 		} else {
-			log.Printf("[GIT] Failed to delete branch %s: %s", branch, string(delOut))
+			return nil, fmt.Errorf("removed %d branches; could not delete %s: %s", len(deleted), branch, delOut)
 		}
 	}
 
@@ -257,7 +252,9 @@ func (d *Workspace) DeleteGitBranch(projectIDOrPath string, branchName string, d
 		if err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "rev-parse", "--verify", "main").Run(); err != nil {
 			defaultBranch = "master"
 		}
-		_ = exec.CommandContext(d.ctx, "git", "-C", repoPath, "checkout", defaultBranch).Run()
+		if out, err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "checkout", defaultBranch).CombinedOutput(); err != nil {
+			return fmt.Errorf("checkout default branch: %s (%w)", out, err)
+		}
 	}
 
 	// 3. Delete local branch

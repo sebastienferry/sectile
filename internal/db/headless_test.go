@@ -101,3 +101,83 @@ func TestWorkerLaunchDoesNotLockOrAdvanceWorkflow(t *testing.T) {
 		t.Fatalf("launch ended skill execution: %#v", run)
 	}
 }
+
+func TestTrackerFailureDoesNotCreatePhantomTaskOrCompleteSync(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
+	defer srv.Close()
+	t.Setenv("TASKFLOW_GITHUB_API_URL", srv.URL)
+	t.Setenv("TASKFLOW_GITHUB_TOKEN", "invalid")
+	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "API failure", IssueTracker: "github", GithubRepo: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task, err := d.CreateTask(models.CreateTaskRequest{Title: "Must be remote", ProjectID: p.ID}); err == nil || task != nil {
+		t.Fatalf("phantom task: %#v %v", task, err)
+	}
+	var count int
+	if err := d.conn.QueryRow("SELECT COUNT(*) FROM tasks WHERE project_id=?", p.ID).Scan(&count); err != nil || count != 0 {
+		t.Fatalf("phantom persisted: %d %v", count, err)
+	}
+	activity := models.TaskActivity{ID: "sync-failure", TaskID: "sync-all", SkillID: "sync_all", Status: "running", CreatedAt: time.Now()}
+	if err := d.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := d.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.processSyncJob(context.Background(), SkillJob{SkillID: "sync_all", ActivityID: activity.ID}, settings)
+	result, err := d.GetActivityByID(activity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "failed" {
+		t.Fatalf("failed tracker sync reported success: %#v", result)
+	}
+}
+
+func TestSkillEditorUsesAgentEvidenceAndFrameworkOverride(t *testing.T) {
+	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Skills", SpecFramework: "speckit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := d.AgentConfig(p.ID, "", "openspec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.SpecFramework != "openspec" {
+		t.Fatalf("framework not honored: %#v", config)
+	}
+	if _, err := d.AgentConfig(p.ID, "", "unknown"); err == nil {
+		t.Fatal("unknown framework accepted")
+	}
+	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		if op.Action != "skill_files" || op.ProjectID != p.ID {
+			t.Fatalf("snapshot request: %#v", op)
+		}
+		return json.Marshal(map[string]agentprotocol.SkillFile{"clarify": {Content: "personal instructions", Paths: []string{"/agent/repository/clarify/SKILL.md"}}})
+	})
+	entries, err := d.ListProjectSkillEditor(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if entry.ID == "clarify" {
+			if !entry.Installed || !entry.Diverged || entry.RepoContent != "personal instructions" {
+				t.Fatalf("agent divergence lost: %#v", entry)
+			}
+			return
+		}
+	}
+	t.Fatal("clarify entry missing")
+}

@@ -408,7 +408,11 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 			continue
 		}
 
-		d.handleMessage(ctx, conn, msg)
+		messageCtx := ctx
+		if strings.HasPrefix(msg.Type, "workspace_") {
+			messageCtx = heartbeatCtx
+		}
+		d.handleMessage(messageCtx, conn, msg)
 	}
 }
 
@@ -471,7 +475,7 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 			cancel()
 		}
 	case "workspace_request":
-		go d.handleOperation(ctx, conn, msg)
+		d.startOperation(ctx, conn, msg)
 	case "heartbeat":
 		// Server heartbeat response; nothing to do.
 		return

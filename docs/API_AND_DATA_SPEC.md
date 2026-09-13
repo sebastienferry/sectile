@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS projects (
     git_remote_url TEXT DEFAULT '',
     linear_team TEXT DEFAULT 'TASK',
     github_repo TEXT DEFAULT '',
-    jira_project TEXT DEFAULT '',      -- Jira project key passed to acli --project
+    jira_project TEXT DEFAULT '',      -- Legacy Jira project identifier
     issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'linear' | 'github' | 'jira' | 'local'
     tracker_url TEXT DEFAULT '',       -- Linear project URL, or the Jira base URL
     project_type TEXT NOT NULL DEFAULT 'standard',  -- 'standard' | 'personal' (personal boards only serve the daily digest)
@@ -134,11 +134,8 @@ CREATE TABLE IF NOT EXISTS settings (
 ### 2.1.1 Teams API
 
 A work item may carry a team, and it is never mandatory: a project can hold
-tickets with no team at all. On Jira the team is the `atlassian-team` custom
-field, which carries both a label and an id; only the id gives access to the
-people, through `/gateway/api/v4/teams/{teamId}/members?siteId={cloudId}`, whose
-account ids are then resolved by `/rest/api/3/user/bulk`. Every Jira sync stores
-the teams it met on the work items and refreshes their members.
+tickets with no team at all. Existing team/member metadata remains readable.
+Jira team refresh is unsupported in this baseline.
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
@@ -189,7 +186,7 @@ and the tracker's own refusal when it fails.
 | `POST` | `/api/sync/all` | — | Queues a sync of every configured project across all trackers. |
 | `POST` | `/api/sync/linear` | `{team, projectId}` | Queues a Linear team sync. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
-| `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Queues a Jira project sync via `acli`. |
+| `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Reports unsupported Jira synchronization. |
 
 All four return `{message, activity}`; the work runs on the background job queue
 and its progress is readable through the Activities API.

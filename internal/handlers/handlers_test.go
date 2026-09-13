@@ -116,18 +116,13 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 	rr2 := httptest.NewRecorder()
 	h.HandleTasks(rr2, req2)
 
-	if rr2.Code != http.StatusCreated {
-		t.Fatalf("Expected status 201 Created, got %d: %s", rr2.Code, rr2.Body.String())
+	if rr2.Code < 400 {
+		t.Fatalf("unconfigured remote creation succeeded: %d %s", rr2.Code, rr2.Body.String())
+	}
+	if !strings.Contains(rr2.Body.String(), "Linear issue creation failed") {
+		t.Fatalf("remote error missing: %s", rr2.Body.String())
 	}
 
-	var task2 models.Task
-	if err := json.Unmarshal(rr2.Body.Bytes(), &task2); err != nil {
-		t.Fatalf("Failed to decode response JSON: %v", err)
-	}
-
-	if task2.Source != "linear" {
-		t.Errorf("Expected task2.Source='linear' (from project test-proj), got '%s'", task2.Source)
-	}
 }
 
 func TestHandleOpenEditor(t *testing.T) {

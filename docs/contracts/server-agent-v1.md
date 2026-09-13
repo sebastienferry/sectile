@@ -11,7 +11,8 @@ database. Shared DTOs live in `internal/agentconfig` and do not depend on DB cod
 ## Configuration download
 
 `GET /api/v1/agent/config?projectId=<ID>` or `?taskKey=<task-ID>` requires the
-agent bearer token. Use exact project IDs, not names. Prefer full task IDs over
+agent bearer token. An optional `framework` parameter generates installation
+templates for a supported SDD framework without changing project settings. Use exact project IDs, not names. Prefer full task IDs over
 ambiguous tracker keys. A task lookup resolves the actual owning project.
 
 | Field | Meaning |
@@ -113,7 +114,7 @@ code does not import the server handlers, database or embedded UI.
 
 | Interface | Address and authentication | Ownership |
 | --- | --- | --- |
-| Server API | `http(s)://<server>:8090`; machine endpoints use the `TASKFLOW_SERVER_TOKEN` bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/api/agent/connect`, upstream `/mcp` |
+| Server API | `http(s)://<server>:8090`; machine endpoints use the `TASKFLOW_SERVER_TOKEN` bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, upstream `/mcp` |
 | Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; desktop/control calls use the private discovered agent token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
 | MCP | Agent `mcp --url <loopback>` stdio bridge forwards to server `/mcp` | Eight typed tools with server-owned state; no local SQLite |
 
@@ -138,10 +139,10 @@ resolves its local mapping. A result is correlated to the exact connection:
 An error result has `payload.error` instead. Supported actions cover Git status,
 branches, checkout, deletion, diff and evidence; worktree preparation/removal and
 inspection; editor opening; CLI/skill/SDD status and provisioning; skill reading;
-and LLM prompt execution. Commands and arbitrary working directories are not
-accepted by this protocol. Launches use the existing `dispatch_step` contract.
+and LLM prompt execution. There is no arbitrary shell action or working-directory parameter. Explicit
+editor/provider settings retain their existing configuration behavior. Launches use the existing `dispatch_step` contract.
 
-Requests normally have a 45-second deadline; digest prompts allow 12 minutes.
+Requests normally have a 45-second deadline; digest prompts allow 12 minutes and SDD installation allows seven minutes.
 Cancellation sends `workspace_cancel` with the same `msgId`. Disconnects and
 unconfirmed results fail visibly and never trigger local server execution or an
 automatic retry of a possibly completed mutation. Some local tool installers

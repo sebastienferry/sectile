@@ -164,9 +164,6 @@ func main() {
 	// précédente.
 	database.StartAutoSync()
 
-	// Les pas du workflow tournent dans la session PTY de leur tâche : visibles
-	// pendant qu'ils travaillent, ouvrables d'un clic, et interrogeables.
-
 	mux := http.NewServeMux()
 
 	// API Routes
@@ -303,12 +300,6 @@ func main() {
 
 	addr := ":" + port
 	url := fmt.Sprintf("http://localhost%s", addr)
-
-	// Le port est réservé avant toute autre chose. Ouvrir le navigateur d'abord,
-	// comme le faisait la version précédente, ouvrait un onglet même quand
-	// l'écoute échouait ensuite : lancer l'application une seconde fois
-	// rechargeait l'onglet de la première, puis mourait sur « address already in
-	// use ».
 
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {

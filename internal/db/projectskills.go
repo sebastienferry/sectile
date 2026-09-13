@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -129,6 +130,11 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 	projectID, _, framework := d.projectSkillContext(projectIDOrPath)
 	overrides := d.projectSkillOverrides(projectID)
 	defaults := ProjectSkillTemplates(framework)
+	var localFiles map[string]agentprotocol.SkillFile
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	// The server editor remains usable offline; disk evidence is optional.
+	_ = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: projectID, Action: "skill_files"}, &localFiles)
 
 	entries := make([]models.SkillEditorEntry, 0, len(StageSkills))
 	for i, stage := range StageSkills {
@@ -185,6 +191,15 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 			}
 		}
 
+		if file, ok := localFiles[stage.ID]; ok && len(file.Paths) > 0 {
+			entry.Paths = file.Paths
+			entry.RepoPath = file.Paths[0]
+			entry.Installed = true
+			entry.Diverged = strings.TrimSpace(file.Content) != strings.TrimSpace(content)
+			if entry.Diverged {
+				entry.RepoContent = file.Content
+			}
+		}
 		entries = append(entries, entry)
 	}
 	return entries, nil

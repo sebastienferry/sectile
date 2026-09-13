@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"strings"
 	"tasks/internal/agentconfig"
+	"tasks/internal/models"
 )
 
 // AgentConfig exposes only execution settings, never server paths or tracker credentials.
-func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error) {
+func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agentconfig.Config, error) {
 	if taskKey != "" {
 		task, err := d.GetTaskByID(taskKey)
 		if err != nil {
@@ -58,6 +59,15 @@ func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error)
 	}
 	if c.ExternalTerminalCommand == "" {
 		c.ExternalTerminalCommand = s.ExternalTerminalCommand
+	}
+	if c.LinearTeam == "" {
+		c.LinearTeam = s.LinearTeam
+	}
+	if len(framework) > 0 && framework[0] != "" {
+		if !isKnownFrameworkAlias(framework[0]) {
+			return nil, fmt.Errorf("unknown specification framework")
+		}
+		c.SpecFramework = models.NormalizeSpecFramework(framework[0])
 	}
 	origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(p.ID))
 	reconcile := origin == "review" || (origin != "adjust" && strings.TrimSpace(s.PromptCreatePR) != "")

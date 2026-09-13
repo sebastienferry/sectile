@@ -200,6 +200,10 @@ func truncateOutput(s string, max int) string {
 // runs the framework initializer. Every attempted command is reported so the
 // user can see exactly what ran and copy it into a terminal if needed.
 func (r *Runner) InstallSpecFramework(req models.SpecFrameworkInstallRequest) *models.SpecFrameworkInstallResult {
+	return r.InstallSpecFrameworkContext(context.Background(), req)
+}
+
+func (r *Runner) InstallSpecFrameworkContext(parent context.Context, req models.SpecFrameworkInstallRequest) *models.SpecFrameworkInstallResult {
 	framework := NormalizeSpecFramework(req.Framework)
 	repoPath := strings.TrimSpace(req.RepoPath)
 	if repoPath == "" {
@@ -230,7 +234,7 @@ func (r *Runner) InstallSpecFramework(req models.SpecFrameworkInstallRequest) *m
 		return res
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), specFrameworkInstallTimeout)
+	ctx, cancel := context.WithTimeout(parent, specFrameworkInstallTimeout)
 	defer cancel()
 
 	if framework == "openspec" {

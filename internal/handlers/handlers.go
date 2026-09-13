@@ -2791,6 +2791,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 	}
 	var req struct {
 		TaskID          string `json:"taskId"`
+		SkillID         string `json:"skillId"`
 		Command         string `json:"command"`
 		TerminalCommand string `json:"terminalCommand"`
 	}
@@ -2802,7 +2803,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-	result, err := h.launchTaskExternalTerminal(r.Context(), req.TaskID, req.Command, "", req.TerminalCommand)
+	result, err := h.launchTaskExternalTerminal(r.Context(), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return

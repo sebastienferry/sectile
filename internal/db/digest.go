@@ -736,7 +736,7 @@ func (d *DB) EnqueueDigestAgenda(projectID string, dateRaw string, assignee stri
 		Output string
 		Steps  []string
 	}
-	runErr := d.callAgent(agentprotocol.Operation{ProjectID: projectID, Action: "run_prompt", Prompt: prompt}, &result)
+	runErr := d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: projectID, Action: "run_prompt", Prompt: prompt}, &result)
 	output, steps := result.Output, result.Steps
 	completed := time.Now()
 

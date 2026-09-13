@@ -13,18 +13,30 @@ import (
 	"tasks/internal/models"
 	"tasks/internal/runner"
 	"tasks/internal/workspace"
+	"time"
 )
 
-func (d *agentDaemon) handleOperation(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
+func (d *agentDaemon) startOperation(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	d.operationMu.Lock()
 	if d.operations == nil {
 		d.operations = map[string]context.CancelFunc{}
 	}
+	if _, exists := d.operations[msg.MsgID]; exists {
+		d.operationMu.Unlock()
+		cancel()
+		return
+	}
 	d.operations[msg.MsgID] = cancel
 	d.operationMu.Unlock()
-	defer func() { d.operationMu.Lock(); delete(d.operations, msg.MsgID); d.operationMu.Unlock() }()
+	go func() {
+		defer cancel()
+		defer func() { d.operationMu.Lock(); delete(d.operations, msg.MsgID); d.operationMu.Unlock() }()
+		d.handleOperation(ctx, conn, msg)
+	}()
+}
+
+func (d *agentDaemon) handleOperation(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
 	var op agentprotocol.Operation
 	res := agentprotocol.Result{}
 	if err := json.Unmarshal(msg.Payload, &op); err != nil {
@@ -43,6 +55,7 @@ func (d *agentDaemon) handleOperation(ctx context.Context, conn *websocket.Conn,
 	raw, _ := json.Marshal(res)
 	d.connMu.Lock()
 	defer d.connMu.Unlock()
+	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	_ = conn.WriteJSON(agentprotocol.Message{MsgID: msg.MsgID, TaskID: msg.TaskID, Type: "workspace_result", Payload: raw})
 }
 func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Operation) (any, error) {
@@ -50,11 +63,11 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		return nil, fmt.Errorf("project primary key is required")
 	}
 	switch op.Action {
-	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "run_prompt", "skills_status", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
+	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
 	default:
 		return nil, fmt.Errorf("unknown local operation %q", op.Action)
 	}
-	config, err := d.fetchConfig(ctx, op.ProjectID, op.TaskID)
+	config, err := d.fetchConfig(ctx, op.ProjectID, op.TaskID, op.Framework)
 	if err != nil {
 		return nil, err
 	}
@@ -98,44 +111,53 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if op.Provider != "" {
 			config.AIProvider = op.Provider
 		}
+		if op.AICommandTemplate != "" {
+			config.AICommandTemplate = op.AICommandTemplate
+		}
 		if err := config.Validate(); err != nil {
 			return nil, err
 		}
 		d.prepareMu.Lock()
 		defer d.prepareMu.Unlock()
-		_, err := agentconfig.Scaffold(root, config)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		paths, err := localWorktreePaths(ctx, root)
 		if err != nil {
 			return nil, err
 		}
-		if err = d.bootstrapLocalMCP(root, &config); err != nil {
+		written := 0
+		for _, path := range paths {
+			if _, err = agentconfig.Scaffold(path, config); err != nil {
+				return nil, err
+			}
+			if err = d.bootstrapLocalMCP(path, &config); err != nil {
+				return nil, err
+			}
+			written += len(config.Skills) * 6
+		}
+		return map[string]any{"written": written}, nil
+	case "skill_files", "read_skill":
+		files, err := localSkillFiles(root, config)
+		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"written": len(config.Skills)}, nil
-	case "read_skill":
-		for _, skill := range config.Skills {
-			if skill.ID == op.SkillID {
-				for _, prefix := range []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"} {
-					path := filepath.Join(root, prefix, skill.Directory, "SKILL.md")
-					fs, err := os.OpenRoot(root)
-					if err != nil {
-						return nil, err
-					}
-					relative, err := filepath.Rel(root, path)
-					if err != nil {
-						fs.Close()
-						return nil, err
-					}
-					raw, err := fs.ReadFile(relative)
-					fs.Close()
-					if err == nil && strings.TrimSpace(string(raw)) != "" {
-						return map[string]string{"content": string(raw)}, nil
-					}
-				}
-			}
+		if op.Action == "skill_files" {
+			return files, nil
 		}
-		return nil, fmt.Errorf("local skill file not found")
+		file := files[models.NormalizeSkillID(op.SkillID)]
+		if len(file.Paths) == 0 || strings.TrimSpace(file.Content) == "" {
+			return nil, fmt.Errorf("local skill file not found")
+		}
+		return map[string]string{"content": file.Content}, nil
 	case "skills_status":
 		status := models.ProjectSkillsStatus{ProjectID: config.ProjectID, ProjectName: config.ProjectName, RepoPath: root, PathExists: true, IsGitRepo: true, InstalledAll: true, SpecFramework: config.SpecFramework, WorktreePaths: []string{root}, WorktreesCount: 1}
+		paths, err := localWorktreePaths(ctx, root)
+		if err != nil {
+			return nil, err
+		}
+		status.WorktreePaths = paths
+		status.WorktreesCount = len(paths)
 		branch, _ := gitLocal(ctx, root, "branch", "--show-current")
 		status.GitBranch = branch
 		for _, skill := range config.Skills {
@@ -171,7 +193,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if provider == "" {
 			provider = config.AIProvider
 		}
-		return r.InstallSpecFramework(models.SpecFrameworkInstallRequest{Framework: framework, RepoPath: root, AIAgent: provider, Force: op.Force}), nil
+		return r.InstallSpecFrameworkContext(ctx, models.SpecFrameworkInstallRequest{Framework: framework, RepoPath: root, AIAgent: provider, Force: op.Force}), nil
 	case "init_git":
 		_, err := gitLocal(ctx, root, "init")
 		if err != nil {

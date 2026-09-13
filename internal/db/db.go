@@ -705,7 +705,7 @@ func (d *DB) computeExternalURLUnsafe(t *models.Task) *string {
 		var repo string
 		if proj != nil && proj.GithubRepo != "" {
 			repo = proj.GithubRepo
-		} else if proj != nil && proj.RepoPath != "" {
+		} else if proj != nil && proj.GitRemoteUrl != "" {
 			repo = trackerapi.CleanGithubRepo(proj.GitRemoteUrl)
 		}
 		cleanNum := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(t.Key, "GH-#"), "gh-"), "#")
@@ -1864,6 +1864,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 			githubRepo = models.CleanGithubRepo(proj.GitRemoteUrl)
 		}
 		if proj.JiraProject != "" {
+			jiraProject = proj.JiraProject
 		}
 		if proj.TrackerUrl != "" {
 			jiraUrl = proj.TrackerUrl
@@ -1914,7 +1915,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 		req.Priority = models.PriorityMedium
 	}
 
-	// Real creation via CLI if Linear or GitHub requested by the project
+	// Remote creation requires confirmation from the server HTTP adapter.
 	if req.Source == "linear" {
 		created, err := d.trackers.CreateLinearIssue(linearTeam, req.Title, req.Description, req.Priority, req.Labels)
 		if err == nil && created != nil {
@@ -1922,12 +1923,9 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 			key = created.Key
 			extURL = created.ExternalURL
 		} else {
-			if req.RequireRemoteCreation {
-				return nil, fmt.Errorf("Linear issue creation failed: %v", err)
-			}
-			log.Printf("[DB.CreateTask] Warning: Linear issue creation failed: %v. Using fallback key.", err)
-			key, _ = d.getNextTaskKey(projID, prefix)
+			return nil, fmt.Errorf("Linear issue creation failed: %v", err)
 		}
+
 	} else if req.Source == "github" {
 		created, err := d.trackers.CreateGithubIssue(githubRepo, repoPath, req.Title, req.Description, req.Labels)
 		if err == nil && created != nil {
@@ -1939,22 +1937,9 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 			key = created.Key
 			extURL = created.ExternalURL
 		} else {
-			if req.RequireRemoteCreation {
-				return nil, fmt.Errorf("GitHub issue creation failed: %v", err)
-			}
-			log.Printf("[DB.CreateTask] Warning: GitHub issue creation failed: %v. Using fallback key.", err)
-			key = d.getNextGithubTaskKey(projID)
-			if projID != "default" {
-				id = fmt.Sprintf("gh-%s-%s", projID, strings.TrimPrefix(key, "#"))
-			} else {
-				id = fmt.Sprintf("gh-%s", strings.TrimPrefix(key, "#"))
-			}
-			if githubRepo != "" && strings.HasPrefix(key, "#") {
-				cleanNum := strings.TrimPrefix(key, "#")
-				url := fmt.Sprintf("https://github.com/%s/issues/%s", models.CleanGithubRepo(githubRepo), cleanNum)
-				extURL = &url
-			}
+			return nil, fmt.Errorf("GitHub issue creation failed: %v", err)
 		}
+
 	} else {
 		// Local project tracker
 		key, _ = d.getNextTaskKey(projID, prefix)
@@ -3413,7 +3398,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		if team == "" {
 			team = settings.LinearTeam
 		}
-		steps = append(steps, fmt.Sprintf("1. Connecting to Linear CLI for team %s...", team))
+		steps = append(steps, fmt.Sprintf("1. Connecting to Linear API for team %s...", team))
 		outputLines = append(outputLines, fmt.Sprintf("### 🔄 Linear Synchronization (Team: %s)\n", team))
 
 		tasks, err := d.trackers.SyncFromLinear(team)
@@ -3464,7 +3449,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		if repoPath == "" {
 			repoPath = settings.RepoPath
 		}
-		steps = append(steps, fmt.Sprintf("1. Connecting to GitHub CLI for repository %s...", repo))
+		steps = append(steps, fmt.Sprintf("1. Connecting to GitHub API for repository %s...", repo))
 		outputLines = append(outputLines, fmt.Sprintf("### 🐙 GitHub Synchronization (%s)\n", repo))
 
 		tasks, err := d.trackers.SyncFromGithub(repo, repoPath)
@@ -3532,6 +3517,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 					}
 					linTasks, linErr := d.trackers.SyncFromLinear(tm)
 					if linErr != nil {
+						hasError = true
 						steps = append(steps, fmt.Sprintf("⚠️ Linear (%s): %v", tm, linErr))
 						outputLines = append(outputLines, fmt.Sprintf("❌ Linear (%s): %v", tm, linErr))
 					} else {
@@ -3559,6 +3545,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 				if ghRepo != "" || ghPath != "" {
 					ghTasks, ghErr := d.trackers.SyncFromGithub(ghRepo, ghPath)
 					if ghErr != nil {
+						hasError = true
 						steps = append(steps, fmt.Sprintf("⚠️ GitHub (%s): %v", ghRepo, ghErr))
 						outputLines = append(outputLines, fmt.Sprintf("❌ GitHub (%s): %v", ghRepo, ghErr))
 					} else {
@@ -4596,11 +4583,6 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		newKey = created.Key
 		extURL = created.ExternalURL
 
-		// Sync status to Linear if not backlog
-		if task.Status != models.StatusBacklog && task.Status != models.StatusToClarify {
-			_ = d.trackers.UpdateLinearIssueState(newKey, task.Status)
-		}
-
 	case "github":
 		repo := ""
 		repoPath := ""
@@ -4620,11 +4602,6 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		}
 		newKey = created.Key
 		extURL = created.ExternalURL
-
-		// Sync status if done
-		if task.Status == models.StatusDone || task.Status == models.StatusFinished || task.Status == models.StatusToClose {
-			_ = d.trackers.UpdateGithubIssue(repo, repoPath, newKey, nil, nil, &task.Status, task.Labels, nil)
-		}
 
 	default:
 		return nil, fmt.Errorf("tracker distant non supporté: %s (choisir 'linear' ou 'github')", target)
@@ -4647,6 +4624,9 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	if err != nil {
 		return nil, err
 	}
+
+	// Creation is confirmed; synchronize its state through the observable queue.
+	d.enqueueTrackerUpdateUnsafe(task, &task.Status, task.Labels, nil, TrackerFieldChanges{})
 
 	outputMsg := fmt.Sprintf("Tâche locale convertie vers %s.\nClé distante : %s", strings.ToUpper(target), task.Key)
 	if extURL != nil {
@@ -5425,6 +5405,9 @@ func (d *DB) InstallProjectSkills(projectID string, overrides ...string) (*model
 	}
 	if len(overrides) > 1 {
 		op.Provider = overrides[1]
+	}
+	if len(overrides) > 2 {
+		op.AICommandTemplate = overrides[2]
 	}
 	if err := d.callAgent(op, nil); err != nil {
 		return nil, err
