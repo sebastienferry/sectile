@@ -171,6 +171,17 @@ ipcMain.handle('remove-project',async(_,id)=>{
 })
 ipcMain.handle('map-project',(_,mapping)=>api('/desktop/projects','POST',mapping))
 ipcMain.handle('clear-history',()=>api('/desktop/history','DELETE'))
+ipcMain.handle('git-diff',async(_,id)=>{
+ if(typeof id!=='string'||!id||id.length>512)throw Error('Select an execution to inspect changes.')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('git-diff'))throw Error('Update and restart the local agent to inspect changes.')
+ try{return await api('/desktop/git-diff?id='+encodeURIComponent(id))}
+ catch(err){
+  let detail
+  try{detail=JSON.parse(err.message)}catch{throw err}
+  throw Error(detail.error?.message||'Inspection failed. Refresh to retry.')
+ }
+})
 ipcMain.handle('runs',()=>api('/desktop/runs'))
 ipcMain.handle('stop',(_,id)=>api('/desktop/stop?id='+encodeURIComponent(id),'POST'))
 ipcMain.handle('detach',()=>{if(socket){socket.removeAllListeners();socket.close();socket=null}})

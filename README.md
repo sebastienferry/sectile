@@ -1,5 +1,7 @@
 # Sectile (React + Go + SQLite)
 
+Desktop now provides a read-only **Changes** view for each local execution, comparing current worktree contents with the default-branch common ancestor. See [Inspect worktree changes](desktop/README.md#inspect-worktree-changes).
+
 The desktop supports persistent workstation project disconnection, with active
 execution protection and explicit re-add. See [Remove a local project](desktop/README.md#remove-a-local-project).
 

@@ -1,3 +1,4 @@
+import { createGitDiff } from './gitDiff.js'
 import { orderedQueueRuns } from './queue.mjs'
 import { orderedTaskGroups } from './task-order.mjs'
 import { Terminal } from '@xterm/xterm'
@@ -10,7 +11,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
 <form id="start"><label>TaskFlow server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><strong id="title">Select an execution</strong><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
+<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Launch a task from TaskFlow web. Its console appears here.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><strong id="title">Select an execution</strong><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
 <dialog id="project-dialog"><button id="close-dialog" aria-label="Close">×</button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:'Menlo, monospace',scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
 const fit=new FitAddon();terminal.loadAddon(fit)
@@ -36,12 +37,14 @@ const queueProjects=new Set()
 let linksLoading=false,lastLinksRefresh=0
 let selectedProject=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
+const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:()=>{resize();if(opened)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
-terminal.onData(data=>api.input(data))
-function resize(){if(opened){fit.fit();api.resize(terminal.cols,terminal.rows)}}
+terminal.onData(data=>{if(!changes.active)api.input(data)})
+function resize(){if(opened&&!changes.active){fit.fit();api.resize(terminal.cols,terminal.rows)}}
 window.addEventListener('resize',resize)
 function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
 function agentUnavailable(){
+ changes.disconnect()
  document.querySelector('#start-agent').disabled=false
  document.querySelector('#start button').disabled=false
  document.querySelector('#start button').textContent='Start local agent'
@@ -66,6 +69,7 @@ function select(run){
  if(hiddenProject(run.projectId))return
  selectedProject=run.projectId
  selected=run.id
+ changes.select(selected)
  refreshNextStep()
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
@@ -76,7 +80,7 @@ function select(run){
   terminal.writeln(message)
   render();return
  }
- api.attach(run.id).then(()=>{setTimeout(resize,150);terminal.focus()}).catch(error)
+ api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active)terminal.focus()}).catch(error)
  render()
 }
 function renderQueue(project,group){
@@ -125,6 +129,7 @@ function renderHeader(){
  title.textContent=text;title.title=text
 }
 function render(){
+ changes.select(selected)
  renderHeader()
  const list=document.querySelector('#runs');list.replaceChildren()
 

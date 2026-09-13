@@ -50,3 +50,20 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 #toolbar>div{flex:1 1 200px;max-width:100%}
 #title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #toolbar>button,#toolbar>select{flex-shrink:0;max-width:100%;margin:0}
+
+.execution-views{display:flex;gap:6px;padding:6px 12px;border-bottom:1px solid #303a49}
+.execution-views [aria-pressed="true"]{background:#294967}
+#changes{flex:1;min-height:0;overflow:auto;padding:12px;min-width:0}
+#changes[hidden],#terminal[hidden]{display:none}
+.changes-toolbar{display:flex;align-items:center;gap:12px}
+.diff-context{font-size:11px;overflow-wrap:anywhere;color:#9dabbe}
+.diff-summary,.diff-file-info{overflow-wrap:anywhere}
+.diff-error{color:#ffb4b4}
+.diff-body{display:grid;grid-template-columns:minmax(150px,25%) minmax(0,1fr);gap:12px;min-height:0}
+.diff-files{display:flex;flex-direction:column;align-items:stretch;gap:4px;min-width:0;max-height:65vh;overflow:auto}
+.diff-files button{white-space:pre-wrap;overflow-wrap:anywhere;text-align:left;flex-shrink:0}
+.diff-files [aria-pressed="true"]{background:#294967}
+.diff-detail{min-width:0}.diff-patch{overflow:auto;max-height:65vh;background:#11151c;padding:10px;tab-size:4;font:12px/1.6 Menlo,monospace}
+.diff-patch span{display:block;white-space:pre;min-width:max-content}.diff-add{color:#a7ebbb;background:#173426}.diff-delete{color:#ffc0ba;background:#3b2326}.diff-hunk{color:#9ecbff}
+#changes button:focus-visible,#changes pre:focus-visible,.execution-views button:focus-visible{outline:2px solid #8dc4ff;outline-offset:2px}
+@media(max-width:750px){.diff-body{grid-template-columns:minmax(0,1fr)}.diff-files{max-height:150px}}
