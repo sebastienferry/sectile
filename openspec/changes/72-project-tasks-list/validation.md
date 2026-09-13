@@ -40,4 +40,8 @@ The full ticket diff was reviewed against the requirements. No production defect
 - [x] Build desktop and run all desktop UI tests.
 - [x] Build web and run its tests, typecheck, and lint.
 - [x] Verify row ordering and unchanged history/selection in the rendered desktop regression.
-- [ ] Verify the published implementation head and ready state of the existing PR.
+- [x] Verify the published implementation head and ready state of the existing PR.
+
+PR #75 was verified open and ready with implementation commit `10076244e565ceee429a3026cb5cf712f343512d`. The final documentation commit records this verification; no production changes followed validation. Human review and merge remain pending.
+
+Suggested project-memory entry: the terminal manager creates missing working directories, so launch-failure tests should use a regular file as the working directory; refresh tests should observe polling instead of assuming an interval.

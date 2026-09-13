@@ -5,4 +5,4 @@
 - [x] 3. Verify desktop refresh, history, archive filtering, and selection behavior with UI coverage.
 - [x] 4. Update desktop and agent contract documentation.
 - [x] 5. Run strict specification validation, build, static analysis, and tests; review the full diff against current origin/main.
-- [ ] 6. Update the existing draft PR with implementation and validation evidence, verify its head, and mark it ready.
+- [x] 6. Update the existing draft PR with implementation and validation evidence, verify its head, and mark it ready.
