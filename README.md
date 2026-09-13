@@ -380,6 +380,9 @@ To regenerate skills from the desktop app, open the project gear menu, select **
 
 ### Desktop console host
 
+The desktop **Agent logs** toolbar action shows recent local-agent diagnostics even
+when disconnected, with a bounded snapshot and Refresh. See [desktop usage](desktop/README.md#use).
+
 Use TaskFlow Desktop to follow native Codex/Claude terminals locally:
 
 ```sh
