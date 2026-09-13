@@ -8,4 +8,4 @@
 - [x] Run desktop build/UI tests, web build/lint/tests and Go build/vet/tests; review the final diff.
 - [x] Publish and verify the implementation in PR #88 and mark ready after successful review.
 - [x] Resume workflow reporting through MCP: clarified, specified and implemented accepted.
-- [ ] Record reviewed after final push and PR verification.
+- [x] Push the integrated branch and verify the existing PR is open and ready.
