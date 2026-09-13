@@ -533,7 +533,17 @@ func renderStageHandlerCommand(stage, note string, includesBranch, includesPRURL
 	if includesPRURL {
 		fields = append(fields, `"prUrl":"<PR_URL>"`)
 	}
-	return "curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \\\n  -H 'Content-Type: application/json' \\\n  -d '{" + strings.Join(fields, ",") + "}'\n"
+	payload := "{" + strings.Join(fields, ",") + "}"
+
+	return `# Route via local agent if available, fallback to http://localhost:8090/api/tasks/stage
+ENDPOINT="${TASKFLOW_AGENT_URL:-${TASKFLOW_SERVER_URL:-http://localhost:8090}}/api/tasks/stage"
+curl --fail-with-body --silent --show-error -X POST "${ENDPOINT}" \
+  ${TASKFLOW_AGENT_TOKEN:+-H "Authorization: Bearer $TASKFLOW_AGENT_TOKEN"} \
+  -H 'Content-Type: application/json' \
+  -d '` + payload + `' || \
+curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
+  -H 'Content-Type: application/json' \
+  -d '` + payload + "'\n"
 }
 
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs

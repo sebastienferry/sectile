@@ -155,15 +155,39 @@ Report and persist before continuing:
 - **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.
 - **Standalone invocation**: After verifying each completed step, use the local handler below. Check its exit status and response. If it is unavailable, preserve work and report the pending transition; do not silently diverge local and tracker state.
 ```bash
+# Route via local agent if available, fallback to http://localhost:8090/api/tasks/stage
+ENDPOINT="${TASKFLOW_AGENT_URL:-${TASKFLOW_SERVER_URL:-http://localhost:8090}}/api/tasks/stage"
+curl --fail-with-body --silent --show-error -X POST "${ENDPOINT}" \
+  ${TASKFLOW_AGENT_TOKEN:+-H "Authorization: Bearer $TASKFLOW_AGENT_TOKEN"} \
+  -H 'Content-Type: application/json' \
+  -d '{"taskKey":"<KEY>","stage":"clarified","note":"<settled scope and assumptions>"}' || \
 curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
   -H 'Content-Type: application/json' \
   -d '{"taskKey":"<KEY>","stage":"clarified","note":"<settled scope and assumptions>"}'
+# Route via local agent if available, fallback to http://localhost:8090/api/tasks/stage
+ENDPOINT="${TASKFLOW_AGENT_URL:-${TASKFLOW_SERVER_URL:-http://localhost:8090}}/api/tasks/stage"
+curl --fail-with-body --silent --show-error -X POST "${ENDPOINT}" \
+  ${TASKFLOW_AGENT_TOKEN:+-H "Authorization: Bearer $TASKFLOW_AGENT_TOKEN"} \
+  -H 'Content-Type: application/json' \
+  -d '{"taskKey":"<KEY>","stage":"specified","note":"<spec paths>","branch":"<ACTUAL_BRANCH>"}' || \
 curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
   -H 'Content-Type: application/json' \
   -d '{"taskKey":"<KEY>","stage":"specified","note":"<spec paths>","branch":"<ACTUAL_BRANCH>"}'
+# Route via local agent if available, fallback to http://localhost:8090/api/tasks/stage
+ENDPOINT="${TASKFLOW_AGENT_URL:-${TASKFLOW_SERVER_URL:-http://localhost:8090}}/api/tasks/stage"
+curl --fail-with-body --silent --show-error -X POST "${ENDPOINT}" \
+  ${TASKFLOW_AGENT_TOKEN:+-H "Authorization: Bearer $TASKFLOW_AGENT_TOKEN"} \
+  -H 'Content-Type: application/json' \
+  -d '{"taskKey":"<KEY>","stage":"implemented","note":"<check results>","branch":"<ACTUAL_BRANCH>"}' || \
 curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
   -H 'Content-Type: application/json' \
   -d '{"taskKey":"<KEY>","stage":"implemented","note":"<check results>","branch":"<ACTUAL_BRANCH>"}'
+# Route via local agent if available, fallback to http://localhost:8090/api/tasks/stage
+ENDPOINT="${TASKFLOW_AGENT_URL:-${TASKFLOW_SERVER_URL:-http://localhost:8090}}/api/tasks/stage"
+curl --fail-with-body --silent --show-error -X POST "${ENDPOINT}" \
+  ${TASKFLOW_AGENT_TOKEN:+-H "Authorization: Bearer $TASKFLOW_AGENT_TOKEN"} \
+  -H 'Content-Type: application/json' \
+  -d '{"taskKey":"<KEY>","stage":"reviewed","note":"<review summary>","prUrl":"<PR_URL>"}' || \
 curl --fail-with-body --silent --show-error -X POST http://localhost:8090/api/tasks/stage \
   -H 'Content-Type: application/json' \
   -d '{"taskKey":"<KEY>","stage":"reviewed","note":"<review summary>","prUrl":"<PR_URL>"}'

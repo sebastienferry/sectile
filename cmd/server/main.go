@@ -89,20 +89,20 @@ func resolveDBPath(explicit string) (path string, origin string) {
 	if strings.TrimSpace(explicit) != "" {
 		return explicit, "DB_PATH"
 	}
-	if _, err := os.Stat("tasks.db"); err == nil {
+	if fi, err := os.Stat("tasks.db"); err == nil && fi.Size() > 0 {
 		return "tasks.db", "base trouvée dans le répertoire courant"
 	}
 
 	appDir := appDataDir()
 	if appDir != "" {
 		taskflowDB := filepath.Join(appDir, "tasks.db")
-		if _, err := os.Stat(taskflowDB); err == nil {
+		if fi, err := os.Stat(taskflowDB); err == nil && fi.Size() > 0 {
 			return taskflowDB, "dossier de données"
 		}
 		// Fallback to legacy taskacao directory if it exists
 		if userDir, err := os.UserConfigDir(); err == nil && userDir != "" {
 			legacyDB := filepath.Join(userDir, "taskacao", "tasks.db")
-			if _, err := os.Stat(legacyDB); err == nil {
+			if fi, err := os.Stat(legacyDB); err == nil && fi.Size() > 0 {
 				return legacyDB, "dossier de données (legacy taskacao)"
 			}
 		}
@@ -170,6 +170,10 @@ func main() {
 
 	if len(os.Args) >= 2 {
 		cmd := strings.ToLower(os.Args[1])
+		if cmd == "agent" {
+			runAgentCommand(os.Args[2:])
+			return
+		}
 		if cmd == "stage" || cmd == "transition" || cmd == "set-stage" {
 			handleCliStageCommand(port, os.Args[2:])
 			return
@@ -265,6 +269,11 @@ func main() {
 	mux.HandleFunc("/api/terminal/sessions", h.HandleTerminalSessions)
 	mux.HandleFunc("/api/terminal/send", h.HandleTerminalSend)
 	mux.HandleFunc("/api/terminal/reset", h.HandleTerminalReset)
+
+	// Remote Agent WebSocket & Dispatch Routes
+	mux.HandleFunc("/ws/agent-connect", h.HandleAgentConnect)
+	mux.HandleFunc("/api/agent/status", h.HandleAgentStatus)
+	mux.HandleFunc("/api/agent/dispatch", h.HandleAgentDispatch)
 
 	// Interface : la copie embarquée d'abord, le dossier de build ensuite.
 	//

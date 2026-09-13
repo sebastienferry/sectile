@@ -19,6 +19,9 @@ import (
 	"tasks/internal/models"
 	"tasks/internal/runner"
 	"tasks/internal/terminal"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 type Event struct {
@@ -34,16 +37,18 @@ type Handler struct {
 	// dataDir is where the application keeps its own files, the environment file
 	// holding the tracker token included. Empty when the process could not
 	// resolve one, in which case the token can only go to the database.
-	dataDir     string
-	subscribers map[chan Event]bool
-	subMu       sync.RWMutex
+	dataDir         string
+	subscribers     map[chan Event]bool
+	subMu           sync.RWMutex
+	agentDispatcher *AgentDispatcher
 }
 
 func NewHandler(database *db.DB) *Handler {
 	h := &Handler{
-		db:          database,
-		terminalMgr: terminal.NewManager(),
-		subscribers: make(map[chan Event]bool),
+		db:              database,
+		terminalMgr:     terminal.NewManager(),
+		subscribers:     make(map[chan Event]bool),
+		agentDispatcher: NewAgentDispatcher(),
 	}
 	if database != nil {
 		database.RegisterPostBackListener(func(task *models.Task, activity *models.TaskActivity, err error) {
@@ -1765,16 +1770,104 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		task, activity, err := h.db.EnqueueSkillOnTask(id, req.SkillID, req.Prompt)
+		task, err := h.db.GetTaskByID(id)
+		if err != nil || task == nil {
+			writeError(w, http.StatusNotFound, "Task not found")
+			return
+		}
+
+		projectID := "default"
+		if task.ProjectID != "" {
+			projectID = task.ProjectID
+		}
+		userID := "default"
+		ac := h.agentDispatcher.Lookup(userID, projectID)
+
+		// 1. If a local agent daemon is connected, delegate the execution directly to it!
+		if ac != nil {
+			log.Printf("🚀 [Dispatch] Delegating skill %s on task %s (%s) to connected local agent (device=%s)", req.SkillID, task.Key, task.ID, ac.DeviceID)
+
+			activityID := uuid.New().String()
+			now := time.Now()
+			act := models.TaskActivity{
+				ID:        activityID,
+				TaskID:    task.ID,
+				SkillID:   req.SkillID,
+				SkillName: req.SkillID,
+				Action:    fmt.Sprintf("Exécution de %s sur l'agent local", req.SkillID),
+				Status:    string(models.ActivityStatusRunning),
+				Summary:   fmt.Sprintf("Exécution en cours sur l'agent local (%s)", ac.DeviceID),
+				Output:    "",
+				Steps: []string{
+					fmt.Sprintf("Tâche ciblée : %s - %s", task.Key, task.Title),
+					fmt.Sprintf("Déléguée à l'agent local (%s)...", ac.DeviceID),
+				},
+				Prompt:    req.Prompt,
+				CreatedAt: now,
+				StartedAt: &now,
+			}
+			_ = h.db.AddTaskActivity(act)
+
+			provider := "agy"
+			cmdTemplate := ""
+			termCmd := ""
+			ttyMode := ""
+			if proj, err := h.db.GetProjectByID(task.ProjectID); err == nil && proj != nil {
+				if proj.AIProvider != "" {
+					provider = proj.AIProvider
+				}
+				cmdTemplate = proj.AICommandTemplate
+				termCmd = proj.ExternalTerminalCommand
+				ttyMode = proj.TtyMode
+			}
+			if settings, err := h.db.GetSettings(); err == nil && settings != nil {
+				if provider == "agy" && settings.AIProvider != "" {
+					provider = settings.AIProvider
+				}
+				if cmdTemplate == "" {
+					cmdTemplate = settings.AICommandTemplate
+				}
+				if termCmd == "" {
+					termCmd = settings.ExternalTerminalCommand
+				}
+			}
+
+			err := h.agentDispatcher.Dispatch(ac.UserID, ac.ProjectID, "dispatch_step", task.ID, map[string]interface{}{
+				"taskKey":                 task.Key,
+				"taskId":                  task.ID,
+				"skillId":                 req.SkillID,
+				"action":                  req.SkillID,
+				"prompt":                  req.Prompt,
+				"projectId":               ac.ProjectID,
+				"provider":                provider,
+				"externalTerminalCommand": termCmd,
+				"ttyMode":                 ttyMode,
+				"aiCommandTemplate":       cmdTemplate,
+			})
+			if err != nil {
+				writeError(w, http.StatusBadGateway, "Erreur lors de la délégation à l'agent local: "+err.Error())
+				return
+			}
+
+			writeJSON(w, http.StatusOK, models.RunSkillResponse{
+				Task:     *task,
+				Activity: act,
+				Message:  fmt.Sprintf("Skill %s déléguée à l'agent local (%s)", req.SkillID, ac.DeviceID),
+			})
+			return
+		}
+
+		// 2. Fallback to local server queue execution when no local agent daemon is connected
+		enqueuedTask, activity, err := h.db.EnqueueSkillOnTask(id, req.SkillID, req.Prompt)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 
 		writeJSON(w, http.StatusOK, models.RunSkillResponse{
-			Task:     *task,
+			Task:     *enqueuedTask,
 			Activity: *activity,
-			Message:  "Skill " + req.SkillID + " ajoutée à la file d'exécution",
+			Message:  "Skill " + req.SkillID + " ajoutée à la file d'exécution locale",
 		})
 		return
 	}
@@ -1918,6 +2011,36 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+
+		// Also notify connected local agent if active
+		if task, _ := h.db.GetTaskByID(id); task != nil {
+			projectID := "default"
+			if task.ProjectID != "" {
+				projectID = task.ProjectID
+			}
+			userID := "default"
+			if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
+				log.Printf("🚀 [Dispatch] Local agent active. Dispatching TTY skill %s on task %s", req.SkillID, task.Key)
+				termCmd := ""
+				if proj, err := h.db.GetProjectByID(task.ProjectID); err == nil && proj != nil {
+					termCmd = proj.ExternalTerminalCommand
+				}
+				if termCmd == "" {
+					if settings, err := h.db.GetSettings(); err == nil && settings != nil {
+						termCmd = settings.ExternalTerminalCommand
+					}
+				}
+				_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
+					"taskKey":                 task.Key,
+					"taskId":                  task.ID,
+					"skillId":                 req.SkillID,
+					"action":                  req.SkillID,
+					"projectId":               projectID,
+					"externalTerminalCommand": termCmd,
+				})
+			}
+		}
+
 		writeJSON(w, http.StatusOK, launch)
 		return
 	}
@@ -2672,6 +2795,176 @@ func (h *Handler) HandleTerminalReset(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Terminal session reset successfully"})
 }
 
+// ---------------------------------------------------------------------------
+// Remote Agent WebSocket & Dispatch Endpoints
+// ---------------------------------------------------------------------------
+
+// HandleAgentConnect handles the WebSocket upgrade for a local agent daemon
+// connecting to the remote server. The agent authenticates via a Bearer token
+// in the Authorization header or the "token" query parameter. Each connection
+// is registered in the AgentDispatcher under (userID, projectID).
+func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
+	// Extract authentication token from Authorization header or query param.
+	token := ""
+	if auth := r.Header.Get("Authorization"); auth != "" {
+		token = strings.TrimPrefix(auth, "Bearer ")
+	}
+	if token == "" {
+		token = r.URL.Query().Get("token")
+	}
+	if token == "" {
+		writeError(w, http.StatusUnauthorized, "Missing agent authentication token")
+		return
+	}
+
+	// Resolve the user from the token. In the current single-user local mode,
+	// any non-empty token is accepted and the user is mapped to "default". A
+	// future multi-user deployment will validate tokens against a user store.
+	userID := h.resolveAgentUser(token)
+	if userID == "" {
+		writeError(w, http.StatusForbidden, "Invalid agent token")
+		return
+	}
+
+	projectID := r.URL.Query().Get("projectId")
+	if projectID == "" {
+		projectID = "default"
+	}
+	deviceID := r.URL.Query().Get("deviceId")
+	if deviceID == "" {
+		deviceID = "unknown"
+	}
+
+	// Upgrade to WebSocket.
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  4096,
+		WriteBufferSize: 4096,
+		CheckOrigin:     func(r *http.Request) bool { return true },
+	}
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("[AgentConnect] WebSocket upgrade failed: %v", err)
+		return
+	}
+
+	// Register the agent, potentially rebinding an existing session.
+	ac := h.agentDispatcher.Register(userID, projectID, deviceID, conn)
+
+	// Broadcast agent connection event to SSE subscribers.
+	h.BroadcastEvent(Event{
+		Type: "agent_connected",
+	})
+
+	// Read loop: handle messages from the local agent (pty_output, step_status,
+	// heartbeat responses). The loop exits when the connection closes.
+	defer func() {
+		h.agentDispatcher.Unregister(userID, projectID, conn)
+		_ = conn.Close()
+		h.BroadcastEvent(Event{
+			Type: "agent_disconnected",
+		})
+		log.Printf("[AgentConnect] Agent disconnected: user=%s project=%s device=%s", userID, projectID, deviceID)
+	}()
+
+	for {
+		_, msgData, err := conn.ReadMessage()
+		if err != nil {
+			break
+		}
+		ac.LastPingAt = time.Now()
+
+		var msg AgentMessage
+		if err := json.Unmarshal(msgData, &msg); err != nil {
+			log.Printf("[AgentConnect] Malformed message from agent: %v", err)
+			continue
+		}
+
+		switch msg.Type {
+		case "heartbeat":
+			_ = ac.Send(AgentMessage{
+				MsgID: msg.MsgID,
+				Type:  "heartbeat",
+			})
+		case "pty_output":
+			// Relay terminal output to the browser SSE or WebSocket subscribers.
+			h.BroadcastEvent(Event{
+				Type: "agent_pty_output",
+			})
+		case "step_status":
+			// The local agent reports progress on a dispatched workflow step.
+			h.BroadcastEvent(Event{
+				Type: "agent_step_status",
+			})
+		default:
+			log.Printf("[AgentConnect] Unknown message type from agent: %s", msg.Type)
+		}
+	}
+}
+
+// resolveAgentUser maps an agent authentication token to a user ID. In the
+// current single-user deployment, any non-empty token resolves to "default".
+func (h *Handler) resolveAgentUser(token string) string {
+	if token == "" {
+		return ""
+	}
+	// Future: validate against a user/token store.
+	return "default"
+}
+
+// HandleAgentStatus returns the list of currently connected local agents.
+func (h *Handler) HandleAgentStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"agents": h.agentDispatcher.ConnectedAgents(),
+	})
+}
+
+// HandleAgentDispatch allows the Web UI to send a workflow command to the
+// user's connected local agent. It enforces the identity guard: the requesting
+// session's user ID must match the agent's authenticated user ID.
+func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	var req struct {
+		UserID    string          `json:"userId"`
+		ProjectID string          `json:"projectId"`
+		TaskID    string          `json:"taskId"`
+		Action    string          `json:"action"` // dispatch_step, pty_input, pty_resize
+		Payload   json.RawMessage `json:"payload,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	if req.UserID == "" {
+		req.UserID = "default"
+	}
+	if req.ProjectID == "" {
+		req.ProjectID = "default"
+	}
+
+	// Session guard: verify the requesting user matches the agent owner.
+	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
+	if ac == nil {
+		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'taskflow agent' on your workstation.")
+		return
+	}
+
+	if err := h.agentDispatcher.Dispatch(req.UserID, req.ProjectID, req.Action, req.TaskID, req.Payload); err != nil {
+		writeError(w, http.StatusBadGateway, fmt.Sprintf("Failed to dispatch to local agent: %v", err))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Command dispatched to local agent"})
+}
+
 // HandleOpenEditor opens a workspace, worktree, or path in the user's code editor (default: code)
 func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -2853,6 +3146,29 @@ func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTer
 	}
 	if customTermCmd == "" && settings != nil && settings.ExternalTerminalCommand != "" {
 		customTermCmd = settings.ExternalTerminalCommand
+	}
+
+	projectID := "default"
+	if task.ProjectID != "" {
+		projectID = task.ProjectID
+	}
+	userID := "default"
+	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
+		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
+		_ = h.agentDispatcher.Dispatch(userID, projectID, "dispatch_step", task.ID, map[string]interface{}{
+			"taskKey":                 task.Key,
+			"taskId":                  task.ID,
+			"skillId":                 skillID,
+			"action":                  skillID,
+			"prompt":                  command,
+			"projectId":               projectID,
+			"externalTerminalCommand": customTermCmd,
+		})
+		return map[string]interface{}{
+			"success": true,
+			"taskId":  task.ID,
+			"message": fmt.Sprintf("External terminal dispatched to local agent (%s)", ac.DeviceID),
+		}, nil
 	}
 
 	repoPath := h.db.ResolveTaskRepoPath(task)

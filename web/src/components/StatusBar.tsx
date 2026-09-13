@@ -12,8 +12,10 @@ import {
   Moon,
   Sun,
   RefreshCcwDot,
+  Radio,
 } from 'lucide-react'
 import { useApp, UI_SCALE_OPTIONS } from '../context/AppContext'
+import { useAgentStatus } from '../hooks/useAgentStatus'
 
 export const StatusBar: React.FC = () => {
   const {
@@ -33,6 +35,8 @@ export const StatusBar: React.FC = () => {
     t,
     addToast,
   } = useApp()
+
+  const { isConnected: isAgentConnected, agents: connectedAgents } = useAgentStatus()
 
   const [copied, setCopied] = useState(false)
 
@@ -289,6 +293,21 @@ export const StatusBar: React.FC = () => {
               </button>
             )
           })}
+        </div>
+
+        {/* Local Agent Connection Status */}
+        <div
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-[var(--bg-tertiary)] transition-colors text-[10px]"
+          title={
+            isAgentConnected
+              ? `Agent local connecté (${connectedAgents.map(a => a.deviceId || a.userId).join(', ') || 'actif'})`
+              : "Aucun agent local connecté. Lancez 'taskflow agent' sur votre machine pour exécuter les workflows LLM et Git."
+          }
+        >
+          <Radio size={11} className={isAgentConnected ? "text-emerald-400 animate-pulse" : "text-[var(--text-muted)]"} />
+          <span className={`font-semibold ${isAgentConnected ? "text-emerald-400" : "text-[var(--text-muted)]"}`}>
+            {isAgentConnected ? "Agent actif" : "Agent hors-ligne"}
+          </span>
         </div>
 
         {/* AI Provider pill */}

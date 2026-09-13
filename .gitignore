@@ -1,7 +1,7 @@
 # Binaries & build artifacts
 bin/
 *.exe
-server
+/server
 
 # Node / Web Dependencies
 node_modules/

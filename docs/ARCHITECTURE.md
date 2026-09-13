@@ -123,3 +123,170 @@ TaskFlow includes an autonomous in-process background worker:
 - Fetches `queued` activities from SQLite in FIFO order.
 - Executes the designated AI skill or script in the task worktree.
 - Updates activity status (`running` → `completed` | `failed`) and captures stdout/stderr in the activity record.
+
+---
+
+## 6. Remote Web & Local Agent Decoupling
+
+TaskFlow supports a decoupled architecture separating the central **Remote Web UX & Database** (Cloud Control Plane) from the developer's **Local Background Agent** (Edge Execution Worker):
+
+```mermaid
+graph TD
+    subgraph Remote Cloud Server
+        WebUI["React Web UI (Browser / Xterm.js)"]
+        RemoteDB[("Central SQLite / Postgres DB")]
+        Dispatcher["Agent Dispatcher (/ws/agent-connect)"]
+    end
+
+    subgraph Developer Local Machine
+        LocalAgent["TaskFlow Agent Daemon (taskflow agent)"]
+        PTYMgr["PTY Manager (creack/pty)"]
+        GitEngine["Local Git Worktrees (.tasks/worktrees)"]
+        LLMTools["AI CLI Tools (codex / agy / claude)"]
+    end
+
+    WebUI <-->|REST API & SSE /ws/terminal| Dispatcher
+    Dispatcher <-->|SQL Queries & State| RemoteDB
+    LocalAgent <-->|Outbound WSS Relay /ws/agent-connect| Dispatcher
+    LocalAgent <-->|PTY I/O Streams| PTYMgr
+    PTYMgr <-->|Subprocess Execution| LLMTools
+    LLMTools <-->|File Ops & Git Worktrees| GitEngine
+```
+
+### 6.1 Responsibilities Breakdown: Control Plane vs. Execution Plane
+
+The architecture strictly decouples the centralized governance and visualization layer (**Control Plane**) from the developer's workstation runtime (**Data / Execution Plane**):
+
+| Domain | Remote Server & WebUI (Control Plane) | Local Agent & Gateway (Execution Plane) |
+| :--- | :--- | :--- |
+| **Execution & Triggers** | • Presents tasks, board, backlog, and activity logs<br>• Triggers step execution via WebSocket dispatch (`dispatch_step`) | • Receives dispatch over outbound WebSocket<br>• Launches native desktop terminal (Ghostty, iTerm) or local PTY |
+| **LLM & AI Tasks** | • Centralizes AI provider selection & command templates | • Executes AI CLI agents (`agy`, `claude`, `codex`, `vibe`)<br>• Manages interactive human-in-the-loop terminal sessions |
+| **Git & Worktrees** | • Records remote repository URL & branch metadata | • Manages local Git worktrees (`.tasks/worktrees/#<key>`)<br>• Performs code modifications, compilations, linters, tests<br>• Pushes branches and creates pull requests (`gh pr create`) |
+| **Scaffolding & Config** | • Stores global project settings, tracker tokens, and stage models | • Scaffolds local skill directories (`.agents/`, `.agy/`, `.skills/`)<br>• Supports local configuration overrides (custom terminal, skills) *(Roadmap)* |
+| **Task Management & MCP** | • Exposes central API and **MCP Server** (`/mcp` / `/sse`)<br>• Serves project context, tracker sync, task state, comments | • Runs embedded local reverse proxy gateway (`127.0.0.1:8091`)<br>• Forwards skill transitions with automatic authentication<br>• Bridges local AI tools to TaskFlow via local stdio MCP (`taskflow mcp`) |
+
+### 6.2 Architectural Principles
+1. **Outbound WebSocket Relay**:
+   - The local daemon connects outward to `wss://<remote-server>/ws/agent-connect` using an authentication token.
+   - Outbound connections eliminate firewall ingress, port-forwarding, or public IP requirements on the developer's workstation.
+2. **Session Guard & Identity Verification**:
+   - Commands are dispatched to an agent only when `web_session.user_id == agent_session.user_id`.
+   - Rebind policy: Enforces a 1:1 active connection limit per user/project mapping; new connections gracefully disconnect older daemons with code `4001 Session Rebound`.
+3. **Local-First Execution Privacy**:
+   - All LLM interactions, API keys, Git worktrees, code edits, and compiler/test runs remain strictly on the developer's machine.
+
+### 6.2 Interactive Execution UX: Option 1 & Option 2
+
+#### Option 1: Native External Terminal Launch (Current Implementation)
+To provide a smooth developer experience without dumping interactive AI sessions into a background daemon's raw stdout:
+- **Native Window Launch**: When a user triggers an interactive workflow skill (`/clarify-issue`, `/specify-issue`, `/code-issue`) from the central Web UI, the connected local agent daemon launches a native desktop terminal window (e.g. **Ghostty**, **iTerm2**, or **Terminal.app**) directly inside the task's worktree (`.tasks/worktrees/#<key>`).
+- **Interactive AI Session**: Launches the configured CLI provider tool (`agy -i "/clarify-issue"`, `claude`, `codex`, or `vibe`), enabling interactive prompts, diff approvals, and conversation directly in the user's preferred terminal.
+- **Hierarchy of Terminal Selection**:
+  1. CLI flag `--terminal <app>` passed to `taskflow agent` (e.g., `ghostty`, `iterm`, `terminal`, `pty`).
+  2. Project/server settings (`external_terminal_command` in Project configuration).
+  3. Local project configuration (`.taskflow/config.json` in the worktree or repository root).
+  4. Environment variable `TASKFLOW_TERMINAL`.
+  5. Auto-detection on macOS (`/Applications/Ghostty.app` -> `ghostty`, then `iTerm.app` -> `iterm`, then `Terminal.app` -> `terminal`, with fallback to embedded `pty`).
+
+#### Option 2: Dedicated Desktop Companion App (Future Roadmap)
+As the local agent matures, a dedicated Desktop Companion App (built with **Tauri**, **Wails**, or **Electron**) will provide a unified local interface:
+- **Left Sidebar**: Displays the local agent status, live WebSocket connection to the remote TaskFlow server, and the list of active task worktrees.
+- **Main Chat & Execution Pane**: Interactive chat with the local agent running the skill, complete with rich Markdown rendering, collapsible tool call outputs, diff viewers, and inline user input prompts.
+- **Terminal & Logs Drawer**: Optional embedded PTY console tab for inspecting low-level compiler, test, or linter output.
+- **System Tray & Notifications**: Native desktop notifications when an AI agent completes a stage or requests human clarification.
+
+### 6.3 Local Agent HTTP Gateway & Skill Access
+When workflow skills execute in local worktrees, they require access to TaskFlow task management (e.g. reporting stage transitions, updating ticket state):
+1. **Embedded Agent Reverse Proxy**:
+   - The `taskflow agent` daemon launches an embedded HTTP reverse proxy on `127.0.0.1:8091` (or dynamic loopback port).
+   - Injects `TASKFLOW_AGENT_URL`, `TASKFLOW_SERVER_URL`, and `TASKFLOW_AGENT_TOKEN` into the environment of every terminal and PTY session.
+   - Forwards local skill calls (`POST /api/tasks/stage`, `GET /api/tasks/...`) upstream to the remote server, transparently attaching Bearer token authentication.
+2. **Resilient Fallback**:
+   - Skills attempt transitions via `$TASKFLOW_AGENT_URL` first.
+   - If the local agent proxy is unreachable or offline, skills automatically fall back to the direct server URL (`http://localhost:8090/api/tasks/stage`), logging a warning.
+
+---
+
+## 7. Model Context Protocol (MCP) Server Architecture
+
+### 7.1 Motivation: Replacing Prompt-Injected Bash Curl Calls
+Currently, TaskFlow instructs AI agents to update tickets using markdown prompt instructions with embedded `curl` commands. This pattern suffers from:
+- **Syntax & Escaping Fragility**: LLMs frequently introduce formatting errors, mis-escape quotes or newlines in `<REPORT_NOTE>`, or omit critical headers.
+- **One-Way Execution**: Agents cannot easily query ticket context (e.g. comments, parent epics, reviewer notes, sprint metadata) without manual file reading or guesswork.
+- **Lack of Verification**: There is no direct feedback loop between the LLM and the server's validation rules prior to attempting a transition.
+
+Integrating an **MCP (Model Context Protocol)** server elevates TaskFlow from a passive prompt-injected system to a first-class tool provider natively supported by modern AI agents (**Google Antigravity / agy**, **Claude Code**, **Cursor**, **Windsurf**, **VS Code**).
+
+### 7.2 MCP Tools Specification
+The TaskFlow MCP Server exposes the following core tools:
+
+| Tool Name | Parameters | Description |
+| :--- | :--- | :--- |
+| `taskflow_get_task` | `taskKey`: string (e.g. `#47`) | Fetches structured task details: title, description, tracker, current stage, branch name, worktree path, and comments. |
+| `taskflow_transition_stage` | `taskKey`: string, `stage`: enum (`clarified`, `specified`, `implemented`, `reviewed`, `finished`), `note`: string, `branch`?: string, `prUrl`?: string | Transitions the task stage atomically and records the activity report on the remote server and tracker. |
+| `taskflow_add_comment` | `taskKey`: string, `body`: string | Posts a comment or clarification question directly onto the task discussion thread. |
+| `taskflow_list_tasks` | `projectId`?: string, `status`?: string, `sprint`?: string | Lists active tasks on the board to support multi-ticket planning and batch skills (`pickup-issues`). |
+| `taskflow_get_project_context` | `projectId`?: string, `taskKey`?: string | Retrieves project-wide architecture guidelines, spec framework choice (`openspec` / `speckit`), and coding conventions. |
+
+### 7.3 Dual Deployment Topologies
+```mermaid
+graph TD
+    subgraph Local Machine
+        CLI["AI Agent CLI (agy / claude / cursor)"]
+        StdioMCP["taskflow mcp (Local Stdio Server)"]
+        LocalDaemon["taskflow agent (Local Daemon)"]
+        Worktree["Git Worktree (.tasks/worktrees/#<key>)"]
+
+        CLI <-->|JSON-RPC 2.0 (stdio)| StdioMCP
+        CLI <-->|Read / Edit Code| Worktree
+        StdioMCP <-->|IPC / Loopback Proxy| LocalDaemon
+    end
+
+    subgraph Remote Server
+        RemoteServer["TaskFlow Central Server (:8090)"]
+        RemoteMCP["Remote MCP Endpoint (/mcp or /sse)"]
+        Database[("Central DB (SQLite / PostgreSQL)")]
+        TrackerAPI["GitHub / Linear / Jira"]
+
+        LocalDaemon <-->|Outbound WSS / HTTPS| RemoteServer
+        RemoteServer <--> RemoteMCP
+        RemoteServer <--> Database
+        RemoteServer <--> TrackerAPI
+    end
+```
+
+1. **Topology A: Remote Server-Side MCP (`/mcp` / `/sse`)**:
+   - The central TaskFlow server provides an HTTP Server-Sent Events (SSE) or streamable HTTP MCP endpoint.
+   - Useful for remote web agents, CI/CD runners, and cloud-hosted assistants with network reachability to the server.
+2. **Topology B: Local Stdio MCP (`taskflow mcp`)**:
+   - `taskflow mcp` operates over standard input/output (`stdio`), the universal protocol supported by `agy`, Claude Code, Cursor, and Windsurf.
+   - When running against a remote control plane, `taskflow mcp` relays tool calls through the local agent daemon or loopback gateway, keeping all local execution private and firewall-free.
+
+### 7.4 Skill Evolution: Transition from Bash Curl Snippets to Native MCP Tools
+With the arrival of the TaskFlow MCP Server, the definition of skills (`SKILL.md`) undergoes a major evolutionary shift:
+
+- **Legacy Model (Markdown Prompt with Bash Curl Snippet)**:
+  - The skill instructions contained raw markdown describing a bash `curl` command with placeholders (`<KEY>`, `<REPORT_NOTE>`, `<ACTUAL_BRANCH>`).
+  - Fragile: LLMs frequently failed on JSON quote escaping, omitted parameters, or failed to invoke curl altogether.
+- **Target MCP Model (Declarative Prompt with Typed MCP Tools)**:
+  - Instead of running a bash subprocess, the skill instructs the LLM:
+    > "When this stage is completed and verified, invoke the `taskflow_transition_stage` tool with your structured summary note and assigned branch."
+  - For stage inspection: The LLM directly calls `taskflow_get_task(taskKey)` to read live comments, acceptance criteria, and tracker context.
+  - For interactive queries: The LLM calls `taskflow_add_comment(taskKey, question)` to post clarification questions to the ticket thread.
+  - Type-safe, validated by JSON Schema, and completely free of shell-escaping bugs.
+
+### 7.5 Purely API-Based Configuration Contract
+The boundary between the Remote Web UX / Central Server and the Local Agent is strictly contract-driven:
+
+1. **Remote Central Server as Single Source of Truth**:
+   - Holds team configurations, tracker secrets (GitHub/Linear/Jira tokens), project definitions, workflow stages, and AI command templates.
+   - Exposes a versioned REST/WebSocket API contract for agent synchronization.
+2. **Local Agent as Stateless Consumer & Local Executor**:
+   - Never accesses the remote SQLite/Postgres database directly.
+   - Upon connection (`/ws/agent-connect`), receives or queries the project configuration contract.
+   - Uses the configuration contract to:
+     - Scaffold local skill directories (`.agents/`, `.skills/`).
+     - Resolve target worktree paths and branch naming conventions.
+     - Launch the configured desktop terminal (Ghostty/iTerm) and AI CLI (`agy`/`claude`).
+   - Supports local overrides layered on top of the remote contract (e.g. locally preferred terminal emulator, offline custom prompts) without polluting central state.
+
