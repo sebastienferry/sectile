@@ -10,4 +10,4 @@ Settled assumptions:
 
 Read: desktop/src/main.js, desktop/src/style.css, desktop/src/workflow.mjs, desktop/electron/preload.cjs, desktop/electron/main.cjs, desktop/README.md, desktop/tests/pr-display.ui.cjs, desktop/tests/next-step.ui.cjs and web/src/components/Sidebar.tsx. No unresolved product questions or new dependencies.
 
-Workflow reporting is pending: automatic approval review rejected the clarified transition twice, interpreting this as a managed run. The recorded native launch says stages are reported through MCP; no result-file contract was supplied. Run 946b328f-a648-41a0-8080-bbe92874e171 was already failed by a server restart and taskflow_start_run rejected reuse. No replacement run was created.
+Workflow reporting resumed successfully through MCP in standalone run `33b97ea5-d830-450d-9974-56db571cec03`. No unresolved clarification decisions remain.

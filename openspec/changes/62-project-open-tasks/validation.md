@@ -32,8 +32,12 @@ The first UI test attempt asserted opacity before the existing 120 ms transition
 
 Both Vite builds warn about the assigned worktree's `#` character; the web build also reports its existing large bundle warning. Builds and Electron tests succeeded from the assigned path. Go checks required sandbox escalation for the existing build cache and local listeners.
 
-## Workflow reporting blocker
+## Resumed validation
 
-The supplied run `946b328f-a648-41a0-8080-bbe92874e171` was already failed by a server restart. `taskflow_start_run` rejected reuse with `remote run does not match an active execution on this task`. No replacement run or status was fabricated.
+Run `33b97ea5-d830-450d-9974-56db571cec03` successfully reused the supplied execution ID and recorded clarified and specified stages through MCP. The earlier reporting blocker is resolved.
 
-Automatic approval review rejected `taskflow_transition_stage` for clarified twice, treating the invocation as managed and requiring its completion contract. Clarification and all subsequent evidence are preserved here; no stage was advanced through a substitute endpoint or direct tracker mutation. User approval is needed before reporting verified stages through MCP. PR creation and feature work proceeded independently within the requested pickup scope. The ticket must not be represented as reviewed until reporting succeeds.
+Fetched the remote default branch and integrated `origin/main` at `71e2837` in merge commit `fe561a9`. Resolved the project-row and stylesheet conflicts by retaining the open-task action alongside the current queue controls, capacity display, and toolbar styling. The complete resulting feature diff remains limited to the original scope. Unrelated local skill and configuration edits remain excluded from commits.
+
+Revalidated OpenSpec, desktop build (11 modules), web build (2095 modules), web lint, all 22 web tests, desktop static analysis, all Go tests, Go build, Go vet, and whitespace checks successfully. Existing web lint and build warnings remain unchanged. The open-task Electron regression also passed with the updated sidebar, including keyboard access and minimum-width bounds. Inspected the fresh task-dialog screenshot for readable content and controls.
+
+The complete integrated desktop suite finished successfully: `tests 13`, `pass 13`, `fail 0`. PR feedback retrieval returned no comments or reviews; GitHub has no configured status checks.
