@@ -10,3 +10,15 @@
 - `git diff --check`: passed.
 
 Tests use temporary profiles and mock CLIs/server data. Real provider authentication and live model responses were not invoked. Go tests required loopback networking outside the restricted sandbox; a temporary Go build cache was used. The installed desktop application and running daemon were not replaced.
+
+## PR publication validation
+
+Rebased onto `origin/main` at `7814c44`, preserving the recorded branch field,
+git-diff capability/endpoint, and desktop Changes view.
+
+- `go test ./cmd/server ./internal/...`: all packages passed.
+- `go vet ./cmd/server ./internal/...`: passed.
+- Backend build: passed.
+- Desktop production build: passed.
+- Full desktop UI suite after rebase: **16 passed, 0 failed**.
+- No task workflow stage was changed.
