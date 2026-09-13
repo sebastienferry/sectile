@@ -671,7 +671,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 
 	if payload.RunID != "" {
-		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with taskflow_start_run and finish it using taskflow_finish_run when the entire skill ends.", payload.RunID)
+		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
 	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {

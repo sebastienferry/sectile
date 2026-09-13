@@ -157,13 +157,19 @@ Une suite documentaire complète pour développeurs et LLMs est disponible dans 
 
 ## Remote execution and MCP
 
-TaskFlow exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
+Sectile exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
 
-- `taskflow_list_projects`: discover project primary keys, names and Git remotes.
-`taskflow_get_task`, `taskflow_transition_stage`, `taskflow_add_comment`,
-`taskflow_list_tasks`, and `taskflow_get_project_context`. Stage updates use the
-existing validation and tracker queue; a successful response atomically records
-the local transition and its report, then queues tracker synchronization.
+- `list_projects`: discover project primary keys, names and Git remotes.
+- `get_task`: read task details and comments.
+- `transition_stage`: record a verified workflow stage and queue tracker synchronization.
+- `add_comment`: post a task comment.
+- `list_tasks`: list tasks with optional filters.
+- `get_project_context`: read project execution settings and effective instructions.
+- `start_run`: start or reuse the invocation's remote run.
+- `finish_run`: finish that run without advancing the task stage.
+
+HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
+authentication and workflow validation retain their existing contracts.
 
 Run the central server with `TASKFLOW_SERVER_TOKEN` set to a shared agent
 credential, then start the workstation agent in an existing clone:
@@ -182,17 +188,17 @@ excluded from the configuration contract. The old agent `--db` option is removed
 A disconnected or incompatible configuration API prevents execution.
 
 Before launching an LLM CLI, the local agent automatically registers its own
-`taskflow mcp --url <active-gateway>` bridge in that CLI's project configuration.
+`sectile mcp --url <active-gateway>` bridge in that CLI's project configuration.
 It refreshes the entry on each dispatch, including dynamic gateway ports. Existing
-settings and other MCP servers are preserved; global configuration and TaskFlow
-bearer tokens are not written. Native workspace/MCP trust prompts still apply.
+settings and other MCP servers are preserved; bearer tokens are not written.
+Antigravity uses its shared user-level registry; other providers use project files. Native workspace/MCP trust prompts still apply.
 Malformed configuration causes a visible launch error rather than being overwritten.
 
 | Target CLI | Project configuration |
 | --- | --- |
 | Codex | `.codex/config.toml` |
 | Claude | `.mcp.json` |
-| Antigravity (`agy`) | `.agents/mcp_config.json` |
+| Antigravity (`agy`) | user `~/.gemini/config/mcp_config.json` |
 | Gemini | `.gemini/settings.json` |
 | Cursor | `.cursor/mcp.json` |
 | Vibe | `.vibe/config.toml` |
@@ -208,14 +214,14 @@ selected skill is passed as the initial prompt. The server waits for the local
 agent's launch result, so configuration and terminal-launch errors reach the UI.
 Explicit external requests do not silently fall back to a hidden PTY.
 
-For clients started outside TaskFlow, manual registration is still available.
+For clients started outside Sectile, manual registration is still available.
 A typical JSON client configuration is:
 
 ```json
 {
   "mcpServers": {
-    "taskflow": {
-      "command": "/absolute/path/to/taskflow",
+    "sectile": {
+      "command": "/absolute/path/to/sectile",
       "args": ["mcp"],
       "env": {"TASKFLOW_AGENT_URL": "http://127.0.0.1:8091"}
     }
@@ -226,7 +232,7 @@ A typical JSON client configuration is:
 The gateway attaches the daemon's authentication token. If port 8091 is occupied,
 use the gateway URL printed by the agent. Terminals launched by the agent inherit
 the actual `TASKFLOW_AGENT_URL`, including a dynamically allocated port.
-For direct server access, use `taskflow mcp --url https://taskflow.example.com`
+For direct server access, use `sectile mcp --url https://taskflow.example.com`
 and set `TASKFLOW_AGENT_TOKEN` in that client's environment. Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
@@ -353,7 +359,7 @@ instructions. Run them in a local repository where the project skills and
 TaskFlow MCP are already configured.
 
 Remote work is shown on task cards and list rows with a **Remote execution** badge.
-The MCP tools `taskflow_start_run` and `taskflow_finish_run` track the invocation
+The MCP tools `start_run` and `finish_run` track the invocation
 independently of stage transitions. Updated standalone skills and copied commands
 report this lifecycle; existing installed skills need to be refreshed. An abruptly
 closed client may leave an activity to cancel manually in the activity view.
@@ -502,3 +508,44 @@ preserved. The shared entry contains no token or gateway URL: agent-launched
 sessions inherit `TASKFLOW_AGENT_URL` and `TASKFLOW_AGENT_TOKEN`. Standalone agy
 sessions must supply those variables themselves. Restart agy after registration
 so it loads the updated MCP tools.
+
+## MCP naming upgrade
+
+MCP tool names now omit the `taskflow_` prefix and the managed server registration
+is `sectile`. This intentionally breaks old MCP calls: no aliases or fallback
+calls are supported. The bridge and desktop client identities are `sectile-stdio`
+and `sectile-desktop-agent`.
+
+1. Upgrade the central server and workstation agent together. Mixed versions are
+   unsupported; stop existing native sessions before switching.
+2. On the next normal agent dispatch, bootstrap migrates the reserved `taskflow`
+   registration to one `sectile` entry. It refreshes the connection settings and
+   preserves unrelated entries and explicit restrictions for all six providers.
+3. Resolve any migration error before retrying. Recognized server-scoped tool
+   lists map exact old names to generic names. Conflicting registrations,
+   unsupported patterns and legacy references in external policy files require
+   manual reconciliation; bootstrap leaves the original file unchanged. Preserve
+   deny rules and approval requirements when changing tool or server names.
+4. Update user-owned stored skill overrides and custom instructions manually.
+   Built-in instructions use generic tools; normal managed-file refresh retains
+   its backup behavior for local edits. Checked-in historical reports stay intact.
+5. Reconnect native clients to discard cached tool catalogs and accept their
+   normal workspace/MCP trust prompts. Verify the eight generic tools under
+   `sectile` before starting new work.
+
+For Vibe, review root `enabled_tools`, `disabled_tools` and `[tools.<name>]`
+policies manually: its client prefixes tools with the server name. See the
+[Vibe MCP permission reference](https://docs.mistral.ai/vibe/code/cli/mcp-servers).
+Antigravity's `disabledTools` list also maps exact old tool names; see its
+[MCP configuration reference](https://www.antigravity.google/docs/mcp).
+Gemini's server-scoped `includeTools` and `excludeTools` retain their filtering
+roles during exact-name migration; see the
+[Gemini MCP reference](https://geminicli.com/docs/tools/mcp-server/).
+Bootstrap does not rewrite separate user or enterprise policy files. Operators
+must also update restrictions supplied by enterprise policy, plugins or custom
+configuration paths before reconnecting clients.
+
+`TASKFLOW_*` variables (including `TASKFLOW_RUN_ID`), `.taskflow/`, database paths,
+`/mcp`, machine markers and repository/module names remain unchanged. There is no
+data migration. Rollback requires coordinating both binaries and restoring the
+matching client registration and custom instructions.

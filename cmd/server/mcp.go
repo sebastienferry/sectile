@@ -39,7 +39,7 @@ func runMCPCommand(ctx context.Context, args []string) error {
 	if endpoint == "" {
 		endpoint = "http://127.0.0.1:8090"
 	}
-	serverURL := fs.String("url", endpoint, "Agent gateway or TaskFlow server URL")
+	serverURL := fs.String("url", endpoint, "Agent gateway or Sectile server URL")
 	token := fs.String("token", os.Getenv("TASKFLOW_AGENT_TOKEN"), "Agent bearer token (prefer TASKFLOW_AGENT_TOKEN)")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -47,13 +47,13 @@ func runMCPCommand(ctx context.Context, args []string) error {
 		}
 		return err
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "taskflow-stdio", Version: "1.0.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "sectile-stdio", Version: "1.0.0"}, nil)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: strings.TrimRight(*serverURL, "/") + "/mcp", HTTPClient: agentHTTPClient(*token)}, nil)
 	if err != nil {
-		return fmt.Errorf("connect to TaskFlow MCP: %w", err)
+		return fmt.Errorf("connect to Sectile MCP: %w", err)
 	}
 	defer session.Close()
-	proxy := mcp.NewServer(&mcp.Implementation{Name: "taskflow", Version: "1.0.0"}, nil)
+	proxy := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, nil)
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
 			return err

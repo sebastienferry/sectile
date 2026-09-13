@@ -163,7 +163,7 @@ The architecture strictly decouples the centralized governance and visualization
 | **LLM & AI Tasks** | • Centralizes AI provider selection & command templates | • Executes AI CLI agents (`agy`, `claude`, `codex`, `vibe`)<br>• Manages interactive human-in-the-loop terminal sessions |
 | **Git & Worktrees** | • Records remote repository URL & branch metadata | • Manages local Git worktrees (`.tasks/worktrees/#<key>`)<br>• Performs code modifications, compilations, linters, tests<br>• Pushes branches and creates pull requests (`gh pr create`) |
 | **Scaffolding & Config** | • Stores global project settings, tracker tokens, and stage models | • Scaffolds local skill directories (`.agents/`, `.agy/`, `.skills/`)<br>• Supports local configuration overrides (custom terminal, skills) *(Roadmap)* |
-| **Task Management & MCP** | • Exposes central API and **MCP Server** (`/mcp` / `/sse`)<br>• Serves project context, tracker sync, task state, comments | • Runs embedded local reverse proxy gateway (`127.0.0.1:8091`)<br>• Forwards skill transitions with automatic authentication<br>• Bridges local AI tools to TaskFlow via local stdio MCP (`taskflow mcp`) |
+| **Task Management & MCP** | • Exposes central API and **MCP Server** (`/mcp` / `/sse`)<br>• Serves project context, tracker sync, task state, comments | • Runs embedded local reverse proxy gateway (`127.0.0.1:8091`)<br>• Forwards skill transitions with automatic authentication<br>• Bridges local AI tools to TaskFlow via local stdio MCP (`sectile mcp`) |
 
 ### 6.2 Architectural Principles
 1. **Outbound WebSocket Relay**:
@@ -204,7 +204,7 @@ When workflow skills execute in local worktrees, they require access to TaskFlow
    - Injects `TASKFLOW_AGENT_URL`, `TASKFLOW_SERVER_URL`, and `TASKFLOW_AGENT_TOKEN` into the environment of every terminal and PTY session.
    - Forwards local skill calls (`POST /api/tasks/stage`, `GET /api/tasks/...`) upstream to the remote server, transparently attaching Bearer token authentication.
 2. **Explicit Endpoint Selection**:
-   - `taskflow mcp` uses `$TASKFLOW_AGENT_URL`, then `$TASKFLOW_SERVER_URL`, then the local default.
+   - `sectile mcp` uses `$TASKFLOW_AGENT_URL`, then `$TASKFLOW_SERVER_URL`, then the local default.
    - Errors are returned to the caller. No retry against another database/server is performed after a failed mutation.
 
 ---
@@ -220,22 +220,29 @@ Before MCP, TaskFlow instructed AI agents to update tickets using markdown promp
 Integrating an **MCP (Model Context Protocol)** server elevates TaskFlow from a passive prompt-injected system to a first-class tool provider natively supported by modern AI agents (**Google Antigravity / agy**, **Claude Code**, **Cursor**, **Windsurf**, **VS Code**).
 
 ### 7.2 MCP Tools Specification
-The TaskFlow MCP Server exposes the following core tools:
+The Sectile MCP Server exposes the following core tools:
 
 | Tool Name | Parameters | Description |
 | :--- | :--- | :--- |
-| `taskflow_get_task` | `taskKey`: string (e.g. `#47`) | Fetches structured task details: title, description, tracker, current stage, branch name, worktree path, and comments. |
-| `taskflow_transition_stage` | `taskKey`: string, `stage`: enum (`clarified`, `specified`, `implemented`, `reviewed`, `finished`), `note`: string, `branch`?: string, `prUrl`?: string | Transitions the task stage atomically and records the activity report on the remote server and tracker. |
-| `taskflow_add_comment` | `taskKey`: string, `body`: string | Posts a comment or clarification question directly onto the task discussion thread. |
-| `taskflow_list_tasks` | `projectId`?: string, `status`?: string, `sprint`?: string | Lists active tasks on the board to support multi-ticket planning and batch skills (`pickup-issues`). |
-| `taskflow_get_project_context` | `projectId`?: string, `taskKey`?: string | Retrieves project-wide architecture guidelines, spec framework choice (`openspec` / `speckit`), and coding conventions. |
+| `get_task` | `taskKey`: string (e.g. `#47`) | Fetches structured task details: title, description, tracker, current stage, branch name, worktree path, and comments. |
+| `transition_stage` | `taskKey`: string, `stage`: enum (`clarified`, `specified`, `implemented`, `reviewed`, `finished`), `note`: string, `branch`?: string, `prUrl`?: string | Transitions the task stage atomically and records the activity report on the remote server and tracker. |
+| `add_comment` | `taskKey`: string, `body`: string | Posts a comment or clarification question directly onto the task discussion thread. |
+| `list_tasks` | `projectId`?: string, `status`?: string, `sprint`?: string | Lists active tasks on the board to support multi-ticket planning and batch skills (`pickup-issues`). |
+| `get_project_context` | `projectId`?: string, `taskKey`?: string | Retrieves project-wide architecture guidelines, spec framework choice (`openspec` / `speckit`), and coding conventions. |
+
+| `list_projects` | no arguments | Lists project primary keys, names and remotes. |
+| `start_run` | `taskKey`, `skill`, optional `runId` | Starts or reuses a remote invocation. |
+| `finish_run` | `taskKey`, `runId`, `status`, `note` | Finishes the invocation without a stage transition. |
+
+Both transports initialize as `sectile`. Former `taskflow_*` tool names fail as
+unknown tools; there is no runtime translation or compatibility fallback.
 
 ### 7.3 Dual Deployment Topologies
 ```mermaid
 graph TD
     subgraph Local Machine
         CLI["AI Agent CLI (agy / claude / cursor)"]
-        StdioMCP["taskflow mcp (Local Stdio Server)"]
+        StdioMCP["sectile mcp (Local Stdio Server)"]
         LocalDaemon["taskflow agent (Local Daemon)"]
         Worktree["Git Worktree (.tasks/worktrees/#<key>)"]
 
@@ -260,9 +267,9 @@ graph TD
 1. **Topology A: Remote Server-Side MCP (`/mcp` / `/sse`)**:
    - The central TaskFlow server provides an HTTP Server-Sent Events (SSE) or streamable HTTP MCP endpoint.
    - Useful for remote web agents, CI/CD runners, and cloud-hosted assistants with network reachability to the server.
-2. **Topology B: Local Stdio MCP (`taskflow mcp`)**:
-   - `taskflow mcp` operates over standard input/output (`stdio`), the universal protocol supported by `agy`, Claude Code, Cursor, and Windsurf.
-   - When running against a remote control plane, `taskflow mcp` relays tool calls through the local agent daemon or loopback gateway, keeping all local execution private and firewall-free.
+2. **Topology B: Local Stdio MCP (`sectile mcp`)**:
+   - `sectile mcp` operates over standard input/output (`stdio`), the universal protocol supported by `agy`, Claude Code, Cursor, and Windsurf.
+   - When running against a remote control plane, `sectile mcp` relays tool calls through the local agent daemon or loopback gateway, keeping all local execution private and firewall-free.
 
 ### 7.4 Skill Evolution: Transition from Bash Curl Snippets to Native MCP Tools
 With the arrival of the TaskFlow MCP Server, the definition of skills (`SKILL.md`) undergoes a major evolutionary shift:
@@ -272,9 +279,9 @@ With the arrival of the TaskFlow MCP Server, the definition of skills (`SKILL.md
   - Fragile: LLMs frequently failed on JSON quote escaping, omitted parameters, or failed to invoke curl altogether.
 - **Target MCP Model (Declarative Prompt with Typed MCP Tools)**:
   - Instead of running a bash subprocess, the skill instructs the LLM:
-    > "When this stage is completed and verified, invoke the `taskflow_transition_stage` tool with your structured summary note and assigned branch."
-  - For stage inspection: The LLM directly calls `taskflow_get_task(taskKey)` to read live comments, acceptance criteria, and tracker context.
-  - For interactive queries: The LLM calls `taskflow_add_comment(taskKey, question)` to post clarification questions to the ticket thread.
+    > "When this stage is completed and verified, invoke the `transition_stage` tool with your structured summary note and assigned branch."
+  - For stage inspection: The LLM directly calls `get_task(taskKey)` to read live comments, acceptance criteria, and tracker context.
+  - For interactive queries: The LLM calls `add_comment(taskKey, question)` to post clarification questions to the ticket thread.
   - Type-safe, validated by JSON Schema, and completely free of shell-escaping bugs.
 
 ### 7.5 Purely API-Based Configuration Contract
@@ -320,10 +327,10 @@ the existing asynchronous queue semantics and tool results identify queued sync.
 
 ### 7.7 Automatic client bootstrap and terminal confirmation
 
-Before starting the targeted LLM CLI, the local agent merges a `taskflow` stdio
+Before starting the targeted LLM CLI, the local agent merges a `sectile` stdio
 server entry into its project-scoped MCP configuration. The command is the absolute
-path of the running TaskFlow executable with `mcp --url <gateway>` arguments.
-The gateway holds authentication; generated client files contain no TaskFlow token.
+path of the running Sectile executable with `mcp --url <gateway>` arguments.
+The gateway holds authentication; generated client files contain no Sectile bearer token.
 Updates preserve unrelated settings and MCP entries, reject malformed files, and
 use atomic replacement. Provider trust prompts are not bypassed.
 
@@ -388,3 +395,18 @@ the project's executions. The renderer uses authoritative agent state to hide
 the project and its retained console history until explicit re-add. See
 [the local API contract](contracts/server-agent-v1.md#local-project-disconnection)
 and [desktop instructions](../desktop/README.md#remove-a-local-project).
+
+### MCP registration migration
+
+Bootstrap reconciles the reserved `taskflow` and `sectile` registrations before
+serializing a single `sectile` entry. It preserves non-transport fields, including
+Vibe array-entry policies. Exact references in recognized server-scoped policy
+lists are renamed with the tools. Ambiguous collisions, unsupported patterns and
+legacy references outside the managed entry fail before any write. Separate
+provider settings are inspected for known legacy references and preserved for
+manual reconciliation; enterprise and custom configuration sources remain the
+operator's responsibility.
+
+See [ADR 0005](adrs/0005-sectile-mcp-naming.md) and the
+[MCP upgrade sequence](../README.md#mcp-naming-upgrade). The shared catalog,
+workflow services, authentication and endpoint paths are unchanged.

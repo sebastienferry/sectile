@@ -62,3 +62,19 @@ Coordinate server and agent deployment, then run normal bootstrap, manually upda
 
 ## Open questions
 None. Unrecognized/conflicting configuration policies fail non-destructively and require an operator correction; they do not authorize broader permissions.
+
+## Implementation notes
+
+The implementation automatically maps exact tool references in Codex
+`enabled_tools`/`disabled_tools`, Gemini `includeTools`/`excludeTools`, and
+Antigravity `disabledTools`. Other fields retain their values; unsupported legacy
+references require manual reconciliation. Prefixed globs and regular expressions
+are not rewritten. Both-name collisions with missing explicit policy values also
+fail conservatively because provider defaults can differ.
+
+Known separate provider settings are parsed and checked before registration is
+written, including Claude local settings and Cursor permissions files. Vibe root
+policies and enterprise/custom policy sources require manual updates as documented.
+The web copy-command menu was included in the first-party caller inventory.
+Checked-in managed instructions receive only name substitutions; unrelated local
+workflow edits remain uncommitted and the preservation stash retains their originals.
