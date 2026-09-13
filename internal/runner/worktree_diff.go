@@ -95,6 +95,9 @@ type diffGit struct {
 
 func (g diffGit) command(input []byte, limit int, args ...string) ([]byte, error) {
 	prefix := []string{"--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "-c", "diff.external=", "-c", "core.pager=cat", "-C", g.dir}
+	if len(args) > 0 && args[0] == "check-ignore" {
+		prefix = prefix[1:]
+	}
 	cmd := exec.CommandContext(g.ctx, "git", append(prefix, args...)...)
 	// Do not inherit caller-selected indexes, repositories, or external helpers.
 	for _, v := range os.Environ() {
@@ -176,7 +179,8 @@ func (g diffGit) baseline() (ref, base, head, ancestor string, err error) {
 			err = ge
 			return
 		}
-		if _, se := os.Lstat(filepath.Join(gitdir, "refs/remotes/origin/HEAD")); se == nil {
+		_, directErr := g.text("rev-parse", "--verify", "refs/remotes/origin/HEAD")
+		if _, se := os.Lstat(filepath.Join(gitdir, "refs/remotes/origin/HEAD")); se == nil || directErr == nil {
 			err = diffError("baseline_unavailable", "The recorded default branch is invalid.")
 			return
 		}
@@ -225,22 +229,28 @@ func (g diffGit) tree(ref string) (map[string]diffEntry, error) {
 	return result, nil
 }
 func safeDiffPath(root, p string) (string, error) {
-	if p == "" || filepath.IsAbs(p) || filepath.Clean(p) != p || p == ".." || strings.HasPrefix(p, "../") {
+	local := filepath.FromSlash(p)
+	if p == "" || filepath.IsAbs(local) || filepath.ToSlash(filepath.Clean(local)) != p || p == ".." || strings.HasPrefix(p, "../") {
 		return "", diffError("checkout_mismatch", "An invalid repository path was found.")
 	}
-	parent := filepath.Dir(p)
-	for parent != "." {
-		info, e := os.Lstat(filepath.Join(root, parent))
+	parent := root
+	parts := strings.Split(p, "/")
+	for _, part := range parts[:len(parts)-1] {
+		parent = filepath.Join(parent, part)
+		info, e := os.Lstat(parent)
 		if e == nil && (!info.IsDir() || info.Mode()&os.ModeSymlink != 0) {
-			return "", diffError("checkout_changed", "A parent directory changed. Refresh to retry.")
+			return "", nil
 		}
-		if e != nil && !os.IsNotExist(e) {
+		if os.IsNotExist(e) {
+			return "", nil
+		}
+		if e != nil {
 			return "", e
 		}
-		parent = filepath.Dir(parent)
 	}
-	return filepath.Join(root, p), nil
+	return filepath.Join(root, local), nil
 }
+
 func fileStamp(p string) (string, error) {
 	i, e := os.Lstat(p)
 	if os.IsNotExist(e) {
@@ -402,7 +412,7 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 		stamps[p] = stamp
 	}
 	// Git selects changed tracked paths without invoking external diff/textconv.
-	changed, e := g.command(nil, diffMetadataLimit, "diff", "--name-only", "--no-renames", "--no-ext-diff", "--no-textconv", "-z", ancestor, "--")
+	changed, e := g.command(nil, diffMetadataLimit, "diff", "--name-only", "--no-renames", "--ignore-submodules=none", "--submodule=short", "--no-ext-diff", "--no-textconv", "-z", ancestor, "--")
 	if e != nil {
 		return nil, e
 	}
@@ -444,7 +454,7 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 	result := &WorktreeDiff{Directory: g.dir, Branch: branch, BaseRef: ref, BaseCommit: base, MergeBase: ancestor, HeadCommit: head, Complete: true, Files: []WorktreeDiffFile{}, Warnings: []DiffWarning{}}
 	omitted := map[string]WorktreeDiffFile{}
 	submodules := map[string]bool{}
-	var updates bytes.Buffer
+	var updates, removals bytes.Buffer
 	snapshotBytes := 0
 	submoduleStates := map[string]string{}
 	zero := strings.Repeat("0", len(head))
@@ -462,7 +472,7 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 		info, ie := os.Lstat(full)
 		old := baseline[p]
 		if os.IsNotExist(ie) {
-			fmt.Fprintf(&updates, "0 %s\t%s%c", zero, p, 0)
+			fmt.Fprintf(&removals, "0 %s\t%s%c", zero, p, 0)
 			continue
 		}
 		if ie != nil {
@@ -488,8 +498,8 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 			submodules[p] = true
 			continue
 		}
-		if old.mode == "160000" && info.IsDir() {
-			fmt.Fprintf(&updates, "0 %s\t%s%c", zero, p, 0)
+		if info.IsDir() {
+			fmt.Fprintf(&removals, "0 %s\t%s%c", zero, p, 0)
 			continue
 		}
 
@@ -553,7 +563,7 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 		}
 		fmt.Fprintf(&updates, "%s %s\t%s%c", mode, oid, p, 0)
 	}
-	if _, e = snapshot.command(updates.Bytes(), 4096, "update-index", "-z", "--index-info"); e != nil {
+	if _, e = snapshot.command(append(removals.Bytes(), updates.Bytes()...), 4096, "update-index", "-z", "--index-info"); e != nil {
 		return nil, e
 	}
 	tree, e := snapshot.text("write-tree")
@@ -564,12 +574,12 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 	if e != nil {
 		return nil, e
 	}
-	names, e := snapshot.command(nil, diffMetadataLimit, "diff", "--name-status", "-z", "--find-renames=50%", "-l1000", "--no-ext-diff", "--no-textconv", ancestor, tree, "--")
+	names, e := snapshot.command(nil, diffMetadataLimit, "diff", "--name-status", "-z", "--find-renames=50%", "-l1000", "--ignore-submodules=none", "--submodule=short", "--no-ext-diff", "--no-textconv", ancestor, tree, "--")
 	if e != nil {
 		return nil, e
 	}
 	// One bounded Git process per output kind keeps large file lists responsive.
-	stats, e := snapshot.command(nil, diffMetadataLimit, "diff", "--numstat", "-z", "--find-renames=50%", "-l1000", "--no-ext-diff", "--no-textconv", ancestor, tree, "--")
+	stats, e := snapshot.command(nil, diffMetadataLimit, "diff", "--numstat", "-z", "--find-renames=50%", "-l1000", "--ignore-submodules=none", "--submodule=short", "--no-ext-diff", "--no-textconv", ancestor, tree, "--")
 	if e != nil {
 		return nil, e
 	}
@@ -591,7 +601,7 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 		}
 		countsByPath[p] = fields[:2]
 	}
-	patchOutput, patchErr := snapshot.command(nil, diffResponseLimit, "diff", "--patch", "--find-renames=50%", "-l1000", "--no-ext-diff", "--no-textconv", "--no-color", ancestor, tree, "--")
+	patchOutput, patchErr := snapshot.command(nil, diffResponseLimit, "diff", "--patch", "--find-renames=50%", "-l1000", "--ignore-submodules=none", "--submodule=short", "--no-ext-diff", "--no-textconv", "--no-color", ancestor, tree, "--")
 	if patchErr != nil && !errors.Is(patchErr, errDiffBound) {
 		return nil, patchErr
 	}
@@ -725,7 +735,7 @@ func inspectWorktree(g diffGit, branch, repository string) (*WorktreeDiff, error
 	if before != after {
 		return nil, diffError("checkout_changed", "Git inputs changed during inspection. Refresh to retry.")
 	}
-	changedAfter, ce := g.command(nil, diffMetadataLimit, "diff", "--name-only", "--no-renames", "--no-ext-diff", "--no-textconv", "-z", ancestor, "--")
+	changedAfter, ce := g.command(nil, diffMetadataLimit, "diff", "--name-only", "--no-renames", "--ignore-submodules=none", "--submodule=short", "--no-ext-diff", "--no-textconv", "-z", ancestor, "--")
 	if ce != nil {
 		return nil, ce
 	}
@@ -837,6 +847,7 @@ func (g diffGit) specialPaths(modes map[string]string) ([]string, error) {
 		if err != nil {
 			return err
 		}
+		p = filepath.ToSlash(p)
 		visited++
 		if visited > 200000 {
 			return errDiffBound

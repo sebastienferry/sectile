@@ -46,6 +46,6 @@ export function createGitDiff({api,container,terminal,consoleButton,changesButto
  return {
   get active(){return active},
   select(id){if(id===runID)return;runID=id;generation++;selection=null;clear();find('.diff-error').hidden=true;find('.diff-status').textContent='';consoleButton.disabled=!id;changesButton.disabled=!id;if(active){if(id)refresh();else view(false)}},
-  disconnect(){generation++;clear();if(active){find('.diff-error').textContent='Local agent disconnected. Reconnect and refresh.';find('.diff-error').hidden=false}}
+  disconnect(){generation++;clear();container.setAttribute('aria-busy','false');find('.diff-status').textContent='Changes unavailable. Reconnect and refresh.';if(active){find('.diff-error').textContent='Local agent disconnected. Reconnect and refresh.';find('.diff-error').hidden=false}}
  }
 }

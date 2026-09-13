@@ -212,6 +212,7 @@ func TestWorktreeDiffSubmodule(t *testing.T) {
 	diffGitTest(t, dir, "-c", "protocol.file.allow=always", "submodule", "add", source, "sub")
 	diffGitTest(t, dir, "commit", "-am", "submodule")
 	diffGitTest(t, dir, "branch", "-f", "main", "HEAD")
+	diffGitTest(t, dir, "config", "submodule.sub.ignore", "all")
 	writeDiffTest(t, filepath.Join(dir, "sub"), "file.txt", "dirty\n")
 	r := inspectDiffTest(t, dir)
 	if len(r.Files) != 1 || r.Files[0].Kind != "submodule" || r.Files[0].Additions != nil {
@@ -390,5 +391,25 @@ func TestWorktreeDiffAggregatePatchBound(t *testing.T) {
 	encoded, _ := json.Marshal(r)
 	if len(encoded) > diffResponseLimit {
 		t.Fatal("serialized response exceeds budget")
+	}
+}
+
+func TestWorktreeDiffDirectoryReplacement(t *testing.T) {
+	dir := diffFixture(t)
+	os.Remove(filepath.Join(dir, "file.txt"))
+	os.Mkdir(filepath.Join(dir, "file.txt"), 0755)
+	writeDiffTest(t, filepath.Join(dir, "file.txt"), "child", "child\n")
+	r := inspectDiffTest(t, dir)
+	if len(r.Files) != 2 {
+		t.Fatal("file replaced by directory")
+	}
+	diffGitTest(t, dir, "add", ".")
+	diffGitTest(t, dir, "commit", "-m", "directory")
+	diffGitTest(t, dir, "branch", "-f", "main", "HEAD")
+	os.RemoveAll(filepath.Join(dir, "file.txt"))
+	writeDiffTest(t, dir, "file.txt", "replacement\n")
+	r = inspectDiffTest(t, dir)
+	if len(r.Files) != 2 {
+		t.Fatal("directory replaced by file")
 	}
 }
