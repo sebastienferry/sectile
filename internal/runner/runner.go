@@ -1805,6 +1805,9 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 3. Exécute les commandes de test et de build du projet (ex: npm run build ou go test ./... selon la stack) pour vérifier que le code compile et fonctionne parfaitement sans régression.
 4. Fournis un compte-rendu clair des fichiers modifiés/créés et des résultats des validations.`
 		}
+	case "create_pr":
+		promptTemplate = `Create or reuse a draft pull request for {issueKey} on {branchName} in {repoPath}. Inspect the diff, run required build, lint and tests, commit and push authorized changes, reuse a matching open PR or create a draft, and report its verified URL. Never advance workflow stages, mark reviewed, merge or clean up the worktree.`
+
 	case "adjust":
 		promptTemplate = `Adjust the existing PR for {issueKey}: {issueTitle}.
 Repository: {repoPath}. Assigned branch: {branchName}.
@@ -2628,7 +2631,7 @@ func settingsPromptOverridden(settings *models.Settings, skillID string) bool {
 		return strings.TrimSpace(settings.PromptSpecify) != ""
 	case "implement":
 		return strings.TrimSpace(settings.PromptImplement) != ""
-	case "adjust", "create_pr", "review":
+	case "adjust", "review":
 		return strings.TrimSpace(settings.PromptCreatePR) != ""
 	}
 	return false

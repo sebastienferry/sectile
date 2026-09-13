@@ -362,7 +362,9 @@ agent with the updated binary; previously launched or independent Codex/Claude
 processes cannot be controlled by the new supervisor.
 
 Project settings include **Create PR/MR**: choose the default **Draft after implementation**, or **Draft after specification** to review specs in an early draft.
-Skills reuse the same PR/MR during implementation and attach its URL through MCP. Adjust never creates a PR. Missing PRs recover through the configured earlier stage without downgrading completed work. Legacy `create_pr`, `review`, and `/create-pr` invocations resolve to Adjust; inherited custom instructions require reconciliation in Skills.
+Skills reuse the same PR/MR during implementation and attach its URL through MCP. Adjust never creates a PR. Missing PRs recover through the configured earlier stage without downgrading completed work. `Create PR` (`create_pr`, `/create-pr`) remains available under Additional skills. It creates or reuses a PR without advancing the task stage or joining the automatic workflow. The legacy `review` invocation resolves to Adjust; inherited review customizations require reconciliation in Skills.
+
+To regenerate skills from the desktop app, open the project gear menu, select **Deployment**, and click **Deploy server skills**. Configure and save the local repository first, and stop active executions before deployment. The agent fetches the current server skill content; **Refresh from server** alone refreshes settings without deploying files. Skills are also refreshed when preparing task executions.
 
 ### Desktop console host
 

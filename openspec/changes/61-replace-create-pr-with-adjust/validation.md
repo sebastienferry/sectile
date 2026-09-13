@@ -66,3 +66,18 @@ failure behavior is covered by generated contracts and failed completion receipt
 No new binary was installed into the running Sectile service, no live agent workflow
 was launched, and no PR was merged. The existing real PR was checked as open/draft on
 `feat/61`; it remains draft for the subsequent adjustment/review stage.
+
+
+## Web skills UX follow-up
+
+The five workflow skill names are Clarify, Specify, Implement, Adjust and Handoff.
+The web editor displays their transitions with `#` prefixes and separates additional
+skills from those five steps. Framework-specific document titles remain inside the
+skill documents, rather than replacing the user-facing skill name. The user confirmed
+that the stored state remains `implemented`.
+
+The subsequent user clarification restores Create PR as a standalone utility, outside the five workflow stages. Its command no longer redirects to Adjust. Managed creation verifies checks and the matching branch PR while preserving status and labels, with no automatic chaining. Desktop deployment installs separate Create PR and Adjust documents.
+
+The Repository tab now uses the shared project-form field styling. The Codex preset is `codex --approve-for-me '{prompt}'`. Desktop skill regeneration is documented through Project configuration → Deployment → Deploy server skills.
+
+Follow-up verification on current main (2026-09-13): `go test ./...`, `go vet ./...`, server binary build, frontend production build, all 22 frontend tests, and frontend lint passed. Lint reports 53 existing warnings; Vite reports the existing bundle-size warning. The worker regression confirms standalone creation completes, persists the verified PR URL, preserves `implemented`, and does not enqueue the next workflow stage.

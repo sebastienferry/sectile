@@ -60,8 +60,8 @@ func (d *DB) AgentConfig(projectID, taskKey string) (*agentconfig.Config, error)
 		c.ExternalTerminalCommand = s.ExternalTerminalCommand
 	}
 	origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(p.ID))
-	reconcile := origin == "create_pr" || origin == "review" || (origin != "adjust" && strings.TrimSpace(s.PromptCreatePR) != "")
-	if origin != "adjust" && strings.TrimSpace(p.SkillOverrides["adjust"]) == "" && (strings.TrimSpace(p.SkillOverrides["create_pr"]) != "" || strings.TrimSpace(p.SkillOverrides["review"]) != "") {
+	reconcile := origin == "review" || (origin != "adjust" && strings.TrimSpace(s.PromptCreatePR) != "")
+	if origin != "adjust" && strings.TrimSpace(p.SkillOverrides["adjust"]) == "" && (strings.TrimSpace(p.SkillOverrides["review"]) != "") {
 		reconcile = true
 	}
 	for _, skill := range d.EffectiveProjectSkills(p.ID, c.SpecFramework) {

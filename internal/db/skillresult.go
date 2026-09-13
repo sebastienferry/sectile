@@ -32,7 +32,7 @@ type skillCheck struct {
 
 func workflowResultRequired(skillID string) bool {
 	s, ok := StageSkillByID(skillID)
-	return ok && s.FromStage != "" && s.Scope != "macro" && s.ID != "pickup_issues"
+	return ok && (s.ID == "create_pr" || (s.FromStage != "" && s.Scope != "macro" && s.ID != "pickup_issues"))
 }
 
 // Standalone transition calls must not race the worker's completion gate.
@@ -153,7 +153,7 @@ func validateSkillResult(result *skillResult, skillID, repoPath string, prLookup
 			return err
 		}
 	}
-	if s.ID == "implement" || s.ID == "adjust" || s.ID == "pickup" {
+	if s.ID == "implement" || s.ID == "adjust" || s.ID == "create_pr" || s.ID == "pickup" {
 		if err := validateSkillChecks(result.Checks, "build", "lint", "test"); err != nil {
 			return err
 		}
@@ -172,7 +172,7 @@ func validateSkillResult(result *skillResult, skillID, repoPath string, prLookup
 	if base, err := exec.Command("git", "-C", repoPath, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").Output(); err == nil && strings.TrimPrefix(strings.TrimSpace(string(base)), "origin/") == actualBranch {
 		return fmt.Errorf("la branche de travail est la branche par défaut")
 	}
-	if s.ID == "adjust" || s.ID == "pickup" {
+	if s.ID == "adjust" || s.ID == "create_pr" || s.ID == "pickup" {
 		status, err := exec.Command("git", "-C", repoPath, "status", "--porcelain").Output()
 		if err != nil || strings.TrimSpace(string(status)) != "" {
 			return fmt.Errorf("la branche contient encore des modifications non commitées")
