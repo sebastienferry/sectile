@@ -30,6 +30,7 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   const alphaQueue=page.getByRole('button',{name:'Queue view for Alpha',exact:true})
   const zebraQueue=page.getByRole('button',{name:'Queue view for Zebra',exact:true})
   await expect(alphaQueue.locator('.queue-count')).toHaveText('2')
+  await expect(alphaQueue).toHaveCSS('opacity','1')
   await alphaQueue.click()
   assert.equal(await page.locator('.local-task').count(),0)
   await expect(page.locator('.queue-summary')).toHaveText('2 active · 2 waiting')
