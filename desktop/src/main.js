@@ -160,6 +160,9 @@ function render(){
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
   const configure=document.createElement('button');configure.textContent='⚙';configure.setAttribute('aria-label','Configure '+project.name);configure.onclick=()=>openProject(project.id)
   const browse=document.createElement('button');browse.textContent='+';browse.title='New task';browse.setAttribute('aria-label','New task in '+project.name);browse.onclick=()=>newProjectTask(project.id)
+  const openTasks=document.createElement('button');openTasks.className='project-open-tasks';openTasks.title='Open tasks in '+project.name;openTasks.setAttribute('aria-label',openTasks.title)
+  openTasks.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/></svg>'
+  openTasks.onclick=()=>browseTasks(project.id)
   const queue=document.createElement('button');queue.className='project-queue-toggle icon-button';queue.dataset.projectId=project.id
   const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
   queue.setAttribute('aria-label','Queue view for '+project.name);queue.setAttribute('aria-pressed',String(queueProjects.has(project.id)))
@@ -167,7 +170,7 @@ function render(){
   queue.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 4h18l-7 8v7l-4 2v-9Z"/></svg>'
   if(waitingCount){const badge=document.createElement('span');badge.className='queue-count';badge.textContent=waitingCount;badge.setAttribute('aria-hidden','true');queue.append(badge)}
   queue.onclick=()=>{selectedProject=project.id;if(queueProjects.has(project.id))queueProjects.delete(project.id);else queueProjects.add(project.id);collapsedProjects.delete(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
-  projectRow.append(heading,queue,browse,configure);group.append(projectRow)
+  projectRow.append(heading,openTasks,queue,browse,configure);group.append(projectRow)
   const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run))
   const taskGroups=new Map()
   for(const run of children){const key=taskKey(run);if(!taskGroups.has(key))taskGroups.set(key,[]);taskGroups.get(key).push(run)}
@@ -552,22 +555,26 @@ function newProjectTask(projectID){
  dialogBody.append(existing,create);existing.focus()
 }
 
-async function browseTasks(projectID){
+async function browseTasks(projectID,initialQuery=''){
  selectedProject=projectID
  showDialog('Launch task')
  const search=document.createElement('form'),query=document.createElement('input'),submit=document.createElement('button'),list=document.createElement('div')
  query.placeholder='Search by title or task key';query.setAttribute('aria-label','Search server tasks');submit.textContent='Search'
+ query.value=initialQuery
  search.append(query,submit);dialogBody.append(search,list)
+ query.focus()
  let generation=0
  async function load(){
-  if(!query.value.trim()){list.textContent='Search for a task to launch.';return}
-  const current=++generation;submit.disabled=true
+  const current=++generation,searchText=query.value.trim()
+  const isCurrent=()=>current===generation&&list.isConnected&&dialog.open
+  list.textContent='Loading open tasks…';list.setAttribute('aria-busy','true')
   try{
-   const [tasks,info]=await Promise.all([api.serverTasks(projectID,query.value,true),api.project(projectID)])
-   if(current!==generation)return
+   const [tasks,info]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID)])
+   if(!isCurrent())return
    list.replaceChildren()
    const launchableTasks=tasks.filter(task=>!isFinishedTask(task))
-   if(!launchableTasks.length){const empty=document.createElement('p');empty.textContent='No matching server tasks';list.append(empty)}
+   if(!launchableTasks.length){const empty=document.createElement('p');empty.textContent=searchText?'No matching open tasks':'No open tasks in this project';list.append(empty)}
+   if(!info.configured){const notice=document.createElement('p');notice.textContent='Configure a local repository before launching tasks.';list.append(notice)}
    for(const task of launchableTasks){
     const card=document.createElement('section');card.className='server-task'
     const title=document.createElement('strong');title.textContent=(task.key||task.id)+' · '+task.title
@@ -575,6 +582,7 @@ async function browseTasks(projectID){
     const skill=document.createElement('select');skill.setAttribute('aria-label','Skill for '+(task.key||task.id))
     for(const item of info.server.skills||[]){const option=document.createElement('option');option.value=item.id;option.textContent=item.command||item.id;skill.append(option)}
     const custom=document.createElement('option');custom.value='custom';custom.textContent='Custom instructions';skill.append(custom)
+    if((info.server.skills||[]).some(item=>item.id==='pickup'))skill.value='pickup'
     const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions');prompt.hidden=true
     skill.onchange=()=>{prompt.hidden=skill.value!=='custom'}
     const launch=document.createElement('button');launch.textContent='Launch';launch.disabled=!info.configured||!skill.options.length
@@ -587,8 +595,8 @@ async function browseTasks(projectID){
     }
     card.append(title,status,skill,prompt,launch,notice);list.append(card)
    }
-  }catch(err){const message=document.createElement('p');message.textContent=err.message;list.replaceChildren(message)}
-  finally{if(current===generation)submit.disabled=false}
+  }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
+  finally{if(isCurrent())list.setAttribute('aria-busy','false')}
  }
  search.onsubmit=event=>{event.preventDefault();load()}
  await load()
@@ -745,7 +753,7 @@ async function quickAdd(projectID=selectedProject){
    form.replaceChildren()
    notice.textContent='Created '+(task.key||task.id)+' · '+task.title
    const launch=document.createElement('button');launch.type='button';launch.textContent='Launch task'
-   launch.onclick=async()=>{await browseTasks(task.projectId);const query=dialogBody.querySelector('[aria-label="Search server tasks"]');query.value=task.key||task.title;query.form.requestSubmit()}
+   launch.onclick=()=>browseTasks(task.projectId,task.key||task.title)
    form.append(notice,launch)
   }catch(err){notice.textContent=err.message;submit.disabled=false}
  }
