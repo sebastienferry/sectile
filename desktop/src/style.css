@@ -50,3 +50,6 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 #toolbar>div{flex:1 1 200px;max-width:100%}
 #title{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #toolbar>button,#toolbar>select{flex-shrink:0;max-width:100%;margin:0}
+
+.terminal-title-line{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}.terminal-title-line #title{min-width:0}
+.skill-result{font-size:11px;color:#91a1b7;white-space:nowrap}.skill-result.completed{color:#80e6ce}.skill-result.failed{color:#ff9292}.skill-result.canceled{color:#b1a7b2}
