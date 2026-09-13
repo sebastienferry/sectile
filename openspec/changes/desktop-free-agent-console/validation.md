@@ -29,5 +29,5 @@ Merged `origin/main` at `5d556a4` without rewriting the published branch. Resolv
 the README conflict by retaining both free-console and offline agent-log usage.
 The Electron integrations merged automatically and were reviewed together.
 
-Desktop build, the free-console UI scenario, all five agent-log reader/UI tests,
+Desktop build, the free-console UI scenario, all six agent-log reader/UI tests,
 and `git diff --check` passed. No backend behavior changed in this integration.
