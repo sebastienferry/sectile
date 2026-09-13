@@ -181,7 +181,7 @@ ipcMain.on('terminal-input',(_,data)=>{if(socket?.readyState===WebSocket.OPEN&&t
 ipcMain.on('terminal-resize',(_,size)=>{if(socket?.readyState===WebSocket.OPEN&&size.cols>0&&size.rows>0)socket.send(JSON.stringify({type:'resize',...size}))})
 function openWindow(){
  if(window&&!window.isDestroyed()){window.show();return}
- window=new BrowserWindow({show:process.env.TASKFLOW_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Local',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
+ window=new BrowserWindow({show:process.env.TASKFLOW_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))

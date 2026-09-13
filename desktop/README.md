@@ -47,7 +47,7 @@ the agent reuses that checkout and preserves its local changes.
 
 ### Execution queue
 
-Hover over a project's heading to reveal its queue icon alongside the other
+Hover over a project's heading to reveal its small funnel-shaped queue icon alongside the other
 project actions (also available on keyboard focus and touch). Use the queue icon to switch that project's task
 list to its execution queue directly below the project heading. Close the queue
 with its small cross button, or click the queue icon again, to restore the task list. Its badge
