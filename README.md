@@ -66,6 +66,8 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 
 ---
 
+In Sectile Desktop, click the connected server address in the header (or focus it and press Enter) to open the board in your default browser. The shortcut is available while connected.
+
 ## Task access from workflow skills
 
 Workflow skills use the local TaskFlow agent's exposed task-management interface first. When that interface is unavailable, `http://localhost:8090` is a temporary fallback and the integration failure must be recorded. Resolve the project and full task ID before mutations: a ticket key alone can match another repository. Managed runs retain ownership of result validation and stage transitions. See [the workflow access policy](docs/CAPABILITIES.md#task-access-from-agent-sessions).
