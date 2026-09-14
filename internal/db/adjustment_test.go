@@ -1,15 +1,14 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
-	"tasks/internal/runner"
+	"tasks/internal/trackerapi"
 	"testing"
 	"time"
 )
@@ -27,7 +26,7 @@ func TestAdjustmentAliasesAndHumanBoundary(t *testing.T) {
 	}
 }
 func TestAdjustmentEvidenceRejectsInvalidPR(t *testing.T) {
-	good := runner.PullRequestEvidence{URL: "https://forge/pull/1", Branch: "ticket", Open: true}
+	good := trackerapi.PullRequest{URL: "https://forge/pull/1", Branch: "ticket", Open: true}
 	for _, kind := range []string{"valid", "draft", "closed", "branch", "replacement"} {
 		t.Run(kind, func(t *testing.T) {
 			p := good
@@ -63,7 +62,7 @@ func TestAdjustmentOverridePrecedence(t *testing.T) {
 func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 	for _, timing := range []string{"specified", "implemented"} {
 		t.Run(timing, func(t *testing.T) {
-			repo := testSkillRepo(t)
+			repo := "/not-mounted-on-server"
 			d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
 			if err != nil {
 				t.Fatal(err)
@@ -86,14 +85,14 @@ func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, args := range [][]string{{"add", "."}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "test: preserve generated context"}} {
-				if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
-					t.Fatalf("%s %v", out, err)
+			pr := trackerapi.PullRequest{URL: "https://forge/pull/1", Branch: "ticket", SHA: "agent-commit", Open: true, Draft: true}
+			d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+				if op.Action != "git_evidence" || op.TaskID != task.ID || op.ProjectID != p.ID {
+					t.Fatalf("wrong evidence request: %#v", op)
 				}
-			}
-			head, _ := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
-			pr := runner.PullRequestEvidence{URL: "https://forge/pull/1", Branch: "ticket", SHA: strings.TrimSpace(string(head)), Open: true, Draft: true}
-			d.prEvidenceLookup = func(string, string) (runner.PullRequestEvidence, error) { return pr, nil }
+				return json.RawMessage(`{"sha":"agent-commit","branch":"ticket","clean":true}`), nil
+			})
+			d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return pr, nil }
 			got, _, err := d.TransitionTaskStage(task.ID, timing, "PR recovery complete", pr.URL, "ticket")
 			if err != nil || d.StageOfTask(got) != "implemented" || got.PrURL == nil || *got.PrURL != pr.URL {
 				t.Fatalf("%+v %v", got, err)
@@ -106,124 +105,13 @@ func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 			if err != nil || d.StageOfTask(got) != "reviewed" {
 				t.Fatalf("%+v %v", got, err)
 			}
-			d.prEvidenceLookup = func(string, string) (runner.PullRequestEvidence, error) { return pr, fmt.Errorf("forge unavailable") }
+			d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return pr, fmt.Errorf("forge unavailable") }
 			if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "retry", pr.URL, "ticket"); err == nil {
 				t.Fatal("lookup failure accepted")
 			}
 		})
 	}
 }
-func TestLegacyForwarderPreservesDivergence(t *testing.T) {
-	root := t.TempDir()
-	if err := installAdjustmentForwarders(root); err != nil {
-		t.Fatal(err)
-	}
-	if err := installAdjustmentForwarders(root); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(SkillDirsFor(root, "create-pr")[0], "SKILL.md")
-	if err := os.WriteFile(path, []byte("personal work"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := installAdjustmentForwarders(root); err == nil {
-		t.Fatal("divergence unreported")
-	}
-	raw, _ := os.ReadFile(path)
-	if string(raw) != "personal work" {
-		t.Fatal("overwritten")
-	}
-}
-
-func TestManagedPRSkillsPreserveTheirStageBoundaries(t *testing.T) {
-	for _, outcome := range []string{"ready", "draft", "replacement", "failed-check", "feedback-failure", "standalone-create"} {
-		t.Run(outcome, func(t *testing.T) {
-			repo := testSkillRepo(t)
-			d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer d.Close()
-			no := false
-			p, err := d.CreateProject(models.CreateProjectRequest{Name: "Adjust", RepoPath: repo, IssueTracker: "local", UseWorktrees: &no})
-			if err != nil {
-				t.Fatal(err)
-			}
-			task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "adjust", Labels: []string{"#implemented"}})
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = d.conn.Exec("UPDATE tasks SET branch_name='ticket',status='to_test',labels='[\"#implemented\"]' WHERE id=?", task.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, args := range [][]string{{"add", "."}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "test: context"}} {
-				if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
-					t.Fatalf("%s %v", out, err)
-				}
-			}
-			head, _ := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
-			pr := runner.PullRequestEvidence{URL: "https://forge/pull/1", Branch: "ticket", SHA: strings.TrimSpace(string(head)), Open: true, Draft: true}
-			d.prEvidenceLookup = func(string, string) (runner.PullRequestEvidence, error) { return pr, nil }
-			skillID := "review"
-			if outcome == "standalone-create" {
-				skillID = "create_pr"
-			}
-			activity := models.TaskActivity{ID: "adjust-run", TaskID: task.ID, SkillID: skillID, Status: "queued", CreatedAt: time.Now()}
-			if err := d.addTaskActivityDirect(activity); err != nil {
-				t.Fatal(err)
-			}
-			d.SetTerminalRunner(receiptTerminal{respond: func(line string) {
-				match := regexp.MustCompile(`absolute file ("[^"]+")`).FindStringSubmatch(line)
-				if len(match) != 2 {
-					t.Fatal("missing receipt contract")
-				}
-				var path string
-				if err := json.Unmarshal([]byte(match[1]), &path); err != nil {
-					t.Fatal(err)
-				}
-				pr.Draft = outcome == "draft" || outcome == "standalone-create"
-				if outcome == "replacement" {
-					pr.URL = "https://forge/pull/2"
-				}
-				receipt := skillResult{RunID: activity.ID, Outcome: "completed", Summary: "Complete diff reviewed; no human feedback; checks passed", Branch: "ticket", PRURL: pr.URL, Checks: successfulChecks()}
-				if outcome == "failed-check" {
-					code := 1
-					receipt.Checks[0].ExitCode = &code
-				}
-				if outcome == "feedback-failure" {
-					receipt.Outcome = "retryable"
-					receipt.Summary = "Feedback retrieval failed; retry required"
-				}
-				raw, _ := json.Marshal(receipt)
-				if err := os.WriteFile(path, raw, 0600); err != nil {
-					t.Fatal(err)
-				}
-			}})
-			d.processSkillJob(SkillJob{TaskID: task.ID, ActivityID: activity.ID, SkillID: skillID, AutoChain: true})
-			got, _ := d.GetTaskByID(task.ID)
-			if outcome == "standalone-create" {
-				var status string
-				if err := d.conn.QueryRow("SELECT status FROM task_activities WHERE id = ?", activity.ID).Scan(&status); err != nil || status != "completed" {
-					t.Fatalf("standalone creation did not complete: %s %v", status, err)
-				}
-				if got.PrURL == nil || *got.PrURL != pr.URL {
-					t.Fatal("standalone creation did not link the PR")
-				}
-			}
-			want := "implemented"
-			if outcome == "ready" {
-				want = "reviewed"
-			}
-			if d.StageOfTask(got) != want {
-				t.Fatalf("stage %s want %s", d.StageOfTask(got), want)
-			}
-			if len(d.jobQueue) != 0 {
-				t.Fatal("autonomous adjustment continued beyond review")
-			}
-		})
-	}
-}
-
 func TestAdjustmentReconciliationRetainsHistoryAndReset(t *testing.T) {
 	root := t.TempDir()
 	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))

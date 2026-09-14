@@ -194,7 +194,7 @@ agent without the app:
 
 ```sh
 export TASKFLOW_AGENT_TOKEN='your-server-token'
-taskflow agent --url http://localhost:8090 --repo /path/to/repository
+taskflow-agent --url http://localhost:8090 --repo /path/to/repository
 ```
 
 The agent owns PTYs, supervision and console history. The desktop discovers it
@@ -214,9 +214,9 @@ on disk. The Makefile uses atomic replacement for local binaries.
 ### Build all components
 
 Run `make all` to build the embedded web server, standalone local agent and
-packaged desktop app. Server and agent currently share `bin/taskflow`; start
-the agent with its `agent` subcommand. Use `make server-build` or
-`make agent-build` for the shared executable only, and `make desktop-build`
+packaged desktop app. The outputs are `bin/taskflow-server` and
+`bin/taskflow-agent`; the agent starts directly. Use `make server` or
+`make agent` to build independently, and `make desktop-build`
 for the desktop development assets. On Apple Silicon the app is produced at
 `desktop/release/TaskFlow-darwin-arm64/TaskFlow.app`.
 
@@ -287,7 +287,7 @@ Legacy repository mappings remain readable and are migrated on the next save.
 | `make serve` | Start the server |
 | `make run` | Start the desktop |
 
-Server and agent currently share `bin/taskflow`. Launch targets use existing
+Server and agent are built as `bin/taskflow-server` and `bin/taskflow-agent`. Launch targets use existing
 builds and do not rebuild. Pass agent arguments with, for example,
 `make start ARGS="--url http://localhost:8090"`; provide authentication through
 `TASKFLOW_AGENT_TOKEN`.

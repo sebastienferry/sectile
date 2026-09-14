@@ -11,7 +11,8 @@ database. Shared DTOs live in `internal/agentconfig` and do not depend on DB cod
 ## Configuration download
 
 `GET /api/v1/agent/config?projectId=<ID>` or `?taskKey=<task-ID>` requires the
-agent bearer token. Use exact project IDs, not names. Prefer full task IDs over
+agent bearer token. An optional `framework` parameter generates installation
+templates for a supported SDD framework without changing project settings. Use exact project IDs, not names. Prefer full task IDs over
 ambiguous tracker keys. A task lookup resolves the actual owning project.
 
 | Field | Meaning |
@@ -19,7 +20,7 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `schemaVersion` | Must be `1`. Unsupported versions stop preparation. |
 | `projectId`, `projectName`, `description` | Identity and project context. The ID must match an explicit project request. |
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
-| `githubRepo`, `issueTracker` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
+| `githubRepo`, `issueTracker`, `trackerUrl`, `linearTeam`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
 | `useWorktrees` | Create/reuse task worktrees when true; validate the existing checkout when false. |
 | `aiProvider` | `codex`, `claude`, `agy`, `gemini`, `cursor`, `vibe`, or `custom`; empty uses the legacy `agy` default. |
@@ -99,14 +100,60 @@ Upgrade server and agent together for the initial v1 rollout.
 `failed`, with a summary. `completed` acknowledges launch only, not completion of
 the requested workflow stage. Web launch requests wait up to 45 seconds. The
 native client uses Sectile MCP to read tasks/comments and submit verified stage
-reports. True server-managed workers retain their separate result-file contract.
+reports. All local workflow workers dispatch to the agent; the former server-managed result-file worker is retired.
 
-## Future binary separation
+## Runtime artifacts
 
-This contract works without a shared executable. A later `taskflow-server` can
-own the web/DB/trackers while `taskflow` owns local launch and stdio MCP proxying.
-The split, caching and automatic refresh of already-open client sessions are
-outside this change.
+`taskflow-server` owns SQLite, HTTP APIs, tracker queues and the upstream MCP
+service. `taskflow-agent` starts the workstation daemon directly and owns the
+`mcp` stdio bridge and internal `agent-exec` supervisor. Electron bundles only the
+agent. Shared relay envelopes live in `internal/agentprotocol`; agent production
+code does not import the server handlers, database or embedded UI.
+
+## Three-party transport and errors
+
+| Interface | Address and authentication | Ownership |
+| --- | --- | --- |
+| Server API | `http(s)://<server>:8090`; machine endpoints use the `TASKFLOW_SERVER_TOKEN` bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, upstream `/mcp` |
+| Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; desktop/control calls use the private discovered agent token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
+| MCP | Agent `mcp --url <loopback>` stdio bridge forwards to server `/mcp` | Eight typed tools with server-owned state; no local SQLite |
+
+The existing web REST API relies on the deployment's access-control boundary.
+Machine bearer authentication does not add multi-user authorization to that API.
+Cross-origin loopback requests are rejected. The private discovery file is
+`~/.taskflow/agent-connection.json`; tokens never enter project configuration.
+
+Local workspace requests use the authenticated agent WebSocket:
+
+```json
+{"msgId":"request-uuid","type":"workspace_request","taskId":"task-id","payload":{"projectId":"project-id","taskId":"task-id","action":"git_evidence"}}
+```
+
+The agent fetches current configuration, validates task/project identity and
+resolves its local mapping. A result is correlated to the exact connection:
+
+```json
+{"msgId":"request-uuid","type":"workspace_result","payload":{"value":{"sha":"commit","branch":"feat/task","clean":true}}}
+```
+
+An error result has `payload.error` instead. Supported actions cover Git status,
+branches, checkout, deletion, diff and evidence; worktree preparation/removal and
+inspection; editor opening; CLI/skill/SDD status and provisioning; skill reading;
+and LLM prompt execution. There is no arbitrary shell action or working-directory parameter. Explicit
+editor/provider settings retain their existing configuration behavior. Launches use the existing `dispatch_step` contract.
+
+Requests normally have a 45-second deadline; digest prompts allow 12 minutes and SDD installation allows seven minutes.
+Cancellation sends `workspace_cancel` with the same `msgId`. Disconnects and
+unconfirmed results fail visibly and never trigger local server execution or an
+automatic retry of a possibly completed mutation. Some local tool installers
+cannot interrupt immediately; inspect the agent before retrying an uncertain operation.
+Legacy server terminal endpoints return 410 and direct callers to desktop consoles.
+
+GitHub uses REST (GraphQL for Projects and issue transfer), and Linear uses
+GraphQL from the server with [explicit server credentials](../../README.md#server-tracker-credentials).
+Pagination, authentication, rate-limit and transport errors propagate to tracker
+activities. Jira synchronization is unsupported in the current baseline; no
+Atlassian CLI fallback remains. Tracker credentials are not sent to agents.
 
 ## Project discovery and task identity
 
@@ -114,7 +161,7 @@ Authenticated `GET /api/v1/agent/projects` returns
 `{"schemaVersion":1,"projects":[{"id":"server-primary-key","name":"Project","gitRemoteUrl":"..."}]}`.
 Discovery excludes server filesystem paths and credentials.
 
-`taskflow agent` defaults to `--project all`. Use `--list-projects` to
+`taskflow-agent` defaults to `--project all`. Use `--list-projects` to
 print available projects without starting the gateway or modifying repositories.
 A single agent accepts launches for multiple projects. Each launch fetches fresh
 project settings and resolves its repository using the local
@@ -139,13 +186,27 @@ project remain wildcard registrations. New clients should use `all` explicitly.
 Other scoped registrations never receive another project's dispatch.
 
 Tracker configuration, stage mappings and transition validation remain server-side.
-The agent contract does not carry tracker fields, stages, stage mappings or ttyMode.
+The agent contract carries secret-free tracker identity, but no credentials, stage mappings or ttyMode.
 
 ## MCP project discovery and review links
 
 Native clients can call `list_projects({})` to discover the same
 secret-free project records as the HTTP discovery endpoint, then pass an ID to
 `get_project_context` or `list_tasks`.
+
+`get_task` returns the task whenever it is known to the server. Its comments come
+from the tracker, so a tracker that cannot be reached costs the caller the
+discussion and not the ticket: the response then carries `commentsError` with the
+reason and no `comments` field, so an unreadable discussion is never mistaken for
+an empty one. Only an unknown task key is an error.
+
+`get_project_context` returns project identity, execution settings, specification
+framework, pull-request creation stage and skill references (`id`, `directory`,
+`command`), plus `skillDirectories`, the directories the agent writes skill files
+into. Skill and command bodies are not inlined: a caller that needs one opens
+`<skill directory>/SKILL.md` under one of those directories in its checkout. The
+`.taskflow/config.json` and `AGENTS.md` writers keep using the full agent
+configuration, which is unchanged.
 
 `transition_stage` accepts `prUrl` for either a pull request or a merge
 request. The server persists this link on the task alongside the stage update and
@@ -247,7 +308,7 @@ agent without the app:
 
 ```sh
 export TASKFLOW_AGENT_TOKEN='your-server-token'
-taskflow agent --url http://localhost:8090 --repo /path/to/repository
+taskflow-agent --url http://localhost:8090 --repo /path/to/repository
 ```
 
 The agent owns PTYs, supervision and console history. The desktop discovers it
@@ -301,7 +362,7 @@ Legacy repository mappings remain readable and are migrated on the next save.
 | `make serve` | Start the server |
 | `make run` | Start the desktop |
 
-Server and agent currently share `bin/taskflow`. Launch targets use existing
+Server and agent are built as `bin/taskflow-server` and `bin/taskflow-agent`. Launch targets use existing
 builds and do not rebuild. Pass agent arguments with, for example,
 `make start ARGS="--url http://localhost:8090"`; provide authentication through
 `TASKFLOW_AGENT_TOKEN`.

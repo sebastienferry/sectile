@@ -44,20 +44,7 @@ func SpecFrameworkLabel(framework string) string {
 
 // NormalizeSpecFramework maps user input (and the legacy "openfeature" value
 // that used to be stored in the database) onto a supported framework id.
-func NormalizeSpecFramework(framework string) string {
-	switch strings.ToLower(strings.TrimSpace(framework)) {
-	case "openspec", "open-spec", "open spec":
-		return "openspec"
-	case "speckit", "spec-kit", "spec kit", "specify":
-		return "speckit"
-	case "":
-		return "speckit"
-	default:
-		// "openfeature" and anything unknown falls back to Spec Kit rather than
-		// silently installing the wrong toolchain.
-		return "speckit"
-	}
-}
+func NormalizeSpecFramework(framework string) string { return models.NormalizeSpecFramework(framework) }
 
 // specKitIntegration maps a TaskFlow AI provider onto the value accepted by
 // `specify init --integration`. Spec Kit's own non-interactive default is
@@ -213,6 +200,10 @@ func truncateOutput(s string, max int) string {
 // runs the framework initializer. Every attempted command is reported so the
 // user can see exactly what ran and copy it into a terminal if needed.
 func (r *Runner) InstallSpecFramework(req models.SpecFrameworkInstallRequest) *models.SpecFrameworkInstallResult {
+	return r.InstallSpecFrameworkContext(context.Background(), req)
+}
+
+func (r *Runner) InstallSpecFrameworkContext(parent context.Context, req models.SpecFrameworkInstallRequest) *models.SpecFrameworkInstallResult {
 	framework := NormalizeSpecFramework(req.Framework)
 	repoPath := strings.TrimSpace(req.RepoPath)
 	if repoPath == "" {
@@ -243,7 +234,7 @@ func (r *Runner) InstallSpecFramework(req models.SpecFrameworkInstallRequest) *m
 		return res
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), specFrameworkInstallTimeout)
+	ctx, cancel := context.WithTimeout(parent, specFrameworkInstallTimeout)
 	defer cancel()
 
 	if framework == "openspec" {

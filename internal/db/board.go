@@ -3,12 +3,11 @@ package db
 import (
 	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strings"
+	"tasks/internal/trackerapi"
 	"time"
 
 	"tasks/internal/models"
-	"tasks/internal/runner"
 )
 
 // Board columns are Jira-like: a column is a name plus the tracker statuses it
@@ -75,54 +74,14 @@ func (d *DB) GetProjectTrackerStatuses(projectID string) ([]string, error) {
 
 	// If GitHub tracker, query GitHub ProjectsV2 columns / SingleSelectField options via GraphQL API
 	if proj.IssueTracker == "github" {
-		repo, repoPath := runner.ResolveGithubRepo(proj.GithubRepo, proj.RepoPath)
+		repo := models.CleanGithubRepo(proj.GithubRepo)
 		if repo != "" {
-			ghPath, _ := runner.FindCliTool("gh")
-			if ghPath == "" {
-				ghPath = "gh"
-			}
 
 			parts := strings.Split(repo, "/")
 			if len(parts) == 2 {
-				owner, repoName := parts[0], parts[1]
-				gqlQuery := fmt.Sprintf(`query {
-				  repository(owner: "%s", name: "%s") {
-				    projectsV2(first: 5) {
-				      nodes {
-				        title
-				        fields(first: 20) {
-				          nodes {
-				            ... on ProjectV2SingleSelectField {
-				              name
-				              options { name }
-				            }
-				          }
-				        }
-				      }
-				    }
-				  }
-				  user(login: "%s") {
-				    projectsV2(first: 5) {
-				      nodes {
-				        title
-				        fields(first: 20) {
-				          nodes {
-				            ... on ProjectV2SingleSelectField {
-				              name
-				              options { name }
-				            }
-				          }
-				        }
-				      }
-				    }
-				  }
-				}`, owner, repoName, owner)
+				gqlQuery, _ := trackerapi.GithubStatusQuery(repo)
 
-				cmd := exec.Command(ghPath, "api", "graphql", "-f", "query="+gqlQuery)
-				if repoPath != "" {
-					cmd.Dir = repoPath
-				}
-				if output, err := cmd.Output(); err == nil {
+				if output, err := d.trackers.GithubGraphQL(gqlQuery); err == nil {
 					var gqlRes struct {
 						Data struct {
 							Repository struct {
@@ -185,7 +144,7 @@ func (d *DB) GetProjectTrackerStatuses(projectID string) ([]string, error) {
 			}
 		}
 	} else if proj.IssueTracker == "linear" && proj.LinearTeam != "" {
-		tasks, err := d.runner.SyncFromLinear(proj.LinearTeam)
+		tasks, err := d.trackers.SyncFromLinear(proj.LinearTeam)
 		if err == nil && len(tasks) > 0 {
 			for _, t := range tasks {
 				st := strings.TrimSpace(string(t.Status))

@@ -116,6 +116,10 @@ func Scaffold(root string, config Config) ([]string, error) {
 		return nil, err
 	}
 	defer fs.Close()
+	contextFiles, err := projectContextFiles(fs, config)
+	if err != nil {
+		return nil, err
+	}
 	manifest := map[string]string{}
 	if raw, err := fs.ReadFile(".taskflow/agent-manifest.json"); err == nil {
 		if err := json.Unmarshal(raw, &manifest); err != nil {
@@ -142,6 +146,11 @@ func Scaffold(root string, config Config) ([]string, error) {
 			return err
 		}
 		return fs.Rename(tmp, path)
+	}
+	for path, raw := range contextFiles {
+		if err := atomicWrite(path, raw); err != nil {
+			return nil, err
+		}
 	}
 	digest := func(raw []byte) string { return fmt.Sprintf("%x", sha256.Sum256(raw)) }
 	backups := []string{}

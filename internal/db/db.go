@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -18,8 +15,9 @@ import (
 
 	"github.com/google/uuid"
 	_ "modernc.org/sqlite"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
-	"tasks/internal/runner"
+	"tasks/internal/trackerapi"
 )
 
 type SkillJob struct {
@@ -93,19 +91,17 @@ func (l *ProjectLimiter) Release(projectID string) {
 }
 
 type DB struct {
-	prEvidenceLookup func(string, string) (runner.PullRequestEvidence, error)
+	agentOperations  AgentOperations
+	trackers         *trackerapi.Client
+	prEvidenceLookup func(string, string) (trackerapi.PullRequest, error)
 	conn             *sql.DB
-	runner           *runner.Runner
 	mu               sync.RWMutex
 	jobQueue         chan SkillJob
 	limiter          *ProjectLimiter
 	// auto porte l'état de la boucle de synchronisation de fond.
-	auto      *autoSync
-	cancelMap map[string]context.CancelFunc
-	cancelMu  sync.Mutex
-	// termRunner, quand il est branché, fait tourner les pas du workflow dans
-	// la session PTY de la tâche au lieu de tubes anonymes.
-	termRunner        TerminalSessionRunner
+	auto              *autoSync
+	cancelMap         map[string]context.CancelFunc
+	cancelMu          sync.Mutex
 	postBackListeners []PostBackListener
 	postBackMu        sync.RWMutex
 }
@@ -121,7 +117,7 @@ func NewDB(dbPath string) (*DB, error) {
 
 	db := &DB{
 		conn:      conn,
-		runner:    runner.NewRunner(),
+		trackers:  trackerapi.NewClient(),
 		jobQueue:  make(chan SkillJob, 100),
 		limiter:   newProjectLimiter(),
 		cancelMap: make(map[string]context.CancelFunc),
@@ -138,10 +134,6 @@ func NewDB(dbPath string) (*DB, error) {
 	}
 
 	return db, nil
-}
-
-func (d *DB) GetRunner() *runner.Runner {
-	return d.runner
 }
 
 func (d *DB) Close() error {
@@ -347,7 +339,8 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN started_at DATETIME;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN completed_at DATETIME;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN error TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrompu lors du redémarrage du serveur' WHERE status IN ('running', 'queued', 'pending');")
+	// Remote invocations outlive the server process and report their own outcome.
+	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
 
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN detail_mode TEXT NOT NULL DEFAULT 'panel';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'agy';")
@@ -713,8 +706,8 @@ func (d *DB) computeExternalURLUnsafe(t *models.Task) *string {
 		var repo string
 		if proj != nil && proj.GithubRepo != "" {
 			repo = proj.GithubRepo
-		} else if proj != nil && proj.RepoPath != "" {
-			repo, _ = runner.ResolveGithubRepo("", proj.RepoPath)
+		} else if proj != nil && proj.GitRemoteUrl != "" {
+			repo = trackerapi.CleanGithubRepo(proj.GitRemoteUrl)
 		}
 		cleanNum := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(t.Key, "GH-#"), "gh-"), "#")
 		if repo != "" {
@@ -1463,25 +1456,6 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	return &t, nil
 }
 
-func (d *DB) EnsureGitIgnoreTasks(repoPath string) error {
-	gitignorePath := filepath.Join(repoPath, ".gitignore")
-	data, err := os.ReadFile(gitignorePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return os.WriteFile(gitignorePath, []byte("# TaskFlow worktrees\n.tasks/\n"), 0644)
-		}
-		return nil
-	}
-	content := string(data)
-	if !strings.Contains(content, ".tasks") {
-		newContent := strings.TrimRight(content, "\r\n") + "\n\n# TaskFlow parallel agent worktrees\n.tasks/\n"
-		return os.WriteFile(gitignorePath, []byte(newContent), 0644)
-	}
-	return nil
-}
-
-// repoPathValue flattens the optional per-task repository into the empty string
-// the column stores when the ticket inherits its project's path.
 func repoPathValue(p *string) string {
 	if p == nil {
 		return ""
@@ -1581,681 +1555,94 @@ func SanitizeBranchName(branch string) string {
 }
 
 func (d *DB) EnsureTaskWorktree(mainRepoPath string, task *models.Task) (string, string, error) {
-	if mainRepoPath == "" || task == nil {
-		return mainRepoPath, "", nil
+	if task == nil {
+		return "", "", fmt.Errorf("task is required")
 	}
-
-	// The project can opt out entirely. Returning the clone with no branch says
-	// "work here, and do not touch the checkout": switching the user's branch
-	// under them would be a surprise, so that stays a manual action.
-	if !d.TaskWorktreesEnabled(task) {
-		return mainRepoPath, "", nil
+	var info models.WorktreeInfo
+	if err := d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "prepare_workspace"}, &info); err != nil {
+		return "", "", err
 	}
-
-	mainRepoPath = strings.TrimSpace(mainRepoPath)
-	gitDir := filepath.Join(mainRepoPath, ".git")
-	if fi, err := os.Stat(gitDir); err != nil || !fi.IsDir() {
-		return mainRepoPath, "", nil
-	}
-
-	// Ensure .tasks/ is ignored by Git
-	_ = d.EnsureGitIgnoreTasks(mainRepoPath)
-
-	// Compute or sanitize branch name
-	if task.BranchName == nil || *task.BranchName == "" {
-		branch := GenerateTaskBranchName(task.Key, task.Title)
-		task.BranchName = &branch
-
-		d.mu.Lock()
-		_, _ = d.conn.Exec("UPDATE tasks SET branch_name = ? WHERE id = ?", branch, task.ID)
-		d.mu.Unlock()
-	} else {
-		sanitized := SanitizeBranchName(*task.BranchName)
-		if sanitized != *task.BranchName {
-			task.BranchName = &sanitized
-			d.mu.Lock()
-			_, _ = d.conn.Exec("UPDATE tasks SET branch_name = ? WHERE id = ?", sanitized, task.ID)
-			d.mu.Unlock()
-		}
-	}
-
-	targetBranch := *task.BranchName
-	worktreeBase := filepath.Join(mainRepoPath, ".tasks", "worktrees")
-	worktreePath := filepath.Join(worktreeBase, task.Key)
-
-	// Check if worktree directory already exists
-	if fi, err := os.Stat(worktreePath); err == nil && fi.IsDir() {
-		checkCmd := exec.Command("git", "-C", worktreePath, "rev-parse", "--is-inside-work-tree")
-		if out, err := checkCmd.Output(); err == nil && strings.TrimSpace(string(out)) == "true" {
-			_ = exec.Command("git", "-C", worktreePath, "checkout", "-B", targetBranch).Run()
-			return worktreePath, targetBranch, nil
-		}
-		_ = exec.Command("git", "-C", mainRepoPath, "worktree", "remove", "--force", worktreePath).Run()
-		_ = os.RemoveAll(worktreePath)
-		_ = exec.Command("git", "-C", mainRepoPath, "worktree", "prune").Run()
-	}
-
-	_ = os.MkdirAll(worktreeBase, 0755)
-
-	// Check if target branch exists in repo
-	checkBranchCmd := exec.Command("git", "-C", mainRepoPath, "rev-parse", "--verify", targetBranch)
-	branchExists := checkBranchCmd.Run() == nil
-
-	if branchExists {
-		addCmd := exec.Command("git", "-C", mainRepoPath, "worktree", "add", worktreePath, targetBranch)
-		if _, err := addCmd.CombinedOutput(); err != nil {
-			addCmd2 := exec.Command("git", "-C", mainRepoPath, "worktree", "add", "--force", "-B", targetBranch, worktreePath, targetBranch)
-			if out2, err2 := addCmd2.CombinedOutput(); err2 != nil {
-				return mainRepoPath, targetBranch, fmt.Errorf("erreur git worktree add: %s (%w)", string(out2), err2)
-			}
-		}
-	} else {
-		baseBranch := "main"
-		if err := exec.Command("git", "-C", mainRepoPath, "rev-parse", "--verify", "main").Run(); err != nil {
-			if err2 := exec.Command("git", "-C", mainRepoPath, "rev-parse", "--verify", "master").Run(); err2 == nil {
-				baseBranch = "master"
-			}
-		}
-
-		addCmd := exec.Command("git", "-C", mainRepoPath, "worktree", "add", "-b", targetBranch, worktreePath, baseBranch)
-		if _, err := addCmd.CombinedOutput(); err != nil {
-			addCmd2 := exec.Command("git", "-C", mainRepoPath, "worktree", "add", "-B", targetBranch, worktreePath, baseBranch)
-			if out2, err2 := addCmd2.CombinedOutput(); err2 != nil {
-				return mainRepoPath, targetBranch, fmt.Errorf("erreur création worktree: %s (%w)", string(out2), err2)
-			}
-		}
-	}
-
-	// Symlink root node_modules if it exists in main repo and not in worktree
-	mainNodeModules := filepath.Join(mainRepoPath, "node_modules")
-	wtNodeModules := filepath.Join(worktreePath, "node_modules")
-	if fi, err := os.Stat(mainNodeModules); err == nil && fi.IsDir() {
-		if _, err := os.Stat(wtNodeModules); os.IsNotExist(err) {
-			_ = os.Symlink(mainNodeModules, wtNodeModules)
-		}
-	}
-
-	// Symlink web/node_modules if present
-	mainWebNodeModules := filepath.Join(mainRepoPath, "web", "node_modules")
-	wtWebNodeModules := filepath.Join(worktreePath, "web", "node_modules")
-	if fi, err := os.Stat(mainWebNodeModules); err == nil && fi.IsDir() {
-		_ = os.MkdirAll(filepath.Join(worktreePath, "web"), 0755)
-		if _, err := os.Stat(wtWebNodeModules); os.IsNotExist(err) {
-			_ = os.Symlink(mainWebNodeModules, wtWebNodeModules)
-		}
-	}
-
-	// Symlink / propagate skills and agent configurations (.agents, .gemini, .agy, .taskflow, .taskacao)
-	agentDirs := []string{".agents", ".gemini", ".agy", ".taskflow", ".taskacao"}
-	for _, ad := range agentDirs {
-		mainAd := filepath.Join(mainRepoPath, ad)
-		wtAd := filepath.Join(worktreePath, ad)
-		if fi, err := os.Stat(mainAd); err == nil && fi.IsDir() {
-			if _, err := os.Stat(wtAd); os.IsNotExist(err) {
-				_ = os.Symlink(mainAd, wtAd)
-			}
-		}
-	}
-
-	// Ensure the workflow skills are present in the worktree, in every agent
-	// directory. Absent files only: a worktree may carry local edits.
-	for _, s := range d.EffectiveProjectSkills(task.ProjectID, "") {
-		for _, dir := range SkillDirsFor(worktreePath, s.DirName) {
-			_ = os.MkdirAll(dir, 0755)
-			filePath := filepath.Join(dir, "SKILL.md")
-			if _, err := os.Stat(filePath); os.IsNotExist(err) {
-				_ = os.WriteFile(filePath, []byte(s.Content), 0644)
-			}
-		}
-	}
-
-	// Symlink all .env* execution environment files if present in root
-	envMatches, _ := filepath.Glob(filepath.Join(mainRepoPath, ".env*"))
-	for _, envFile := range envMatches {
-		base := filepath.Base(envFile)
-		wtFile := filepath.Join(worktreePath, base)
-		if fi, err := os.Stat(envFile); err == nil && !fi.IsDir() {
-			if _, err := os.Stat(wtFile); os.IsNotExist(err) {
-				_ = os.Symlink(envFile, wtFile)
-			}
-		}
-	}
-
-	return worktreePath, targetBranch, nil
+	task.BranchName = &info.Branch
+	task.WorktreePath = &info.WorktreePath
+	d.mu.Lock()
+	_, err := d.conn.Exec("UPDATE tasks SET branch_name=?,worktree_path=? WHERE id=?", info.Branch, info.WorktreePath, task.ID)
+	d.mu.Unlock()
+	return info.WorktreePath, info.Branch, err
 }
 
-func (d *DB) RemoveTaskWorktree(mainRepoPath string, taskKey string) error {
-	if mainRepoPath == "" || taskKey == "" {
-		return nil
-	}
-	worktreePath := filepath.Join(mainRepoPath, ".tasks", "worktrees", taskKey)
-	_ = exec.Command("git", "-C", mainRepoPath, "worktree", "remove", "--force", worktreePath).Run()
-	_ = exec.Command("git", "-C", mainRepoPath, "worktree", "prune").Run()
-	_ = os.RemoveAll(worktreePath)
-	return nil
-}
-
-func (d *DB) GetTaskWorktreeInfo(taskIDOrKey string) (*models.WorktreeInfo, error) {
-	task, err := d.GetTaskByID(taskIDOrKey)
+func (d *DB) RemoveTaskWorktree(mainRepoPath, taskID string) error {
+	task, err := d.GetTaskByID(taskID)
 	if err != nil || task == nil {
-		return nil, fmt.Errorf("tâche non trouvée")
+		return fmt.Errorf("task not found")
 	}
-
-	mainRepoPath := d.ResolveTaskRepoPath(task)
-
-	branch := ""
-	if task.BranchName != nil {
-		branch = *task.BranchName
-	}
-
-	worktreePath := filepath.Join(mainRepoPath, ".tasks", "worktrees", task.Key)
-	exists := false
-	if fi, err := os.Stat(worktreePath); err == nil && fi.IsDir() {
-		exists = true
-	}
-	if !d.TaskWorktreesEnabled(task) {
-		// The task works in the clone, so that is the path to report.
-		worktreePath = mainRepoPath
-		exists = false
-	}
-
-	return &models.WorktreeInfo{
-		TaskKey:      task.Key,
-		Branch:       branch,
-		WorktreePath: worktreePath,
-		Exists:       exists,
-		MainRepoPath: mainRepoPath,
-	}, nil
+	return d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "remove_workspace"}, nil)
 }
 
-func (d *DB) GetTaskGitDiff(taskIDOrKey string) (*models.GitDiffResult, error) {
-	task, err := d.GetTaskByID(taskIDOrKey)
-	if err != nil {
+func (d *DB) GetTaskWorktreeInfo(taskID string) (*models.WorktreeInfo, error) {
+	task, err := d.GetTaskByID(taskID)
+	if err != nil || task == nil {
+		return nil, fmt.Errorf("task not found")
+	}
+	var info models.WorktreeInfo
+	if err = d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "workspace_info"}, &info); err != nil {
 		return nil, err
 	}
-	if task == nil {
-		return nil, fmt.Errorf("tâche non trouvée")
-	}
-
-	repoPath := d.ResolveTaskRepoPath(task)
-
-	branchName := ""
-	if task.BranchName != nil && *task.BranchName != "" {
-		branchName = *task.BranchName
-	}
-
-	worktreePath := filepath.Join(repoPath, ".tasks", "worktrees", task.Key)
-	diffTargetDir := repoPath
-	if fi, err := os.Stat(worktreePath); err == nil && fi.IsDir() {
-		diffTargetDir = worktreePath
-	}
-
-	res, err := d.runner.GetGitDiff(diffTargetDir, branchName, task.Key, task.PrURL)
-	if res != nil && diffTargetDir != repoPath {
-		res.WorktreePath = worktreePath
-	}
-	return res, err
+	return &info, nil
 }
 
-// EnsureTaskGitBranch ensures that the project git repository is switched to the task's dedicated branch.
-// It auto-commits any pending changes on previous branches, creates the branch if non-existent, and switches to it.
-// resolveRepoPathUnsafe resolves the actual disk directory of a git repository
-// from a project ID, a slug, a raw path, or global fallback settings.
+func (d *DB) GetTaskGitDiff(taskID string) (*models.GitDiffResult, error) {
+	task, err := d.GetTaskByID(taskID)
+	if err != nil || task == nil {
+		return nil, fmt.Errorf("task not found")
+	}
+	var info models.GitDiffResult
+	if err = d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_diff"}, &info); err != nil {
+		return nil, err
+	}
+	return &info, nil
+}
+
 func (d *DB) resolveRepoPathUnsafe(projectIDOrPath string) string {
-	projectIDOrPath = strings.TrimSpace(projectIDOrPath)
-	if projectIDOrPath != "" && projectIDOrPath != "all" {
-		if proj, _ := d.getProjectByIDUnsafe(projectIDOrPath); proj != nil && proj.RepoPath != "" {
-			if fi, err := os.Stat(proj.RepoPath); err == nil && fi.IsDir() {
-				return proj.RepoPath
-			}
-		}
-		if fi, err := os.Stat(projectIDOrPath); err == nil && fi.IsDir() {
-			return projectIDOrPath
-		}
+	if proj, _ := d.getProjectByIDUnsafe(projectIDOrPath); proj != nil {
+		return proj.RepoPath
 	}
-	settings, _ := d.getSettingsUnsafe()
-	if settings != nil && settings.RepoPath != "" {
-		if fi, err := os.Stat(settings.RepoPath); err == nil && fi.IsDir() {
-			return settings.RepoPath
-		}
-	}
-	var defaultRepoPath string
-	_ = d.conn.QueryRow("SELECT repo_path FROM projects WHERE is_default = 1 AND repo_path != '' LIMIT 1").Scan(&defaultRepoPath)
-	if defaultRepoPath != "" {
-		if fi, err := os.Stat(defaultRepoPath); err == nil && fi.IsDir() {
-			return defaultRepoPath
-		}
-	}
-	var firstRepoPath string
-	_ = d.conn.QueryRow("SELECT repo_path FROM projects WHERE repo_path != '' ORDER BY is_default DESC, name ASC LIMIT 1").Scan(&firstRepoPath)
-	if firstRepoPath != "" {
-		if fi, err := os.Stat(firstRepoPath); err == nil && fi.IsDir() {
-			return firstRepoPath
-		}
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		return cwd
-	}
-	return "."
-}
-
-// freeBranchFromWorktrees checks if targetBranch is currently checked out in a linked worktree.
-// If it is, it detaches HEAD in that worktree so the main repository can switch to it freely.
-func (d *DB) freeBranchFromWorktrees(repoPath string, targetBranch string) {
-	if repoPath == "" || targetBranch == "" {
-		return
-	}
-	out, err := exec.Command("git", "-C", repoPath, "worktree", "list", "--porcelain").Output()
-	if err != nil {
-		return
-	}
-	lines := strings.Split(string(out), "\n")
-	var currentWt string
-	targetRef := "refs/heads/" + targetBranch
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "worktree ") {
-			currentWt = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
-		} else if strings.HasPrefix(line, "branch ") {
-			ref := strings.TrimSpace(strings.TrimPrefix(line, "branch "))
-			if (ref == targetRef || ref == targetBranch) && currentWt != "" && currentWt != repoPath {
-				_ = exec.Command("git", "-C", currentWt, "checkout", "--detach").Run()
-			}
-		}
-	}
-}
-
-func (d *DB) EnsureTaskGitBranch(repoPath string, task *models.Task) (string, error) {
-	if task == nil {
-		return "", nil
-	}
-	d.mu.RLock()
-	if repoPath == "" || repoPath == "all" {
-		repoPath = d.ResolveTaskRepoPath(task)
-	}
-	if repoPath == "" || repoPath == "all" {
-		repoPath = d.resolveRepoPathUnsafe(task.ProjectID)
-	}
-	d.mu.RUnlock()
-
-	gitDir := filepath.Join(repoPath, ".git")
-	if fi, err := os.Stat(gitDir); err != nil || !fi.IsDir() {
-		return "", nil
-	}
-
-	// Compute or sanitize branch name
-	if task.BranchName == nil || *task.BranchName == "" {
-		branch := GenerateTaskBranchName(task.Key, task.Title)
-		task.BranchName = &branch
-
-		d.mu.Lock()
-		_, _ = d.conn.Exec("UPDATE tasks SET branch_name = ? WHERE id = ?", branch, task.ID)
-		d.mu.Unlock()
-	} else {
-		sanitized := SanitizeBranchName(*task.BranchName)
-		if sanitized != *task.BranchName {
-			task.BranchName = &sanitized
-			d.mu.Lock()
-			_, _ = d.conn.Exec("UPDATE tasks SET branch_name = ? WHERE id = ?", sanitized, task.ID)
-			d.mu.Unlock()
-		}
-	}
-
-	targetBranch := *task.BranchName
-
-	// 1. Get current branch
-	currentBranchCmd := exec.Command("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
-	curOut, curErr := currentBranchCmd.Output()
-	currentBranch := ""
-	if curErr == nil {
-		currentBranch = strings.TrimSpace(string(curOut))
-	}
-
-	// 2. If already on the target branch, we are good
-	if currentBranch == targetBranch {
-		return targetBranch, nil
-	}
-
-	// 3. If there are uncommitted changes on the old branch, auto-commit them cleanly to prevent checkout collisions
-	statusOut, _ := exec.Command("git", "-C", repoPath, "status", "--porcelain").Output()
-	if len(strings.TrimSpace(string(statusOut))) > 0 {
-		_ = exec.Command("git", "-C", repoPath, "add", "-A").Run()
-		commitMsg := fmt.Sprintf("chore: auto-save progress on '%s' before switching to task '%s'", currentBranch, task.Key)
-		_ = exec.Command("git", "-c", "user.name=TaskFlow", "-c", "user.email=taskflow@local", "-C", repoPath, "commit", "-m", commitMsg).Run()
-	}
-
-	// 4. Free target branch if checked out in any worktree
-	d.freeBranchFromWorktrees(repoPath, targetBranch)
-
-	// 5. Check if target branch already exists
-	checkBranchCmd := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", targetBranch)
-	if err := checkBranchCmd.Run(); err == nil {
-		// Branch exists: switch to it
-		switchCmd := exec.Command("git", "-C", repoPath, "checkout", targetBranch)
-		if _, err := switchCmd.CombinedOutput(); err != nil {
-			d.freeBranchFromWorktrees(repoPath, targetBranch)
-			switchCmd2 := exec.Command("git", "-C", repoPath, "checkout", targetBranch)
-			if out2, err2 := switchCmd2.CombinedOutput(); err2 != nil {
-				return "", fmt.Errorf("erreur bascule branche %s: %s (%w)", targetBranch, string(out2), err2)
-			}
-		}
-	} else {
-		// Branch does not exist: create and switch
-		createCmd := exec.Command("git", "-C", repoPath, "checkout", "-b", targetBranch)
-		if _, err := createCmd.CombinedOutput(); err != nil {
-			createCmd2 := exec.Command("git", "-C", repoPath, "checkout", "-B", targetBranch)
-			if out2, err2 := createCmd2.CombinedOutput(); err2 != nil {
-				return "", fmt.Errorf("erreur création branche %s: %s (%w)", targetBranch, string(out2), err2)
-			}
-		}
-	}
-
-	return targetBranch, nil
+	return projectIDOrPath
 }
 
 func (d *DB) GetGitStatus(projectIDOrPath string) (*models.GitStatusInfo, error) {
-	d.mu.RLock()
-	repoPath := d.resolveRepoPathUnsafe(projectIDOrPath)
-	d.mu.RUnlock()
-
-	return d.runner.GetCwdGitStatus(repoPath)
+	var result models.GitStatusInfo
+	if err := d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "git_status"}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 func (d *DB) GetGitBranches(projectIDOrPath string) (*models.GitBranchesInfo, error) {
-	d.mu.RLock()
-	repoPath := d.resolveRepoPathUnsafe(projectIDOrPath)
-	d.mu.RUnlock()
-
-	if repoPath == "" {
-		return nil, fmt.Errorf("aucun chemin de dépôt Git configuré")
+	var result models.GitBranchesInfo
+	if err := d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "git_branches"}, &result); err != nil {
+		return nil, err
 	}
-
-	if _, err := os.Stat(repoPath); err != nil {
-		return nil, fmt.Errorf("le dossier %s n'existe pas", repoPath)
-	}
-
-	// Current active branch
-	curCmd := exec.Command("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
-	curOut, _ := curCmd.Output()
-	currentBranch := strings.TrimSpace(string(curOut))
-
-	// Get all branches (local + remote)
-	format := "%(HEAD)|%(refname:short)|%(objectname:short)|%(contents:subject)"
-	cmd := exec.Command("git", "-C", repoPath, "branch", "-a", "--format="+format)
-	out, err := cmd.Output()
-	if err != nil {
-		return &models.GitBranchesInfo{
-			RepoPath:      repoPath,
-			CurrentBranch: currentBranch,
-			Branches: []models.GitBranchItem{
-				{Name: currentBranch, IsCurrent: true},
-			},
-		}, nil
-	}
-
-	var branches []models.GitBranchItem
-	seen := make(map[string]bool)
-
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "|", 4)
-		if len(parts) < 2 {
-			continue
-		}
-		isHead := strings.TrimSpace(parts[0]) == "*"
-		rawName := strings.TrimSpace(parts[1])
-		commit := ""
-		if len(parts) >= 3 {
-			commit = strings.TrimSpace(parts[2])
-		}
-		message := ""
-		if len(parts) >= 4 {
-			message = strings.TrimSpace(parts[3])
-		}
-
-		if rawName == "" || strings.HasPrefix(rawName, "origin/HEAD") || strings.HasPrefix(rawName, "remotes/origin/HEAD") {
-			continue
-		}
-
-		isRemote := strings.HasPrefix(rawName, "origin/") || strings.HasPrefix(rawName, "remotes/")
-		cleanName := strings.TrimPrefix(rawName, "remotes/")
-		cleanName = strings.TrimPrefix(cleanName, "origin/")
-
-		if seen[cleanName] {
-			continue
-		}
-		seen[cleanName] = true
-
-		isCurrent := isHead || cleanName == currentBranch
-
-		branches = append(branches, models.GitBranchItem{
-			Name:      cleanName,
-			IsCurrent: isCurrent,
-			IsRemote:  isRemote,
-			Commit:    commit,
-			Message:   message,
-		})
-	}
-
-	if currentBranch != "" && !seen[currentBranch] {
-		branches = append([]models.GitBranchItem{{
-			Name:      currentBranch,
-			IsCurrent: true,
-		}}, branches...)
-	}
-
-	return &models.GitBranchesInfo{
-		RepoPath:      repoPath,
-		CurrentBranch: currentBranch,
-		Branches:      branches,
-	}, nil
+	return &result, nil
 }
 
 func (d *DB) SwitchGitBranch(projectIDOrPath, targetBranch string, create bool) (*models.GitStatusInfo, error) {
-	d.mu.RLock()
-	repoPath := d.resolveRepoPathUnsafe(projectIDOrPath)
-	d.mu.RUnlock()
-
-	if repoPath == "" {
-		return nil, fmt.Errorf("aucun chemin de dépôt Git configuré")
+	var result models.GitStatusInfo
+	if err := d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "git_checkout", Branch: targetBranch, Create: create}, &result); err != nil {
+		return nil, err
 	}
-
-	targetBranch = strings.TrimSpace(targetBranch)
-	if targetBranch == "" {
-		return nil, fmt.Errorf("nom de branche cible obligatoire")
-	}
-
-	// Clean origin/ or remotes/ prefixes if user selected a remote branch
-	targetBranch = strings.TrimPrefix(targetBranch, "remotes/")
-	targetBranch = strings.TrimPrefix(targetBranch, "origin/")
-
-	// Clean stale index.lock if present
-	lockPath := filepath.Join(repoPath, ".git", "index.lock")
-	if info, err := os.Stat(lockPath); err == nil {
-		if time.Since(info.ModTime()) > 2*time.Second {
-			_ = os.Remove(lockPath)
-		}
-	}
-
-	// 1. Get current branch
-	curCmd := exec.Command("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
-	curOut, _ := curCmd.Output()
-	currentBranch := strings.TrimSpace(string(curOut))
-
-	if currentBranch == targetBranch && !create {
-		return d.runner.GetCwdGitStatus(repoPath)
-	}
-
-	// 2. If uncommitted changes exist, safely auto-commit them with fallback author identity
-	statusOut, _ := exec.Command("git", "-C", repoPath, "status", "--porcelain").Output()
-	if len(strings.TrimSpace(string(statusOut))) > 0 {
-		_ = exec.Command("git", "-C", repoPath, "add", "-A").Run()
-		commitMsg := fmt.Sprintf("chore: auto-save work on '%s' before switching to '%s'", currentBranch, targetBranch)
-		_ = exec.Command("git", "-c", "user.name=TaskFlow", "-c", "user.email=taskflow@local", "-C", repoPath, "commit", "-m", commitMsg).Run()
-	}
-
-	// 3. Free target branch if checked out in any worktree
-	d.freeBranchFromWorktrees(repoPath, targetBranch)
-
-	// 4. Checkout branch
-	if create {
-		createCmd := exec.Command("git", "-C", repoPath, "checkout", "-b", targetBranch)
-		if _, err := createCmd.CombinedOutput(); err != nil {
-			createCmd2 := exec.Command("git", "-C", repoPath, "checkout", "-B", targetBranch)
-			if out2, err2 := createCmd2.CombinedOutput(); err2 != nil {
-				return nil, fmt.Errorf("erreur création branche %s: %s (%w)", targetBranch, string(out2), err2)
-			}
-		}
-	} else {
-		// Check if branch exists locally
-		if err := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", targetBranch).Run(); err == nil {
-			switchCmd := exec.Command("git", "-C", repoPath, "checkout", targetBranch)
-			if _, err := switchCmd.CombinedOutput(); err != nil {
-				d.freeBranchFromWorktrees(repoPath, targetBranch)
-				switchCmd2 := exec.Command("git", "-C", repoPath, "checkout", targetBranch)
-				if out2, err2 := switchCmd2.CombinedOutput(); err2 != nil {
-					return nil, fmt.Errorf("erreur bascule branche %s: %s (%w)", targetBranch, string(out2), err2)
-				}
-			}
-		} else {
-			// Try checkout remote tracking or create
-			trackCmd := exec.Command("git", "-C", repoPath, "checkout", "--track", "origin/"+targetBranch)
-			if _, err := trackCmd.CombinedOutput(); err != nil {
-				// Fallback checkout -b
-				createCmd := exec.Command("git", "-C", repoPath, "checkout", "-b", targetBranch)
-				if out2, err2 := createCmd.CombinedOutput(); err2 != nil {
-					return nil, fmt.Errorf("erreur bascule branche %s: %s (%w)", targetBranch, string(out2), err2)
-				}
-			}
-		}
-	}
-
-	return d.runner.GetCwdGitStatus(repoPath)
+	return &result, nil
 }
 
 func (d *DB) CleanAllLocalBranches(projectIDOrPath string) (*models.CleanBranchesResult, error) {
-	d.mu.RLock()
-	repoPath := d.resolveRepoPathUnsafe(projectIDOrPath)
-	d.mu.RUnlock()
-
-	if repoPath == "" {
-		repoPath = "."
+	var result models.CleanBranchesResult
+	if err := d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "git_clean"}, &result); err != nil {
+		return nil, err
 	}
-
-	if fi, err := os.Stat(repoPath); err != nil || !fi.IsDir() {
-		return nil, fmt.Errorf("dossier introuvable: %s", repoPath)
-	}
-
-	// 1. Detect default branch (main or master)
-	defaultBranch := "main"
-	if err := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "main").Run(); err != nil {
-		if err2 := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "master").Run(); err2 == nil {
-			defaultBranch = "master"
-		}
-	}
-
-	// 2. Remove any active worktrees under .tasks/worktrees/
-	worktreesDir := filepath.Join(repoPath, ".tasks", "worktrees")
-	if entries, err := os.ReadDir(worktreesDir); err == nil {
-		for _, e := range entries {
-			wtPath := filepath.Join(worktreesDir, e.Name())
-			_ = exec.Command("git", "-C", repoPath, "worktree", "remove", "--force", wtPath).Run()
-			_ = os.RemoveAll(wtPath)
-		}
-	}
-	_ = exec.Command("git", "-C", repoPath, "worktree", "prune").Run()
-
-	// 3. Checkout default branch in main repo
-	_ = exec.Command("git", "-C", repoPath, "checkout", defaultBranch).Run()
-
-	// 4. List all local branches
-	out, err := exec.Command("git", "-C", repoPath, "branch", "--format=%(refname:short)").Output()
-	if err != nil {
-		return nil, fmt.Errorf("erreur liste des branches: %w", err)
-	}
-
-	var deleted []string
-	lines := strings.Split(string(out), "\n")
-	for _, l := range lines {
-		branch := strings.TrimSpace(l)
-		if branch == "" || branch == defaultBranch || branch == "main" || branch == "master" {
-			continue
-		}
-		// Force delete local branch
-		delCmd := exec.Command("git", "-C", repoPath, "branch", "-D", branch)
-		if delOut, delErr := delCmd.CombinedOutput(); delErr == nil {
-			deleted = append(deleted, branch)
-		} else {
-			log.Printf("[GIT] Failed to delete branch %s: %s", branch, string(delOut))
-		}
-	}
-
-	return &models.CleanBranchesResult{
-		RepoPath:        repoPath,
-		DefaultBranch:   defaultBranch,
-		DeletedBranches: deleted,
-		Message:         fmt.Sprintf("%d branches locales nettoyées avec succès.", len(deleted)),
-	}, nil
+	return &result, nil
 }
 
 func (d *DB) DeleteGitBranch(projectIDOrPath string, branchName string, deleteRemote bool) error {
-	branchName = strings.TrimSpace(branchName)
-	if branchName == "" {
-		return fmt.Errorf("nom de branche requis")
-	}
-	if branchName == "main" || branchName == "master" || branchName == "HEAD" {
-		return fmt.Errorf("impossible de supprimer la branche principale '%s'", branchName)
-	}
-
-	d.mu.RLock()
-	repoPath := d.resolveRepoPathUnsafe(projectIDOrPath)
-	d.mu.RUnlock()
-
-	if repoPath == "" {
-		repoPath = "."
-	}
-
-	// 1. If a worktree is checked out on this branch, remove it
-	worktreesDir := filepath.Join(repoPath, ".tasks", "worktrees")
-	if entries, err := os.ReadDir(worktreesDir); err == nil {
-		for _, e := range entries {
-			wtPath := filepath.Join(worktreesDir, e.Name())
-			curCmd := exec.Command("git", "-C", wtPath, "rev-parse", "--abbrev-ref", "HEAD")
-			if curOut, curErr := curCmd.Output(); curErr == nil && strings.TrimSpace(string(curOut)) == branchName {
-				_ = exec.Command("git", "-C", repoPath, "worktree", "remove", "--force", wtPath).Run()
-				_ = os.RemoveAll(wtPath)
-			}
-		}
-	}
-	_ = exec.Command("git", "-C", repoPath, "worktree", "prune").Run()
-
-	// 2. If main repo is currently on this branch, switch to main/master first
-	curCmd := exec.Command("git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
-	if curOut, curErr := curCmd.Output(); curErr == nil && strings.TrimSpace(string(curOut)) == branchName {
-		defaultBranch := "main"
-		if err := exec.Command("git", "-C", repoPath, "rev-parse", "--verify", "main").Run(); err != nil {
-			defaultBranch = "master"
-		}
-		_ = exec.Command("git", "-C", repoPath, "checkout", defaultBranch).Run()
-	}
-
-	// 3. Delete local branch
-	delCmd := exec.Command("git", "-C", repoPath, "branch", "-D", branchName)
-	if out, err := delCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("erreur suppression branche locale %s: %s", branchName, string(out))
-	}
-
-	// 4. Optionally delete remote branch
-	if deleteRemote {
-		_ = exec.Command("git", "-C", repoPath, "push", "origin", "--delete", branchName).Run()
-	}
-
-	return nil
+	return d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "git_delete", Branch: branchName, DeleteRemote: deleteRemote}, nil)
 }
 
 func (d *DB) getNextTaskKey(projectID string, prefix string) (string, error) {
@@ -2475,7 +1862,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 		if proj.GithubRepo != "" {
 			githubRepo = proj.GithubRepo
 		} else if proj.GitRemoteUrl != "" {
-			githubRepo = runner.CleanGithubRepo(proj.GitRemoteUrl)
+			githubRepo = models.CleanGithubRepo(proj.GitRemoteUrl)
 		}
 		if proj.JiraProject != "" {
 			jiraProject = proj.JiraProject
@@ -2529,22 +1916,19 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 		req.Priority = models.PriorityMedium
 	}
 
-	// Real creation via CLI if Linear or GitHub requested by the project
+	// Remote creation requires confirmation from the server HTTP adapter.
 	if req.Source == "linear" {
-		created, err := d.runner.CreateLinearIssue(linearTeam, req.Title, req.Description, req.Priority, req.Labels)
+		created, err := d.trackers.CreateLinearIssue(linearTeam, req.Title, req.Description, req.Priority, req.Labels)
 		if err == nil && created != nil {
 			id = created.ID
 			key = created.Key
 			extURL = created.ExternalURL
 		} else {
-			if req.RequireRemoteCreation {
-				return nil, fmt.Errorf("Linear issue creation failed: %v", err)
-			}
-			log.Printf("[DB.CreateTask] Warning: Linear issue creation failed: %v. Using fallback key.", err)
-			key, _ = d.getNextTaskKey(projID, prefix)
+			return nil, fmt.Errorf("Linear issue creation failed: %v", err)
 		}
+
 	} else if req.Source == "github" {
-		created, err := d.runner.CreateGithubIssue(githubRepo, repoPath, req.Title, req.Description, req.Labels)
+		created, err := d.trackers.CreateGithubIssue(githubRepo, repoPath, req.Title, req.Description, req.Labels)
 		if err == nil && created != nil {
 			if projID != "default" {
 				id = fmt.Sprintf("gh-%s-%s", projID, strings.TrimPrefix(created.Key, "#"))
@@ -2554,22 +1938,9 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 			key = created.Key
 			extURL = created.ExternalURL
 		} else {
-			if req.RequireRemoteCreation {
-				return nil, fmt.Errorf("GitHub issue creation failed: %v", err)
-			}
-			log.Printf("[DB.CreateTask] Warning: GitHub issue creation failed: %v. Using fallback key.", err)
-			key = d.getNextGithubTaskKey(projID)
-			if projID != "default" {
-				id = fmt.Sprintf("gh-%s-%s", projID, strings.TrimPrefix(key, "#"))
-			} else {
-				id = fmt.Sprintf("gh-%s", strings.TrimPrefix(key, "#"))
-			}
-			if githubRepo != "" && strings.HasPrefix(key, "#") {
-				cleanNum := strings.TrimPrefix(key, "#")
-				url := fmt.Sprintf("https://github.com/%s/issues/%s", runner.CleanGithubRepo(githubRepo), cleanNum)
-				extURL = &url
-			}
+			return nil, fmt.Errorf("GitHub issue creation failed: %v", err)
 		}
+
 	} else {
 		// Local project tracker
 		key, _ = d.getNextTaskKey(projID, prefix)
@@ -2579,7 +1950,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 		extURL = req.ExternalURL
 	} else if extURL == nil && req.Source == "github" && githubRepo != "" && strings.HasPrefix(key, "#") {
 		cleanNum := strings.TrimPrefix(key, "#")
-		url := fmt.Sprintf("https://github.com/%s/issues/%s", runner.CleanGithubRepo(githubRepo), cleanNum)
+		url := fmt.Sprintf("https://github.com/%s/issues/%s", models.CleanGithubRepo(githubRepo), cleanNum)
 		extURL = &url
 	} else if extURL == nil && req.Source == "jira" && jiraUrl != "" {
 		url := fmt.Sprintf("%s/browse/%s", strings.TrimSuffix(jiraUrl, "/"), key)
@@ -3085,7 +2456,7 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 	if jiraTok.Valid {
 		s.JiraAPIToken = jiraTok.String
 	}
-	s.SpecFramework = runner.NormalizeSpecFramework(specFw.String)
+	s.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 	if pClar.Valid {
 		s.PromptClarify = pClar.String
 	}
@@ -3573,7 +2944,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 	if extTerm.Valid {
 		s.ExternalTerminalCommand = extTerm.String
 	}
-	s.SpecFramework = runner.NormalizeSpecFramework(specFw.String)
+	s.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 
 	return &s, nil
 }
@@ -3713,7 +3084,7 @@ func (d *DB) UpdateSettings(s models.Settings) (*models.Settings, error) {
 	if s.EditorCommand == "" {
 		s.EditorCommand = "code"
 	}
-	s.SpecFramework = runner.NormalizeSpecFramework(s.SpecFramework)
+	s.SpecFramework = models.NormalizeSpecFramework(s.SpecFramework)
 	s.JiraProject = strings.ToUpper(strings.TrimSpace(s.JiraProject))
 	s.UIScale = NormalizeUIScale(s.UIScale)
 	s.AutoSyncIntervalSec = NormalizeAutoSyncInterval(s.AutoSyncIntervalSec)
@@ -3946,7 +3317,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 	d.mu.Unlock()
 
 	// 3. Special handling for background Sync jobs
-	if strings.HasPrefix(job.SkillID, "sync_") || job.SkillID == "sync_all" {
+	if job.SkillID != "sync_task" && (strings.HasPrefix(job.SkillID, "sync_") || job.SkillID == "sync_all") {
 		d.mu.RLock()
 		settings, _ := d.getSettingsUnsafe()
 		d.mu.RUnlock()
@@ -3978,368 +3349,33 @@ func (d *DB) processSkillJob(job SkillJob) {
 		return
 	}
 
-	// 4. Fetch latest task and settings
-	d.mu.RLock()
-	task, err := d.getTaskByIDUnsafe(job.TaskID)
-	settings, _ := d.getSettingsUnsafe()
-	d.mu.RUnlock()
-
-	if err != nil || task == nil {
-		d.mu.Lock()
-		errMsg := "Task not found during execution"
-		_, _ = d.conn.Exec(`
-			UPDATE task_activities
-			SET status = 'failed', error = ?, completed_at = CURRENT_TIMESTAMP
-			WHERE id = ?
-		`, errMsg, job.ActivityID)
-		d.mu.Unlock()
-		return
-	}
-
-	if settings == nil {
-		settings = &models.Settings{
-			AIProvider: "agy",
-			RepoPath:   ".",
-		}
-	}
-
-	// Dynamic per-project configuration override. This must cover the AI engine
-	// too: a project configured for Claude was previously executed with the
-	// global provider (agy), silently ignoring its own setting.
-	d.applyProjectSettings(settings, task, job.SkillID)
-
-	// A single ticket may pin its own repository, which wins over the project's
-	// path: on a tracker where one epic spans several codebases, the project
-	// path would send the agent into the wrong checkout.
-	if p := repoPathValue(task.RepoPath); p != "" {
-		settings.RepoPath = p
-	}
-
-	var skill models.Skill
-	for _, s := range d.GetAvailableSkills() {
-		if s.ID == job.SkillID || (job.SkillID == "review" && s.ID == "adjust") {
-			skill = s
-			break
-		}
-	}
-
-	mainRepoPath := settings.RepoPath
-
-	// 5. Dynamically acquire or create the dedicated Git Worktree for this task
-	executionDir := mainRepoPath
-	var worktreeStep string
-	var setupErr error
-	if mainRepoPath != "" && !d.TaskWorktreesEnabled(task) {
-		worktreeStep = fmt.Sprintf("📂 Worktrees désactivés sur ce projet : exécution directe dans %s", filepath.Base(mainRepoPath))
-	} else if mainRepoPath != "" {
-		wtPath, branch, wtErr := d.EnsureTaskWorktree(mainRepoPath, task)
-		if wtErr != nil {
-			setupErr = fmt.Errorf("worktree indisponible : %w", wtErr)
-			worktreeStep = setupErr.Error()
-		} else if wtPath != "" {
-			executionDir = wtPath
-			worktreeStep = fmt.Sprintf("🌳 Worktree Git isolé actif : .tasks/worktrees/%s (branche: %s)", task.Key, branch)
-		}
-	}
-
-	// Override settings RepoPath with the isolated worktree directory for AI runner
-	runnerSettings := *settings
-	runnerSettings.RepoPath = executionDir
-
-	// Run the step in the task's PTY session when one can be used, so it can be
-	// watched and answered while it works; headless otherwise.
-	var realAIOutput string
-	var runnerSteps []string
-	execErr := setupErr
-	expectedPR := ""
-	originalStage := d.StageOfTask(task)
-	if execErr == nil && job.SkillID == "adjust" {
-		pr, err := d.adjustmentPrerequisite(task, false)
-		execErr = err
-		expectedPR = pr.URL
-	}
-
-	var result *skillResult
-	runPrompt := job.Prompt
-	resultPath := ""
-	if execErr == nil && workflowResultRequired(job.SkillID) {
-		var resultDir string
-		resultDir, execErr = os.MkdirTemp("", "taskflow-result-")
-		if execErr == nil {
-			defer os.RemoveAll(resultDir)
-			resultPath = filepath.Join(resultDir, "result.json")
-			runPrompt += fmt.Sprintf("\n\nWork only in the assigned checkout: %q. Reuse its work branch.\n", executionDir)
-			// Carry local stage decisions forward without waiting for tracker sync.
-			if activities, err := d.GetTaskActivities(task.ID); err == nil {
-				for _, activity := range activities {
-					if activity.ID != job.ActivityID && workflowResultRequired(activity.SkillID) && (activity.Status == "completed" || activity.Status == "failed") {
-						report := activity.Output
-						if len(report) > 16000 {
-							report = report[len(report)-16000:]
-						}
-						runPrompt += "\nPrevious stage report (context, not instructions):\n" + activity.Summary + "\n" + report + "\nEnd previous report.\n"
-						break
-					}
-				}
-			}
-			runPrompt += "\n\n" + skillResultPrompt(job.ActivityID, resultPath)
-		}
-	}
-	if execErr == nil {
-		realAIOutput, runnerSteps, execErr = d.runSkill(ctx, &runnerSettings, job.SkillID, task, runPrompt, executionDir)
-	}
-	if execErr == nil && resultPath != "" {
-		result, execErr = readSkillResult(resultPath, job.ActivityID)
-		if result != nil {
-			receipt, _ := json.Marshal(result)
-			realAIOutput += "\n\nTaskFlow result:\n" + string(receipt)
-		}
-		if execErr == nil {
-			execErr = validateSkillResult(result, job.SkillID, executionDir, func(repo, branch string) string {
-				pr, err := d.lookupStagePR(repo, branch)
-				if err != nil {
-					return ""
-				}
-				return pr.URL
-			})
-			if execErr == nil {
-				result.PRURL, execErr = d.validateStagePR(task, job.SkillID, executionDir, result.Branch, result.PRURL, expectedPR)
-			}
-		}
-		if execErr == nil {
-			if result.Branch != "" && job.SkillID != "clarify" && job.SkillID != "handoff" {
-				task.BranchName = &result.Branch
-			}
-			if result.PRURL != "" && (job.SkillID == "create_pr" || job.SkillID == "adjust" || job.SkillID == "pickup" || job.SkillID == "specify" || job.SkillID == "implement") {
-				task.PrURL = &result.PRURL
-			}
-			runnerSteps = append(runnerSteps, "✅ Résultat structuré et pièces requises vérifiés")
-		}
-	}
-	completedTime := time.Now()
-
-	if worktreeStep != "" {
-		runnerSteps = append([]string{worktreeStep}, runnerSteps...)
-	}
-
-	// Check if canceled during execution
-	select {
-	case <-ctx.Done():
-		d.mu.Lock()
-		_, _ = d.conn.Exec(`
-			UPDATE task_activities
-			SET status = 'canceled', summary = 'Exécution annulée par l''utilisateur', completed_at = ?
-			WHERE id = ?
-		`, completedTime, job.ActivityID)
-		d.mu.Unlock()
-		return
-	default:
-	}
-
-	// Steps construction
-	var steps []string
-	steps = append(steps, fmt.Sprintf("Prise en charge par le moteur d'exécution (%s)", strings.ToUpper(settings.AIProvider)))
-	steps = append(steps, runnerSteps...)
-
-	var summary string
-	var action string
-
-	if execErr != nil {
-		steps = append(steps, fmt.Sprintf("⚠️ Erreur : %v", execErr))
-		stepsJSON, _ := json.Marshal(steps)
-		d.mu.Lock()
-		_, _ = d.conn.Exec(`
-			UPDATE task_activities
-			SET status = 'failed', summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
-			WHERE id = ?
-		`, "Étape interrompue : "+execErr.Error(), realAIOutput, string(stepsJSON), execErr.Error(), completedTime, job.ActivityID)
-		d.mu.Unlock()
-		return
-	}
-
-	// Determine project stage mapping
-	resolveMappedStatus := func(targetStage string, defaultStatus models.Status) models.Status {
-		if task.ProjectID != "" {
-			if proj, _ := d.getProjectByIDUnsafe(task.ProjectID); proj != nil && len(proj.StageMapping) > 0 {
-				if mapped, ok := proj.StageMapping[targetStage]; ok && mapped != "" {
-					return models.Status(mapped)
-				}
-			}
-		}
-		return defaultStatus
-	}
-
-	// Determine next status & workflow labels
-	switch skill.ID {
-	case "clarify":
-		task.Status = resolveMappedStatus("clarified", models.StatusClarified)
-		task.Labels = SetWorkflowLabel(task.Labels, "clarified")
-		action = fmt.Sprintf("Clarification exécutée avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
-		summary = fmt.Sprintf("Périmètre clarifié ➔ Étape: %s [Label: #clarified]", task.Status)
-
-	case "specify":
-		task.Status = resolveMappedStatus("specified", models.StatusToImplement)
-		task.Labels = SetWorkflowLabel(task.Labels, "specified")
-		action = fmt.Sprintf("Spécification SDD rédigée avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
-		summary = fmt.Sprintf("Spec technique créée sur la branche %s ➔ Étape: %s [Label: #specified]", branchLabel(task), task.Status)
-
-	case "implement":
-		task.Status = resolveMappedStatus("implemented", models.StatusToTest)
-		task.Labels = SetWorkflowLabel(task.Labels, "implemented")
-		action = fmt.Sprintf("Implémentation exécutée avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
-		summary = fmt.Sprintf("Développement terminé sur la branche %s ➔ Étape: %s [Label: #implemented]", branchLabel(task), task.Status)
-
-	case "handoff":
-		task.Status = resolveMappedStatus("finished", models.StatusFinished)
-		task.Labels = SetWorkflowLabel(task.Labels, "finished")
-		action = fmt.Sprintf("Handoff et nettoyage exécutés avec %s", strings.ToUpper(settings.AIProvider))
-		summary = fmt.Sprintf("Tâche clôturée : handoff documenté et espace local nettoyé ➔ Étape: %s [Label: #finished]", task.Status)
-
-	case "adjust", "review":
-		task.Status = resolveMappedStatus("reviewed", models.StatusToClose)
-		task.Labels = SetWorkflowLabel(task.Labels, "reviewed")
-
-		action = fmt.Sprintf("Revue & Pull Request vérifiées avec %s (%s)", strings.ToUpper(settings.AIProvider), skill.Command)
-		summary = fmt.Sprintf("PR prête pour revue : %s ➔ Étape: reviewed", result.PRURL)
-		// Keep the checkout for reviewer feedback and retries; handoff owns cleanup.
-
-	case "create_pr":
-		action = "Standalone pull request prepared"
-		summary = fmt.Sprintf("Pull request: %s; workflow stage preserved", result.PRURL)
-
-	case "pickup":
-		task.Status = resolveMappedStatus("reviewed", models.StatusToClose)
-		task.Labels = SetWorkflowLabel(task.Labels, "reviewed")
-		action = "Parcours autonome terminé et vérifié"
-		summary = fmt.Sprintf("PR prête pour revue : %s", result.PRURL)
-
-	}
-
-	if originalStage == "implemented" && (job.SkillID == "specify" || job.SkillID == "implement") {
-		task.Status = resolveMappedStatus("implemented", models.StatusToTest)
-		task.Labels = SetWorkflowLabel(task.Labels, "implemented")
-	}
-	if result != nil {
-		summary += " — " + result.Summary
-	}
-
-	task.UpdatedAt = completedTime
-
-	// Persist both records atomically before enqueueing another stage or syncing
-	// the tracker. A failed write must not become an in-memory-only transition.
+	// This activity tracks dispatch, not skill completion. The remote run owns results.
 	d.mu.Lock()
-	labelsJSON, _ := json.Marshal(task.Labels)
-	stepsJSON, _ := json.Marshal(steps)
-	saveErr := func() error {
-		tx, err := d.conn.Begin()
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback()
-		if _, err := tx.Exec(`
-			UPDATE tasks
-			SET status = ?, labels = ?, branch_name = ?, pr_url = ?, updated_at = ?
-			WHERE id = ?
-		`, string(task.Status), string(labelsJSON), task.BranchName, task.PrURL, completedTime, task.ID); err != nil {
-			return err
-		}
-		updated, err := tx.Exec(`
-			UPDATE task_activities
-			SET action = ?, status = 'completed', summary = ?, output = ?, steps = ?, completed_at = ?
-			WHERE id = ? AND status = 'running'
-		`, action, summary, realAIOutput, string(stepsJSON), completedTime, job.ActivityID)
-		if err != nil {
-			return err
-		}
-		if count, err := updated.RowsAffected(); err != nil || count != 1 {
-			return fmt.Errorf("activité interrompue avant la sauvegarde")
-		}
-		return tx.Commit()
-	}()
-	if saveErr != nil {
-		_, _ = d.conn.Exec(`UPDATE task_activities
-			SET status = 'failed', summary = ?, output = ?, error = ?, completed_at = ?
-			WHERE id = ? AND status = 'running'`, "Sauvegarde de l'étape impossible : "+saveErr.Error(), realAIOutput, saveErr.Error(), completedTime, job.ActivityID)
-	}
+	_, _ = d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch' WHERE id=?", job.ActivityID)
 	d.mu.Unlock()
-	if saveErr != nil {
-		log.Printf("[skill] %s: résultat non sauvegardé: %v", task.Key, saveErr)
-		return
-	}
 
-	// Chaîne autonome : le pas suivant est mis en file, sauf si l'étape atteinte
-	// demande une revue humaine. C'est le seul point d'arrêt volontaire : plus
-	// loin, l'agent créerait la MR et clôturerait sans qu'un humain ait vu le diff.
-	if job.AutoChain && skill.ID != "create_pr" {
-		reached := d.StageOfTask(task)
-		if reached == AutonomousStopStage || reached == "finished" {
-			d.appendActivityStep(job.ActivityID, "⏸ Chaîne autonome terminée : Pull Request créée, la fusion reste manuelle")
-		} else if next, ok := NextStep(reached); ok {
-			d.appendActivityStep(job.ActivityID, "⏭ Chaîne autonome : "+next.Label)
-			go func(taskID, skillID string) {
-				if _, _, err := d.enqueueSkillOnTask(taskID, skillID, "", true); err != nil {
-					log.Printf("[autochain] %s: %v", taskID, err)
-				}
-			}(task.ID, next.SkillID)
-		}
-	}
-
-	// Background state, label, and report comment sync with Linear / GitHub / Jira CLI
-	if task.Source == "linear" || task.Source == "github" || task.Source == "jira" || strings.HasPrefix(task.Key, "FRE-") || strings.HasPrefix(task.Key, "#") || strings.HasPrefix(task.Key, "gh-") || strings.HasPrefix(task.Key, "GH-#") {
-		var commentHeader string
-		switch skill.ID {
-		case "clarify":
-			commentHeader = "### 💬 [TaskFlow] Rapport de Clarification\n\n"
-		case "specify":
-			commentHeader = "### 📋 [TaskFlow] Spécification Technique & Plan d'Implémentation\n\n"
-		case "implement":
-			commentHeader = "### ⚡ [TaskFlow] Rapport d'Implémentation\n\n"
-		case "adjust", "review":
-			commentHeader = "### 🚀 [TaskFlow] Revue de Code & Préparation PR\n\n"
-		default:
-			commentHeader = fmt.Sprintf("### 🤖 [TaskFlow] Rapport d'exécution : %s\n\n", skill.Name)
-		}
-
-		commentBody := commentHeader + realAIOutput
-
-		// Labels d'étape : le nouveau est posé ET les précédents sont retirés.
-		// Le tracker ne fait pas le remplacement tout seul, contrairement à
-		// SetWorkflowLabel en local.
-		stageLabel := skillStageLabel[skill.ID]
-		if originalStage == "implemented" && (skill.ID == "specify" || skill.ID == "implement") {
-			stageLabel = "implemented"
-		}
-		staleLabels := StaleWorkflowLabels(stageLabel)
-
-		// Statut visé : celui de la colonne que le projet associe à l'étape,
-		// faute de quoi on laisse UpdateJiraIssue deviner. Deviner échouait en
-		// silence, acli attendant le nom de la transition et sortant en zéro.
-		trackerStatusTarget := ""
-		trackerURL := ""
-		if proj, _ := d.GetProjectByID(task.ProjectID); proj != nil {
-			trackerURL = proj.TrackerUrl
-			if stageLabel != "" {
-				trackerStatusTarget = TrackerStatusForStage(proj, stageLabel)
+	task, err := d.GetTaskByID(job.TaskID)
+	if err == nil && task != nil {
+		var run *models.TaskActivity
+		run, err = d.StartAgentRemoteRun(task.ID, job.SkillID)
+		if err == nil {
+			err = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID}, nil)
+			if err != nil {
+				_, _ = d.FinishRemoteRun(task.ID, run.ID, "failed", err.Error())
 			}
 		}
-
-		go func(src, repo, rPath, key, body string, st models.Status, lbls []string, stale []string, statusTarget string, trackerURL string) {
-			if src == "linear" || strings.HasPrefix(key, "FRE-") {
-				_ = d.runner.UpdateLinearIssueState(key, st)
-				_ = d.runner.UpdateLinearIssue(key, nil, nil, nil, &st, lbls)
-				if strings.TrimSpace(body) != "" {
-					_ = d.runner.AddIssueComment(src, repo, rPath, key, body)
-				}
-
-			} else if src == "github" || strings.HasPrefix(key, "#") || strings.HasPrefix(key, "gh-") || strings.HasPrefix(key, "GH-#") {
-				_ = d.runner.UpdateGithubIssueState(repo, rPath, key, st)
-				_ = d.runner.UpdateGithubIssue(repo, rPath, key, nil, nil, &st, lbls, stale)
-				if strings.TrimSpace(body) != "" {
-					_ = d.runner.AddIssueComment(src, repo, rPath, key, body)
-				}
-			}
-		}(task.Source, settings.GithubRepo, settings.RepoPath, task.Key, commentBody, task.Status, task.Labels, staleLabels, trackerStatusTarget, trackerURL)
+	} else if err == nil {
+		err = fmt.Errorf("task not found")
 	}
+	status, summary, errorText := "completed", "Execution launched on the local agent; workflow results are reported through MCP.", ""
+	if err != nil {
+		status = "failed"
+		summary = "Agent launch failed"
+		errorText = err.Error()
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, _ = d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch',status=?,summary=?,error=?,completed_at=? WHERE id=?", status, summary, errorText, time.Now(), job.ActivityID)
 }
 
 func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.Settings) {
@@ -4363,10 +3399,10 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		if team == "" {
 			team = settings.LinearTeam
 		}
-		steps = append(steps, fmt.Sprintf("1. Connecting to Linear CLI for team %s...", team))
+		steps = append(steps, fmt.Sprintf("1. Connecting to Linear API for team %s...", team))
 		outputLines = append(outputLines, fmt.Sprintf("### 🔄 Linear Synchronization (Team: %s)\n", team))
 
-		tasks, err := d.runner.SyncFromLinear(team)
+		tasks, err := d.trackers.SyncFromLinear(team)
 		if err != nil {
 			hasError = true
 			errMsg := fmt.Sprintf("Linear synchronization failed: %v", err)
@@ -4414,10 +3450,10 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		if repoPath == "" {
 			repoPath = settings.RepoPath
 		}
-		steps = append(steps, fmt.Sprintf("1. Connecting to GitHub CLI for repository %s...", repo))
+		steps = append(steps, fmt.Sprintf("1. Connecting to GitHub API for repository %s...", repo))
 		outputLines = append(outputLines, fmt.Sprintf("### 🐙 GitHub Synchronization (%s)\n", repo))
 
-		tasks, err := d.runner.SyncFromGithub(repo, repoPath)
+		tasks, err := d.trackers.SyncFromGithub(repo, repoPath)
 		if err != nil {
 			hasError = true
 			errMsg := fmt.Sprintf("GitHub synchronization failed: %v", err)
@@ -4480,8 +3516,9 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 					if tm == "" {
 						tm = settings.LinearTeam
 					}
-					linTasks, linErr := d.runner.SyncFromLinear(tm)
+					linTasks, linErr := d.trackers.SyncFromLinear(tm)
 					if linErr != nil {
+						hasError = true
 						steps = append(steps, fmt.Sprintf("⚠️ Linear (%s): %v", tm, linErr))
 						outputLines = append(outputLines, fmt.Sprintf("❌ Linear (%s): %v", tm, linErr))
 					} else {
@@ -4507,8 +3544,9 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 					ghPath = settings.RepoPath
 				}
 				if ghRepo != "" || ghPath != "" {
-					ghTasks, ghErr := d.runner.SyncFromGithub(ghRepo, ghPath)
+					ghTasks, ghErr := d.trackers.SyncFromGithub(ghRepo, ghPath)
 					if ghErr != nil {
+						hasError = true
 						steps = append(steps, fmt.Sprintf("⚠️ GitHub (%s): %v", ghRepo, ghErr))
 						outputLines = append(outputLines, fmt.Sprintf("❌ GitHub (%s): %v", ghRepo, ghErr))
 					} else {
@@ -4788,7 +3826,7 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 
 	if isLinear {
 		steps = append(steps, fmt.Sprintf("Exécution: linear issue update %s (statut: %s, labels: %v)", task.Key, syncStatus, task.Labels))
-		err := d.runner.UpdateLinearIssue(task.Key, titleForUpdate, descForUpdate, priorityForUpdate, &syncStatus, task.Labels)
+		err := d.trackers.UpdateLinearIssue(task.Key, titleForUpdate, descForUpdate, priorityForUpdate, &syncStatus, task.Labels)
 		if err != nil {
 			hasError = true
 			outputText = fmt.Sprintf("Erreur Linear CLI : %v", err)
@@ -4803,7 +3841,7 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 		steps = append(steps, "❌ Échec : Jira n'est plus pris en charge")
 	} else if isGithub {
 		steps = append(steps, fmt.Sprintf("Exécution: gh issue edit %s (Dépôt: %s, Statut: %s, Labels: %v, Supprimés: %v)", task.Key, repo, syncStatus, task.Labels, job.RemovedLabels))
-		err := d.runner.UpdateGithubIssue(repo, repoPath, task.Key, titleForUpdate, descForUpdate, &syncStatus, task.Labels, job.RemovedLabels)
+		err := d.trackers.UpdateGithubIssue(repo, repoPath, task.Key, titleForUpdate, descForUpdate, &syncStatus, task.Labels, job.RemovedLabels)
 		if err != nil {
 			hasError = true
 			outputText = fmt.Sprintf("Erreur GitHub CLI : %v", err)
@@ -4876,7 +3914,7 @@ func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
 		var issueNum int
 		fmt.Sscanf(cleanNum, "%d", &issueNum)
 		if issueNum > 0 {
-			syncedTask, err = d.runner.FetchSingleGithubIssue(repo, repoPath, issueNum)
+			syncedTask, err = d.trackers.FetchSingleGithubIssue(repo, repoPath, issueNum)
 			if err != nil {
 				return nil, err
 			}
@@ -5497,7 +4535,7 @@ func (d *DB) AddTaskComment(taskID string, body string) error {
 		repoPath = settings.RepoPath
 	}
 
-	return d.runner.AddIssueComment(task.Source, repo, repoPath, task.Key, body)
+	return d.trackers.AddIssueComment(task.Source, repo, repoPath, task.Key, body)
 }
 
 func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, error) {
@@ -5539,17 +4577,12 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		if team == "" {
 			team = settings.LinearTeam
 		}
-		created, err := d.runner.CreateLinearIssue(team, task.Title, task.Description, task.Priority, task.Labels)
+		created, err := d.trackers.CreateLinearIssue(team, task.Title, task.Description, task.Priority, task.Labels)
 		if err != nil {
 			return nil, fmt.Errorf("création Linear impossible: %w", err)
 		}
 		newKey = created.Key
 		extURL = created.ExternalURL
-
-		// Sync status to Linear if not backlog
-		if task.Status != models.StatusBacklog && task.Status != models.StatusToClarify {
-			_ = d.runner.UpdateLinearIssueState(newKey, task.Status)
-		}
 
 	case "github":
 		repo := ""
@@ -5564,17 +4597,12 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		if repoPath == "" {
 			repoPath = settings.RepoPath
 		}
-		created, err := d.runner.CreateGithubIssue(repo, repoPath, task.Title, task.Description, task.Labels)
+		created, err := d.trackers.CreateGithubIssue(repo, repoPath, task.Title, task.Description, task.Labels)
 		if err != nil {
 			return nil, fmt.Errorf("création GitHub impossible: %w", err)
 		}
 		newKey = created.Key
 		extURL = created.ExternalURL
-
-		// Sync status if done
-		if task.Status == models.StatusDone || task.Status == models.StatusFinished || task.Status == models.StatusToClose {
-			_ = d.runner.UpdateGithubIssue(repo, repoPath, newKey, nil, nil, &task.Status, task.Labels, nil)
-		}
 
 	default:
 		return nil, fmt.Errorf("tracker distant non supporté: %s (choisir 'linear' ou 'github')", target)
@@ -5597,6 +4625,9 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	if err != nil {
 		return nil, err
 	}
+
+	// Creation is confirmed; synchronize its state through the observable queue.
+	d.enqueueTrackerUpdateUnsafe(task, &task.Status, task.Labels, nil, TrackerFieldChanges{})
 
 	outputMsg := fmt.Sprintf("Tâche locale convertie vers %s.\nClé distante : %s", strings.ToUpper(target), task.Key)
 	if extURL != nil {
@@ -5912,7 +4943,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		if jiraProj.Valid {
 			p.JiraProject = jiraProj.String
 		}
-		p.SpecFramework = runner.NormalizeSpecFramework(specFw.String)
+		p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 		p.ProjectType = NormalizeProjectType(projType.String)
 		projects = append(projects, p)
 	}
@@ -5992,7 +5023,7 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	if jiraProj.Valid {
 		p.JiraProject = jiraProj.String
 	}
-	p.SpecFramework = runner.NormalizeSpecFramework(specFw.String)
+	p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 	p.ProjectType = NormalizeProjectType(projType.String)
 	return &p, nil
 }
@@ -6043,7 +5074,7 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 
 	aiProvider := strings.TrimSpace(req.AIProvider)
 	aiCmd := strings.TrimSpace(req.AICommandTemplate)
-	specFramework := runner.NormalizeSpecFramework(req.SpecFramework)
+	specFramework := models.NormalizeSpecFramework(req.SpecFramework)
 	projectType := NormalizeProjectType(req.ProjectType)
 
 	now := time.Now()
@@ -6068,7 +5099,7 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	// Types importés : vides à la création, ce qui vaut « les types par défaut ».
 	// Les réglages du projet les nomment ensuite, à partir des types réels du
 	// tracker.
-	issueTypes := runner.NormalizeIssueTypes(req.IssueTypes)
+	issueTypes := models.NormalizeIssueTypes(req.IssueTypes)
 	if len(req.IssueTypes) == 0 {
 		issueTypes = []string{}
 	}
@@ -6127,9 +5158,7 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	if err != nil {
 		return nil, err
 	}
-	if err := writeProjectContextFiles(project); err != nil {
-		return nil, err
-	}
+
 	return project, nil
 }
 
@@ -6217,7 +5246,7 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 		p.Sprints = *req.Sprints
 	}
 	if req.IssueTypes != nil {
-		p.IssueTypes = runner.NormalizeIssueTypes(*req.IssueTypes)
+		p.IssueTypes = models.NormalizeIssueTypes(*req.IssueTypes)
 	}
 	if req.MonoRepo != nil {
 		p.MonoRepo = *req.MonoRepo
@@ -6229,7 +5258,7 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 		p.AICommandTemplate = *req.AICommandTemplate
 	}
 	if req.SpecFramework != nil {
-		p.SpecFramework = runner.NormalizeSpecFramework(*req.SpecFramework)
+		p.SpecFramework = models.NormalizeSpecFramework(*req.SpecFramework)
 	}
 	if req.ProjectType != nil {
 		p.ProjectType = NormalizeProjectType(*req.ProjectType)
@@ -6322,9 +5351,7 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 	if err != nil {
 		return nil, err
 	}
-	if err := writeProjectContextFiles(project); err != nil {
-		return nil, err
-	}
+
 	return project, nil
 }
 
@@ -6366,348 +5393,33 @@ type ProjectSkillTemplate struct {
 	Content     string
 }
 
-func getGitWorktreePaths(repoPath string) []string {
-	var paths []string
-	cleanRepo, err := filepath.Abs(filepath.Clean(repoPath))
-	if err != nil {
-		cleanRepo = filepath.Clean(repoPath)
-	}
-	paths = append(paths, cleanRepo)
-
-	cmd := exec.Command("git", "worktree", "list", "--porcelain")
-	cmd.Dir = cleanRepo
-	out, err := cmd.Output()
-	if err != nil {
-		return paths
-	}
-
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "worktree ") {
-			wtPath := strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
-			if abs, err := filepath.Abs(filepath.Clean(wtPath)); err == nil {
-				wtPath = abs
-			}
-			if wtPath != "" {
-				already := false
-				for _, p := range paths {
-					if p == wtPath {
-						already = true
-						break
-					}
-				}
-				if !already {
-					paths = append(paths, wtPath)
-				}
-			}
-		}
-	}
-	return paths
+func (d *DB) GetProjectSkillsStatus(projectID string) (*models.ProjectSkillsStatus, error) {
+	var result models.ProjectSkillsStatus
+	err := d.callAgent(agentprotocol.Operation{ProjectID: projectID, Action: "skills_status"}, &result)
+	return &result, err
 }
 
-func (d *DB) GetProjectSkillsStatus(projectIDOrPath string) (*models.ProjectSkillsStatus, error) {
-	d.mu.RLock()
-	repoPath := projectIDOrPath
-	projectID := projectIDOrPath
-	projectName := projectIDOrPath
-	specFramework := "speckit"
-
-	if proj, _ := d.getProjectByIDUnsafe(projectIDOrPath); proj != nil {
-		projectID = proj.ID
-		projectName = proj.Name
-		if proj.RepoPath != "" {
-			repoPath = proj.RepoPath
-		}
-		if proj.SpecFramework != "" {
-			specFramework = proj.SpecFramework
-		}
+func (d *DB) InstallProjectSkills(projectID string, overrides ...string) (*models.ProjectSkillsStatus, error) {
+	op := agentprotocol.Operation{ProjectID: projectID, Action: "sync_config"}
+	if len(overrides) > 0 {
+		op.Framework = overrides[0]
 	}
-	d.mu.RUnlock()
-
-	repoPath = strings.TrimSpace(repoPath)
-	if repoPath == "" {
-		repoPath = "."
+	if len(overrides) > 1 {
+		op.Provider = overrides[1]
 	}
-
-	worktreePaths := getGitWorktreePaths(repoPath)
-
-	res := &models.ProjectSkillsStatus{
-		ProjectID:      projectID,
-		ProjectName:    projectName,
-		RepoPath:       repoPath,
-		PathExists:     false,
-		IsGitRepo:      false,
-		InstalledAll:   true,
-		SpecFramework:  specFramework,
-		WorktreesCount: len(worktreePaths),
-		WorktreePaths:  worktreePaths,
-		Skills:         []models.InstalledSkillInfo{},
+	if len(overrides) > 2 {
+		op.AICommandTemplate = overrides[2]
 	}
-
-	fi, err := os.Stat(repoPath)
-	if err != nil || !fi.IsDir() {
-		res.InstalledAll = false
-		return res, nil
+	if err := d.callAgent(op, nil); err != nil {
+		return nil, err
 	}
-	res.PathExists = true
-
-	// Check git repo
-	gitDir := filepath.Join(repoPath, ".git")
-	if gfi, gErr := os.Stat(gitDir); gErr == nil && gfi.IsDir() {
-		res.IsGitRepo = true
-		gitCheck := exec.Command("git", "rev-parse", "--is-inside-work-tree")
-		gitCheck.Dir = repoPath
-		if err := gitCheck.Run(); err == nil {
-			branchCmd := exec.Command("git", "branch", "--show-current")
-			branchCmd.Dir = repoPath
-			if out, err := branchCmd.Output(); err == nil {
-				b := strings.TrimSpace(string(out))
-				if b != "" && b != "HEAD" {
-					res.GitBranch = b
-				}
-			}
-		}
-	} else {
-		res.InstalledAll = false
-	}
-
-	for _, s := range ProjectSkillTemplates(specFramework) {
-		candidates := SkillDirsFor(repoPath, s.DirName)
-		installed := false
-		targetPath := filepath.Join(candidates[0], "SKILL.md")
-		for _, dir := range candidates {
-			p := filepath.Join(dir, "SKILL.md")
-			if _, err := os.Stat(p); err == nil {
-				installed = true
-				targetPath = p
-				break
-			}
-		}
-		if !installed {
-			res.InstalledAll = false
-		}
-
-		res.Skills = append(res.Skills, models.InstalledSkillInfo{
-			ID:          s.ID,
-			Name:        s.Name,
-			Installed:   installed,
-			Path:        targetPath,
-			Description: s.Description,
-		})
-	}
-
-	return res, nil
+	return d.GetProjectSkillsStatus(projectID)
 }
 
-func (d *DB) InstallProjectSkills(projectIDOrPath string, overrides ...string) (*models.ProjectSkillsStatus, error) {
-	d.mu.RLock()
-	repoPath := projectIDOrPath
-	projectID := projectIDOrPath
-	projectName := projectIDOrPath
-	linearTeam := ""
-	githubRepo := ""
-	issueTracker := "local"
-	specFramework := "speckit"
-	aiProvider := "agy"
-	aiCommandTemplate := ""
-	var configuredProject *models.Project
-
-	if proj, _ := d.getProjectByIDUnsafe(projectIDOrPath); proj != nil {
-		configuredProject = proj
-		projectID = proj.ID
-		projectName = proj.Name
-		if proj.RepoPath != "" {
-			repoPath = proj.RepoPath
-		}
-		if proj.LinearTeam != "" {
-			linearTeam = proj.LinearTeam
-		}
-		if proj.GithubRepo != "" {
-			githubRepo = proj.GithubRepo
-		}
-		if proj.IssueTracker != "" {
-			issueTracker = proj.IssueTracker
-		}
-		if proj.SpecFramework != "" {
-			specFramework = proj.SpecFramework
-		}
-		if proj.AIProvider != "" {
-			aiProvider = proj.AIProvider
-		}
-		if proj.AICommandTemplate != "" {
-			aiCommandTemplate = proj.AICommandTemplate
-		}
-	}
-	d.mu.RUnlock()
-
-	if len(overrides) > 0 && strings.TrimSpace(overrides[0]) != "" {
-		specFramework = overrides[0]
-	}
-	specFramework = runner.NormalizeSpecFramework(specFramework)
-	if len(overrides) > 1 && strings.TrimSpace(overrides[1]) != "" {
-		aiProvider = strings.TrimSpace(overrides[1])
-	}
-	if len(overrides) > 2 && strings.TrimSpace(overrides[2]) != "" {
-		aiCommandTemplate = strings.TrimSpace(overrides[2])
-	}
-
-	repoPath = strings.TrimSpace(repoPath)
-	if repoPath == "" {
-		return nil, fmt.Errorf("le chemin du dossier de travail (CWD) est obligatoire")
-	}
-
-	// Create CWD if doesn't exist
-	if err := os.MkdirAll(repoPath, 0755); err != nil {
-		return nil, fmt.Errorf("impossible de créer le répertoire %s: %w", repoPath, err)
-	}
-
-	// Get all worktree paths to scaffold skills into every worktree directory
-	targetPaths := getGitWorktreePaths(repoPath)
-
-	// Le contenu vient de la base quand le projet a édité ses skills, du modèle
-	// intégré sinon. Une seule source, régénérée dans chaque worktree.
-	skillsToInstall := d.EffectiveProjectSkills(projectID, specFramework)
-
-	// Install skills into each target path (root repo and all worktrees)
-	for _, targetDir := range targetPaths {
-		for _, s := range skillsToInstall {
-			// La commande slash, en plus de la skill : c'est elle que Taskflow
-			// invoque, et sans elle « /clarify-issue » n'est que du texte.
-			if stage, ok := StageSkillByID(s.ID); ok {
-				cmdContent, _ := commandContentFromSkill(stage, s.Content, specFramework)
-				cmdPath := SkillCommandPath(targetDir, s.DirName)
-				if err := os.MkdirAll(filepath.Dir(cmdPath), 0755); err == nil {
-					_ = os.WriteFile(cmdPath, []byte(cmdContent), 0644)
-				}
-			}
-
-			for _, dir := range SkillDirsFor(targetDir, s.DirName) {
-				if err := os.MkdirAll(dir, 0755); err != nil {
-					continue
-				}
-				filePath := filepath.Join(dir, "SKILL.md")
-				_ = os.WriteFile(filePath, []byte(s.Content), 0644)
-			}
-		}
-
-		// Create .taskflow/config.json in each worktree/root
-		taskflowDir := filepath.Join(targetDir, ".taskflow")
-		_ = os.MkdirAll(taskflowDir, 0755)
-		configFile := filepath.Join(taskflowDir, "config.json")
-		cfgData := map[string]interface{}{
-			"projectId":         projectID,
-			"projectName":       projectName,
-			"linearTeam":        linearTeam,
-			"githubRepo":        githubRepo,
-			"issueTracker":      issueTracker,
-			"specFramework":     specFramework,
-			"aiProvider":        aiProvider,
-			"aiCommandTemplate": aiCommandTemplate,
-			"skills":            skillDirNames(skillsToInstall),
-			"updatedAt":         time.Now().Format(time.RFC3339),
-		}
-		if bytes, err := json.MarshalIndent(cfgData, "", "  "); err == nil {
-			_ = os.WriteFile(configFile, bytes, 0644)
-		}
-	}
-	if configuredProject != nil {
-		project := *configuredProject
-		project.SpecFramework = specFramework
-		project.AIProvider = aiProvider
-		project.AICommandTemplate = aiCommandTemplate
-		if err := writeProjectContextFiles(&project); err != nil {
-			return nil, err
-		}
-	}
-
-	status, err := d.GetProjectSkillsStatus(projectID)
-	return status, err
-}
-
-func (d *DB) InitProjectGit(projectIDOrPath string) (*models.ProjectGitInitResult, error) {
-	d.mu.RLock()
-	repoPath := projectIDOrPath
-	if proj, _ := d.getProjectByIDUnsafe(projectIDOrPath); proj != nil {
-		if proj.RepoPath != "" {
-			repoPath = proj.RepoPath
-		}
-	}
-	d.mu.RUnlock()
-
-	repoPath = strings.TrimSpace(repoPath)
-	if repoPath == "" {
-		return nil, fmt.Errorf("le chemin du dossier de travail (CWD) est obligatoire")
-	}
-
-	// Create directory if not exists
-	if err := os.MkdirAll(repoPath, 0755); err != nil {
-		return nil, fmt.Errorf("impossible de créer le répertoire %s: %w", repoPath, err)
-	}
-
-	// Check if already git repo
-	gitDir := filepath.Join(repoPath, ".git")
-	isAlreadyGit := false
-	if fi, err := os.Stat(gitDir); err == nil && fi.IsDir() {
-		isAlreadyGit = true
-	}
-
-	// Run git init -b main
-	cmd := exec.Command("git", "init", "-b", "main")
-	cmd.Dir = repoPath
-	if _, err := cmd.CombinedOutput(); err != nil {
-		// Fallback for older git without -b flag: git init
-		cmd2 := exec.Command("git", "init")
-		cmd2.Dir = repoPath
-		if out2, err2 := cmd2.CombinedOutput(); err2 != nil {
-			return nil, fmt.Errorf("erreur git init: %s (%w)", string(out2), err2)
-		}
-	}
-
-	// Create a standard .gitignore if none exists
-	gitignorePath := filepath.Join(repoPath, ".gitignore")
-	if _, err := os.Stat(gitignorePath); os.IsNotExist(err) {
-		defaultGitignore := `# Node / Dependencies
-node_modules/
-dist/
-build/
-.env
-.env.local
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs & Temp
-*.log
-tmp/
-`
-		_ = os.WriteFile(gitignorePath, []byte(defaultGitignore), 0644)
-	}
-
-	// Detect current branch
-	branchName := "main"
-	branchCmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
-	branchCmd.Dir = repoPath
-	if out, err := branchCmd.Output(); err == nil {
-		b := strings.TrimSpace(string(out))
-		if b != "" && b != "HEAD" {
-			branchName = b
-		}
-	}
-
-	msg := "Dépôt Git initialisé avec succès (branche main)"
-	if isAlreadyGit {
-		msg = "Dépôt Git existant validé et synchronisé"
-	}
-
-	return &models.ProjectGitInitResult{
-		RepoPath:    repoPath,
-		IsGitRepo:   true,
-		Branch:      branchName,
-		Message:     msg,
-		Initialized: true,
-	}, nil
+func (d *DB) InitProjectGit(projectID string) (*models.ProjectGitInitResult, error) {
+	var result models.ProjectGitInitResult
+	err := d.callAgent(agentprotocol.Operation{ProjectID: projectID, Action: "init_git"}, &result)
+	return &result, err
 }
 
 func (d *DB) DetectTrackerStatuses(projectID, tracker, linearTeam, githubRepo string) ([]models.DetectedStatus, error) {
@@ -6716,8 +5428,6 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, linearTeam, githubRepo st
 
 	var results []models.DetectedStatus
 	seen := make(map[string]bool)
-	jiraProject := ""
-	jiraRepoPath := ""
 
 	addStatus := func(name, sType, color, source string) {
 		trimmed := strings.TrimSpace(name)
@@ -6750,57 +5460,16 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, linearTeam, githubRepo st
 			if githubRepo == "" {
 				githubRepo = proj.GithubRepo
 			}
-			if jiraProject == "" {
-				jiraProject = jiraProjectKeyFor(proj)
-			}
-			if jiraRepoPath == "" {
-				jiraRepoPath = proj.RepoPath
-			}
 		}
 	}
 
-	// 2. Try Linear API if tracker is linear (or team provided)
 	if tracker == "linear" || linearTeam != "" {
-		linearPath, err := exec.LookPath("linear")
+		states, err := d.trackers.LinearStates(linearTeam)
 		if err != nil {
-			linearPath = "/opt/homebrew/bin/linear"
+			return nil, err
 		}
-		if _, err := os.Stat(linearPath); err == nil {
-			query := `query { teams { nodes { key name states { nodes { id name color type position } } } } }`
-			ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-			cmd := exec.CommandContext(ctx, linearPath, "api", query)
-			out, err := cmd.Output()
-			cancel()
-			if err == nil && len(out) > 0 {
-				var gqlResp struct {
-					Data struct {
-						Teams struct {
-							Nodes []struct {
-								Key    string `json:"key"`
-								Name   string `json:"name"`
-								States struct {
-									Nodes []struct {
-										ID       string  `json:"id"`
-										Name     string  `json:"name"`
-										Color    string  `json:"color"`
-										Type     string  `json:"type"`
-										Position float64 `json:"position"`
-									} `json:"nodes"`
-								} `json:"states"`
-							} `json:"nodes"`
-						} `json:"teams"`
-					} `json:"data"`
-				}
-				if jErr := json.Unmarshal(out, &gqlResp); jErr == nil {
-					for _, t := range gqlResp.Data.Teams.Nodes {
-						if linearTeam == "" || strings.EqualFold(t.Key, linearTeam) {
-							for _, st := range t.States.Nodes {
-								addStatus(st.Name, st.Type, st.Color, "linear")
-							}
-						}
-					}
-				}
-			}
+		for _, state := range states {
+			addStatus(state.Name, state.Type, state.Color, "linear")
 		}
 	}
 
@@ -6827,49 +5496,8 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, linearTeam, githubRepo st
 		addStatus("closed", "completed", "#8250df", "github")
 	}
 
-	// 4b. If tracker is jira, read the real workflow statuses from acli when it
-	// is reachable, then fall back to the default software-project workflow.
 	if tracker == "jira" {
-		if acliPath, err := runner.FindCliTool("acli"); err == nil && acliPath != "" && jiraProject != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-			cmd := exec.CommandContext(ctx, acliPath, "jira", "workitem", "search",
-				"--jql", fmt.Sprintf("project = %s", jiraProject), "--fields", "status", "--limit", "100", "--output", "json")
-			if jiraRepoPath != "" {
-				cmd.Dir = jiraRepoPath
-			}
-			out, cErr := cmd.Output()
-			cancel()
-			if cErr == nil && len(out) > 0 {
-				var items []struct {
-					Fields struct {
-						Status struct {
-							Name           string `json:"name"`
-							StatusCategory struct {
-								Key string `json:"key"`
-							} `json:"statusCategory"`
-						} `json:"status"`
-					} `json:"fields"`
-				}
-				if jErr := json.Unmarshal(out, &items); jErr == nil {
-					for _, it := range items {
-						sType := "custom"
-						switch it.Fields.Status.StatusCategory.Key {
-						case "new":
-							sType = "unstarted"
-						case "indeterminate":
-							sType = "started"
-						case "done":
-							sType = "completed"
-						}
-						addStatus(it.Fields.Status.Name, sType, "", "jira")
-					}
-				}
-			}
-		}
-		addStatus("To Do", "unstarted", "#42526e", "jira")
-		addStatus("In Progress", "started", "#0052cc", "jira")
-		addStatus("In Review", "started", "#5243aa", "jira")
-		addStatus("Done", "completed", "#00875a", "jira")
+		return nil, fmt.Errorf("Jira synchronization is not supported by this version")
 	}
 
 	// 5. Standard fallback presets if list is short or empty

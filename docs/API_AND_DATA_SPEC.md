@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS projects (
     git_remote_url TEXT DEFAULT '',
     linear_team TEXT DEFAULT 'TASK',
     github_repo TEXT DEFAULT '',
-    jira_project TEXT DEFAULT '',      -- Jira project key passed to acli --project
+    jira_project TEXT DEFAULT '',      -- Legacy Jira project identifier
     issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'linear' | 'github' | 'jira' | 'local'
     tracker_url TEXT DEFAULT '',       -- Linear project URL, or the Jira base URL
     project_type TEXT NOT NULL DEFAULT 'standard',  -- 'standard' | 'personal' (personal boards only serve the daily digest)
@@ -134,11 +134,8 @@ CREATE TABLE IF NOT EXISTS settings (
 ### 2.1.1 Teams API
 
 A work item may carry a team, and it is never mandatory: a project can hold
-tickets with no team at all. On Jira the team is the `atlassian-team` custom
-field, which carries both a label and an id; only the id gives access to the
-people, through `/gateway/api/v4/teams/{teamId}/members?siteId={cloudId}`, whose
-account ids are then resolved by `/rest/api/3/user/bulk`. Every Jira sync stores
-the teams it met on the work items and refreshes their members.
+tickets with no team at all. Existing team/member metadata remains readable.
+Jira team refresh is unsupported in this baseline.
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
@@ -189,7 +186,7 @@ and the tracker's own refusal when it fails.
 | `POST` | `/api/sync/all` | — | Queues a sync of every configured project across all trackers. |
 | `POST` | `/api/sync/linear` | `{team, projectId}` | Queues a Linear team sync. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
-| `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Queues a Jira project sync via `acli`. |
+| `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Reports unsupported Jira synchronization. |
 
 All four return `{message, activity}`; the work runs on the background job queue
 and its progress is readable through the Activities API.
@@ -198,7 +195,7 @@ and its progress is readable through the Activities API.
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/spec-framework/status` | Query params: `projectId` or `repoPath`, optional `framework`. Reports CLI availability and initialization state. |
+| `GET` | `/api/spec-framework/status` | Query params: `projectId` or `repoPath`, optional `framework`. Reports CLI availability and initialization state from the connected local agent. |
 | `POST` | `/api/spec-framework/install` | Installs and initializes GitHub Spec Kit or OpenSpec in a working directory. |
 
 `GET /api/spec-framework/status` response:
@@ -262,26 +259,18 @@ initializer over an already-initialized directory instead of returning early.
 
 ---
 
-## 3. WebSocket Terminal Protocol (`/ws/terminal`)
+## 3. Agent operations and consoles
 
-### Connection Handshake
-- **URL**: `ws://<host>:<port>/ws/terminal?taskId=<taskId>`
-- Automatically resolves the worktree directory (`.tasks/worktrees/<taskKey>`) under the repository returned by `ResolveTaskRepoPath`: the ticket's own `repo_path` first, then the project's, then the global setting.
-- Starts login shell `/bin/zsh -l` with PTY attached.
+The server's former `/ws/terminal` and terminal session endpoints return HTTP 410.
+They cannot start or access a server shell. Agent-owned PTYs and console history
+are available through the desktop companion's authenticated loopback connection.
 
-### Frame Formats
+Git, worktree, editor, CLI status and SDD requests keep their HTTP API surface but
+execute through the matching agent. Use `projectId` and optional full `taskId`;
+raw server paths are not interpreted as workstation paths. Legacy repository
+path parameters only resolve an exact configured project identity. A missing
+agent, disconnect or unconfirmed operation returns a structured `error` and never
+falls back to execution on the server.
 
-#### Client to Server
-1. **Raw Keystrokes**: Standard text or binary bytes representing user keystrokes (e.g. `ls -la\n`, `agy\n`, `\x03` for Ctrl+C).
-2. **Control Message (Window Resize)**:
-   ```json
-   {
-     "type": "resize",
-     "cols": 120,
-     "rows": 36
-   }
-   ```
-
-#### Server to Client
-- Raw ANSI streaming output chunk (text or binary).
-- Output is simultaneously appended to the 64KB circular replay buffer.
+For transport addresses, authentication, operation envelopes, cancellation and
+MCP tool ownership, see [the version 1 contract](contracts/server-agent-v1.md).

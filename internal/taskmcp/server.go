@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 )
 
@@ -46,9 +47,39 @@ type finishRunInput struct {
 	Note    string `json:"note"`
 }
 
+// skillReference names a skill without carrying its body. A launched session
+// already holds the skill it is running; it opens the file when it needs another.
+type skillReference struct {
+	ID                     string `json:"id"`
+	Directory              string `json:"directory"`
+	Command                string `json:"command,omitempty"`
+	RequiresReconciliation bool   `json:"requiresReconciliation,omitempty"`
+}
+
+// sessionContext projects the execution contract down to what a skill session
+// consumes. Inlining every skill and command body made this payload exceed what
+// a session can read, which left the documented interface unusable.
+func sessionContext(config *agentconfig.Config) map[string]any {
+	if config == nil {
+		return nil
+	}
+	skills := make([]skillReference, 0, len(config.Skills))
+	for _, skill := range config.Skills {
+		skills = append(skills, skillReference{ID: skill.ID, Directory: skill.Directory, Command: skill.Command, RequiresReconciliation: skill.RequiresReconciliation})
+	}
+	return map[string]any{
+		"schemaVersion": config.SchemaVersion, "projectId": config.ProjectID, "projectName": config.ProjectName,
+		"description": config.Description, "gitRemoteUrl": config.GitRemoteURL, "issueTracker": config.IssueTracker,
+		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo, "linearTeam": config.LinearTeam,
+		"jiraProject": config.JiraProject, "specFramework": config.SpecFramework, "prCreationStage": config.PRCreationStage,
+		"useWorktrees": config.UseWorktrees, "parallelism": config.Parallelism, "aiProvider": config.AIProvider,
+		"skills": skills, "skillDirectories": []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"},
+	}
+}
+
 func NewServer(database *db.DB) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, nil)
-	mcp.AddTool(s, &mcp.Tool{Name: "get_task", Description: "Read task details, workflow labels, branch metadata and live comments."},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_task", Description: "Read task details, workflow labels, branch metadata and live comments. Comments come from the tracker; when they cannot be retrieved the task is still returned and the failure is reported in commentsError."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in taskInput) (*mcp.CallToolResult, any, error) {
 			if strings.TrimSpace(in.TaskKey) == "" {
 				return nil, nil, fmt.Errorf("taskKey is required")
@@ -60,11 +91,17 @@ func NewServer(database *db.DB) *mcp.Server {
 			if task == nil {
 				return nil, nil, fmt.Errorf("task not found: %s", in.TaskKey)
 			}
+			// The task is already read. A tracker that cannot be reached costs the
+			// session its comments, not its ticket, so the failure is reported as a
+			// field and never as an empty discussion.
+			result := map[string]any{"task": task}
 			comments, err := database.GetTaskComments(task.ID)
 			if err != nil {
-				return nil, nil, err
+				result["commentsError"] = err.Error()
+			} else {
+				result["comments"] = comments
 			}
-			return nil, map[string]any{"task": task, "comments": comments}, nil
+			return nil, result, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "transition_stage", Description: "Record a verified standalone workflow stage, optionally attach the task pull request or merge request URL using prUrl, and queue tracker synchronization. Managed runs must use their result contract.", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"taskKey", "stage", "note"},
@@ -96,10 +133,13 @@ func NewServer(database *db.DB) *mcp.Server {
 			tasks, err := database.GetTasks("", in.Status, "", "", in.ProjectID, in.Sprint, "", "", "", nil, nil, false)
 			return nil, map[string]any{"tasks": tasks}, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "get_project_context", Description: "Read project description, repository identity, execution settings, specification framework and skill instructions. Supply projectId or taskKey; read repository AGENTS.md locally for additional conventions."},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_project_context", Description: "Read project description, repository identity, execution settings, specification framework, pull-request creation stage and skill references. Supply projectId or taskKey. Skill bodies are not inlined: open <skillDirectory>/<skill directory>/SKILL.md in the checkout, and read repository AGENTS.md for additional conventions."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in contextInput) (*mcp.CallToolResult, any, error) {
 			config, err := database.AgentConfig(in.ProjectID, in.TaskKey)
-			return nil, config, err
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, sessionContext(config), nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list_projects", Description: "Discover projects and their primary keys, names and Git remote URLs. Use a project ID with get_project_context or list_tasks."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in struct{}) (*mcp.CallToolResult, any, error) {
