@@ -12,7 +12,7 @@
 `AgentConfig` keeps its full shape: `internal/agentconfig` writes `.taskflow/config.json` and the `AGENTS.md` block from it, and the agent ships skill bodies to disk from the same structure. Only the MCP tool projects it down. Rejected: making the payload opt-in through a parameter — the default is what sessions actually call, and a default that overflows the budget is the defect.
 
 ### Keep skill references resolvable
-Each entry keeps `id`, `directory`, `command` and the paths the agent wrote, so a session needing a skill body opens the file rather than receiving ten of them inline.
+Each entry keeps `id`, `directory` and `command`, and the payload carries the directories the agent writes skill files into. The server is headless and does not know the checkout, so it names the location convention rather than absolute paths; a session needing a skill body opens the file rather than receiving ten of them inline.
 
 ## Risks
 A consumer reading `skills[].content` from `get_project_context` loses it. The only known consumers are skill sessions, which receive their own skill text in the invocation; the file writer uses `AgentConfig` directly, not the MCP tool.

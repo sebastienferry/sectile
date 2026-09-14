@@ -21,11 +21,11 @@ The task-management interface SHALL return a task that is known locally even whe
 - **THEN** the read fails with a not-found error
 
 ### Requirement: Project context stays consumable by a session
-The project-context interface SHALL return project identity, execution settings, specification framework, pull-request creation stage and per-skill references without inlining skill or command bodies.
+The project-context interface SHALL return project identity, execution settings, specification framework, pull-request creation stage and per-skill references without inlining skill or command bodies. A reference SHALL let a session locate the skill file on disk.
 
 #### Scenario: Context read by a launched session
 - **GIVEN** a project configured with several generated skills
 - **WHEN** a launched skill session reads the project context
 - **THEN** the payload carries the project id, repository identity, tracker, specification framework and pull-request creation stage
-- **AND** each skill is represented by its id, directory, command name and resolved file paths
+- **AND** each skill is represented by its id, directory and command name, alongside the directories in which skill files are written
 - **AND** no skill body or command body is included in the payload

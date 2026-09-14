@@ -5,7 +5,7 @@ A skill session launched by the local agent is told to read its ticket with `get
 
 ## What Changes
 - `get_task` returns the task whenever it is known locally, with its comments when they can be read and an explicit retrieval error otherwise. It fails only when the task itself does not exist.
-- `get_project_context` returns a bounded payload: project identity, execution settings, specification framework, pull-request creation stage, and per-skill references (id, directory, command name, resolved file paths) instead of inlined skill and command bodies.
+- `get_project_context` returns a bounded payload: project identity, execution settings, specification framework, pull-request creation stage, and per-skill references (id, directory, command name) plus the skill-file directories, instead of inlined skill and command bodies.
 - Both behaviours are covered by tests.
 
 ## Impact
