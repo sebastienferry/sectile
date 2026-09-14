@@ -194,6 +194,20 @@ Native clients can call `list_projects({})` to discover the same
 secret-free project records as the HTTP discovery endpoint, then pass an ID to
 `get_project_context` or `list_tasks`.
 
+`get_task` returns the task whenever it is known to the server. Its comments come
+from the tracker, so a tracker that cannot be reached costs the caller the
+discussion and not the ticket: the response then carries `commentsError` with the
+reason and no `comments` field, so an unreadable discussion is never mistaken for
+an empty one. Only an unknown task key is an error.
+
+`get_project_context` returns project identity, execution settings, specification
+framework, pull-request creation stage and skill references (`id`, `directory`,
+`command`), plus `skillDirectories`, the directories the agent writes skill files
+into. Skill and command bodies are not inlined: a caller that needs one opens
+`<skill directory>/SKILL.md` under one of those directories in its checkout. The
+`.taskflow/config.json` and `AGENTS.md` writers keep using the full agent
+configuration, which is unchanged.
+
 `transition_stage` accepts `prUrl` for either a pull request or a merge
 request. The server persists this link on the task alongside the stage update and
 includes it in the tracker synchronization job. Omitting the argument preserves
