@@ -2,16 +2,9 @@ import React, { useRef } from 'react'
 import {
   Search,
   Plus,
-  Columns,
-  ListFilter,
-  Activity,
   X,
-  RefreshCw,
   Settings,
   Target,
-  SlidersHorizontal,
-  Map as MapIcon,
-  Clock,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { Status, Priority } from '../types'
@@ -22,11 +15,8 @@ export const Header: React.FC = () => {
     projects,
     setIsProjectModalOpen,
     setEditingProject,
-    activeJobCount,
     searchQuery,
     setSearchQuery,
-    activeView,
-    setActiveView,
     statusFilter,
     setStatusFilter,
     priorityFilter,
@@ -44,7 +34,6 @@ export const Header: React.FC = () => {
     assigneeFilter,
     setAssigneeFilter,
     setIsQuickAddOpen,
-    isSyncing,
     t,
   } = useApp()
 
@@ -174,103 +163,8 @@ export const Header: React.FC = () => {
         </div>
       )}
 
-      {/* Right Controls: View Switcher (Icons), Git Branch, Code, Quick Add (+) */}
+      {/* Right: Quick Add */}
       <div className="flex items-center gap-2 shrink-0">
-        {/* View Mode Switcher (Icon-only) */}
-        <div className="flex items-center bg-[var(--bg-primary)] p-0.5 rounded-lg border border-[var(--border-color)] shadow-2xs">
-          <button
-            onClick={() => setActiveView('triage')}
-            className={`p-1.5 rounded-md transition-all cursor-pointer ${
-              activeView === 'triage'
-                ? 'bg-[var(--bg-secondary)] text-violet-400 shadow-xs font-bold border border-[var(--border-color)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Triage"
-          >
-            <SlidersHorizontal size={15} />
-          </button>
-          <button
-            onClick={() => setActiveView('list')}
-            className={`p-1.5 rounded-md transition-all cursor-pointer ${
-              activeView === 'list'
-                ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-xs font-bold border border-[var(--border-color)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Backlog"
-          >
-            <ListFilter size={15} />
-          </button>
-          <button
-            onClick={() => setActiveView('board')}
-            className={`p-1.5 rounded-md transition-all cursor-pointer ${
-              activeView === 'board'
-                ? 'bg-[var(--bg-secondary)] text-[var(--text-primary)] shadow-xs font-bold border border-[var(--border-color)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Board"
-          >
-            <Columns size={15} />
-          </button>
-          <button
-            onClick={() => setActiveView('roadmap')}
-            className={`p-1.5 rounded-md transition-all cursor-pointer ${
-              activeView === 'roadmap'
-                ? 'bg-[var(--bg-secondary)] text-amber-400 shadow-xs font-bold border border-[var(--border-color)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Roadmap"
-          >
-            <MapIcon size={15} />
-          </button>
-          <button
-            onClick={() => setActiveView('timeline')}
-            className={`p-1.5 rounded-md transition-all cursor-pointer ${
-              activeView === 'timeline'
-                ? 'bg-[var(--bg-secondary)] text-blue-400 shadow-xs font-bold border border-[var(--border-color)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Timeline Sprints"
-          >
-            <Clock size={15} />
-          </button>
-          <button
-            onClick={() => setActiveView('activities')}
-            className={`p-1.5 rounded-md transition-all cursor-pointer relative ${
-              activeView === 'activities'
-                ? 'bg-[var(--bg-secondary)] text-cyan-300 shadow-xs font-bold border border-[var(--border-color)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-            title={t.header.activitiesView}
-          >
-            <Activity size={15} className={activeJobCount > 0 ? 'text-cyan-400 animate-pulse' : ''} />
-            {activeJobCount > 0 && (
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
-            )}
-          </button>
-          <button
-            onClick={() => setActiveView('sync')}
-            className={`p-1.5 rounded-md transition-all cursor-pointer ${
-              activeView === 'sync'
-                ? 'bg-[var(--bg-secondary)] text-indigo-300 shadow-xs font-bold border border-[var(--border-color)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-            title="Synchro"
-          >
-            <RefreshCw size={14} className={isSyncing ? 'animate-spin text-indigo-400' : ''} />
-          </button>
-        </div>
-
-        {/* Branche Git active. Masquée sur un projet multi-dépôts : elle y
-            désignerait la branche d'un dépôt parmi d'autres, et le sélecteur
-            ferait changer de branche dans ce dépôt là seulement. */}
-
-
-        {/* Open Project in Editor Button */}
-
-
-        {/* Toggle the docked workspace CLI */}
-
-
         {/* Quick Add Button (+) */}
         <button
           onClick={() => setIsQuickAddOpen(true)}
