@@ -50,6 +50,24 @@ terminal.onData(data=>{if(!changes.active&&!logsOpen)api.input(data)})
 function resize(){if(opened&&!changes.active&&!logsOpen){fit.fit();api.resize(terminal.cols,terminal.rows)}}
 window.addEventListener('resize',resize)
 function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
+function connectionStatus(status){
+ const container=document.querySelector('#connection')
+ if(!status.connected){container.textContent=status.text||'Local agent ready · Server disconnected';return}
+ let link=container.querySelector('a')
+ if(!link){
+  link=document.createElement('a')
+  link.onclick=event=>{event.preventDefault();api.openBoard().catch(error)}
+  container.replaceChildren(document.createTextNode('Connected to '),link)
+ }
+ link.textContent=status.server
+ link.title='Open board in default browser'
+ try{
+  const url=new URL(status.server)
+  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
+  url.searchParams.delete('task');url.hash=''
+  link.href=url.href
+ }catch{container.textContent='Connected to '+status.server}
+}
 function agentUnavailable(){
  agentConnected=false
  changes.disconnect()
@@ -61,7 +79,7 @@ function agentUnavailable(){
  document.querySelector('#agent-offline').hidden=false
  document.querySelector('#setup').hidden=logsOpen
  document.querySelector('#workspace').hidden=!logsOpen
- document.querySelector('#connection').textContent='Local agent stopped'
+ connectionStatus({text:'Local agent stopped'})
  projectsLoaded=false
  api.detach().catch(()=>{})
 }
@@ -71,7 +89,7 @@ function ready(){
  if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false})}
  document.querySelector('#start-agent').disabled=true;document.querySelector('#start button').disabled=true;document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
- document.querySelector('#connection').textContent='Local agent connected'
+ if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
 }
 function select(run,background=false){
@@ -278,7 +296,7 @@ async function refresh(){
   const next=await api.runs(),status=await api.status()
   if(version!==projectStateVersion)return
   ready();refreshPRs(next)
-  document.querySelector('#connection').textContent=status.connected?'Connected to '+status.server:'Local agent ready · Server disconnected'
+  connectionStatus(status)
   const previous=runs.find(run=>run.id===selected)
   const serialized=JSON.stringify(next),changed=serialized!==last
   runs=next;last=serialized
