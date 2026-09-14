@@ -45,7 +45,9 @@ Avoid calling public locking methods while holding that lock.
 
 Tracker jobs run on the server even when no agent is connected. GitHub repository
 identity and Linear team identity are explicit configuration. Native HTTP clients
-paginate lists and reject redirects or pagination to another origin. Missing
+paginate lists and follow redirects within the same origin while preserving the
+request method. Redirect chains are bounded; redirects and pagination to another
+origin are rejected. Missing
 credentials, non-success HTTP responses and GraphQL errors propagate to the
 activity instead of marking an unconfirmed write successful. Jira metadata remains
 readable; Jira synchronization is unsupported in this baseline.

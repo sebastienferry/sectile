@@ -66,9 +66,15 @@ func (c *Client) request(ctx context.Context, method, endpoint, token string, pa
 	if client == nil {
 		client = &http.Client{Timeout: 60 * time.Second}
 	}
-	// Refuse redirects even with injected clients, so credentials stay at the configured origin.
+	// Follow repository moves without forwarding credentials to another origin
+	// or allowing a redirect to turn a mutation into a read.
 	safe := *client
-	safe.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	safe.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		if len(via) >= 10 || next.URL.Scheme != req.URL.Scheme || next.URL.Host != req.URL.Host || next.URL.User != nil || next.Method != req.Method {
+			return http.ErrUseLastResponse
+		}
+		return nil
+	}
 	res, err := safe.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("tracker request failed: %w", err)
