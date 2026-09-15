@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 )
 
@@ -1903,7 +1904,7 @@ func escapeForDoubleQuotes(s string) string {
 func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider string, cmdTemplate string, finalPrompt string) (string, []string, error) {
 	var steps []string
 
-	if cmdTemplate != "" && (provider == "custom" || strings.Contains(cmdTemplate, "{prompt}")) {
+	if agentconfig.UsesCommandTemplate(provider, cmdTemplate) {
 		cmdToRun := strings.ReplaceAll(cmdTemplate, "{prompt}", escapeForDoubleQuotes(finalPrompt))
 		steps = append(steps, fmt.Sprintf("Exécution de la commande personnalisée : %s dans %s", cmdToRun, filepath.Base(repoDir)))
 		out, err := r.runCommand(ctx, repoDir, "sh", "-c", cmdToRun)
@@ -2634,7 +2635,7 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 	// sans apostrophe, et le prompt n'est jamais relu par le shell.
 	promptRef := fmt.Sprintf(`"$(cat '%s')"`, promptFile)
 
-	if inv.Template != "" && (inv.Provider == "custom" || strings.Contains(inv.Template, "{prompt}")) {
+	if agentconfig.UsesCommandTemplate(inv.Provider, inv.Template) {
 		return strings.ReplaceAll(inv.Template, "{prompt}", "$(cat '"+promptFile+"')"), cleanup, nil
 	}
 

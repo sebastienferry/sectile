@@ -315,7 +315,7 @@ Each result shows its status and a skill selector; Custom instructions sends a f
 
 The Local project tab includes the effective **CLI command**. Edit it to save a
 per-project override under `commands` in user settings; the reset icon restores
-the server template (or provider default when empty). Save to apply to subsequent
+the server template (or provider default when empty or lacking `{prompt}`). Save to apply to subsequent
 executions. Command templates execute on the local agent and support these placeholders:
 
 | Placeholder | Value |
