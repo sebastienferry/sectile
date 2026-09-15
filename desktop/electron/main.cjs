@@ -4,8 +4,13 @@ const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
 const {exchangePairingCode}=require('./pairing.cjs')
+const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
+// The app kept its data under the previous package name; carry it over once.
+if(!process.env.SECTILE_DESKTOP_DATA_DIR){
+ carryOverDataDirectory(path.join(app.getPath('appData'),'taskflow-desktop'),app.getPath('userData'))
+}
 let window,connection,socket,starting=false
 const defaultInfoPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
  ? path.join(app.getPath('userData'),'agent-connection.json')
