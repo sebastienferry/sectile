@@ -283,12 +283,21 @@ type pendingAgentLaunch struct {
 // failed: only the agent knows how it ends.
 var ErrLaunchUnconfirmed = errors.New("launch not confirmed")
 
+// ErrRunNotOwned reports an agent that answered it does not have the run it
+// was asked to cancel. Unlike every other failure here it is good news: the
+// agent is reachable and states it is running nothing, so the recorded run is
+// an orphan the server can close.
+var ErrRunNotOwned = errors.New("agent does not own the run")
+
+// ErrNoAgentConnected reports that nobody was there to ask.
+var ErrNoAgentConnected = errors.New("no local agent connected")
+
 // DispatchAndWait confirms a terminal launch before the HTTP caller reports
 // success. Responses are bound to the connection that received the command.
 func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID, taskID string, payload any) error {
 	ac := d.Lookup(userID, projectID)
 	if ac == nil {
-		return fmt.Errorf("no local agent connected")
+		return ErrNoAgentConnected
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -308,6 +317,9 @@ func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID
 	select {
 	case result := <-pending.result:
 		if result.Status == "failed" {
+			if strings.HasPrefix(result.Summary, agentprotocol.RunNotOwned) {
+				return fmt.Errorf("%w: %s", ErrRunNotOwned, result.Summary)
+			}
 			return fmt.Errorf("local terminal launch failed: %s", result.Summary)
 		}
 		return nil

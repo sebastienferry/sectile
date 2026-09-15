@@ -101,7 +101,9 @@ func (d *agentDaemon) cancelRun(ctx context.Context, conn *websocket.Conn, msg a
 	run := d.runs[payload.RunID]
 	if run == nil || run.taskID != msg.TaskID {
 		d.runsMu.Unlock()
-		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "This agent does not own the execution")
+		// The marker lets the server close a run this agent cannot own, which
+		// happens whenever the agent restarted while a run was recorded.
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", agentprotocol.RunNotOwned+": this agent does not own the execution")
 		return
 	}
 	run.canceled = true

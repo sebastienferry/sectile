@@ -13,6 +13,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const { activities, fetchActivities, addToast } = useApp()
   const [canceling, setCanceling] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [unreachable, setUnreachable] = useState(false)
 
   const indicator = deriveRunIndicator(activities, taskId)
   if (!indicator) return null
@@ -22,12 +23,12 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const skills = runs.map(run => run.skillName).join(', ')
   const stateLabel = presentation.label + (count > 1 ? ` (${count})` : '') + (skills ? ` — ${skills}` : '')
 
-  async function cancelRuns(runIds: string[]) {
+  async function cancelRuns(runIds: string[], force = false) {
     setCanceling(true)
     try {
       for (const runId of runIds) {
         const response = await fetch('/api/tasks/' + encodeURIComponent(taskId) + '/cancel-run', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId }),
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ runId, force }),
         })
         if (!response.ok) {
           const error = await response.json()
@@ -35,7 +36,11 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
         }
       }
       await fetchActivities()
+      setUnreachable(false)
     } catch (error) {
+      // An unreachable agent leaves the run open for good unless it can be
+      // closed on purpose, so offer that rather than repeating the failure.
+      if (!force) setUnreachable(true)
       addToast({ type: 'error', title: 'Cancellation failed', description: error instanceof Error ? error.message : String(error) })
     } finally { setCanceling(false) }
   }
@@ -55,6 +60,17 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   }
 
   const actionLabel = canceling ? 'Stopping ' + skills : 'Stop ' + skills
+  if (unreachable) {
+    return (
+      <button type="button" disabled={canceling}
+        title="The agent could not be reached. Close this run without stopping any local process."
+        aria-label={'Force close ' + skills}
+        onClick={event => { event.stopPropagation(); void cancelRuns(cancelableRunIds, true) }}
+        className={shape + ' hover:brightness-125 disabled:opacity-50'}>
+        <CircleSlash size={12} aria-hidden="true" />
+      </button>
+    )
+  }
   return (
     <button type="button" disabled={canceling} title={showStop || canceling ? actionLabel : stateLabel} aria-label={actionLabel}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
