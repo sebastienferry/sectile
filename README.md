@@ -66,6 +66,8 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 
 ---
 
+In Sectile Desktop, click the connected server address in the header (or focus it and press Enter) to open the board in your default browser. The shortcut is available while connected.
+
 ## Task access from workflow skills
 
 Workflow skills use the local TaskFlow agent's exposed task-management interface first. When that interface is unavailable, `http://localhost:8090` is a temporary fallback and the integration failure must be recorded. Resolve the project and full task ID before mutations: a ticket key alone can match another repository. Managed runs retain ownership of result validation and stage transitions. See [the workflow access policy](docs/CAPABILITIES.md#task-access-from-agent-sessions).
@@ -392,7 +394,9 @@ Use **Open agent console** on a configured project to start Codex or Claude in a
 local TTY without a task or initial prompt. See [Free agent console](desktop/README.md#free-agent-console).
 
 The desktop **Agent logs** toolbar action shows recent local-agent diagnostics even
-when disconnected, with a bounded snapshot and Refresh. See [desktop usage](desktop/README.md#use).
+when disconnected, with a bounded snapshot and Refresh. Logs fill the workspace
+beside the project sidebar and omit terminal control sequences for readability.
+See [desktop usage](desktop/README.md#use).
 
 Use TaskFlow Desktop to follow native Codex/Claude terminals locally:
 

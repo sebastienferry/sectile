@@ -10,7 +10,8 @@ The frontend is a React 19 Single Page Application styled with modern Tailwind C
 
 ```
 App.tsx
-├── Navbar (Logo, Project Switcher, View Mode Toggle, Quick Add, Activity Center, Settings)
+├── Sidebar (Project Selection, View Navigation, Activity and Sync Indicators)
+├── Header (Project Settings, Global Search, Active Filter Chips, Quick Add)
 ├── ProjectFilterBar (Horizontal chip-based project selector)
 ├── Main View Area (Conditional on activeView: 'board' | 'list')
 │   ├── BoardView.tsx (Kanban Board with Drag & Drop)

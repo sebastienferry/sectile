@@ -19,7 +19,13 @@ function validConnection(value){
 async function api(route,method='GET',body){
  if(!connection)throw Error('Connect to the local agent first')
  const response=await fetch(connection.url+route,{method,headers:{Authorization:'Bearer '+connection.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:AbortSignal.timeout(route==="/desktop/create-task"?120000:route.startsWith("/desktop/tasks")&&method==="POST"?60000:route.startsWith("/desktop/project?")&&method==="POST"?420000:15000),redirect:'error'})
- if(!response.ok)throw Error(await response.text())
+ if(!response.ok){
+  const detail=await response.text().catch(()=>'')
+  // Keep the raw body as the message so callers can parse structured errors; name the call when it is empty.
+  const failure=Error(detail||method+' '+route+' failed with HTTP '+response.status)
+  Object.assign(failure,{status:response.status,route,method,body:detail})
+  throw failure
+ }
  return response.status===204?null:response.json()
 }
 async function connectAgent(){
@@ -143,6 +149,15 @@ ipcMain.handle('choose-repository',async()=>{
 ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId='+encodeURIComponent(id)+'&q='+encodeURIComponent(q||'')+'&launchable='+Boolean(launchable)))
 ipcMain.handle('launch-console',(_,projectId,provider)=>api('/desktop/consoles','POST',{projectId,provider}))
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',{taskID,skillID,prompt}))
+ipcMain.handle('open-board',async()=>{
+ const status=await api('/desktop/status')
+ if(!status.connected)throw Error('Server disconnected')
+ const url=new URL(status.server)
+ if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
+ url.searchParams.delete('task')
+ url.hash=''
+ await shell.openExternal(url.href)
+})
 ipcMain.handle('open-task',async(_,id)=>{
  if(typeof id!=='string'||!id.trim())throw Error('Invalid task ID')
  const status=await api('/desktop/status')

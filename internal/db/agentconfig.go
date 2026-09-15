@@ -57,6 +57,8 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	if c.AICommandTemplate == "" {
 		c.AICommandTemplate = s.AICommandTemplate
 	}
+	// Legacy rows store a bare CLI name here; the runner never used it, so the agent must not see it.
+	c.AICommandTemplate = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplate)
 	if c.ExternalTerminalCommand == "" {
 		c.ExternalTerminalCommand = s.ExternalTerminalCommand
 	}

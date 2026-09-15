@@ -52,7 +52,12 @@ saves local Git repository mappings.
 
 Closing the window or quitting Electron keeps the detached agent and tasks alive.
 Reopening restores the connection. Open **Agent logs** in the top toolbar to read
-agent diagnostics, including while disconnected or after a failed start. The viewer
+agent diagnostics, including while disconnected or after a failed start. Logs fill
+the content area beside the usable project sidebar, retaining its width and collapse
+preference. **Close logs** or Escape returns to the execution or offline setup;
+selecting an execution in the sidebar returns to its execution view. Terminal colors, cursor
+commands and title sequences are removed from the display while readable Unicode
+and line breaks are preserved. The stored log is unchanged. The viewer
 shows the desktop-owned `agent.log` path and the latest 256 KiB, with a notice when
 earlier output is omitted. Use **Refresh** for a new snapshot; missing, empty, and
 unreadable files have explicit messages. The view stays local and does not alter
@@ -310,7 +315,7 @@ Each result shows its status and a skill selector; Custom instructions sends a f
 
 The Local project tab includes the effective **CLI command**. Edit it to save a
 per-project override under `commands` in user settings; the reset icon restores
-the server template (or provider default when empty). Save to apply to subsequent
+the server template (or provider default when empty or lacking `{prompt}`). Save to apply to subsequent
 executions. Command templates execute on the local agent and support these placeholders:
 
 | Placeholder | Value |

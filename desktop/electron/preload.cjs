@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  serverTasks:(id,q,launchable=false)=>ipcRenderer.invoke('server-tasks',id,q,launchable),
  launchConsole:(projectId,provider)=>ipcRenderer.invoke('launch-console',projectId,provider),
  launchServerTask:(id,taskID,skillID,prompt)=>ipcRenderer.invoke('launch-server-task',id,taskID,skillID,prompt),
+ openBoard:()=>ipcRenderer.invoke('open-board'),
  openTask:id=>ipcRenderer.invoke('open-task',id),
  openPR:url=>ipcRenderer.invoke('open-pr',url),
  createTask:input=>ipcRenderer.invoke('create-task',input),
