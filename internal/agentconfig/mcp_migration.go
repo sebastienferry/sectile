@@ -217,24 +217,15 @@ func legacyMCPReference(value any) bool {
 
 // Policies in separate files cannot be rewritten atomically with registration.
 // Detect known provider settings containing old references and request manual
-// reconciliation. Their bytes and all credentials stay untouched.
+// reconciliation. Their bytes and all credentials stay untouched. Providers whose
+// policy lives in the registration file itself are covered by the migration.
 func checkExternalMCPPolicies(root, provider, target string) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
 	var paths []string
 	switch provider {
 	case "claude":
-		paths = []string{filepath.Join(root, ".claude/settings.json"), filepath.Join(root, ".claude/settings.local.json"), filepath.Join(home, ".claude/settings.json")}
-	case "codex":
-		paths = []string{filepath.Join(home, ".codex/config.toml")}
-	case "gemini":
-		paths = []string{filepath.Join(home, ".gemini/settings.json")}
+		paths = []string{filepath.Join(root, ".claude/settings.json"), filepath.Join(root, ".claude/settings.local.json")}
 	case "cursor":
-		paths = []string{filepath.Join(home, ".cursor/mcp.json"), filepath.Join(root, ".cursor/permissions.json"), filepath.Join(home, ".cursor/permissions.json")}
-	case "vibe":
-		paths = []string{filepath.Join(home, ".vibe/config.toml")}
+		paths = []string{filepath.Join(root, ".cursor/permissions.json")}
 	}
 	for _, path := range paths {
 		if filepath.Clean(path) == filepath.Clean(target) {

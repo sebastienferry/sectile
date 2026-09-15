@@ -55,10 +55,13 @@ the explicit `open_terminal` action requires an external window. Legacy
 
 ## Skill ownership and recovery
 
-The incoming skill list declares managed paths under `.agents/skills`,
-`.agy/skills`, `.claude/skills`, `.gemini/skills`, `.skills` and `.claude/commands`.
-All IDs and destinations are validated before any installation. Duplicate
-paths, path traversal and symlink escapes are rejected.
+The incoming skill list is installed in the user configuration of each agent the
+project sets up: `~/.claude/skills` and `~/.claude/commands`, `~/.codex/skills`,
+`~/.agy/skills`. Providers without a skill convention receive the MCP registration
+alone. `setupProviders` lists the additional agents; the provider that runs the
+task is always included. All IDs and destinations are validated before any
+installation. Duplicate paths, path traversal and symlink escapes are rejected.
+The checkout receives no managed file.
 
 Incoming managed content is authoritative at these paths. If an existing file
 differs from the incoming content and from its last installed hash, save it at

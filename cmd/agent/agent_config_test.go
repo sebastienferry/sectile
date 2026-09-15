@@ -210,6 +210,7 @@ func TestMCPStdioBridge(t *testing.T) {
 func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
 	for _, args := range [][]string{{"init"}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial"}} {
 		if _, err := gitLocal(ctx, root, args...); err != nil {
 			t.Fatal(err)
@@ -243,8 +244,12 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	if task.ID != "task" || task.Key != "TASK-46" || effective.AIProvider != "claude" || effective.ExternalTerminalCommand != "pty" || branch != "feat/task-46" || !strings.HasPrefix(path, root) {
 		t.Fatalf("invalid execution config %+v %s %s", effective, path, branch)
 	}
-	if _, err := os.Stat(filepath.Join(path, ".agents/skills/code-issue/SKILL.md")); err != nil {
+	// The override selects Claude, so the skills land in its user configuration.
+	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".claude/skills/code-issue/SKILL.md")); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(path, ".agents/skills/code-issue/SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("the checkout must receive no managed skill")
 	}
 	for _, template := range []string{`printf '%s\000' {repoPath} {branchName} {issueKey} {prompt}`, `printf '%s\000' "{repoPath}" '{branchName}' {issueKey} {prompt}`} {
 		effective.AICommandTemplate = template
@@ -290,17 +295,18 @@ func TestNativePickupBootstrapAndLaunch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	for _, provider := range []string{"codex", "claude"} {
 		t.Run(provider, func(t *testing.T) {
-			root := t.TempDir()
+			home := t.TempDir()
+			t.Setenv("HOME", home)
 			d := &agentDaemon{agentURL: "http://127.0.0.1:8091"}
 			config := agentconfig.Config{AIProvider: provider, Skills: []agentconfig.Skill{{ID: "pickup-issue", Directory: "pickup-issue", Command: "/pickup-issue"}}}
-			if err := d.bootstrapLocalMCP(root, &config); err != nil {
+			if err := d.bootstrapLocalMCP(&config); err != nil {
 				t.Fatal(err)
 			}
 			file := ".codex/config.toml"
 			if provider == "claude" {
-				file = ".mcp.json"
+				file = ".claude.json"
 			}
-			raw, err := os.ReadFile(filepath.Join(root, file))
+			raw, err := os.ReadFile(filepath.Join(home, file))
 			if err != nil || !strings.Contains(string(raw), d.agentURL) {
 				t.Fatalf("native MCP bootstrap: %s %v", raw, err)
 			}

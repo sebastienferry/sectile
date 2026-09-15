@@ -92,74 +92,149 @@ func hasCreatePR(skills []Skill) bool {
 	return false
 }
 
-// Scaffold installs the fresh server-owned skill set. Changed local copies are
-// backed up before replacement. Unrelated personal skill paths are never touched.
-func Scaffold(root string, config Config) ([]string, error) {
+// ManifestPath locates the record of what is installed for the current user.
+// It is global because the installation itself is: a provider switch retires the
+// previous provider's files through the same record.
+func ManifestPath() (string, error) {
+	settings, err := SettingsPath()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(settings), "agent-manifest.json"), nil
+}
+
+// Scaffold installs the fresh server-owned skill set into the user configuration
+// of every agent the project sets up. Changed local copies are backed up before
+// replacement, and unrelated personal skill paths are never touched. The checkout
+// receives no managed file; it only holds the backups and the copies being retired
+// from the layout that preceded this release.
+func Scaffold(checkout string, config Config) ([]string, error) {
 	if config.SchemaVersion != Version {
 		return nil, fmt.Errorf("unsupported configuration version %d", config.SchemaVersion)
 	}
-	files, err := skillFiles(config.Skills)
+	providers, err := SetupProviders(config)
 	if err != nil {
 		return nil, err
 	}
-	for _, skill := range config.Skills {
-		if skill.ID == "adjust" && !hasCreatePR(config.Skills) {
-			forward := "---\nname: create-pr\ndescription: Compatibility alias for adjust-issue.\n---\nInvoke adjust-issue with the same arguments. Require the existing task-branch PR and the full adjustment quality gate. Never create a PR.\n"
-			for _, prefix := range []string{".agents/skills/", ".claude/skills/", ".gemini/skills/", ".agy/skills/", ".skills/"} {
-				files[prefix+"create-pr/SKILL.md"] = forward
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	files := map[string]string{}
+	for _, provider := range providers {
+		loc, err := ResolveLocations(provider)
+		if err != nil {
+			return nil, err
+		}
+		installed, err := skillFiles(config.Skills, loc)
+		if err != nil {
+			return nil, err
+		}
+		for path, content := range installed {
+			files[path] = content
+		}
+		if loc.InstallsSkills() && !hasCreatePR(config.Skills) {
+			for _, skill := range config.Skills {
+				if skill.ID != "adjust" {
+					continue
+				}
+				forward := "---\nname: create-pr\ndescription: Compatibility alias for adjust-issue.\n---\nInvoke adjust-issue with the same arguments. Require the existing task-branch PR and the full adjustment quality gate. Never create a PR.\n"
+				files[filepath.Join(loc.SkillDir, "create-pr/SKILL.md")] = forward
+				if loc.CommandDir != "" {
+					files[filepath.Join(loc.CommandDir, "create-pr.md")] = forward + "\n$ARGUMENTS\n"
+				}
 			}
-			files[".claude/commands/create-pr.md"] = forward + "\n$ARGUMENTS\n"
 		}
 	}
-	fs, err := os.OpenRoot(root)
+	work, err := os.OpenRoot(checkout)
 	if err != nil {
 		return nil, err
+	}
+	defer work.Close()
+	backups, err := retireCheckout(work, config)
+	if err != nil {
+		return backups, err
+	}
+	fs, err := os.OpenRoot(home)
+	if err != nil {
+		return backups, err
 	}
 	defer fs.Close()
-	contextFiles, err := projectContextFiles(fs, config)
+	manifestPath, err := ManifestPath()
 	if err != nil {
-		return nil, err
+		return backups, err
+	}
+	manifestPath, err = filepath.Rel(home, manifestPath)
+	if err != nil {
+		return backups, err
 	}
 	manifest := map[string]string{}
-	if raw, err := fs.ReadFile(".taskflow/agent-manifest.json"); err == nil {
+	if raw, err := fs.ReadFile(manifestPath); err == nil {
 		if err := json.Unmarshal(raw, &manifest); err != nil {
-			return nil, err
+			return backups, err
 		}
 	} else if !os.IsNotExist(err) {
-		return nil, err
+		return backups, err
 	}
 	for p := range manifest {
-		if !managedSkillPath(p) {
-			return nil, fmt.Errorf("invalid managed skill path %q", p)
+		if !anyManagedPath(p) {
+			return backups, fmt.Errorf("invalid managed skill path %q", p)
 		}
 	}
-	if err := fs.MkdirAll(".taskflow", 0755); err != nil {
-		return nil, err
+	install, err := refresh(fs, work, files, manifest, &backups, !hasCreatePR(config.Skills))
+	if err != nil {
+		return backups, err
 	}
-	atomicWrite := func(path string, raw []byte) error {
-		if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
-			return err
-		}
-		tmp := path + ".tmp-" + uuid.NewString()
-		defer fs.Remove(tmp)
-		if err := fs.WriteFile(tmp, raw, 0600); err != nil {
-			return err
-		}
-		return fs.Rename(tmp, path)
+	raw, err := json.MarshalIndent(install, "", "  ")
+	if err != nil {
+		return backups, err
 	}
-	for path, raw := range contextFiles {
-		if err := atomicWrite(path, raw); err != nil {
-			return nil, err
+	if err := atomicWrite(fs, manifestPath, raw); err != nil {
+		return backups, err
+	}
+	raw, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return backups, err
+	}
+	return backups, atomicWrite(work, ".taskflow/remote-config.json", raw)
+}
+
+// anyManagedPath keeps a manifest written for another provider readable, so the
+// files it records can be retired instead of rejected as foreign.
+func anyManagedPath(p string) bool {
+	for _, provider := range SkillProviders {
+		loc, err := ResolveLocations(provider)
+		if err == nil && managedPath(p, loc) {
+			return true
 		}
 	}
-	digest := func(raw []byte) string { return fmt.Sprintf("%x", sha256.Sum256(raw)) }
-	backups := []string{}
+	return false
+}
+
+func digest(raw []byte) string { return fmt.Sprintf("%x", sha256.Sum256(raw)) }
+
+func atomicWrite(fs *os.Root, path string, raw []byte) error {
+	if err := fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp-" + uuid.NewString()
+	defer fs.Remove(tmp)
+	if err := fs.WriteFile(tmp, raw, 0600); err != nil {
+		return err
+	}
+	return fs.Rename(tmp, path)
+}
+
+// refresh installs the managed set, retires what left it, and reports every local
+// edit it preserved. Backups stay in the checkout, where the previous release
+// already put them.
+func refresh(fs, work *os.Root, files, manifest map[string]string, backups *[]string, legacyCreatePR bool) (map[string]string, error) {
 	backup := func(path string, raw []byte) error {
 		dst := filepath.Join(".taskflow/skill-backups", digest(raw), path)
-		if err := atomicWrite(dst, raw); err != nil {
+		if err := atomicWrite(work, dst, raw); err != nil {
 			return err
 		}
-		backups = append(backups, dst)
+		*backups = append(*backups, dst)
 		return nil
 	}
 	paths := make([]string, 0, len(files))
@@ -167,31 +242,31 @@ func Scaffold(root string, config Config) ([]string, error) {
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	next := map[string]string{}
+	install := map[string]string{}
 	for _, p := range paths {
 		content := files[p]
 		raw, err := fs.ReadFile(p)
 		if err != nil && !os.IsNotExist(err) {
-			return backups, err
+			return install, err
 		}
-		if err == nil && string(raw) != content {
-			if manifest[p] != digest(raw) {
-				if !hasCreatePR(config.Skills) && (strings.Contains(p, "/create-pr/") || strings.HasSuffix(p, "/create-pr.md")) {
-					backups = append(backups, "Divergent legacy command preserved: "+p)
-					next[p] = manifest[p]
-					continue
-				}
-				if err := backup(p, raw); err != nil {
-					return backups, err
-				}
+		if err == nil && string(raw) != content && manifest[p] != digest(raw) {
+			// A create-pr alias the user edited stays theirs: it is reported on every
+			// refresh instead of being replaced by the compatibility forward.
+			if legacyCreatePR && (strings.Contains(p, "/create-pr/") || strings.HasSuffix(p, "/create-pr.md")) {
+				*backups = append(*backups, "Divergent legacy command preserved: "+p)
+				install[p] = manifest[p]
+				continue
+			}
+			if err := backup(p, raw); err != nil {
+				return install, err
 			}
 		}
 		if err != nil || string(raw) != content {
-			if err := atomicWrite(p, []byte(content)); err != nil {
-				return backups, err
+			if err := atomicWrite(fs, p, []byte(content)); err != nil {
+				return install, err
 			}
 		}
-		next[p] = digest([]byte(content))
+		install[p] = digest([]byte(content))
 	}
 	// Removed/renamed skills are retired only when their managed content is unchanged.
 	// Modified copies are personal after retirement and are left intact.
@@ -204,30 +279,19 @@ func Scaffold(root string, config Config) ([]string, error) {
 			continue
 		}
 		if err != nil {
-			return backups, err
+			return install, err
 		}
 		if digest(raw) != oldDigest {
 			continue
 		}
 		if err := backup(p, raw); err != nil {
-			return backups, err
+			return install, err
 		}
 		if err := fs.Remove(p); err != nil {
-			return backups, err
+			return install, err
 		}
 	}
-	raw, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return backups, err
-	}
-	if err := atomicWrite(".taskflow/remote-config.json", raw); err != nil {
-		return backups, err
-	}
-	raw, err = json.MarshalIndent(next, "", "  ")
-	if err != nil {
-		return backups, err
-	}
-	return backups, atomicWrite(".taskflow/agent-manifest.json", raw)
+	return install, nil
 }
 
 // ExecutionLimit is workstation-owned and serializes shared checkout execution.

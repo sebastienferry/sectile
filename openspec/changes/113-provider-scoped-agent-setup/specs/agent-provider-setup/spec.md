@@ -1,9 +1,9 @@
 ## ADDED Requirements
 
-### Requirement: Skills install for the selected provider only
-The agent SHALL install the managed skill set into the user-level configuration folder of the
-selected AI provider, and into no other provider's location. A provider with no supported skill
-convention SHALL receive no managed skill files, and its dispatch SHALL proceed.
+### Requirement: Skills install for the agents the project sets up
+The agent SHALL install the managed skill set into the user-level configuration folder of each
+agent the project sets up, and into no other provider's location. An agent with no supported skill
+convention SHALL receive no managed skill files, and the dispatch SHALL proceed.
 
 #### Scenario: Provider with a skill convention
 - **GIVEN** a project whose selected AI provider supports managed skills
@@ -23,9 +23,31 @@ convention SHALL receive no managed skill files, and its dispatch SHALL proceed.
 - **THEN** the new provider's location holds the current managed skills
 - **AND** the previous provider's unedited managed skills are removed
 
+### Requirement: A project chooses the agents to set up
+A project SHALL declare the additional agents to set up, among those Sectile supports installing
+for. The agent that runs the tasks SHALL always be set up whether or not it is declared, because it
+cannot work without its MCP registration. An unsupported agent SHALL be rejected rather than
+silently ignored. Unchecking an agent SHALL retire its installation like any other retirement.
+
+#### Scenario: Set up several agents
+- **GIVEN** a project that declares additional agents alongside the one running its tasks
+- **WHEN** a task is dispatched
+- **THEN** each declared agent and the running agent hold the managed skills and the MCP registration
+- **AND** no other agent's configuration is created
+
+#### Scenario: Stop setting up an agent
+- **GIVEN** an agent previously set up and now no longer declared
+- **WHEN** a task is dispatched
+- **THEN** its unedited managed files are removed and the remaining agents keep theirs
+
+#### Scenario: Unsupported agent declared
+- **GIVEN** a project declaring an agent Sectile cannot set up
+- **WHEN** a task is dispatched
+- **THEN** the dispatch fails with an error naming that agent
+
 ### Requirement: MCP registers in user-level provider configuration
-The agent SHALL register the Sectile MCP server in the user-level configuration of the selected
-provider, preserving unrelated registrations and settings, and SHALL NOT persist credentials.
+The agent SHALL register the Sectile MCP server in the user-level configuration of every agent the
+project sets up, preserving unrelated registrations and settings, and SHALL NOT persist credentials.
 A registration that cannot be written SHALL abort the dispatch with an actionable error and leave
 the existing configuration unchanged.
 

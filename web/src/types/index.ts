@@ -225,6 +225,7 @@ export interface Project {
   taskCount?: number
   stageMapping?: Record<WorkflowStage, string>
   skillOverrides?: Record<string, string>
+  setupProviders?: string[]
   aiProvider?: AIProvider
   aiCommandTemplate?: string
   specFramework?: SpecFramework

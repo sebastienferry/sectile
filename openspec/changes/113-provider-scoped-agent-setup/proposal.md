@@ -9,10 +9,12 @@ for any given run, and all of them land inside the user's repository and worktre
 MCP registration is already provider-targeted but is still written into the checkout.
 
 ## What Changes
-- Install managed skills into the **user-level configuration folder of the selected AI provider only**;
-  providers with no skill convention (`codex`, `cursor`, `vibe`, `custom`) receive no skill files.
-- Register the Sectile MCP server in the selected provider's **user-level** configuration for every
-  provider, as Antigravity already does. Failure to register remains fatal for the dispatch.
+- Install managed skills into the **user-level configuration folder** of each agent the project sets
+  up. The agent that runs the tasks is always set up; Claude, Codex and Antigravity can be added
+  through per-project checkboxes. Providers with no skill convention (`gemini`, `cursor`, `vibe`,
+  `custom`) receive the MCP registration alone.
+- Register the Sectile MCP server in each of those agents' **user-level** configuration, as
+  Antigravity already does. Failure to register remains fatal for the dispatch.
 - Stop writing Sectile-managed skill, command, MCP and project-context files into repositories and
   worktrees, and retire the previously managed copies that the user has not edited.
 - Make managed skill content **project-generic**: project identity and workflow context reach the
@@ -23,7 +25,8 @@ MCP registration is already provider-targeted but is still written into the chec
 
 ## Impact
 `internal/agentconfig` (skill destinations, scaffolding root, project context, MCP location,
-manifest), `cmd/agent` dispatch preparation and skill read-back, their tests, and the
-documentation describing where Sectile writes agent configuration. No change to the skill
-catalogue, the prompt templates, the dispatch command line, the set of supported providers,
-or the MCP tool contract.
+manifest), `cmd/agent` dispatch preparation and skill read-back, the `setupProviders` project
+setting (model, SQLite column, agent contract) and its checkboxes in the project AI tab, their
+tests, and the documentation describing where Sectile writes agent configuration. No change to
+the skill catalogue, the prompt templates, the dispatch command line, the set of supported
+providers, or the MCP tool contract.

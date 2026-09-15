@@ -126,19 +126,30 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if err != nil {
 			return nil, err
 		}
-		written := 0
+		// The installation is user-level, so it is written once; every checkout is
+		// still visited to retire the copies earlier releases left in it.
 		for _, path := range paths {
 			if _, err = agentconfig.Scaffold(path, config); err != nil {
 				return nil, err
 			}
-			if err = d.bootstrapLocalMCP(path, &config); err != nil {
-				return nil, err
+		}
+		if err = d.bootstrapLocalMCP(&config); err != nil {
+			return nil, err
+		}
+		loc, err := agentconfig.ResolveLocations(agentconfig.EffectiveProvider(config.AIProvider, config.AICommandTemplate))
+		if err != nil {
+			return nil, err
+		}
+		written := 0
+		if loc.InstallsSkills() {
+			written = len(config.Skills)
+			if loc.CommandDir != "" {
+				written *= 2
 			}
-			written += len(config.Skills) * 6
 		}
 		return map[string]any{"written": written}, nil
 	case "skill_files", "read_skill":
-		files, err := localSkillFiles(root, config)
+		files, err := localSkillFiles(config)
 		if err != nil {
 			return nil, err
 		}
@@ -151,6 +162,10 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		return map[string]string{"content": file.Content}, nil
 	case "skills_status":
+		loc, err := agentconfig.ResolveLocations(agentconfig.EffectiveProvider(config.AIProvider, config.AICommandTemplate))
+		if err != nil {
+			return nil, err
+		}
 		status := models.ProjectSkillsStatus{ProjectID: config.ProjectID, ProjectName: config.ProjectName, RepoPath: root, PathExists: true, IsGitRepo: true, InstalledAll: true, SpecFramework: config.SpecFramework, WorktreePaths: []string{root}, WorktreesCount: 1}
 		paths, err := localWorktreePaths(ctx, root)
 		if err != nil {
@@ -162,16 +177,19 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		status.GitBranch = branch
 		for _, skill := range config.Skills {
 			info := models.InstalledSkillInfo{ID: skill.ID, Name: skill.Directory}
-			for _, prefix := range []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"} {
-				path := filepath.Join(root, prefix, skill.Directory, "SKILL.md")
+			if loc.InstallsSkills() {
+				path := filepath.Join(loc.Home, loc.SkillDir, skill.Directory, "SKILL.md")
 				if fi, err := os.Stat(path); err == nil && fi.Mode().IsRegular() {
 					info.Installed = true
 					info.Path = path
-					break
 				}
 			}
 			status.InstalledAll = status.InstalledAll && info.Installed
 			status.Skills = append(status.Skills, info)
+		}
+		// Nothing is missing when the provider has no skill convention.
+		if !loc.InstallsSkills() {
+			status.InstalledAll = true
 		}
 		return status, nil
 	case "spec_status":
