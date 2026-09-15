@@ -130,6 +130,21 @@ func (g *GithubAdapter) UpdateLabels(ctx context.Context, key string, add []stri
 	return g.client.UpdateGithubIssue("", "", key, nil, nil, nil, add, remove)
 }
 
+func (g *GithubAdapter) FormatTaskID(projectID string, key string, rawID string) string {
+	cleanNum := strings.TrimPrefix(key, "#")
+	cleanNum = strings.TrimPrefix(cleanNum, "GH-#")
+	cleanNum = strings.TrimPrefix(cleanNum, "gh-")
+	if cleanNum == "" && rawID != "" {
+		parts := strings.Split(rawID, "-")
+		cleanNum = parts[len(parts)-1]
+		cleanNum = strings.TrimPrefix(cleanNum, "#")
+	}
+	if projectID != "" && projectID != "default" {
+		return fmt.Sprintf("gh-%s-%s", projectID, cleanNum)
+	}
+	return fmt.Sprintf("gh-%s", cleanNum)
+}
+
 // LinearAdapter adapts Client to tracker.TicketingSystem for Linear.
 type LinearAdapter struct {
 	tracker.BaseTicketingSystem
@@ -224,4 +239,11 @@ func (l *LinearAdapter) Transition(ctx context.Context, key string, status strin
 
 func (l *LinearAdapter) UpdateLabels(ctx context.Context, key string, add []string, remove []string) error {
 	return l.client.UpdateLinearIssue(key, nil, nil, nil, nil, add)
+}
+
+func (l *LinearAdapter) FormatTaskID(projectID string, key string, rawID string) string {
+	if rawID != "" {
+		return rawID
+	}
+	return key
 }

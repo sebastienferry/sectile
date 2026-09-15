@@ -3,6 +3,8 @@ package tracker
 import (
 	"context"
 	"tasks/internal/models"
+
+	"github.com/google/uuid"
 )
 
 // LocalAdapter handles local tasks that are not backed by any remote issue tracker.
@@ -75,4 +77,11 @@ func (l *LocalAdapter) Assign(ctx context.Context, key string, personID string) 
 
 func (l *LocalAdapter) UpdateLabels(ctx context.Context, key string, add []string, remove []string) error {
 	return nil
+}
+
+func (l *LocalAdapter) FormatTaskID(projectID string, key string, rawID string) string {
+	if rawID != "" {
+		return rawID
+	}
+	return uuid.New().String()
 }

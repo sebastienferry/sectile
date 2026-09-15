@@ -31,6 +31,12 @@ type TicketingSystem interface {
 
 	// GetComments retrieves all comments for an issue.
 	GetComments(ctx context.Context, req GetCommentsRequest) ([]models.TaskComment, error)
+
+	// FormatTaskID computes the canonical local database ID for a task belonging to this ticketing system.
+	// projectID is the TaskFlow/Sectile project ID.
+	// key is the tracker-specific issue key (e.g. "#42" or "ENG-123").
+	// rawID is the identifier returned by the tracker (or empty if not yet known).
+	FormatTaskID(projectID string, key string, rawID string) string
 }
 
 // CreateIssueRequest holds the parameters needed to create an issue.
@@ -179,4 +185,11 @@ func (b *BaseTicketingSystem) UpdateLabels(ctx context.Context, key string, add 
 
 func (b *BaseTicketingSystem) SearchAssignable(ctx context.Context, key string, query string, limit int) ([]Person, error) {
 	return nil, Unsupported(b.TrackerName, CapAssign)
+}
+
+func (b *BaseTicketingSystem) FormatTaskID(projectID string, key string, rawID string) string {
+	if rawID != "" {
+		return rawID
+	}
+	return key
 }

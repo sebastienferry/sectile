@@ -136,3 +136,13 @@ func TestRegistryRegistrationAndResolution(t *testing.T) {
 	}
 }
 
+func TestBaseTicketingSystemFormatTaskID(t *testing.T) {
+	base := &BaseTicketingSystem{TrackerName: "dummy"}
+	if id := base.FormatTaskID("proj", "KEY-1", "custom-raw-id"); id != "custom-raw-id" {
+		t.Errorf("expected custom-raw-id, got %s", id)
+	}
+	if id := base.FormatTaskID("proj", "KEY-1", ""); id != "KEY-1" {
+		t.Errorf("expected KEY-1, got %s", id)
+	}
+}
+

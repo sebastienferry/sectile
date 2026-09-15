@@ -103,3 +103,45 @@ func TestGithubAdapterCreateAndSync(t *testing.T) {
 		t.Errorf("unexpected synced tasks: %#v", tasks)
 	}
 }
+
+func TestFormatTaskID(t *testing.T) {
+	c := &Client{}
+	gh := NewGithubAdapter(c)
+	lin := NewLinearAdapter(c)
+	loc := tracker.NewLocalAdapter()
+
+	// GitHub default project
+	if id := gh.FormatTaskID("default", "#42", ""); id != "gh-42" {
+		t.Errorf("expected gh-42, got %s", id)
+	}
+	if id := gh.FormatTaskID("", "#42", "gh-42"); id != "gh-42" {
+		t.Errorf("expected gh-42, got %s", id)
+	}
+
+	// GitHub custom project
+	if id := gh.FormatTaskID("myproj", "#42", ""); id != "gh-myproj-42" {
+		t.Errorf("expected gh-myproj-42, got %s", id)
+	}
+	if id := gh.FormatTaskID("myproj", "42", ""); id != "gh-myproj-42" {
+		t.Errorf("expected gh-myproj-42, got %s", id)
+	}
+	if id := gh.FormatTaskID("myproj", "", "gh-myproj-42"); id != "gh-myproj-42" {
+		t.Errorf("expected gh-myproj-42, got %s", id)
+	}
+
+	// Linear
+	if id := lin.FormatTaskID("default", "ENG-10", "c7b508f7-6467-422f-a99f-e60d251d234a"); id != "c7b508f7-6467-422f-a99f-e60d251d234a" {
+		t.Errorf("expected linear rawID preserved, got %s", id)
+	}
+	if id := lin.FormatTaskID("default", "ENG-10", ""); id != "ENG-10" {
+		t.Errorf("expected linear key fallback, got %s", id)
+	}
+
+	// Local
+	if id := loc.FormatTaskID("default", "TASK-1", "custom-id-123"); id != "custom-id-123" {
+		t.Errorf("expected local rawID preserved, got %s", id)
+	}
+	if id := loc.FormatTaskID("default", "TASK-1", ""); id == "" {
+		t.Errorf("expected local generated UUID, got empty")
+	}
+}

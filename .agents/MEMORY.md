@@ -16,4 +16,6 @@
   - Avoid hardcoded `if tracker == "linear" ... else if tracker == "github"` checks in database operations; always route operations through the resolved `TicketingSystem`.
 - **Plugging New Trackers**:
   - Implement `tracker.TicketingSystem` (can embed `tracker.BaseTicketingSystem` to inherit default refusal behavior for unsupported capabilities).
+  - Implement `FormatTaskID(projectID, key, rawID string) string` on each tracker to encapsulate canonical task ID formatting (e.g. `gh-<projID>-<num>` for GitHub vs UUID for Linear). Never hardcode tracker-specific ID prefixing in `internal/db`.
   - Register the adapter in `trackerapi.NewDefaultRegistry` or via `registry.Register(name, adapter)`.
+  - Sync routines (`processSyncJob`) dynamically resolve tracker adapters from `d.TrackerRegistry().Get(trackerName)`, allowing any registered tracker with `CapSync` to synchronize without modifying core switch statements.
