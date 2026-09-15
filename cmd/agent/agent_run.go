@@ -84,7 +84,7 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 			result.Status = "canceled"
 		}
 		run.desktop.Status = result.Status
-		go func() { _ = d.finishDesktopRun(context.Background(), run.taskID, id, result.Status) }()
+		go func() { _ = d.finishDesktopRun(context.Background(), run.taskID, id, result.Status, "") }()
 		run.once.Do(func() { close(run.exited) })
 	}
 	d.runsMu.Unlock()
