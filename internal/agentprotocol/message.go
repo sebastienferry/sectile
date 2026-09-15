@@ -5,6 +5,13 @@ import (
 	"time"
 )
 
+// RunNotOwned prefixes the status an agent returns when it is asked to cancel
+// an execution it does not have. It is a stable marker rather than free text
+// because the server acts on it: an agent that answers this is reachable and
+// states it is running nothing, which is what tells the two apart from an
+// agent that cannot be reached at all.
+const RunNotOwned = "run-not-owned"
+
 // Message is the envelope for all messages exchanged between the remote
 // server and a connected local agent over the agent WebSocket relay.
 type Message struct {
