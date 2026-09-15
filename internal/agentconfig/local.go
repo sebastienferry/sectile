@@ -139,10 +139,10 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 					continue
 				}
 				forward := "---\nname: create-pr\ndescription: Compatibility alias for adjust-issue.\n---\nInvoke adjust-issue with the same arguments. Require the existing task-branch PR and the full adjustment quality gate. Never create a PR.\n"
-				files[filepath.Join(loc.SkillDir, "create-pr/SKILL.md")] = forward
-				if loc.CommandDir != "" {
-					files[filepath.Join(loc.CommandDir, "create-pr.md")] = forward + "\n$ARGUMENTS\n"
+				if loc.SubstitutesArguments {
+					forward += "\n$ARGUMENTS\n"
 				}
+				files[filepath.Join(loc.SkillDir, "create-pr/SKILL.md")] = forward
 			}
 		}
 	}
@@ -199,8 +199,9 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 	return backups, atomicWrite(work, ".taskflow/remote-config.json", raw)
 }
 
-// anyManagedPath keeps a manifest written for another provider readable, so the
-// files it records can be retired instead of rejected as foreign.
+// anyManagedPath keeps a manifest written for another provider, or by an earlier
+// release, readable, so the files it records can be retired instead of rejected
+// as foreign.
 func anyManagedPath(p string) bool {
 	for _, provider := range SkillProviders {
 		loc, err := ResolveLocations(provider)
@@ -208,7 +209,7 @@ func anyManagedPath(p string) bool {
 			return true
 		}
 	}
-	return false
+	return managedRetiredPath(p)
 }
 
 func digest(raw []byte) string { return fmt.Sprintf("%x", sha256.Sum256(raw)) }

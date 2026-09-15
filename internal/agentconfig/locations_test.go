@@ -27,20 +27,21 @@ func TestResolveLocationsCoversEverySupportedProvider(t *testing.T) {
 	t.Setenv("HOME", home)
 	for _, tc := range []struct {
 		provider, skills, mcp string
+		substitutes           bool
 	}{
-		{"claude", ".claude/skills", ".claude.json"},
-		{"agy", ".agy/skills", ".gemini/config/mcp_config.json"},
-		{"codex", ".codex/skills", ".codex/config.toml"},
-		{"gemini", "", ".gemini/settings.json"},
-		{"cursor", "", ".cursor/mcp.json"},
-		{"vibe", "", ".vibe/config.toml"},
+		{provider: "claude", skills: ".claude/skills", mcp: ".claude.json", substitutes: true},
+		{provider: "agy", skills: ".gemini/config/skills", mcp: ".gemini/config/mcp_config.json"},
+		{provider: "codex", skills: ".agents/skills", mcp: ".codex/config.toml"},
+		{provider: "gemini", mcp: ".gemini/settings.json"},
+		{provider: "cursor", mcp: ".cursor/mcp.json"},
+		{provider: "vibe", mcp: ".vibe/config.toml"},
 	} {
 		t.Run(tc.provider, func(t *testing.T) {
 			loc, err := ResolveLocations(tc.provider)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if loc.Home != home || loc.SkillDir != tc.skills || loc.MCPFile != tc.mcp {
+			if loc.Home != home || loc.SkillDir != tc.skills || loc.MCPFile != tc.mcp || loc.SubstitutesArguments != tc.substitutes {
 				t.Fatalf("got %+v", loc)
 			}
 			if loc.InstallsSkills() != (tc.skills != "") {
@@ -60,15 +61,15 @@ func TestScaffoldInstallsOnlyForTheSelectedProvider(t *testing.T) {
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
 	}
+	// Claude substitutes arguments, so it receives the body that carries the ticket.
 	raw, err := os.ReadFile(filepath.Join(home, ".claude/skills/clarify-issue/SKILL.md"))
-	if err != nil || string(raw) != "skill" {
+	if err != nil || string(raw) != "command" {
 		t.Fatalf("skill not installed for the selected provider: %s %v", raw, err)
 	}
-	raw, err = os.ReadFile(filepath.Join(home, ".claude/commands/clarify-issue.md"))
-	if err != nil || string(raw) != "command" {
-		t.Fatalf("command not installed: %s %v", raw, err)
+	if _, err := os.Stat(filepath.Join(home, ".claude/commands")); !os.IsNotExist(err) {
+		t.Fatal("the legacy command file must not be installed")
 	}
-	for _, other := range []string{".agy", ".gemini", ".agents", ".skills"} {
+	for _, other := range []string{".gemini", ".agents", ".codex", ".skills"} {
 		if _, err := os.Stat(filepath.Join(home, other)); !os.IsNotExist(err) {
 			t.Fatalf("%s written for an unselected provider", other)
 		}
@@ -79,12 +80,11 @@ func TestScaffoldInstallsOnlyForTheSelectedProvider(t *testing.T) {
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
 	}
-	for _, retired := range []string{".claude/skills/clarify-issue/SKILL.md", ".claude/commands/clarify-issue.md"} {
-		if _, err := os.Stat(filepath.Join(home, retired)); !os.IsNotExist(err) {
-			t.Fatalf("%s survived the provider switch", retired)
-		}
+	if _, err := os.Stat(filepath.Join(home, ".claude/skills/clarify-issue/SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("the previous provider's skill survived the switch")
 	}
-	if raw, err := os.ReadFile(filepath.Join(home, ".agy/skills/clarify-issue/SKILL.md")); err != nil || string(raw) != "skill" {
+	// Antigravity does not substitute arguments, so it receives the plain body.
+	if raw, err := os.ReadFile(filepath.Join(home, ".gemini/config/skills/clarify-issue/SKILL.md")); err != nil || string(raw) != "skill" {
 		t.Fatalf("new provider not installed: %s %v", raw, err)
 	}
 }
@@ -144,9 +144,13 @@ func TestScaffoldInstallsForEveryRequestedAgent(t *testing.T) {
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{".claude/skills/clarify-issue/SKILL.md", ".codex/skills/clarify-issue/SKILL.md", ".agy/skills/clarify-issue/SKILL.md"} {
+	for path, want := range map[string]string{
+		".claude/skills/clarify-issue/SKILL.md":        "command",
+		".agents/skills/clarify-issue/SKILL.md":        "skill",
+		".gemini/config/skills/clarify-issue/SKILL.md": "skill",
+	} {
 		raw, err := os.ReadFile(filepath.Join(home, path))
-		if err != nil || string(raw) != "skill" {
+		if err != nil || string(raw) != want {
 			t.Fatalf("%s: %s %v", path, raw, err)
 		}
 	}
@@ -155,10 +159,10 @@ func TestScaffoldInstallsForEveryRequestedAgent(t *testing.T) {
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".codex/skills/clarify-issue/SKILL.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".agents/skills/clarify-issue/SKILL.md")); !os.IsNotExist(err) {
 		t.Fatal("unchecked agent kept its installation")
 	}
-	if _, err := os.Stat(filepath.Join(home, ".agy/skills/clarify-issue/SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".gemini/config/skills/clarify-issue/SKILL.md")); err != nil {
 		t.Fatal("checked agent lost its installation")
 	}
 }
