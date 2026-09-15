@@ -15,9 +15,8 @@ func TestMCPRegistrationMigration(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
 		for _, state := range []string{"fresh", "legacy", "canonical", "both"} {
 			t.Run(provider+"/"+state, func(t *testing.T) {
-				root := t.TempDir()
 				t.Setenv("HOME", t.TempDir())
-				path, err := BootstrapMCP(root, provider, "/opt/sectile", "http://127.0.0.1:8091")
+				path, err := BootstrapMCP(provider, "/opt/sectile", "http://127.0.0.1:8091")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -72,7 +71,7 @@ func TestMCPRegistrationMigration(t *testing.T) {
 				}
 				writeMCPFixture(t, path, data)
 				for i := 0; i < 2; i++ {
-					if _, err := BootstrapMCP(root, provider, "/opt/new sectile", "http://127.0.0.1:45123"); err != nil {
+					if _, err := BootstrapMCP(provider, "/opt/new sectile", "http://127.0.0.1:45123"); err != nil {
 						t.Fatal(err)
 					}
 					result := readMCPFixture(t, path)
@@ -131,9 +130,8 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 				continue
 			}
 			t.Run(provider+"/"+issue, func(t *testing.T) {
-				root := t.TempDir()
 				t.Setenv("HOME", t.TempDir())
-				path, err := BootstrapMCP(root, provider, "/opt/sectile", "http://127.0.0.1:8091")
+				path, err := BootstrapMCP(provider, "/opt/sectile", "http://127.0.0.1:8091")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -172,7 +170,7 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 				}
 				writeMCPFixture(t, path, data)
 				before, _ := os.ReadFile(path)
-				if _, err := BootstrapMCP(root, provider, "/opt/sectile", "http://127.0.0.1:45123"); err == nil {
+				if _, err := BootstrapMCP(provider, "/opt/sectile", "http://127.0.0.1:45123"); err == nil {
 					t.Fatal("unsafe configuration accepted")
 				}
 				after, _ := os.ReadFile(path)
@@ -186,8 +184,8 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 
 func TestMCPMigrationPreservesExternalPolicyFile(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
-	path, err := BootstrapMCP(root, "claude", "/opt/sectile", "http://127.0.0.1:8091")
+	t.Setenv("HOME", root)
+	path, err := BootstrapMCP("claude", "/opt/sectile", "http://127.0.0.1:8091")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +198,7 @@ func TestMCPMigrationPreservesExternalPolicyFile(t *testing.T) {
 	if err := os.WriteFile(policyPath, policy, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BootstrapMCP(root, "claude", "/opt/sectile", "http://127.0.0.1:45123"); err == nil || !strings.Contains(err.Error(), policyPath) {
+	if _, err := BootstrapMCP("claude", "/opt/sectile", "http://127.0.0.1:45123"); err == nil || !strings.Contains(err.Error(), policyPath) {
 		t.Fatalf("missing actionable error: %v", err)
 	}
 	after, _ := os.ReadFile(path)
@@ -263,28 +261,24 @@ func readMCPFixture(t *testing.T, path string) map[string]any {
 	return data
 }
 
-func TestMCPMigrationReadsExternalTOMLPolicies(t *testing.T) {
-	for _, policy := range []string{"[mcp_servers.'taskflow']\ncommand = '/opt/sectile'\n", "invalid = ["} {
-		t.Run(policy, func(t *testing.T) {
-			root := t.TempDir()
+func TestMCPBootstrapRejectsMalformedRegistrationFile(t *testing.T) {
+	for _, existing := range []string{"invalid = [", "mcp_servers = 'not a table'"} {
+		t.Run(existing, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
 			if err := os.MkdirAll(filepath.Join(home, ".codex"), 0755); err != nil {
 				t.Fatal(err)
 			}
 			path := filepath.Join(home, ".codex/config.toml")
-			if err := os.WriteFile(path, []byte(policy), 0600); err != nil {
+			if err := os.WriteFile(path, []byte(existing), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := BootstrapMCP(root, "codex", "/opt/sectile", "http://127.0.0.1:8091"); err == nil {
-				t.Fatal("unsafe external TOML accepted")
-			}
-			if _, err := os.Stat(filepath.Join(root, ".codex/config.toml")); !os.IsNotExist(err) {
-				t.Fatal("registration written before policy reconciliation")
+			if _, err := BootstrapMCP("codex", "/opt/sectile", "http://127.0.0.1:8091"); err == nil {
+				t.Fatal("malformed registration file accepted")
 			}
 			raw, _ := os.ReadFile(path)
-			if string(raw) != policy {
-				t.Fatal("external settings changed")
+			if string(raw) != existing {
+				t.Fatal("malformed file rewritten")
 			}
 		})
 	}

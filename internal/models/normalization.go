@@ -39,6 +39,30 @@ func NormalizeIssueTypes(types []string) []string {
 	return out
 }
 
+// SetupProviders are the agents Sectile can install skills and an MCP
+// registration for, beyond the one that runs the tasks.
+var SetupProviders = []string{"claude", "codex", "agy"}
+
+// NormalizeSetupProviders keeps the supported agents only, lowercased, without
+// duplicates and in the order the caller listed them.
+func NormalizeSetupProviders(list []string) []string {
+	supported := make(map[string]bool, len(SetupProviders))
+	for _, provider := range SetupProviders {
+		supported[provider] = true
+	}
+	seen := make(map[string]bool, len(list))
+	out := make([]string, 0, len(list))
+	for _, provider := range list {
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		if !supported[provider] || seen[provider] {
+			continue
+		}
+		seen[provider] = true
+		out = append(out, provider)
+	}
+	return out
+}
+
 func NormalizeSpecFramework(framework string) string {
 	switch strings.ToLower(strings.TrimSpace(framework)) {
 	case "openspec", "open-spec", "open spec":

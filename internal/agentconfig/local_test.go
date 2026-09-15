@@ -6,13 +6,24 @@ import (
 	"testing"
 )
 
+// installed resolves a managed destination inside the provider configuration home.
+func installed(t *testing.T, home, provider, relative string) string {
+	t.Helper()
+	loc, err := ResolveLocations(provider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(home, loc.SkillDir, relative)
+}
+
 func TestScaffoldRefreshBacksUpEdits(t *testing.T) {
-	root := t.TempDir()
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "implement", Directory: "code-issue", Content: "remote v1", CommandContent: "command v1"}}}
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, ".agents/skills/code-issue/SKILL.md")
+	path := installed(t, home, "agy", "code-issue/SKILL.md")
 	if err := os.WriteFile(path, []byte("local edit"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -29,14 +40,14 @@ func TestScaffoldRefreshBacksUpEdits(t *testing.T) {
 	if err != nil || string(backup) != "local edit" {
 		t.Fatal("local edit backup missing")
 	}
-	raw, _ = os.ReadFile(filepath.Join(root, ".skills/code-issue/SKILL.md"))
-	if string(raw) != "remote v2" {
-		t.Fatal("unchanged generated skill was not refreshed")
+	if _, err := os.Stat(filepath.Join(root, ".skills/code-issue/SKILL.md")); !os.IsNotExist(err) {
+		t.Fatal("the checkout must receive no managed skill")
 	}
 }
 
 func TestScaffoldRejectsEscapeAndUnknownVersion(t *testing.T) {
-	root := t.TempDir()
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
 	c := Config{SchemaVersion: 99}
 	if _, err := Scaffold(root, c); err == nil {
 		t.Fatal("unknown version accepted")
@@ -47,7 +58,7 @@ func TestScaffoldRejectsEscapeAndUnknownVersion(t *testing.T) {
 		t.Fatal("path traversal accepted")
 	}
 	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(root, ".agents")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(home, ".agy")); err != nil {
 		t.Fatal(err)
 	}
 	c.Skills[0].Directory = "code-issue"
@@ -65,38 +76,37 @@ func TestOverridesDoNotMutateContract(t *testing.T) {
 }
 
 func TestScaffoldValidatesAllSkillsBeforeWriting(t *testing.T) {
-	root := t.TempDir()
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "valid", Directory: "valid", Content: "should not be written"}, {ID: "invalid", Directory: "../escape"}}}
 	if _, err := Scaffold(root, c); err == nil {
 		t.Fatal("invalid contract accepted")
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".agy")); !os.IsNotExist(err) {
 		t.Fatal("partial skill install")
 	}
 }
 func TestScaffoldRetiresOwnedFilesAndPreservesPersonalSkills(t *testing.T) {
-	root := t.TempDir()
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "old", Directory: "old", Content: "old skill"}}}
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
 	}
-	personal := filepath.Join(root, ".agents/skills/personal/SKILL.md")
+	personal := installed(t, home, "agy", "personal/SKILL.md")
 	if err := os.MkdirAll(filepath.Dir(personal), 0755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(personal, []byte("personal"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	changed := filepath.Join(root, ".claude/skills/old/SKILL.md")
+	changed := installed(t, home, "agy", "old/SKILL.md")
 	if err := os.WriteFile(changed, []byte("customized"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	c.Skills = nil
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(root, ".agents/skills/old/SKILL.md")); !os.IsNotExist(err) {
-		t.Fatal("removed skill still installed")
 	}
 	for _, p := range []string{personal, changed} {
 		if _, err := os.Stat(p); err != nil {
@@ -105,11 +115,26 @@ func TestScaffoldRetiresOwnedFilesAndPreservesPersonalSkills(t *testing.T) {
 	}
 }
 func TestScaffoldRejectsUnsafeManifest(t *testing.T) {
-	root := t.TempDir()
-	os.MkdirAll(filepath.Join(root, ".taskflow"), 0755)
-	os.WriteFile(filepath.Join(root, ".taskflow/agent-manifest.json"), []byte(`{"README.md":"somehash"}`), 0644)
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	path, err := ManifestPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"README.md":"somehash"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := Scaffold(root, Config{SchemaVersion: Version}); err == nil {
 		t.Fatal("manifest claimed unrelated file")
+	}
+	os.MkdirAll(filepath.Join(root, ".taskflow"), 0755)
+	os.WriteFile(filepath.Join(root, ".taskflow/agent-manifest.json"), []byte(`{"README.md":"somehash"}`), 0644)
+	os.Remove(path)
+	if _, err := Scaffold(root, Config{SchemaVersion: Version}); err == nil {
+		t.Fatal("checkout manifest claimed unrelated file")
 	}
 }
 
@@ -155,12 +180,13 @@ func TestProjectCommandOverrideAndServerReset(t *testing.T) {
 }
 
 func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
-	root := t.TempDir()
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue", Content: "adjustment contract", CommandContent: "adjustment contract"}}}
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, ".agents/skills/create-pr/SKILL.md")
+	path := installed(t, home, "agy", "create-pr/SKILL.md")
 	if err := os.WriteFile(path, []byte("personal legacy edits"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +207,8 @@ func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
 }
 
 func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
-	root := t.TempDir()
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{
 		{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue", Content: "Adjust the existing PR", CommandContent: "Adjust the existing PR"},
 		{ID: "create_pr", Directory: "create-pr", Command: "/create-pr", Content: "Create a draft PR", CommandContent: "Create a draft PR"},
@@ -190,7 +217,7 @@ func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, skill := range c.Skills {
-		raw, err := os.ReadFile(filepath.Join(root, ".agents/skills", skill.Directory, "SKILL.md"))
+		raw, err := os.ReadFile(installed(t, home, "agy", filepath.Join(skill.Directory, "SKILL.md")))
 		if err != nil || string(raw) != skill.Content {
 			t.Fatalf("%s: %s %v", skill.ID, raw, err)
 		}

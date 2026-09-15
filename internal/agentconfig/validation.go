@@ -33,48 +33,93 @@ func (c Config) Validate() error {
 	if c.AICommandTemplate != "" && !strings.Contains(c.AICommandTemplate, "{prompt}") {
 		return fmt.Errorf("aiCommandTemplate must contain {prompt}")
 	}
-	_, err := skillFiles(c.Skills)
-	return err
+	return validateSkills(c.Skills)
 }
 
-// skillFiles validates every destination before Scaffold touches the checkout.
-func skillFiles(skills []Skill) (map[string]string, error) {
-	files := map[string]string{}
-	ids := map[string]bool{}
+// validateSkills rejects the whole contract before Scaffold touches any file, so a
+// single malformed identifier can never leave a partial installation behind.
+func validateSkills(skills []Skill) error {
+	ids, dirs, commands := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, s := range skills {
 		if !component.MatchString(s.ID) || ids[s.ID] {
-			return nil, fmt.Errorf("invalid or duplicate skill ID %q", s.ID)
+			return fmt.Errorf("invalid or duplicate skill ID %q", s.ID)
 		}
 		ids[s.ID] = true
-		if !component.MatchString(s.Directory) {
-			return nil, fmt.Errorf("invalid skill directory %q", s.Directory)
+		if !component.MatchString(s.Directory) || dirs[s.Directory] {
+			return fmt.Errorf("invalid or duplicate skill directory %q", s.Directory)
 		}
-		cmd := strings.TrimPrefix(s.Command, "/")
-		if cmd == "" {
-			cmd = s.Directory
+		dirs[s.Directory] = true
+		cmd := skillCommand(s)
+		if !component.MatchString(cmd) || commands[cmd] {
+			return fmt.Errorf("invalid or duplicate skill command %q", s.Command)
 		}
-		if !component.MatchString(cmd) {
-			return nil, fmt.Errorf("invalid skill command %q", s.Command)
+		commands[cmd] = true
+	}
+	return nil
+}
+
+func skillCommand(s Skill) string {
+	cmd := strings.TrimPrefix(s.Command, "/")
+	if cmd == "" {
+		cmd = s.Directory
+	}
+	return cmd
+}
+
+// skillFiles validates every destination before Scaffold touches the configuration.
+// A provider without a skill convention yields no destination, which is a valid
+// installation rather than an error.
+func skillFiles(skills []Skill, loc Locations) (map[string]string, error) {
+	if err := validateSkills(skills); err != nil {
+		return nil, err
+	}
+	files := map[string]string{}
+	if !loc.InstallsSkills() {
+		return files, nil
+	}
+	add := func(path, content string) error {
+		if _, exists := files[path]; exists {
+			return fmt.Errorf("duplicate skill destination %q", path)
 		}
-		paths := []string{filepath.Join(".claude/commands", cmd+".md")}
-		for _, dir := range []string{".agents/skills", ".agy/skills", ".claude/skills", ".gemini/skills", ".skills"} {
-			paths = append(paths, filepath.Join(dir, s.Directory, "SKILL.md"))
+		files[path] = content
+		return nil
+	}
+	for _, s := range skills {
+		if err := add(filepath.Join(loc.SkillDir, s.Directory, "SKILL.md"), s.Content); err != nil {
+			return nil, err
 		}
-		for i, p := range paths {
-			if _, exists := files[p]; exists {
-				return nil, fmt.Errorf("duplicate skill destination %q", p)
-			}
-			content := s.Content
-			if i == 0 {
-				content = s.CommandContent
-			}
-			files[p] = content
+		if loc.CommandDir == "" {
+			continue
+		}
+		if err := add(filepath.Join(loc.CommandDir, skillCommand(s)+".md"), s.CommandContent); err != nil {
+			return nil, err
 		}
 	}
 	return files, nil
 }
 
-func managedSkillPath(p string) bool {
+// managedPath guards the manifest: only paths Sectile installs for the resolved
+// provider may be recorded, refreshed or retired.
+func managedPath(p string, loc Locations) bool {
+	parts := strings.Split(filepath.ToSlash(p), "/")
+	if loc.CommandDir != "" {
+		if dir := strings.Split(loc.CommandDir, "/"); len(parts) == len(dir)+1 &&
+			strings.Join(parts[:len(dir)], "/") == loc.CommandDir {
+			name := parts[len(parts)-1]
+			return strings.HasSuffix(name, ".md") && component.MatchString(strings.TrimSuffix(name, ".md"))
+		}
+	}
+	if !loc.InstallsSkills() {
+		return false
+	}
+	dir := strings.Split(loc.SkillDir, "/")
+	return len(parts) == len(dir)+2 && strings.Join(parts[:len(dir)], "/") == loc.SkillDir &&
+		component.MatchString(parts[len(dir)]) && parts[len(parts)-1] == "SKILL.md"
+}
+
+// managedLegacyPath recognises the repository layout that preceded the move to
+// user-level configuration, so those copies can be retired from a checkout.
+func managedLegacyPath(p string) bool {
 	parts := strings.Split(filepath.ToSlash(p), "/")
 	if len(parts) == 3 && parts[0] == ".claude" && parts[1] == "commands" {
 		return strings.HasSuffix(parts[2], ".md") && component.MatchString(strings.TrimSuffix(parts[2], ".md"))
