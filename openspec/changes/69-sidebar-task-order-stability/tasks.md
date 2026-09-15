@@ -8,4 +8,4 @@
 - [x] 6. Add `desktop/tests/task-order-hold.ui.cjs` and realign `desktop/tests/task-order-render.ui.cjs`: the row sequence is stable while hovering across a state change, the badge still updates, and the new order applies once the pointer leaves.
 - [x] 7. Build the desktop app (`npm --prefix desktop run build`).
 - [x] 8. Run the desktop UI suite (`npm --prefix desktop run test:ui`) and the repository suite (`make test`); report real output.
-- [ ] 9. Re-read the diff, commit, push and update the pull request.
+- [x] 9. Re-read the diff, merge `origin/main`, commit, push and mark the pull request ready.
