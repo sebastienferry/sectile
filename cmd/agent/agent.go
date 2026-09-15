@@ -45,7 +45,10 @@ type agentDaemon struct {
 	desktopInfo      string
 	// loopbackToken proves a process belongs to this agent session. It carries
 	// no identity, is regenerated at every start and never leaves the machine.
-	loopbackToken    string
+	loopbackToken string
+	// echoConsoles mirrors console output on the agent's own stdout. Off by
+	// default: it is a debugging aid, not a way to read runs.
+	echoConsoles     bool
 	runsMu           sync.Mutex
 	runs             map[string]*controlledRun
 	serverURL        string
@@ -124,6 +127,7 @@ func runAgentCommand(args []string) {
 	fs.Bool("desktop", false, "Deprecated compatibility flag; local consoles are always available")
 	desktopInfo := fs.String("desktop-info", "", "Private local connection file (default: ~/.taskflow/agent-connection.json)")
 	listProjects := fs.Bool("list-projects", false, "List server projects and exit")
+	echoConsoles := fs.Bool("echo-consoles", false, "Mirror console output on this terminal (debugging; consoles are readable from the desktop)")
 	_ = fs.Parse(args)
 
 	resolvedURL := resolveServerURL(*serverURL)
@@ -172,6 +176,7 @@ func runAgentCommand(args []string) {
 		terminalApp:      termChoice,
 		terminalExplicit: termExplicit,
 		terminalMgr:      terminal.NewManager(),
+		echoConsoles:     *echoConsoles,
 		repoRoot:         *repoRoot,
 		done:             make(chan struct{}),
 	}
@@ -847,12 +852,20 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 		return err
 	}
 
-	sess.AddOutputListener(func(chunk []byte) {
-		_, _ = os.Stdout.Write(chunk)
-	})
+	// The console output already reaches the desktop over the WebSocket and is
+	// kept in the session history. Echoing it here as well buries the agent's
+	// own messages under whatever the model writes, which makes the terminal
+	// the agent runs in unusable exactly when something needs diagnosing.
+	if d.echoConsoles {
+		sess.AddOutputListener(func(chunk []byte) {
+			_, _ = os.Stdout.Write(chunk)
+		})
+	}
 
 	time.Sleep(350 * time.Millisecond)
-	log.Printf("⚡ [Agent] Launching skill command in local PTY terminal: %s (workdir: %s)", fullLine, workDir)
+	// The full line carries the prompt, which can run to thousands of
+	// characters. What identifies a launch is the session and where it runs.
+	log.Printf("⚡ [Agent] Launching skill command in local PTY terminal (session: %s, workdir: %s)", sessionID, workDir)
 	startedAt := time.Now().UTC()
 	if err := d.terminalMgr.SendInput(sessionID, fullLine+"\n"); err != nil {
 		return err
