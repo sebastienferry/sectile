@@ -75,6 +75,16 @@ func detectDefaultTerminal() string {
 	return "pty"
 }
 
+func resolveServerURL(flagURL string) string {
+	if flagURL != "" {
+		return flagURL
+	}
+	if envURL := os.Getenv("REMOTE_URL"); envURL != "" {
+		return envURL
+	}
+	return ""
+}
+
 // runAgentCommand is the entrypoint for "taskflow-agent". It parses flags,
 // connects to the remote server, and enters the main event loop.
 func runAgentCommand(args []string) {
@@ -91,15 +101,13 @@ func runAgentCommand(args []string) {
 	listProjects := fs.Bool("list-projects", false, "List server projects and exit")
 	_ = fs.Parse(args)
 
-	if *serverURL == "" {
-		if envURL := os.Getenv("REMOTE_URL"); envURL != "" {
-			*serverURL = envURL
-		} else {
-			fmt.Fprintln(os.Stderr, "Error: --url is required (or set REMOTE_URL)")
-			fs.Usage()
-			os.Exit(1)
-		}
+	resolvedURL := resolveServerURL(*serverURL)
+	if resolvedURL == "" {
+		fmt.Fprintln(os.Stderr, "Error: --url is required (or set REMOTE_URL)")
+		fs.Usage()
+		os.Exit(1)
 	}
+	*serverURL = resolvedURL
 
 	if *token == "" {
 		if envToken := os.Getenv("TASKFLOW_AGENT_TOKEN"); envToken != "" {
