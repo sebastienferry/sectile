@@ -47,3 +47,39 @@ func TestAgentConfigRepositoryMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentConfigLegacyBareCommandTemplate(t *testing.T) {
+	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	// Rows written before templates carried {prompt} hold the CLI name alone.
+	if _, err = database.UpdateSettings(models.Settings{AIProvider: "agy", AICommandTemplate: "agy"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, provider, template, wantProvider, wantTemplate, wantErr string }{
+		{"inherited bare name", "", "", "agy", "", ""},
+		{"project bare name", "claude", "claude", "claude", "", ""},
+		{"project template kept", "claude", `claude -p "{prompt}"`, "claude", `claude -p "{prompt}"`, ""},
+		{"custom stays strict", "custom", "/opt/cli run", "", "", "must contain {prompt}"},
+	} {
+		project, err := database.CreateProject(models.CreateProjectRequest{Name: tc.name, AIProvider: tc.provider, AICommandTemplate: tc.template})
+		if err != nil {
+			t.Fatal(err)
+		}
+		config, err := database.AgentConfig(project.ID, "")
+		if tc.wantErr != "" {
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("%s: err=%v", tc.name, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if config.AIProvider != tc.wantProvider || config.AICommandTemplate != tc.wantTemplate {
+			t.Fatalf("%s: provider=%q template=%q", tc.name, config.AIProvider, config.AICommandTemplate)
+		}
+	}
+}

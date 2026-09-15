@@ -140,8 +140,10 @@ framework value; the database migrates that value to `openspec` on startup.
 
 The agent hosts native coding CLI sessions in local PTYs. The optional desktop
 connects through the private loopback API and displays console replay, input and
-execution status. Closing the desktop leaves active executions running. Legacy
-server terminal endpoints return 410 and do not create a shell.
+execution status. While connected, its header server address opens the board in
+the default browser using mouse or keyboard activation. Closing the desktop
+leaves active executions running. Legacy server terminal endpoints return 410
+and do not create a shell.
 
 ## 5. Live Git Diff & Branch Management
 

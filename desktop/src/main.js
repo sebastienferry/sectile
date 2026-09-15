@@ -1,3 +1,4 @@
+import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 
 import { skillResult } from './skill-result.mjs'
@@ -13,7 +14,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
 <form id="start"><label>TaskFlow server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article></main>
+<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" aria-label="Close">×</button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:'Menlo, monospace',scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
 const fit=new FitAddon();terminal.loadAddon(fit)
@@ -32,6 +33,13 @@ const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:run.tas
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
 let disconnectedProjects=new Set(),projectStateVersion=0,refreshing=false
+// A background refresh must not reorder or rebuild the task list under the
+// user's pointer: it is deferred until the interaction ends.
+let pendingRender=false
+const sidebarList=()=>document.querySelector('#runs')
+// Only the task rows are held: project headings and the queue view keep
+// refreshing normally.
+const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!document.activeElement?.closest?.('#runs .local-task')
 const hiddenProject=id=>disconnectedProjects.has(id)
 const hiddenRun=run=>hiddenProject(run.projectId)||(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
 function saveLocalTasks(){localStorage.setItem('localTasks',JSON.stringify(localTasks))}
@@ -41,14 +49,34 @@ const queueProjects=new Set()
 
 let linksLoading=false,lastLinksRefresh=0
 let selectedProject=null
+let logsOpen=false,agentConnected=false
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:()=>{resize();if(opened)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
-terminal.onData(data=>{if(!changes.active)api.input(data)})
-function resize(){if(opened&&!changes.active){fit.fit();api.resize(terminal.cols,terminal.rows)}}
+terminal.onData(data=>{if(!changes.active&&!logsOpen)api.input(data)})
+function resize(){if(opened&&!changes.active&&!logsOpen){fit.fit();api.resize(terminal.cols,terminal.rows)}}
 window.addEventListener('resize',resize)
 function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
+function connectionStatus(status){
+ const container=document.querySelector('#connection')
+ if(!status.connected){container.textContent=status.text||'Local agent ready · Server disconnected';return}
+ let link=container.querySelector('a')
+ if(!link){
+  link=document.createElement('a')
+  link.onclick=event=>{event.preventDefault();api.openBoard().catch(error)}
+  container.replaceChildren(document.createTextNode('Connected to '),link)
+ }
+ link.textContent=status.server
+ link.title='Open board in default browser'
+ try{
+  const url=new URL(status.server)
+  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
+  url.searchParams.delete('task');url.hash=''
+  link.href=url.href
+ }catch{container.textContent='Connected to '+status.server}
+}
 function agentUnavailable(){
+ agentConnected=false
  changes.disconnect()
  document.querySelector('#start-agent').disabled=false
  document.querySelector('#start button').disabled=false
@@ -56,22 +84,24 @@ function agentUnavailable(){
  document.querySelector('#shutdown').hidden=true
  document.querySelector('#restart').hidden=true
  document.querySelector('#agent-offline').hidden=false
- document.querySelector('#setup').hidden=false
- document.querySelector('#workspace').hidden=true
- document.querySelector('#connection').textContent='Local agent stopped'
+ document.querySelector('#setup').hidden=logsOpen
+ document.querySelector('#workspace').hidden=!logsOpen
+ connectionStatus({text:'Local agent stopped'})
  projectsLoaded=false
  api.detach().catch(()=>{})
 }
 function ready(){
+ agentConnected=true
  document.querySelector('#agent-offline').hidden=true
  if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false})}
  document.querySelector('#start-agent').disabled=true;document.querySelector('#start button').disabled=true;document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
- document.querySelector('#connection').textContent='Local agent connected'
+ if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
 }
-function select(run){
+function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
+ if(!background)closeLogs(false)
  selectedProject=run.projectId
  selected=run.id
  changes.select(selected)
@@ -85,10 +115,10 @@ function select(run){
   api.detach().catch(error)
   const message=run.status==='queued'?'Execution queued. Waiting for a console.':run.status==='preparing'?'Preparing execution. Waiting for a console.':run.status==='canceled'?'Execution canceled before a console was created.':'No console is available for this execution. Check the task activity and local agent.log for launch errors.'
   terminal.writeln(message)
-  render();return
+  render(options);return
  }
- api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active)terminal.focus()}).catch(error)
- render()
+ api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen)terminal.focus()}).catch(error)
+ render(options)
 }
 function renderQueue(project,group){
  const runsForProject=runs.filter(run=>run.projectId===project.id)
@@ -142,6 +172,14 @@ async function refreshVisibleSkillResults(){
   }))
  }finally{refreshingVisibleSkillResults=false}
 }
+// Keeps the visible indicators live while the row sequence is held.
+function renderTaskRowStates(){
+ for(const button of document.querySelectorAll('.local-task .run')){
+  const run=runs.find(item=>item.id===button.dataset.runId)
+  if(run)button.dataset.status=run.status
+ }
+ renderTaskSkillStatuses()
+}
 function renderTaskSkillStatuses(){
  for(const badge of document.querySelectorAll('.task-skill-status')){
   const run=runs.find(item=>item.id===badge.dataset.runId)
@@ -167,7 +205,9 @@ function renderHeader(){
  badge.hidden=!result
  if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title=result.label;badge.setAttribute('aria-label',result.label)}
 }
-function render(){
+function render(options){
+ if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();return}
+ pendingRender=false
  changes.select(selected)
  renderHeader()
  const list=document.querySelector('#runs');list.replaceChildren()
@@ -216,7 +256,7 @@ function render(){
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in TaskFlow';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in TaskFlow');context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
-    button.title=title.textContent+' · '+runLabel(run)+' · '+executions.length+' execution(s)';button.dataset.status=run.status
+    button.title=title.textContent+' · '+runLabel(run)+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
     button.append(title,status);button.onclick=()=>select(run)
     const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.onclick=()=>taskMenu(run)
     const archive=document.createElement('button');archive.className='task-archive'
@@ -252,7 +292,7 @@ function render(){
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
  renderNextStep()
 }
-async function updateDisconnected(ids,force=false){
+async function updateDisconnected(ids,force=false,deferrable=false){
  const changed=ids.length!==disconnectedProjects.size||ids.some(id=>!disconnectedProjects.has(id))
  disconnectedProjects=new Set(ids)
  if(hiddenProject(selectedProject))selectedProject=null
@@ -263,7 +303,7 @@ async function updateDisconnected(ids,force=false){
   document.querySelector('#directory').textContent=''
   await api.detach().catch(error)
  }
- if(changed||force)render()
+ if(changed||force)render(deferrable?{deferrable:true}:undefined)
 }
 async function refresh(){
  if(refreshing||restarting||!document.querySelector('#setup').hidden)return
@@ -273,14 +313,14 @@ async function refresh(){
   const next=await api.runs(),status=await api.status()
   if(version!==projectStateVersion)return
   ready();refreshPRs(next)
-  document.querySelector('#connection').textContent=status.connected?'Connected to '+status.server:'Local agent ready · Server disconnected'
+  connectionStatus(status)
   const previous=runs.find(run=>run.id===selected)
   const serialized=JSON.stringify(next),changed=serialized!==last
   runs=next;last=serialized
-  await updateDisconnected(status.disconnectedProjects||[],changed)
+  await updateDisconnected(status.disconnectedProjects||[],changed,true)
   const current=runs.find(run=>run.id===selected)
-  if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current)
-  if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible)}
+  if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
+  if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   refreshVisibleSkillResults()
  }catch{agentUnavailable()}
@@ -295,6 +335,11 @@ document.querySelector('#stop').onclick=async()=>{
  if(!selected)return;stopping=true;render()
  try{await api.stop(selected);await refresh()}catch(err){error(err)}finally{stopping=false;render()}
 }
+function flushSidebar(){if(pendingRender&&!sidebarBusy())render()}
+// Hover and focus targets settle after the event, so the check runs next tick.
+const scheduleFlush=()=>setTimeout(flushSidebar,0)
+sidebarList().addEventListener('pointerout',scheduleFlush)
+sidebarList().addEventListener('focusout',scheduleFlush)
 api.connect().then(connected=>{if(connected){ready();refresh()}else{agentUnavailable()}}).catch(error)
 setInterval(async()=>{
  if(restarting)return
@@ -331,6 +376,7 @@ async function loadSettings(){
 }
 const settingsReady=loadSettings().catch(error)
 document.querySelector('#configure').onclick=()=>{
+ if(logsOpen){closeLogs(false);document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true;return}
  const setup=document.querySelector('#setup');setup.hidden=!setup.hidden
  document.querySelector('#workspace').hidden=!setup.hidden
 }
@@ -365,32 +411,58 @@ const dialog=document.querySelector('#project-dialog'),dialogBody=document.query
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
 document.querySelector('#dismiss-dialog').onclick=()=>dialog.close()
 function showDialog(title){
- document.querySelector('#dismiss-dialog').textContent=title==='Agent logs'?'Close logs':'Close settings'
+ closeLogs(false)
+ document.querySelector('#dismiss-dialog').textContent='Close settings'
  dialogBody.replaceChildren()
  const heading=document.createElement('h2');heading.textContent=title;dialogBody.append(heading)
  if(!dialog.open)dialog.showModal()
 }
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
+const logPane=document.querySelector('#agent-log-pane')
+function closeLogs(restoreFocus=true){
+ if(!logsOpen)return
+ logsOpen=false;logPane.hidden=true;logPane.replaceChildren()
+ document.querySelector('#workspace article').hidden=false
+ document.querySelector('#workspace').hidden=!agentConnected
+ document.querySelector('#setup').hidden=agentConnected
+ document.querySelector('#agent-logs').setAttribute('aria-pressed','false')
+ resize()
+ if(restoreFocus)document.querySelector('#agent-logs').focus()
+}
+window.addEventListener('keydown',event=>{
+ if(event.key==='Escape'&&logsOpen&&!dialog.open){event.preventDefault();closeLogs()}
+})
+document.querySelector('#agent-logs').setAttribute('aria-pressed','false')
 document.querySelector('#agent-logs').onclick=()=>{
- showDialog('Agent logs')
- paragraph('Diagnostics captured by this desktop app. Agents started elsewhere may write to their original terminal instead.')
- const source=paragraph('');source.className='agent-log-source'
+ if(dialog.open)dialog.close()
+ logsOpen=true;logPane.hidden=false;logPane.replaceChildren()
+ document.querySelector('#workspace article').hidden=true
+ document.querySelector('#workspace').hidden=false
+ document.querySelector('#setup').hidden=true
+ document.querySelector('#agent-logs').setAttribute('aria-pressed','true')
+ const heading=document.createElement('h2');heading.textContent='Agent logs'
+ const close=document.createElement('button');close.type='button';close.textContent='Close logs';close.onclick=()=>closeLogs()
+ const toolbar=document.createElement('div');toolbar.className='agent-log-toolbar';toolbar.append(heading,close)
+ const description=document.createElement('p');description.textContent='Diagnostics captured by this desktop app. Agents started elsewhere may write to their original terminal instead.'
+ const source=document.createElement('p');source.className='agent-log-source'
  const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh'
  const status=document.createElement('p');status.setAttribute('role','status')
  const output=document.createElement('pre');output.className='agent-log-output';output.tabIndex=0;output.setAttribute('aria-label','Agent log contents')
- dialogBody.append(refresh,status,output)
+ logPane.append(toolbar,description,source,refresh,status,output)
  const load=async()=>{
   refresh.disabled=true;output.textContent='';status.textContent='Loading agent log…'
   try{
    const snapshot=await api.agentLogs()
+   if(!output.isConnected)return
    source.textContent=snapshot.path
    status.textContent=snapshot.missing?'No desktop agent log exists yet.':!snapshot.text?'The agent log is empty.':snapshot.truncated?'Showing the latest 256 KiB; earlier output omitted.':'Showing the current log snapshot.'
-   output.textContent=snapshot.text
+   output.textContent=logText(snapshot.text)
    output.scrollTop=output.scrollHeight
-  }catch(err){status.textContent='Unable to read agent log: '+(err.message||String(err))}
+  }catch(err){if(output.isConnected)status.textContent='Unable to read agent log: '+(err.message||String(err))}
   finally{refresh.disabled=false}
  }
  refresh.onclick=load
+ close.focus()
  load()
 }
 
@@ -596,6 +668,7 @@ if(localStorage.getItem('sidebarCollapsed')==='true'){
  document.querySelector('#toggle-sidebar').setAttribute('aria-expanded','false')
 }
 document.querySelector('#start-agent').onclick=async()=>{
+ closeLogs(false)
  await settingsReady
  document.querySelector('#setup').hidden=false
  document.querySelector('#workspace').hidden=true

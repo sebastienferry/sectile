@@ -41,6 +41,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		TrackerURL: p.TrackerUrl, LinearTeam: p.LinearTeam, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
 		Parallelism: p.Parallelism, SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage,
 		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, ExternalTerminalCommand: p.ExternalTerminalCommand,
+		SetupProviders: models.NormalizeSetupProviders(p.SetupProviders),
 	}
 	if c.GithubRepo == "" {
 		c.GithubRepo = s.GithubRepo
@@ -57,6 +58,8 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	if c.AICommandTemplate == "" {
 		c.AICommandTemplate = s.AICommandTemplate
 	}
+	// Legacy rows store a bare CLI name here; the runner never used it, so the agent must not see it.
+	c.AICommandTemplate = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplate)
 	if c.ExternalTerminalCommand == "" {
 		c.ExternalTerminalCommand = s.ExternalTerminalCommand
 	}

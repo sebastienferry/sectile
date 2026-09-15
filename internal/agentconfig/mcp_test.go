@@ -14,9 +14,8 @@ import (
 func TestBootstrapMCPPreservesConfigAndRefreshesGateway(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
 		t.Run(provider, func(t *testing.T) {
-			root := t.TempDir()
 			t.Setenv("HOME", t.TempDir())
-			path, err := BootstrapMCP(root, provider, "/opt/taskflow", "http://127.0.0.1:8091")
+			path, err := BootstrapMCP(provider, "/opt/taskflow", "http://127.0.0.1:8091")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -60,7 +59,7 @@ func TestBootstrapMCPPreservesConfigAndRefreshesGateway(t *testing.T) {
 			if err = os.WriteFile(path, raw, 0600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = BootstrapMCP(root, provider, "/opt/new taskflow", "http://127.0.0.1:45123"); err != nil {
+			if _, err = BootstrapMCP(provider, "/opt/new taskflow", "http://127.0.0.1:45123"); err != nil {
 				t.Fatal(err)
 			}
 			result := read()
@@ -90,22 +89,23 @@ func TestBootstrapMCPPreservesConfigAndRefreshesGateway(t *testing.T) {
 
 func TestBootstrapMCPRejectsInvalidConfigWithoutOverwriting(t *testing.T) {
 	root := t.TempDir()
-	path := filepath.Join(root, ".mcp.json")
+	t.Setenv("HOME", root)
+	path := filepath.Join(root, ".claude.json")
 	raw := []byte("invalid json")
 	if err := os.WriteFile(path, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BootstrapMCP(root, "claude", "/bin/taskflow", "http://127.0.0.1:8091"); err == nil {
+	if _, err := BootstrapMCP("claude", "/bin/taskflow", "http://127.0.0.1:8091"); err == nil {
 		t.Fatal("invalid configuration accepted")
 	}
 	got, _ := os.ReadFile(path)
 	if string(got) != string(raw) {
 		t.Fatal("existing config damaged")
 	}
-	if _, err := BootstrapMCP(root, "custom", "/bin/taskflow", "http://127.0.0.1:8091"); err == nil {
+	if _, err := BootstrapMCP("custom", "/bin/taskflow", "http://127.0.0.1:8091"); err == nil {
 		t.Fatal("unsupported provider silently accepted")
 	}
-	if _, err := BootstrapMCP(root, "codex", "/bin/taskflow", ""); err == nil {
+	if _, err := BootstrapMCP("codex", "/bin/taskflow", ""); err == nil {
 		t.Fatal("missing gateway accepted")
 	}
 }
@@ -118,7 +118,7 @@ func TestBootstrapMCPVisibleToAgy(t *testing.T) {
 	}
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	if _, err := BootstrapMCP(root, "agy", "/usr/bin/true", "http://127.0.0.1:8091"); err != nil {
+	if _, err := BootstrapMCP("agy", "/usr/bin/true", "http://127.0.0.1:8091"); err != nil {
 		t.Fatal(err)
 	}
 	command := exec.Command(agy, "mcp", "list")

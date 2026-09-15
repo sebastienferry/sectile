@@ -253,3 +253,26 @@ func TestWebSkillRequiresLocalAgent(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentConfigServesLegacyBareTemplateAsEmpty(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	t.Setenv("TASKFLOW_SERVER_TOKEN", "expected")
+	if _, err := database.UpdateSettings(models.Settings{AIProvider: "agy", AICommandTemplate: "agy"}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest("GET", "/api/v1/agent/config?projectId=default", nil)
+	req.Header.Set("Authorization", "Bearer expected")
+	rr := httptest.NewRecorder()
+	h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)).ServeHTTP(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("legacy template rejected: %d %s", rr.Code, rr.Body.String())
+	}
+	var c agentconfig.Config
+	if err := json.Unmarshal(rr.Body.Bytes(), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.AIProvider != "agy" || c.AICommandTemplate != "" {
+		t.Fatalf("provider=%q template=%q", c.AIProvider, c.AICommandTemplate)
+	}
+}

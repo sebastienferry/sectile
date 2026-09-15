@@ -12,10 +12,12 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// BootstrapMCP registers the daemon's stdio bridge in the target CLI's project
-// configuration (user configuration for agy). The reserved TaskFlow entry migrates to Sectile;
-// bearer credentials are never written. Native tool permissions remain in force.
-func BootstrapMCP(root, provider, executable, gateway string) (string, error) {
+// BootstrapMCP registers the daemon's stdio bridge in the selected CLI's
+// user-level configuration. Nothing is written inside the repository: a checkout
+// must stay free of agent configuration. The reserved TaskFlow entry migrates to
+// Sectile; bearer credentials are never written. Native tool permissions remain
+// in force.
+func BootstrapMCP(provider, executable, gateway string) (string, error) {
 	if !filepath.IsAbs(executable) {
 		return "", fmt.Errorf("MCP executable must be an absolute path")
 	}
@@ -24,28 +26,11 @@ func BootstrapMCP(root, provider, executable, gateway string) (string, error) {
 		return "", fmt.Errorf("MCP bootstrap requires a running loopback agent gateway")
 	}
 	provider = strings.ToLower(strings.TrimSpace(provider))
-	path := ""
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "codex":
-		path = ".codex/config.toml"
-	case "claude":
-		path = ".mcp.json"
-	case "agy":
-		// agy ignores workspace MCP files and reads this user-level registry.
-		root, err = os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		path = ".gemini/config/mcp_config.json"
-	case "gemini":
-		path = ".gemini/settings.json"
-	case "cursor":
-		path = ".cursor/mcp.json"
-	case "vibe":
-		path = ".vibe/config.toml"
-	default:
-		return "", fmt.Errorf("automatic MCP bootstrap is unsupported for provider %q; select a supported aiProvider", provider)
+	loc, err := ResolveLocations(provider)
+	if err != nil {
+		return "", err
 	}
+	root, path := loc.Home, loc.MCPFile
 	fs, err := os.OpenRoot(root)
 	if err != nil {
 		return "", err
@@ -79,7 +64,7 @@ func BootstrapMCP(root, provider, executable, gateway string) (string, error) {
 	if err := migrateMCPRegistration(data, provider, entry); err != nil {
 		return "", fmt.Errorf("migrate MCP configuration %s: %w", path, err)
 	}
-	if err := checkExternalMCPPolicies(root, provider, filepath.Join(root, path)); err != nil {
+	if err := checkExternalMCPPolicies(loc.Home, provider, filepath.Join(loc.Home, path)); err != nil {
 		return "", err
 	}
 	if isTOML {

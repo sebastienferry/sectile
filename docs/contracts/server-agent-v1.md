@@ -24,7 +24,7 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `specFramework` | Specification framework used by the project skills. |
 | `useWorktrees` | Create/reuse task worktrees when true; validate the existing checkout when false. |
 | `aiProvider` | `codex`, `claude`, `agy`, `gemini`, `cursor`, `vibe`, or `custom`; empty uses the legacy `agy` default. |
-| `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; argument placeholders are shell-safe: `{prompt}`, `{issueKey}`, `{issueTitle}`, `{issueDesc}`, `{branchName}`, `{repoPath}`, `{tracker}`, `{repo}`. Task values are fetched for each launch; branch/path identify local execution. See [desktop usage](../../desktop/README.md). Custom providers still require supported native MCP bootstrap. |
+| `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; argument placeholders are shell-safe: `{prompt}`, `{issueKey}`, `{issueTitle}`, `{issueDesc}`, `{branchName}`, `{repoPath}`, `{tracker}`, `{repo}`. Task values are fetched for each launch; branch/path identify local execution. See [desktop usage](../../desktop/README.md). Custom providers still require supported native MCP bootstrap. A template without `{prompt}` on a named provider is legacy data: the server serves it as empty and the provider default runs. |
 | `externalTerminalCommand` | Terminal application/launcher selection. No silent fallback to a hidden PTY after launch failure. |
 | `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. |
 
@@ -55,10 +55,15 @@ the explicit `open_terminal` action requires an external window. Legacy
 
 ## Skill ownership and recovery
 
-The incoming skill list declares managed paths under `.agents/skills`,
-`.agy/skills`, `.claude/skills`, `.gemini/skills`, `.skills` and `.claude/commands`.
-All IDs and destinations are validated before any installation. Duplicate
-paths, path traversal and symlink escapes are rejected.
+The incoming skill list is installed in the user configuration of each agent the
+project sets up, each as a single `SKILL.md`: `~/.claude/skills` for Claude,
+`~/.agents/skills` for Codex, `~/.gemini/config/skills` for Antigravity. An agent that
+substitutes arguments into the skill body receives the body carrying the ticket
+reference. Providers without a skill convention receive the MCP registration
+alone. `setupProviders` lists the additional agents; the provider that runs the
+task is always included. All IDs and destinations are validated before any
+installation. Duplicate paths, path traversal and symlink escapes are rejected.
+The checkout receives no managed file.
 
 Incoming managed content is authoritative at these paths. If an existing file
 differs from the incoming content and from its last installed hash, save it at
@@ -322,7 +327,7 @@ default file and its legacy private connection file.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1–3) defaults.
+The server project supplies `useWorktrees` and `parallelism` (1 to 3) defaults.
 In the desktop project settings, **Inherit worktrees from server** and
 **Inherit from server** for parallel executions remove local overrides.
 Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:
