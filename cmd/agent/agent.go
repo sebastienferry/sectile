@@ -92,10 +92,10 @@ func runAgentCommand(args []string) {
 	_ = fs.Parse(args)
 
 	if *serverURL == "" {
-		if envURL := os.Getenv("TASKFLOW_REMOTE_URL"); envURL != "" {
+		if envURL := os.Getenv("REMOTE_URL"); envURL != "" {
 			*serverURL = envURL
 		} else {
-			fmt.Fprintln(os.Stderr, "Error: --url is required (or set TASKFLOW_REMOTE_URL)")
+			fmt.Fprintln(os.Stderr, "Error: --url is required (or set REMOTE_URL)")
 			fs.Usage()
 			os.Exit(1)
 		}
