@@ -2,15 +2,31 @@
 EXE := $(if $(filter windows,$(shell go env GOOS)),.exe,)
 .PHONY: all server agent desktop start serve run binary-build dev dev-server dev-web build server-build agent-build test clean release reset-db
 
+# Node dependencies are reinstalled as soon as a lockfile moves, so a build never
+# starts with a package missing from node_modules. The stamp keeps repeat builds
+# free: npm only runs again when package.json or package-lock.json is newer.
+.PHONY: web-deps desktop-deps
+web-deps: web/node_modules/.install-stamp
+desktop-deps: desktop/node_modules/.install-stamp
+
+web/node_modules/.install-stamp: web/package.json web/package-lock.json
+	cd web && npm ci
+	@touch $@
+
+desktop/node_modules/.install-stamp: desktop/package.json desktop/package-lock.json
+	cd desktop && npm ci
+	cd desktop && node node_modules/electron/install.js
+	@touch $@
+
 # Development runs the Go API and Vite hot reload independently.
-dev:
+dev: web-deps
 	@echo "Starting Go backend & Vite frontend in development mode..."
 	@(go run ./cmd/server & cd web && npm run dev)
 
 dev-server:
 	go run ./cmd/server
 
-dev-web:
+dev-web: web-deps
 	cd web && npm run dev
 
 # The server embeds the compiled web UI.
@@ -23,7 +39,7 @@ server-build: server
 agent-build: agent
 
 # The server embeds the UI; the agent builds independently of Node dependencies.
-server:
+server: web-deps
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
 	@mkdir -p bin
@@ -43,15 +59,15 @@ start:
 serve:
 	./bin/taskflow-server$(EXE) $(ARGS)
 
-run:
+run: desktop-deps
 	cd desktop && npm start
 
-test:
+test: web-deps
 	go test ./...
 	cd web && npm test && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
 
 # Both components cross-compile with pure Go dependencies.
-release: 
+release: web-deps
 	@echo "Building interface..."
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
@@ -87,12 +103,10 @@ clean:
 	@mkdir -p internal/webui/dist && touch internal/webui/dist/.gitkeep
 
 .PHONY: desktop-build desktop desktop-package
-desktop-build: agent
+desktop-build: agent desktop-deps
 	mkdir -p desktop/bin
 	cp bin/taskflow-agent$(EXE) desktop/bin/taskflow-agent$(EXE).new
 	mv -f desktop/bin/taskflow-agent$(EXE).new desktop/bin/taskflow-agent$(EXE)
-	cd desktop && npm ci
-	cd desktop && node node_modules/electron/install.js
 	cd desktop && npm run build
 
 desktop: desktop-package
