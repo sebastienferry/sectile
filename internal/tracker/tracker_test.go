@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"tasks/internal/models"
 	"testing"
 )
 
@@ -69,3 +70,69 @@ func TestIsUnsupportedIgnoresOtherErrors(t *testing.T) {
 		t.Error("nil n'est pas un refus")
 	}
 }
+
+func TestBaseTicketingSystemDefaultRefusals(t *testing.T) {
+	base := &BaseTicketingSystem{TrackerName: "dummy"}
+	ctx := context.Background()
+
+	if _, err := base.CreateIssue(ctx, CreateIssueRequest{}); !IsUnsupported(err) {
+		t.Errorf("CreateIssue should return Unsupported, got %v", err)
+	}
+	if _, err := base.GetIssue(ctx, GetIssueRequest{}); !IsUnsupported(err) {
+		t.Errorf("GetIssue should return Unsupported, got %v", err)
+	}
+	if err := base.UpdateIssue(ctx, UpdateIssueRequest{}); !IsUnsupported(err) {
+		t.Errorf("UpdateIssue should return Unsupported, got %v", err)
+	}
+	if err := base.DeleteIssue(ctx, DeleteIssueRequest{}); !IsUnsupported(err) {
+		t.Errorf("DeleteIssue should return Unsupported, got %v", err)
+	}
+	if _, err := base.SyncIssues(ctx, SyncRequest{}); !IsUnsupported(err) {
+		t.Errorf("SyncIssues should return Unsupported, got %v", err)
+	}
+	if err := base.AddComment(ctx, AddCommentRequest{}); !IsUnsupported(err) {
+		t.Errorf("AddComment should return Unsupported, got %v", err)
+	}
+	if _, err := base.GetComments(ctx, GetCommentsRequest{}); !IsUnsupported(err) {
+		t.Errorf("GetComments should return Unsupported, got %v", err)
+	}
+}
+
+func TestRegistryRegistrationAndResolution(t *testing.T) {
+	reg := NewRegistry()
+	local := NewLocalAdapter()
+	reg.Register("local", local)
+
+	dummy := &BaseTicketingSystem{TrackerName: "github", Capabilities: []Capability{CapCreate, CapSync}}
+	reg.Register("github", dummy)
+
+	// Get by name
+	got, ok := reg.Get("github")
+	if !ok || got.Name() != "github" {
+		t.Errorf("failed to get github tracker: %v, %v", got, ok)
+	}
+
+	// Case-insensitive lookup
+	if _, ok := reg.Get("GITHUB"); !ok {
+		t.Error("registry should be case-insensitive")
+	}
+
+	// ForProject resolution
+	projGH := &models.Project{IssueTracker: "github"}
+	ts, err := reg.ForProject(projGH)
+	if err != nil || ts.Name() != "github" {
+		t.Errorf("ForProject github failed: %v, %v", ts, err)
+	}
+
+	projLocal := &models.Project{IssueTracker: "local"}
+	ts, err = reg.ForProject(projLocal)
+	if err != nil || ts.Name() != "local" {
+		t.Errorf("ForProject local failed: %v, %v", ts, err)
+	}
+
+	projUnknown := &models.Project{IssueTracker: "unknown_tracker"}
+	if _, err := reg.ForProject(projUnknown); err == nil {
+		t.Error("ForProject should fail for unregistered tracker")
+	}
+}
+

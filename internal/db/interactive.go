@@ -1,10 +1,12 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // CompleteInteractiveStep closes a workflow step that ran in a TTY session.
@@ -29,39 +31,37 @@ func (d *DB) CompleteInteractiveStep(taskID, skillID, note string) (*models.Task
 }
 
 func (d *DB) pushStageToTracker(task *models.Task, stageLabel, statusTarget, trackerURL, note string) {
-	isTracked := task.Source == "linear" || task.Source == "github" || task.Source == "jira" ||
-		strings.HasPrefix(task.Key, "FRE-") || strings.HasPrefix(task.Key, "#") ||
-		strings.HasPrefix(task.Key, "gh-") || strings.HasPrefix(task.Key, "GH-#")
-	if !isTracked {
+	if task == nil {
+		return
+	}
+	ts, err := d.TrackerForTask(task)
+	if err != nil || ts == nil || ts.Name() == "local" {
 		return
 	}
 
-	settings, _ := d.GetSettings()
-	if settings == nil {
-		return
-	}
-	repoPath := d.ResolveTaskRepoPath(task)
-	if repoPath == "" {
-		repoPath = settings.RepoPath
-	}
 	stale := StaleWorkflowLabels(stageLabel)
 	body := ""
 	if strings.TrimSpace(note) != "" {
 		body = "### 💬 [TaskFlow] Rapport de session interactive\n\n" + note
 	}
 
-	go func(src, repo, rPath, key string, st models.Status, lbls, staleLbls []string, target, url, comment string) {
-		switch {
-		case src == "linear" || strings.HasPrefix(key, "FRE-"):
-			_ = d.trackers.UpdateLinearIssueState(key, st)
-			_ = d.trackers.UpdateLinearIssue(key, nil, nil, nil, &st, lbls)
-
-		default:
-			_ = d.trackers.UpdateGithubIssueState(repo, rPath, key, st)
-			_ = d.trackers.UpdateGithubIssue(repo, rPath, key, nil, nil, &st, lbls, staleLbls)
+	proj, _ := d.GetProjectByID(task.ProjectID)
+	go func(t models.Task, p *models.Project, staleLbls []string, comment string) {
+		ctx := context.Background()
+		_ = ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
+			Project:       p,
+			Task:          &t,
+			Key:           t.Key,
+			Status:        &t.Status,
+			Labels:        t.Labels,
+			RemovedLabels: staleLbls,
+		})
+		if comment != "" && ts.Supports(tracker.CapComment) {
+			_ = ts.AddComment(ctx, tracker.AddCommentRequest{
+				Project: p,
+				Key:     t.Key,
+				Body:    comment,
+			})
 		}
-		if comment != "" {
-			_ = d.trackers.AddIssueComment(src, repo, rPath, key, comment)
-		}
-	}(task.Source, settings.GithubRepo, repoPath, task.Key, task.Status, task.Labels, stale, statusTarget, trackerURL, body)
+	}(*task, proj, stale, body)
 }

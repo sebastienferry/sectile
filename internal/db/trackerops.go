@@ -605,26 +605,8 @@ func (d *DB) runTransitionOp(op TrackerOp, steps *[]string) (string, error) {
 	}
 
 	if !writer.Supports(tracker.CapTransition) {
-		// Linear tracker handler: update state via linear CLI
-		if task.Source == "linear" {
-			var statusVal models.Status = models.Status(strings.ToLower(strings.ReplaceAll(op.TargetStatus, " ", "_")))
-			if err := d.trackers.UpdateLinearIssueState(task.Key, statusVal); err != nil {
-				*steps = append(*steps, fmt.Sprintf("⚠️ Synchro distante Linear échouée pour %s: %v, statut gardé en local", task.Key, err))
-			} else {
-				*steps = append(*steps, fmt.Sprintf("✅ Ticket Linear %s mis à jour vers « %s »", task.Key, op.TargetStatus))
-			}
-			return fmt.Sprintf("%s transitionné vers « %s »", task.Key, op.TargetStatus), nil
-		}
-
-		// GitHub Issues tracker handler: update labels/state directly via runner if GitHub
-		if task.Source == "github" || (task.ExternalURL != nil && strings.Contains(*task.ExternalURL, "github.com")) {
-			repo := ""
-			repoPath := ""
-			if proj, _ := d.GetProjectByID(task.ProjectID); proj != nil {
-				repo = proj.GithubRepo
-				repoPath = proj.RepoPath
-			}
-
+		ts, tsErr := d.TrackerForTask(task)
+		if tsErr == nil && ts != nil && ts.Name() != "local" {
 			cleanStatus := strings.TrimSpace(op.TargetStatus)
 			cleanStatusLower := strings.ToLower(cleanStatus)
 
@@ -669,12 +651,21 @@ func (d *DB) runTransitionOp(op TrackerOp, steps *[]string) (string, error) {
 				labels = append(labels, targetLabel)
 			}
 
-			if err := d.trackers.UpdateGithubIssue(repo, repoPath, task.Key, nil, nil, &statusVal, labels, StaleWorkflowLabels(targetLabel)); err != nil {
-				*steps = append(*steps, fmt.Sprintf("⚠️ Synchro distante GitHub échouée pour %s: %v, statut gardé en local", task.Key, err))
-			} else {
-				*steps = append(*steps, fmt.Sprintf("✅ Ticket GitHub %s mis à jour avec le label « %s » (état: %s)", task.Key, targetLabel, statusVal))
+			if ts.Supports(tracker.CapUpdate) {
+				if err := ts.UpdateIssue(context.Background(), tracker.UpdateIssueRequest{
+					Project:       projObj,
+					Task:          task,
+					Key:           task.Key,
+					Status:        &statusVal,
+					Labels:        labels,
+					RemovedLabels: StaleWorkflowLabels(targetLabel),
+				}); err != nil {
+					*steps = append(*steps, fmt.Sprintf("⚠️ Synchro distante %s échouée pour %s: %v, statut gardé en local", ts.Name(), task.Key, err))
+				} else {
+					*steps = append(*steps, fmt.Sprintf("✅ Ticket %s %s mis à jour avec le label « %s » (état: %s)", ts.Name(), task.Key, targetLabel, statusVal))
+				}
+				return fmt.Sprintf("%s transitionné vers « %s »", task.Key, op.TargetStatus), nil
 			}
-			return fmt.Sprintf("%s transitionné vers « %s »", task.Key, op.TargetStatus), nil
 		}
 
 		*steps = append(*steps, fmt.Sprintf("ℹ️ %s : statut distant non géré (%v), gardé en local", task.Key, tracker.Unsupported(writer.Name(), tracker.CapTransition)))
@@ -704,10 +695,8 @@ func (d *DB) runStageOp(op TrackerOp, steps *[]string) (string, error) {
 	staleLabels := StaleWorkflowLabels(cleanStage)
 
 	writer, _ := d.writerForTask(task)
-	repo := ""
 	repoPath := d.ResolveTaskRepoPath(task)
 	if proj, _ := d.GetProjectByID(task.ProjectID); proj != nil {
-		repo = proj.GithubRepo
 		if repoPath == "" {
 			repoPath = proj.RepoPath
 		}
@@ -724,32 +713,32 @@ func (d *DB) runStageOp(op TrackerOp, steps *[]string) (string, error) {
 		}
 	}
 
-	// 2. Linear issue state & labels
-	if task.Source == "linear" || strings.HasPrefix(task.Key, "FRE-") {
-		if cleanStage == "finished" {
-			_ = d.trackers.UpdateLinearIssueState(task.Key, models.StatusDone)
-		} else if op.TargetStatus != "" {
-			_ = d.trackers.UpdateLinearIssueState(task.Key, models.Status(strings.ToLower(strings.ReplaceAll(op.TargetStatus, " ", "_"))))
-		}
-		_ = d.trackers.UpdateLinearIssue(task.Key, nil, nil, nil, &task.Status, task.Labels)
-		*steps = append(*steps, fmt.Sprintf("✅ Ticket Linear %s mis à jour avec le label « %s »", task.Key, targetLabel))
-	}
-
-	// 3. GitHub issues state & labels
-	if task.Source == "github" || (task.ExternalURL != nil && strings.Contains(*task.ExternalURL, "github.com")) || (repo != "" && (strings.HasPrefix(task.Key, "gh-") || strings.HasPrefix(task.Key, "#") || strings.HasPrefix(task.Key, "GH-#"))) {
+	// 2. Remote issue state & labels via TicketingSystem
+	ts, tsErr := d.TrackerForTask(task)
+	if tsErr == nil && ts != nil && ts.Name() != "local" {
 		var statusVal models.Status = task.Status
 		if cleanStage == "finished" {
-			statusVal = models.StatusDone
-			_ = d.trackers.UpdateGithubIssueState(repo, repoPath, task.Key, models.StatusDone)
+			statusVal = models.StatusFinished
 		}
-		if err := d.trackers.UpdateGithubIssue(repo, repoPath, task.Key, nil, nil, &statusVal, task.Labels, staleLabels); err != nil {
-			*steps = append(*steps, fmt.Sprintf("⚠️ Synchro distante GitHub échouée pour %s: %v, statut gardé en local", task.Key, err))
-		} else {
-			*steps = append(*steps, fmt.Sprintf("✅ Ticket GitHub %s mis à jour avec le label « %s »", task.Key, targetLabel))
+		if ts.Supports(tracker.CapUpdate) {
+			proj, _ := d.GetProjectByID(task.ProjectID)
+			if err := ts.UpdateIssue(context.Background(), tracker.UpdateIssueRequest{
+				Project:       proj,
+				Task:          task,
+				Key:           task.Key,
+				Status:        &statusVal,
+				TargetStatus:  op.TargetStatus,
+				Labels:        task.Labels,
+				RemovedLabels: staleLabels,
+			}); err != nil {
+				*steps = append(*steps, fmt.Sprintf("⚠️ Synchro distante %s échouée pour %s: %v, statut gardé en local", ts.Name(), task.Key, err))
+			} else {
+				*steps = append(*steps, fmt.Sprintf("✅ Ticket %s %s mis à jour avec le label « %s »", ts.Name(), task.Key, targetLabel))
+			}
 		}
 	}
 
-	// 4. Post comment / report note if provided
+	// 3. Post comment / report note if provided
 	if strings.TrimSpace(op.Note) != "" {
 		header := ""
 		switch cleanStage {
@@ -767,7 +756,7 @@ func (d *DB) runStageOp(op TrackerOp, steps *[]string) (string, error) {
 			header = fmt.Sprintf("### 🤖 [TaskFlow] Étape : %s\n\n", cleanStage)
 		}
 		commentBody := header + op.Note
-		_ = d.trackers.AddIssueComment(task.Source, repo, repoPath, task.Key, commentBody)
+		_ = d.AddTaskComment(task.ID, commentBody)
 		*steps = append(*steps, fmt.Sprintf("💬 Rapport d'étape consigné sur %s", task.Key))
 	}
 

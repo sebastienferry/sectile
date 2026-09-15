@@ -22,6 +22,16 @@ import (
 type Capability string
 
 const (
+	// CapCreate creates a work item in the tracker.
+	CapCreate Capability = "create"
+	// CapUpdate updates a work item in the tracker.
+	CapUpdate Capability = "update"
+	// CapDelete deletes or archives/closes a work item in the tracker.
+	CapDelete Capability = "delete"
+	// CapSync imports or synchronizes work items from the tracker.
+	CapSync Capability = "sync"
+	// CapGet fetches a single work item from the tracker.
+	CapGet Capability = "get"
 	// CapAssign sets or clears who owns a work item.
 	CapAssign Capability = "assign"
 	// CapTransition moves a work item to a status the tracker names.
@@ -42,6 +52,16 @@ const (
 // the message a refusal produces.
 func CapabilityLabel(c Capability) string {
 	switch c {
+	case CapCreate:
+		return "la création de ticket"
+	case CapUpdate:
+		return "la mise à jour de ticket"
+	case CapDelete:
+		return "la suppression de ticket"
+	case CapSync:
+		return "la synchronisation des tickets"
+	case CapGet:
+		return "la consultation de ticket"
 	case CapAssign:
 		return "l'assignation"
 	case CapTransition:
