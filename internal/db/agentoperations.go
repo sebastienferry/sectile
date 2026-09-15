@@ -72,12 +72,33 @@ func (d *DB) callAgentContext(parent context.Context, op agentprotocol.Operation
 	return nil
 }
 
+// localInspections are read-only lookups the agent answers from git plumbing
+// or the filesystem alone. They finish in milliseconds on a healthy agent, so
+// they get a budget that leaves ample room for a slow repository while still
+// failing fast when the agent is gone. Operations that may reach the network —
+// cloning, fetching, deleting a remote branch — keep the longer default.
+var localInspections = map[string]time.Duration{
+	"git_evidence":   15 * time.Second,
+	"git_status":     15 * time.Second,
+	"git_branches":   15 * time.Second,
+	"workspace_info": 15 * time.Second,
+	"spec_status":    15 * time.Second,
+	"skills_status":  15 * time.Second,
+	"skill_files":    15 * time.Second,
+	"read_skill":     15 * time.Second,
+	"open_editor":    15 * time.Second,
+	"cli_status":     30 * time.Second,
+}
+
 func operationTimeout(action string) time.Duration {
 	if action == "spec_install" {
 		return 7 * time.Minute
 	}
 	if action == "run_prompt" {
 		return 12 * time.Minute
+	}
+	if d, ok := localInspections[action]; ok {
+		return d
 	}
 	return 45 * time.Second
 }

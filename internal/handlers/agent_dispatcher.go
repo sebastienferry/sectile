@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"time"
@@ -17,6 +18,16 @@ import (
 )
 
 type AgentMessage = agentprotocol.Message
+
+const (
+	// defaultAgentPingInterval is how often the server pings a connected agent.
+	defaultAgentPingInterval = 10 * time.Second
+	// defaultAgentReadTimeout drops a connection that has produced neither a
+	// message nor a pong within this window. It must leave room for several
+	// missed pings so a briefly stalled network does not unregister a healthy
+	// agent.
+	defaultAgentReadTimeout = 30 * time.Second
+)
 
 // AgentConn represents a single connected local agent daemon. The connection
 // belongs to the user who authenticated and covers one project workspace.
@@ -28,9 +39,18 @@ type AgentConn struct {
 	DeviceID    string
 	Conn        *websocket.Conn
 	ConnectedAt time.Time
-	LastPingAt  time.Time
-	mu          sync.Mutex
+	// lastSeen holds the Unix nanoseconds of the last frame received from the
+	// agent. The read loop writes it while status handlers read it, so it is
+	// atomic rather than guarded by mu, which Send may hold for seconds.
+	lastSeen atomic.Int64
+	mu       sync.Mutex
 }
+
+// Touch records that a frame just arrived from the agent.
+func (ac *AgentConn) Touch() { ac.lastSeen.Store(time.Now().UnixNano()) }
+
+// LastSeen reports when the agent last produced a message or a pong.
+func (ac *AgentConn) LastSeen() time.Time { return time.Unix(0, ac.lastSeen.Load()) }
 
 // Send writes a JSON message to the agent WebSocket. It serialises access to
 // the underlying connection so multiple goroutines can call it safely.
@@ -56,6 +76,31 @@ func (ac *AgentConn) Close(code int, reason string) {
 	closeMsg := websocket.FormatCloseMessage(code, reason)
 	_ = ac.Conn.WriteMessage(websocket.CloseMessage, closeMsg)
 	_ = ac.Conn.Close()
+}
+
+// Keepalive pings the agent at a fixed interval until the connection ends. A
+// WebSocket that dies silently — a sleeping laptop, a dropped VPN, an expired
+// NAT binding — produces neither an error nor a close frame, so without this
+// the server keeps the slot registered and every operation pays its full
+// timeout before failing. Pings force the peer to answer, and a write failure
+// or a missed pong closes the connection, which unblocks the read loop and
+// unregisters the agent. Ping frames are written with WriteControl, which is
+// safe to call concurrently with Send and so never waits on mu.
+func (ac *AgentConn) Keepalive(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ac.done:
+			return
+		case <-ticker.C:
+			if err := ac.Conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(interval)); err != nil {
+				log.Printf("[AgentDispatcher] Keepalive ping failed for device=%s: %v", ac.DeviceID, err)
+				_ = ac.Conn.Close()
+				return
+			}
+		}
+	}
 }
 
 // agentKey uniquely identifies a connected agent slot.
@@ -107,8 +152,8 @@ func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *web
 		DeviceID:    deviceID,
 		Conn:        conn,
 		ConnectedAt: time.Now(),
-		LastPingAt:  time.Now(),
 	}
+	ac.Touch()
 	d.agents[key] = ac
 
 	log.Printf("[AgentDispatcher] Agent registered: user=%s project=%s device=%s", userID, projectID, deviceID)
@@ -196,7 +241,7 @@ func (d *AgentDispatcher) ConnectedAgents() []AgentConnInfo {
 			ProjectID:   ac.ProjectID,
 			DeviceID:    ac.DeviceID,
 			ConnectedAt: ac.ConnectedAt,
-			LastPingAt:  ac.LastPingAt,
+			LastPingAt:  ac.LastSeen(),
 		})
 	}
 	return out
@@ -373,4 +418,3 @@ func (d *AgentDispatcher) ReportRunningTasks(ac *AgentConn, msg AgentMessage) {
 	default:
 	}
 }
-
