@@ -35,7 +35,7 @@ Neither transport SHALL advertise or execute any of the eight `sectile_` tool na
 - **THEN** the call fails as an unknown tool and produces no task, comment, run or tracker mutation.
 
 ### Requirement: Managed registrations converge on Sectile
-Normal bootstrap SHALL create or migrate to exactly one managed `sectile` registration and remove the reserved `sectile` registration for Codex, Claude, Antigravity, Gemini, Cursor and Vibe. It SHALL preserve unrelated settings and registrations, explicit permission restrictions and provider-specific configuration locations. It SHALL NOT persist bearer credentials.
+Normal bootstrap SHALL create or migrate to exactly one managed `sectile` registration and remove the reserved `sectile` registration for Codex, Claude, Antigravity, Gemini, Cursor and Vibe. It SHALL write that registration to the provider's **user-level** configuration location for every supported provider. It SHALL preserve unrelated settings and registrations and explicit permission restrictions. It SHALL NOT persist bearer credentials, and SHALL NOT write MCP configuration into a repository or worktree.
 
 #### Scenario: Fresh or legacy-only configuration
 - **GIVEN** a supported provider with no managed registration or only a legacy `sectile` registration
@@ -58,6 +58,11 @@ Normal bootstrap SHALL create or migrate to exactly one managed `sectile` regist
 - **GIVEN** malformed configuration, invalid managed entries, conflicting restrictions, or a policy whose effective permissions cannot safely be preserved
 - **WHEN** bootstrap attempts migration
 - **THEN** it returns a clear actionable error and leaves the original file unchanged.
+
+#### Scenario: Registration written outside the checkout
+- **GIVEN** any supported provider
+- **WHEN** bootstrap succeeds
+- **THEN** the modified configuration file lies under the user's configuration home and not under the repository or worktree.
 
 ### Requirement: First-party instructions and callers use the new contract
 First-party server and agent calls, native launch prompts, built-in workflow templates, generated policy text and refreshed managed skills SHALL use canonical tool names and Sectile MCP naming. Existing run IDs and ownership semantics SHALL be retained.
