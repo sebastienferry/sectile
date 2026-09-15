@@ -299,3 +299,69 @@ func TestBranchPullRequestPrefersOpenThenMerged(t *testing.T) {
 		})
 	}
 }
+
+func TestNewClientResolvesTrackerCredentials(t *testing.T) {
+	cases := []struct {
+		name                   string
+		env                    map[string]string
+		wantGithub, wantLinear string
+	}{
+		{
+			name:       "generic name alone serves every provider",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic"},
+			wantGithub: "generic", wantLinear: "generic",
+		},
+		{
+			name:       "provider-specific names keep working on their own",
+			env:        map[string]string{"SECTILE_GITHUB_TOKEN": "gh", "SECTILE_LINEAR_API_KEY": "lin"},
+			wantGithub: "gh", wantLinear: "lin",
+		},
+		{
+			name:       "provider-specific name overrides the generic one",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "SECTILE_LINEAR_API_KEY": "lin"},
+			wantGithub: "generic", wantLinear: "lin",
+		},
+		{
+			name:       "generic name outranks the environment conventions",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "GH_TOKEN": "gh-cli", "LINEAR_API_KEY": "lin-cli"},
+			wantGithub: "generic", wantLinear: "generic",
+		},
+		{
+			name:       "environment conventions remain the last resort",
+			env:        map[string]string{"GITHUB_TOKEN": "ci", "LINEAR_API_KEY": "lin-cli"},
+			wantGithub: "ci", wantLinear: "lin-cli",
+		},
+		{name: "no credential at all"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			for _, name := range []string{"SECTILE_TRACKER_TOKEN", "SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "SECTILE_LINEAR_API_KEY", "LINEAR_API_KEY"} {
+				t.Setenv(name, "")
+			}
+			for name, value := range testCase.env {
+				t.Setenv(name, value)
+			}
+			c := NewClient()
+			if c.GithubToken != testCase.wantGithub || c.LinearToken != testCase.wantLinear {
+				t.Errorf("got github %q linear %q, want %q and %q", c.GithubToken, c.LinearToken, testCase.wantGithub, testCase.wantLinear)
+			}
+		})
+	}
+}
+
+func TestMissingCredentialErrorNamesNoProvider(t *testing.T) {
+	c := &Client{HTTP: http.DefaultClient}
+	for _, call := range []struct {
+		name string
+		run  func() error
+	}{
+		{"github", func() error { return c.github(context.Background(), http.MethodGet, "/rate_limit", nil, nil) }},
+		{"githubPages", func() error { _, err := c.githubPages(context.Background(), "repos/acme/app/issues"); return err }},
+		{"githubGraphQL", func() error { _, err := c.GithubGraphQL("{viewer{login}}"); return err }},
+	} {
+		err := call.run()
+		if err == nil || err.Error() != "configure SECTILE_TRACKER_TOKEN on the server" {
+			t.Errorf("%s: got %v, want the tracker-agnostic credential error", call.name, err)
+		}
+	}
+}
