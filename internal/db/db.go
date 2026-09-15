@@ -17,6 +17,7 @@ import (
 	_ "modernc.org/sqlite"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
 
@@ -93,6 +94,7 @@ func (l *ProjectLimiter) Release(projectID string) {
 type DB struct {
 	agentOperations  AgentOperations
 	trackers         *trackerapi.Client
+	trackerRegistry  *tracker.Registry
 	prEvidenceLookup func(string, string) (trackerapi.PullRequest, error)
 	conn             *sql.DB
 	mu               sync.RWMutex
@@ -115,12 +117,14 @@ func NewDB(dbPath string) (*DB, error) {
 	conn.SetMaxOpenConns(25)
 	conn.SetMaxIdleConns(10)
 
+	trackerClient := trackerapi.NewClient()
 	db := &DB{
-		conn:      conn,
-		trackers:  trackerapi.NewClient(),
-		jobQueue:  make(chan SkillJob, 100),
-		limiter:   newProjectLimiter(),
-		cancelMap: make(map[string]context.CancelFunc),
+		conn:            conn,
+		trackers:        trackerClient,
+		trackerRegistry: trackerapi.NewDefaultRegistry(trackerClient),
+		jobQueue:        make(chan SkillJob, 100),
+		limiter:         newProjectLimiter(),
+		cancelMap:       make(map[string]context.CancelFunc),
 	}
 	if err := db.initSchema(); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
@@ -138,6 +142,25 @@ func NewDB(dbPath string) (*DB, error) {
 
 func (d *DB) Close() error {
 	return d.conn.Close()
+}
+
+func (d *DB) TrackerRegistry() *tracker.Registry {
+	if d.trackerRegistry == nil {
+		d.trackerRegistry = trackerapi.NewDefaultRegistry(d.trackers)
+	}
+	return d.trackerRegistry
+}
+
+func (d *DB) TrackerForProject(proj *models.Project) (tracker.TicketingSystem, error) {
+	return d.TrackerRegistry().ForProject(proj)
+}
+
+func (d *DB) TrackerForTask(task *models.Task) (tracker.TicketingSystem, error) {
+	var proj *models.Project
+	if task != nil && task.ProjectID != "" {
+		proj, _ = d.GetProjectByID(task.ProjectID)
+	}
+	return d.TrackerRegistry().ForTask(task, proj)
 }
 
 func (d *DB) initSchema() error {
@@ -606,10 +629,10 @@ func (d *DB) ImportOrUpdateTasks(syncedTasks []models.Task) error {
 		if err == sql.ErrNoRows {
 			// Insert new task
 			newID := t.ID
-			if newID == "" {
+			if ts, ok := d.TrackerRegistry().Get(src); ok && ts != nil {
+				newID = ts.FormatTaskID(projID, t.Key, t.ID)
+			} else if newID == "" {
 				newID = uuid.New().String()
-			} else if projID != "default" && !strings.Contains(newID, projID) && (strings.HasPrefix(newID, "gh-") || strings.HasPrefix(t.Key, "#")) {
-				newID = fmt.Sprintf("gh-%s-%s", projID, strings.TrimPrefix(t.Key, "#"))
 			}
 			if isPinned {
 				_, _ = d.conn.Exec(`
@@ -1846,16 +1869,15 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 	githubRepo := settings.GithubRepo
 	jiraProject := settings.JiraProject
 	jiraUrl := settings.JiraUrl
-	repoPath := settings.RepoPath
-	tracker := settings.IssueTracker
-	if tracker == "" {
-		tracker = "linear"
+	trackerName := settings.IssueTracker
+	if trackerName == "" {
+		trackerName = "linear"
 	}
 
 	prefix := "TASK"
 	if proj != nil {
 		if proj.IssueTracker != "" {
-			tracker = proj.IssueTracker
+			trackerName = proj.IssueTracker
 		}
 		if proj.LinearTeam != "" {
 			linearTeam = proj.LinearTeam
@@ -1871,10 +1893,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 		if proj.TrackerUrl != "" {
 			jiraUrl = proj.TrackerUrl
 		}
-		if proj.RepoPath != "" {
-			repoPath = proj.RepoPath
-		}
-		if tracker == "jira" && proj.JiraProject != "" {
+		if trackerName == "jira" && proj.JiraProject != "" {
 			prefix = proj.JiraProject
 		} else if proj.LinearTeam != "" {
 			prefix = proj.LinearTeam
@@ -1896,7 +1915,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 
 	// Issue tracker / source defaults to project tracker, but respects requested source if specified
 	if req.Source == "" {
-		req.Source = tracker
+		req.Source = trackerName
 	}
 
 	if req.RequireRemoteCreation && req.Source != "local" && req.Source != "github" && req.Source != "linear" {
@@ -1918,30 +1937,32 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 	}
 
 	// Remote creation requires confirmation from the server HTTP adapter.
-	if req.Source == "linear" {
-		created, err := d.trackers.CreateLinearIssue(linearTeam, req.Title, req.Description, req.Priority, req.Labels)
-		if err == nil && created != nil {
-			id = created.ID
-			key = created.Key
-			extURL = created.ExternalURL
-		} else {
-			return nil, fmt.Errorf("Linear issue creation failed: %v", err)
-		}
-
-	} else if req.Source == "github" {
-		created, err := d.trackers.CreateGithubIssue(githubRepo, repoPath, req.Title, req.Description, req.Labels)
-		if err == nil && created != nil {
-			if projID != "default" {
-				id = fmt.Sprintf("gh-%s-%s", projID, strings.TrimPrefix(created.Key, "#"))
-			} else {
-				id = created.ID
+	ts, tsErr := d.TrackerForProject(proj)
+	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
+		created, err := ts.CreateIssue(context.Background(), tracker.CreateIssueRequest{
+			Project:     proj,
+			Title:       req.Title,
+			Description: req.Description,
+			Priority:    req.Priority,
+			Labels:      req.Labels,
+			Team:        linearTeam,
+		})
+		if err != nil {
+			trackerTitle := ts.Name()
+			if strings.EqualFold(trackerTitle, "linear") {
+				trackerTitle = "Linear"
+			} else if strings.EqualFold(trackerTitle, "github") {
+				trackerTitle = "GitHub"
 			}
+			return nil, fmt.Errorf("%s issue creation failed: %v", trackerTitle, err)
+		}
+		if created != nil {
+			id = ts.FormatTaskID(projID, created.Key, created.ID)
 			key = created.Key
 			extURL = created.ExternalURL
 		} else {
-			return nil, fmt.Errorf("GitHub issue creation failed: %v", err)
+			return nil, fmt.Errorf("%s issue creation failed: empty response", ts.Name())
 		}
-
 	} else {
 		// Local project tracker
 		key, _ = d.getNextTaskKey(projID, prefix)
@@ -3386,113 +3407,13 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 	var hasError bool
 	var totalImported int
 
-	switch job.SkillID {
-	case "sync_linear":
-		team := ""
-		if job.ProjectID != "" {
-			if p, _ := d.getProjectByIDUnsafe(job.ProjectID); p != nil {
-				team = p.LinearTeam
-			}
-		}
-		if team == "" && job.Prompt != "" {
-			team = job.Prompt
-		}
-		if team == "" {
-			team = settings.LinearTeam
-		}
-		steps = append(steps, fmt.Sprintf("1. Connecting to Linear API for team %s...", team))
-		outputLines = append(outputLines, fmt.Sprintf("### 🔄 Linear Synchronization (Team: %s)\n", team))
-
-		tasks, err := d.trackers.SyncFromLinear(team)
-		if err != nil {
-			hasError = true
-			errMsg := fmt.Sprintf("Linear synchronization failed: %v", err)
-			steps = append(steps, "⚠️ "+errMsg)
-			outputLines = append(outputLines, "**Error:** "+errMsg)
-			summary = "Error during Linear sync"
-		} else {
-			steps = append(steps, fmt.Sprintf("2. %d tickets fetched from Linear", len(tasks)))
-			if job.ProjectID != "" {
-				for i := range tasks {
-					tasks[i].ProjectID = job.ProjectID
-				}
-			}
-			if impErr := d.ImportOrUpdateTasks(tasks); impErr != nil {
-				hasError = true
-				steps = append(steps, "⚠️ 3. Local database write failed: "+impErr.Error())
-				outputLines = append(outputLines, "**Error:** "+impErr.Error())
-			} else {
-				steps = append(steps, "3. Local database updated successfully")
-			}
-			totalImported = len(tasks)
-			summary = fmt.Sprintf("%d Linear issues synchronized successfully", len(tasks))
-
-			outputLines = append(outputLines, fmt.Sprintf("✅ **%d tickets imported / updated from Linear:**\n", len(tasks)))
-			for _, t := range tasks {
-				outputLines = append(outputLines, fmt.Sprintf("- **[%s]** %s *(Status: %s, Priority: %s)*", t.Key, t.Title, t.Status, t.Priority))
-			}
-		}
-
-	case "sync_github":
-		repo := ""
-		repoPath := ""
-		if job.ProjectID != "" {
-			if p, _ := d.getProjectByIDUnsafe(job.ProjectID); p != nil {
-				repo = p.GithubRepo
-				repoPath = p.RepoPath
-			}
-		}
-		if repo == "" && job.Prompt != "" {
-			repo = job.Prompt
-		}
-		if repo == "" {
-			repo = settings.GithubRepo
-		}
-		if repoPath == "" {
-			repoPath = settings.RepoPath
-		}
-		steps = append(steps, fmt.Sprintf("1. Connecting to GitHub API for repository %s...", repo))
-		outputLines = append(outputLines, fmt.Sprintf("### 🐙 GitHub Synchronization (%s)\n", repo))
-
-		tasks, err := d.trackers.SyncFromGithub(repo, repoPath)
-		if err != nil {
-			hasError = true
-			errMsg := fmt.Sprintf("GitHub synchronization failed: %v", err)
-			steps = append(steps, "⚠️ "+errMsg)
-			outputLines = append(outputLines, "**Error:** "+errMsg)
-			summary = "Error during GitHub sync"
-		} else {
-			steps = append(steps, fmt.Sprintf("2. %d tickets fetched from GitHub Issues", len(tasks)))
-			if job.ProjectID != "" {
-				for i := range tasks {
-					tasks[i].ProjectID = job.ProjectID
-					if job.ProjectID != "default" {
-						tasks[i].ID = fmt.Sprintf("gh-%s-%s", job.ProjectID, strings.TrimPrefix(tasks[i].Key, "#"))
-					}
-				}
-			}
-			if impErr := d.ImportOrUpdateTasks(tasks); impErr != nil {
-				hasError = true
-				steps = append(steps, "⚠️ 3. Local database write failed: "+impErr.Error())
-				outputLines = append(outputLines, "**Error:** "+impErr.Error())
-			} else {
-				steps = append(steps, "3. Local database updated successfully")
-			}
-			totalImported = len(tasks)
-			summary = fmt.Sprintf("%d GitHub issues synchronized successfully", len(tasks))
-
-			outputLines = append(outputLines, fmt.Sprintf("✅ **%d tickets imported / updated from GitHub:**\n", len(tasks)))
-			for _, t := range tasks {
-				outputLines = append(outputLines, fmt.Sprintf("- **[%s]** %s *(Status: %s, Priority: %s)*", t.Key, t.Title, t.Status, t.Priority))
-			}
-		}
-
-	case "sync_jira":
+	switch {
+	case job.SkillID == "sync_jira":
 		hasError = true
 		summary = "Support Jira retiré"
 		outputLines = append(outputLines, "Le support de Jira a été retiré de TaskFlow. Utilisez GitHub.")
 
-	case "sync_all":
+	case job.SkillID == "sync_all":
 		steps = append(steps, "1. Starting global multi-tracker synchronization...")
 		outputLines = append(outputLines, "### 🌐 Global Synchronization\n")
 
@@ -3510,67 +3431,155 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		}
 
 		for _, p := range projects {
-			switch p.IssueTracker {
-			case "linear":
-				if p.LinearTeam != "" || settings.LinearTeam != "" {
-					tm := p.LinearTeam
-					if tm == "" {
-						tm = settings.LinearTeam
-					}
-					linTasks, linErr := d.trackers.SyncFromLinear(tm)
-					if linErr != nil {
-						hasError = true
-						steps = append(steps, fmt.Sprintf("⚠️ Linear (%s): %v", tm, linErr))
-						outputLines = append(outputLines, fmt.Sprintf("❌ Linear (%s): %v", tm, linErr))
-					} else {
-						for i := range linTasks {
-							linTasks[i].ProjectID = p.ID
-						}
-						if impErr := d.ImportOrUpdateTasks(linTasks); impErr != nil {
-							hasError = true
-							steps = append(steps, fmt.Sprintf("⚠️ Linear: écriture locale échouée: %v", impErr))
-						}
-						steps = append(steps, fmt.Sprintf("✅ Linear (%s): %d issues imported", tm, len(linTasks)))
-						outputLines = append(outputLines, fmt.Sprintf("✅ Linear (%s): %d issues synced", tm, len(linTasks)))
-						totalImported += len(linTasks)
-					}
+			ts, err := d.TrackerForProject(&p)
+			if err != nil || ts == nil || ts.Name() == "local" || !ts.Supports(tracker.CapSync) {
+				continue
+			}
+			tName := ts.Name()
+			tTeam := p.LinearTeam
+			if tTeam == "" && settings != nil {
+				tTeam = settings.LinearTeam
+			}
+			tRepo := p.GithubRepo
+			if tRepo == "" && settings != nil {
+				tRepo = settings.GithubRepo
+			}
+			tPath := p.RepoPath
+			if tPath == "" && settings != nil {
+				tPath = settings.RepoPath
+			}
+
+			syncTasks, syncErr := ts.SyncIssues(ctx, tracker.SyncRequest{
+				Project:  &p,
+				Team:     tTeam,
+				Repo:     tRepo,
+				RepoPath: tPath,
+			})
+			if syncErr != nil {
+				hasError = true
+				steps = append(steps, fmt.Sprintf("⚠️ %s (%s): %v", tName, p.Name, syncErr))
+				outputLines = append(outputLines, fmt.Sprintf("❌ %s (%s): %v", tName, p.Name, syncErr))
+			} else {
+				for i := range syncTasks {
+					syncTasks[i].ProjectID = p.ID
+					syncTasks[i].ID = ts.FormatTaskID(p.ID, syncTasks[i].Key, syncTasks[i].ID)
 				}
-			case "github":
-				ghRepo := p.GithubRepo
-				if ghRepo == "" {
-					ghRepo = settings.GithubRepo
+				if impErr := d.ImportOrUpdateTasks(syncTasks); impErr != nil {
+					hasError = true
+					steps = append(steps, fmt.Sprintf("⚠️ %s: écriture locale échouée: %v", tName, impErr))
 				}
-				ghPath := p.RepoPath
-				if ghPath == "" {
-					ghPath = settings.RepoPath
-				}
-				if ghRepo != "" || ghPath != "" {
-					ghTasks, ghErr := d.trackers.SyncFromGithub(ghRepo, ghPath)
-					if ghErr != nil {
-						hasError = true
-						steps = append(steps, fmt.Sprintf("⚠️ GitHub (%s): %v", ghRepo, ghErr))
-						outputLines = append(outputLines, fmt.Sprintf("❌ GitHub (%s): %v", ghRepo, ghErr))
-					} else {
-						for i := range ghTasks {
-							ghTasks[i].ProjectID = p.ID
-							if p.ID != "default" {
-								ghTasks[i].ID = fmt.Sprintf("gh-%s-%s", p.ID, strings.TrimPrefix(ghTasks[i].Key, "#"))
-							}
-						}
-						if impErr := d.ImportOrUpdateTasks(ghTasks); impErr != nil {
-							hasError = true
-							steps = append(steps, fmt.Sprintf("⚠️ GitHub: écriture locale échouée: %v", impErr))
-						}
-						steps = append(steps, fmt.Sprintf("✅ GitHub (%s): %d issues imported", ghRepo, len(ghTasks)))
-						outputLines = append(outputLines, fmt.Sprintf("✅ GitHub (%s): %d issues synced", ghRepo, len(ghTasks)))
-						totalImported += len(ghTasks)
-					}
-				}
+				steps = append(steps, fmt.Sprintf("✅ %s (%s): %d issues imported", tName, p.Name, len(syncTasks)))
+				outputLines = append(outputLines, fmt.Sprintf("✅ %s (%s): %d issues synced", tName, p.Name, len(syncTasks)))
+				totalImported += len(syncTasks)
 			}
 		}
 
 		steps = append(steps, "Global synchronization completed")
 		summary = fmt.Sprintf("Global synchronization finished (%d tickets updated)", totalImported)
+
+	case strings.HasPrefix(job.SkillID, "sync_"):
+		trackerName := strings.TrimPrefix(job.SkillID, "sync_")
+		var proj *models.Project
+		if job.ProjectID != "" {
+			if p, _ := d.getProjectByIDUnsafe(job.ProjectID); p != nil {
+				proj = p
+			}
+		}
+
+		ts, ok := d.TrackerRegistry().Get(trackerName)
+		if (!ok || ts == nil) && proj != nil {
+			ts, _ = d.TrackerForProject(proj)
+		}
+		if ts == nil || !ts.Supports(tracker.CapSync) {
+			hasError = true
+			summary = fmt.Sprintf("Unsupported tracker for sync: %s", trackerName)
+			outputLines = append(outputLines, summary)
+			break
+		}
+
+		team := ""
+		if proj != nil {
+			team = proj.LinearTeam
+		}
+		if team == "" && trackerName == "linear" && job.Prompt != "" {
+			team = job.Prompt
+		}
+		if team == "" && settings != nil {
+			team = settings.LinearTeam
+		}
+
+		repo := ""
+		repoPath := ""
+		if proj != nil {
+			repo = proj.GithubRepo
+			repoPath = proj.RepoPath
+		}
+		if repo == "" && trackerName == "github" && job.Prompt != "" {
+			repo = job.Prompt
+		}
+		if repo == "" && settings != nil {
+			repo = settings.GithubRepo
+		}
+		if repoPath == "" && settings != nil {
+			repoPath = settings.RepoPath
+		}
+
+		trackerTitle := ts.Name()
+		if strings.EqualFold(trackerTitle, "github") {
+			trackerTitle = "GitHub"
+		} else if strings.EqualFold(trackerTitle, "linear") {
+			trackerTitle = "Linear"
+		} else if len(trackerTitle) > 0 {
+			trackerTitle = strings.ToUpper(trackerTitle[:1]) + trackerTitle[1:]
+		}
+
+		targetDesc := repo
+		if targetDesc == "" {
+			targetDesc = team
+		}
+		if targetDesc != "" {
+			steps = append(steps, fmt.Sprintf("1. Connecting to %s API (%s)...", trackerTitle, targetDesc))
+			outputLines = append(outputLines, fmt.Sprintf("### %s Synchronization (%s)\n", trackerTitle, targetDesc))
+		} else {
+			steps = append(steps, fmt.Sprintf("1. Connecting to %s API...", trackerTitle))
+			outputLines = append(outputLines, fmt.Sprintf("### %s Synchronization\n", trackerTitle))
+		}
+
+		tasks, err := ts.SyncIssues(ctx, tracker.SyncRequest{
+			Project:  proj,
+			Team:     team,
+			Repo:     repo,
+			RepoPath: repoPath,
+		})
+		if err != nil {
+			hasError = true
+			errMsg := fmt.Sprintf("%s synchronization failed: %v", trackerTitle, err)
+			steps = append(steps, "⚠️ "+errMsg)
+			outputLines = append(outputLines, "**Error:** "+errMsg)
+			summary = fmt.Sprintf("Error during %s sync", trackerTitle)
+		} else {
+			steps = append(steps, fmt.Sprintf("2. %d tickets fetched from %s", len(tasks), trackerTitle))
+			for i := range tasks {
+				if job.ProjectID != "" {
+					tasks[i].ProjectID = job.ProjectID
+				}
+				tasks[i].ID = ts.FormatTaskID(tasks[i].ProjectID, tasks[i].Key, tasks[i].ID)
+			}
+			if impErr := d.ImportOrUpdateTasks(tasks); impErr != nil {
+				hasError = true
+				steps = append(steps, "⚠️ 3. Local database write failed: "+impErr.Error())
+				outputLines = append(outputLines, "**Error:** "+impErr.Error())
+			} else {
+				steps = append(steps, "3. Local database updated successfully")
+			}
+			totalImported = len(tasks)
+			summary = fmt.Sprintf("%d %s issues synchronized successfully", len(tasks), trackerTitle)
+
+			outputLines = append(outputLines, fmt.Sprintf("✅ **%d tickets imported / updated from %s:**\n", len(tasks), trackerTitle))
+			for _, t := range tasks {
+				outputLines = append(outputLines, fmt.Sprintf("- **[%s]** %s *(Status: %s, Priority: %s)*", t.Key, t.Title, t.Status, t.Priority))
+			}
+		}
 	}
 
 	completedTime := time.Now()
@@ -3770,16 +3779,12 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	proj, _ := d.getProjectByIDUnsafe(task.ProjectID)
 	repo := ""
 	repoPath := ""
-	tracker := task.Source
 	if proj != nil {
 		if proj.GithubRepo != "" {
 			repo = proj.GithubRepo
 		}
 		if proj.RepoPath != "" {
 			repoPath = proj.RepoPath
-		}
-		if proj.IssueTracker != "" && tracker == "" {
-			tracker = proj.IssueTracker
 		}
 	}
 	if repo == "" && settings != nil {
@@ -3788,10 +3793,6 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	if repoPath == "" && settings != nil {
 		repoPath = settings.RepoPath
 	}
-
-	isLinear := tracker == "linear" || task.Source == "linear" || strings.HasPrefix(task.Key, "FRE-")
-	isGithub := tracker == "github" || task.Source == "github" || strings.HasPrefix(task.Key, "#") || strings.HasPrefix(task.Key, "gh-") || strings.HasPrefix(task.Key, "GH-")
-	isJira := tracker == "jira" || task.Source == "jira"
 
 	steps := []string{
 		fmt.Sprintf("Démarrage de la mise à jour CLI pour [%s] %s", task.Key, task.Title),
@@ -3825,38 +3826,36 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 		syncStatus = models.StatusFinished
 	}
 
-	if isLinear {
-		steps = append(steps, fmt.Sprintf("Exécution: linear issue update %s (statut: %s, labels: %v)", task.Key, syncStatus, task.Labels))
-		err := d.trackers.UpdateLinearIssue(task.Key, titleForUpdate, descForUpdate, priorityForUpdate, &syncStatus, task.Labels)
+	ts, tsErr := d.TrackerForTask(task)
+	if tsErr == nil && ts != nil && ts.Supports(tracker.CapUpdate) {
+		steps = append(steps, fmt.Sprintf("Exécution: mise à jour %s pour %s (statut: %s, labels: %v)", ts.Name(), task.Key, syncStatus, task.Labels))
+		err := ts.UpdateIssue(context.Background(), tracker.UpdateIssueRequest{
+			Project:       proj,
+			Task:          task,
+			Key:           task.Key,
+			Title:         titleForUpdate,
+			Description:   descForUpdate,
+			Priority:      priorityForUpdate,
+			Status:        &syncStatus,
+			Labels:        task.Labels,
+			RemovedLabels: job.RemovedLabels,
+		})
 		if err != nil {
 			hasError = true
-			outputText = fmt.Sprintf("Erreur Linear CLI : %v", err)
+			outputText = fmt.Sprintf("Erreur %s : %v", ts.Name(), err)
 			steps = append(steps, fmt.Sprintf("❌ Échec : %v", err))
 		} else {
-			outputText = fmt.Sprintf("Issue Linear %s synchronisée avec succès (Titre: %s, Statut: %s, Labels: %v)", task.Key, task.Title, syncStatus, task.Labels)
-			steps = append(steps, fmt.Sprintf("✅ Issue Linear %s mise à jour avec succès via la CLI", task.Key))
-		}
-	} else if isJira {
-		hasError = true
-		outputText = "Erreur: Le support de Jira a été retiré"
-		steps = append(steps, "❌ Échec : Jira n'est plus pris en charge")
-	} else if isGithub {
-		steps = append(steps, fmt.Sprintf("Exécution: gh issue edit %s (Dépôt: %s, Statut: %s, Labels: %v, Supprimés: %v)", task.Key, repo, syncStatus, task.Labels, job.RemovedLabels))
-		err := d.trackers.UpdateGithubIssue(repo, repoPath, task.Key, titleForUpdate, descForUpdate, &syncStatus, task.Labels, job.RemovedLabels)
-		if err != nil {
-			hasError = true
-			outputText = fmt.Sprintf("Erreur GitHub CLI : %v", err)
-			steps = append(steps, fmt.Sprintf("❌ Échec : %v", err))
-		} else {
-			outputText = fmt.Sprintf("Issue GitHub %s synchronisée avec succès dans %s (Titre: %s, Statut: %s, Labels: %v)", task.Key, repo, task.Title, task.Status, task.Labels)
-			steps = append(steps, fmt.Sprintf("✅ Issue GitHub %s synchronisée avec succès via la CLI", task.Key))
+			outputText = fmt.Sprintf("Issue %s %s synchronisée avec succès (Titre: %s, Statut: %s, Labels: %v)", ts.Name(), task.Key, task.Title, syncStatus, task.Labels)
+			steps = append(steps, fmt.Sprintf("✅ Issue %s %s mise à jour avec succès", ts.Name(), task.Key))
 
-			// Rsync local (two-way unit sync): fetch fresh remote state from GitHub and update SQLite
-			steps = append(steps, fmt.Sprintf("Synchronisation retour unitaire (rsync local) depuis %s...", repo))
-			if _, syncErr := d.SyncSingleTask(task.ID); syncErr != nil {
-				steps = append(steps, fmt.Sprintf("⚠️ Rsync local partiel : %v", syncErr))
-			} else {
-				steps = append(steps, "✅ Rsync local terminé : état distant réaligné en base locale")
+			if ts.Supports(tracker.CapGet) {
+				// Rsync local (two-way unit sync): fetch fresh remote state from tracker and update SQLite
+				steps = append(steps, fmt.Sprintf("Synchronisation retour unitaire (rsync local) depuis %s...", ts.Name()))
+				if _, syncErr := d.SyncSingleTask(task.ID); syncErr != nil {
+					steps = append(steps, fmt.Sprintf("⚠️ Rsync local partiel : %v", syncErr))
+				} else {
+					steps = append(steps, "✅ Rsync local terminé : état distant réaligné en base locale")
+				}
 			}
 		}
 	} else {
@@ -3910,15 +3909,14 @@ func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
 	}
 
 	var syncedTask *models.Task
-	if task.Source == "github" || strings.HasPrefix(task.Key, "#") || strings.HasPrefix(task.Key, "gh-") {
-		cleanNum := strings.TrimPrefix(strings.TrimPrefix(task.Key, "#"), "gh-")
-		var issueNum int
-		fmt.Sscanf(cleanNum, "%d", &issueNum)
-		if issueNum > 0 {
-			syncedTask, err = d.trackers.FetchSingleGithubIssue(repo, repoPath, issueNum)
-			if err != nil {
-				return nil, err
-			}
+	ts, tsErr := d.TrackerForTask(task)
+	if tsErr == nil && ts != nil && ts.Supports(tracker.CapGet) {
+		syncedTask, err = ts.GetIssue(context.Background(), tracker.GetIssueRequest{
+			Project: proj,
+			Key:     task.Key,
+		})
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -4514,7 +4512,6 @@ func (d *DB) ClearCompletedActivities() (int, error) {
 func (d *DB) AddTaskComment(taskID string, body string) error {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
-	settings, _ := d.getSettingsUnsafe()
 	var proj *models.Project
 	if task != nil && task.ProjectID != "" {
 		proj, _ = d.getProjectByIDUnsafe(task.ProjectID)
@@ -4525,18 +4522,15 @@ func (d *DB) AddTaskComment(taskID string, body string) error {
 		return fmt.Errorf("task not found")
 	}
 
-	repo := ""
-	repoPath := ""
-	if proj != nil {
-		repo = proj.GithubRepo
-		repoPath = proj.RepoPath
+	ts, err := d.TrackerForTask(task)
+	if err != nil {
+		return err
 	}
-	if repo == "" && settings != nil {
-		repo = settings.GithubRepo
-		repoPath = settings.RepoPath
-	}
-
-	return d.trackers.AddIssueComment(task.Source, repo, repoPath, task.Key, body)
+	return ts.AddComment(context.Background(), tracker.AddCommentRequest{
+		Project: proj,
+		Key:     task.Key,
+		Body:    body,
+	})
 }
 
 func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, error) {
@@ -4569,45 +4563,26 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	// Ensure stage label is properly set based on current status
 	task.Labels = SetWorkflowLabel(task.Labels, GetStageLabelForStatus(task.Status))
 
-	switch target {
-	case "linear":
-		team := ""
-		if proj != nil {
-			team = proj.LinearTeam
-		}
-		if team == "" {
-			team = settings.LinearTeam
-		}
-		created, err := d.trackers.CreateLinearIssue(team, task.Title, task.Description, task.Priority, task.Labels)
-		if err != nil {
-			return nil, fmt.Errorf("création Linear impossible: %w", err)
-		}
-		newKey = created.Key
-		extURL = created.ExternalURL
-
-	case "github":
-		repo := ""
-		repoPath := ""
-		if proj != nil {
-			repo = proj.GithubRepo
-			repoPath = proj.RepoPath
-		}
-		if repo == "" {
-			repo = settings.GithubRepo
-		}
-		if repoPath == "" {
-			repoPath = settings.RepoPath
-		}
-		created, err := d.trackers.CreateGithubIssue(repo, repoPath, task.Title, task.Description, task.Labels)
-		if err != nil {
-			return nil, fmt.Errorf("création GitHub impossible: %w", err)
-		}
-		newKey = created.Key
-		extURL = created.ExternalURL
-
-	default:
-		return nil, fmt.Errorf("tracker distant non supporté: %s (choisir 'linear' ou 'github')", target)
+	ts, ok := d.TrackerRegistry().Get(target)
+	if !ok || !ts.Supports(tracker.CapCreate) {
+		return nil, fmt.Errorf("tracker distant non supporté: %s", target)
 	}
+
+	created, err := ts.CreateIssue(context.Background(), tracker.CreateIssueRequest{
+		Project:     proj,
+		Title:       task.Title,
+		Description: task.Description,
+		Priority:    task.Priority,
+		Labels:      task.Labels,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("création %s impossible: %w", ts.Name(), err)
+	}
+	if created == nil {
+		return nil, fmt.Errorf("création %s impossible: ticket non retourné", ts.Name())
+	}
+	newKey = created.Key
+	extURL = created.ExternalURL
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
