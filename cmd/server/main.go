@@ -23,7 +23,7 @@ import (
 
 // loadDotEnv reads KEY=VALUE lines from a .env file next to the binary's working
 // directory. A real environment variable always wins, so exporting a value in
-// the shell overrides the file. Secrets such as SECTILE_JIRA_API_TOKEN can then
+// the shell overrides the file. Secrets such as SECTILE_TRACKER_TOKEN can then
 // live outside the database and outside git, .env being already gitignored.
 func loadDotEnv(paths ...string) {
 	for _, path := range paths {

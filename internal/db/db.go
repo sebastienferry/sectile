@@ -5526,15 +5526,6 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, linearTeam, githubRepo st
 	return results, nil
 }
 
-// skillDirNames lists the installed skill directories, for .taskflow/config.json.
-func skillDirNames(skills []ProjectSkillTemplate) []string {
-	out := make([]string, 0, len(skills))
-	for _, s := range skills {
-		out = append(out, s.DirName)
-	}
-	return out
-}
-
 // applyProjectSettings layers a project's own configuration over the global
 // settings for one task, the AI engine included.
 //

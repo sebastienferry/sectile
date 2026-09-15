@@ -85,8 +85,10 @@ Start the server with its persistent database and shared agent credential:
 
 ```sh
 export SECTILE_SERVER_TOKEN='<shared agent credential>'
-export SECTILE_GITHUB_TOKEN='<GitHub API token>'
-# For Linear projects: export SECTILE_LINEAR_API_KEY='<Linear API key>'
+export SECTILE_TRACKER_TOKEN='<tracker API token>'
+# Serving GitHub and Linear at once? Override per provider:
+# export SECTILE_GITHUB_TOKEN='<GitHub API token>'
+# export SECTILE_LINEAR_API_KEY='<Linear API key>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/sectile-server
 ```
 
@@ -112,27 +114,31 @@ For development, use `make dev-server` and `make dev-web` in separate terminals.
 
 | Setting | Meaning |
 | --- | --- |
-| `SECTILE_GITHUB_TOKEN` | GitHub API credential; `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
+| `SECTILE_TRACKER_TOKEN` | Tracker API credential, used by every provider that has no override below. |
+| `SECTILE_GITHUB_TOKEN` | GitHub-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
 | `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
-| `SECTILE_LINEAR_API_KEY` | Linear API credential; `LINEAR_API_KEY` is an environment-only fallback. |
+| `SECTILE_LINEAR_API_KEY` | Linear-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `LINEAR_API_KEY` is an environment-only fallback. |
 | `SECTILE_LINEAR_API_URL` | GraphQL endpoint; defaults to `https://api.linear.app/graphql`. |
 
 The token is read from the environment of the **server process itself**, at
 startup only. `make serve`, `go run ./cmd/server` and `./bin/sectile-server`
 inherit the shell they are launched from, so exporting the variable in another
 terminal — or after the server is already running — has no effect: restart the
-server. A `gh` login on the same machine is not picked up either; only
-`SECTILE_GITHUB_TOKEN`, then `GH_TOKEN`, then `GITHUB_TOKEN` are consulted.
+server. A `gh` login on the same machine is not picked up either; for GitHub only
+`SECTILE_GITHUB_TOKEN`, then `SECTILE_TRACKER_TOKEN`, then `GH_TOKEN`, then
+`GITHUB_TOKEN` are consulted. The provider-specific variable comes first so a
+server driving both GitHub and Linear cannot send one provider's credential to
+the other.
 
 For a GitHub project the token needs, at minimum, read and write access to the
 issues of the configured repositories, plus repository metadata. A fine-grained
 token therefore grants **Issues: read and write** and **Metadata: read** on those
 repositories; a classic token uses the `repo` scope. For a quick local setup,
-`SECTILE_GITHUB_TOKEN="$(gh auth token)"` reuses an existing `gh` login, which is
+`SECTILE_TRACKER_TOKEN="$(gh auth token)"` reuses an existing `gh` login, which is
 convenient but tied to that CLI session rather than being a durable credential.
 
 Without a usable token the server keeps serving the board from its database, but
-every tracker round-trip fails with `configure SECTILE_GITHUB_TOKEN on the
+every tracker round-trip fails with `configure SECTILE_TRACKER_TOKEN on the
 server`: task comments do not load and workflow stage transitions do not reach
 the ticket. Verify the server picked the credential up by opening a task and
 checking that its comments load — that read goes through the tracker API.

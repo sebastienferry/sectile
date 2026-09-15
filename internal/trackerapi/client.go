@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+// genericTokenVar names the tracker-agnostic server credential. The
+// provider-specific variables remain supported as overrides.
+const genericTokenVar = "SECTILE_TRACKER_TOKEN"
+
 type Client struct {
 	HTTP                   *http.Client
 	GithubURL, GithubToken string
@@ -25,22 +29,26 @@ func NewClient() *Client {
 	if gh == "" {
 		gh = "https://api.github.com"
 	}
-	token := os.Getenv("SECTILE_GITHUB_TOKEN")
-	if token == "" {
-		token = os.Getenv("GH_TOKEN")
-	}
-	if token == "" {
-		token = os.Getenv("GITHUB_TOKEN")
-	}
+	token := trackerToken("SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
 	linear := os.Getenv("SECTILE_LINEAR_API_URL")
 	if linear == "" {
 		linear = "https://api.linear.app/graphql"
 	}
-	lt := os.Getenv("SECTILE_LINEAR_API_KEY")
-	if lt == "" {
-		lt = os.Getenv("LINEAR_API_KEY")
-	}
+	lt := trackerToken("SECTILE_LINEAR_API_KEY", "LINEAR_API_KEY")
 	return &Client{HTTP: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, GithubURL: strings.TrimRight(gh, "/"), GithubToken: token, LinearURL: linear, LinearToken: lt}
+}
+
+// trackerToken resolves one provider's credential. The provider-specific variable
+// comes first so a deployment serving two trackers cannot hand a GitHub credential
+// to Linear; the tracker-agnostic name covers the common single-tracker setup, and
+// the remaining names are the providers' own environment conventions.
+func trackerToken(specific string, fallbacks ...string) string {
+	for _, name := range append([]string{specific, genericTokenVar}, fallbacks...) {
+		if value := os.Getenv(name); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (c *Client) request(ctx context.Context, method, endpoint, token string, payload any) ([]byte, http.Header, error) {
@@ -92,7 +100,7 @@ func (c *Client) request(ctx context.Context, method, endpoint, token string, pa
 
 func (c *Client) github(ctx context.Context, method, path string, payload, result any) error {
 	if c.GithubToken == "" {
-		return fmt.Errorf("configure SECTILE_GITHUB_TOKEN on the server")
+		return fmt.Errorf("configure %s on the server", genericTokenVar)
 	}
 	raw, _, err := c.request(ctx, method, c.GithubURL+"/"+strings.TrimLeft(path, "/"), "Bearer "+c.GithubToken, payload)
 	if err != nil {
@@ -106,7 +114,7 @@ func (c *Client) github(ctx context.Context, method, path string, payload, resul
 
 func (c *Client) githubPages(ctx context.Context, path string) ([]json.RawMessage, error) {
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("configure SECTILE_GITHUB_TOKEN on the server")
+		return nil, fmt.Errorf("configure %s on the server", genericTokenVar)
 	}
 	next := c.GithubURL + "/" + path
 	origin, err := url.Parse(c.GithubURL)
@@ -192,7 +200,7 @@ func repository(repo string) (string, error) {
 
 func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("configure SECTILE_GITHUB_TOKEN on the server")
+		return nil, fmt.Errorf("configure %s on the server", genericTokenVar)
 	}
 	endpoint := strings.TrimSuffix(c.GithubURL, "/api/v3") + "/graphql"
 	if strings.HasSuffix(c.GithubURL, "/api/v3") {
