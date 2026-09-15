@@ -260,3 +260,42 @@ func TestGraphQLErrorsRejectPartialData(t *testing.T) {
 		t.Fatal("canceled request succeeded")
 	}
 }
+
+func TestBranchPullRequestPrefersOpenThenMerged(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   string
+		url    string
+		merged bool
+	}{
+		{"open wins", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"old"}},{"html_url":"https://forge/pull/3","state":"open","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/3", false},
+		// The human merge boundary must not strand the task before reviewed.
+		{"merged accepted", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/2", true},
+		{"closed unmerged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","head":{"ref":"ticket","sha":"tip"}}]`, "", false},
+		{"ambiguous merged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"a"}},{"html_url":"https://forge/pull/4","state":"closed","merged_at":"2026-01-02T00:00:00Z","head":{"ref":"ticket","sha":"b"}}]`, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("state") != "all" {
+					t.Errorf("merged PRs are unreachable with state=%q", r.URL.Query().Get("state"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Query().Get("page") == "2" {
+					_, _ = w.Write([]byte(`[]`))
+					return
+				}
+				_, _ = w.Write([]byte(tc.body))
+			})
+			pr, err := c.BranchPullRequest("acme/app", "ticket")
+			if tc.url == "" {
+				if err == nil {
+					t.Fatalf("accepted %+v", pr)
+				}
+				return
+			}
+			if err != nil || pr.URL != tc.url || pr.Merged != tc.merged || pr.Open == tc.merged || pr.SHA != "tip" {
+				t.Fatalf("%+v %v", pr, err)
+			}
+		})
+	}
+}

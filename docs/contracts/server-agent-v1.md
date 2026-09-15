@@ -440,7 +440,8 @@ States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finis
 A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
 
 The `prCreationStage` policy assigns draft creation to specification or implementation
-(default). Adjustment requires an existing matching open PR, performs full review
+(default). Adjustment requires an existing matching PR — open, or already merged by the
+human, in which case it reviews the merged state without pushing — performs full review
 and feedback disposition, checks the final code, updates the same PR and verifies
 readiness. Lookup failure is not absence. Creation-owner recovery retains an already
 implemented stage. Completion records the PR URL at the owning stage.
