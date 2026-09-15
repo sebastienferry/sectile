@@ -251,8 +251,9 @@ function render(options){
   }else if(!collapsedProjects.has(project.id)){
    if(!children.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='No local tasks';group.append(empty)}
    for(const {executions,run} of orderedTaskGroups(taskGroups.values())){
-    const row=document.createElement('div');row.className='local-task'
-    const button=document.createElement('button');button.className='run '+(executions.some(item=>item.id===selected)?'selected':'')
+    const isSelected=executions.some(item=>item.id===selected)
+    const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
+    const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in TaskFlow';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in TaskFlow');context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
