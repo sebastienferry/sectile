@@ -13,16 +13,24 @@ import (
 
 // webSessionUser identifies the person driving the web interface.
 //
-// Until the identity provider is wired in, the interface has a single implicit
-// user. The SSO integration replaces this one function: validate the provider
-// session, call db.UpsertUser with the provider subject, and return the
-// resulting ID. Everything downstream already works per user.
+// With an OpenID Connect provider configured, that is whoever holds a valid
+// session cookie. Without one the interface has a single implicit user, which
+// is how a personal deployment runs.
 //
 // SECTILE_DEV_IDENTITY=1 lets a caller name itself through the X-Sectile-User
 // header, so several users can be exercised before any provider exists. It is
 // an impersonation switch, off unless the deployment sets it: leaving it on
 // once real sign-in exists would let anyone claim any identity.
 func (h *Handler) webSessionUser(r *http.Request) string {
+	// A configured provider is the only authority: the development switch is
+	// ignored rather than left as a way around real sign-in.
+	if h.identityProvider != nil {
+		cookie, err := r.Cookie(sessionCookie)
+		if err != nil {
+			return ""
+		}
+		return h.db.UserForWebSession(cookie.Value)
+	}
 	if os.Getenv("SECTILE_DEV_IDENTITY") == "1" {
 		if claimed := strings.TrimSpace(r.Header.Get("X-Sectile-User")); claimed != "" {
 			userID, err := h.db.UpsertUser("dev|"+claimed, "", claimed)

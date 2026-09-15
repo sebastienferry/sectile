@@ -129,6 +129,9 @@ func NewDB(dbPath string) (*DB, error) {
 	if err := db.initIdentitySchema(); err != nil {
 		return nil, err
 	}
+	if err := db.initSessionSchema(); err != nil {
+		return nil, err
+	}
 	if err := db.initSchema(); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}

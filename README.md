@@ -187,6 +187,33 @@ Sectile exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
 HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
 authentication and workflow validation retain their existing contracts.
 
+### Signing in and pairing a workstation
+
+A deployment shared by several people signs them in through an OpenID Connect
+provider. Configure it on the server:
+
+```sh
+export SECTILE_OIDC_ISSUER='https://example.okta.com'
+export SECTILE_OIDC_CLIENT_ID='<client id>'
+export SECTILE_OIDC_CLIENT_SECRET='<client secret>'
+export SECTILE_OIDC_REDIRECT_URL='https://sectile.example.com/auth/callback'
+```
+
+The provider's endpoints are discovered from its metadata document at startup.
+A provider that cannot be reached stops the server rather than serving the
+interface unauthenticated. Without these variables the interface keeps a single
+implicit user, which is how a personal deployment runs.
+
+Each person then pairs their workstation from the profile dialog: generate a
+pairing code, and enter it once in the desktop app. The code is single use and
+expires in ten minutes; it is exchanged for a credential stored on that
+machine, revocable per workstation without disturbing the others.
+
+`SECTILE_DEV_IDENTITY=1` allows naming a user through an `X-Sectile-User`
+header, to exercise several accounts before a provider exists. It is an
+impersonation switch: it is ignored once a provider is configured, and it must
+stay off elsewhere.
+
 Run the central server with `SECTILE_SERVER_TOKEN` set to a shared agent
 credential, then start the workstation agent in an existing clone:
 

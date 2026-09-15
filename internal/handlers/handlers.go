@@ -18,6 +18,7 @@ import (
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
+	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/models"
 
@@ -42,6 +43,9 @@ type Handler struct {
 	subMu           sync.RWMutex
 	agentDispatcher *AgentDispatcher
 	pullOnConnect   bool
+	// identityProvider is nil when no OpenID Connect provider is configured,
+	// which leaves the interface on its single implicit user.
+	identityProvider *auth.Provider
 	// agentPingInterval and agentReadTimeout tune the WebSocket keepalive that
 	// detects agents which vanished without closing their connection. Set once
 	// at construction; tests shorten them to observe a drop quickly.
