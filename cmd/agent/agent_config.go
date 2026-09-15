@@ -423,3 +423,12 @@ func temporaryExecutable(path string) bool {
 	}
 	return false
 }
+
+// quoteWindowsArg quotes a single argument for a command line read by cmd.exe from a batch
+// script. The percent sign is doubled so the batch layer passes it through as data, and an
+// embedded quote is escaped the way CommandLineToArgvW expects.
+func quoteWindowsArg(s string) string {
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "%", "%%")
+	return `"` + s + `"`
+}

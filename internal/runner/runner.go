@@ -27,10 +27,19 @@ func NewRunner() *Runner {
 }
 
 func GetDynamicCustomPath() string {
+	return dynamicCustomPathFor(runtime.GOOS)
+}
+
+// dynamicCustomPathFor builds the PATH prefix for a named platform. The Unix system directories
+// are meaningless on Windows, where prepending them would only push the real toolchain down.
+func dynamicCustomPathFor(goos string) string {
 	homeDir, _ := os.UserHomeDir()
 	var parts []string
 	if homeDir != "" {
 		parts = append(parts, filepath.Join(homeDir, ".local", "bin"))
+	}
+	if goos == "windows" {
+		return strings.Join(parts, ";")
 	}
 	parts = append(parts, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
 	return strings.Join(parts, ":")
@@ -67,7 +76,7 @@ func (r *Runner) runCommand(ctx context.Context, dir string, name string, args .
 	foundPath := false
 	for i, e := range env {
 		if strings.HasPrefix(e, "PATH=") {
-			env[i] = "PATH=" + customPath + ":" + strings.TrimPrefix(e, "PATH=")
+			env[i] = "PATH=" + joinPath(customPath, strings.TrimPrefix(e, "PATH="))
 			foundPath = true
 			break
 		}
@@ -2419,7 +2428,7 @@ func (r *Runner) OpenInEditor(editorCmd string, targetPath string) error {
 	}
 
 	cmd := exec.Command(bin, args...)
-	cmd.Env = append(os.Environ(), "PATH="+GetDynamicCustomPath()+":"+os.Getenv("PATH"))
+	cmd.Env = append(os.Environ(), "PATH="+prefixedPath())
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to open in '%s': %w", editorCmd, err)
@@ -2440,8 +2449,12 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 
 	customTermCmd = strings.TrimSpace(customTermCmd)
 
-	// Create a temporary launcher script
-	tmpFile, err := os.CreateTemp("", "sectile-term-*.command")
+	// Create a temporary launcher script, named so the host shell will run it.
+	pattern := "sectile-term-*.command"
+	if runtime.GOOS == "windows" {
+		pattern = "sectile-term-*.cmd"
+	}
+	tmpFile, err := os.CreateTemp("", pattern)
 	if err != nil {
 		return fmt.Errorf("failed to create temporary terminal script: %w", err)
 	}
@@ -2460,8 +2473,10 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 	}
 	tmpFile.Close()
 
-	if err := os.Chmod(scriptPath, 0700); err != nil {
-		return fmt.Errorf("failed to make terminal script executable: %w", err)
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(scriptPath, 0700); err != nil {
+			return fmt.Errorf("failed to make terminal script executable: %w", err)
+		}
 	}
 
 	var cmd *exec.Cmd
@@ -2515,10 +2530,12 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 			rendered := strings.ReplaceAll(termTrimmed, "{script}", scriptPath)
 			rendered = strings.ReplaceAll(rendered, "{cmd}", scriptPath)
 			cmd = exec.Command("cmd.exe", "/c", rendered)
-		} else if strings.Contains(termLower, "wt") || strings.Contains(termLower, "windowsterminal") {
-			cmd = exec.Command("wt.exe", "new-tab", "cmd.exe", "/k", scriptPath)
+		} else if strings.Contains(termLower, "cmd") || strings.Contains(termLower, "command prompt") {
+			cmd = windowsConsoleCommand(scriptPath)
+		} else if bin, lookErr := exec.LookPath("wt.exe"); lookErr == nil {
+			cmd = exec.Command(bin, "new-tab", "cmd.exe", "/k", scriptPath)
 		} else {
-			cmd = exec.Command("cmd.exe", "/c", "start", scriptPath)
+			cmd = windowsConsoleCommand(scriptPath)
 		}
 	default: // linux / unix
 		if strings.Contains(termTrimmed, "{script}") || strings.Contains(termTrimmed, "{cmd}") {
@@ -2555,7 +2572,7 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 		return fmt.Errorf("unable to determine terminal launcher for OS %s", runtime.GOOS)
 	}
 
-	cmd.Env = append(os.Environ(), "PATH="+GetDynamicCustomPath()+":"+os.Getenv("PATH"))
+	cmd.Env = append(os.Environ(), "PATH="+prefixedPath())
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
