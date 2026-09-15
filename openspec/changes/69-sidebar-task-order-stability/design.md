@@ -18,13 +18,15 @@ Representative selection inside a group keeps `(stateRank, newest createdAt, ide
 Unparsable and missing `createdAt` values keep the existing fallback semantics: a group with no usable timestamp sorts last within its state group, ties resolve on ascending task then execution identity.
 
 ### 2. Defer refresh-driven renders instead of keyed row reconciliation
-The clarification asked for keyed row reuse so a rebuild does not drop hover and focus. Instead, `render()` accepts a `deferrable` flag used only by the refresh path. When the sidebar is busy — the pointer is over `#runs`, or `document.activeElement` is inside `#runs` — a deferrable render records `pendingRender` and returns after refreshing the per-run status badges via the existing targeted `renderTaskSkillStatuses()`. `pointerleave` on `#runs` and a `focusout` that leaves `#runs` flush the pending render.
+The clarification asked for keyed row reuse so a rebuild does not drop hover and focus. Instead, `render()` accepts a `deferrable` flag used only by the refresh path (`updateDisconnected` and the two `select()` calls in `refresh()`). When the pointer is over a `.local-task` row or focus is inside one, a deferrable render records `pendingRender`, refreshes the header and the per-row indicators through the targeted `renderTaskRowStates()`, and returns before touching the list. `pointerout` and `focusout` on `#runs` schedule a flush on the next tick, once the new hover and focus targets have settled.
+
+The hold is scoped to the task rows, not to the whole `#runs` container: project headings, the capacity counters and the execution queue view keep refreshing live, since none of them move under the cursor.
 
 Rationale: no DOM is recreated during the interaction, so hover, focus and an in-progress click survive by construction, and the change stays local. Keyed reconciliation would have required reconciling project sections too (the list is cleared with `replaceChildren()`, which detaches rows and loses focus anyway), for the same observable result.
 
 User-initiated renders — selection, collapse, queue toggle, rename, archive — call `render()` without the flag and always apply immediately, so the UI never feels stuck while the pointer sits in the sidebar.
 
-Trade-off: while the pointer rests over the list, a state change updates the badge but the row keeps its position until the pointer leaves. That is the intended acceptance criterion.
+Trade-offs: while the pointer rests over a row, a state change updates its badge but the row keeps its position until the pointer leaves — that is the intended acceptance criterion. `renderTaskRowStates()` resolves a row by the execution id stamped on it, so an execution launched during the hold only appears once the hold is lifted.
 
 ## Risks
 - A pointer left over the sidebar indefinitely keeps the order stale. Accepted: the badges stay live and any click flushes the order.
