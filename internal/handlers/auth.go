@@ -1,0 +1,188 @@
+package handlers
+
+import (
+	"errors"
+	"log"
+	"net/http"
+	"strings"
+
+	"tasks/internal/auth"
+	"tasks/internal/db"
+)
+
+const sessionCookie = "sectile_session"
+
+// SetIdentityProvider installs the provider the server signs people in
+// against. Without one the interface keeps its single implicit user.
+func (h *Handler) SetIdentityProvider(provider *auth.Provider) {
+	h.identityProvider = provider
+}
+
+// safeRedirect keeps a sign-in from being used to bounce someone to another
+// site: only a path within this interface is accepted.
+func safeRedirect(target string) string {
+	target = strings.TrimSpace(target)
+	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") {
+		return "/"
+	}
+	return target
+}
+
+func (h *Handler) sessionCookieFor(r *http.Request, value string, maxAge int) *http.Cookie {
+	return &http.Cookie{
+		Name:  sessionCookie,
+		Value: value,
+		Path:  "/",
+		// The cookie is the session: script must not be able to read it, and
+		// it must not travel in clear when the interface is served over TLS.
+		HttpOnly: true,
+		Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+		// Lax still sends the cookie on the provider's top-level redirect
+		// back to us, which Strict would drop.
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
+	}
+}
+
+// HandleLogin starts a sign-in and sends the browser to the provider.
+func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
+	if h.identityProvider == nil {
+		writeError(w, http.StatusNotFound, "No identity provider is configured")
+		return
+	}
+	verifier, challenge, err := auth.NewVerifier()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	nonce, err := auth.NewNonce()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	state, err := h.db.StartLoginFlow(db.LoginFlow{
+		Nonce:        nonce,
+		CodeVerifier: verifier,
+		Redirect:     safeRedirect(r.URL.Query().Get("redirect")),
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	http.Redirect(w, r, h.identityProvider.AuthCodeURL(state, nonce, challenge), http.StatusFound)
+}
+
+// HandleAuthCallback completes a sign-in and opens a browser session.
+func (h *Handler) HandleAuthCallback(w http.ResponseWriter, r *http.Request) {
+	if h.identityProvider == nil {
+		writeError(w, http.StatusNotFound, "No identity provider is configured")
+		return
+	}
+	query := r.URL.Query()
+	if providerError := query.Get("error"); providerError != "" {
+		// The provider's own wording is not shown back: it is attacker
+		// controlled in a redirect.
+		log.Printf("[Identity] Provider refused the sign-in: %s", providerError)
+		writeError(w, http.StatusUnauthorized, "The identity provider refused the sign-in")
+		return
+	}
+	flow, err := h.db.ConsumeLoginFlow(query.Get("state"))
+	if errors.Is(err, db.ErrLoginFlow) {
+		writeError(w, http.StatusBadRequest, "This sign-in attempt is unknown or has expired. Start again.")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	identity, err := h.identityProvider.Exchange(r.Context(), query.Get("code"), flow.CodeVerifier)
+	if err != nil {
+		log.Printf("[Identity] Sign-in failed: %v", err)
+		writeError(w, http.StatusUnauthorized, "The sign-in could not be completed")
+		return
+	}
+	userID, err := h.db.UpsertUser(identity.Subject, identity.Email, identity.DisplayName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	token, _, err := h.db.CreateWebSession(userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	http.SetCookie(w, h.sessionCookieFor(r, token, int(db.WebSessionTTL.Seconds())))
+	http.Redirect(w, r, safeRedirect(flow.Redirect), http.StatusFound)
+}
+
+// HandleLogout ends the browser session on the server, not only in the browser.
+func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	if cookie, err := r.Cookie(sessionCookie); err == nil {
+		if err := h.db.RevokeWebSession(cookie.Value); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
+	http.SetCookie(w, h.sessionCookieFor(r, "", -1))
+	writeJSON(w, http.StatusOK, map[string]interface{}{"signedOut": true})
+}
+
+// HandleCurrentUser tells the interface who is signed in, and whether signing
+// in is even possible on this deployment.
+func (h *Handler) HandleCurrentUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	userID := h.webSessionUser(r)
+	body := map[string]interface{}{
+		"userId":           userID,
+		"signedIn":         userID != "",
+		"identityProvider": h.identityProvider != nil,
+	}
+	if user, err := h.db.GetUser(userID); err == nil && user != nil {
+		body["email"] = user.Email
+		body["displayName"] = user.DisplayName
+	}
+	writeJSON(w, http.StatusOK, body)
+}
+
+// publicPaths are reachable without a browser session. Agent APIs carry their
+// own device credential, sign-in cannot require being signed in, and the
+// interface itself must load in order to offer the sign-in button.
+func publicPath(path string) bool {
+	for _, prefix := range []string{
+		"/auth/",
+		"/api/me",
+		"/api/v1/agent/",
+		"/mcp",
+		"/ws/agent-connect",
+		"/health",
+	} {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	// Anything that is not an API call is the interface's own static files.
+	return !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/ws/")
+}
+
+// RequireSession guards the interface API once a provider is configured.
+// Without one, every request keeps resolving to the single implicit user.
+func (h *Handler) RequireSession(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.identityProvider == nil || publicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if h.webSessionUser(r) == "" {
+			writeError(w, http.StatusUnauthorized, "Sign in to use this interface")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

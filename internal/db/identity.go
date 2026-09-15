@@ -237,3 +237,27 @@ func (d *DB) PurgeExpiredPairingCodes() error {
 		time.Now().UTC().Add(-pairingCodeTTL))
 	return err
 }
+
+// User is the stored identity behind a session.
+type User struct {
+	ID          string
+	Email       string
+	DisplayName string
+}
+
+// GetUser reads one identity, or nil when it is unknown.
+func (d *DB) GetUser(id string) (*User, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, nil
+	}
+	user := User{ID: id}
+	err := d.conn.QueryRow(`SELECT email, display_name FROM users WHERE id = ?`, id).
+		Scan(&user.Email, &user.DisplayName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &user, nil
+}

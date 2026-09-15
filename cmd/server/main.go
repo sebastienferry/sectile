@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,6 +15,7 @@ import (
 	"net"
 	"time"
 
+	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
 	"tasks/internal/webui"
@@ -160,6 +162,17 @@ func main() {
 	h.SetDataDir(appDataDir())
 	h.SetPullOnConnect(true)
 
+	// A declared provider that cannot be reached is a configuration error:
+	// starting without it would silently serve the interface to everyone.
+	if auth.Configured() {
+		provider, err := auth.Discover(context.Background())
+		if err != nil {
+			log.Fatalf("Identity provider: %v", err)
+		}
+		h.SetIdentityProvider(provider)
+		log.Printf("🔐 Sign-in enabled through %s", provider.Issuer())
+	}
+
 	// Pull active running/queued tasks from any available local agent on startup.
 	h.TryPullLocalAgentTasks()
 
@@ -219,6 +232,13 @@ func main() {
 	mux.HandleFunc("/api/terminal/send", h.HandleTerminalSend)
 	mux.HandleFunc("/api/terminal/reset", h.HandleTerminalReset)
 
+	// Sign-in routes exist only when a provider is configured; the interface
+	// asks /api/me which of the two modes it is in.
+	mux.HandleFunc("/auth/login", h.HandleLogin)
+	mux.HandleFunc("/auth/callback", h.HandleAuthCallback)
+	mux.HandleFunc("/auth/logout", h.HandleLogout)
+	mux.HandleFunc("/api/me", h.HandleCurrentUser)
+
 	mux.Handle("/mcp", h.MCPHandler())
 	// Pairing binds one workstation to one user; the code is the only
 	// unauthenticated credential, and it is single use and short lived.
@@ -233,7 +253,6 @@ func main() {
 	mux.HandleFunc("/api/agent/status", h.HandleAgentStatus)
 	mux.HandleFunc("/api/agent/dispatch", h.HandleAgentDispatch)
 	mux.HandleFunc("/api/agent/pull", h.HandleAgentPull)
-
 
 	// Interface : la copie embarquée d'abord, le dossier de build ensuite.
 	//
@@ -307,7 +326,7 @@ func main() {
 		})
 	}
 
-	handlerWithCORS := h.EnableCORS(mux)
+	handlerWithCORS := h.EnableCORS(h.RequireSession(mux))
 
 	addr := ":" + port
 	url := fmt.Sprintf("http://localhost%s", addr)

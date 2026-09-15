@@ -23,6 +23,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { LocalAgentSetup } from './LocalAgentSetup'
 import { WorkstationPairing } from './WorkstationPairing'
+import { SignInStatus } from './SignInStatus'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
 
 type SettingsTab = 'appearance' | 'agentic' | 'prompts'
@@ -210,6 +211,7 @@ export const ProfileModal: React.FC = () => {
           {/* TAB 1: APPEARANCE & PROFILE */}
           {activeTab === 'appearance' && (
             <div className="space-y-6 animate-in fade-in duration-150">
+              <SignInStatus />
               <WorkstationPairing />
               <LocalAgentSetup />
               {/* User info */}
