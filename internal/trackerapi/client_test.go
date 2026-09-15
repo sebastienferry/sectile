@@ -95,7 +95,60 @@ func TestTrackerFailuresNeverSucceedOrExposeSecrets(t *testing.T) {
 	}
 }
 
-func TestTrackerRejectsRedirectsAndForeignPagination(t *testing.T) {
+func TestGithubCreationFollowsRepositoryRedirects(t *testing.T) {
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			calls := 0
+			c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path == "/repos/acme/old/issues" {
+					http.Redirect(w, r, "/repositories/123/issues", status)
+					return
+				}
+				if r.URL.Path != "/repositories/123/issues" || r.Method != http.MethodPost || r.Header.Get("Authorization") != "Bearer github-secret" {
+					t.Errorf("incorrect redirected request: %s %s", r.Method, r.URL.Path)
+				}
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatal(err)
+				}
+				if payload["title"] != "New task" || payload["body"] != "Description" || !reflect.DeepEqual(payload["labels"], []any{"#new"}) {
+					t.Errorf("redirect changed creation payload: %v", payload)
+				}
+				w.WriteHeader(http.StatusCreated)
+				fmt.Fprint(w, `{"number":42,"title":"New task","html_url":"https://github.com/acme/new/issues/42"}`)
+			})
+			task, err := c.CreateGithubIssue("acme/old", "", "New task", "Description", []string{"#new"})
+			if err != nil || task == nil || task.Key != "#42" || calls != 2 {
+				t.Fatalf("redirected creation failed: task=%+v calls=%d err=%v", task, calls, err)
+			}
+		})
+	}
+}
+
+func TestTrackerBoundsRedirectsAndPreservesMethods(t *testing.T) {
+	for _, status := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			calls := 0
+			c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				http.Redirect(w, r, "/loop", status)
+			})
+			if _, err := c.CreateGithubIssue("acme/app", "", "Task", "", nil); err == nil {
+				t.Fatal("accepted redirect loop or method change")
+			}
+			want := 1
+			if status == http.StatusTemporaryRedirect {
+				want = 10
+			}
+			if calls != want {
+				t.Fatalf("made %d requests, want %d", calls, want)
+			}
+		})
+	}
+}
+
+func TestTrackerRejectsForeignRedirectsAndPagination(t *testing.T) {
 	leaked := false
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { leaked = true }))
 	defer other.Close()
@@ -114,6 +167,14 @@ func TestTrackerRejectsRedirectsAndForeignPagination(t *testing.T) {
 	}
 	if leaked {
 		t.Fatal("tracker credentials sent to another origin")
+	}
+	for _, status := range []int{http.StatusTemporaryRedirect, http.StatusPermanentRedirect} {
+		c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, other.URL, status)
+		})
+		if _, err := c.CreateGithubIssue("acme/app", "", "Task", "", nil); err == nil || leaked {
+			t.Fatalf("foreign mutation redirect was not rejected: %v", err)
+		}
 	}
 }
 
