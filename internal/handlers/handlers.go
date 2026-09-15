@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -477,7 +478,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		id = parts[0]
 	}
 
-	// Sub-action: /api/projects/detected-statuses — live status detection for draft project
+	// Sub-action: /api/projects/detected-statuses: live status detection for draft project
 	if id == "detected-statuses" && r.Method == http.MethodGet {
 		tracker := r.URL.Query().Get("tracker")
 		repo := r.URL.Query().Get("repo")
@@ -585,7 +586,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/epics/create — create an epic, the container
+	// Sub-action: /api/projects/{id}/epics/create: create an epic, the container
 	// a split needs as a target
 	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "create" && r.Method == http.MethodPost {
 		var req struct {
@@ -606,7 +607,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/epics/fields — ce que l'instance impose pour
+	// Sub-action: /api/projects/{id}/epics/fields: ce que l'instance impose pour
 	// créer un épic, au delà du titre. PE exige « Epic Type » et la création
 	// échouait en 400 sans que l'interface puisse le demander.
 	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "fields" && r.Method == http.MethodGet {
@@ -614,7 +615,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/epics/move — cut stories out of an epic into
+	// Sub-action: /api/projects/{id}/epics/move: cut stories out of an epic into
 	// another one, created on the fly when only a title is given
 	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "move" && r.Method == http.MethodPost {
 		var req struct {
@@ -641,7 +642,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/issue-types — the work item types the
+	// Sub-action: /api/projects/{id}/issue-types: the work item types the
 	// project's tracker exposes, for the picker in the project settings.
 	if len(parts) >= 2 && parts[1] == "issue-types" && r.Method == http.MethodGet {
 		types, err := h.db.ListProjectIssueTypes(id)
@@ -653,7 +654,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/team-move — set the team of a batch of work
+	// Sub-action: /api/projects/{id}/team-move: set the team of a batch of work
 	// items, which is what triaging a backlog does.
 	if len(parts) >= 2 && parts[1] == "team-move" && r.Method == http.MethodPost {
 		var req struct {
@@ -678,7 +679,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/sprint-move — send a batch of work items to a
+	// Sub-action: /api/projects/{id}/sprint-move: send a batch of work items to a
 	// sprint, which is what planning from the roadmap does.
 	if len(parts) >= 2 && parts[1] == "sprint-move" && r.Method == http.MethodPost {
 		var req struct {
@@ -703,7 +704,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/epics/push-horizons — mirror the locally
+	// Sub-action: /api/projects/{id}/epics/push-horizons: mirror the locally
 	// classified epics whose Jira label is missing or stale
 	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "push-horizons" {
 		switch r.Method {
@@ -732,7 +733,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sub-action: /api/projects/{id}/macros/{key}/migrate — migrate macro and attached tasks to another project
+	// Sub-action: /api/projects/{id}/macros/{key}/migrate: migrate macro and attached tasks to another project
 	if len(parts) >= 4 && (parts[1] == "macros" || parts[1] == "epics") && parts[3] == "migrate" && r.Method == http.MethodPost {
 		macroKey, err := url.PathUnescape(parts[2])
 		if err != nil {
@@ -760,7 +761,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/macros/{key}/story — turn a shaping todo into
+	// Sub-action: /api/projects/{id}/macros/{key}/story: turn a shaping todo into
 	// a real story under that macro
 	if len(parts) >= 4 && (parts[1] == "macros" || parts[1] == "epics") && parts[3] == "story" && r.Method == http.MethodPost {
 		macroKey, err := url.PathUnescape(parts[2])
@@ -793,7 +794,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/macros — the macro metadata TaskFlow owns:
+	// Sub-action: /api/projects/{id}/macros: the macro metadata TaskFlow owns:
 	// horizon (NOW / NEXT / LATER), shaping notes and todos.
 	if len(parts) >= 2 && (parts[1] == "macros" || parts[1] == "epics") {
 		// Creation: /api/projects/{id}/macros/create
@@ -909,7 +910,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sub-action: /api/projects/{id}/boards — the tracker's boards, for the picker
+	// Sub-action: /api/projects/{id}/boards: the tracker's boards, for the picker
 	if len(parts) >= 2 && parts[1] == "boards" && r.Method == http.MethodGet {
 		boards, err := h.db.ListProjectTrackerBoards(id)
 		if err != nil {
@@ -920,7 +921,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/board-columns — import the columns of a
+	// Sub-action: /api/projects/{id}/board-columns: import the columns of a
 	// tracker board as a starting point for the project's own columns
 	if len(parts) >= 2 && parts[1] == "board-columns" && r.Method == http.MethodPost {
 		var req struct {
@@ -936,7 +937,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/tracker-statuses — the statuses actually
+	// Sub-action: /api/projects/{id}/tracker-statuses: the statuses actually
 	// seen on this project's tickets, to assign them to columns
 	if len(parts) >= 2 && parts[1] == "tracker-statuses" && r.Method == http.MethodGet {
 		statuses, err := h.db.GetProjectTrackerStatuses(id)
@@ -1796,7 +1797,14 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				act.Status = "failed"
 				act.Error = err.Error()
 				act.Summary = "Local agent launch failed."
-				_, _ = h.db.FinishRemoteRun(task.ID, remoteRun.ID, "failed", err.Error())
+				// An unconfirmed launch is not a failed one: the agent may be running the
+				// skill right now. Closing its run here would make its own finish_run be
+				// refused as already finished, and the work would complete unrecorded.
+				if errors.Is(err, ErrLaunchUnconfirmed) {
+					act.Summary = "Local agent launch not confirmed; its run stays open until the agent reports."
+				} else {
+					_, _ = h.db.FinishRemoteRun(task.ID, remoteRun.ID, "failed", err.Error())
+				}
 			}
 			_ = h.db.FinishAgentLaunch(act)
 			if err != nil {
@@ -1902,7 +1910,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/pin — épingler ou désépingler un ticket pour
+	// Sub-action: /api/tasks/{id}/pin: épingler ou désépingler un ticket pour
 	// pouvoir basculer vite d'un chantier à l'autre.
 	if subAction == "pin" && (r.Method == http.MethodPost || r.Method == http.MethodDelete) {
 		if r.Method == http.MethodDelete {
@@ -1922,7 +1930,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/tty-agent — open the task's session and start
+	// Sub-action: /api/tasks/{id}/tty-agent: open the task's session and start
 	// the agent configured on its project. Nothing else: typing the skill call is
 	// a separate, deliberate gesture.
 	if subAction == "tty-agent" && r.Method == http.MethodPost {
@@ -1939,7 +1947,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/tty-skill — type the skill call into the agent
+	// Sub-action: /api/tasks/{id}/tty-skill: type the skill call into the agent
 	// already running in the task's session.
 	if subAction == "tty-skill" && r.Method == http.MethodPost {
 		var req struct {
@@ -1973,7 +1981,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/tty-external — open a native external terminal for the task
+	// Sub-action: /api/tasks/{id}/tty-external: open a native external terminal for the task
 	if (subAction == "tty-external" || subAction == "terminal-external") && r.Method == http.MethodPost {
 		var req struct {
 			Command         string `json:"command"`
@@ -1992,7 +2000,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/advance/confirm — the user says the interactive
+	// Sub-action: /api/tasks/{id}/advance/confirm: the user says the interactive
 	// session is over. Taskacao applies the move the worker applies for headless
 	// steps: stage label, internal status, and transition on the tracker. The
 	// repo skill only produces text in the terminal, it never touches the ticket.
@@ -2015,7 +2023,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/stage (or /transition or /workflow-label) — switch the agentic
+	// Sub-action: /api/tasks/{id}/stage (or /transition or /workflow-label): switch the agentic
 	// workflow label and stage on a story, updating local state and queueing tracker updates.
 	if (subAction == "stage" || subAction == "transition" || subAction == "workflow-label") && (r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodGet) {
 		if r.Method == http.MethodGet {
@@ -2110,7 +2118,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/advance — one step of the agentic workflow, or
+	// Sub-action: /api/tasks/{id}/advance: one step of the agentic workflow, or
 	// the autonomous chain up to the review stage
 	if subAction == "advance" && r.Method == http.MethodPost {
 		var req struct {
@@ -2151,7 +2159,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/macro (or /epic) — attach the ticket to a macro, or detach
+	// Sub-action: /api/tasks/{id}/macro (or /epic): attach the ticket to a macro, or detach
 	// it with an empty key.
 	if (subAction == "macro" || subAction == "epic") && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
 		var req struct {
@@ -2177,7 +2185,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/team — change the ticket's team, or clear it with
+	// Sub-action: /api/tasks/{id}/team: change the ticket's team, or clear it with
 	// an empty id. The team is optional on a work item, so clearing it is a
 	// legitimate instruction and not a missing parameter.
 	if subAction == "team" && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
@@ -2198,7 +2206,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/sprint — move the ticket to a sprint of the
+	// Sub-action: /api/tasks/{id}/sprint: move the ticket to a sprint of the
 	// project's board, or back to the backlog with an empty id.
 	if subAction == "sprint" && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
 		var req struct {
@@ -2218,7 +2226,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/assignable — who this ticket can be assigned to.
+	// Sub-action: /api/tasks/{id}/assignable: who this ticket can be assigned to.
 	// With no query it answers the ticket's team; typing searches the instance,
 	// which is what allows assigning someone outside the team.
 	if subAction == "assignable" && r.Method == http.MethodGet {
@@ -2231,7 +2239,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/comments — read and write the ticket's comments
+	// Sub-action: /api/tasks/{id}/comments: read and write the ticket's comments
 	if subAction == "comments" {
 		switch r.Method {
 		case http.MethodGet:
@@ -2263,7 +2271,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sub-action: /api/tasks/{id}/tracker-status — move a card to a board column,
+	// Sub-action: /api/tasks/{id}/tracker-status: move a card to a board column,
 	// which means transitioning the ticket to that column's status. The local
 	// status is written straight away, so the card stays where it was dropped,
 	// and the tracker transition runs in the activity queue: it takes seconds,
@@ -2311,7 +2319,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Sub-action: /api/tasks/{id}/sync — perform a unit two-way sync (update tracker and rsync local state)
+	// Sub-action: /api/tasks/{id}/sync: perform a unit two-way sync (update tracker and rsync local state)
 	if subAction == "sync" && (r.Method == http.MethodPost || r.Method == http.MethodGet) {
 		task, err := h.db.SyncSingleTask(id)
 		if err != nil {
@@ -2325,7 +2333,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/migrate — migrate task to another compatible project
+	// Sub-action: /api/tasks/{id}/migrate: migrate task to another compatible project
 	if subAction == "migrate" && r.Method == http.MethodPost {
 		var req struct {
 			TargetProjectID string `json:"targetProjectId"`
@@ -2346,7 +2354,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/tasks/{id}/clone — clone/duplicate a task or story
+	// Sub-action: /api/tasks/{id}/clone: clone/duplicate a task or story
 	if subAction == "clone" {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")

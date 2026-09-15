@@ -3,9 +3,12 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
+	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"time"
 
@@ -215,6 +218,11 @@ type pendingAgentLaunch struct {
 	result chan agentLaunchStatus
 }
 
+// ErrLaunchUnconfirmed reports a launch whose confirmation never arrived. The
+// agent may well be running the skill, so the caller must not record the run as
+// failed: only the agent knows how it ends.
+var ErrLaunchUnconfirmed = errors.New("launch not confirmed")
+
 // DispatchAndWait confirms a terminal launch before the HTTP caller reports
 // success. Responses are bound to the connection that received the command.
 func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID, taskID string, payload any) error {
@@ -226,6 +234,7 @@ func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID
 	if err != nil {
 		return err
 	}
+	action := launchAction(payload)
 	id := uuid.NewString()
 	pending := &pendingAgentLaunch{agent: ac, result: make(chan agentLaunchStatus, 1)}
 	d.mu.Lock()
@@ -235,6 +244,7 @@ func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID
 	if err := ac.Send(AgentMessage{MsgID: id, Type: "dispatch_step", TaskID: taskID, UserID: userID, Payload: raw}); err != nil {
 		return err
 	}
+	started := time.Now()
 	select {
 	case result := <-pending.result:
 		if result.Status == "failed" {
@@ -242,10 +252,32 @@ func (d *AgentDispatcher) DispatchAndWait(ctx context.Context, userID, projectID
 		}
 		return nil
 	case <-ac.done:
-		return fmt.Errorf("agent disconnected before confirming terminal launch; check the local agent before retrying")
+		return fmt.Errorf("agent disconnected before confirming terminal launch of %s after %s; check the local agent (%s) before retrying",
+			action, waited(started), ac.DeviceID)
 	case <-ctx.Done():
-		return fmt.Errorf("terminal launch was not confirmed before timeout or cancellation; check the local agent before retrying: %w", ctx.Err())
+		log.Printf("[AgentDispatcher] Launch of %s on device=%s not confirmed after %s: %v", action, ac.DeviceID, waited(started), ctx.Err())
+		return fmt.Errorf("%w: %s was not confirmed after %s; the local agent (%s) may still be running it, so its run stays open: %w",
+			ErrLaunchUnconfirmed, action, waited(started), ac.DeviceID, ctx.Err())
 	}
+}
+
+// waited reports the time actually spent waiting, so a caller that cancelled
+// early is distinguishable from one that ran its deadline out.
+func waited(since time.Time) time.Duration { return time.Since(since).Round(time.Millisecond) }
+
+// launchAction names the dispatch for a reader of the error, falling back to a
+// generic label rather than failing over the diagnostics.
+func launchAction(payload any) string {
+	dispatch, ok := payload.(agentconfig.Dispatch)
+	if !ok {
+		return "terminal launch"
+	}
+	for _, name := range []string{dispatch.SkillID, dispatch.Action} {
+		if strings.TrimSpace(name) != "" {
+			return "skill " + name
+		}
+	}
+	return "terminal launch"
 }
 
 func (d *AgentDispatcher) ReportLaunchStatus(ac *AgentConn, msg AgentMessage) {

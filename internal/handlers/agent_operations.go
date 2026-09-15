@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
+	"log"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 type pendingOperation struct {
@@ -43,6 +46,7 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 	if err = ac.Send(AgentMessage{MsgID: id, Type: "workspace_request", TaskID: op.TaskID, Payload: raw}); err != nil {
 		return nil, err
 	}
+	started := time.Now()
 	select {
 	case res := <-pending.result:
 		if res.Error != "" {
@@ -50,10 +54,13 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 		}
 		return res.Value, nil
 	case <-ac.done:
-		return nil, fmt.Errorf("agent disconnected before confirming local operation; check the local agent before retrying")
+		return nil, fmt.Errorf("agent disconnected before confirming %s after %s; check the local agent (%s) before retrying",
+			op.Action, waited(started), ac.DeviceID)
 	case <-ctx.Done():
 		_ = ac.Send(AgentMessage{MsgID: id, Type: "workspace_cancel"})
-		return nil, fmt.Errorf("local operation not confirmed; check the agent before retrying: %w", ctx.Err())
+		log.Printf("[AgentDispatcher] Operation %s on device=%s not confirmed after %s: %v", op.Action, ac.DeviceID, waited(started), ctx.Err())
+		return nil, fmt.Errorf("%s was not confirmed after %s; check the local agent (%s) before retrying: %w",
+			op.Action, waited(started), ac.DeviceID, ctx.Err())
 	}
 }
 func (d *AgentDispatcher) ReportOperation(ac *AgentConn, msg AgentMessage) {
