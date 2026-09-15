@@ -503,10 +503,60 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 		// the resize command would be forwarded to the session.
 		log.Printf("[Agent] Received pty_resize for task %s (not yet wired)", msg.TaskID)
 
+	case "pull_tasks":
+		d.handlePullTasks(ctx, conn, msg)
+
 	default:
 		log.Printf("[Agent] Unknown message type: %s", msg.Type)
 	}
 }
+
+// handlePullTasks returns all currently queued or running executions.
+func (d *agentDaemon) handlePullTasks(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
+	d.runsMu.Lock()
+	tasks := make([]agentprotocol.RunningTask, 0)
+	for key, run := range d.runs {
+		entry := run.desktop
+		status := entry.Status
+		select {
+		case <-run.exited:
+			continue
+		default:
+		}
+		if status == "queued" || status == "running" {
+			tasks = append(tasks, agentprotocol.RunningTask{
+				ID:        key,
+				TaskID:    entry.TaskID,
+				TaskKey:   entry.TaskKey,
+				ProjectID: entry.ProjectID,
+				Skill:     entry.Skill,
+				Status:    status,
+				CreatedAt: entry.CreatedAt,
+				StartedAt: entry.StartedAt,
+				Branch:    entry.Branch,
+				Directory: entry.Directory,
+			})
+		}
+	}
+	d.runsMu.Unlock()
+
+	raw, err := json.Marshal(tasks)
+	if err != nil {
+		log.Printf("[Agent] Failed to marshal running tasks: %v", err)
+		return
+	}
+
+	resp := agentprotocol.Message{
+		MsgID:   msg.MsgID,
+		Type:    "running_tasks",
+		Payload: raw,
+	}
+
+	d.connMu.Lock()
+	_ = conn.WriteJSON(resp)
+	d.connMu.Unlock()
+}
+
 
 // findRepoRoot finds the repository root containing .tasks and all worktrees
 func findRepoRoot(startDir string) string {

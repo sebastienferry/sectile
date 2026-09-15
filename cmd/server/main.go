@@ -158,6 +158,10 @@ func main() {
 
 	h := handlers.NewHandler(database)
 	h.SetDataDir(appDataDir())
+	h.SetPullOnConnect(true)
+
+	// Pull active running/queued tasks from any available local agent on startup.
+	h.TryPullLocalAgentTasks()
 
 	// Boucle de synchronisation de fond. Elle ne fait rien tant que le réglage
 	// est éteint, et ne lit ensuite que ce qui a changé depuis sa passe
@@ -223,6 +227,8 @@ func main() {
 	mux.HandleFunc("/ws/agent-connect", h.HandleAgentConnect)
 	mux.HandleFunc("/api/agent/status", h.HandleAgentStatus)
 	mux.HandleFunc("/api/agent/dispatch", h.HandleAgentDispatch)
+	mux.HandleFunc("/api/agent/pull", h.HandleAgentPull)
+
 
 	// Interface : la copie embarquée d'abord, le dossier de build ensuite.
 	//
