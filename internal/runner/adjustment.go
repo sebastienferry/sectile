@@ -16,6 +16,7 @@ type PullRequestEvidence struct {
 	SHA    string
 	Open   bool
 	Draft  bool
+	Merged bool
 }
 
 func parsePullRequestEvidence(raw, branch string, gitlab bool) (PullRequestEvidence, error) {
@@ -31,16 +32,28 @@ func parsePullRequestEvidence(raw, branch string, gitlab bool) (PullRequestEvide
 		if err := json.Unmarshal([]byte(raw), &rows); err != nil {
 			return PullRequestEvidence{}, err
 		}
-		for _, p := range rows {
-			if p.Branch == branch && p.State == "opened" && p.URL != "" {
+		var fallback *PullRequestEvidence
+		for i := range rows {
+			p := rows[i]
+			if p.Branch != branch || p.URL == "" {
+				continue
+			}
+			if p.State == "opened" {
 				if p.Draft == nil && p.WIP == nil {
-					return PullRequestEvidence{}, fmt.Errorf("forge omitted PR readiness")
+					return PullRequestEvidence{}, fmt.Errorf("forge omitted MR readiness")
 				}
 				draft := (p.Draft != nil && *p.Draft) || (p.WIP != nil && *p.WIP)
-				return PullRequestEvidence{p.URL, p.Branch, p.SHA, true, draft}, nil
+				return PullRequestEvidence{p.URL, p.Branch, p.SHA, true, draft, false}, nil
+			}
+			// A merged MR is the same task MR; readiness no longer applies once it is merged.
+			if p.State == "merged" && fallback == nil {
+				fallback = &PullRequestEvidence{p.URL, p.Branch, p.SHA, false, false, true}
 			}
 		}
-		return PullRequestEvidence{}, fmt.Errorf("no matching open merge request; recover through the configured creation owner")
+		if fallback != nil {
+			return *fallback, nil
+		}
+		return PullRequestEvidence{}, fmt.Errorf("no matching open or merged merge request; recover through the configured creation owner")
 	}
 	var p struct {
 		URL    string `json:"url"`
@@ -52,13 +65,17 @@ func parsePullRequestEvidence(raw, branch string, gitlab bool) (PullRequestEvide
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		return PullRequestEvidence{}, err
 	}
-	if p.URL == "" || p.Branch != branch || p.State != "OPEN" {
-		return PullRequestEvidence{}, fmt.Errorf("no matching open pull request; recover through the configured creation owner")
+	if p.URL == "" || p.Branch != branch || (p.State != "OPEN" && p.State != "MERGED") {
+		return PullRequestEvidence{}, fmt.Errorf("no matching open or merged pull request; recover through the configured creation owner")
+	}
+	// A merged PR is the same task PR; readiness no longer applies once it is merged.
+	if p.State == "MERGED" {
+		return PullRequestEvidence{p.URL, p.Branch, p.SHA, false, false, true}, nil
 	}
 	if p.Draft == nil {
 		return PullRequestEvidence{}, fmt.Errorf("forge omitted PR readiness")
 	}
-	return PullRequestEvidence{p.URL, p.Branch, p.SHA, true, *p.Draft}, nil
+	return PullRequestEvidence{p.URL, p.Branch, p.SHA, true, *p.Draft, false}, nil
 }
 
 // BranchPullRequest reports lookup failures distinctly; callers must never treat errors as permission to create.
@@ -100,4 +117,4 @@ func (r *Runner) BranchPullRequest(repoPath, branch string) (PullRequestEvidence
 }
 
 // AdjustmentContract accompanies every native or managed customization.
-const AdjustmentContract = `Mandatory adjustment contract: verify the existing matching open task-branch PR before changes. Never create or replace a PR. Review the complete branch against the specification, reconcile the current remote default branch, retrieve available feedback and record dispositions; retrieval failure blocks completion. Run build/lint/test checks on final code, commit and push, update the same PR and verify readiness and its final commit. No human feedback is required. Preserve work on failure. Never merge, approve, close the task or remove its worktree. Missing PR recovery belongs to the configured earlier creation stage.`
+const AdjustmentContract = `Mandatory adjustment contract: verify the existing matching task-branch PR before changes; it must be open, or already merged by the human. Never push onto a merged PR: review the final state and report it. Never create or replace a PR. Review the complete branch against the specification, reconcile the current remote default branch, retrieve available feedback and record dispositions; retrieval failure blocks completion. Run build/lint/test checks on final code, commit and push, update the same PR and verify readiness and its final commit. No human feedback is required. Preserve work on failure. Never merge, approve, close the task or remove its worktree. Missing PR recovery belongs to the configured earlier creation stage.`

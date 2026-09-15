@@ -191,7 +191,7 @@ found and fixed, the risky parts pointed out, the test plan written down.`,
 - The specification, to check that what was asked is what was built.
 - The current remote default branch: fetch the remote and identify its configured
   default branch before reviewing or publishing.`,
-		stepsBody: `1. Verify a matching open PR exists for the task repository and branch before changing files. Record its URL. If missing, stop and recover through the configured creation owner (specify or implement). Never create a PR during adjustment. Read available PR feedback; retrieval failure is a blocker, not absence of feedback.
+		stepsBody: `1. Verify a matching PR exists for the task repository and branch before changing files: open, or already merged by the human. Record its URL. If missing, stop and recover through the configured creation owner (specify or implement). Never create a PR during adjustment, and never push onto a merged PR — review the merged state and report it. Read available PR feedback; retrieval failure is a blocker, not absence of feedback.
    Fetch the remote (` + tick + `git fetch origin` + tick + `) and compare the work branch with the
    remote default branch (normally ` + tick + `origin/main` + tick + `; use the repository's configured default when different).
    Integrate missing base commits before the final review: prefer rebase when the branch is private, or merge when

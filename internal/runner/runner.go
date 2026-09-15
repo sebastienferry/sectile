@@ -1779,7 +1779,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	case "adjust":
 		promptTemplate = `Adjust the existing PR for {issueKey}: {issueTitle}.
 Repository: {repoPath}. Assigned branch: {branchName}.
-Before modifying files, verify and record the matching open PR. If missing, stop and use the configured earlier creation stage. Never create or replace a PR here.
+Before modifying files, verify and record the matching task-branch PR: open, or already merged by the human. If missing, stop and use the configured earlier creation stage. Never create or replace a PR here, and never push onto a merged PR.
 Fetch and reconcile the remote default branch, review the complete diff against the specification, retrieve available review feedback, fix findings and record feedback dispositions. Feedback retrieval failure blocks completion; no human comments is valid.
 Run build, lint and tests on the final code; commit and push changes; update the same PR description and evidence and verify it is ready and contains the pushed final commit. Preserve work on any failure. Never merge, approve, close the ticket or clean up the worktree.`
 		if settings.PromptCreatePR != "" {
