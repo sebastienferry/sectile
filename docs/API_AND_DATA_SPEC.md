@@ -1,6 +1,6 @@
 # API & Data Specifications
 
-This document defines the SQLite schema, domain data models, REST endpoints, and WebSocket streaming protocols for **TaskFlow**.
+This document defines the SQLite schema, domain data models, REST endpoints, and WebSocket streaming protocols for **Sectile**.
 
 ---
 

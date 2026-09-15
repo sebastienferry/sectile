@@ -146,7 +146,7 @@ func NewServer(database *db.DB) *mcp.Server {
 			projects, err := database.AgentProjects()
 			return nil, projects, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply TASKFLOW_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs."},
+	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in startRunInput) (*mcp.CallToolResult, any, error) {
 			activity, err := database.StartRemoteRun(in.TaskKey, in.Skill, in.RunID)
 			return nil, activity, err

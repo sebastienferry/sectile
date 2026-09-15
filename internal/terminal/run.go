@@ -147,8 +147,8 @@ func (m *Manager) RunCommandInSession(
 
 	runID := fmt.Sprintf("%d", time.Now().UnixNano())
 	w := &runWatcher{
-		startRe:    regexp.MustCompile(`(?:^|[\r\n])__TASKFLOW_START_` + runID + `__[\r\n]`),
-		endRe:      regexp.MustCompile(`(?:^|[\r\n])__TASKFLOW_END_` + runID + `:(\d+)__[\r\n]`),
+		startRe:    regexp.MustCompile(`(?:^|[\r\n])__SECTILE_START_` + runID + `__[\r\n]`),
+		endRe:      regexp.MustCompile(`(?:^|[\r\n])__SECTILE_END_` + runID + `:(\d+)__[\r\n]`),
 		startedCh:  make(chan struct{}),
 		doneCh:     make(chan struct{}),
 		lastByteAt: time.Now(),
@@ -166,7 +166,7 @@ func (m *Manager) RunCommandInSession(
 	// printf plutôt que echo : le marqueur doit sortir tel quel, et le code de
 	// sortie est celui de la commande, pas celui du printf de début.
 	line := fmt.Sprintf(
-		"printf '\\n__TASKFLOW_START_%s__\\n'; %s; printf '\\n__TASKFLOW_END_%s:%%s__\\n' \"$?\"\n",
+		"printf '\\n__SECTILE_START_%s__\\n'; %s; printf '\\n__SECTILE_END_%s:%%s__\\n' \"$?\"\n",
 		runID, commandLine, runID,
 	)
 	if err := m.SendInput(sessionID, line); err != nil {

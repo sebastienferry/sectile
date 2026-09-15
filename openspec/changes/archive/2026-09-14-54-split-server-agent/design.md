@@ -7,10 +7,10 @@ The server remains the owner of tracker queues and workflow transitions. Replace
 
 Local workspace and execution capabilities are routed to the authenticated project's agent. A disconnected agent yields an actionable error; never fall back to server filesystem operations. Preserve task/project identity, cancellation, request correlation, timeout and completion semantics. Server-side transitions use returned evidence and tracker information rather than opening an agent checkout. LLM digest generation follows the same agent-only execution rule.
 
-SQLite and server configuration/UI assets are permitted server filesystem operations. Repository contents, worktrees, CLI credential stores and provider subprocesses are agent-owned. Agent configuration generation must point to `taskflow-agent mcp`; Electron must discover and spawn the agent executable without the old `agent` subcommand.
+SQLite and server configuration/UI assets are permitted server filesystem operations. Repository contents, worktrees, CLI credential stores and provider subprocesses are agent-owned. Agent configuration generation must point to `sectile-agent mcp`; Electron must discover and spawn the agent executable without the old `agent` subcommand.
 
 ## Build and distribution
-`make server` builds the UI and server only. `make agent` builds the agent without frontend dependencies. `make start` runs the agent; `make serve` runs the server. Release builds emit both binaries per supported target. Electron packages `taskflow-agent` as its extra resource. Do not produce unified `taskflow` or `sectile` shims.
+`make server` builds the UI and server only. `make agent` builds the agent without frontend dependencies. `make start` runs the agent; `make serve` runs the server. Release builds emit both binaries per supported target. Electron packages `sectile-agent` as its extra resource. Do not produce unified `sectile` or `sectile` shims.
 
 ## Rejected alternatives
 - Two copies of the current executable: retains all server execution paths and couples packaging.

@@ -1819,7 +1819,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	}
 
 	if skillID == "specify" || skillID == "implement" {
-		promptTemplate += "\nRead the project PR creation policy through TaskFlow. Specification owns creation only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
+		promptTemplate += "\nRead the project PR creation policy through Sectile. Specification owns creation only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
 	}
 	if skillID == "adjust" {
 		promptTemplate += "\n\n" + AdjustmentContract
@@ -2441,7 +2441,7 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 	customTermCmd = strings.TrimSpace(customTermCmd)
 
 	// Create a temporary launcher script
-	tmpFile, err := os.CreateTemp("", "taskflow-term-*.command")
+	tmpFile, err := os.CreateTemp("", "sectile-term-*.command")
 	if err != nil {
 		return fmt.Errorf("failed to create temporary terminal script: %w", err)
 	}
@@ -2618,7 +2618,7 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("invocation vide")
 	}
 
-	f, err := os.CreateTemp("", "taskflow-prompt-*.md")
+	f, err := os.CreateTemp("", "sectile-prompt-*.md")
 	if err != nil {
 		return "", func() {}, err
 	}

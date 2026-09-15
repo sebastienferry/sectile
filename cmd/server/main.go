@@ -21,7 +21,7 @@ import (
 
 // loadDotEnv reads KEY=VALUE lines from a .env file next to the binary's working
 // directory. A real environment variable always wins, so exporting a value in
-// the shell overrides the file. Secrets such as TASKFLOW_JIRA_API_TOKEN can then
+// the shell overrides the file. Secrets such as SECTILE_JIRA_API_TOKEN can then
 // live outside the database and outside git, .env being already gitignored.
 func loadDotEnv(paths ...string) {
 	for _, path := range paths {
@@ -68,7 +68,7 @@ func appDataDir() string {
 	if err != nil || strings.TrimSpace(dir) == "" {
 		return ""
 	}
-	appDir := filepath.Join(dir, "taskflow")
+	appDir := filepath.Join(dir, "sectile")
 	if err := os.MkdirAll(appDir, 0o755); err != nil {
 		return ""
 	}
@@ -92,9 +92,9 @@ func resolveDBPath(explicit string) (path string, origin string) {
 
 	appDir := appDataDir()
 	if appDir != "" {
-		taskflowDB := filepath.Join(appDir, "tasks.db")
-		if fi, err := os.Stat(taskflowDB); err == nil && fi.Size() > 0 {
-			return taskflowDB, "dossier de données"
+		sectileDB := filepath.Join(appDir, "tasks.db")
+		if fi, err := os.Stat(sectileDB); err == nil && fi.Size() > 0 {
+			return sectileDB, "dossier de données"
 		}
 		// Fallback to legacy taskacao directory if it exists
 		if userDir, err := os.UserConfigDir(); err == nil && userDir != "" {
@@ -103,7 +103,7 @@ func resolveDBPath(explicit string) (path string, origin string) {
 				return legacyDB, "dossier de données (legacy taskacao)"
 			}
 		}
-		return taskflowDB, "dossier de données"
+		return sectileDB, "dossier de données"
 	}
 	return "tasks.db", "répertoire courant, dossier de données indisponible"
 }
@@ -127,7 +127,7 @@ func alreadyServing(baseURL string) bool {
 		return false
 	}
 	lower := strings.ToLower(string(body))
-	return strings.Contains(lower, "sectile") || strings.Contains(lower, "taskflow") || strings.Contains(lower, "taskacao")
+	return strings.Contains(lower, "sectile") || strings.Contains(lower, "sectile") || strings.Contains(lower, "taskacao")
 }
 
 func main() {
@@ -145,7 +145,7 @@ func main() {
 	}
 
 	if len(os.Args) > 1 {
-		log.Fatal("taskflow-server accepts configuration through environment variables; use taskflow-agent for local execution and MCP")
+		log.Fatal("sectile-server accepts configuration through environment variables; use sectile-agent for local execution and MCP")
 	}
 
 	dbPath, dbOrigin := resolveDBPath(os.Getenv("DB_PATH"))
@@ -220,6 +220,11 @@ func main() {
 	mux.HandleFunc("/api/terminal/reset", h.HandleTerminalReset)
 
 	mux.Handle("/mcp", h.MCPHandler())
+	// Pairing binds one workstation to one user; the code is the only
+	// unauthenticated credential, and it is single use and short lived.
+	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)
+	mux.HandleFunc("/api/devices", h.HandleDeviceCredentials)
+	mux.HandleFunc("/api/v1/agent/pair", h.HandleAgentPair)
 	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
 	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
 

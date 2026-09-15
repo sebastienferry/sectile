@@ -21,22 +21,22 @@ type Client struct {
 }
 
 func NewClient() *Client {
-	gh := os.Getenv("TASKFLOW_GITHUB_API_URL")
+	gh := os.Getenv("SECTILE_GITHUB_API_URL")
 	if gh == "" {
 		gh = "https://api.github.com"
 	}
-	token := os.Getenv("TASKFLOW_GITHUB_TOKEN")
+	token := os.Getenv("SECTILE_GITHUB_TOKEN")
 	if token == "" {
 		token = os.Getenv("GH_TOKEN")
 	}
 	if token == "" {
 		token = os.Getenv("GITHUB_TOKEN")
 	}
-	linear := os.Getenv("TASKFLOW_LINEAR_API_URL")
+	linear := os.Getenv("SECTILE_LINEAR_API_URL")
 	if linear == "" {
 		linear = "https://api.linear.app/graphql"
 	}
-	lt := os.Getenv("TASKFLOW_LINEAR_API_KEY")
+	lt := os.Getenv("SECTILE_LINEAR_API_KEY")
 	if lt == "" {
 		lt = os.Getenv("LINEAR_API_KEY")
 	}
@@ -92,7 +92,7 @@ func (c *Client) request(ctx context.Context, method, endpoint, token string, pa
 
 func (c *Client) github(ctx context.Context, method, path string, payload, result any) error {
 	if c.GithubToken == "" {
-		return fmt.Errorf("configure TASKFLOW_GITHUB_TOKEN on the server")
+		return fmt.Errorf("configure SECTILE_GITHUB_TOKEN on the server")
 	}
 	raw, _, err := c.request(ctx, method, c.GithubURL+"/"+strings.TrimLeft(path, "/"), "Bearer "+c.GithubToken, payload)
 	if err != nil {
@@ -106,7 +106,7 @@ func (c *Client) github(ctx context.Context, method, path string, payload, resul
 
 func (c *Client) githubPages(ctx context.Context, path string) ([]json.RawMessage, error) {
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("configure TASKFLOW_GITHUB_TOKEN on the server")
+		return nil, fmt.Errorf("configure SECTILE_GITHUB_TOKEN on the server")
 	}
 	next := c.GithubURL + "/" + path
 	origin, err := url.Parse(c.GithubURL)
@@ -176,7 +176,7 @@ func (c *Client) graphql(ctx context.Context, endpoint, token, query string, var
 
 func (c *Client) linear(query string, variables map[string]any, result any) error {
 	if c.LinearToken == "" {
-		return fmt.Errorf("configure TASKFLOW_LINEAR_API_KEY on the server")
+		return fmt.Errorf("configure SECTILE_LINEAR_API_KEY on the server")
 	}
 	return c.graphql(context.Background(), c.LinearURL, c.LinearToken, query, variables, result)
 }
@@ -192,7 +192,7 @@ func repository(repo string) (string, error) {
 
 func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("configure TASKFLOW_GITHUB_TOKEN on the server")
+		return nil, fmt.Errorf("configure SECTILE_GITHUB_TOKEN on the server")
 	}
 	endpoint := strings.TrimSuffix(c.GithubURL, "/api/v3") + "/graphql"
 	if strings.HasSuffix(c.GithubURL, "/api/v3") {

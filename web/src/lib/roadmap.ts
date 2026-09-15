@@ -4,7 +4,7 @@ import { WORKFLOW_ORDER, resolveTaskStage } from './workflow'
 /**
  * Agrégation des épics pour la vue Roadmap.
  *
- * TaskFlow n'importe pas les épics comme cartes — ce sont des conteneurs, portés
+ * Sectile n'importe pas les épics comme cartes — ce sont des conteneurs, portés
  * par les tickets sous forme de `parentKey` / `parentTitle`. Un épic est donc
  * reconstruit ici depuis ses enfants, et tout ce que la vue affiche est déduit
  * d'eux : c'est la seule source disponible, et elle a l'avantage d'être toujours

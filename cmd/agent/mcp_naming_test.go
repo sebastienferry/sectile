@@ -30,7 +30,7 @@ func TestDesktopFinishesCanonicalRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "desktop-secret")
+	t.Setenv("SECTILE_SERVER_TOKEN", "desktop-secret")
 	server := httptest.NewServer(handlers.NewHandler(database).MCPHandler())
 	defer server.Close()
 	daemon := &agentDaemon{serverURL: server.URL, token: "desktop-secret"}
@@ -61,7 +61,7 @@ func TestDesktopFinishesCanonicalRun(t *testing.T) {
 }
 
 func TestMCPBridgeRejectsIncompatibleCatalog(t *testing.T) {
-	for _, name := range []string{"taskflow_get_task", "sectile_get_task", "get_task"} {
+	for _, name := range []string{"sectile_get_task", "sectile_get_task", "get_task"} {
 		t.Run(name, func(t *testing.T) {
 			upstream := mcp.NewServer(&mcp.Implementation{Name: "test-server", Version: "1"}, nil)
 			upstream.AddTool(&mcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(context.Context, *mcp.CallToolRequest) (*mcp.CallToolResult, error) {

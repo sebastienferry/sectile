@@ -1,6 +1,6 @@
 ## Context
 
-In TaskFlow, macros represent high-level roadmap items or epics. A macro holds framing text (`description`) and a list of shaping todos (`todos`). Breaking down high-level framing text into executable action items is currently a manual process. Moreover, TaskFlow uses Specification Driven Development (SSD) frameworks—**SpecKit** and **OpenSpec**—to structure specifications and action plans.
+In Sectile, macros represent high-level roadmap items or epics. A macro holds framing text (`description`) and a list of shaping todos (`todos`). Breaking down high-level framing text into executable action items is currently a manual process. Moreover, Sectile uses Specification Driven Development (SSD) frameworks—**SpecKit** and **OpenSpec**—to structure specifications and action plans.
 
 This feature adds a macro-level skill (`refine_macro` / `/refine-macro`) that users can view and configure in the **Skills** management view and trigger from **Roadmap** views when refining a macro.
 

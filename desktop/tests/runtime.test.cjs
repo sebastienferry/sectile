@@ -11,7 +11,7 @@ test('packaged desktop resolves only its platform agent', t => {
  for (const platform of ['darwin', 'linux', 'win32']) {
   const resourcesPath = path.join(root, platform)
   fs.mkdirSync(resourcesPath)
-  fs.writeFileSync(path.join(resourcesPath, 'taskflow-server'), '')
+  fs.writeFileSync(path.join(resourcesPath, 'sectile-server'), '')
   const options = {packaged: true, resourcesPath, directory: root, platform}
   assert.throws(() => resolveAgentBinary(options), /agent is missing/)
   const binary = path.join(resourcesPath, agentName(platform))

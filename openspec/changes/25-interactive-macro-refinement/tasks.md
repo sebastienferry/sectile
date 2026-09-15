@@ -8,7 +8,7 @@
 
 - [ ] 2.1 Update `RoadmapView.tsx` "Raffiner la macro (AI)" button to launch interactive TTY session (`/refine-macro <KEY>`).
 - [ ] 2.2 Add bulk task creation handler (`createMacroTasks`) to `RoadmapView.tsx` and `AppContext.tsx`.
-- [ ] 2.3 Add "Générer les tickets TaskFlow" action button and task breakdown list in `RoadmapView.tsx` framing pane.
+- [ ] 2.3 Add "Générer les tickets Sectile" action button and task breakdown list in `RoadmapView.tsx` framing pane.
 - [ ] 2.4 Display generated proposed tasks with issue type badges (Story, Bug, Task) and checkable selection.
 
 ## 3. Validation & Testing

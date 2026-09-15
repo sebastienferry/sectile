@@ -12,7 +12,7 @@ func SettingsPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "taskflow", "settings.json"), nil
+	return filepath.Join(home, ".config", "sectile", "settings.json"), nil
 }
 
 // ReadSettings falls back to the legacy repository file until settings are saved.

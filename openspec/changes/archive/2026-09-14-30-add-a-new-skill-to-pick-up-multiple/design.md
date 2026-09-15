@@ -1,7 +1,7 @@
 ## Context
 
 Voir `proposal.md` et `specs/batch-issue-pickup/spec.md`.
-TaskFlow dispose déjà de composants de sélection par lot dans `CurationTable.tsx`, `TriageView.tsx` et `SprintTimelineView.tsx`, ainsi qu'un système de gestion de Git Worktrees et d'exécution d'agents via PTY/WebSocket.
+Sectile dispose déjà de composants de sélection par lot dans `CurationTable.tsx`, `TriageView.tsx` et `SprintTimelineView.tsx`, ainsi qu'un système de gestion de Git Worktrees et d'exécution d'agents via PTY/WebSocket.
 
 ## Goals / Non-Goals
 

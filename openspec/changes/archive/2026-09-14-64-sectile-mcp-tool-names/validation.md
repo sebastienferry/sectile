@@ -1,6 +1,6 @@
 # Implementation validation — #64
 
-Branch: `feat/64`. Existing draft PR: https://github.com/sebastienferry/taskflow/pull/92.
+Branch: `feat/64`. Existing draft PR: https://github.com/sebastienferry/sectile/pull/92.
 
 ## Scope delivered
 
@@ -23,7 +23,7 @@ Branch: `feat/64`. Existing draft PR: https://github.com/sebastienferry/taskflow
 - `make test`: passed; frontend output reports 22 tests, 22 passed, 0 failed;
   TypeScript succeeded. Oxlint emitted warnings but exited successfully.
 - `make binary-build`: passed; frontend bundled and `bin/sectile` built, with
-  the existing `bin/taskflow` compatibility copy. Vite reported its large-chunk
+  the existing `bin/sectile` compatibility copy. Vite reported its large-chunk
   warning. The final Go changes were rechecked and rebuilt.
 
 Initial checks could not write the sandboxed default Go cache and could not find

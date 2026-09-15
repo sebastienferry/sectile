@@ -146,4 +146,3 @@ func TestAgentPullTasks(t *testing.T) {
 		t.Fatalf("expected run two to be queued, got: %s", statuses["two"])
 	}
 }
-

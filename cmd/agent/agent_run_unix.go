@@ -51,3 +51,10 @@ func stopControlledCommand(cmd *exec.Cmd, force bool) {
 	}
 	_ = syscall.Kill(-cmd.Process.Pid, sig)
 }
+
+// detachedSession runs a child in its own session, with no controlling
+// terminal. Interactive shells started by tests otherwise contend for the
+// caller's terminal and can block until they are signalled.
+func detachedSession() *syscall.SysProcAttr {
+	return &syscall.SysProcAttr{Setsid: true}
+}

@@ -15,7 +15,7 @@ import (
 // SPEC-DRIVEN DESIGN TOOLCHAIN INSTALLERS (Spec Kit / OpenSpec)
 // -------------------------------------------------------------
 //
-// TaskFlow supports two Spec-Driven Design frameworks:
+// Sectile supports two Spec-Driven Design frameworks:
 //
 //   - speckit  : GitHub Spec Kit, a Python CLI named 'specify' distributed from
 //                git+https://github.com/github/spec-kit.git and normally run
@@ -46,7 +46,7 @@ func SpecFrameworkLabel(framework string) string {
 // that used to be stored in the database) onto a supported framework id.
 func NormalizeSpecFramework(framework string) string { return models.NormalizeSpecFramework(framework) }
 
-// specKitIntegration maps a TaskFlow AI provider onto the value accepted by
+// specKitIntegration maps a Sectile AI provider onto the value accepted by
 // `specify init --integration`. Spec Kit's own non-interactive default is
 // copilot, so that is the fallback for providers it does not know (including
 // the "custom" shell-template provider).
@@ -71,7 +71,7 @@ func specKitIntegration(aiAgent string) string {
 	}
 }
 
-// openSpecTools maps a TaskFlow AI provider onto the value accepted by
+// openSpecTools maps a Sectile AI provider onto the value accepted by
 // `openspec init --tools`. This flag is what makes the initializer
 // non-interactive, so it is always passed.
 func openSpecTools(aiAgent string) string {

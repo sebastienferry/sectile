@@ -30,7 +30,7 @@ test('Changes preserves console state and rejects obsolete responses',async()=>{
  const ws=new WebSocketServer({server});ws.on('connection',socket=>{attachments++;socket.send('console remains alive\r\n');socket.on('close',()=>detaches++);socket.on('message',raw=>{const msg=JSON.parse(raw);if(msg.type==='input')input+=msg.data})})
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test'}))
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env});const page=await app.firstWindow();page.setDefaultTimeout(8000)

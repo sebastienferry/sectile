@@ -15,7 +15,7 @@ func TestBootstrapMCPPreservesConfigAndRefreshesGateway(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
 		t.Run(provider, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
-			path, err := BootstrapMCP(provider, "/opt/taskflow", "http://127.0.0.1:8091")
+			path, err := BootstrapMCP(provider, "/opt/sectile", "http://127.0.0.1:8091")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,7 +59,7 @@ func TestBootstrapMCPPreservesConfigAndRefreshesGateway(t *testing.T) {
 			if err = os.WriteFile(path, raw, 0600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err = BootstrapMCP(provider, "/opt/new taskflow", "http://127.0.0.1:45123"); err != nil {
+			if _, err = BootstrapMCP(provider, "/opt/new sectile", "http://127.0.0.1:45123"); err != nil {
 				t.Fatal(err)
 			}
 			result := read()
@@ -67,7 +67,7 @@ func TestBootstrapMCPPreservesConfigAndRefreshesGateway(t *testing.T) {
 				t.Fatal("unrelated settings lost")
 			}
 			raw, _ = json.Marshal(result)
-			wantValues := []string{"other-server", "/opt/new taskflow"}
+			wantValues := []string{"other-server", "/opt/new sectile"}
 			if provider == "agy" {
 				if path != filepath.Join(os.Getenv("HOME"), ".gemini/config/mcp_config.json") || strings.Contains(string(raw), "45123") {
 					t.Fatalf("agy must use its user registry without a process-specific gateway: %s", raw)
@@ -95,17 +95,17 @@ func TestBootstrapMCPRejectsInvalidConfigWithoutOverwriting(t *testing.T) {
 	if err := os.WriteFile(path, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BootstrapMCP("claude", "/bin/taskflow", "http://127.0.0.1:8091"); err == nil {
+	if _, err := BootstrapMCP("claude", "/bin/sectile", "http://127.0.0.1:8091"); err == nil {
 		t.Fatal("invalid configuration accepted")
 	}
 	got, _ := os.ReadFile(path)
 	if string(got) != string(raw) {
 		t.Fatal("existing config damaged")
 	}
-	if _, err := BootstrapMCP("custom", "/bin/taskflow", "http://127.0.0.1:8091"); err == nil {
+	if _, err := BootstrapMCP("custom", "/bin/sectile", "http://127.0.0.1:8091"); err == nil {
 		t.Fatal("unsupported provider silently accepted")
 	}
-	if _, err := BootstrapMCP("codex", "/bin/taskflow", ""); err == nil {
+	if _, err := BootstrapMCP("codex", "/bin/sectile", ""); err == nil {
 		t.Fatal("missing gateway accepted")
 	}
 }

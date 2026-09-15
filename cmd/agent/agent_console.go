@@ -77,11 +77,11 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 		wrapped, err = d.wrapRun("", run.desktop.ID, command)
 		if err == nil {
 			env := map[string]string{
-				"TASKFLOW_TASK_KEY": "", "TASKFLOW_TASK_ID": "", "TASKFLOW_RUN_ID": "",
-				"TASKFLOW_TASK_BRANCH": "", "TASKFLOW_TASK_WORKTREE": "", "TASKFLOW_REMOTE_MODE": "",
-				"TASKFLOW_PROJECT_ID": run.desktop.ProjectID,
-				"TASKFLOW_AGENT_URL":  d.agentURL, "TASKFLOW_SERVER_URL": d.serverURL,
-				"TASKFLOW_AGENT_TOKEN": d.token,
+				"SECTILE_TASK_KEY": "", "SECTILE_TASK_ID": "", "SECTILE_RUN_ID": "",
+				"SECTILE_TASK_BRANCH": "", "SECTILE_TASK_WORKTREE": "", "SECTILE_REMOTE_MODE": "",
+				"SECTILE_PROJECT_ID": run.desktop.ProjectID,
+				"SECTILE_AGENT_URL":  d.agentURL, "SECTILE_SERVER_URL": d.serverURL,
+				"SECTILE_AGENT_TOKEN": d.loopbackToken,
 			}
 			_, err = d.terminalMgr.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {

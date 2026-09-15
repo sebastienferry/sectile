@@ -86,7 +86,7 @@ The system SHALL preserve stage verification for standalone and managed runs and
 
 #### Scenario: Invalid completion evidence
 - **GIVEN** adjustment reports a successful exit but lacks required checks or provides a mismatching or draft PR
-- **WHEN** TaskFlow evaluates completion
+- **WHEN** Sectile evaluates completion
 - **THEN** it rejects the successful review transition and reports the missing or inconsistent evidence.
 
 #### Scenario: Managed ownership

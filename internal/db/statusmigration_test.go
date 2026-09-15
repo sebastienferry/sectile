@@ -8,7 +8,7 @@ import (
 )
 
 func TestOpenDBMigratesOnlyRetiredToSpecifyStatus(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "taskflow.db")
+	path := filepath.Join(t.TempDir(), "sectile.db")
 	database, err := NewDB(path)
 	if err != nil {
 		t.Fatal(err)

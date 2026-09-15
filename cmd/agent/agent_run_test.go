@@ -88,6 +88,19 @@ func TestControlledCommandHasIsolatedGroup(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix process groups")
 	}
+	// startControlledCommand reads os.Stdin to hand the terminal to the child.
+	// Pointed at the caller's terminal, that puts `go test` in the background
+	// and kills the run; a detached stdin exercises the same process group
+	// logic without borrowing anything.
+	devNull, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = devNull.Close() }()
+	realStdin := os.Stdin
+	os.Stdin = devNull
+	defer func() { os.Stdin = realStdin }()
+
 	cmd := exec.Command("sleep", "60")
 	restore, err := startControlledCommand(cmd)
 	if err != nil {

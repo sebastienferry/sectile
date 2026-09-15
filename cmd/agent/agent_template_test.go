@@ -99,7 +99,7 @@ func TestDispatchExpandsTaskLaunches(t *testing.T) {
 	for _, route := range []struct{ skill, action, prompt, want string }{
 		{"implement", "implement", "run metadata", "/code-issue full-task-id\n\nrun metadata"},
 		{"implement", "open_terminal", "run metadata", "/code-issue full-task-id\n\nrun metadata"},
-		{"custom", "custom", "custom instructions", "TaskFlow task: full-task-id\n\ncustom instructions"},
+		{"custom", "custom", "custom instructions", "Sectile task: full-task-id\n\ncustom instructions"},
 	} {
 		for _, title := range []string{launch.Task.Title, "Updated title"} {
 			launch.Task.Title = title
@@ -120,7 +120,7 @@ func TestDispatchExpandsTaskLaunches(t *testing.T) {
 }
 
 func TestAgentTemplateInteractiveHistory(t *testing.T) {
-	value := "!taskflow_missing_history_event 'quoted' $HOME `printf INJECTED`"
+	value := "!sectile_missing_history_event 'quoted' $HOME `printf INJECTED`"
 	for _, shell := range []string{"bash", "zsh"} {
 		if _, err := exec.LookPath(shell); err != nil {
 			continue
@@ -135,6 +135,7 @@ func TestAgentTemplateInteractiveHistory(t *testing.T) {
 				args = []string{"-f", "-i"}
 			}
 			cmd := exec.Command(shell, args...)
+			cmd.SysProcAttr = detachedSession()
 			cmd.Stdin = strings.NewReader(line + "\nexit\n")
 			out, err := cmd.Output()
 			want := value + "\x00"

@@ -1,7 +1,7 @@
 # Validation and review
 
 ## Outcome
-Implemented on `feat/72` for https://github.com/sebastienferry/taskflow/pull/75.
+Implemented on `feat/72` for https://github.com/sebastienferry/sectile/pull/75.
 The branch includes remote default `origin/main` at `5df919f` (verified by fetch).
 
 ## Changes
@@ -17,7 +17,7 @@ The branch includes remote default `origin/main` at `5df919f` (verified by fetch
 ## Checks
 - `openspec validate 72-project-tasks-list --strict`: `Change '72-project-tasks-list' is valid`.
 - `go test ./...`: all packages passed, including `tasks/cmd/server 3.623s` and `tasks/internal/terminal 23.546s`.
-- `go build -o /tmp/taskflow-72-server ./cmd/server`: exit 0.
+- `go build -o /tmp/sectile-72-server ./cmd/server`: exit 0.
 - `go vet ./...`: exit 0.
 - `npm run build --prefix desktop`: 10 modules transformed; build passed.
 - `npm run test:ui` in desktop: 7 tests, 7 passed, 0 failed (22.67s).

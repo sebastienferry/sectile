@@ -2,7 +2,7 @@
 
 Status: Accepted. Supersedes the UI scope of ADR 0002.
 
-TaskFlow web owns projects, tasks, workflow, reports, and PR/MR links. It no
+Sectile web owns projects, tasks, workflow, reports, and PR/MR links. It no
 longer embeds terminals or exposes local branch, diff, worktree or editor controls.
 Skill launches require a connected local agent. Legacy server execution APIs
 remain for compatibility; the web does not use the terminal APIs.
