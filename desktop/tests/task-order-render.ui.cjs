@@ -67,6 +67,13 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   await expect(page.locator('.project-capacity').first()).toHaveText('(3/3)')
   assert.equal(await page.locator('#execution-history').inputValue(),'old')
   assert.equal(await page.locator('.run.selected').count(),1)
+  // The selection highlight spans the whole row, not just the inner run button.
+  const selectedRow=page.locator('.local-task.selected')
+  assert.equal(await selectedRow.count(),1)
+  await expect(selectedRow.locator('.task-number')).toHaveText('#1')
+  await expect(selectedRow).toHaveCSS('background-color','rgb(32, 48, 51)')
+  await expect(selectedRow.locator('.run.selected')).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+  await expect(page.locator('.local-task').filter({hasNot:page.locator('.run.selected')}).first()).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
   const before=requests;runs.reverse()
   await expect.poll(()=>requests,{timeout:7000}).toBeGreaterThan(before)
   assert.deepEqual(await order(),['#2','#4','#1','#5','#3'])
