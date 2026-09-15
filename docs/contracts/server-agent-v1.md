@@ -247,7 +247,8 @@ with completed, failed or canceled when it ends, including a stop for user input
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
-Cards and list rows display **Remote execution** while a run is active, updated
+Cards and list rows display a single run icon while a run is active — running takes
+precedence over queued, and a cancellation stays visible briefly — updated
 through server events and polling. Reading a task alone never marks it running.
 Abrupt process termination cannot report completion: the activity remains visible
 until explicitly canceled in the activity UI or finished through MCP. This
