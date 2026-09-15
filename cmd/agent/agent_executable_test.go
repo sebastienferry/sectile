@@ -33,3 +33,22 @@ func TestTemporaryExecutablesAreRecognised(t *testing.T) {
 		}
 	}
 }
+
+// The guard refuses to register MCP from a throwaway binary. A test binary is
+// exactly that, so without this exception the guard fails the suite it was
+// added to protect, which is how it shipped the first time.
+func TestTheGuardDoesNotFireInsideATestBinary(t *testing.T) {
+	if !runningUnderTest() {
+		t.Fatal("runningUnderTest is false inside a test binary, so the guard would refuse every test run")
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !temporaryExecutable(executable) {
+		t.Skip("this test binary is not in a temporary location, so there is nothing to exempt")
+	}
+	if temporaryExecutable(executable) && !runningUnderTest() {
+		t.Fatal("the guard would fire on a test binary")
+	}
+}
