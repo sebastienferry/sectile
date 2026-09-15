@@ -69,17 +69,19 @@ type agentKey struct {
 // When a user triggers a workflow action on the remote Web UI, the dispatcher
 // routes the command to the matching local agent.
 type AgentDispatcher struct {
-	operations map[string]*pendingOperation
-	agents     map[agentKey]*AgentConn
-	pending    map[string]*pendingAgentLaunch
-	mu         sync.RWMutex
+	operations   map[string]*pendingOperation
+	agents       map[agentKey]*AgentConn
+	pending      map[string]*pendingAgentLaunch
+	pendingPulls map[string]*pendingTaskPull
+	mu           sync.RWMutex
 }
 
 // NewAgentDispatcher creates a dispatcher ready to accept agent connections.
 func NewAgentDispatcher() *AgentDispatcher {
 	return &AgentDispatcher{
-		agents:  make(map[agentKey]*AgentConn),
-		pending: make(map[string]*pendingAgentLaunch),
+		agents:       make(map[agentKey]*AgentConn),
+		pending:      make(map[string]*pendingAgentLaunch),
+		pendingPulls: make(map[string]*pendingTaskPull),
 	}
 }
 
@@ -200,7 +202,20 @@ func (d *AgentDispatcher) ConnectedAgents() []AgentConnInfo {
 	return out
 }
 
+// ActiveConnections returns a snapshot of active agent connections.
+func (d *AgentDispatcher) ActiveConnections() []*AgentConn {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	out := make([]*AgentConn, 0, len(d.agents))
+	for _, ac := range d.agents {
+		out = append(out, ac)
+	}
+	return out
+}
+
 // AgentConnInfo is a read-only snapshot of an agent connection for API responses.
+
 type AgentConnInfo struct {
 	UserID      string    `json:"userId"`
 	ProjectID   string    `json:"projectId"`
@@ -296,3 +311,66 @@ func (d *AgentDispatcher) ReportLaunchStatus(ac *AgentConn, msg AgentMessage) {
 	default:
 	}
 }
+
+type pendingTaskPull struct {
+	agent  *AgentConn
+	result chan []agentprotocol.RunningTask
+}
+
+// PullTasks requests the connected agent to report its active and queued tasks.
+func (d *AgentDispatcher) PullTasks(ctx context.Context, ac *AgentConn) ([]agentprotocol.RunningTask, error) {
+	if ac == nil {
+		return nil, fmt.Errorf("no agent connection provided")
+	}
+	id := uuid.NewString()
+	pending := &pendingTaskPull{agent: ac, result: make(chan []agentprotocol.RunningTask, 1)}
+	d.mu.Lock()
+	if d.pendingPulls == nil {
+		d.pendingPulls = make(map[string]*pendingTaskPull)
+	}
+	d.pendingPulls[id] = pending
+	d.mu.Unlock()
+	defer func() {
+		d.mu.Lock()
+		delete(d.pendingPulls, id)
+		d.mu.Unlock()
+	}()
+
+	msg := AgentMessage{
+		MsgID:  id,
+		Type:   "pull_tasks",
+		UserID: ac.UserID,
+	}
+	if err := ac.Send(msg); err != nil {
+		return nil, err
+	}
+
+	select {
+	case tasks := <-pending.result:
+		return tasks, nil
+	case <-ac.done:
+		return nil, fmt.Errorf("agent disconnected before returning running tasks")
+	case <-ctx.Done():
+		return nil, fmt.Errorf("timed out waiting for agent running tasks: %w", ctx.Err())
+	}
+}
+
+// ReportRunningTasks handles incoming "running_tasks" messages from an agent.
+func (d *AgentDispatcher) ReportRunningTasks(ac *AgentConn, msg AgentMessage) {
+	var tasks []agentprotocol.RunningTask
+	if err := json.Unmarshal(msg.Payload, &tasks); err != nil {
+		log.Printf("[AgentDispatcher] Failed to unmarshal running_tasks payload: %v", err)
+		return
+	}
+	d.mu.RLock()
+	pending := d.pendingPulls[msg.MsgID]
+	d.mu.RUnlock()
+	if pending == nil || pending.agent != ac {
+		return
+	}
+	select {
+	case pending.result <- tasks:
+	default:
+	}
+}
+

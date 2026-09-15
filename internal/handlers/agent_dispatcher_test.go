@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
 	"tasks/internal/models"
@@ -406,5 +408,157 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	if err != nil || active.Status != "canceled" {
 		t.Fatalf("run not canceled: %+v %v", active, err)
 	}
-
 }
+
+func TestPullTasks_WebSocketExchange(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	database, err := db.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("db error: %v", err)
+	}
+	defer database.Close()
+
+	task, err := database.CreateTask(models.CreateTaskRequest{
+		Title:       "Test task",
+		Description: "Testing pull tasks",
+		Priority:    models.PriorityHigh,
+	})
+	if err != nil {
+		t.Fatalf("create task error: %v", err)
+	}
+
+	h := handlers.NewHandler(database)
+	h.SetPullOnConnect(true)
+
+	server := httptest.NewServer(http.HandlerFunc(h.HandleAgentConnect))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "?token=test-token&projectId=default&deviceId=test-device"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("failed to connect websocket: %v", err)
+	}
+	defer conn.Close()
+
+	// 1. Read pull_tasks message sent automatically by server on connect
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var pullMsg handlers.AgentMessage
+	if err := conn.ReadJSON(&pullMsg); err != nil {
+		t.Fatalf("failed to read pull_tasks message: %v", err)
+	}
+	if pullMsg.Type != "pull_tasks" {
+		t.Fatalf("expected pull_tasks, got: %+v", pullMsg)
+	}
+
+	// 2. Respond with running_tasks containing 1 queued and 1 running task
+	tasks := []agentprotocol.RunningTask{
+		{
+			ID:        "run-queued-1",
+			TaskID:    task.ID,
+			TaskKey:   task.Key,
+			ProjectID: "default",
+			Skill:     "clarify",
+			Status:    "queued",
+			CreatedAt: time.Now(),
+		},
+		{
+			ID:        "run-running-1",
+			TaskID:    task.ID,
+			TaskKey:   task.Key,
+			ProjectID: "default",
+			Skill:     "specify",
+			Status:    "running",
+			CreatedAt: time.Now(),
+			StartedAt: time.Now(),
+		},
+	}
+	payload, _ := json.Marshal(tasks)
+	if err := conn.WriteJSON(handlers.AgentMessage{
+		MsgID:   pullMsg.MsgID,
+		Type:    "running_tasks",
+		Payload: payload,
+	}); err != nil {
+		t.Fatalf("failed to write running_tasks: %v", err)
+	}
+
+	// 3. Verify server applied the tasks to the database
+	var queuedAct, runningAct *models.TaskActivity
+	for i := 0; i < 20; i++ {
+		time.Sleep(50 * time.Millisecond)
+		queuedAct, _ = database.GetActivityByID("run-queued-1")
+		runningAct, _ = database.GetActivityByID("run-running-1")
+		if queuedAct != nil && runningAct != nil {
+			break
+		}
+	}
+
+	if queuedAct == nil || queuedAct.Status != "queued" {
+		t.Fatalf("expected queued activity in DB, got: %#v", queuedAct)
+	}
+	if runningAct == nil || runningAct.Status != "running" {
+		t.Fatalf("expected running activity in DB, got: %#v", runningAct)
+	}
+}
+
+func TestTryPullLocalAgentTasks(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	database, err := db.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("db error: %v", err)
+	}
+	defer database.Close()
+
+	task, err := database.CreateTask(models.CreateTaskRequest{
+		Title:    "Local pull task",
+		Priority: models.PriorityMedium,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Mock local agent HTTP gateway
+	mockRuns := []agentprotocol.RunningTask{
+		{
+			ID:        "local-run-1",
+			TaskID:    task.ID,
+			TaskKey:   task.Key,
+			ProjectID: "default",
+			Skill:     "implement",
+			Status:    "running",
+			CreatedAt: time.Now(),
+			StartedAt: time.Now(),
+		},
+	}
+	agentServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/desktop/runs" {
+			_ = json.NewEncoder(w).Encode(mockRuns)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer agentServer.Close()
+
+	// Write agent-connection.json in tempDir
+	info := map[string]string{
+		"url":   agentServer.URL,
+		"token": "secret-token",
+	}
+	raw, _ := json.Marshal(info)
+	_ = os.WriteFile(filepath.Join(tempDir, "agent-connection.json"), raw, 0600)
+
+	h := handlers.NewHandler(database)
+	h.SetDataDir(tempDir)
+
+	h.TryPullLocalAgentTasks()
+
+	act, err := database.GetActivityByID("local-run-1")
+	if err != nil || act == nil {
+		t.Fatalf("expected local-run-1 to be saved in db: %v", err)
+	}
+	if act.Status != "running" || act.SkillName != "implement" {
+		t.Fatalf("unexpected activity status: %#v", act)
+	}
+}
+

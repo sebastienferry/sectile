@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -39,6 +41,11 @@ type Handler struct {
 	subscribers     map[chan Event]bool
 	subMu           sync.RWMutex
 	agentDispatcher *AgentDispatcher
+	pullOnConnect   bool
+}
+
+func (h *Handler) SetPullOnConnect(enable bool) {
+	h.pullOnConnect = enable
 }
 
 func NewHandler(database *db.DB) *Handler {
@@ -2643,6 +2650,11 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		Type: "agent_connected",
 	})
 
+	// Pull active running/queued tasks from the newly connected agent if enabled.
+	if h.pullOnConnect {
+		go h.pullAndApplyAgentTasks(ac)
+	}
+
 	// Read loop: handle messages from the local agent (pty_output, step_status,
 	// heartbeat responses). The loop exits when the connection closes.
 	defer func() {
@@ -2686,6 +2698,8 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 			h.BroadcastEvent(Event{
 				Type: "agent_step_status",
 			})
+		case "running_tasks":
+			h.agentDispatcher.ReportRunningTasks(ac, msg)
 		default:
 			log.Printf("[AgentConnect] Unknown message type from agent: %s", msg.Type)
 		}
@@ -2755,6 +2769,115 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Command dispatched to local agent"})
 }
+
+func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	tasks, err := h.agentDispatcher.PullTasks(ctx, ac)
+	if err != nil {
+		log.Printf("[AgentConnect] Could not pull running tasks from %s: %v", ac.DeviceID, err)
+		return
+	}
+	log.Printf("[AgentConnect] Pulled %d running/queued tasks from agent %s", len(tasks), ac.DeviceID)
+	h.ApplyAgentRunningTasks(tasks)
+}
+
+// ApplyAgentRunningTasks syncs a set of agent tasks to the database and broadcasts updates.
+func (h *Handler) ApplyAgentRunningTasks(tasks []agentprotocol.RunningTask) {
+	for _, t := range tasks {
+		if t.Status != "queued" && t.Status != "running" {
+			continue
+		}
+		summary := fmt.Sprintf("Execution %s on agent", t.Status)
+		var startedAt *time.Time
+		if !t.StartedAt.IsZero() {
+			startedAt = &t.StartedAt
+		}
+		act, err := h.db.SyncRemoteRunStatus(t.ID, t.TaskID, t.ProjectID, t.TaskKey, t.Skill, t.Status, summary, startedAt)
+		if err != nil {
+			log.Printf("[AgentTasks] Failed to sync run %s (%s): %v", t.ID, t.TaskKey, err)
+			continue
+		}
+		if act != nil {
+			h.BroadcastEvent(Event{
+				Type: "agent_step_status",
+			})
+		}
+	}
+}
+
+// TryPullLocalAgentTasks checks for a local agent connection file on startup
+// and pulls any active tasks directly from its HTTP runs endpoint.
+func (h *Handler) TryPullLocalAgentTasks() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	candidatePaths := []string{
+		filepath.Join(home, ".taskflow", "agent-connection.json"),
+	}
+	if h.dataDir != "" {
+		candidatePaths = append([]string{filepath.Join(h.dataDir, "agent-connection.json")}, candidatePaths...)
+	}
+	for _, infoPath := range candidatePaths {
+		data, err := os.ReadFile(infoPath)
+		if err != nil {
+			continue
+		}
+		var info struct {
+			URL   string `json:"url"`
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(data, &info); err != nil || info.URL == "" {
+			continue
+		}
+		client := &http.Client{Timeout: 3 * time.Second}
+		req, err := http.NewRequest(http.MethodGet, strings.TrimRight(info.URL, "/")+"/desktop/runs", nil)
+		if err != nil {
+			continue
+		}
+		if info.Token != "" {
+			req.Header.Set("Authorization", "Bearer "+info.Token)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+		var runs []agentprotocol.RunningTask
+		if err := json.NewDecoder(resp.Body).Decode(&runs); err != nil {
+			continue
+		}
+		log.Printf("[Startup] Pulled %d tasks from local agent (%s)", len(runs), info.URL)
+		h.ApplyAgentRunningTasks(runs)
+		break
+	}
+}
+
+// HandleAgentPull allows triggering a pull of running tasks from all connected agents
+// and any available local agent.
+func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost && r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+
+	h.TryPullLocalAgentTasks()
+
+	activeConns := h.agentDispatcher.ActiveConnections()
+	for _, ac := range activeConns {
+		go h.pullAndApplyAgentTasks(ac)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":          "ok",
+		"connectedAgents": len(activeConns),
+	})
+}
+
 
 // HandleOpenEditor opens a workspace, worktree, or path in the user's code editor (default: code)
 func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
