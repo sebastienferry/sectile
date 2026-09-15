@@ -40,9 +40,12 @@ build-agent: ## Build the agent binary
 	go build -o bin/agent$(EXE).new ./cmd/agent
 	mv -f bin/agent$(EXE).new bin/agent$(EXE)
 
-# Both run from source: no build step to remember, and never a stale binary.
-start: ## Run the agent from source (ARGS=...)
-	go run ./cmd/agent $(ARGS)
+# The agent writes its own path into the MCP registration native clients read,
+# so it needs a stable one: `go run` would leave a build-cache path that stops
+# resolving as soon as the cache is pruned. Building first keeps the target as
+# convenient without that cost.
+start: build-agent ## Build and run the agent (ARGS=...)
+	./bin/agent$(EXE) $(ARGS)
 
 serve: ## Run the server from source (ARGS=...)
 	go run ./cmd/server $(ARGS)

@@ -271,6 +271,15 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 	if err != nil {
 		return err
 	}
+	// The path is written into the registration native clients read later, so
+	// a throwaway binary registers a command that stops resolving as soon as
+	// the build cache is pruned. The client then starts, finds no MCP server
+	// and exits at once, which reads as a failed run and nothing else.
+	if temporaryExecutable(executable) {
+		log.Printf("[Agent] Refusing to register MCP with the temporary binary %s. "+
+			"Run a built agent (make start) rather than `go run`.", executable)
+		return fmt.Errorf("agent is running from a temporary build at %s; run a built binary so native clients keep resolving it", executable)
+	}
 	if strings.TrimSpace(config.AIProvider) == "" {
 		config.AIProvider = "agy"
 	}
@@ -398,4 +407,15 @@ func (d *agentDaemon) syncLocalProject(ctx context.Context, config agentconfig.C
 		return err
 	}
 	return d.bootstrapLocalMCP(&config)
+}
+
+// temporaryExecutable reports a binary the toolchain may delete, such as what
+// `go run` builds into the module cache.
+func temporaryExecutable(path string) bool {
+	for _, marker := range []string{"/go-build", string(os.PathSeparator) + "T" + string(os.PathSeparator), os.TempDir()} {
+		if marker != "" && marker != "/" && strings.Contains(path, marker) {
+			return true
+		}
+	}
+	return false
 }
