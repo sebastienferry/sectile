@@ -77,44 +77,59 @@ func skillFiles(skills []Skill, loc Locations) (map[string]string, error) {
 	if !loc.InstallsSkills() {
 		return files, nil
 	}
-	add := func(path, content string) error {
-		if _, exists := files[path]; exists {
-			return fmt.Errorf("duplicate skill destination %q", path)
-		}
-		files[path] = content
-		return nil
-	}
 	for _, s := range skills {
-		if err := add(filepath.Join(loc.SkillDir, s.Directory, "SKILL.md"), s.Content); err != nil {
-			return nil, err
+		path := filepath.Join(loc.SkillDir, s.Directory, "SKILL.md")
+		if _, exists := files[path]; exists {
+			return nil, fmt.Errorf("duplicate skill destination %q", path)
 		}
-		if loc.CommandDir == "" {
-			continue
-		}
-		if err := add(filepath.Join(loc.CommandDir, skillCommand(s)+".md"), s.CommandContent); err != nil {
-			return nil, err
-		}
+		files[path] = skillBody(s, loc)
 	}
 	return files, nil
+}
+
+// skillBody picks the text to install. An agent that substitutes arguments gets
+// the body carrying the ticket reference; the others would render the
+// placeholder literally, so they get the plain instructions.
+func skillBody(s Skill, loc Locations) string {
+	if loc.SubstitutesArguments && s.CommandContent != "" {
+		return s.CommandContent
+	}
+	return s.Content
 }
 
 // managedPath guards the manifest: only paths Sectile installs for the resolved
 // provider may be recorded, refreshed or retired.
 func managedPath(p string, loc Locations) bool {
-	parts := strings.Split(filepath.ToSlash(p), "/")
-	if loc.CommandDir != "" {
-		if dir := strings.Split(loc.CommandDir, "/"); len(parts) == len(dir)+1 &&
-			strings.Join(parts[:len(dir)], "/") == loc.CommandDir {
-			name := parts[len(parts)-1]
-			return strings.HasSuffix(name, ".md") && component.MatchString(strings.TrimSuffix(name, ".md"))
-		}
-	}
 	if !loc.InstallsSkills() {
 		return false
 	}
+	parts := strings.Split(filepath.ToSlash(p), "/")
 	dir := strings.Split(loc.SkillDir, "/")
 	return len(parts) == len(dir)+2 && strings.Join(parts[:len(dir)], "/") == loc.SkillDir &&
 		component.MatchString(parts[len(dir)]) && parts[len(parts)-1] == "SKILL.md"
+}
+
+// retiredSkillDirs are user-level destinations an earlier release installed to
+// before each agent's real path was confirmed. They are still recognised so the
+// manifest can retire them instead of treating them as foreign files.
+var retiredSkillDirs = []string{".agy/skills", ".codex/skills"}
+
+// managedRetiredPath reports a destination this release no longer installs to but
+// previously owned: the withdrawn skill directories, and Claude's command files,
+// which duplicated the command its skill already declares.
+func managedRetiredPath(p string) bool {
+	parts := strings.Split(filepath.ToSlash(p), "/")
+	if len(parts) == 3 && parts[0] == ".claude" && parts[1] == "commands" {
+		return strings.HasSuffix(parts[2], ".md") && component.MatchString(strings.TrimSuffix(parts[2], ".md"))
+	}
+	for _, dir := range retiredSkillDirs {
+		prefix := strings.Split(dir, "/")
+		if len(parts) == len(prefix)+2 && strings.Join(parts[:len(prefix)], "/") == dir &&
+			component.MatchString(parts[len(prefix)]) && parts[len(parts)-1] == "SKILL.md" {
+			return true
+		}
+	}
+	return false
 }
 
 // managedLegacyPath recognises the repository layout that preceded the move to

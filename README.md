@@ -217,9 +217,9 @@ checkout on the next dispatch when they are unchanged, and preserved when edited
 
 | Target CLI | User MCP registration | Managed skills |
 | --- | --- | --- |
-| Claude | `~/.claude.json` | `~/.claude/skills`, `~/.claude/commands` |
-| Codex | `~/.codex/config.toml` | `~/.codex/skills` |
-| Antigravity (`agy`) | `~/.gemini/config/mcp_config.json` | `~/.agy/skills` |
+| Claude | `~/.claude.json` | `~/.claude/skills` |
+| Codex | `~/.codex/config.toml` | `~/.agents/skills` |
+| Antigravity (`agy`) | `~/.gemini/config/mcp_config.json` | `~/.gemini/config/skills` |
 | Gemini | `~/.gemini/settings.json` | none |
 | Cursor | `~/.cursor/mcp.json` | none |
 | Vibe | `~/.vibe/config.toml` | none |
@@ -466,7 +466,7 @@ The profile is a placeholder for future account management.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1–3) defaults.
+The server project supplies `useWorktrees` and `parallelism` (1 to 3) defaults.
 In the desktop project settings, **Inherit worktrees from server** and
 **Inherit from server** for parallel executions remove local overrides.
 Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:

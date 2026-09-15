@@ -12,11 +12,15 @@ import (
 // An empty SkillDir means the provider has no supported skill convention; its
 // dispatch still proceeds. MCPFile is never empty: a provider without a known
 // registration target cannot be bootstrapped at all.
+//
+// SubstitutesArguments marks a CLI that replaces argument placeholders in the
+// skill body. Those agents receive the body carrying the ticket reference; the
+// others would show the placeholder as literal text.
 type Locations struct {
-	Home       string
-	SkillDir   string
-	CommandDir string
-	MCPFile    string
+	Home                 string
+	SkillDir             string
+	MCPFile              string
+	SubstitutesArguments bool
 }
 
 // EffectiveProvider resolves the identity used to locate configuration. A custom
@@ -48,12 +52,17 @@ func ResolveLocations(provider string) (Locations, error) {
 	loc := Locations{Home: home}
 	switch provider {
 	case "claude":
-		loc.SkillDir, loc.CommandDir, loc.MCPFile = ".claude/skills", ".claude/commands", ".claude.json"
+		// Personal skills live here, and custom commands have been merged into them:
+		// a directory under .claude/skills is what defines /<name>.
+		loc.SkillDir, loc.MCPFile, loc.SubstitutesArguments = ".claude/skills", ".claude.json", true
 	case "agy":
-		// Antigravity reads this shared user-level registry and ignores workspace files.
-		loc.SkillDir, loc.MCPFile = ".agy/skills", ".gemini/config/mcp_config.json"
+		// Antigravity reads its skills and its MCP registry from the same user root,
+		// and ignores workspace files for the registry.
+		loc.SkillDir, loc.MCPFile = ".gemini/config/skills", ".gemini/config/mcp_config.json"
 	case "codex":
-		loc.SkillDir, loc.MCPFile = ".codex/skills", ".codex/config.toml"
+		// Codex reads the cross-agent convention, not a directory of its own:
+		// .agents/skills up to the repository root, then $HOME/.agents/skills.
+		loc.SkillDir, loc.MCPFile = ".agents/skills", ".codex/config.toml"
 	case "gemini":
 		loc.MCPFile = ".gemini/settings.json"
 	case "cursor":

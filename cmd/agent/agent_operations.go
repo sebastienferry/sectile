@@ -143,9 +143,6 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		written := 0
 		if loc.InstallsSkills() {
 			written = len(config.Skills)
-			if loc.CommandDir != "" {
-				written *= 2
-			}
 		}
 		return map[string]any{"written": written}, nil
 	case "skill_files", "read_skill":

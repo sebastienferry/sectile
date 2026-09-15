@@ -58,7 +58,7 @@ func TestScaffoldRejectsEscapeAndUnknownVersion(t *testing.T) {
 		t.Fatal("path traversal accepted")
 	}
 	outside := t.TempDir()
-	if err := os.Symlink(outside, filepath.Join(home, ".agy")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(home, ".gemini")); err != nil {
 		t.Fatal(err)
 	}
 	c.Skills[0].Directory = "code-issue"
