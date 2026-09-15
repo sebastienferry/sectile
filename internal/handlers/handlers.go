@@ -42,6 +42,11 @@ type Handler struct {
 	subMu           sync.RWMutex
 	agentDispatcher *AgentDispatcher
 	pullOnConnect   bool
+	// agentPingInterval and agentReadTimeout tune the WebSocket keepalive that
+	// detects agents which vanished without closing their connection. Set once
+	// at construction; tests shorten them to observe a drop quickly.
+	agentPingInterval time.Duration
+	agentReadTimeout  time.Duration
 }
 
 func (h *Handler) SetPullOnConnect(enable bool) {
@@ -50,9 +55,11 @@ func (h *Handler) SetPullOnConnect(enable bool) {
 
 func NewHandler(database *db.DB) *Handler {
 	h := &Handler{
-		db:              database,
-		subscribers:     make(map[chan Event]bool),
-		agentDispatcher: NewAgentDispatcher(),
+		db:                database,
+		subscribers:       make(map[chan Event]bool),
+		agentDispatcher:   NewAgentDispatcher(),
+		agentPingInterval: defaultAgentPingInterval,
+		agentReadTimeout:  defaultAgentReadTimeout,
 	}
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
@@ -2645,6 +2652,18 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	// Register the agent, potentially rebinding an existing session.
 	ac := h.agentDispatcher.Register(userID, projectID, deviceID, conn)
 
+	// Keepalive: without a read deadline a silently dropped connection stays
+	// registered forever, and every operation routed to it stalls for its full
+	// timeout. The deadline is refreshed by each frame the agent sends, pongs
+	// included; gorilla answers the server pings from the agent's own read
+	// loop, which stays responsive because operations run in goroutines.
+	_ = conn.SetReadDeadline(time.Now().Add(h.agentReadTimeout))
+	conn.SetPongHandler(func(string) error {
+		ac.Touch()
+		return conn.SetReadDeadline(time.Now().Add(h.agentReadTimeout))
+	})
+	go ac.Keepalive(h.agentPingInterval)
+
 	// Broadcast agent connection event to SSE subscribers.
 	h.BroadcastEvent(Event{
 		Type: "agent_connected",
@@ -2669,9 +2688,14 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, msgData, err := conn.ReadMessage()
 		if err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				log.Printf("[AgentConnect] Read loop ended for device=%s after %s of silence: %v",
+					deviceID, time.Since(ac.LastSeen()).Round(time.Second), err)
+			}
 			break
 		}
-		ac.LastPingAt = time.Now()
+		ac.Touch()
+		_ = conn.SetReadDeadline(time.Now().Add(h.agentReadTimeout))
 
 		var msg AgentMessage
 		if err := json.Unmarshal(msgData, &msg); err != nil {
@@ -2877,7 +2901,6 @@ func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
 		"connectedAgents": len(activeConns),
 	})
 }
-
 
 // HandleOpenEditor opens a workspace, worktree, or path in the user's code editor (default: code)
 func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {

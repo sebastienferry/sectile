@@ -128,6 +128,14 @@ Machine bearer authentication does not add multi-user authorization to that API.
 Cross-origin loopback requests are rejected. The private discovery file is
 `~/.taskflow/agent-connection.json`; tokens never enter project configuration.
 
+The server pings each agent connection every 10 seconds and drops a connection
+that produces neither a frame nor a pong for 30. The agent answers these pings
+from its own read loop, which stays responsive because operations run
+concurrently. Without this, a connection lost without a close frame — a
+suspended machine, a dropped VPN, an expired NAT binding — stays registered and
+every request routed to it waits out its full deadline. The agent keeps sending
+its own 30-second `heartbeat` message, which also refreshes the deadline.
+
 Local workspace requests use the authenticated agent WebSocket:
 
 ```json
@@ -147,7 +155,11 @@ inspection; editor opening; CLI/skill/SDD status and provisioning; skill reading
 and LLM prompt execution. There is no arbitrary shell action or working-directory parameter. Explicit
 editor/provider settings retain their existing configuration behavior. Launches use the existing `dispatch_step` contract.
 
-Requests normally have a 45-second deadline; digest prompts allow 12 minutes and SDD installation allows seven minutes.
+Requests normally have a 45-second deadline; purely local read-only inspections
+(Git evidence, status and branches, worktree info, SDD/skill status, skill
+reading, editor opening) allow 15 seconds and CLI probing 30, so an unreachable
+agent fails quickly instead of stalling the caller; digest prompts allow 12
+minutes and SDD installation allows seven minutes.
 Cancellation sends `workspace_cancel` with the same `msgId`. Disconnects and
 unconfirmed results fail visibly and never trigger local server execution or an
 automatic retry of a possibly completed mutation. Some local tool installers
