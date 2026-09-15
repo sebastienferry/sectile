@@ -113,7 +113,7 @@ function select(run,background=false,options){
  terminal.reset()
  if(run.status==='queued'||run.status==='preparing'||!run.sessionId){
   api.detach().catch(error)
-  const message=run.status==='queued'?'Execution queued. Waiting for a console.':run.status==='preparing'?'Preparing execution. Waiting for a console.':run.status==='canceled'?'Execution canceled before a console was created.':'No console is available for this execution. Check the task activity and local agent.log for launch errors.'
+  const message=run.status==='queued'?'Execution queued. Waiting for a console.':run.status==='preparing'?'Preparing execution. Waiting for a console.':run.status==='canceled'?'Execution canceled before a console was created.':run.hostTerminal?'Running in your terminal ('+run.hostTerminal+'). Output appears in that window; this execution is still tracked here.':'No console is available for this execution. Check the task activity and local agent.log for launch errors.'
   terminal.writeln(message)
   render(options);return
  }

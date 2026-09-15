@@ -68,9 +68,12 @@ type agentDaemon struct {
 	done             chan struct{}
 }
 
-// detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)
+// detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app).
+// Windows has no usable pseudo-terminal, so it names the host console instead: claiming "pty"
+// there only produced an unsupported-PTY failure on every dispatch.
 func detectDefaultTerminal() string {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		if _, err := os.Stat("/Applications/Ghostty.app"); err == nil {
 			return "ghostty"
 		}
@@ -78,8 +81,31 @@ func detectDefaultTerminal() string {
 			return "iterm"
 		}
 		return "terminal"
+	case "windows":
+		if _, err := exec.LookPath("wt.exe"); err == nil {
+			return "wt"
+		}
+		return "cmd"
 	}
 	return "pty"
+}
+
+// embeddedConsole reports whether a resolved terminal names the agent's own PTY.
+func embeddedConsole(terminalApp string) bool {
+	app := strings.ToLower(strings.TrimSpace(terminalApp))
+	return app == "" || app == "pty"
+}
+
+// hostTerminalExecution reports whether a run must go to a terminal the agent does not own.
+// A host with a working pseudo-terminal keeps the embedded console whatever terminal app is
+// configured: the terminal name selects the window used by the explicit open-terminal action,
+// not the execution surface. Windows has no pseudo-terminal, so there it is the only surface —
+// unless the operator asked for the embedded console by name and accepts that it will fail.
+func hostTerminalExecution(goos, terminalApp string) bool {
+	if embeddedConsole(terminalApp) {
+		return false
+	}
+	return goos == "windows"
 }
 
 func resolveServerURL(flagURL string) string {
@@ -833,16 +859,41 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID
 	}
 
+	terminalApp := d.dispatchTerminal(config, payload.TerminalOverride)
+	embedded := !hostTerminalExecution(runtime.GOOS, terminalApp)
 	if payload.RunID != "" {
-		if _, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars); err != nil {
-			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
-			return
+		if embedded {
+			if _, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars); err != nil {
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+				return
+			}
+		} else {
+			// The run lives in a window the agent does not own, so it has no session to attach.
+			sessionID = ""
+		}
+		hostTerminal := ""
+		if !embedded {
+			hostTerminal = terminalApp
 		}
 		d.runsMu.Lock()
 		if run := d.runs[payload.RunID]; run != nil {
-			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Branch: branch, Status: "running"}
+			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, HostTerminal: hostTerminal, Directory: workDir, Branch: branch, Status: "running"}
 		}
 		d.runsMu.Unlock()
+	}
+	if !embedded {
+		log.Printf("⚡ [Agent] Launching skill command in the host terminal %s: %s (workdir: %s)", terminalApp, fullLine, workDir)
+		if err := runner.NewRunner().OpenExternalTerminal(terminalApp, workDir, fullLine, envVars); err != nil {
+			// Without this the failure is invisible locally: the host terminal writes no console
+			// the agent can read, so agent.log is the only place a launch error can surface.
+			log.Printf("[Agent] Host terminal launch failed (%s): %v", terminalApp, err)
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+			return
+		}
+		log.Printf("[Agent] Task %s handed to the host terminal; its exit is reported by agent-exec, not by a console", taskRef)
+		launched = true
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in the host terminal (%s)", payload.Action, terminalApp))
+		return
 	}
 	// The agent owns consoles independently of any attached companion.
 	if err := d.runInPty(sessionID, workDir, envVars, fullLine); err != nil {

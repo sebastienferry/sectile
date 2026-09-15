@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -55,7 +57,14 @@ func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
 		run = existing
 	}
 	d.runs[runID] = run
-	return quoteShell(binary) + " agent-exec --url " + quoteShell(d.agentURL+"/control/runs/"+runID) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
+	endpoint := d.agentURL + "/control/runs/" + runID
+	if runtime.GOOS == "windows" {
+		// Quoted for cmd.exe, which is what reads the launcher script on this host.
+		return quoteWindowsArg(binary) + " agent-exec --url " + quoteWindowsArg(endpoint) +
+			" --token " + quoteWindowsArg(run.token) +
+			" --command-base64 " + base64.StdEncoding.EncodeToString([]byte(command)), nil
+	}
+	return quoteShell(binary) + " agent-exec --url " + quoteShell(endpoint) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
 }
 
 func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
@@ -125,8 +134,18 @@ func runAgentExec(args []string) error {
 	endpoint := flags.String("url", "", "Local run control endpoint")
 	token := flags.String("token", "", "Run control token")
 	command := flags.String("command", "", "Command")
+	// A batch line carries no newline, and skill prompts are multi-line; Windows passes the
+	// command encoded rather than trying to escape it for cmd.exe.
+	encoded := flags.String("command-base64", "", "Command, base64 encoded")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *encoded != "" {
+		raw, err := base64.StdEncoding.DecodeString(*encoded)
+		if err != nil {
+			return fmt.Errorf("invalid --command-base64: %w", err)
+		}
+		*command = string(raw)
 	}
 	client := &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	exitStatus := "failed"
