@@ -54,8 +54,8 @@ type Session struct {
 	watchersMu sync.Mutex
 	// agentLaunched dit qu'un agent tourne déjà dans cette session : les pas
 	// suivants du même ticket lui parlent au lieu d'en relancer un.
-	agentLaunched bool
-	agentMu       sync.Mutex
+	agentLaunched     bool
+	agentMu           sync.Mutex
 	CreatedAt         time.Time
 	LastActiveAt      time.Time
 	outputListeners   []func([]byte)
@@ -102,7 +102,19 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 	if abs, err := filepath.Abs(workDir); err == nil {
 		workDir = abs
 	}
-	_ = os.MkdirAll(workDir, 0755)
+	// A working directory that cannot be used surfaces from pty.Start as
+	// "fork/exec /bin/sh: not a directory", which names the shell and hides
+	// what is actually wrong. Say which path, and why.
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		return nil, fmt.Errorf("working directory %s is unusable: %w", workDir, err)
+	}
+	info, err := os.Stat(workDir)
+	if err != nil {
+		return nil, fmt.Errorf("working directory %s is unavailable: %w", workDir, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("working directory %s is not a directory", workDir)
+	}
 
 	cmd := exec.Command(shell, "-l")
 	cmd.Dir = workDir

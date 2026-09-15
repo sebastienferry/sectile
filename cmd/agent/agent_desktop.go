@@ -171,7 +171,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-run.exited:
 			// The native client may have already reported completion via MCP.
-			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled")
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled")
 			w.WriteHeader(http.StatusNoContent)
 		case <-time.After(12 * time.Second):
 			http.Error(w, "Exit not confirmed", 504)
@@ -223,7 +223,7 @@ func (d *agentDaemon) writeDesktopInfo() error {
 }
 
 // Report process exit using the server's authenticated MCP endpoint.
-func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status string) error {
+func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status, note string) error {
 	if taskID == "" {
 		return nil
 	}
@@ -235,7 +235,10 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 		return err
 	}
 	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": "Local console process exited"}})
+	if strings.TrimSpace(note) == "" {
+		note = "Local console process exited"
+	}
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": note}})
 	if err != nil {
 		return err
 	}
