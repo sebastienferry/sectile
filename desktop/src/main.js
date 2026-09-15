@@ -33,6 +33,13 @@ const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:run.tas
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
 let disconnectedProjects=new Set(),projectStateVersion=0,refreshing=false
+// A background refresh must not reorder or rebuild the task list under the
+// user's pointer: it is deferred until the interaction ends.
+let pendingRender=false
+const sidebarList=()=>document.querySelector('#runs')
+// Only the task rows are held: project headings and the queue view keep
+// refreshing normally.
+const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!document.activeElement?.closest?.('#runs .local-task')
 const hiddenProject=id=>disconnectedProjects.has(id)
 const hiddenRun=run=>hiddenProject(run.projectId)||(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
 function saveLocalTasks(){localStorage.setItem('localTasks',JSON.stringify(localTasks))}
@@ -92,7 +99,7 @@ function ready(){
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
 }
-function select(run,background=false){
+function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
  if(!background)closeLogs(false)
  selectedProject=run.projectId
@@ -108,10 +115,10 @@ function select(run,background=false){
   api.detach().catch(error)
   const message=run.status==='queued'?'Execution queued. Waiting for a console.':run.status==='preparing'?'Preparing execution. Waiting for a console.':run.status==='canceled'?'Execution canceled before a console was created.':'No console is available for this execution. Check the task activity and local agent.log for launch errors.'
   terminal.writeln(message)
-  render();return
+  render(options);return
  }
  api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen)terminal.focus()}).catch(error)
- render()
+ render(options)
 }
 function renderQueue(project,group){
  const runsForProject=runs.filter(run=>run.projectId===project.id)
@@ -165,6 +172,14 @@ async function refreshVisibleSkillResults(){
   }))
  }finally{refreshingVisibleSkillResults=false}
 }
+// Keeps the visible indicators live while the row sequence is held.
+function renderTaskRowStates(){
+ for(const button of document.querySelectorAll('.local-task .run')){
+  const run=runs.find(item=>item.id===button.dataset.runId)
+  if(run)button.dataset.status=run.status
+ }
+ renderTaskSkillStatuses()
+}
 function renderTaskSkillStatuses(){
  for(const badge of document.querySelectorAll('.task-skill-status')){
   const run=runs.find(item=>item.id===badge.dataset.runId)
@@ -190,7 +205,9 @@ function renderHeader(){
  badge.hidden=!result
  if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title=result.label;badge.setAttribute('aria-label',result.label)}
 }
-function render(){
+function render(options){
+ if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();return}
+ pendingRender=false
  changes.select(selected)
  renderHeader()
  const list=document.querySelector('#runs');list.replaceChildren()
@@ -239,7 +256,7 @@ function render(){
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in TaskFlow';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in TaskFlow');context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
-    button.title=title.textContent+' · '+runLabel(run)+' · '+executions.length+' execution(s)';button.dataset.status=run.status
+    button.title=title.textContent+' · '+runLabel(run)+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
     button.append(title,status);button.onclick=()=>select(run)
     const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.onclick=()=>taskMenu(run)
     const archive=document.createElement('button');archive.className='task-archive'
@@ -275,7 +292,7 @@ function render(){
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
  renderNextStep()
 }
-async function updateDisconnected(ids,force=false){
+async function updateDisconnected(ids,force=false,deferrable=false){
  const changed=ids.length!==disconnectedProjects.size||ids.some(id=>!disconnectedProjects.has(id))
  disconnectedProjects=new Set(ids)
  if(hiddenProject(selectedProject))selectedProject=null
@@ -286,7 +303,7 @@ async function updateDisconnected(ids,force=false){
   document.querySelector('#directory').textContent=''
   await api.detach().catch(error)
  }
- if(changed||force)render()
+ if(changed||force)render(deferrable?{deferrable:true}:undefined)
 }
 async function refresh(){
  if(refreshing||restarting||!document.querySelector('#setup').hidden)return
@@ -300,10 +317,10 @@ async function refresh(){
   const previous=runs.find(run=>run.id===selected)
   const serialized=JSON.stringify(next),changed=serialized!==last
   runs=next;last=serialized
-  await updateDisconnected(status.disconnectedProjects||[],changed)
+  await updateDisconnected(status.disconnectedProjects||[],changed,true)
   const current=runs.find(run=>run.id===selected)
-  if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true)
-  if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true)}
+  if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
+  if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   refreshVisibleSkillResults()
  }catch{agentUnavailable()}
@@ -318,6 +335,11 @@ document.querySelector('#stop').onclick=async()=>{
  if(!selected)return;stopping=true;render()
  try{await api.stop(selected);await refresh()}catch(err){error(err)}finally{stopping=false;render()}
 }
+function flushSidebar(){if(pendingRender&&!sidebarBusy())render()}
+// Hover and focus targets settle after the event, so the check runs next tick.
+const scheduleFlush=()=>setTimeout(flushSidebar,0)
+sidebarList().addEventListener('pointerout',scheduleFlush)
+sidebarList().addEventListener('focusout',scheduleFlush)
 api.connect().then(connected=>{if(connected){ready();refresh()}else{agentUnavailable()}}).catch(error)
 setInterval(async()=>{
  if(restarting)return
