@@ -41,3 +41,19 @@ Windows script deletes itself at the end with `(goto) 2>nul & del "%~f0"`, which
 context before removing the file. The token is therefore on disk for the duration of the run, in
 the user's own temp directory; this is a real difference from POSIX and is why the script is not
 left behind.
+
+## Which shell runs the script
+The first implementation rendered a batch file and launched `wt.exe new-tab cmd.exe /k`, which
+put the task in `cmd.exe` even for a user whose Windows Terminal default is PowerShell. That
+contradicts the point of using the host terminal: the terminal is the user's, so the shell
+should be too. The launcher now detects `pwsh.exe`, then `powershell.exe`, and only falls back
+to `cmd.exe` when neither exists; the explicit shell argument to the terminal decides which
+script language is rendered, which extension the temporary file gets, and how the supervised
+command line is quoted.
+
+PowerShell is also the better host for this script. It parses the whole file before executing
+any of it, so the launcher can delete itself on its second line: the agent token is gone from
+disk before the skill starts, where the batch renderer has to leave it there for the duration.
+Its literal strings survive quotes and newlines, so the values the batch renderer has to refuse
+are ordinary data here. `-ExecutionPolicy Bypass` is passed explicitly, since a machine that
+blocks scripts would otherwise refuse the launcher without explaining why.

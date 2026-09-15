@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+
+	"tasks/internal/runner"
 )
 
 func TestHostTerminalExecutionIsWindowsOnly(t *testing.T) {
@@ -28,16 +30,26 @@ func TestHostTerminalExecutionIsWindowsOnly(t *testing.T) {
 	}
 }
 
-func TestQuoteWindowsArgProtectsSpacesAndPercent(t *testing.T) {
-	got := quoteWindowsArg(`C:\Program Files\Sectile\agent.exe`)
-	if got != `"C:\Program Files\Sectile\agent.exe"` {
+func TestWrapperQuotingMatchesTheHostShell(t *testing.T) {
+	// cmd.exe: quoted argument, doubled percent, CommandLineToArgvW escape.
+	if got := runner.QuoteArg(runner.ShellCmd, `C:\Program Files\Sectile\agent.exe`); got != `"C:\Program Files\Sectile\agent.exe"` {
 		t.Fatalf("path with spaces not quoted as one argument: %s", got)
 	}
-	if got := quoteWindowsArg("100%done"); got != `"100%%done"` {
+	if got := runner.QuoteArg(runner.ShellCmd, "100%done"); got != `"100%%done"` {
 		t.Fatalf("percent not escaped for the batch layer: %s", got)
 	}
-	if got := quoteWindowsArg(`say "hi"`); !strings.Contains(got, `\"hi\"`) {
+	if got := runner.QuoteArg(runner.ShellCmd, `say "hi"`); !strings.Contains(got, `\"hi\"`) {
 		t.Fatalf("embedded quote not escaped: %s", got)
+	}
+	// PowerShell: a literal string, where doubling is the only escape and percent is ordinary.
+	if got := runner.QuoteArg(runner.ShellPowerShell, `C:\Program Files\a.exe`); got != `'C:\Program Files\a.exe'` {
+		t.Fatalf("powershell path not quoted as a literal: %s", got)
+	}
+	if got := runner.QuoteArg(runner.ShellPowerShell, "it's"); got != `'it''s'` {
+		t.Fatalf("powershell quote not doubled: %s", got)
+	}
+	if got := runner.QuoteArg(runner.ShellPowerShell, "100%done"); got != `'100%done'` {
+		t.Fatalf("powershell percent should stay literal: %s", got)
 	}
 }
 

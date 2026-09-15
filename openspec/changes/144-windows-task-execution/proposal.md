@@ -18,8 +18,9 @@ chooses between a PTY and a host terminal, has no callers at all.
 ## What Changes
 - On Windows a task runs in the host terminal (Windows Terminal when present, otherwise
   `cmd.exe`) instead of an embedded PTY. macOS and Linux keep the embedded PTY unchanged.
-- The external terminal script is rendered per platform: a `.cmd` batch file on Windows,
-  the existing bash script everywhere else.
+- The external terminal script is rendered for the shell that will read it: a PowerShell
+  script on a Windows host that has PowerShell, a `.cmd` batch file on one that does not, and
+  the existing bash script everywhere else. The terminal tab runs the user's own shell.
 - `startControlledCommand` / `stopControlledCommand` gain a real Windows implementation built
   on a Job Object, so an externally launched run is still supervised: the board sees it start
   and finish, and cancelling it kills the whole process tree.

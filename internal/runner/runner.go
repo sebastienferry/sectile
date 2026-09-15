@@ -2450,17 +2450,14 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 	customTermCmd = strings.TrimSpace(customTermCmd)
 
 	// Create a temporary launcher script, named so the host shell will run it.
-	pattern := "sectile-term-*.command"
-	if runtime.GOOS == "windows" {
-		pattern = "sectile-term-*.cmd"
-	}
-	tmpFile, err := os.CreateTemp("", pattern)
+	launcher := DetectHostLauncher(runtime.GOOS)
+	tmpFile, err := os.CreateTemp("", "sectile-term-*"+launcher.Extension())
 	if err != nil {
 		return fmt.Errorf("failed to create temporary terminal script: %w", err)
 	}
 	scriptPath := tmpFile.Name()
 
-	script, err := externalTerminalScript(targetPath, initialCommand, envVars)
+	script, err := externalTerminalScriptFor(launcher.Shell, targetPath, initialCommand, envVars)
 	if err != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(scriptPath)
@@ -2530,12 +2527,13 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 			rendered := strings.ReplaceAll(termTrimmed, "{script}", scriptPath)
 			rendered = strings.ReplaceAll(rendered, "{cmd}", scriptPath)
 			cmd = exec.Command("cmd.exe", "/c", rendered)
-		} else if strings.Contains(termLower, "cmd") || strings.Contains(termLower, "command prompt") {
-			cmd = windowsConsoleCommand(scriptPath)
+		} else if argv := launcher.Argv(scriptPath); strings.Contains(termLower, "conhost") || strings.Contains(termLower, "console") {
+			cmd = windowsConsoleCommand(argv)
 		} else if bin, lookErr := exec.LookPath("wt.exe"); lookErr == nil {
-			cmd = exec.Command(bin, "new-tab", "cmd.exe", "/k", scriptPath)
+			// The tab runs the user's own shell; only the script it reads is chosen for them.
+			cmd = exec.Command(bin, append([]string{"new-tab"}, argv...)...)
 		} else {
-			cmd = windowsConsoleCommand(scriptPath)
+			cmd = windowsConsoleCommand(argv)
 		}
 	default: // linux / unix
 		if strings.Contains(termTrimmed, "{script}") || strings.Contains(termTrimmed, "{cmd}") {

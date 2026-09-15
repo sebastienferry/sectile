@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"github.com/gorilla/websocket"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
+	"tasks/internal/runner"
 )
 
 type controlledRun struct {
@@ -58,10 +58,17 @@ func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
 	}
 	d.runs[runID] = run
 	endpoint := d.agentURL + "/control/runs/" + runID
-	if runtime.GOOS == "windows" {
-		// Quoted for cmd.exe, which is what reads the launcher script on this host.
-		return quoteWindowsArg(binary) + " agent-exec --url " + quoteWindowsArg(endpoint) +
-			" --token " + quoteWindowsArg(run.token) +
+	if shell := runner.HostShell(); shell != runner.ShellPosix {
+		// The line is read by the user's own shell, so it is quoted for that shell. The command
+		// itself is encoded because no Windows shell line can carry a multi-line prompt.
+		quote := func(value string) string { return runner.QuoteArg(shell, value) }
+		prefix := ""
+		if shell == runner.ShellPowerShell {
+			// PowerShell treats a quoted first token as a string unless it is invoked.
+			prefix = "& "
+		}
+		return prefix + quote(binary) + " agent-exec --url " + quote(endpoint) +
+			" --token " + quote(run.token) +
 			" --command-base64 " + base64.StdEncoding.EncodeToString([]byte(command)), nil
 	}
 	return quoteShell(binary) + " agent-exec --url " + quoteShell(endpoint) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil

@@ -19,7 +19,7 @@ func TestExternalScriptPreservesValuesAndExecutesCommandOnce(t *testing.T) {
 	result := filepath.Join(root, "result")
 	command := `printf '%s' "$(printf x >> ` + shellQuote(marker) + `; printf done)" > ` + shellQuote(result)
 	// Pinned to the POSIX renderer: this asserts bash semantics and runs the script with bash.
-	script, err := externalTerminalScriptFor("linux", target, command, map[string]string{"SHELL": "/usr/bin/true", "SECTILE_TEST": "$HOME `literal` 'quote'"})
+	script, err := externalTerminalScriptFor(ShellPosix, target, command, map[string]string{"SHELL": "/usr/bin/true", "SECTILE_TEST": "$HOME `literal` 'quote'"})
 	if err != nil {
 		t.Fatal(err)
 	}

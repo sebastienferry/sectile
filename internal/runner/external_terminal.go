@@ -10,17 +10,87 @@ import (
 	"strings"
 )
 
+// The shell that will read the launcher script. It decides the script's language, its file
+// extension and how the supervised command line is quoted.
+const (
+	ShellPosix      = "posix"
+	ShellPowerShell = "powershell"
+	ShellCmd        = "cmd"
+)
+
 var terminalEnvKey = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+
+// HostLauncher describes how to run a launcher script on this host.
+type HostLauncher struct {
+	Shell  string
+	Binary string
+}
+
+// DetectHostLauncher picks the shell a Windows user actually works in. Forcing cmd.exe would
+// run the task in a shell the user never chose, in the terminal they did.
+func DetectHostLauncher(goos string) HostLauncher {
+	if goos != "windows" {
+		return HostLauncher{Shell: ShellPosix}
+	}
+	for _, candidate := range []string{"pwsh.exe", "powershell.exe"} {
+		if bin, err := exec.LookPath(candidate); err == nil {
+			return HostLauncher{Shell: ShellPowerShell, Binary: bin}
+		}
+	}
+	return HostLauncher{Shell: ShellCmd, Binary: "cmd.exe"}
+}
+
+// HostShell names the shell that will run a supervised command line on this host.
+func HostShell() string { return DetectHostLauncher(runtime.GOOS).Shell }
+
+// Extension is the suffix the shell needs to recognise the script.
+func (h HostLauncher) Extension() string {
+	switch h.Shell {
+	case ShellPowerShell:
+		return ".ps1"
+	case ShellCmd:
+		return ".cmd"
+	}
+	return ".command"
+}
+
+// Argv runs the script and leaves the window open once it returns, so a finished skill can
+// still be read. The execution policy is set explicitly: a machine that blocks scripts would
+// otherwise refuse the launcher without saying why.
+func (h HostLauncher) Argv(scriptPath string) []string {
+	if h.Shell == ShellPowerShell {
+		return []string{h.Binary, "-NoExit", "-ExecutionPolicy", "Bypass", "-File", scriptPath}
+	}
+	return []string{"cmd.exe", "/k", scriptPath}
+}
+
+// QuoteArg quotes one argument of a supervised command line for the named shell.
+func QuoteArg(shell, s string) string {
+	switch shell {
+	case ShellPowerShell:
+		return psQuote(s)
+	case ShellCmd:
+		// cmd.exe has no escape for a quote inside a quoted argument beyond the one
+		// CommandLineToArgvW understands, and a percent sign would otherwise expand.
+		return `"` + strings.ReplaceAll(strings.ReplaceAll(s, `"`, `\"`), "%", "%%") + `"`
+	}
+	return shellQuote(s)
+}
+
+// psQuote renders a value as a PowerShell literal string, where doubling is the only escape.
+func psQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
+}
 
 // externalTerminalScript renders the launcher for the host the agent runs on.
 func externalTerminalScript(targetPath, initialCommand string, env map[string]string) (string, error) {
-	return externalTerminalScriptFor(runtime.GOOS, targetPath, initialCommand, env)
+	return externalTerminalScriptFor(HostShell(), targetPath, initialCommand, env)
 }
 
-// externalTerminalScriptFor renders the launcher for an explicitly named platform. The target
-// is a parameter rather than a build tag so the Windows script can be tested from any host;
-// the Windows path rotted precisely because only a Windows machine could exercise it.
-func externalTerminalScriptFor(goos, targetPath, initialCommand string, env map[string]string) (string, error) {
+// externalTerminalScriptFor renders the launcher for an explicitly named shell. The shell is a
+// parameter rather than a build tag so every renderer is testable from any host; the Windows
+// path rotted precisely because only a Windows machine could exercise it.
+func externalTerminalScriptFor(shell, targetPath, initialCommand string, env map[string]string) (string, error) {
 	keys := make([]string, 0, len(env))
 	for key := range env {
 		keys = append(keys, key)
@@ -31,8 +101,11 @@ func externalTerminalScriptFor(goos, targetPath, initialCommand string, env map[
 			return "", fmt.Errorf("invalid terminal environment key %q", key)
 		}
 	}
-	if goos == "windows" {
-		return windowsTerminalScript(targetPath, initialCommand, env, keys)
+	switch shell {
+	case ShellPowerShell:
+		return powershellTerminalScript(targetPath, initialCommand, env, keys)
+	case ShellCmd:
+		return batchTerminalScript(targetPath, initialCommand, env, keys)
 	}
 	return posixTerminalScript(targetPath, initialCommand, env, keys)
 }
@@ -57,10 +130,31 @@ func posixTerminalScript(targetPath, initialCommand string, env map[string]strin
 	return b.String(), nil
 }
 
-// windowsTerminalScript renders a batch launcher. `cmd.exe` reads a batch file line by line, so
-// the POSIX trick of deleting the script on its first line would corrupt the run; the script
-// removes itself at the end instead, which is why the agent token does not outlive it.
-func windowsTerminalScript(targetPath, initialCommand string, env map[string]string, keys []string) (string, error) {
+// powershellTerminalScript renders the launcher for the shell a Windows user is most likely in.
+// PowerShell parses a script file completely before running any of it, so the script can remove
+// itself first: unlike the batch renderer, the agent token never outlives the launch.
+func powershellTerminalScript(targetPath, initialCommand string, env map[string]string, keys []string) (string, error) {
+	var b strings.Builder
+	b.WriteString("# Sectile external terminal session\r\n")
+	b.WriteString("Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue\r\n")
+	if customPath := dynamicCustomPathFor("windows"); customPath != "" {
+		fmt.Fprintf(&b, "$env:PATH = %s + ';' + $env:PATH\r\n", psQuote(customPath))
+	}
+	for _, key := range keys {
+		fmt.Fprintf(&b, "$env:%s = %s\r\n", key, psQuote(env[key]))
+	}
+	fmt.Fprintf(&b, "Set-Location -LiteralPath %s\r\n", psQuote(targetPath))
+	fmt.Fprintf(&b, "Write-Host %s\r\n", psQuote("Sectile external terminal - "+targetPath))
+	if initialCommand = strings.TrimSpace(initialCommand); initialCommand != "" {
+		fmt.Fprintf(&b, "Write-Host %s\r\n%s\r\n", psQuote("Running: "+initialCommand), initialCommand)
+	}
+	return b.String(), nil
+}
+
+// batchTerminalScript is the fallback for a Windows host without PowerShell. `cmd.exe` reads a
+// batch file line by line, so the POSIX trick of deleting the script on its first line would
+// corrupt the run; this script removes itself at the end instead.
+func batchTerminalScript(targetPath, initialCommand string, env map[string]string, keys []string) (string, error) {
 	var b strings.Builder
 	b.WriteString("@echo off\r\nrem Sectile external terminal session\r\n")
 	if customPath := dynamicCustomPathFor("windows"); customPath != "" {
@@ -132,9 +226,8 @@ func prefixedPath() string {
 }
 
 // windowsConsoleCommand opens the launcher in a new console window. `start` treats its first
-// quoted argument as the window title, so the empty title is required or it swallows the
-// command; `/k` keeps the window open once the skill exits, which is the whole point of
-// running in the host terminal.
-func windowsConsoleCommand(scriptPath string) *exec.Cmd {
-	return exec.Command("cmd.exe", "/c", "start", "", "cmd.exe", "/k", scriptPath)
+// quoted argument as the window title, so the empty title is required or it swallows the command.
+func windowsConsoleCommand(argv []string) *exec.Cmd {
+	args := append([]string{"/c", "start", ""}, argv...)
+	return exec.Command("cmd.exe", args...)
 }

@@ -26,9 +26,16 @@ platforms whose PTY is supported the system SHALL keep using the embedded consol
 The system SHALL render the external terminal script in the language of the shell that will
 run it, and SHALL reject an environment variable name the target shell cannot express.
 
-#### Scenario: Rendering for Windows
-- **GIVEN** a task with a working directory, environment variables and an initial command
-- **WHEN** the launcher script is rendered for Windows
+#### Scenario: Rendering for a Windows user's own shell
+- **GIVEN** a Windows host where PowerShell is installed
+- **WHEN** the launcher script is rendered
+- **THEN** it is a PowerShell script that sets each variable, changes to the working directory
+  and runs the command
+- **AND** the terminal tab runs that shell rather than one chosen for the user
+
+#### Scenario: Rendering for a Windows host without PowerShell
+- **GIVEN** a Windows host where no PowerShell is found
+- **WHEN** the launcher script is rendered
 - **THEN** it is a batch script that sets each variable, changes to the working directory and
   runs the command
 - **AND** it does not contain POSIX `export` or `exec "$SHELL"` syntax
@@ -37,6 +44,12 @@ run it, and SHALL reject an environment variable name the target shell cannot ex
 - **GIVEN** the same task
 - **WHEN** the launcher script is rendered for macOS or Linux
 - **THEN** it is the existing bash script
+
+#### Scenario: A value the batch renderer cannot express
+- **GIVEN** an environment value containing a quote
+- **WHEN** the launcher script is rendered for PowerShell
+- **THEN** it is rendered as a literal string
+- **AND** the batch renderer refuses it rather than truncating it silently
 
 #### Scenario: An unusable variable name
 - **GIVEN** an environment variable whose name is not a valid identifier
