@@ -43,6 +43,17 @@ internal/webui/dist/*
 .taskflow/remote-config.json
 .taskflow/skill-backups/
 
+# Managed skills and commands are installed in each agent's user configuration,
+# never in the checkout. Copies left here by earlier releases are retired on the
+# next dispatch; personal skills at other paths are untouched.
+.agents/skills/
+.agy/skills/
+.claude/commands/
+.claude/skills/
+.gemini/skills/
+.skills/
+.mcp.json
+
 # Local desktop build outputs
 desktop/bin/
 desktop/dist/
