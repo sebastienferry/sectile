@@ -873,10 +873,15 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.runsMu.Unlock()
 	}
 	if !embedded {
+		log.Printf("⚡ [Agent] Launching skill command in the host terminal %s: %s (workdir: %s)", terminalApp, fullLine, workDir)
 		if err := runner.NewRunner().OpenExternalTerminal(terminalApp, workDir, fullLine, envVars); err != nil {
+			// Without this the failure is invisible locally: the host terminal writes no console
+			// the agent can read, so agent.log is the only place a launch error can surface.
+			log.Printf("[Agent] Host terminal launch failed (%s): %v", terminalApp, err)
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 			return
 		}
+		log.Printf("[Agent] Task %s handed to the host terminal; its exit is reported by agent-exec, not by a console", taskRef)
 		launched = true
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched in the host terminal (%s)", payload.Action, terminalApp))
 		return
