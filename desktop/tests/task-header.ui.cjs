@@ -5,7 +5,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 const {WebSocketServer}=require('ws')
 
 test('TTY header follows metadata and selection without disturbing the console',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-task-header-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-task-header-'))
  const run=(id,taskId,skill,status='completed')=>({id,taskId,taskKey:taskId==='a'?'#82':'',projectId:'project',skill,status,sessionId:id,directory:'/tmp/example/worktree',createdAt:id==='old'?'2026-09-12T10:00:00Z':'2026-09-13T10:00:00Z'})
  let runs=[run('current','a','implement'),run('old','a','clarify'),run('other','full-task-id','specify','running')]
  let reported=null,resultUnavailable=false
@@ -28,13 +28,13 @@ test('TTY header follows metadata and selection without disturbing the console',
  }))
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   let page=await app.firstWindow();page.setDefaultTimeout(7000)
   const header=()=>page.locator('#title')
-  const select=async identity=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open '+identity+' in TaskFlow',exact:true})}).locator('.run').click()
+  const select=async identity=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open '+identity+' in Sectile',exact:true})}).locator('.run').click()
   const advance=async()=>{
    const before=requests
    await page.evaluate(()=>{window.headerTestTime=(window.headerTestTime||Date.now())+16000;Date.now=()=>window.headerTestTime})

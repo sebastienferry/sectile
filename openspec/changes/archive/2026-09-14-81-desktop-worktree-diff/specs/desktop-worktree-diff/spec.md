@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Inspect the selected local execution
-TaskFlow Desktop SHALL provide a read-only Changes view for a selected execution whose assigned checkout is available. It SHALL identify the task, actual checkout directory, actual branch, default-branch reference, and common-ancestor commit. Inspection SHALL remain available after the execution stops while its local execution record and checkout remain available.
+Sectile Desktop SHALL provide a read-only Changes view for a selected execution whose assigned checkout is available. It SHALL identify the task, actual checkout directory, actual branch, default-branch reference, and common-ancestor commit. Inspection SHALL remain available after the execution stops while its local execution record and checkout remain available.
 
 #### Scenario: Running or stopped execution
 - **GIVEN** a selected running or stopped execution with an available assigned checkout

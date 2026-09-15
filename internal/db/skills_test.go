@@ -42,7 +42,7 @@ func TestGeneratedSkillContracts(t *testing.T) {
 						t.Fatal("transition does not record the actual assigned branch")
 					}
 				}
-				if stage.FromStage != "" && stage.Scope != "macro" && (strings.Contains(content, "taskflow stage") || strings.Contains(content, "curl --")) {
+				if stage.FromStage != "" && stage.Scope != "macro" && (strings.Contains(content, "sectile stage") || strings.Contains(content, "curl --")) {
 					t.Fatal("workflow skill must use native MCP tools")
 				}
 			})

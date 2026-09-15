@@ -34,9 +34,9 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 		}
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&detail)
 		if detail.Error != "" {
-			return fmt.Errorf("TaskFlow API returned HTTP %d: %s", resp.StatusCode, detail.Error)
+			return fmt.Errorf("Sectile API returned HTTP %d: %s", resp.StatusCode, detail.Error)
 		}
-		return fmt.Errorf("TaskFlow API returned HTTP %d", resp.StatusCode)
+		return fmt.Errorf("Sectile API returned HTTP %d", resp.StatusCode)
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
 }
@@ -338,7 +338,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		if strings.TrimSpace(prompt) == "" {
 			return "", fmt.Errorf("custom instructions required")
 		}
-		return agentCommandLine(config.AIProvider, config.AICommandTemplate, "TaskFlow task: "+taskKey+"\n\n"+prompt, contexts...)
+		return agentCommandLine(config.AIProvider, config.AICommandTemplate, "Sectile task: "+taskKey+"\n\n"+prompt, contexts...)
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {

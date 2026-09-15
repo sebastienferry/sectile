@@ -103,7 +103,7 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		if runErr != nil || running {
 			d.mu.Unlock()
 			if runErr == nil {
-				runErr = fmt.Errorf("une étape TaskFlow est en cours : son résultat doit être vérifié avant le post-back d'état")
+				runErr = fmt.Errorf("une étape Sectile est en cours : son résultat doit être vérifié avant le post-back d'état")
 			}
 			d.notifyPostBackListeners(existing, nil, runErr)
 			return nil, nil, runErr

@@ -4,7 +4,7 @@ const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
 test('project open tasks load immediately, search safely and launch the selected ticket',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-open-tasks-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-open-tasks-'))
  const requests=[],launches=[],pending=[]
  let failRead=false,failLaunch=false,configured=true,empty=false
  const tasks=[
@@ -38,7 +38,7 @@ test('project open tasks load immediately, search safely and launch the selected
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})

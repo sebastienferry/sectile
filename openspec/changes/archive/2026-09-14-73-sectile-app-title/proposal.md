@@ -1,7 +1,7 @@
 # Sectile desktop app title
 
 ## Why
-Issue #73 requests Sectile in the app title. The web app already uses Sectile, but the desktop document, native window and header still display TaskFlow Local.
+Issue #73 requests Sectile in the app title. The web app already uses Sectile, but the desktop document, native window and header still display Sectile Local.
 
 ## What Changes
 - Display Sectile Local in the desktop document, native window and header.

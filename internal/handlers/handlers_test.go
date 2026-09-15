@@ -485,7 +485,7 @@ func TestCloneTaskHandler(t *testing.T) {
 	}
 }
 
-func TestHealthEndpointReturnsTaskflowAPI(t *testing.T) {
+func TestHealthEndpointReturnsSectileAPI(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 
@@ -516,7 +516,7 @@ func TestHealthEndpointReturnsTaskflowAPI(t *testing.T) {
 	if healthRes["status"] != "ok" {
 		t.Errorf("Expected status 'ok', got %q", healthRes["status"])
 	}
-	if healthRes["service"] != "taskflow-api" {
-		t.Errorf("Expected service 'taskflow-api' for backward compatibility, got %q", healthRes["service"])
+	if healthRes["service"] != "sectile-api" {
+		t.Errorf("Expected service 'sectile-api' for backward compatibility, got %q", healthRes["service"])
 	}
 }

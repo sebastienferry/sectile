@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -31,8 +32,8 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// agentDaemon runs the local TaskFlow agent that connects outward to a remote
-// TaskFlow server and executes workflow steps locally inside Git worktrees.
+// agentDaemon runs the local Sectile agent that connects outward to a remote
+// Sectile server and executes workflow steps locally inside Git worktrees.
 type agentDaemon struct {
 	operationMu      sync.Mutex
 	operations       map[string]context.CancelFunc
@@ -42,6 +43,9 @@ type agentDaemon struct {
 	restartAgent     context.CancelFunc
 	desktopToken     string
 	desktopInfo      string
+	// loopbackToken proves a process belongs to this agent session. It carries
+	// no identity, is regenerated at every start and never leaves the machine.
+	loopbackToken    string
 	runsMu           sync.Mutex
 	runs             map[string]*controlledRun
 	serverURL        string
@@ -85,11 +89,32 @@ func resolveServerURL(flagURL string) string {
 	return ""
 }
 
-// runAgentCommand is the entrypoint for "taskflow-agent". It parses flags,
+// validLoopbackRequest accepts a local caller that presents this session's
+// secret. Comparison is constant time: the gateway answers unauthenticated
+// callers, so a timing oracle would be reachable by any local process.
+func (d *agentDaemon) validLoopbackRequest(r *http.Request) bool {
+	if d.loopbackToken == "" {
+		return false
+	}
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, "Bearer ") {
+		return false
+	}
+	presented := strings.TrimPrefix(header, "Bearer ")
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(d.loopbackToken)) == 1
+}
+
+// runningUnderTest reports whether this process is a test binary. Only the
+// testing package registers this flag.
+func runningUnderTest() bool {
+	return flag.Lookup("test.v") != nil
+}
+
+// runAgentCommand is the entrypoint for "sectile-agent". It parses flags,
 // connects to the remote server, and enters the main event loop.
 func runAgentCommand(args []string) {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
-	serverURL := fs.String("url", "", "Remote TaskFlow server URL (e.g. https://taskflow.example.com)")
+	serverURL := fs.String("url", "", "Remote Sectile server URL (e.g. https://sectile.example.com)")
 	token := fs.String("token", "", "Authentication token for the remote server")
 	projectID := fs.String("project", "all", "Project primary key, or all for multi-project operation")
 	deviceID := fs.String("device", "", "Device identifier (defaults to hostname)")
@@ -110,10 +135,10 @@ func runAgentCommand(args []string) {
 	*serverURL = resolvedURL
 
 	if *token == "" {
-		if envToken := os.Getenv("TASKFLOW_AGENT_TOKEN"); envToken != "" {
+		if envToken := os.Getenv("TOKEN"); envToken != "" {
 			*token = envToken
 		} else {
-			fmt.Fprintln(os.Stderr, "Error: --token is required (or set TASKFLOW_AGENT_TOKEN)")
+			fmt.Fprintln(os.Stderr, "Error: --token is required (or set TOKEN)")
 			fs.Usage()
 			os.Exit(1)
 		}
@@ -132,14 +157,14 @@ func runAgentCommand(args []string) {
 	if termChoice != "" {
 		termExplicit = true
 	} else {
-		termChoice = os.Getenv("TASKFLOW_TERMINAL")
+		termChoice = os.Getenv("SECTILE_TERMINAL")
 	}
 	if termChoice == "" {
 		termChoice = detectDefaultTerminal()
 	}
 
 	daemon := &agentDaemon{
-		desktopInfo: *desktopInfo, desktopToken: os.Getenv("TASKFLOW_DESKTOP_TOKEN"),
+		desktopInfo: *desktopInfo, desktopToken: os.Getenv("SECTILE_DESKTOP_TOKEN"),
 		serverURL:        strings.TrimRight(*serverURL, "/"),
 		token:            *token,
 		projectID:        *projectID,
@@ -166,6 +191,7 @@ func runAgentCommand(args []string) {
 	if daemon.desktopToken == "" {
 		daemon.desktopToken = rand.Text()
 	}
+	daemon.loopbackToken = rand.Text()
 	if daemon.desktopInfo == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -185,6 +211,13 @@ func runAgentCommand(args []string) {
 	// Run after console and gateway cleanup, preserving the original arguments.
 	defer func() {
 		if !daemon.restartRequested {
+			return
+		}
+		// Under `go test` the executable is the test binary and the arguments
+		// are its own flags: restarting would detach a second test binary that
+		// outlives the run and keeps holding the gateway port.
+		if runningUnderTest() {
+			log.Println("[Agent] Restart skipped: running under a test binary")
 			return
 		}
 		binary, err := os.Executable()
@@ -211,7 +244,7 @@ func runAgentCommand(args []string) {
 		close(daemon.done)
 	}()
 
-	log.Printf("🚀 TaskFlow Agent starting (server=%s, project=%s, device=%s)", daemon.serverURL, daemon.projectID, daemon.deviceID)
+	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", daemon.serverURL, daemon.projectID, daemon.deviceID)
 
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
@@ -265,7 +298,7 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 }
 
 // startLocalProxy starts an embedded HTTP reverse proxy on 127.0.0.1 (default port 8091 or dynamic)
-// so that local skills, scripts, and tools can seamlessly interact with the TaskFlow API through
+// so that local skills, scripts, and tools can seamlessly interact with the Sectile API through
 // the local agent without needing to know the remote server's URL or auth tokens.
 func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 	var ln net.Listener
@@ -301,6 +334,13 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 			http.Error(w, "Browser origins are not allowed", http.StatusForbidden)
 			return
 		}
+		// Loopback alone is not an authorization: every local process can
+		// reach this port. Require the session secret before lending the
+		// user's identity to the caller.
+		if !d.validLoopbackRequest(r) {
+			http.Error(w, "Valid agent session token required", http.StatusUnauthorized)
+			return
+		}
 		if r.Host != fmt.Sprintf("127.0.0.1:%d", d.agentPort) && r.Host != fmt.Sprintf("localhost:%d", d.agentPort) {
 			http.Error(w, "Invalid gateway host", http.StatusForbidden)
 			return
@@ -315,7 +355,7 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ok","agent":"taskflow-local","device":%q,"server":%q}`, d.deviceID, d.serverURL)))
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ok","agent":"sectile-local","device":%q,"server":%q}`, d.deviceID, d.serverURL)))
 	})
 
 	server := &http.Server{
@@ -388,7 +428,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopClose()
 	log.Printf("[Agent] Connected to remote server")
-	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur TaskFlow (%s)\n", d.serverURL)
+	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.serverURL)
 	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.projectID, d.deviceID)
 	fmt.Printf("   Prêt ! Les compétences déclenchées sur l'interface web s'exécuteront ici.\n\n")
 
@@ -564,7 +604,6 @@ func (d *agentDaemon) handlePullTasks(ctx context.Context, conn *websocket.Conn,
 	_ = conn.WriteJSON(resp)
 	d.connMu.Unlock()
 }
-
 
 // findRepoRoot finds the repository root containing .tasks and all worktrees
 func findRepoRoot(startDir string) string {
@@ -766,18 +805,18 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 
 	envVars := map[string]string{
-		"TASKFLOW_TASK_KEY":      payload.TaskKey,
-		"TASKFLOW_TASK_BRANCH":   branch,
-		"TASKFLOW_TASK_WORKTREE": workDir,
-		"TASKFLOW_TASK_ID":       taskRef,
-		"TASKFLOW_RUN_ID":        payload.RunID,
-		"TASKFLOW_REMOTE_MODE":   "true",
-		"TASKFLOW_AGENT_URL":     d.agentURL,
-		"TASKFLOW_SERVER_URL":    d.serverURL,
-		"TASKFLOW_AGENT_TOKEN":   d.token,
+		"SECTILE_TASK_KEY":      payload.TaskKey,
+		"SECTILE_TASK_BRANCH":   branch,
+		"SECTILE_TASK_WORKTREE": workDir,
+		"SECTILE_TASK_ID":       taskRef,
+		"SECTILE_RUN_ID":        payload.RunID,
+		"SECTILE_REMOTE_MODE":   "true",
+		"SECTILE_AGENT_URL":     d.agentURL,
+		"SECTILE_SERVER_URL":    d.serverURL,
+		"SECTILE_AGENT_TOKEN":   d.loopbackToken,
 	}
 	if payload.ProjectID != "" {
-		envVars["TASKFLOW_PROJECT_ID"] = payload.ProjectID
+		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID
 	}
 
 	if payload.RunID != "" {

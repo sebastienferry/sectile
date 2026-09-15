@@ -12,7 +12,7 @@ retaining an obsolete deny rule would silently weaken its protection.
 ## Decision
 
 Keep the shared typed MCP catalog and HTTP/stdio architecture from ADR 0001.
-Identify both servers as `sectile` and remove `taskflow_` from the eight tools.
+Identify both servers as `sectile` and remove `sectile_` from the eight tools.
 Do not register aliases, translate calls or retry using old names.
 
 Migrate the reserved registration during normal bootstrap, preserving unrelated

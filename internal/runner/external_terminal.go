@@ -11,7 +11,7 @@ import (
 // displaying the initial command must not execute its substitutions a second time.
 func externalTerminalScript(targetPath, initialCommand string, env map[string]string) (string, error) {
 	var b strings.Builder
-	b.WriteString("#!/bin/bash\n# TaskFlow external terminal session\nrm -- \"$0\"\n")
+	b.WriteString("#!/bin/bash\n# Sectile external terminal session\nrm -- \"$0\"\n")
 	if customPath := GetDynamicCustomPath(); customPath != "" {
 		fmt.Fprintf(&b, "export PATH=%s:\"$PATH\"\n", shellQuote(customPath))
 	}
@@ -27,7 +27,7 @@ func externalTerminalScript(targetPath, initialCommand string, env map[string]st
 		fmt.Fprintf(&b, "export %s=%s\n", key, shellQuote(env[key]))
 	}
 	fmt.Fprintf(&b, "cd %s || exit 1\n", shellQuote(targetPath))
-	fmt.Fprintf(&b, "printf '%%s\\n' %s\n", shellQuote("TaskFlow external terminal — "+targetPath))
+	fmt.Fprintf(&b, "printf '%%s\\n' %s\n", shellQuote("Sectile external terminal — "+targetPath))
 	if initialCommand = strings.TrimSpace(initialCommand); initialCommand != "" {
 		fmt.Fprintf(&b, "printf '%%s\\n' %s\n%s\n", shellQuote("Running: "+initialCommand), initialCommand)
 	}

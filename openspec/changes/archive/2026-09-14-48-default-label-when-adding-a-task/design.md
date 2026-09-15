@@ -29,4 +29,4 @@ Run focused database coverage, then the repository's `make test` and `make build
 This specification stage runs only OpenSpec validation and diff checks; production tests belong to implementation. No README installation/configuration/major-feature change or architectural decision requires additional documentation. No changelog is present.
 
 ## Open Questions
-None. Reuse branch `48-default-label-when-adding-a-task`. The local config's stale local-tracker identity is preserved; live TaskFlow task/project context verifies GitHub repository `sebastienferry/taskflow` and OpenSpec for this invocation.
+None. Reuse branch `48-default-label-when-adding-a-task`. The local config's stale local-tracker identity is preserved; live Sectile task/project context verifies GitHub repository `sebastienferry/sectile` and OpenSpec for this invocation.

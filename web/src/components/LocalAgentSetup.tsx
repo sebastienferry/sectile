@@ -12,7 +12,7 @@ export function LocalAgentSetup() {
     // Keep invalid input editable without generating an executable command.
   }
   const quotedUrl = "'" + serverUrl.trim().replace(/\/$/, '').replace(/'/g, "'\\''") + "'"
-  const command = 'taskflow agent --url ' + quotedUrl
+  const command = 'sectile agent --url ' + quotedUrl
 
   async function copyCommand() {
     try {
@@ -29,7 +29,7 @@ export function LocalAgentSetup() {
         <Terminal size={16} /> Local agent
       </h3>
       <p className="text-[var(--text-muted)]">
-        Use TaskFlow Desktop to host your execution consoles. The command below starts an optional headless agent from your repository or project mappings directory. Project settings and skills are downloaded from the server.
+        Use Sectile Desktop to host your execution consoles. The command below starts an optional headless agent from your repository or project mappings directory. Project settings and skills are downloaded from the server.
       </p>
       <label className="block space-y-1">
         <span className="font-semibold">Server URL</span>
@@ -50,7 +50,7 @@ export function LocalAgentSetup() {
         </div>
       ) : <p role="alert">Enter an HTTP or HTTPS server URL without credentials, query parameters or a fragment.</p>}
       <p className="text-[var(--text-muted)]">
-        Requires the TaskFlow binary in your PATH and TASKFLOW_AGENT_TOKEN set in your terminal.
+        Requires the Sectile binary in your PATH and TOKEN set in your terminal.
         Use the token provided by your server administrator; in local mode without a configured server token, any non-empty value is accepted.
         The agent connects to all projects by default.
       </p>

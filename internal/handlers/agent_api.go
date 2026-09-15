@@ -11,7 +11,7 @@ import (
 )
 
 // AgentAPIAuth shares the agent handshake's identity policy. Deployments can pin
-// a bearer credential with TASKFLOW_SERVER_TOKEN; without it this is local mode.
+// a bearer credential with SECTILE_SERVER_TOKEN; without it this is local mode.
 func (h *Handler) AgentAPIAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {
@@ -33,7 +33,7 @@ func validAgentToken(token string) bool {
 	if strings.TrimSpace(token) == "" {
 		return false
 	}
-	expected := os.Getenv("TASKFLOW_SERVER_TOKEN")
+	expected := os.Getenv("SECTILE_SERVER_TOKEN")
 	return expected == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
 }
 

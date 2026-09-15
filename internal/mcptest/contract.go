@@ -42,7 +42,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 			t.Fatalf("unexpected tool %s", tool.Name)
 		}
 		seen[tool.Name] = true
-		if strings.Contains(tool.Description, "taskflow_") || tool.InputSchema == nil {
+		if strings.Contains(tool.Description, "sectile_") || tool.InputSchema == nil {
 			t.Fatalf("invalid metadata for %s", tool.Name)
 		}
 	}
@@ -89,7 +89,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 	before := snapshot()
 	for name, input := range args {
 		legacySession := connect()
-		_, err := legacySession.CallTool(ctx, &mcp.CallToolParams{Name: "taskflow_" + name, Arguments: input})
+		_, err := legacySession.CallTool(ctx, &mcp.CallToolParams{Name: "sectile_" + name, Arguments: input})
 		legacySession.Close()
 		if err == nil || !strings.Contains(err.Error(), "unknown tool") {
 			t.Fatalf("legacy %s was not rejected as unknown: %v", name, err)

@@ -11,7 +11,7 @@ import (
 )
 
 func setupTestDB(t *testing.T) (*DB, func()) {
-	tmpDir, err := os.MkdirTemp("", "taskflow-test-*")
+	tmpDir, err := os.MkdirTemp("", "sectile-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}

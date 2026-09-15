@@ -1,6 +1,6 @@
 ## Why
 
-Currently, the roadmap feature in TaskFlow combines two distinct functional views—Sprint Timeline planning (`SprintTimelineView`) and Macro/Horizons management (`RoadmapView`)—under a single `roadmap` view mode with an internal sub-toggle switch (`roadmapMode: 'sprints' | 'macros'`). This causes visual clutter, unnecessary tab switches inside the view header, and poor ergonomics when users want to switch directly to sprint timeline planning. 
+Currently, the roadmap feature in Sectile combines two distinct functional views—Sprint Timeline planning (`SprintTimelineView`) and Macro/Horizons management (`RoadmapView`)—under a single `roadmap` view mode with an internal sub-toggle switch (`roadmapMode: 'sprints' | 'macros'`). This causes visual clutter, unnecessary tab switches inside the view header, and poor ergonomics when users want to switch directly to sprint timeline planning. 
 
 Separating these views into two top-level `ViewMode` values (`'roadmap'` and `'timeline'`) provides a cleaner separation of concerns, dedicated navigation entries, distinct command palette shortcuts, and simplified component state.
 

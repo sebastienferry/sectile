@@ -1,28 +1,28 @@
 # Core Capabilities & Workflows
 
-This document outlines the functional capabilities, workflow engines, and AI orchestration pipelines provided by **Sectile** (formerly TaskFlow).
+This document outlines the functional capabilities, workflow engines, and AI orchestration pipelines provided by **Sectile** (formerly Sectile).
 
 ## Task access from agent sessions
 
-Skills first use the local TaskFlow agent's exposed task-management interface, discovered from the session or project context. The policy does not imply that every deployed agent exposes such an interface. When it is missing or fails after a bounded attempt, the server at `http://localhost:8090` is a temporary fallback. Record the observed failure, look for an existing project bug, and register or update it when authorized; otherwise preserve the bug report locally.
+Skills first use the local Sectile agent's exposed task-management interface, discovered from the session or project context. The policy does not imply that every deployed agent exposes such an interface. When it is missing or fails after a bounded attempt, the server at `http://localhost:8090` is a temporary fallback. Record the observed failure, look for an existing project bug, and register or update it when authorized; otherwise preserve the bug report locally.
 
 Resolve the project by repository and verify the full task ID and external URL before a mutation. List tasks with the explicit project ID and send `taskId`, rather than a potentially ambiguous key such as `#47`, to the stage endpoint. Task creation also requires the explicit project ID.
 
 A managed run's supplied result contract takes precedence over standalone transitions. The agent validates local evidence and the server owns tracker synchronization. An active run with no usable completion contract must be reported; do not clear its activity or use another endpoint to bypass validation. A successful terminal launch is not proof that a workflow step completed.
 
-These instructions are maintained in `internal/db/skilltemplates.go` and mirrored in the repository's skill and command files. Project-specific skill overrides remain authoritative and must receive the same correction through the supported project skill editor before redistribution. The known local-agent integration gap is tracked in [issue #50](https://github.com/sebastienferry/taskflow/issues/50).
+These instructions are maintained in `internal/db/skilltemplates.go` and mirrored in the repository's skill and command files. Project-specific skill overrides remain authoritative and must receive the same correction through the supported project skill editor before redistribution. The known local-agent integration gap is tracked in [issue #50](https://github.com/sebastienferry/sectile/issues/50).
 
 ---
 
 ## 1. Multi-Project Workspace Management
 
-TaskFlow supports multiple concurrent software repositories and projects from a single unified dashboard:
+Sectile supports multiple concurrent software repositories and projects from a single unified dashboard:
 
 - **Isolated Project Configurations**:
   - `repo_path`: Local filesystem path to the project repository.
   - `git_remote_url`: Remote Git repository URL.
   - `issue_tracker`: Tracker provider (`linear`, `github`, `jira`, or `local`).
-  - `stage_mapping`: Custom mapping between TaskFlow workflow stages and external tracker states.
+  - `stage_mapping`: Custom mapping between Sectile workflow stages and external tracker states.
   - `skill_overrides`: Project-specific prompt template overrides.
 
 - **Dynamic Workspace Switcher**:
@@ -46,7 +46,7 @@ in Activities. See [server credential configuration](../README.md#server-tracker
 
 ## 3. Autonomous AI Skill Pipeline
 
-TaskFlow orchestrates tasks through a five-stage progressive development lifecycle:
+Sectile orchestrates tasks through a five-stage progressive development lifecycle:
 
 ```mermaid
 flowchart LR
@@ -86,7 +86,7 @@ must run the project's checks before submitting a transition.
 
 ## 2b. Spec-Driven Design Toolchains (Spec Kit / OpenSpec)
 
-TaskFlow does not merely reference an SDD framework — it installs it. Two are
+Sectile does not merely reference an SDD framework — it installs it. Two are
 supported, selectable per project and as a global default:
 
 | | GitHub Spec Kit | OpenSpec |

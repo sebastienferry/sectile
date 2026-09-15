@@ -176,7 +176,7 @@ type TrackerSprint struct {
 	EndDate   string `json:"endDate,omitempty"`
 }
 
-// MacroMeta is the macro-level data TaskFlow owns. Macros are containers referenced by their children
+// MacroMeta is the macro-level data Sectile owns. Macros are containers referenced by their children
 // — so their horizon, their framing notes and their todo list have nowhere else to live.
 type MacroMeta struct {
 	ProjectID      string      `json:"projectId"`

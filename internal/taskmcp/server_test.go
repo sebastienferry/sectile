@@ -75,8 +75,8 @@ func TestTaskReadSurvivesUnreachableTracker(t *testing.T) {
 		_, _ = w.Write([]byte(`{"number":1,"title":"Remote issue","state":"open"}`))
 	}))
 	defer tracker.Close()
-	t.Setenv("TASKFLOW_GITHUB_API_URL", tracker.URL)
-	t.Setenv("TASKFLOW_GITHUB_TOKEN", "server-secret")
+	t.Setenv("SECTILE_GITHUB_API_URL", tracker.URL)
+	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
 	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
 		t.Fatal(err)

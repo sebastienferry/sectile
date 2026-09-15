@@ -138,7 +138,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "taskflow-api"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "sectile-api"})
 }
 
 func (h *Handler) HandleCliStatus(w http.ResponseWriter, r *http.Request) {
@@ -808,7 +808,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/macros: the macro metadata TaskFlow owns:
+	// Sub-action: /api/projects/{id}/macros: the macro metadata Sectile owns:
 	// horizon (NOW / NEXT / LATER), shaping notes and todos.
 	if len(parts) >= 2 && (parts[1] == "macros" || parts[1] == "epics") {
 		// Creation: /api/projects/{id}/macros/create
@@ -2590,19 +2590,19 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 // HandleTerminalWs upgrades the connection to WebSocket and streams the interactive PTY session
 func (h *Handler) HandleTerminalWs(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalSessions(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalSend(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalReset(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
@@ -2730,13 +2730,19 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveAgentUser maps an agent authentication token to a user ID. In the
-// current single-user deployment, any non-empty token resolves to "default".
+// resolveAgentUser maps an agent device credential to the user it is bound to.
+// A deployment that has not paired any workstation keeps working through the
+// shared server token, which resolves to the single implicit user.
 func (h *Handler) resolveAgentUser(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	if userID := h.db.UserForDeviceToken(token); userID != "" {
+		return userID
+	}
 	if !validAgentToken(token) {
 		return ""
 	}
-	// Future: validate against a user/token store.
 	return "default"
 }
 
@@ -2782,7 +2788,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 	// Session guard: verify the requesting user matches the agent owner.
 	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
 	if ac == nil {
-		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'taskflow-agent' on your workstation.")
+		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'sectile-agent' on your workstation.")
 		return
 	}
 

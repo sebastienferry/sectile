@@ -126,6 +126,9 @@ func NewDB(dbPath string) (*DB, error) {
 		limiter:         newProjectLimiter(),
 		cancelMap:       make(map[string]context.CancelFunc),
 	}
+	if err := db.initIdentitySchema(); err != nil {
+		return nil, err
+	}
 	if err := db.initSchema(); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
@@ -1783,7 +1786,7 @@ func GetStageLabelForStatus(status models.Status) string {
 }
 
 // workflowLabelVariants est la liste des libellés d'étape, dans les casses que
-// TaskFlow et les trackers utilisent. Jira distingue la casse, donc retirer un
+// Sectile et les trackers utilisent. Jira distingue la casse, donc retirer un
 // label exige de viser la bonne graphie — on les vise toutes.
 var workflowLabelVariants = []string{
 	"untouched", "new", "clarified", "specified", "implemented", "reviewed", "finished", "closed",
@@ -1794,7 +1797,7 @@ var workflowLabelVariants = []string{
 
 // StaleWorkflowLabels liste les labels d'étape à retirer côté tracker quand on
 // pose targetLabel. Sans ça, un ticket accumule clarified, specified,
-// implemented… dans Jira/GitHub alors que TaskFlow n'en montre qu'un.
+// implemented… dans Jira/GitHub alors que Sectile n'en montre qu'un.
 func StaleWorkflowLabels(targetLabel string) []string {
 	target := strings.ToLower(strings.TrimLeft(strings.TrimSpace(targetLabel), "#"))
 	out := []string{}
@@ -3411,7 +3414,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 	case job.SkillID == "sync_jira":
 		hasError = true
 		summary = "Support Jira retiré"
-		outputLines = append(outputLines, "Le support de Jira a été retiré de TaskFlow. Utilisez GitHub.")
+		outputLines = append(outputLines, "Le support de Jira a été retiré de Sectile. Utilisez GitHub.")
 
 	case job.SkillID == "sync_all":
 		steps = append(steps, "1. Starting global multi-tracker synchronization...")

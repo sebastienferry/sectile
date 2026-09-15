@@ -25,8 +25,8 @@ func TestHeadlessTrackerReadsWithoutAgentOrCLI(t *testing.T) {
 		fmt.Fprint(w, `{"number":1,"title":"Remote issue","state":"open","labels":[{"name":"#specified"}]}`)
 	}))
 	defer srv.Close()
-	t.Setenv("TASKFLOW_GITHUB_API_URL", srv.URL)
-	t.Setenv("TASKFLOW_GITHUB_TOKEN", "server-secret")
+	t.Setenv("SECTILE_GITHUB_API_URL", srv.URL)
+	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
 	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -105,8 +105,8 @@ func TestWorkerLaunchDoesNotLockOrAdvanceWorkflow(t *testing.T) {
 func TestTrackerFailureDoesNotCreatePhantomTaskOrCompleteSync(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
 	defer srv.Close()
-	t.Setenv("TASKFLOW_GITHUB_API_URL", srv.URL)
-	t.Setenv("TASKFLOW_GITHUB_TOKEN", "invalid")
+	t.Setenv("SECTILE_GITHUB_API_URL", srv.URL)
+	t.Setenv("SECTILE_GITHUB_TOKEN", "invalid")
 	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)

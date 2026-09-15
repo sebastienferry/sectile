@@ -1,6 +1,6 @@
 # Adjustment review — #64
 
-PR: https://github.com/sebastienferry/taskflow/pull/92
+PR: https://github.com/sebastienferry/sectile/pull/92
 Branch: `feat/64`
 Integrated default baseline: `adc4a71` (`origin/main`).
 

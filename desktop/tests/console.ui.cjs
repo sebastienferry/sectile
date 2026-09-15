@@ -5,7 +5,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 const {WebSocketServer}=require('ws')
 
 test('desktop console reconnects, accepts input and stops the owned run',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-desktop-test-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-desktop-test-'))
  let stopped=false,input='',submitted=false,launches=[],available=true,extraRun=false,createdInput=null,serverCommand='codex {prompt}',withoutConsole=false,attachments=0
  const server=http.createServer((req,res)=>{
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
@@ -37,11 +37,11 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}),{mode:0o600})
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'}
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'}
  delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   let page=await application.firstWindow()
   await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.xterm-screen').waitFor()
@@ -62,7 +62,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Open PR #48 for #48',exact:true}).waitFor()
   assert.equal(await page.locator('#selected-pr').textContent(),'PR #48')
   await page.getByRole('button',{name:'Local agent',exact:true}).click()
-  await page.getByRole('heading',{name:'Connect to TaskFlow'}).waitFor()
+  await page.getByRole('heading',{name:'Connect to Sectile'}).waitFor()
   assert.equal(await page.locator('#setup input').count(),2)
   assert.equal(await page.getByRole('button',{name:'Connect',exact:true}).isDisabled(),true)
   await page.getByRole('button',{name:'Local agent',exact:true}).click()
@@ -178,7 +178,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(launches.at(-1).prompt,'Updated instructions')
 
   await application.close()
-  application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   page=await application.firstWindow()
   await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.run[data-status=canceled]').waitFor()

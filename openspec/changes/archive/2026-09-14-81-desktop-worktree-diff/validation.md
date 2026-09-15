@@ -5,7 +5,7 @@
 The confirmed scope is a read-only Desktop comparison of the selected execution's
 current checkout with the local default-branch common ancestor, including committed,
 staged, unstaged, and non-ignored untracked net contents. No product decisions remain.
-The existing draft PR is https://github.com/sebastienferry/taskflow/pull/85 on `feat/81`.
+The existing draft PR is https://github.com/sebastienferry/sectile/pull/85 on `feat/81`.
 
 - `internal/runner/worktree_diff.go`: explicit checkout/baseline validation; bounded
   subprocess collectors; temporary index/object storage; coherent rename, recreation,

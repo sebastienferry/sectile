@@ -5,10 +5,10 @@ Go executables are independently buildable; Electron is an optional companion.
 
 ```mermaid
 flowchart LR
-    Browser[React web UI] <-->|REST| Server[taskflow-server]
+    Browser[React web UI] <-->|REST| Server[sectile-server]
     Server <--> SQLite[(SQLite)]
     Server <-->|HTTP APIs| Trackers[GitHub / Linear]
-    Server <-->|Authenticated WebSocket| Agent[taskflow-agent]
+    Server <-->|Authenticated WebSocket| Agent[sectile-agent]
     Desktop[Electron companion] <-->|Private loopback API| Agent
     Agent --> Git[Local Git and worktrees]
     Agent --> PTY[Native coding CLI consoles]
@@ -110,7 +110,7 @@ restores eligibility for local execution.
 The server's Streamable HTTP `/mcp` service exposes eight typed tools:
 `list_projects`, `get_task`, `list_tasks`, `get_project_context`, `add_comment`,
 `transition_stage`, `start_run` and `finish_run`. The MCP server identity is
-`sectile`. Native clients use `taskflow-agent mcp --url <loopback-address>` as a
+`sectile`. Native clients use `sectile-agent mcp --url <loopback-address>` as a
 stdio bridge. It never opens SQLite and uses the agent's upstream credential.
 
 The agent refreshes native provider MCP registration before launch. Generated
@@ -118,10 +118,15 @@ entries contain the executable and active gateway address, without bearer tokens
 Existing unrelated provider settings are preserved; malformed settings prevent
 launch rather than being overwritten. Native client trust prompts remain native.
 
-Server machine endpoints validate `TASKFLOW_SERVER_TOKEN` when configured. The
-agent uses `TASKFLOW_AGENT_TOKEN`; loopback control APIs have their own private
-token and reject cross-origin access. This retains the existing single-user model;
-it does not add browser login or multi-tenant authorization. Deploy the browser
+Server machine endpoints validate `SECTILE_SERVER_TOKEN` when configured. The
+agent reads its device credential from `--token` or `TOKEN` and keeps it in
+process: local callers reach its gateway with a per-session loopback secret,
+which the gateway exchanges for that credential upstream. The server resolves a
+device credential to the user it was paired with, so actions are attributed per
+user while the task board stays shared. Loopback control APIs have their own
+private token and reject cross-origin access. Workstations are paired
+through a single-use, short-lived code issued by the web interface; see
+[ADR 0007](adrs/0007-user-identity-and-agent-binding.md). Deploy the browser
 REST interface behind the appropriate access-control boundary.
 
 See [the complete interface contract](contracts/server-agent-v1.md),

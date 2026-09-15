@@ -169,7 +169,7 @@ export const TaskDetailModal: React.FC = () => {
 
   const [isTtyExpanded, setIsTtyExpandedState] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('taskflow_modal_tty_expanded') === 'true'
+      return localStorage.getItem('sectile_modal_tty_expanded') === 'true'
     } catch {
       return false
     }
@@ -178,7 +178,7 @@ export const TaskDetailModal: React.FC = () => {
     setIsTtyExpandedState(prev => {
       const next = typeof expanded === 'function' ? expanded(prev) : expanded
       try {
-        localStorage.setItem('taskflow_modal_tty_expanded', String(next))
+        localStorage.setItem('sectile_modal_tty_expanded', String(next))
       } catch {}
       return next
     })
@@ -772,7 +772,7 @@ export const TaskDetailModal: React.FC = () => {
       <CopyTaskSkillMenu key={selectedTask.id} task={selectedTask} />
       <div className="rounded-xl border border-[var(--border-color)] p-4 space-y-3">
         <h3 className="font-semibold">Clarification and specification</h3>
-        <p className="text-xs text-[var(--text-muted)]">Launch a skill on your local agent. Follow its execution in TaskFlow Desktop.</p>
+        <p className="text-xs text-[var(--text-muted)]">Launch a skill on your local agent. Follow its execution in Sectile Desktop.</p>
         <div className="flex gap-2">
           <button type="button" disabled={isSkillRunning} onClick={()=>handleTriggerSkill('clarify')} className="rounded-lg bg-amber-500/15 text-amber-400 px-3 py-2">Clarify</button>
           <button type="button" disabled={isSkillRunning} onClick={()=>handleTriggerSkill('specify')} className="rounded-lg bg-blue-500/15 text-blue-400 px-3 py-2">Specify</button>

@@ -13,7 +13,7 @@ func TestMCPTemplatesPreserveCustomReferences(t *testing.T) {
 	}
 	defer database.Close()
 	database.ensureProjectSkillsTable()
-	custom := "Personal instructions: call taskflow_get_task; do not rewrite my text."
+	custom := "Personal instructions: call sectile_get_task; do not rewrite my text."
 	if _, err := database.conn.Exec(`INSERT INTO project_skills(project_id,skill_id,content,updated_at) VALUES ('default','implement',?,'2026-09-13')`, custom); err != nil {
 		t.Fatal(err)
 	}
@@ -22,7 +22,7 @@ func TestMCPTemplatesPreserveCustomReferences(t *testing.T) {
 			if !strings.HasPrefix(skill.Content, custom) || !strings.Contains(skill.Content, "from get_project_context") {
 				t.Fatal("custom override or canonical appended policy lost")
 			}
-		} else if strings.Contains(skill.Content, "taskflow_") {
+		} else if strings.Contains(skill.Content, "sectile_") {
 			t.Fatalf("legacy MCP reference in built-in %s", skill.ID)
 		}
 	}

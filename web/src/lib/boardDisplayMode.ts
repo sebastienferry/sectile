@@ -1,6 +1,6 @@
 export type BoardCardDisplayMode = 'condensed' | 'expanded'
 
-export const BOARD_DISPLAY_MODE_STORAGE_KEY = 'taskflow_board_display_mode'
+export const BOARD_DISPLAY_MODE_STORAGE_KEY = 'sectile_board_display_mode'
 export const LEGACY_BOARD_DISPLAY_MODE_STORAGE_KEY = 'taskacao_board_display_mode'
 
 export interface StorageLike {

@@ -15,7 +15,7 @@ import (
 // Les macros ne sont pas des cartes simples : le tracker les traite comme des
 // conteneurs (ex : GitHub milestones) et la synchro n'importe que Task et Story.
 // Leur horizon — NOW, NEXT, LATER — est une décision produit, et le travail
-// de cadrage (framing, description, checklist TODOs) vit dans TaskFlow.
+// de cadrage (framing, description, checklist TODOs) vit dans Sectile.
 
 const (
 	HorizonNow   = "now"
@@ -978,7 +978,7 @@ func (d *DB) MigrateTasks(taskIDs []string, targetProjectID string) (int, error)
 }
 
 // RefineMacro processes a macro's framing text (description) and generates structured MacroTodo items
-// and proposed TaskFlow tasks formatted according to the project's selected SSD framework (SpecKit vs OpenSpec).
+// and proposed Sectile tasks formatted according to the project's selected SSD framework (SpecKit vs OpenSpec).
 func (d *DB) RefineMacro(projectID string, key string) ([]models.MacroTodo, []models.ProposedMacroTask, string, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
@@ -1112,7 +1112,7 @@ func GenerateMacroTodosFromFraming(title, description, framework string) []model
 	return out
 }
 
-// GenerateProposedMacroTasksFromFraming extracts proposed TaskFlow tasks from macro framing items.
+// GenerateProposedMacroTasksFromFraming extracts proposed Sectile tasks from macro framing items.
 func GenerateProposedMacroTasksFromFraming(title, description, framework string) []models.ProposedMacroTask {
 	todos := GenerateMacroTodosFromFraming(title, description, framework)
 	out := make([]models.ProposedMacroTask, 0, len(todos))

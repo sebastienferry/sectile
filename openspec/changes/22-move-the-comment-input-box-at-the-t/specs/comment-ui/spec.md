@@ -1,6 +1,6 @@
 ## Purpose
 
-Functional specification and acceptance criteria for top-positioned comment input box in TaskFlow task modal UI.
+Functional specification and acceptance criteria for top-positioned comment input box in Sectile task modal UI.
 
 ## ADDED Requirements
 

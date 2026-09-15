@@ -2,7 +2,7 @@
 
 ## Why
 
-Dans TaskFlow, le développement piloté par les agents (SDD) permet d'exécuter l'ensemble du cycle de vie d'un ticket (`clarify`, `specify`, `code`, `create-pr`, `pickup-issue`). Cependant, lorsqu'un utilisateur sélectionne plusieurs tâches dans les différentes vues de l'application (Triage, Backlog/Curation, Sprint Timeline), l'UX actuelle ne propose la sélection multiple que pour les actions de métadonnées (affectation de sprint, d'équipe ou de macro).
+Dans Sectile, le développement piloté par les agents (SDD) permet d'exécuter l'ensemble du cycle de vie d'un ticket (`clarify`, `specify`, `code`, `create-pr`, `pickup-issue`). Cependant, lorsqu'un utilisateur sélectionne plusieurs tâches dans les différentes vues de l'application (Triage, Backlog/Curation, Sprint Timeline), l'UX actuelle ne propose la sélection multiple que pour les actions de métadonnées (affectation de sprint, d'équipe ou de macro).
 
 Il est nécessaire de permettre aux utilisateurs d'exécuter un lot de plusieurs tickets en autonomie au sein d'un **unique Git Worktree dédié** produisant **une seule Pull Request combinée**, aussi bien via la commande skill `/pickup-issues` que directement depuis la barre d'actions de sélection multiple dans les vues UI.
 

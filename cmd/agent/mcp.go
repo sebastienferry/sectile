@@ -32,15 +32,15 @@ func agentHTTPClient(token string) *http.Client {
 // output goes to stderr; stdout belongs exclusively to the protocol transport.
 func runMCPCommand(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
-	endpoint := os.Getenv("TASKFLOW_AGENT_URL")
+	endpoint := os.Getenv("SECTILE_AGENT_URL")
 	if endpoint == "" {
-		endpoint = os.Getenv("TASKFLOW_SERVER_URL")
+		endpoint = os.Getenv("SECTILE_SERVER_URL")
 	}
 	if endpoint == "" {
 		endpoint = "http://127.0.0.1:8090"
 	}
 	serverURL := fs.String("url", endpoint, "Agent gateway or Sectile server URL")
-	token := fs.String("token", os.Getenv("TASKFLOW_AGENT_TOKEN"), "Agent bearer token (prefer TASKFLOW_AGENT_TOKEN)")
+	token := fs.String("token", os.Getenv("SECTILE_AGENT_TOKEN"), "Agent bearer token (prefer SECTILE_AGENT_TOKEN)")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return nil

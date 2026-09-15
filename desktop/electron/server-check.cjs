@@ -10,8 +10,8 @@ async function checkServer(server,token,fetcher=fetch){
  if(response.status===401||response.status===403)throw Error('Authentication rejected by the server. Check your token.')
  if(!response.ok)return false
  let catalog
- try{catalog=await response.json()}catch{throw Error('This URL does not return the TaskFlow agent API. Check the server address.')}
- if(!Array.isArray(catalog.projects))throw Error('This URL does not expose the TaskFlow agent API. Check the server address.')
+ try{catalog=await response.json()}catch{throw Error('This URL does not return the Sectile agent API. Check the server address.')}
+ if(!Array.isArray(catalog.projects))throw Error('This URL does not expose the Sectile agent API. Check the server address.')
  return true
 }
 module.exports={checkServer}
