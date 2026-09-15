@@ -30,6 +30,7 @@ scratch/
 # TaskFlow parallel agent worktrees and local runtime state
 .tasks/
 .taskflow/agent-manifest.json
+.taskflow/config.json
 .taskflow/remote-config.json
 .taskflow/skill-backups/
 .agents/mcp_config.json
@@ -40,6 +41,7 @@ internal/webui/dist/*
 
 # Agent installation bookkeeping and recovery copies (never an execution cache)
 .taskflow/agent-manifest.json
+.taskflow/config.json
 .taskflow/remote-config.json
 .taskflow/skill-backups/
 
