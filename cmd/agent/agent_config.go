@@ -275,7 +275,11 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 	// a throwaway binary registers a command that stops resolving as soon as
 	// the build cache is pruned. The client then starts, finds no MCP server
 	// and exits at once, which reads as a failed run and nothing else.
-	if temporaryExecutable(executable) {
+	// A test binary is temporary by nature and registers into a directory the
+	// test owns, so the guard would only break the suite. What it protects
+	// against is a real agent leaving a registration behind that stops
+	// resolving; temporaryExecutable itself is covered by its own test.
+	if temporaryExecutable(executable) && !runningUnderTest() {
 		log.Printf("[Agent] Refusing to register MCP with the temporary binary %s. "+
 			"Run a built agent (make start) rather than `go run`.", executable)
 		return fmt.Errorf("agent is running from a temporary build at %s; run a built binary so native clients keep resolving it", executable)
