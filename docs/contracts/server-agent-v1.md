@@ -55,10 +55,15 @@ the explicit `open_terminal` action requires an external window. Legacy
 
 ## Skill ownership and recovery
 
-The incoming skill list declares managed paths under `.agents/skills`,
-`.agy/skills`, `.claude/skills`, `.gemini/skills`, `.skills` and `.claude/commands`.
-All IDs and destinations are validated before any installation. Duplicate
-paths, path traversal and symlink escapes are rejected.
+The incoming skill list is installed in the user configuration of each agent the
+project sets up, each as a single `SKILL.md`: `~/.claude/skills` for Claude,
+`~/.agents/skills` for Codex, `~/.gemini/config/skills` for Antigravity. An agent that
+substitutes arguments into the skill body receives the body carrying the ticket
+reference. Providers without a skill convention receive the MCP registration
+alone. `setupProviders` lists the additional agents; the provider that runs the
+task is always included. All IDs and destinations are validated before any
+installation. Duplicate paths, path traversal and symlink escapes are rejected.
+The checkout receives no managed file.
 
 Incoming managed content is authoritative at these paths. If an existing file
 differs from the incoming content and from its last installed hash, save it at
@@ -322,7 +327,7 @@ default file and its legacy private connection file.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1–3) defaults.
+The server project supplies `useWorktrees` and `parallelism` (1 to 3) defaults.
 In the desktop project settings, **Inherit worktrees from server** and
 **Inherit from server** for parallel executions remove local overrides.
 Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:

@@ -2,9 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
 	"testing"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestLocalQueueLimitsAndSharedCheckout(t *testing.T) {
@@ -84,3 +91,59 @@ func TestLocalQueueCanceledActiveRunHoldsSlotUntilExit(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAgentPullTasks(t *testing.T) {
+	d := &agentDaemon{}
+	first, _ := d.enqueueRun("task1", agentconfig.Dispatch{RunID: "one", TaskKey: "#1"}, "project", "/repo", 1, true)
+	first.desktop.Status = "running"
+	_, _ = d.enqueueRun("task2", agentconfig.Dispatch{RunID: "two", TaskKey: "#2"}, "project", "/repo", 1, true)
+	// second is queued (default from enqueueRun)
+	third, _ := d.enqueueRun("task3", agentconfig.Dispatch{RunID: "three", TaskKey: "#3"}, "project", "/repo", 1, true)
+	third.desktop.Status = "completed"
+	close(third.exited)
+
+	// Create test websocket connection
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		d.handlePullTasks(context.Background(), conn, agentprotocol.Message{MsgID: "test-pull", Type: "pull_tasks"})
+	}))
+	defer server.Close()
+
+	clientConn, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clientConn.Close()
+
+	var msg agentprotocol.Message
+	if err := clientConn.ReadJSON(&msg); err != nil {
+		t.Fatal(err)
+	}
+	if msg.MsgID != "test-pull" || msg.Type != "running_tasks" {
+		t.Fatalf("unexpected message: %+v", msg)
+	}
+
+	var tasks []agentprotocol.RunningTask
+	if err := json.Unmarshal(msg.Payload, &tasks); err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 active tasks (running and queued), got %d: %+v", len(tasks), tasks)
+	}
+	statuses := map[string]string{}
+	for _, task := range tasks {
+		statuses[task.ID] = task.Status
+	}
+	if statuses["one"] != "running" {
+		t.Fatalf("expected run one to be running, got: %s", statuses["one"])
+	}
+	if statuses["two"] != "queued" {
+		t.Fatalf("expected run two to be queued, got: %s", statuses["two"])
+	}
+}
+

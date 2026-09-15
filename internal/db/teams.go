@@ -612,19 +612,9 @@ func (d *DB) writerForTask(task *models.Task) (tracker.Writer, error) {
 	if task == nil {
 		return nil, fmt.Errorf("tâche manquante")
 	}
-
-	proj, _ := d.GetProjectByID(task.ProjectID)
-	source := task.Source
-	if source == "" && proj != nil {
-		source = proj.IssueTracker
+	ts, err := d.TrackerForTask(task)
+	if err != nil {
+		return nil, err
 	}
-
-	switch source {
-	case "linear":
-		return tracker.NewLinearWriter(), nil
-	case "github":
-		return tracker.NewGithubWriter(), nil
-	}
-
-	return nil, fmt.Errorf("aucun tracker distant configuré pour %s", task.Key)
+	return ts, nil
 }

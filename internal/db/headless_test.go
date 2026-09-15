@@ -231,3 +231,71 @@ func TestServerRestartPreservesRemoteExecutionOwnership(t *testing.T) {
 		t.Fatalf("server job falsely survived process loss: %#v", local)
 	}
 }
+
+func TestSyncRemoteRunStatus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Sync", IssueTracker: "local"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Task", Priority: models.PriorityMedium})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	notifications := make(chan *models.TaskActivity, 10)
+	d.RegisterPostBackListener(func(task *models.Task, act *models.TaskActivity, err error) {
+		if act != nil {
+			notifications <- act
+		}
+	})
+
+	// 1. Sync a new queued task run
+	actQueued, err := d.SyncRemoteRunStatus("run-1", task.ID, project.ID, task.Key, "clarify", "queued", "In local queue", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actQueued.Status != "queued" || actQueued.SkillID != "remote_run" {
+		t.Fatalf("expected queued status, got: %#v", actQueued)
+	}
+	if actQueued.StartedAt != nil {
+		t.Fatalf("expected nil startedAt for queued, got: %v", actQueued.StartedAt)
+	}
+
+	// 2. Transition to running
+	now := time.Now()
+	actRunning, err := d.SyncRemoteRunStatus("run-1", task.ID, project.ID, task.Key, "clarify", "running", "Running now", &now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actRunning.Status != "running" || actRunning.StartedAt == nil {
+		t.Fatalf("expected running status with startedAt, got: %#v", actRunning)
+	}
+
+	// 3. Mark an activity as failed (simulating restart failure or timeout), then recover via sync
+	if _, err := d.conn.Exec("UPDATE task_activities SET status='failed', error='timeout' WHERE id='run-1'"); err != nil {
+		t.Fatal(err)
+	}
+	actRecovered, err := d.SyncRemoteRunStatus("run-1", task.ID, project.ID, task.Key, "clarify", "running", "Recovered running", &now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actRecovered.Status != "running" || actRecovered.Error != "" {
+		t.Fatalf("expected error cleared and status running, got: %#v", actRecovered)
+	}
+	select {
+	case notified := <-notifications:
+		if notified.ID != "run-1" {
+			t.Fatalf("expected notification for run-1, got: %s", notified.ID)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("expected postback listener notification")
+	}
+}
+

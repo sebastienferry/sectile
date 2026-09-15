@@ -204,21 +204,29 @@ excluded from the configuration contract. The old agent `--db` option is removed
 A disconnected or incompatible configuration API prevents execution.
 
 Before launching an LLM CLI, the local agent automatically registers its own
-`taskflow-agent mcp --url <active-gateway>` bridge in that CLI's project configuration.
-It refreshes the entry on each dispatch, including dynamic gateway ports. Existing
-settings and other MCP servers are preserved; bearer tokens are not written.
-Antigravity uses its shared user-level registry; other providers use project files.
-Native workspace/MCP trust prompts still apply.
-Malformed configuration causes a visible launch error rather than being overwritten.
+`taskflow-agent mcp --url <active-gateway>` bridge in that CLI's **user-level**
+configuration, and installs the managed skills there too. It refreshes both on each
+dispatch, including dynamic gateway ports. Existing settings and other MCP servers
+are preserved; bearer tokens are not written. Native workspace/MCP trust prompts
+still apply. Malformed configuration causes a visible launch error rather than
+being overwritten.
 
-| Target CLI | Project configuration |
-| --- | --- |
-| Codex | `.codex/config.toml` |
-| Claude | `.mcp.json` |
-| Antigravity (`agy`) | user `~/.gemini/config/mcp_config.json` |
-| Gemini | `.gemini/settings.json` |
-| Cursor | `.cursor/mcp.json` |
-| Vibe | `.vibe/config.toml` |
+Repositories and worktrees receive no Sectile-managed skill, command, MCP or
+project-context file. Copies written by earlier releases are retired from the
+checkout on the next dispatch when they are unchanged, and preserved when edited.
+
+| Target CLI | User MCP registration | Managed skills |
+| --- | --- | --- |
+| Claude | `~/.claude.json` | `~/.claude/skills` |
+| Codex | `~/.codex/config.toml` | `~/.agents/skills` |
+| Antigravity (`agy`) | `~/.gemini/config/mcp_config.json` | `~/.gemini/config/skills` |
+| Gemini | `~/.gemini/settings.json` | none |
+| Cursor | `~/.cursor/mcp.json` | none |
+| Vibe | `~/.vibe/config.toml` | none |
+
+The agent that runs the tasks is always set up. A project can additionally set up
+Claude, Codex and Antigravity through the **Agents à configurer** checkboxes in the
+project's AI tab; unchecking an agent retires its installation on the next dispatch.
 
 Custom command templates can use these providers. A `custom` provider is inferred
 from the template's executable name; unknown executables produce an explicit
@@ -458,7 +466,7 @@ The profile is a placeholder for future account management.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1–3) defaults.
+The server project supplies `useWorktrees` and `parallelism` (1 to 3) defaults.
 In the desktop project settings, **Inherit worktrees from server** and
 **Inherit from server** for parallel executions remove local overrides.
 Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:

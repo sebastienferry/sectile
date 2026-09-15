@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // Comments live where the ticket lives. On a tracker-backed task the tracker is
@@ -53,22 +55,12 @@ func (d *DB) GetTaskComments(taskIDOrKey string) ([]models.TaskComment, error) {
 	if task.ProjectID != "" {
 		proj, _ = d.GetProjectByID(task.ProjectID)
 	}
-	settings, _ := d.GetSettings()
-
-	source := d.taskTrackerSource(task)
-	switch source {
-	case "github":
-		repo := ""
-		repoPath := ""
-		if proj != nil {
-			repo = proj.GithubRepo
-			repoPath = proj.RepoPath
-		}
-		if repo == "" && settings != nil {
-			repo = settings.GithubRepo
-			repoPath = settings.RepoPath
-		}
-		comments, err := d.trackers.GetGithubIssueComments(repo, repoPath, task.Key)
+	ts, tsErr := d.TrackerForTask(task)
+	if tsErr == nil && ts != nil && ts.Name() != "local" && ts.Supports(tracker.CapComment) {
+		comments, err := ts.GetComments(context.Background(), tracker.GetCommentsRequest{
+			Project: proj,
+			Key:     task.Key,
+		})
 		if err == nil {
 			for i := range comments {
 				comments[i].TaskID = task.ID
@@ -80,31 +72,8 @@ func (d *DB) GetTaskComments(taskIDOrKey string) ([]models.TaskComment, error) {
 			return local, nil
 		}
 		return nil, err
-
-	case "linear":
-		repoPath := ""
-		if proj != nil {
-			repoPath = proj.RepoPath
-		}
-		if repoPath == "" && settings != nil {
-			repoPath = settings.RepoPath
-		}
-		comments, err := d.trackers.GetLinearIssueComments(repoPath, task.Key)
-		if err == nil {
-			for i := range comments {
-				comments[i].TaskID = task.ID
-			}
-			return comments, nil
-		}
-		local, _ := d.getLocalComments(task.ID)
-		if len(local) > 0 {
-			return local, nil
-		}
-		return nil, err
-
-	default:
-		return d.getLocalComments(task.ID)
 	}
+	return d.getLocalComments(task.ID)
 }
 
 func (d *DB) getLocalComments(taskID string) ([]models.TaskComment, error) {

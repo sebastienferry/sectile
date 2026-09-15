@@ -67,6 +67,14 @@ const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: st
   { id: 'custom', label: 'Commande Personnalisée', sub: 'Modèle de commande arbitraire', defaultCmd: '{prompt}', icon: '⚙️' },
 ]
 
+// The agents Sectile can install its skills and MCP registration for, beyond the
+// one that runs the tasks. Providers without a skill convention are not listed.
+const SETUP_PROVIDERS: { id: string; label: string; sub: string; icon: string }[] = [
+  { id: 'claude', label: 'Claude Code', sub: '~/.claude/skills et registre MCP', icon: '🧠' },
+  { id: 'codex', label: 'Codex', sub: '~/.codex/skills et config.toml', icon: '💻' },
+  { id: 'agy', label: 'Antigravity', sub: '~/.agy/skills et registre MCP', icon: '🤖' },
+]
+
 const AVAILABLE_ICONS = [
   { name: 'Folder', Icon: Folder, label: 'Dossier' },
   { name: 'Terminal', Icon: Terminal, label: 'Terminal' },
@@ -164,6 +172,7 @@ export const ProjectModal: React.FC = () => {
   const [aiProvider, setAiProvider] = useState<AIProvider | ''>('')
   const [aiCommandTemplate, setAiCommandTemplate] = useState('')
   const [useCustomAgent, setUseCustomAgent] = useState(false)
+  const [setupProviders, setSetupProviders] = useState<string[]>([])
   const [useWorktrees, setUseWorktrees] = useState(true)
   const [parallelism, setParallelism] = useState<number>(1)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
@@ -254,6 +263,7 @@ export const ProjectModal: React.FC = () => {
       setUseCustomAgent(hasCustomAgent)
       setAiProvider(editingProject.aiProvider || '')
       setAiCommandTemplate(editingProject.aiCommandTemplate || '')
+      setSetupProviders(editingProject.setupProviders || [])
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setUseWorktrees(editingProject.useWorktrees !== false)
       setParallelism(editingProject.parallelism && editingProject.parallelism >= 1 && editingProject.parallelism <= 3 ? editingProject.parallelism : 1)
@@ -300,6 +310,7 @@ export const ProjectModal: React.FC = () => {
       setUseCustomAgent(false)
       setAiProvider('')
       setAiCommandTemplate('')
+      setSetupProviders([])
       setSpecFramework(settings.specFramework || 'speckit')
       setUseWorktrees(true)
       setParallelism(1)
@@ -377,6 +388,7 @@ export const ProjectModal: React.FC = () => {
         gitRemoteUrl: gitRemoteUrl.trim(),
         aiProvider: useCustomAgent && aiProvider ? (aiProvider as AIProvider) : undefined,
         aiCommandTemplate: useCustomAgent && aiCommandTemplate.trim() ? aiCommandTemplate.trim() : undefined,
+        setupProviders,
         specFramework,
         useWorktrees,
         parallelism: useWorktrees ? parallelism : 1,
@@ -870,6 +882,50 @@ export const ProjectModal: React.FC = () => {
                   </div>
                 </div>
               )}
+
+              {/* Agents the local agent installs skills and the MCP registration for. */}
+              <div className="p-3.5 rounded-xl border border-[var(--border-color)]">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Agents à configurer
+                </label>
+                <p className="text-xs text-[var(--text-muted)] mb-3">
+                  Les compétences et l'enregistrement MCP sont installés dans la configuration utilisateur de chaque agent coché.
+                  L'agent qui exécute les tâches est toujours configuré, qu'il soit coché ou non.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {SETUP_PROVIDERS.map(p => {
+                    const checked = setupProviders.includes(p.id)
+                    return (
+                      <label
+                        key={p.id}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                          checked
+                            ? 'bg-[var(--accent-light)] border-[var(--accent-color)] shadow-xs'
+                            : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={e =>
+                            setSetupProviders(current =>
+                              e.target.checked ? [...current, p.id] : current.filter(id => id !== p.id)
+                            )
+                          }
+                          className="mt-0.5"
+                        />
+                        <span className="text-lg">{p.icon}</span>
+                        <div className="min-w-0 flex-1">
+                          <span className={`text-xs font-bold block truncate ${checked ? 'accent-text' : 'text-[var(--text-primary)]'}`}>
+                            {p.label}
+                          </span>
+                          <span className="text-[10px] text-[var(--text-muted)] block truncate">{p.sub}</span>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
 
               {/* Server execution defaults; local agents can override these values. */}
               <div className="p-3.5 rounded-xl border border-[var(--border-color)]">

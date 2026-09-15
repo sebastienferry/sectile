@@ -13,24 +13,25 @@ type Skill struct {
 }
 
 type Config struct {
-	TrackerURL              string  `json:"trackerUrl,omitempty"`
-	LinearTeam              string  `json:"linearTeam,omitempty"`
-	JiraProject             string  `json:"jiraProject,omitempty"`
-	GithubRepo              string  `json:"githubRepo,omitempty"`
-	IssueTracker            string  `json:"issueTracker,omitempty"`
-	Parallelism             int     `json:"parallelism"`
-	PRCreationStage         string  `json:"prCreationStage"`
-	SchemaVersion           int     `json:"schemaVersion"`
-	ProjectID               string  `json:"projectId"`
-	ProjectName             string  `json:"projectName"`
-	Description             string  `json:"description"`
-	GitRemoteURL            string  `json:"gitRemoteUrl"`
-	SpecFramework           string  `json:"specFramework"`
-	UseWorktrees            bool    `json:"useWorktrees"`
-	AIProvider              string  `json:"aiProvider"`
-	AICommandTemplate       string  `json:"aiCommandTemplate"`
-	ExternalTerminalCommand string  `json:"externalTerminalCommand"`
-	Skills                  []Skill `json:"skills"`
+	TrackerURL              string   `json:"trackerUrl,omitempty"`
+	LinearTeam              string   `json:"linearTeam,omitempty"`
+	JiraProject             string   `json:"jiraProject,omitempty"`
+	GithubRepo              string   `json:"githubRepo,omitempty"`
+	IssueTracker            string   `json:"issueTracker,omitempty"`
+	Parallelism             int      `json:"parallelism"`
+	PRCreationStage         string   `json:"prCreationStage"`
+	SchemaVersion           int      `json:"schemaVersion"`
+	ProjectID               string   `json:"projectId"`
+	ProjectName             string   `json:"projectName"`
+	Description             string   `json:"description"`
+	GitRemoteURL            string   `json:"gitRemoteUrl"`
+	SpecFramework           string   `json:"specFramework"`
+	UseWorktrees            bool     `json:"useWorktrees"`
+	AIProvider              string   `json:"aiProvider"`
+	SetupProviders          []string `json:"setupProviders,omitempty"`
+	AICommandTemplate       string   `json:"aiCommandTemplate"`
+	ExternalTerminalCommand string   `json:"externalTerminalCommand"`
+	Skills                  []Skill  `json:"skills"`
 }
 
 // Dispatch carries launch intent only. Execution settings are fetched separately.

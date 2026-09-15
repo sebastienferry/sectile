@@ -259,28 +259,33 @@ func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWo
 	if err != nil {
 		return config, workDir, branch, task, err
 	}
-	err = d.bootstrapLocalMCP(workDir, &config)
+	err = d.bootstrapLocalMCP(&config)
 	return config, workDir, branch, task, err
 }
 
-func (d *agentDaemon) bootstrapLocalMCP(workDir string, config *agentconfig.Config) error {
+// bootstrapLocalMCP registers the Sectile MCP server for every agent the project
+// sets up. A registration that cannot be written aborts the dispatch: an agent
+// without MCP cannot transition stages or finish its run.
+func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	provider := strings.ToLower(strings.TrimSpace(config.AIProvider))
-	if provider == "" {
-		provider = "agy"
-		config.AIProvider = provider
+	if strings.TrimSpace(config.AIProvider) == "" {
+		config.AIProvider = "agy"
 	}
-	if provider == "custom" {
-		words := strings.Fields(config.AICommandTemplate)
-		if len(words) > 0 {
-			provider = filepath.Base(strings.Trim(words[0], "\"'"))
+	providers, err := agentconfig.SetupProviders(*config)
+	if err != nil {
+		return err
+	}
+	for _, provider := range providers {
+		path, err := agentconfig.BootstrapMCP(provider, executable, d.agentURL)
+		if err != nil {
+			return fmt.Errorf("register the Sectile MCP server for provider %q: %w", provider, err)
 		}
+		log.Printf("[Agent] MCP registered for %s: %s", provider, path)
 	}
-	_, err = agentconfig.BootstrapMCP(workDir, provider, executable, d.agentURL)
-	return err
+	return nil
 }
 
 // quoteShell protects task text when it is passed through an interactive shell.
@@ -392,5 +397,5 @@ func (d *agentDaemon) syncLocalProject(ctx context.Context, config agentconfig.C
 	if _, err := agentconfig.Scaffold(root, config); err != nil {
 		return err
 	}
-	return d.bootstrapLocalMCP(root, &config)
+	return d.bootstrapLocalMCP(&config)
 }

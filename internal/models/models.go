@@ -125,6 +125,7 @@ type Project struct {
 	StageMapping            map[string]string `json:"stageMapping,omitempty"`            // mapping AI workflow labels to tracker statuses
 	SkillOverrides          map[string]string `json:"skillOverrides,omitempty"`          // skillId -> custom skill name override
 	AIProvider              string            `json:"aiProvider,omitempty"`              // "agy", "claude", "vibe", "gemini", "cursor", "custom"
+	SetupProviders          []string          `json:"setupProviders"`                    // extra agents to install skills and MCP for
 	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`       // e.g. 'agy -p "{prompt}"'
 	SpecFramework           string            `json:"specFramework,omitempty"`           // "speckit", "openspec"
 	Parallelism             int               `json:"parallelism"`                       // 1 to 3 concurrent AI background workers
@@ -291,6 +292,7 @@ type CreateProjectRequest struct {
 	IsDefault               bool              `json:"isDefault,omitempty"`
 	StageMapping            map[string]string `json:"stageMapping,omitempty"`
 	SkillOverrides          map[string]string `json:"skillOverrides,omitempty"`
+	SetupProviders          []string          `json:"setupProviders,omitempty"`
 	AIProvider              string            `json:"aiProvider,omitempty"`
 	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`
 	SpecFramework           string            `json:"specFramework,omitempty"`
@@ -327,6 +329,7 @@ type UpdateProjectRequest struct {
 	IsDefault               *bool                `json:"isDefault,omitempty"`
 	StageMapping            *map[string]string   `json:"stageMapping,omitempty"`
 	SkillOverrides          *map[string]string   `json:"skillOverrides,omitempty"`
+	SetupProviders          *[]string            `json:"setupProviders,omitempty"`
 	AIProvider              *string              `json:"aiProvider,omitempty"`
 	AICommandTemplate       *string              `json:"aiCommandTemplate,omitempty"`
 	SpecFramework           *string              `json:"specFramework,omitempty"`
