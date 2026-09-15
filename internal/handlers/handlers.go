@@ -1763,7 +1763,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if task.ProjectID != "" {
 			projectID = task.ProjectID
 		}
-		userID := "default"
+		userID := h.webSessionUser(r)
 		ac := h.agentDispatcher.Lookup(userID, projectID)
 
 		// 1. If a local agent daemon is connected, delegate the execution directly to it!
@@ -1977,8 +1977,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
-			if ac := h.agentDispatcher.Lookup("default", task.ProjectID); ac != nil {
-				err := h.agentDispatcher.Dispatch("default", task.ProjectID, "dispatch_step", task.ID, map[string]string{
+			userID := h.webSessionUser(r)
+			if ac := h.agentDispatcher.Lookup(userID, task.ProjectID); ac != nil {
+				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
 					"taskKey": task.Key, "taskId": task.ID, "projectId": task.ProjectID, "skillId": req.SkillID, "action": req.SkillID,
 				})
 				if err != nil {
@@ -2009,7 +2010,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		res, err := h.launchTaskExternalTerminal(r.Context(), id, req.Command, req.SkillID, req.TerminalCommand)
+		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID, req.TerminalCommand)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2783,7 +2784,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.UserID == "" {
-		req.UserID = "default"
+		req.UserID = h.webSessionUser(r)
 	}
 	if req.ProjectID == "" {
 		req.ProjectID = "default"
@@ -2967,7 +2968,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-	result, err := h.launchTaskExternalTerminal(r.Context(), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
+	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -2975,11 +2976,13 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
+// LaunchTaskExternalTerminal serves callers with no HTTP request of their own,
+// which is why it names the implicit user rather than resolving one.
 func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
-	return h.launchTaskExternalTerminal(context.Background(), taskID, command, skillID, customTermCmd)
+	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID, customTermCmd)
 }
 
-func (h *Handler) launchTaskExternalTerminal(ctx context.Context, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
+func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
@@ -3004,7 +3007,9 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, taskID, comman
 	if task.ProjectID != "" {
 		projectID = task.ProjectID
 	}
-	userID := "default"
+	if userID == "" {
+		userID = ImplicitUser
+	}
 	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
 		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
 		launchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)

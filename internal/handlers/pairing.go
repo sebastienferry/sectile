@@ -11,6 +11,12 @@ import (
 	"tasks/internal/db"
 )
 
+// ImplicitUser is the single user a deployment has before an identity provider
+// is configured. Paths that run without an HTTP request name it explicitly,
+// so what still has to change for real multi-user is visible rather than
+// spread through the code as a bare string.
+const ImplicitUser = "default"
+
 // webSessionUser identifies the person driving the web interface.
 //
 // With an OpenID Connect provider configured, that is whoever holds a valid
@@ -41,7 +47,7 @@ func (h *Handler) webSessionUser(r *http.Request) string {
 			return userID
 		}
 	}
-	return "default"
+	return ImplicitUser
 }
 
 // HandlePairingCode issues a single-use pairing code for the signed-in user.

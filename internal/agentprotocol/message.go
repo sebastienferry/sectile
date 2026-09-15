@@ -28,4 +28,3 @@ type RunningTask struct {
 	Branch    string    `json:"branch,omitempty"`
 	Directory string    `json:"directory,omitempty"`
 }
-
