@@ -38,7 +38,7 @@ func TestExternalTerminalDispatchWithoutSkillAndFailureFeedback(t *testing.T) {
 	for _, status := range []string{"completed", "failed"} {
 		finished := make(chan error, 1)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		go func() { _, err := h.launchTaskExternalTerminal(ctx, task.ID, "", "", "Ghostty"); finished <- err }()
+		go func() { _, err := h.launchTaskExternalTerminal(ctx, ImplicitUser, task.ID, "", "", "Ghostty"); finished <- err }()
 		var message AgentMessage
 		if err = agent.ReadJSON(&message); err != nil {
 			t.Fatal(err)

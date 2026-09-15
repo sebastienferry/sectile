@@ -4,6 +4,10 @@ import "encoding/json"
 
 // Operation names a local capability; directories are resolved by the agent from project identity.
 type Operation struct {
+	// UserID names the agent owner to reach. Empty means the deployment's
+	// single implicit user, which is what a server without an identity
+	// provider has.
+	UserID            string `json:"userId,omitempty"`
 	AICommandTemplate string `json:"aiCommandTemplate,omitempty"`
 	Framework         string `json:"framework,omitempty"`
 	Provider          string `json:"provider,omitempty"`
