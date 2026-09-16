@@ -14,8 +14,7 @@ import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
-const MAX_PARALLELISM=5
-const PARALLELISM_CHOICES=Array.from({length:MAX_PARALLELISM},(_,i)=>i+1)
+const MAX_PARALLELISM=10
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
@@ -572,12 +571,31 @@ async function openProject(id){
    const hint=document.createElement('p');section.append(heading,group,hint)
    return {section,buttons,hint,reset}
   }
+  // A magnitude between 1 and a ceiling, which a segmented control cannot show
+  // without overflowing the dialog once the ceiling grows.
+  function slider(name,max,onSelect){
+   const section=document.createElement('section');section.className='execution-setting'
+   const heading=document.createElement('div');heading.className='setting-heading'
+   const title=document.createElement('strong');title.textContent=name
+   const readout=document.createElement('span');readout.className='slider-value'
+   heading.append(title,readout)
+   const input=document.createElement('input');input.type='range';input.min='1';input.max=String(max);input.step='1'
+   input.className='slider-input';input.setAttribute('aria-label',name)
+   input.oninput=()=>onSelect(Number(input.value))
+   const scale=document.createElement('div');scale.className='slider-scale'
+   for(const mark of [1,Math.round(max/2),max]){const item=document.createElement('span');item.textContent=String(mark);scale.append(item)}
+   const hint=document.createElement('p');section.append(heading,input,scale,hint)
+   return {section,input,readout,hint}
+  }
   controls.worktrees=setting('Worktrees',['Yes','No'],'Reset worktrees to server default',value=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()},()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()})
-  controls.parallel=setting('Parallel executions',PARALLELISM_CHOICES,'',value=>{parallelism=value;update()})
+  controls.parallel=slider('Parallel executions',MAX_PARALLELISM,value=>{parallelism=value;update()})
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
    controls.worktrees.hint.textContent=(inheritWorktrees?'Inherited':'Local override')+' · Server default: '+(config.useWorktrees?'Yes':'No')
-   controls.parallel.buttons.forEach((button,i)=>{button.disabled=!useWorktrees;button.setAttribute('aria-pressed',String(i+1===(useWorktrees?parallelism:1)))})
+   const effective=useWorktrees?parallelism:1
+   controls.parallel.input.disabled=!useWorktrees
+   controls.parallel.input.value=String(effective)
+   controls.parallel.readout.textContent=effective+(effective===1?' execution':' executions')
    controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Additional executions wait in the local queue.':'Without worktrees, executions are limited to one.'
   }
   update()

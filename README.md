@@ -578,9 +578,9 @@ A full chain run is always autonomous. Merging stays manual.
 
 The server project supplies the `useWorktrees` default, which **Inherit worktrees
 from server** restores in the desktop project settings. Parallel executions
-(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
-the desktop app is the only surface that sets one, and a project without a local
-value runs a single execution at a time.
+(1 to 10, set with a slider) are workstation-owned: the server neither stores nor
+supplies a value, the desktop app is the only surface that sets one, and a
+project without a local value runs a single execution at a time.
 Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
