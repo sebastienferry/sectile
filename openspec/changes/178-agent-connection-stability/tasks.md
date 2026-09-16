@@ -22,6 +22,8 @@
 - [x] 4.1 Wait for an agent to register in `CallOperation`, bounded by a grace period and the
       caller's deadline.
 - [x] 4.2 Report the absence as a reconnection that can be retried.
+- [x] 4.3 Skip the wait, and the reconnection wording, for a project whose slot has not held an
+      agent recently, so a server with no agent keeps its immediate answer.
 
 ## 5. Tests
 - [x] 5.1 A probe sent while a long write holds the connection still receives its reply.
@@ -30,6 +32,7 @@
 - [x] 5.4 An operation succeeds when the agent reconnects within the grace period.
 - [x] 5.5 An operation with no agent fails with the retry wording, and never outlives the
       caller's deadline.
+- [x] 5.6 A project that never had an agent fails immediately, without the reconnection wording.
 
 ## 6. Gates
 - [x] 6.1 Build, vet and the Go suite.

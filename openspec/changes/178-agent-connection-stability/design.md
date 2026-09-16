@@ -84,6 +84,11 @@ The grace is deliberately short. `git_evidence` is given 15s by
 operation itself room to run. A reconnection that takes longer than the grace is no longer a
 hiccup, and the caller is better served by an error it can act on.
 
+The wait applies only to a slot that held an agent in the last few minutes. A server that has
+no agent at all is a legitimate setup, and making each of its operations pay the grace would
+turn a clear immediate answer into a slow one. `Register` records when a slot was last taken,
+and the check mirrors `Lookup`'s wildcard fallbacks so a `default` or `all` registration counts.
+
 That error names the reconnection and the retry. "no local agent connected" reads as a
 configuration problem; the actual situation is transient and retrying is the fix.
 

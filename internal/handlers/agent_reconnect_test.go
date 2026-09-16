@@ -17,16 +17,21 @@ import (
 // #123.
 func TestOperationWaitsForAReconnectingAgent(t *testing.T) {
 	d := NewAgentDispatcher()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	// The agent was connected, then dropped: this is a reconnection, not an
+	// absent agent.
+	_, dropped := operationConnection(t, d)
+	dropped.Close()
+	waitForNoAgent(t, d)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
 	done := make(chan error, 1)
 	go func() {
 		_, err := d.CallOperation(ctx, agentprotocol.Operation{ProjectID: "project", Action: "git_evidence"})
 		done <- err
 	}()
 
-	// The agent registers only after the call has already started waiting.
+	// The agent comes back only after the call has started waiting.
 	time.Sleep(200 * time.Millisecond)
 	_, conn := operationConnection(t, d)
 
@@ -42,8 +47,30 @@ func TestOperationWaitsForAReconnectingAgent(t *testing.T) {
 	}
 }
 
+// waitForNoAgent blocks until the slot is empty, so a test does not depend on
+// how quickly the server read loop unwinds after a client closes.
+func waitForNoAgent(t *testing.T, d *AgentDispatcher) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if d.Lookup("default", "project") == nil {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("the dropped agent never left the registry")
+}
+
+// An agent that was there a moment ago and is not answering now is
+// reconnecting, and the error has to say so: "no local agent connected" alone
+// reads as a configuration problem.
 func TestAbsentAgentErrorNamesTheRetry(t *testing.T) {
 	d := NewAgentDispatcher()
+	_, conn := operationConnection(t, d)
+	// The agent disconnects, leaving the slot empty but recently used.
+	conn.Close()
+	waitForNoAgent(t, d)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	started := time.Now()
@@ -56,6 +83,25 @@ func TestAbsentAgentErrorNamesTheRetry(t *testing.T) {
 	}
 	if waited := time.Since(started); waited < defaultAgentReconnectGrace {
 		t.Fatalf("gave up after %s, before the grace period", waited)
+	}
+}
+
+// A server that simply has no agent is a legitimate setup. It must keep its
+// immediate, unambiguous answer rather than pay the reconnection grace.
+func TestProjectThatNeverHadAnAgentFailsImmediately(t *testing.T) {
+	d := NewAgentDispatcher()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	started := time.Now()
+	_, err := d.CallOperation(ctx, agentprotocol.Operation{ProjectID: "never-seen", Action: "git_evidence"})
+	if err == nil {
+		t.Fatal("expected a failure with no agent connected")
+	}
+	if strings.Contains(err.Error(), "reconnecting") {
+		t.Fatalf("an agent that was never there is not reconnecting: %v", err)
+	}
+	if waited := time.Since(started); waited >= defaultAgentReconnectGrace {
+		t.Fatalf("waited %s for an agent that was never connected", waited)
 	}
 }
 

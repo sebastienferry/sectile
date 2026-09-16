@@ -42,6 +42,11 @@ const (
 	// operation itself room to run, so it covers a reconnection hiccup and not
 	// an agent that is simply not running.
 	defaultAgentReconnectGrace = 4 * time.Second
+	// agentAbsenceIsRecent bounds how long after a disconnection an absent
+	// agent is still treated as reconnecting. Past it, waiting would only slow
+	// down a server that has no agent at all, which is a legitimate setup and
+	// deserves its immediate answer.
+	agentAbsenceIsRecent = 5 * time.Minute
 )
 
 // AgentConn represents a single connected local agent daemon. The connection
@@ -133,15 +138,19 @@ type AgentDispatcher struct {
 	agents       map[agentKey]*AgentConn
 	pending      map[string]*pendingAgentLaunch
 	pendingPulls map[string]*pendingTaskPull
-	mu           sync.RWMutex
+	// lastConnected remembers when a slot last held an agent, so an absence
+	// can be told apart from a project that never had one.
+	lastConnected map[agentKey]time.Time
+	mu            sync.RWMutex
 }
 
 // NewAgentDispatcher creates a dispatcher ready to accept agent connections.
 func NewAgentDispatcher() *AgentDispatcher {
 	return &AgentDispatcher{
-		agents:       make(map[agentKey]*AgentConn),
-		pending:      make(map[string]*pendingAgentLaunch),
-		pendingPulls: make(map[string]*pendingTaskPull),
+		agents:        make(map[agentKey]*AgentConn),
+		pending:       make(map[string]*pendingAgentLaunch),
+		pendingPulls:  make(map[string]*pendingTaskPull),
+		lastConnected: make(map[agentKey]time.Time),
 	}
 }
 
@@ -170,6 +179,10 @@ func (d *AgentDispatcher) Register(userID, projectID, deviceID string, conn *web
 	}
 	ac.Touch()
 	d.agents[key] = ac
+	if d.lastConnected == nil {
+		d.lastConnected = make(map[agentKey]time.Time)
+	}
+	d.lastConnected[key] = time.Now()
 
 	log.Printf("[AgentDispatcher] Agent registered: user=%s project=%s device=%s", userID, projectID, deviceID)
 	return ac
@@ -223,6 +236,11 @@ func (d *AgentDispatcher) WaitForAgent(ctx context.Context, userID, projectID st
 	if ac := d.Lookup(userID, projectID); ac != nil {
 		return ac
 	}
+	if !d.agentWasRecentlyConnected(userID, projectID) {
+		// Nothing has ever answered here, or not for a long time. Waiting
+		// would make a server with no agent slow instead of clear.
+		return nil
+	}
 	deadline := time.NewTimer(grace)
 	defer deadline.Stop()
 	// Polling is enough for a wait measured in seconds and keeps the registry
@@ -241,6 +259,26 @@ func (d *AgentDispatcher) WaitForAgent(ctx context.Context, userID, projectID st
 			}
 		}
 	}
+}
+
+// agentWasRecentlyConnected reports whether a slot held an agent recently
+// enough for its absence to read as a reconnection. Register records the
+// instant, and the lookup mirrors Lookup's fallbacks so a wildcard registration
+// counts too.
+func (d *AgentDispatcher) agentWasRecentlyConnected(userID, projectID string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	for _, key := range []agentKey{
+		{UserID: userID, ProjectID: projectID},
+		{UserID: userID, ProjectID: "default"},
+		{UserID: userID, ProjectID: "all"},
+		{UserID: userID, ProjectID: ""},
+	} {
+		if at, ok := d.lastConnected[key]; ok && time.Since(at) < agentAbsenceIsRecent {
+			return true
+		}
+	}
+	return false
 }
 
 // Dispatch sends a command message to the user's connected local agent. It

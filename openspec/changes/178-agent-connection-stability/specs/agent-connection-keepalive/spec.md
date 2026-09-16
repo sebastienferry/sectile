@@ -56,7 +56,8 @@ than reporting an anonymous abnormal closure.
 A workspace operation addressed to a project whose agent is momentarily absent SHALL wait for an
 agent to reconnect, bounded by both a short grace period and the caller's own deadline, before
 failing. If no agent reconnects, the error SHALL state that the agent is reconnecting and that
-the call can be retried.
+the call can be retried. An operation for a project that has had no agent for a long time SHALL
+NOT wait, and SHALL keep its immediate answer.
 
 #### Scenario: The agent reconnects during the grace period
 - **GIVEN** a stage transition requesting git evidence while the agent is reconnecting
@@ -72,3 +73,9 @@ the call can be retried.
 - **GIVEN** a caller whose remaining deadline is shorter than the grace period
 - **WHEN** no agent reconnects
 - **THEN** the call fails on the caller's deadline and does not wait beyond it
+
+#### Scenario: The project never had an agent
+- **GIVEN** a project whose slot has not held an agent recently
+- **WHEN** a workspace operation is addressed to it
+- **THEN** the call fails immediately without waiting out the grace period
+- **AND** the error does not describe the agent as reconnecting
