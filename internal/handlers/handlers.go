@@ -21,6 +21,7 @@ import (
 	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/taskmcp"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -43,6 +44,9 @@ type Handler struct {
 	subMu           sync.RWMutex
 	agentDispatcher *AgentDispatcher
 	pullOnConnect   bool
+	// mcpSessions owns the lifecycle of MCP client sessions and of the runs
+	// they start, so a client that disappears cannot leave a task active.
+	mcpSessions *taskmcp.SessionRegistry
 	// identityProvider is nil when no OpenID Connect provider is configured,
 	// which leaves the interface on its single implicit user.
 	identityProvider *auth.Provider
@@ -58,10 +62,17 @@ func (h *Handler) SetPullOnConnect(enable bool) {
 }
 
 func NewHandler(database *db.DB) *Handler {
+	// A typed nil database would satisfy the closer interface and panic on the
+	// first disconnection, so the registry is given one only when it exists.
+	var runs taskmcp.RunCloser
+	if database != nil {
+		runs = database
+	}
 	h := &Handler{
 		db:                database,
 		subscribers:       make(map[chan Event]bool),
 		agentDispatcher:   NewAgentDispatcher(),
+		mcpSessions:       taskmcp.NewSessionRegistry(runs),
 		agentPingInterval: defaultAgentPingInterval,
 		agentReadTimeout:  defaultAgentReadTimeout,
 	}
@@ -963,6 +974,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	//   PUT    /{skillId}            → save the edited content and regenerate the files
 	//   POST   /{skillId}/reset      → back to the built-in template
 	//   POST   /{skillId}/import     → take the file on disk as the new content
+	//   PUT    /{skillId}/mode       → pin the skill's execution mode, or clear it
 	if len(parts) >= 2 && parts[1] == "skill-editor" {
 		skillID := ""
 		if len(parts) >= 3 {
@@ -1006,6 +1018,32 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			writeJSON(w, http.StatusOK, entry)
+			return
+
+		case r.Method == http.MethodPut && skillID != "" && sub == "mode":
+			var payload struct {
+				Mode string `json:"mode"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+				return
+			}
+			if err := h.db.SetProjectSkillMode(id, skillID, payload.Mode); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			entries, err := h.db.ListProjectSkillEditor(id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			for _, entry := range entries {
+				if entry.ID == models.NormalizeSkillID(skillID) {
+					writeJSON(w, http.StatusOK, entry)
+					return
+				}
+			}
+			writeError(w, http.StatusNotFound, "skill introuvable après enregistrement")
 			return
 
 		case r.Method == http.MethodPost && skillID != "" && sub == "import":
@@ -1652,6 +1690,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Skill ID is required")
 			return
 		}
+		// An absent mode means "no override", which is not the same as
+		// interactive: the precedence still falls through to the skill and then
+		// to the project. Anything else is a client mistake, not a fallback.
+		if !models.ValidSkillMode(req.Mode) {
+			writeError(w, http.StatusBadRequest, "mode invalide : "+req.Mode)
+			return
+		}
 
 		if req.WithComments || strings.Contains(req.Prompt, "--with-comments") {
 			comments, err := h.db.GetTaskComments(id)
@@ -1718,6 +1763,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
 				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
 				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
+				Mode: h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode),
 			})
 			finished := time.Now()
 			act.CompletedAt = &finished
@@ -2050,12 +2096,17 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sub-action: /api/tasks/{id}/advance: one step of the agentic workflow, or
-	// the autonomous chain up to the review stage
+	// the full chain up to the project's stop stage
 	if subAction == "advance" && r.Method == http.MethodPost {
 		var req struct {
-			Auto bool `json:"auto"`
+			Auto bool   `json:"auto"`
+			Mode string `json:"mode"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if !models.ValidSkillMode(req.Mode) {
+			writeError(w, http.StatusBadRequest, "mode invalide : "+req.Mode)
+			return
+		}
 
 		task, err := h.db.GetTaskByID(id)
 		if err != nil || task == nil {
@@ -2064,7 +2115,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.Auto {
-			_, act, err := h.db.EnqueueAutonomousRun(task.ID)
+			_, act, err := h.db.EnqueueFullChainRun(task.ID)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -2079,7 +2130,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("aucun pas suivant depuis l'étape %s", stage))
 			return
 		}
-		_, act, err := h.db.EnqueueSkillOnTask(task.ID, step.SkillID, "")
+		_, act, err := h.db.EnqueueSkillOnTaskWithMode(task.ID, step.SkillID, "", req.Mode)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

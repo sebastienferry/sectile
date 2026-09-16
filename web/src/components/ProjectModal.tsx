@@ -41,13 +41,11 @@ import type {
   SpecFramework,
   SpecFrameworkStatus,
   SpecFrameworkInstallResult,
+  SkillMode,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 
 type ProjectTab = 'general' | 'agent' | 'workflow' | 'tracker' | 'skills'
-
-/** Concurrent execution workers ceiling per project, aligned with models.MaxParallelism. */
-const MAX_PARALLELISM = 10
 
 const TABS: { id: ProjectTab; label: string; icon: React.FC<{ size?: number; className?: string }> }[] = [
   { id: 'general', label: 'Général', icon: Folder },
@@ -158,6 +156,8 @@ export const ProjectModal: React.FC = () => {
   // Section 2: Git (Local path, URL distante git@..., init git)
   const [repoPath, setRepoPath] = useState('')
   const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
+  const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
+  const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
   // Mono-dépôt : conditionne tout ce qui parle de « la » branche courante.
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
@@ -170,7 +170,6 @@ export const ProjectModal: React.FC = () => {
   const [useCustomAgent, setUseCustomAgent] = useState(false)
   const [setupProviders, setSetupProviders] = useState<string[]>([])
   const [useWorktrees, setUseWorktrees] = useState(true)
-  const [parallelism, setParallelism] = useState<number>(1)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
 
@@ -247,6 +246,8 @@ export const ProjectModal: React.FC = () => {
 
       setRepoPath(editingProject.repoPath || '')
       setPRCreationStage(editingProject.prCreationStage || 'implemented')
+      setDefaultSkillMode(editingProject.defaultSkillMode || '')
+      setFullChainStopStage(editingProject.fullChainStopStage || 'reviewed')
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
@@ -258,7 +259,6 @@ export const ProjectModal: React.FC = () => {
       setSetupProviders(editingProject.setupProviders || [])
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setUseWorktrees(editingProject.useWorktrees !== false)
-      setParallelism(editingProject.parallelism && editingProject.parallelism >= 1 && editingProject.parallelism <= MAX_PARALLELISM ? editingProject.parallelism : 1)
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
@@ -304,7 +304,6 @@ export const ProjectModal: React.FC = () => {
       setSetupProviders([])
       setSpecFramework(settings.specFramework || 'speckit')
       setUseWorktrees(true)
-      setParallelism(1)
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
 
@@ -372,6 +371,8 @@ export const ProjectModal: React.FC = () => {
         isDefault,
         repoPath: repoPath.trim(),
         prCreationStage,
+        defaultSkillMode,
+        fullChainStopStage,
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
@@ -380,7 +381,6 @@ export const ProjectModal: React.FC = () => {
         setupProviders,
         specFramework,
         useWorktrees,
-        parallelism: useWorktrees ? parallelism : 1,
         autoSyncEnabled,
         autoSyncIntervalMin,
         issueTracker,
@@ -861,45 +861,6 @@ export const ProjectModal: React.FC = () => {
                 <p className="text-xs text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
                 <label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={useWorktrees} onChange={e=>setUseWorktrees(e.target.checked)} />Use a worktree for each task</label>
               </div>
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
-                    <Layers size={16} />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-[var(--text-primary)] block">
-                      Parallel executions per local agent
-                    </span>
-                    <span className="text-[10px] text-[var(--text-muted)] block">
-                      {useWorktrees ? `Project default: 1 to ${MAX_PARALLELISM} concurrent executions. Additional tasks wait in the local queue.` : 'Without worktrees, executions are limited to one.'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-[var(--text-secondary)] font-medium">Exécutions simultanées :</span>
-                    <span className="font-mono font-bold text-[var(--accent-color)]">
-                      {useWorktrees ? parallelism : 1} {(useWorktrees ? parallelism : 1) === 1 ? 'worker' : 'workers'}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={1}
-                    max={MAX_PARALLELISM}
-                    step={1}
-                    disabled={!useWorktrees}
-                    value={useWorktrees ? parallelism : 1}
-                    onChange={e => setParallelism(parseInt(e.target.value, 10) || 1)}
-                    className="w-full h-1.5 bg-[var(--bg-primary)] rounded-lg appearance-none cursor-pointer accent-[var(--accent-color)] disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                  <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
-                    <span>1</span>
-                    <span>{Math.round(MAX_PARALLELISM / 2)}</span>
-                    <span>{MAX_PARALLELISM}</span>
-                  </div>
-                </div>
-              </div>
 
             </div>
           )}
@@ -933,6 +894,44 @@ export const ProjectModal: React.FC = () => {
                   <option value="implemented">Draft after implementation</option>
                   <option value="specified">Draft after specification</option>
                 </select>
+              </div>
+
+              <div>
+                <label htmlFor="defaultSkillMode" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Mode d'exécution par défaut
+                </label>
+                <select
+                  id="defaultSkillMode"
+                  value={defaultSkillMode}
+                  onChange={e => setDefaultSkillMode(e.target.value as SkillMode)}
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                >
+                  <option value="">Interactif (défaut)</option>
+                  <option value="interactive">Interactif</option>
+                  <option value="autonomous">Autonome (headless)</option>
+                </select>
+                <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  S'applique aux skills qui ne fixent pas leur propre mode. Une surcharge au
+                  lancement l'emporte, pour ce lancement seulement.
+                </p>
+              </div>
+
+              <div>
+                <label htmlFor="fullChainStopStage" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Arrêt de la chaîne complète
+                </label>
+                <select
+                  id="fullChainStopStage"
+                  value={fullChainStopStage}
+                  onChange={e => setFullChainStopStage(e.target.value as 'implemented' | 'reviewed')}
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                >
+                  <option value="reviewed">Après la PR (reviewed)</option>
+                  <option value="implemented">Avant la PR (implemented)</option>
+                </select>
+                <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  La fusion reste manuelle dans les deux cas.
+                </p>
               </div>
 
               {/* Stage Mapping Table Card */}

@@ -34,7 +34,12 @@ Welcome to the comprehensive technical documentation for **Sectile** (formerly S
    - WebSocket protocol specification for live terminal streaming and window resizing.
    - Task workflow lifecycle and activity status state machines.
 
-5. [**Re-Implementation Guide for LLMs** (`REIMPLEMENTATION_GUIDE.md`)](./REIMPLEMENTATION_GUIDE.md)
+5. [**Interactive architecture diagram** (`diagrams/sectile-architecture.html`)](./diagrams/sectile-architecture.html)
+   - Explorable server/agent topology pinned to a repository revision, with source links per component.
+   - Guided views for the control plane, workstation execution and the Claude Code MCP path.
+   - Editable specification in [`diagrams/sectile-architecture.json`](./diagrams/sectile-architecture.json).
+
+6. [**Re-Implementation Guide for LLMs** (`REIMPLEMENTATION_GUIDE.md`)](./REIMPLEMENTATION_GUIDE.md)
    - Step-by-step guide to rebuild Sectile from zero.
    - Critical implementation pitfalls, concurrency rules, and deadlock prevention.
    - Verification checklist and test suite specification.

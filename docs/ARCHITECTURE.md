@@ -16,6 +16,18 @@ flowchart LR
     MCP -->|Loopback proxy| Server
 ```
 
+An interactive, revision-pinned version of the same topology — with per-component
+source links, guided views, light/dark themes and PNG/SVG export — is checked in at
+[`diagrams/sectile-architecture.html`](diagrams/sectile-architecture.html). Its
+[specification](diagrams/sectile-architecture.json) is the editable source; regenerate
+the page from the repository root with the [Archify](https://github.com/tt-a1i/archify)
+skill, after refreshing `meta.repository.revision` to the commit the source links
+should point at:
+
+```bash
+node <archify-checkout>/bin/archify.mjs deliver architecture docs/diagrams/sectile-architecture.json docs/diagrams/sectile-architecture.html --quality showcase --repo-root .
+```
+
 ## Ownership and packages
 
 | Component | Responsibility |
@@ -64,16 +76,15 @@ this workflow. There is no server-local result-file worker or LLM process.
 The agent downloads fresh project configuration for each operation. Configuration
 contains identity, effective skills and defaults, without server filesystem paths
 or tracker credentials. Local repositories are mapped by project primary key in
-`~/.config/taskflow/settings.json`, with repository overrides supported under
+`~/.config/sectile/settings.json`, with repository overrides supported under
 `.taskflow/agent.json`. Git remote identity can match the current repository.
 Repositories are never cloned implicitly.
 
 Task preparation reuses the assigned branch's existing checkout where possible.
 Otherwise it creates `.tasks/worktrees/<taskKey>` locally. Existing mismatched
 worktrees fail visibly; preparation does not reset a branch to accommodate a
-request. Shared checkouts execute serially. Worktree projects admit up to three
-parallel executions according to effective server defaults and workstation
-preferences. Tasks using the same checkout cannot execute concurrently.
+request. Shared checkouts execute serially. Worktree projects admit up to five
+parallel executions according to the workstation setting, which defaults to one. Tasks using the same checkout cannot execute concurrently.
 
 Only the agent writes repository skills and `.taskflow/config.json` or updates
 the marked section of `AGENTS.md`. It preserves unrelated configuration keys and

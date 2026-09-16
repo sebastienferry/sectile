@@ -1,4 +1,5 @@
 import { useApp } from '../context/AppContext'
+import { McpSessions } from './McpSessions'
 
 export function StatusBar() {
   const { currentProject, activities, setActiveView, setIsProfileOpen, settings } = useApp()
@@ -16,7 +17,10 @@ export function StatusBar() {
 
   return <footer className="flex items-center justify-between border-t border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 py-2 text-xs text-[var(--text-muted)]">
     <span>{currentProject?.name || 'All projects'}</span>
-    <button type="button" onClick={() => setActiveView('activities')}>{statusLabel}</button>
+    <div className="flex items-center gap-4">
+      <McpSessions />
+      <button type="button" onClick={() => setActiveView('activities')}>{statusLabel}</button>
+    </div>
     <button type="button" onClick={() => setIsProfileOpen(true)}>{settings.userName || 'Profile'}</button>
   </footer>
 }

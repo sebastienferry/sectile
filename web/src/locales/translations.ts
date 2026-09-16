@@ -327,6 +327,8 @@ export interface TranslationSchema {
     unpin: string
     advance: string
     advanceAuto: string
+    advanceInteractive: string
+    advanceAutonomous: string
     filterParent: string
     clearParent: string
     openPr: string
@@ -349,6 +351,18 @@ export interface TranslationSchema {
     copyBranch: string
     branchCopied: string
     viewDiff: string
+  }
+  mcp: {
+    panelTitle: string
+    client: string
+    clients: string
+    noClient: string
+    run: string
+    runs: string
+    noRuns: string
+    connected: string
+    unavailable: string
+    ownership: string
   }
   toasts: {
     taskCreated: string
@@ -697,7 +711,9 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       pin: 'Épingler',
       unpin: 'Désépingler',
       advance: 'Avancer une étape',
-      advanceAuto: 'Avancer automatiquement',
+      advanceAuto: 'Chaîne complète',
+      advanceInteractive: 'Avancer en interactif',
+      advanceAutonomous: 'Avancer en autonome',
       filterParent: 'Filtrer par parent',
       clearParent: 'Retirer le filtre parent',
       openPr: 'Ouvrir la PR / MR',
@@ -720,6 +736,18 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       copyBranch: 'Copier le nom de la branche',
       branchCopied: 'Nom de la branche copié !',
       viewDiff: 'Voir le Git Diff',
+    },
+    mcp: {
+      panelTitle: 'Clients MCP connectés',
+      client: 'client MCP',
+      clients: 'clients MCP',
+      noClient: 'Aucun client MCP',
+      run: 'exécution',
+      runs: 'exécutions',
+      noRuns: 'aucune exécution',
+      connected: 'connecté depuis',
+      unavailable: 'Statut MCP indisponible',
+      ownership: 'Les exécutions listées se ferment si leur client se déconnecte.',
     },
     toasts: {
       taskCreated: 'Tâche créée avec succès !',
@@ -1066,7 +1094,9 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       pin: 'Pin',
       unpin: 'Unpin',
       advance: 'Advance one step',
-      advanceAuto: 'Advance automatically',
+      advanceAuto: 'Full chain',
+      advanceInteractive: 'Advance interactively',
+      advanceAutonomous: 'Advance autonomously',
       filterParent: 'Filter by parent',
       clearParent: 'Clear parent filter',
       openPr: 'Open PR / MR',
@@ -1089,6 +1119,18 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       copyBranch: 'Copy branch name',
       branchCopied: 'Branch name copied!',
       viewDiff: 'View Git Diff',
+    },
+    mcp: {
+      panelTitle: 'Connected MCP clients',
+      client: 'MCP client',
+      clients: 'MCP clients',
+      noClient: 'No MCP client',
+      run: 'run',
+      runs: 'runs',
+      noRuns: 'no run',
+      connected: 'connected for',
+      unavailable: 'MCP status unavailable',
+      ownership: 'The runs listed here close if their client disconnects.',
     },
     toasts: {
       taskCreated: 'Task created successfully!',

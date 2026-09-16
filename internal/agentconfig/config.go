@@ -17,8 +17,9 @@ type Config struct {
 	JiraProject             string   `json:"jiraProject,omitempty"`
 	GithubRepo              string   `json:"githubRepo,omitempty"`
 	IssueTracker            string   `json:"issueTracker,omitempty"`
-	Parallelism             int      `json:"parallelism"`
 	PRCreationStage         string   `json:"prCreationStage"`
+	DefaultSkillMode        string   `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage      string   `json:"fullChainStopStage,omitempty"`
 	SchemaVersion           int      `json:"schemaVersion"`
 	ProjectID               string   `json:"projectId"`
 	ProjectName             string   `json:"projectName"`
@@ -46,6 +47,10 @@ type Dispatch struct {
 	Prompt           string `json:"prompt,omitempty"`
 	Command          string `json:"command,omitempty"`
 	TerminalOverride string `json:"terminalOverride,omitempty"`
+	// Mode is the execution mode resolved by the server: "interactive" opens a
+	// terminal the user answers, "autonomous" runs the CLI headless. Empty is
+	// read as interactive, which keeps an older server working.
+	Mode string `json:"mode,omitempty"`
 }
 
 // Project is a discovery record. ID is the server primary key, not a display name.

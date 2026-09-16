@@ -186,6 +186,13 @@ export interface Project {
    */
   prCreationStage?: 'specified' | 'implemented'
   useWorktrees?: boolean
+  /**
+   * Mode d'exécution des skills quand ni le lancement ni la skill n'en fixe un.
+   * Vide vaut « interactif », le comportement historique.
+   */
+  defaultSkillMode?: SkillMode
+  /** Étape où s'arrête une exécution en chaîne. Vide vaut « reviewed ». */
+  fullChainStopStage?: 'implemented' | 'reviewed'
   /** Board du tracker retenu pour ce projet. */
   boardId?: string
   /**
@@ -223,7 +230,6 @@ export interface Project {
   aiProvider?: AIProvider
   aiCommandTemplate?: string
   specFramework?: SpecFramework
-  parallelism?: number
   /** Synchronisation automatique en arrière-plan activée pour ce projet. */
   autoSyncEnabled?: boolean
   /** Période de la synchronisation en arrière-plan (en minutes, entre 1 et 30 min). */
@@ -648,7 +654,8 @@ export interface SkillEditorEntry {
   fromStage: string
   toStage: string
   scope?: 'task' | 'macro' | string
-  interactive: boolean
+  /** Mode propre à la skill. Vide : pas d'avis, le défaut du projet décide. */
+  mode: SkillMode
   content: string
   defaultContent: string
   isCustom: boolean
@@ -659,6 +666,14 @@ export interface SkillEditorEntry {
   repoContent?: string
   repoPath?: string
 }
+
+/**
+ * Mode d'exécution d'un run. `autonomous` lance la CLI en headless et laisse le
+ * worker poser la transition ; `interactive` ouvre un terminal que l'utilisateur
+ * répond et confirme. La chaîne vide est le troisième état : « pas d'avis », qui
+ * laisse la précédence retomber sur le niveau suivant.
+ */
+export type SkillMode = '' | 'interactive' | 'autonomous'
 
 /** Champ que le tracker impose à la création d'une macro, avec ses valeurs permises. */
 export interface MacroRequiredField {

@@ -9,14 +9,17 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
 import { taskStage, nextTaskStep } from './workflow.mjs'
+import { launchModeOverride, modeSelect } from './skill-mode.mjs'
+import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
 const api=window.localAgent
-// Concurrent execution workers ceiling per project, aligned with models.MaxParallelism.
+// Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
+// Parallelism is a workstation setting: the server neither stores nor supplies it.
 const MAX_PARALLELISM=5
 const PARALLELISM_CHOICES=Array.from({length:MAX_PARALLELISM},(_,i)=>i+1)
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
-<section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
-<form id="start"><label>TaskFlow server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
+<section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
+<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" aria-label="Close">×</button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:'Menlo, monospace',scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
@@ -114,10 +117,9 @@ function select(run,background=false,options){
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
  terminal.reset()
- if(run.status==='queued'||run.status==='preparing'||!run.sessionId){
+ if(needsConsoleNotice(run)){
   api.detach().catch(error)
-  const message=run.status==='queued'?'Execution queued. Waiting for a console.':run.status==='preparing'?'Preparing execution. Waiting for a console.':run.status==='canceled'?'Execution canceled before a console was created.':'No console is available for this execution. Check the task activity and local agent.log for launch errors.'
-  terminal.writeln(message)
+  terminal.writeln(consoleNotice(run))
   render(options);return
  }
  api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen)terminal.focus()}).catch(error)
@@ -258,7 +260,7 @@ function render(options){
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
-    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in TaskFlow';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in TaskFlow');context.onclick=()=>api.openTask(run.taskId).catch(error)
+    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
     button.title=title.textContent+' · '+runLabel(run)+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
     button.append(title,status);button.onclick=()=>select(run)
@@ -494,7 +496,7 @@ document.querySelector('#profile').onclick=()=>{
 }
 document.querySelector('#add-project').onclick=async()=>{
  showDialog('Add project')
- paragraph('Discover projects from your TaskFlow server and configure their local directory.')
+ paragraph('Discover projects from your Sectile server and configure their local directory.')
  try{
   await loadProjects()
   if(!projects.length)paragraph('No projects available on the server.')
@@ -551,27 +553,32 @@ async function openProject(id){
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
   row.append(path,browse);label.append(row)
   let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
-  let parallelism=info.parallelism||1,inheritParallelism=!info.parallelismOverride
+  let parallelism=info.parallelism||1
   const controls={}
+  // A setting without a server default (resetLabel omitted) carries no reset control.
   function setting(name,values,resetLabel,onSelect,onReset){
    const section=document.createElement('section');section.className='execution-setting'
    const heading=document.createElement('div');heading.className='setting-heading'
    const title=document.createElement('strong');title.textContent=name
-   const reset=document.createElement('button');reset.type='button';reset.className='reset-setting';reset.setAttribute('aria-label',resetLabel);reset.title=resetLabel
-   reset.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4v6h6M4 10a8 8 0 1 1 1 8"/></svg>'
-   reset.onclick=onReset;heading.append(title,reset)
+   let reset=null
+   if(resetLabel){
+    reset=document.createElement('button');reset.type='button';reset.className='reset-setting';reset.setAttribute('aria-label',resetLabel);reset.title=resetLabel
+    reset.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4v6h6M4 10a8 8 0 1 1 1 8"/></svg>'
+    reset.onclick=onReset
+   }
+   heading.append(title);if(reset)heading.append(reset)
    const group=document.createElement('div');group.className='segmented';group.setAttribute('role','group');group.setAttribute('aria-label',name)
    const buttons=values.map(value=>{const button=document.createElement('button');button.type='button';button.textContent=String(value);button.onclick=()=>onSelect(value);group.append(button);return button})
    const hint=document.createElement('p');section.append(heading,group,hint)
    return {section,buttons,hint,reset}
   }
   controls.worktrees=setting('Worktrees',['Yes','No'],'Reset worktrees to server default',value=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()},()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()})
-  controls.parallel=setting('Parallel executions',PARALLELISM_CHOICES,'Reset parallelism to server default',value=>{parallelism=value;inheritParallelism=false;update()},()=>{parallelism=config.parallelism||1;inheritParallelism=true;update()})
+  controls.parallel=setting('Parallel executions',PARALLELISM_CHOICES,'',value=>{parallelism=value;update()})
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
    controls.worktrees.hint.textContent=(inheritWorktrees?'Inherited':'Local override')+' · Server default: '+(config.useWorktrees?'Yes':'No')
    controls.parallel.buttons.forEach((button,i)=>{button.disabled=!useWorktrees;button.setAttribute('aria-pressed',String(i+1===(useWorktrees?parallelism:1)))})
-   controls.parallel.hint.textContent=useWorktrees?(inheritParallelism?'Inherited':'Local override')+' · Server default: '+(config.parallelism||1):'Without worktrees, executions are limited to one.'
+   controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Additional executions wait in the local queue.':'Without worktrees, executions are limited to one.'
   }
   update()
   let inheritCommand=!info.commandOverride
@@ -598,7 +605,7 @@ async function openProject(id){
   form.onsubmit=async event=>{
    event.preventDefault();save.disabled=true
    try{
-    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,inheritParallelism,aiCommandTemplate:command.value,inheritCommand})
+    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiCommandTemplate:command.value,inheritCommand})
     projectStateVersion++;disconnectedProjects.delete(id)
     notice.textContent='Local configuration saved';await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
@@ -639,7 +646,6 @@ async function openProject(id){
     config=fresh.server
     dialogBody.querySelector('h2').textContent=config.projectName
     if(inheritWorktrees)useWorktrees=!!config.useWorktrees
-    if(inheritParallelism)parallelism=config.parallelism||1
     if(inheritCommand)command.value=config.aiCommandTemplate||''
     update();commandState();renderServer(fresh.monoRepo)
     notice.textContent='Server settings refreshed. Local overrides preserved.'
@@ -721,15 +727,16 @@ async function browseTasks(projectID,initialQuery=''){
     if((info.server.skills||[]).some(item=>item.id==='pickup'))skill.value='pickup'
     const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions');prompt.hidden=true
     skill.onchange=()=>{prompt.hidden=skill.value!=='custom'}
+    const mode=modeSelect(document,'Execution mode for '+(task.key||task.id))
     const launch=document.createElement('button');launch.textContent='Launch';launch.disabled=!info.configured||!skill.options.length
     const notice=document.createElement('p');notice.setAttribute('role','status')
     launch.onclick=async()=>{
      if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
      launch.disabled=true;notice.textContent='Submitting execution…'
-     try{await api.launchServerTask(projectID,task.id,skill.value,prompt.value);notice.textContent='Execution submitted';dialog.close();await refresh()}
+     try{await api.launchServerTask(projectID,task.id,skill.value,prompt.value,launchModeOverride(mode.value));notice.textContent='Execution submitted';dialog.close();await refresh()}
      catch(err){notice.textContent=err.message;launch.disabled=false}
     }
-    card.append(title,status,skill,prompt,launch,notice);list.append(card)
+    card.append(title,status,skill,prompt,mode,launch,notice);list.append(card)
    }
   }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
   finally{if(isCurrent())list.setAttribute('aria-busy','false')}
@@ -761,16 +768,18 @@ document.querySelector('#rerun').onclick=async()=>{
   const promptLabel=document.createElement('label');promptLabel.textContent='Instructions'
   const prompt=document.createElement('textarea');prompt.className='cli-command';prompt.setAttribute('aria-label','Relaunch instructions');prompt.value=run.prompt||''
   promptLabel.append(prompt)
+  const modeLabel=document.createElement('label');modeLabel.textContent='Execution mode'
+  const mode=modeSelect(document,'Relaunch execution mode');modeLabel.append(mode)
   const submit=document.createElement('button');submit.textContent='Launch new execution';submit.disabled=!info.configured
   const notice=document.createElement('p');notice.setAttribute('role','status')
   if(!info.configured)notice.textContent='Configure a local repository before relaunching.'
-  form.append(skillLabel,promptLabel,submit,notice);dialogBody.append(form)
+  form.append(skillLabel,promptLabel,modeLabel,submit,notice);dialogBody.append(form)
   form.onsubmit=async event=>{
    event.preventDefault()
    if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
    submit.disabled=true
    try{
-    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value)
+    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value))
     dialog.close();await refresh()
    }catch(err){notice.textContent=err.message;submit.disabled=false}
   }

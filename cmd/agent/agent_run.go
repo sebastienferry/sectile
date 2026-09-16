@@ -213,7 +213,7 @@ func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payloa
 		return nil, err
 	}
 	config = agentconfig.ApplyOverrides(config, overrides)
-	return d.enqueueRun(taskID, payload, config.ProjectID, root, agentconfig.ExecutionLimit(config.ProjectID, config.UseWorktrees, overrides, config.Parallelism), config.UseWorktrees)
+	return d.enqueueRun(taskID, payload, config.ProjectID, root, agentconfig.ExecutionLimit(config.ProjectID, config.UseWorktrees, overrides), config.UseWorktrees)
 }
 
 func (d *agentDaemon) enqueueRun(taskID string, payload agentconfig.Dispatch, projectID, root string, limit int, isolated bool) (*controlledRun, error) {

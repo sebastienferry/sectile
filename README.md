@@ -211,6 +211,25 @@ Sectile exposes nine typed tools at the Streamable HTTP endpoint `/mcp`:
 HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
 authentication and workflow validation retain their existing contracts.
 
+`/mcp` is stateful: every connected client holds one server session, so two
+clients sharing the same credential stay distinct and a client that goes away is
+noticed. A run started with `start_run` belongs to the session that started it.
+When that session ends — the client quits, its process is killed, or it falls
+silent past the idle timeout — the server closes the runs it still owns as
+canceled, with a note saying the client disconnected. `finish_run` remains how a
+run reports its own outcome and always wins over that fallback. A run reused from
+a launcher keeps its dispatching agent as owner, since that agent already watches
+the real process.
+
+`GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
+and the runs it owns. The board's status bar shows that count and opens a panel
+naming each connected client, how long it has been attached, and the runs that
+would close with it. `SECTILE_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
+silent session, and `SECTILE_MCP_CLIENT` names a bridge in that list. A server
+restart destroys every session at once, so startup closes the runs they owned as
+canceled; runs dispatched to an agent are preserved, because that agent
+reconnects and reports the real process exit.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect
@@ -320,12 +339,14 @@ the actual `SECTILE_AGENT_URL`, including a dynamically allocated port.
 For direct server access, use `sectile-agent mcp --url https://sectile.example.com`
 and set `SECTILE_AGENT_TOKEN` in that client's environment. Against a local
 agent gateway, that variable holds the agent session secret, not a server
-credential: the gateway attaches the workstation's own credential upstream.
+credential: the gateway attaches the workstation's own credential upstream. Set
+`SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in the session
+list; the bridge otherwise reports its host and process id.
 Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
 
-Optional workstation overrides belong in `~/.config/taskflow/settings.json`:
+Optional workstation overrides belong in `~/.config/sectile/settings.json`:
 
 ```json
 {
@@ -348,7 +369,7 @@ never resets them to accommodate a dispatch.
 Skill refresh installs the current server-owned content and records hashes in
 `.taskflow/agent-manifest.json`. Changed local copies are backed up under
 `.taskflow/skill-backups/` before replacement. Personal skills outside the declared
-paths are untouched. Put persistent skill overrides in `~/.config/taskflow/settings.json`.
+paths are untouched. Put persistent skill overrides in `~/.config/sectile/settings.json`.
 The effective `.taskflow/remote-config.json` snapshot is diagnostic only: it is
 never used as an offline fallback. These generated files are ignored by Git.
 
@@ -420,7 +441,7 @@ sectile-agent --url http://localhost:8090
 
 The agent defaults to all projects. The current checkout is matched by its Git
 origin; map other project primary keys to local repositories in
-`~/.config/taskflow/settings.json` in the starting directory (or the directory passed with
+`~/.config/sectile/settings.json` in the starting directory (or the directory passed with
 `--repo`):
 
 ```json
@@ -525,17 +546,42 @@ for the desktop development assets. On Apple Silicon the app is produced at
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Local worktree preferences are stored per project in
-`~/.config/taskflow/settings.json`. Repository layout, remote URL, SDD selection and skill
+`~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
 
+### Execution modes
+
+A skill run is either **interactive** (a terminal window you answer, and the
+stage moves when you confirm) or **autonomous** (the CLI runs headless, its
+output is recorded on the run activity, and the worker posts the stage).
+
+The mode of one launch is resolved in this order, first opinion winning: the
+one-off override chosen for that launch, then the skill's own setting in the
+skill editor, then the project's `defaultSkillMode`, then interactive.
+
+The one-off override is offered wherever you explicitly trigger a skill: the web
+task card menu, the web task detail modal, and the desktop Launch and Relaunch
+dialogs. The desktop next-step button stays a single click on the resolved mode.
+
+`claude -p`, `codex exec` and `vibe -p` are the attested headless invocations.
+On `agy`, `gemini`, `cursor`, or a custom `aiCommandTemplate` with no
+`{mode:AUTONOMOUS|INTERACTIVE}` placeholder, an autonomous launch is refused by
+name rather than silently run interactively.
+
+The project also sets `fullChainStopStage`, where the **Full chain** (`>>`)
+action stops: `implemented` (before the pull request) or `reviewed` (default).
+A full chain run is always autonomous. Merging stays manual.
+
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1 to 5) defaults.
-In the desktop project settings, **Inherit worktrees from server** and
-**Inherit from server** for parallel executions remove local overrides.
-Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:
+The server project supplies the `useWorktrees` default, which **Inherit worktrees
+from server** restores in the desktop project settings. Parallel executions
+(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
+the desktop app is the only surface that sets one, and a project without a local
+value runs a single execution at a time.
+Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
 {
@@ -558,7 +604,7 @@ console history are held in memory for the agent lifetime.
 ### User configuration and commands
 
 Agent settings and project mappings live in
-`~/.config/taskflow/settings.json`, shared by the CLI agent and companion.
+`~/.config/sectile/settings.json`, shared by the CLI agent and companion.
 Writes preserve connection fields, use atomic replacement and mode 0600.
 Legacy repository mappings remain readable and are migrated on the next save.
 

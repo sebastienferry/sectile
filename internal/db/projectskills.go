@@ -26,11 +26,15 @@ func (d *DB) ensureProjectSkillsTable() {
 		updated_at TEXT NOT NULL,
 		PRIMARY KEY (project_id, skill_id)
 	)`)
+	// mode : le mode d'exécution propre à la skill. Vide vaut « pas d'avis »,
+	// ce qui laisse la précédence retomber sur le défaut du projet.
+	_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN mode TEXT NOT NULL DEFAULT ''`)
 }
 
 type projectSkillOverride struct {
 	content   string
 	updatedAt string
+	mode      string
 }
 
 func (d *DB) projectSkillOverrides(projectID string) map[string]projectSkillOverride {
@@ -42,7 +46,7 @@ func (d *DB) projectSkillOverrides(projectID string) map[string]projectSkillOver
 	d.ensureProjectSkillsTable()
 
 	d.mu.RLock()
-	rows, err := d.conn.Query(`SELECT skill_id, content, updated_at FROM project_skills WHERE project_id = ?`, projectID)
+	rows, err := d.conn.Query(`SELECT skill_id, content, updated_at, mode FROM project_skills WHERE project_id = ?`, projectID)
 	d.mu.RUnlock()
 	if err != nil {
 		return out
@@ -50,11 +54,60 @@ func (d *DB) projectSkillOverrides(projectID string) map[string]projectSkillOver
 	defer rows.Close()
 	for rows.Next() {
 		var id, content, updated string
-		if err := rows.Scan(&id, &content, &updated); err == nil {
-			out[id] = projectSkillOverride{content: content, updatedAt: updated}
+		var mode sql.NullString
+		if err := rows.Scan(&id, &content, &updated, &mode); err == nil {
+			out[id] = projectSkillOverride{content: content, updatedAt: updated, mode: models.NormalizeSkillMode(mode.String)}
 		}
 	}
 	return out
+}
+
+// ProjectSkillMode is the execution mode a skill carries for one project: the
+// mode stored for it when there is one, otherwise the built-in mode of the
+// catalogue entry. An empty result means the skill has no opinion, which lets
+// the precedence fall through to the project default.
+func (d *DB) ProjectSkillMode(projectIDOrPath, skillID string) string {
+	// Resolve the id the way the setter does. StageSkillByID knows the aliases
+	// NormalizeSkillID does not (pickup-issue, pick, rewrite-story), and reading
+	// under a different key than the one written makes a pinned mode silently
+	// do nothing.
+	stage, known := StageSkillByID(skillID)
+	if !known {
+		return models.SkillModeUnset
+	}
+	projectID, _, _ := d.projectSkillContext(projectIDOrPath)
+	if ov, ok := resolvedSkillOverride(d.projectSkillOverrides(projectID), stage.ID); ok && ov.mode != models.SkillModeUnset {
+		return ov.mode
+	}
+	return models.NormalizeSkillMode(stage.Mode)
+}
+
+// SetProjectSkillMode pins the execution mode of one skill for a project. An
+// empty mode clears the setting, which puts the skill back on the project
+// default. The row is created when the skill has no edited content yet: the
+// mode is a setting of its own, not a by-product of editing the content.
+func (d *DB) SetProjectSkillMode(projectIDOrPath, skillID, mode string) error {
+	stage, ok := StageSkillByID(skillID)
+	if !ok {
+		return fmt.Errorf("skill inconnue : %s", skillID)
+	}
+	if !models.ValidSkillMode(mode) {
+		return fmt.Errorf("mode invalide : %s", mode)
+	}
+	projectID, _, _ := d.projectSkillContext(projectIDOrPath)
+	if projectID == "" {
+		return fmt.Errorf("projet introuvable")
+	}
+	d.ensureProjectSkillsTable()
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, err := d.conn.Exec(`
+		INSERT INTO project_skills (project_id, skill_id, content, updated_at, mode)
+		VALUES (?, ?, '', ?, ?)
+		ON CONFLICT(project_id, skill_id) DO UPDATE SET mode = excluded.mode, updated_at = excluded.updated_at
+	`, projectID, stage.ID, time.Now().Format(time.RFC3339), models.NormalizeSkillMode(mode))
+	return err
 }
 
 // projectSkillContext resolves what a project needs to render and install its
@@ -148,6 +201,10 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 			isCustom = strings.TrimSpace(content) != strings.TrimSpace(def.Content)
 		}
 
+		mode := models.NormalizeSkillMode(stage.Mode)
+		if ov, ok := resolvedSkillOverride(overrides, stage.ID); ok && ov.mode != models.SkillModeUnset {
+			mode = ov.mode
+		}
 		origin, conflicts := adjustmentOverrideOrigin(overrides)
 		entry := models.SkillEditorEntry{
 			ID:             stage.ID,
@@ -158,7 +215,7 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 			FromStage:      stage.FromStage,
 			ToStage:        stage.ToStage,
 			Scope:          stage.Scope,
-			Interactive:    stage.Interactive,
+			Mode:           mode,
 			Content:        content,
 			DefaultContent: def.Content,
 			IsCustom:       isCustom,
@@ -224,8 +281,8 @@ func (d *DB) SaveProjectSkillContent(projectIDOrPath, skillID, content string) (
 
 	d.mu.Lock()
 	_, err := d.conn.Exec(`
-		INSERT INTO project_skills (project_id, skill_id, content, updated_at)
-		VALUES (?, ?, ?, ?)
+		INSERT INTO project_skills (project_id, skill_id, content, updated_at, mode)
+		VALUES (?, ?, ?, ?, '')
 		ON CONFLICT(project_id, skill_id) DO UPDATE SET content = excluded.content, updated_at = excluded.updated_at
 	`, projectID, stage.ID, content, time.Now().Format(time.RFC3339))
 	d.mu.Unlock()

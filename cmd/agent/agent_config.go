@@ -305,12 +305,47 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 func quoteShell(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 func agentCommandLine(provider, template, prompt string, contexts ...agentCommandContext) (string, error) {
+	return modeCommandLine(provider, template, prompt, models.SkillModeInteractive, contexts...)
+}
+
+// headlessCommandLine is the autonomous form of agentCommandLine. It covers only
+// the providers whose headless invocation this repository attests: claude -p,
+// codex exec, and vibe, which is already headless today. Guessing a flag for the
+// others is worse than refusing: an unsupported flag either fails opaquely or is
+// swallowed as prompt text. Adding a provider here is a one-line change once its
+// headless mode is verified.
+func headlessCommandLine(provider, prompt string) (string, error) {
+	switch provider {
+	case "claude":
+		return "claude -p " + quoteShell(prompt), nil
+	case "codex":
+		return "codex exec " + quoteShell(prompt), nil
+	case "vibe":
+		return "vibe -p " + quoteShell(prompt), nil
+	default:
+		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
+	}
+}
+
+// modeCommandLine builds the command line for one resolved mode. A configured
+// template still wins over the provider defaults, as it does today, but it owns
+// the mode: without a {mode:...|...} placeholder it can only run what its author
+// wrote, so an autonomous launch is refused rather than silently running the
+// template's own mode.
+func modeCommandLine(provider, template, prompt, mode string, contexts ...agentCommandContext) (string, error) {
+	autonomous := models.NormalizeSkillMode(mode) == models.SkillModeAutonomous
 	if strings.TrimSpace(template) != "" {
+		if autonomous && !templateCarriesMode(template) {
+			return "", fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively")
+		}
 		var launch agentCommandContext
 		if len(contexts) > 0 {
 			launch = contexts[0]
 		}
-		return expandAgentTemplate(template, launch.values(prompt))
+		return expandAgentTemplate(resolveTemplateMode(template, autonomous), launch.values(prompt))
+	}
+	if autonomous {
+		return headlessCommandLine(provider, prompt)
 	}
 	switch provider {
 	case "agy":
@@ -336,7 +371,9 @@ func sameDirectory(a, b string) bool {
 }
 
 // dispatchCommand distinguishes opening an interactive agent from running a skill.
-func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command string, contexts ...agentCommandContext) (string, error) {
+// mode is the execution mode the server resolved for this launch; an empty value
+// reads as interactive, which keeps an older server working.
+func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command, mode string, contexts ...agentCommandContext) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
 	live := func() (string, error) {
@@ -359,7 +396,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		if strings.TrimSpace(prompt) == "" {
 			return "", fmt.Errorf("custom instructions required")
 		}
-		return agentCommandLine(config.AIProvider, config.AICommandTemplate, "Sectile task: "+taskKey+"\n\n"+prompt, contexts...)
+		return modeCommandLine(config.AIProvider, config.AICommandTemplate, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
@@ -386,7 +423,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return agentCommandLine(config.AIProvider, config.AICommandTemplate, promptArg, contexts...)
+	return modeCommandLine(config.AIProvider, config.AICommandTemplate, promptArg, mode, contexts...)
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {
