@@ -138,7 +138,7 @@ func (d *DB) PostTaskComment(taskIDOrKey string, body string) ([]models.TaskComm
 		return d.getLocalComments(task.ID)
 	}
 
-	// AddTaskComment routes to the right CLI (acli, gh, linear) by source.
+	// AddTaskComment routes to the right CLI (acli, gh) by source.
 	if err := d.AddTaskComment(task.ID, body); err != nil {
 		return nil, err
 	}

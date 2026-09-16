@@ -13,7 +13,7 @@ export type Status =
   | 'to_validate'
   | 'done'
 
-export type TaskSource = 'linear' | 'github' | 'jira' | 'local'
+export type TaskSource = 'github' | 'jira' | 'local'
 
 export type TerminalDockPosition = 'bottom' | 'left' | 'right'
 
@@ -209,18 +209,12 @@ export interface Project {
   /** Étape du workflow agentique -> colonnes concernées (une ou plusieurs). */
   stageColumns?: Record<string, string[]>
   gitRemoteUrl?: string
-  linearTeam: string
   githubRepo: string
   /** Jira project key used as `acli --project`, e.g. "PE". */
   jiraProject?: string
   issueTracker: IssueTracker
-  /** Linear project URL, or the Jira base URL (e.g. https://acme.atlassian.net). */
+  /** Tracker project URL, or the Jira base URL (e.g. https://acme.atlassian.net). */
   trackerUrl?: string
-  /**
-   * "standard" for a delivery project, "personal" for a personal board. The
-   * daily digest is only served for a personal project.
-   */
-  projectType?: ProjectType
   isDefault: boolean
   taskCount?: number
   stageMapping?: Record<WorkflowStage, string>
@@ -442,7 +436,7 @@ export type Language = 'fr' | 'en'
 
 export type Density = 'compact' | 'standard' | 'comfortable'
 
-export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'digest' | 'skills' | 'team'
+export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'skills' | 'team'
 
 export type BoardGroupingMode = 'workflow' | 'status'
 
@@ -454,9 +448,7 @@ export type DetailMode = 'modal' | 'panel'
 
 export type AIProvider = 'agy' | 'vibe' | 'claude' | 'gemini' | 'codex' | 'cursor' | 'custom'
 
-export type IssueTracker = 'linear' | 'github' | 'jira' | 'local'
-
-export type ProjectType = 'standard' | 'personal'
+export type IssueTracker = 'github' | 'jira' | 'local'
 
 /**
  * Spec-Driven Design frameworks Sectile can scaffold into a project.
@@ -527,7 +519,6 @@ export interface UserSettings {
   aiCommandTemplate: string
   repoPath: string
   issueTracker: IssueTracker
-  linearTeam: string
   githubRepo: string
   jiraProject?: string
   jiraUrl?: string
@@ -542,11 +533,6 @@ export interface UserSettings {
   jiraApiTokenSet?: boolean
   /** Le jeton vient de SECTILE_JIRA_API_TOKEN et prime sur la base. */
   jiraApiTokenFromEnv?: boolean
-  /**
-   * Remplace le prompt d'agenda du digest quotidien. Vide garde celui d'origine.
-   * Marqueurs disponibles : {project}, {date}.
-   */
-  promptDigestAgenda?: string
   promptClarify: string
   promptSpecify: string
   promptImplement: string
@@ -559,53 +545,11 @@ export interface UserSettings {
   updatedAt: string
 }
 
-export interface DigestTaskRef {
-  key: string
-  title: string
-  status: Status
-  priority: Priority
-  issueType?: string
-  assignee?: string
-  parentKey?: string
-  parentTitle?: string
-  externalUrl?: string
-  branchName?: string
-  prUrl?: string
-  dueDate?: string
-  ageDays: number
-  isStale: boolean
-  /** The tracker did not expose real dates at sync time. */
-  datesUnknown?: boolean
-  daysToDue?: number
-}
-
-export interface DigestMacroGroup {
-  parentKey: string
-  parentTitle?: string
-  openCount: number
-  doneCount: number
-}
-export type DigestEpicGroup = DigestMacroGroup
-
-export interface DigestStats {
-  totalOpen: number
-  urgent: number
-  high: number
-  stale: number
-  overdue: number
-  awaitingReview: number
-  doneLast7Days: number
-  openDateUnknown: number
-  closedDateUnknown: number
-}
-
-/** Une valeur filtrable et le nombre de tickets derrière elle. */
 export interface TaskFacetValue {
   value: string
   count: number
 }
 
-/** Réponse de la vérification des accès au tracker. */
 export interface TrackerCheck {
   ok: boolean
   error?: string
@@ -614,7 +558,6 @@ export interface TrackerCheck {
   projects?: { id: string; name: string }[]
 }
 
-/** État de la boucle de synchronisation de fond. */
 export interface AutoSyncState {
   enabled: boolean
   intervalSec: number
@@ -625,35 +568,6 @@ export interface AutoSyncState {
   passes: number
   imported: number
   backoffUntil?: string
-}
-
-export type DigestAIStatus = 'none' | 'queued' | 'running' | 'completed' | 'failed'
-
-export interface DailyDigest {
-  projectId: string
-  projectName: string
-  date: string
-  /** Narrows the digest to one person; empty means the whole project. */
-  assignee: string
-  /** Every assignee present in the project's tasks, in the tracker's spelling. */
-  assignees?: string[]
-  focus: DigestTaskRef[]
-  watch: DigestTaskRef[]
-  stale: DigestTaskRef[]
-  dueSoon: DigestTaskRef[]
-  awaitingReview: DigestTaskRef[]
-  recentlyDone: DigestTaskRef[]
-  byMacro: DigestMacroGroup[]
-  byEpic: DigestMacroGroup[]
-  stats: DigestStats
-  /** Markdown agenda produced by the project's AI agent (meetings). */
-  agenda?: string
-  aiStatus: DigestAIStatus
-  aiError?: string
-  aiActivityId?: string
-  aiUpdatedAt?: string
-  markdown: string
-  generatedAt: string
 }
 
 export interface CliStatus {

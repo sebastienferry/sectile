@@ -38,7 +38,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	}
 	c := &agentconfig.Config{
 		Skills: []agentconfig.Skill{}, SchemaVersion: agentconfig.Version, ProjectID: p.ID, ProjectName: p.Name, Description: p.Description,
-		TrackerURL: p.TrackerUrl, LinearTeam: p.LinearTeam, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
+		TrackerURL: p.TrackerUrl, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
 		Parallelism: p.Parallelism, SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage,
 		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, ExternalTerminalCommand: p.ExternalTerminalCommand,
 		SetupProviders: models.NormalizeSetupProviders(p.SetupProviders),
@@ -62,9 +62,6 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	c.AICommandTemplate = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplate)
 	if c.ExternalTerminalCommand == "" {
 		c.ExternalTerminalCommand = s.ExternalTerminalCommand
-	}
-	if c.LinearTeam == "" {
-		c.LinearTeam = s.LinearTeam
 	}
 	if len(framework) > 0 && framework[0] != "" {
 		if !isKnownFrameworkAlias(framework[0]) {

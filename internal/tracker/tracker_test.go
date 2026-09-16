@@ -16,18 +16,12 @@ func TestCapabilitiesDifferPerTracker(t *testing.T) {
 		lacks  []Capability
 	}{
 		{
-			name:   "linear",
-			writer: NewLinearWriter(),
-			has:    []Capability{CapLabels},
-			// Sprint et équipe sont exactement ce que les autres trackers n'ont
-			// pas : c'est la raison d'être de cette interface.
-			lacks: []Capability{CapSprint, CapTeam, CapEpic, CapTransition},
-		},
-		{
 			name:   "github",
 			writer: NewGithubWriter(),
 			has:    []Capability{CapLabels, CapAssign},
-			lacks:  []Capability{CapSprint, CapTeam, CapEpic, CapTransition},
+			// Sprint et équipe sont exactement ce que ce tracker n'a pas :
+			// c'est la raison d'être de cette interface.
+			lacks: []Capability{CapSprint, CapTeam, CapEpic, CapTransition},
 		},
 	}
 
@@ -48,7 +42,7 @@ func TestCapabilitiesDifferPerTracker(t *testing.T) {
 }
 
 func TestUnsupportedNamesWhatIsMissing(t *testing.T) {
-	err := NewLinearWriter().SetSprint(context.Background(), "42", []string{"PROJ-1"})
+	err := NewGithubWriter().SetSprint(context.Background(), "42", []string{"PROJ-1"})
 	if err == nil {
 		t.Fatal("un tracker sans sprint doit refuser")
 	}
@@ -145,4 +139,3 @@ func TestBaseTicketingSystemFormatTaskID(t *testing.T) {
 		t.Errorf("expected KEY-1, got %s", id)
 	}
 }
-

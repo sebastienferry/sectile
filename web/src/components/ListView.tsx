@@ -416,25 +416,20 @@ export const ListView: React.FC = () => {
                 target="_blank"
                 rel="noreferrer"
                 className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono transition-all shadow-2xs hover:scale-105 ${
-                  task.source === "linear"
-                    ? "bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25 border border-indigo-500/30"
-                    : task.source === "github"
+                  task.source === "github"
                     ? "bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 border border-purple-500/30"
                     : task.source === "jira"
                     ? "bg-blue-500/15 text-blue-400 hover:bg-blue-500/25 border border-blue-500/30"
                     : "bg-[var(--accent-light)] text-[var(--accent-color)] hover:opacity-80"
                 }`}
                 title={
-                  task.source === "linear"
-                    ? `Ouvrir ${task.key} sur Linear`
-                    : task.source === "github"
+                  task.source === "github"
                     ? `Ouvrir ${task.key} sur GitHub`
                     : task.source === "jira"
                     ? `Ouvrir ${task.key} sur Jira`
                     : `Ouvrir ${task.key}`
                 }
               >
-                {task.source === "linear" && <span className="text-indigo-400">◆</span>}
                 {task.source === "github" && <FolderGit2 size={11} className="text-purple-400" />}
                 {task.source === "jira" && <span className="text-blue-400 font-sans font-black text-[9px]">J</span>}
                 <span>{task.key}</span>

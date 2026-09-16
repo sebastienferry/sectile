@@ -40,7 +40,6 @@ export const SyncView: React.FC = () => {
   const activeTracker: IssueTracker = currentProject?.issueTracker || 'local'
 
   // Local form state initialized from active project or fallback to global settings
-  const [linearTeam, setLinearTeam] = useState(currentProject?.linearTeam || settings.linearTeam || '')
   const [githubRepo, setGithubRepo] = useState(currentProject?.githubRepo || settings.githubRepo || '')
   const [jiraKey, setJiraKey] = useState(currentProject?.jiraProject || settings.jiraProject || '')
   const [repoPath, setRepoPath] = useState(currentProject?.repoPath || settings.repoPath || '')
@@ -48,19 +47,16 @@ export const SyncView: React.FC = () => {
   const [isSaved, setIsSaved] = useState(false)
 
   // Custom parameters for manual triggers on the active project
-  const [customLinearTeam, setCustomLinearTeam] = useState(currentProject?.linearTeam || settings.linearTeam || '')
   const [customGithubRepo, setCustomGithubRepo] = useState(currentProject?.githubRepo || settings.githubRepo || '')
   const [customJiraKey, setCustomJiraKey] = useState(currentProject?.jiraProject || settings.jiraProject || '')
 
   // Keep form updated when currentProject changes
   React.useEffect(() => {
     if (currentProject) {
-      setLinearTeam(currentProject.linearTeam || '')
       setGithubRepo(currentProject.githubRepo || '')
       setJiraKey(currentProject.jiraProject || '')
       setRepoPath(currentProject.repoPath || '')
       setIssueTracker(currentProject.issueTracker || 'local')
-      setCustomLinearTeam(currentProject.linearTeam || '')
       setCustomGithubRepo(currentProject.githubRepo || '')
       setCustomJiraKey(currentProject.jiraProject || '')
     }
@@ -70,7 +66,6 @@ export const SyncView: React.FC = () => {
     e.preventDefault()
     if (currentProject) {
       await updateProject(currentProject.id, {
-        linearTeam: linearTeam.trim().toUpperCase(),
         githubRepo: githubRepo.trim(),
         jiraProject: jiraKey.trim().toUpperCase(),
         repoPath: repoPath.trim(),
@@ -78,7 +73,6 @@ export const SyncView: React.FC = () => {
       })
     }
     await updateSettings({
-      linearTeam: linearTeam.trim().toUpperCase(),
       githubRepo: githubRepo.trim(),
       jiraProject: jiraKey.trim().toUpperCase(),
       repoPath: repoPath.trim(),
@@ -90,11 +84,10 @@ export const SyncView: React.FC = () => {
 
   // Filter activities that are sync related for this project
   const syncActivities = activities.filter(
-    a => (a.skillId === 'sync_linear' || a.skillId === 'sync_github' || a.skillId === 'sync_jira' || a.skillId === 'sync_all' || a.skillId.startsWith('sync')) &&
+    a => (a.skillId === 'sync_github' || a.skillId === 'sync_jira' || a.skillId === 'sync_all' || a.skillId.startsWith('sync')) &&
          (!currentProject || !a.projectId || a.projectId === currentProject.id)
   )
 
-  const linearCount = tasks.filter(t => t.source === 'linear').length
   const githubCount = tasks.filter(t => t.source === 'github').length
   const jiraCount = tasks.filter(t => t.source === 'jira').length
   const localCount = tasks.filter(t => !t.source || t.source === 'local').length
@@ -184,9 +177,7 @@ export const SyncView: React.FC = () => {
             >
               <Zap size={14} className={isSyncing ? 'animate-spin' : ''} />
               <span>
-                {activeTracker === 'linear'
-                  ? 'Synchroniser Linear'
-                  : activeTracker === 'github'
+                {activeTracker === 'github'
                   ? 'Synchroniser GitHub'
                   : activeTracker === 'jira'
                   ? 'Synchroniser Jira'
@@ -213,15 +204,13 @@ export const SyncView: React.FC = () => {
                     {tasks.length} tâches
                   </span>
                   <span className={`text-[10px] px-2 py-0.2 rounded-full font-bold uppercase ${
-                    activeTracker === 'linear'
-                      ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
-                      : activeTracker === 'github'
+                    activeTracker === 'github'
                       ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
                       : activeTracker === 'jira'
                       ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
                       : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
                   }`}>
-                    {activeTracker === 'linear' ? 'Linear' : activeTracker === 'github' ? 'GitHub Issues' : activeTracker === 'jira' ? 'Jira' : 'Local SQLite'}
+                    {activeTracker === 'github' ? 'GitHub Issues' : activeTracker === 'jira' ? 'Jira' : 'Local SQLite'}
                   </span>
                 </div>
                 <h3 className="text-sm font-bold text-[var(--text-primary)]">
@@ -229,7 +218,6 @@ export const SyncView: React.FC = () => {
                 </h3>
                 <p className="text-xs text-[var(--text-muted)] font-mono truncate max-w-lg">
                   {currentProject.repoPath || 'Dossier par défaut du projet'}
-                  {currentProject.linearTeam ? ` · Équipe Linear: ${currentProject.linearTeam}` : ''}
                   {currentProject.githubRepo ? ` · GitHub: ${currentProject.githubRepo}` : ''}
                   {currentProject.jiraProject ? ` · Jira: ${currentProject.jiraProject}` : ''}
                 </p>
@@ -250,34 +238,6 @@ export const SyncView: React.FC = () => {
         )}
 
         {/* Current Project Synchronization Card ONLY */}
-        {activeTracker === 'linear' && (
-          <div className="rounded-xl border border-indigo-500/40 bg-[var(--bg-secondary)] p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[var(--border-color)]">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-mono font-bold text-lg">
-                  ◆
-                </div>
-                <div>
-                  <h2 className="text-base font-bold text-[var(--text-primary)]">
-                    Synchronisation Linear
-                  </h2>
-                  <span className="text-xs text-emerald-400 flex items-center gap-1.5 font-medium">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Connecté à Linear · Équipe {customLinearTeam || currentProject?.linearTeam || 'Non définie'}
-                  </span>
-                </div>
-              </div>
-              <span className="text-xs px-2.5 py-1 rounded-md font-mono bg-indigo-500/15 text-indigo-300 font-bold border border-indigo-500/30">
-                {linearCount} issues synchronisées
-              </span>
-            </div>
-
-            <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Synchronise les tickets assignés à l'équipe Linear de ce projet. Les nouvelles issues, changements de statut et commentaires sont synchronisés automatiquement.
-            </p>
-          </div>
-        )}
-
         {activeTracker === 'github' && (
           <div className="rounded-xl border border-purple-500/40 bg-[var(--bg-secondary)] p-6 shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-[var(--border-color)]">
@@ -398,7 +358,6 @@ export const SyncView: React.FC = () => {
                   onChange={e => setIssueTracker(e.target.value as IssueTracker)}
                   className="w-full px-3 py-2 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 >
-                  <option value="linear">Linear (Équipe)</option>
                   <option value="github">GitHub Issues (Dépôt)</option>
                   <option value="jira">Jira (Clé Projet)</option>
                   <option value="local">Local uniquement (SQLite)</option>
@@ -406,24 +365,6 @@ export const SyncView: React.FC = () => {
               </div>
 
               {/* Conditional Tracker Parameter */}
-              {issueTracker === 'linear' && (
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
-                    Équipe Linear
-                  </label>
-                  <input
-                    type="text"
-                    value={linearTeam}
-                    onChange={e => {
-                      setLinearTeam(e.target.value)
-                      setCustomLinearTeam(e.target.value)
-                    }}
-                    placeholder="Ex: ENG, DEV, PROD"
-                    className="w-full px-3 py-2 text-xs font-mono rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] uppercase"
-                  />
-                </div>
-              )}
-
               {issueTracker === 'github' && (
                 <div>
                   <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-1.5">
@@ -534,9 +475,7 @@ export const SyncView: React.FC = () => {
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-7 h-7 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-color)] flex items-center justify-center shrink-0">
-                      {act.skillId === 'sync_linear' ? (
-                        <span className="text-indigo-400 font-bold font-mono text-xs">◆</span>
-                      ) : act.skillId === 'sync_github' ? (
+                      {act.skillId === 'sync_github' ? (
                         <FolderGit2 size={14} className="text-purple-400" />
                       ) : act.skillId === 'sync_jira' ? (
                         <span className="text-blue-400 font-bold text-xs">J</span>

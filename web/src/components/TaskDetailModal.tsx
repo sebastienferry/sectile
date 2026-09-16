@@ -439,18 +439,13 @@ export const TaskDetailModal: React.FC = () => {
         ? `https://github.com/${targetGithubRepo}/issues/${num}`
         : undefined
     }
-    if (source === 'linear' && externalUrl) {
-      const m = externalUrl.match(/^(https?:\/\/linear\.app\/[^/]+\/issue)\//)
-      return m ? `${m[1]}/${key}` : undefined
-    }
     return undefined
   }
 
   const taskUrl = externalUrl || trackerUrlForKey(selectedTask.key)
   const parentUrl = trackerUrlForKey(selectedTask.parentKey)
   const trackerName =
-    selectedTask.source === 'linear' ? 'Linear'
-    : selectedTask.source === 'github' ? 'GitHub'
+    selectedTask.source === 'github' ? 'GitHub'
     : selectedTask.source === 'jira' ? 'Jira'
     : 'le tracker'
 
@@ -460,7 +455,6 @@ export const TaskDetailModal: React.FC = () => {
    */
   const renderTaskRef = () => (
     <span className="font-mono text-sm font-bold text-[var(--accent-color)] bg-[var(--accent-light)] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shrink-0">
-      {selectedTask.source === 'linear' && <span className="text-indigo-400 font-bold font-mono">◆</span>}
       {selectedTask.source === 'github' && <FolderGit2 size={13} className="text-purple-400" />}
       {selectedTask.source === 'jira' && <span className="text-blue-400 font-sans font-black text-xs">J</span>}
       {(!selectedTask.source || selectedTask.source === 'local') && <Folder size={13} className="text-emerald-400" />}
@@ -1486,7 +1480,7 @@ export const TaskDetailModal: React.FC = () => {
                     }
                   }}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-                  title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Linear)"
+                  title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Jira)"
                 >
                   <RefreshCw size={12} className={`text-indigo-400 ${isSyncingTask ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">{isSyncingTask ? 'Sync...' : 'Sync'}</span>
@@ -1699,7 +1693,7 @@ export const TaskDetailModal: React.FC = () => {
                 }
               }}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-              title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Linear)"
+              title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Jira)"
             >
               <RefreshCw size={13} className={`text-indigo-400 ${isSyncingTask ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">{isSyncingTask ? 'Sync...' : 'Sync'}</span>

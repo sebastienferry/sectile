@@ -68,12 +68,12 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 
 	h := handlers.NewHandler(database)
 
-	// Create a test project with issueTracker="linear"
+	// Create a test project with issueTracker="github"
 	_, _ = database.CreateProject(models.CreateProjectRequest{
 		Name:         "Test Project",
 		Slug:         "test-proj",
-		IssueTracker: "linear",
-		LinearTeam:   "TEST",
+		IssueTracker: "github",
+		GithubRepo:   "acme/app",
 		RepoPath:     filepath.Join(tempDir, "repo"),
 	})
 
@@ -105,7 +105,7 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 		t.Errorf("Expected task.Title='Test Local Task', got '%s'", task.Title)
 	}
 
-	// 2. Create another task where source is omitted (should fallback to project tracker "linear")
+	// 2. Create another task where source is omitted (should fallback to project tracker "github")
 	taskBodyDefault := `{"title": "Default Project Tracker Task", "projectId": "test-proj"}`
 	req2, err := http.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(taskBodyDefault))
 	if err != nil {
@@ -119,7 +119,7 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 	if rr2.Code < 400 {
 		t.Fatalf("unconfigured remote creation succeeded: %d %s", rr2.Code, rr2.Body.String())
 	}
-	if !strings.Contains(rr2.Body.String(), "Linear issue creation failed") {
+	if !strings.Contains(rr2.Body.String(), "GitHub issue creation failed") {
 		t.Fatalf("remote error missing: %s", rr2.Body.String())
 	}
 

@@ -25,26 +25,17 @@ export interface TranslationSchema {
     localSource: string
     parents: string
     clearParentFilter: string
-    digest: string
     /** Bouton qui demande le brief du jour à l'agent du projet. */
     dailyBrief: string
     dailyBriefRunning: string
     settings: string
     reseedDemo: string
     toggleSidebar: string
-    syncLinear: string
     syncGithub: string
   }
   syncView: {
     title: string
     subtitle: string
-    linearCard: {
-      title: string
-      desc: string
-      teamLabel: string
-      btnSync: string
-      statusConnected: string
-    }
     githubCard: {
       title: string
       desc: string
@@ -62,7 +53,6 @@ export interface TranslationSchema {
       title: string
       desc: string
       defaultTracker: string
-      linearTeam: string
       githubRepo: string
       repoPath: string
       save: string
@@ -174,7 +164,6 @@ export interface TranslationSchema {
   convert: {
     bannerTitle: string
     bannerDesc: string
-    btnLinear: string
     btnGithub: string
     converting: string
     success: string
@@ -197,7 +186,6 @@ export interface TranslationSchema {
     changeLanguage: string
     openProfile: string
     reseed: string
-    syncLinear: string
     syncGithub: string
     tasksSection: string
     skillsSection: string
@@ -273,9 +261,7 @@ export interface TranslationSchema {
     tracker: {
       title: string
       selectTracker: string
-      linearTeam: string
       githubRepo: string
-      syncLinearBtn: string
       syncGithubBtn: string
     }
     save: string
@@ -411,25 +397,16 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       localSource: 'Local',
       parents: 'Macros / Parents',
       clearParentFilter: 'Retirer le filtre parent',
-      digest: 'Digest quotidien',
       dailyBrief: 'Brief du jour',
       dailyBriefRunning: 'Brief en cours…',
       settings: 'Profil & Préférences',
       reseedDemo: 'Réinitialiser démo',
       toggleSidebar: 'Replier / Déplier le menu',
-      syncLinear: 'Synchroniser Linear',
       syncGithub: 'Synchroniser GitHub',
     },
     syncView: {
       title: 'Centre de Synchronisation',
-      subtitle: 'Gérez l\'intégration bidirectionnelle avec Linear et GitHub. Les synchronisations s\'exécutent en arrière-plan sous forme de tâches dans vos Activités.',
-      linearCard: {
-        title: 'Synchronisation Linear',
-        desc: 'Importe et met à jour les tickets de votre équipe Linear avec leurs statuts, priorités et labels.',
-        teamLabel: 'Équipe Linear',
-        btnSync: 'Lancer la synchro Linear',
-        statusConnected: 'Linear CLI Connecté',
-      },
+      subtitle: 'Gérez l\'intégration bidirectionnelle avec GitHub et Jira. Les synchronisations s\'exécutent en arrière-plan sous forme de tâches dans vos Activités.',
       githubCard: {
         title: 'Synchronisation GitHub',
         desc: 'Importe les issues distantes depuis votre dépôt GitHub configuré via GitHub CLI (gh).',
@@ -440,14 +417,13 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       globalCard: {
         title: 'Synchronisation Globale',
-        desc: 'Exécute une synchronisation complète en file d\'attente sur tous vos trackers configurés (Linear + GitHub).',
+        desc: 'Exécute une synchronisation complète en file d\'attente sur tous vos trackers configurés (GitHub + Jira).',
         btnSync: 'Tout synchroniser',
       },
       options: {
         title: 'Options & Préférences de synchronisation',
         desc: 'Personnalisez les identifiants d\'équipe, dépôts par défaut et chemins locaux utilisés par les workers d\'arrière-plan.',
         defaultTracker: 'Tracker distant principal',
-        linearTeam: 'Clé d\'équipe Linear (Team Key)',
         githubRepo: 'Dépôt GitHub (owner/repo)',
         repoPath: 'Chemin du projet local (CWD)',
         save: 'Enregistrer les paramètres',
@@ -559,7 +535,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     convert: {
       bannerTitle: 'Tâche locale (non synchronisée)',
       bannerDesc: 'Cette tâche est enregistrée uniquement en local dans SQLite.',
-      btnLinear: 'Exporter vers Linear',
       btnGithub: 'Exporter vers GitHub',
       converting: 'Exportation vers le tracker distant...',
       success: 'Issue créée sur le tracker distant !',
@@ -582,7 +557,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       changeLanguage: 'Changer la langue (FR / EN)',
       openProfile: 'Ouvrir les Préférences & Profil',
       reseed: 'Réinitialiser la base de données de démo',
-      syncLinear: 'Synchroniser avec Linear CLI',
       syncGithub: 'Synchroniser avec GitHub CLI',
       tasksSection: 'Accès direct aux tâches',
       skillsSection: 'Skills Agentiques (/skills)',
@@ -593,11 +567,11 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     profileModal: {
       title: 'Configuration & Paramètres',
-      subtitle: 'Personnalisez le moteur IA (agy, vibe, claude), Linear/GitHub CLI et l\'apparence',
+      subtitle: 'Personnalisez le moteur IA (agy, claude, codex), GitHub/Jira et l\'apparence',
       tabs: {
         appearance: 'Apparence & Profil',
         aiConfig: 'Moteur IA & Prompts',
-        tracker: 'Linear & GitHub CLI',
+        tracker: 'GitHub & Jira',
       },
       userSection: 'Informations utilisateur',
       name: 'Nom d\'utilisateur',
@@ -658,9 +632,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       tracker: {
         title: 'Intégration Issue Tracker',
         selectTracker: 'Tracker Actif',
-        linearTeam: 'Clé d\'équipe Linear (Team Key)',
         githubRepo: 'Repository GitHub (owner/repo)',
-        syncLinearBtn: 'Importer & Synchroniser Linear',
         syncGithubBtn: 'Importer & Synchroniser GitHub',
       },
       save: 'Enregistrer la configuration',
@@ -794,25 +766,16 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       localSource: 'Local',
       parents: 'Macros / Parents',
       clearParentFilter: 'Clear parent filter',
-      digest: 'Daily digest',
       dailyBrief: 'Daily brief',
       dailyBriefRunning: 'Brief running…',
       settings: 'Profile & Preferences',
       reseedDemo: 'Reset Demo Data',
       toggleSidebar: 'Toggle Sidebar',
-      syncLinear: 'Sync Linear',
       syncGithub: 'Sync GitHub',
     },
     syncView: {
       title: 'Synchronization Hub',
-      subtitle: 'Manage bidirectional integration with Linear and GitHub. Sync executions run in the background as tasks in your Activities queue.',
-      linearCard: {
-        title: 'Linear Synchronization',
-        desc: 'Import and update issues from your Linear team with their workflow states, priorities, and labels.',
-        teamLabel: 'Linear Team',
-        btnSync: 'Run Linear Sync',
-        statusConnected: 'Linear CLI Connected',
-      },
+      subtitle: 'Manage bidirectional integration with GitHub and Jira. Sync executions run in the background as tasks in your Activities queue.',
       githubCard: {
         title: 'GitHub Synchronization',
         desc: 'Import remote issues from your configured GitHub repository using GitHub CLI (gh).',
@@ -823,14 +786,13 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       globalCard: {
         title: 'Global Synchronization',
-        desc: 'Run a full synchronization queue job across all configured remote trackers (Linear + GitHub).',
+        desc: 'Run a full synchronization queue job across all configured remote trackers (GitHub + Jira).',
         btnSync: 'Sync All Remote',
       },
       options: {
         title: 'Sync Settings & Preferences',
         desc: 'Configure team keys, default remote repositories, and workspace paths used by background sync workers.',
         defaultTracker: 'Primary Remote Tracker',
-        linearTeam: 'Linear Team Key',
         githubRepo: 'GitHub Repository (owner/repo)',
         repoPath: 'Local Project Path (CWD)',
         save: 'Save Sync Settings',
@@ -942,7 +904,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     convert: {
       bannerTitle: 'Local task (unsynced)',
       bannerDesc: 'This task is stored only in local SQLite.',
-      btnLinear: 'Export to Linear',
       btnGithub: 'Export to GitHub',
       converting: 'Exporting to remote tracker...',
       success: 'Issue created on remote tracker!',
@@ -965,7 +926,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       changeLanguage: 'Switch Language (FR / EN)',
       openProfile: 'Open Profile & Preferences',
       reseed: 'Reset Demo Database',
-      syncLinear: 'Sync with Linear CLI',
       syncGithub: 'Sync with GitHub CLI',
       tasksSection: 'Jump to Task',
       skillsSection: 'Agentic Skills (/skills)',
@@ -976,11 +936,11 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     profileModal: {
       title: 'Configuration & Settings',
-      subtitle: 'Configure AI engine (agy, vibe, claude), Linear/GitHub CLI and appearance',
+      subtitle: 'Configure AI engine (agy, claude, codex), GitHub/Jira and appearance',
       tabs: {
         appearance: 'Appearance & Profile',
         aiConfig: 'AI Engine & Prompts',
-        tracker: 'Linear & GitHub CLI',
+        tracker: 'GitHub & Jira',
       },
       userSection: 'User Information',
       name: 'User Name',
@@ -1041,9 +1001,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       tracker: {
         title: 'Issue Tracker Integration',
         selectTracker: 'Active Tracker',
-        linearTeam: 'Linear Team Key',
         githubRepo: 'GitHub Repository (owner/repo)',
-        syncLinearBtn: 'Import & Sync Linear',
         syncGithubBtn: 'Import & Sync GitHub',
       },
       save: 'Save Configuration',

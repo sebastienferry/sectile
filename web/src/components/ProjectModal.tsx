@@ -13,8 +13,6 @@ import {
   Workflow,
   Save,
   Trash2,
-  FolderGit2,
-  CalendarDays,
   Check,
   CheckCircle2,
   FileCode,
@@ -35,7 +33,6 @@ import { BoardColumnsEditor } from './BoardColumnsEditor'
 import type {
   AccentColor,
   IssueTracker,
-  ProjectType,
   ProjectSkillsStatus,
   WorkflowStage,
   DetectedStatus,
@@ -47,26 +44,22 @@ import type {
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 
-type ProjectTab = 'general' | 'git' | 'agent' | 'tracker' | 'skills'
+type ProjectTab = 'general' | 'agent' | 'workflow' | 'tracker' | 'skills'
 
 /** Concurrent execution workers ceiling per project, aligned with models.MaxParallelism. */
-const MAX_PARALLELISM = 5
-const PARALLELISM_CHOICES = Array.from({ length: MAX_PARALLELISM }, (_, i) => i + 1)
+const MAX_PARALLELISM = 10
 
 const TABS: { id: ProjectTab; label: string; icon: React.FC<{ size?: number; className?: string }> }[] = [
   { id: 'general', label: 'Général', icon: Folder },
-  { id: 'git', label: 'Repository', icon: GitBranch },
   { id: 'tracker', label: 'Tracker', icon: Sliders },
-  { id: 'agent', label: 'Agent IA & CLI', icon: Bot },
+  { id: 'agent', label: 'Agent settings', icon: Bot },
+  { id: 'workflow', label: 'Agentic workflow', icon: Workflow },
   { id: 'skills', label: 'Compétences IA & SDD', icon: Sparkles },
 ]
 
 const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: string; icon: string }[] = [
   { id: 'agy', label: 'AGY CLI (Google Antigravity)', sub: 'Agent autonome DeepMind & outils natifs', defaultCmd: 'agy --dangerously-skip-permissions -p "{prompt}"', icon: '🤖' },
   { id: 'claude', label: 'Claude Code CLI (Anthropic)', sub: 'Agent Terminal Claude 3.7 Sonnet', defaultCmd: 'claude --dangerously-skip-permissions -p "{prompt}"', icon: '🧠' },
-  { id: 'vibe', label: 'Mistral Vibe', sub: 'CLI Agentic Mistral Open Source', defaultCmd: 'vibe -p "{prompt}" --auto-approve', icon: '⚡' },
-  { id: 'gemini', label: 'Gemini Code Assist CLI', sub: 'Google Cloud Gemini CLI', defaultCmd: 'gemini -p "{prompt}"', icon: '✨' },
-  { id: 'cursor', label: 'Cursor Agent CLI', sub: 'Cursor Editor Agent Headless', defaultCmd: 'cursor agent -p "{prompt}"', icon: '📐' },
   { id: 'codex', label: 'Codex', sub: 'Codex CLI', defaultCmd: "codex --approve-for-me '{prompt}'", icon: '💻' },
   { id: 'custom', label: 'Commande Personnalisée', sub: 'Modèle de commande arbitraire', defaultCmd: '{prompt}', icon: '⚙️' },
 ]
@@ -160,7 +153,6 @@ export const ProjectModal: React.FC = () => {
   const [description, setDescription] = useState('')
   const [icon, setIcon] = useState('Folder')
   const [color, setColor] = useState<AccentColor>(DEFAULT_PROJECT_ACCENT)
-  const [projectType, setProjectType] = useState<ProjectType>('standard')
   const [isDefault, setIsDefault] = useState(false)
 
   // Section 2: Git (Local path, URL distante git@..., init git)
@@ -196,10 +188,9 @@ export const ProjectModal: React.FC = () => {
 
   const [, setSddResult] = useState<SpecFrameworkInstallResult | null>(null)
 
-  // Section 5: Tracker (Type, pas de défaut, URL, Clef, Mapping)
-  const [issueTracker, setIssueTracker] = useState<IssueTracker>('linear')
+  // Section 5: Tracker (Type, URL, Clef, Mapping)
+  const [issueTracker, setIssueTracker] = useState<IssueTracker>('local')
   const [trackerUrl, setTrackerUrl] = useState('')
-  const [linearTeam, setLinearTeam] = useState('')
   const [githubRepo, setGithubRepo] = useState('')
   const [jiraProject, setJiraProject] = useState('')
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
@@ -223,14 +214,12 @@ export const ProjectModal: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false)
 
 
-  const fetchDetectedStatuses = async (team?: string, tracker?: IssueTracker, ghRepo?: string) => {
+  const fetchDetectedStatuses = async (tracker?: IssueTracker, ghRepo?: string) => {
     setIsDetectingStatuses(true)
     try {
-      const targetTeam = team !== undefined ? team : linearTeam
       const targetTracker = tracker !== undefined ? tracker : issueTracker
       const targetRepo = ghRepo !== undefined ? ghRepo : (githubRepo || extractGithubRepoFromGitUrl(gitRemoteUrl))
       const params = new URLSearchParams()
-      if (targetTeam) params.append('team', targetTeam)
       if (targetTracker) params.append('tracker', targetTracker)
       if (targetRepo) params.append('repo', targetRepo)
       if (editingProject) params.append('projectId', editingProject.id)
@@ -254,7 +243,6 @@ export const ProjectModal: React.FC = () => {
       setDescription(editingProject.description || '')
       setIcon(editingProject.icon || 'Folder')
       setColor(normalizeAccentColor(editingProject.color) ?? DEFAULT_PROJECT_ACCENT)
-      setProjectType(editingProject.projectType === 'personal' ? 'personal' : 'standard')
       setIsDefault(editingProject.isDefault || false)
 
       setRepoPath(editingProject.repoPath || '')
@@ -274,9 +262,8 @@ export const ProjectModal: React.FC = () => {
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
-      setIssueTracker(editingProject.issueTracker || 'linear')
+      setIssueTracker(editingProject.issueTracker || 'local')
       setTrackerUrl(editingProject.trackerUrl || '')
-      setLinearTeam(editingProject.linearTeam || '')
       setGithubRepo(editingProject.githubRepo || '')
       setJiraProject(editingProject.jiraProject || '')
       setIssueTypes(editingProject.issueTypes || [])
@@ -288,7 +275,7 @@ export const ProjectModal: React.FC = () => {
       setSkillOverrides(editingProject.skillOverrides || {})
 
 
-      fetchDetectedStatuses(editingProject.linearTeam, editingProject.issueTracker, editingProject.githubRepo)
+      fetchDetectedStatuses(editingProject.issueTracker, editingProject.githubRepo)
       // Types réellement exposés par le projet Jira : sans eux, le réglage se
       // ferait à l'aveugle, et c'est justement là que se cache un projet qui ne
       // ramène rien.
@@ -321,9 +308,8 @@ export const ProjectModal: React.FC = () => {
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
 
-      setIssueTracker('linear')
+      setIssueTracker('local')
       setTrackerUrl('')
-      setLinearTeam('')
       setGithubRepo('')
       setJiraProject('')
       setStageMapping(DEFAULT_STAGE_MAPPING)
@@ -331,7 +317,7 @@ export const ProjectModal: React.FC = () => {
       setSkillsStatus(null)
       setSddStatuses([])
       setSddResult(null)
-      fetchDetectedStatuses('', 'linear', '')
+      fetchDetectedStatuses('local', '')
     }
     setActiveTab('general')
   }, [editingProject, isProjectModalOpen, settings.specFramework])
@@ -383,7 +369,6 @@ export const ProjectModal: React.FC = () => {
         description: description.trim(),
         icon,
         color,
-        projectType,
         isDefault,
         repoPath: repoPath.trim(),
         prCreationStage,
@@ -400,7 +385,6 @@ export const ProjectModal: React.FC = () => {
         autoSyncIntervalMin,
         issueTracker,
         trackerUrl: trackerUrl.trim(),
-        linearTeam: linearTeam.trim().toUpperCase(),
         githubRepo: computedGithubRepo,
         jiraProject: jiraProject.trim().toUpperCase(),
         issueTypes,
@@ -496,7 +480,7 @@ export const ProjectModal: React.FC = () => {
               >
                 <Icon size={14} className={isSel ? 'text-[var(--accent-color)]' : 'text-[var(--text-muted)]'} />
                 <span>{tab.label}</span>
-                {tab.id === 'git' && skillsStatus && (
+                {tab.id === 'general' && skillsStatus && (
                   <span className={`w-2 h-2 rounded-full ${skillsStatus.isGitRepo ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                 )}
                 {tab.id === 'agent' && useCustomAgent && (
@@ -522,206 +506,148 @@ export const ProjectModal: React.FC = () => {
         {/* Form Body by Tab */}
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
           {/* ========================================================= */}
-          {/* SECTION 1: GÉNÉRAL (Titre, description, icône, couleur, défaut) */}
+          {/* SECTION 1: GÉNÉRAL (Identité, apparence, dépôt Git)        */}
           {/* ========================================================= */}
           {activeTab === 'general' && (
-            <div className="space-y-3.5 animate-in fade-in duration-150">
-              {/* Titre */}
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  Titre du Projet *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={e => handleNameChange(e.target.value)}
-                  placeholder="Ex: Mon Projet, Mobile App, Backend API..."
-                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
-                />
-              </div>
+            <div className="space-y-4 animate-in fade-in duration-150">
+              {/* Identité à gauche, apparence à droite */}
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_260px] gap-4 items-start">
+                {/* Colonne gauche : titre, description, slug, projet par défaut */}
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Titre du Projet *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={e => handleNameChange(e.target.value)}
+                      placeholder="Ex: Mon Projet, Mobile App, Backend API..."
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
+                    />
+                  </div>
 
-              {/* Description */}
-              <div>
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                  Description
-                </label>
-                <input
-                  type="text"
-                  value={description}
-                  onChange={e => setDescription(e.target.value)}
-                  placeholder="Ex: Application principale Web et backend Go..."
-                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                />
-              </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Description
+                    </label>
+                    <input
+                      type="text"
+                      value={description}
+                      onChange={e => setDescription(e.target.value)}
+                      placeholder="Ex: Application principale Web et backend Go..."
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                    />
+                  </div>
 
-              {/* Icon & Color Selector */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                    Icône
-                  </label>
-                  <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
-                    {AVAILABLE_ICONS.map(({ name: iconName, Icon }) => {
-                      const isSel = icon === iconName
-                      return (
-                        <button
-                          key={iconName}
-                          type="button"
-                          onClick={() => setIcon(iconName)}
-                          className={`p-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-                            isSel
-                              ? 'bg-[var(--accent-color)] text-white shadow-sm scale-105'
-                              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]'
-                          }`}
-                          title={iconName}
-                        >
-                          <Icon size={15} />
-                        </button>
-                      )
-                    })}
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Identifiant / Slug
+                    </label>
+                    <input
+                      type="text"
+                      value={slug}
+                      onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}
+                      placeholder="mon-projet"
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="isDefault"
+                      checked={isDefault}
+                      onChange={e => setIsDefault(e.target.checked)}
+                      className="rounded border-[var(--border-color)] text-[var(--accent-color)] focus:ring-[var(--accent-color)] cursor-pointer"
+                    />
+                    <label htmlFor="isDefault" className="text-xs text-[var(--text-primary)] cursor-pointer font-medium">
+                      Définir comme projet par défaut
+                    </label>
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                    {t.profileModal.accentColor}
-                  </label>
-                  <div className="grid grid-cols-6 gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
-                    {ACCENT_COLORS.map(c => {
-                      const isSel = color === c.name
-                      return (
-                        <button
-                          key={c.name}
-                          type="button"
-                          onClick={() => setColor(c.name)}
-                          className={`h-6 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
-                            isSel ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-105 shadow-sm' : 'opacity-80 hover:opacity-100'
-                          }`}
-                          style={{ backgroundColor: c.hex }}
-                          title={t.profileModal.accents[c.name] || c.label}
-                        >
-                          {isSel && <Check size={11} className="text-white drop-shadow" />}
-                        </button>
-                      )
-                    })}
+                {/* Colonne droite : icône et couleur d'accent */}
+                <div className="space-y-3.5">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                      Icône
+                    </label>
+                    <div className="flex flex-wrap gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
+                      {AVAILABLE_ICONS.map(({ name: iconName, Icon }) => {
+                        const isSel = icon === iconName
+                        return (
+                          <button
+                            key={iconName}
+                            type="button"
+                            onClick={() => setIcon(iconName)}
+                            className={`p-1.5 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                              isSel
+                                ? 'bg-[var(--accent-color)] text-white shadow-sm scale-105'
+                                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)]'
+                            }`}
+                            title={iconName}
+                          >
+                            <Icon size={15} />
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                      {t.profileModal.accentColor}
+                    </label>
+                    <div className="grid grid-cols-6 gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
+                      {ACCENT_COLORS.map(c => {
+                        const isSel = color === c.name
+                        return (
+                          <button
+                            key={c.name}
+                            type="button"
+                            onClick={() => setColor(c.name)}
+                            className={`h-6 rounded-lg flex items-center justify-center transition-all cursor-pointer ${
+                              isSel ? 'ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-secondary)] scale-105 shadow-sm' : 'opacity-80 hover:opacity-100'
+                            }`}
+                            style={{ backgroundColor: c.hex }}
+                            title={t.profileModal.accents[c.name] || c.label}
+                          >
+                            {isSel && <Check size={11} className="text-white drop-shadow" />}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Type de projet : le digest quotidien n'existe que sur un projet personnel */}
-              <div className="pt-2">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Type de projet
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  {([
-                    {
-                      id: 'standard' as ProjectType,
-                      label: 'Projet de delivery',
-                      desc: 'Board partagé, workflow SDD complet',
-                      Icon: FolderGit2,
-                    },
-                    {
-                      id: 'personal' as ProjectType,
-                      label: 'Projet personnel',
-                      desc: 'Board perso, active le Digest quotidien',
-                      Icon: CalendarDays,
-                    },
-                  ]).map(opt => {
-                    const isSel = projectType === opt.id
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setProjectType(opt.id)}
-                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
-                          isSel
-                            ? 'border-[var(--accent-color)] bg-[var(--accent-light)]'
-                            : 'border-[var(--border-color)] bg-[var(--bg-tertiary)] hover:border-[var(--accent-color)]/50'
-                        }`}
-                      >
-                        <opt.Icon size={14} className={`mt-0.5 shrink-0 ${isSel ? 'text-[var(--accent-color)]' : 'text-[var(--text-muted)]'}`} />
-                        <span className="min-w-0">
-                          <span className={`block text-xs font-semibold ${isSel ? 'accent-text' : 'text-[var(--text-primary)]'}`}>
-                            {opt.label}
-                          </span>
-                          <span className="block text-[10px] text-[var(--text-muted)] leading-snug">
-                            {opt.desc}
-                          </span>
-                        </span>
-                      </button>
-                    )
-                  })}
+              {/* Dépôt Git : l'adresse distante suffit, le clone local est géré par l'agent */}
+              <div className="pt-3 border-t border-[var(--border-color)] space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <GitBranch size={13} className="text-[var(--accent-color)]" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                    Dépôt Git
+                  </span>
                 </div>
-              </div>
-
-              {/* Slug & Projet par défaut */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                    Identifiant / Slug
+                  <label htmlFor="gitRemoteUrl" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                    Git remote URL
                   </label>
                   <input
+                    id="gitRemoteUrl"
                     type="text"
-                    value={slug}
-                    onChange={e => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, '-'))}
-                    placeholder="mon-projet"
+                    value={gitRemoteUrl}
+                    onChange={e => setGitRemoteUrl(e.target.value)}
+                    placeholder="git@github.com:owner/repository.git"
                     className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                   />
                 </div>
-
-                <div className="flex items-center gap-2 pt-4">
-                  <input
-                    type="checkbox"
-                    id="isDefault"
-                    checked={isDefault}
-                    onChange={e => setIsDefault(e.target.checked)}
-                    className="rounded border-[var(--border-color)] text-[var(--accent-color)] focus:ring-[var(--accent-color)] cursor-pointer"
-                  />
-                  <label htmlFor="isDefault" className="text-xs text-[var(--text-primary)] cursor-pointer font-medium">
-                    Définir comme projet par défaut
-                  </label>
-                </div>
+                <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  Local repositories and execution consoles are managed in the desktop agent.
+                </p>
               </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* SECTION 2: GIT (Chemin Local CWD, Remote URL, Init Git)   */}
-          {/* ========================================================= */}
-          {activeTab === 'git' && (
-            <div className="space-y-4 animate-in fade-in duration-150">
-              <div>
-                <label htmlFor="gitRemoteUrl" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Git remote URL
-                </label>
-                <input
-                  id="gitRemoteUrl"
-                  type="text"
-                  value={gitRemoteUrl}
-                  onChange={e => setGitRemoteUrl(e.target.value)}
-                  placeholder="git@github.com:owner/repository.git"
-                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                />
-              </div>
-              <div>
-                <label htmlFor="prCreationStage" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Create PR/MR
-                </label>
-                <select
-                  id="prCreationStage"
-                  value={prCreationStage}
-                  onChange={e => setPRCreationStage(e.target.value as 'specified' | 'implemented')}
-                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                >
-                  <option value="implemented">Draft after implementation</option>
-                  <option value="specified">Draft after specification</option>
-                </select>
-              </div>
-              <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
-                Local repositories and execution consoles are managed in the desktop agent.
-              </p>
             </div>
           )}
 
@@ -742,7 +668,7 @@ export const ProjectModal: React.FC = () => {
                         Moteur IA & Ligne de Commande pour ce Projet
                       </span>
                       <span className="text-[10px] text-[var(--text-muted)] block">
-                        Personnalisez le CLI utilisé (AGY, Claude Code, Vibe, Cursor...) et les options de prompt pour ce dépôt.
+                        Personnalisez le CLI utilisé (AGY, Claude Code, Codex...) et les options de prompt pour ce dépôt.
                       </span>
                     </div>
                   </div>
@@ -805,7 +731,7 @@ export const ProjectModal: React.FC = () => {
                             type="button"
                             onClick={() => {
                               setAiProvider(p.id)
-                              if (!aiCommandTemplate || aiCommandTemplate.startsWith('agy') || aiCommandTemplate.startsWith('claude') || aiCommandTemplate.startsWith('vibe') || aiCommandTemplate.startsWith('gemini') || aiCommandTemplate.startsWith('cursor')) {
+                              if (!aiCommandTemplate || aiCommandTemplate.startsWith('agy') || aiCommandTemplate.startsWith('claude') || aiCommandTemplate.startsWith('codex')) {
                                 setAiCommandTemplate(p.defaultCmd)
                               }
                             }}
@@ -859,9 +785,7 @@ export const ProjectModal: React.FC = () => {
                         { label: 'agy --dangerously-skip-permissions -p "{prompt}"', cmd: 'agy --dangerously-skip-permissions -p "{prompt}"' },
                         { label: 'agy -i "{prompt}"', cmd: 'agy -i "{prompt}"' },
                         { label: 'claude --dangerously-skip-permissions -p "{prompt}"', cmd: 'claude --dangerously-skip-permissions -p "{prompt}"' },
-                        { label: 'vibe -p "{prompt}" --auto-approve', cmd: 'vibe -p "{prompt}" --auto-approve' },
-                        { label: 'gemini -p "{prompt}"', cmd: 'gemini -p "{prompt}"' },
-                        { label: 'cursor agent -p "{prompt}"', cmd: 'cursor agent -p "{prompt}"' },
+                        { label: 'codex --approve-for-me \'{prompt}\'', cmd: "codex --approve-for-me '{prompt}'" },
                       ].map(pr => (
                         <button
                           key={pr.cmd}
@@ -937,100 +861,79 @@ export const ProjectModal: React.FC = () => {
                 <p className="text-xs text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
                 <label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={useWorktrees} onChange={e=>setUseWorktrees(e.target.checked)} />Use a worktree for each task</label>
               </div>
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
-                      <Layers size={16} />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-[var(--text-primary)] block">
-                        Parallel executions per local agent
-                      </span>
-                      <span className="text-[10px] text-[var(--text-muted)] block">
-                        {useWorktrees ? `Project default: 1 to ${MAX_PARALLELISM} concurrent executions. Additional tasks wait in the local queue.` : 'Without worktrees, executions are limited to one.'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 bg-[var(--bg-secondary)] p-1 rounded-xl border border-[var(--border-color)] self-start sm:self-auto shrink-0">
-                    {PARALLELISM_CHOICES.map(val => (
-                      <button
-                        key={val}
-                        type="button"
-                        disabled={!useWorktrees}
-                        onClick={() => setParallelism(val)}
-                        className={`px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer ${
-                          (useWorktrees ? parallelism : 1) === val
-                            ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                        }`}
-                      >
-                        {val} {val === 1 ? 'worker' : 'workers'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Section Synchronisation en arrière-plan */}
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/20">
-                      <RefreshCw size={16} />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-[var(--text-primary)] block">
-                        Synchronisation en arrière-plan
-                      </span>
-                      <span className="text-[10px] text-[var(--text-muted)] block">
-                        Génère automatiquement des tâches de synchronisation en file d'attente pour les tickets non terminés de ce projet.
-                      </span>
-                    </div>
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
+                    <Layers size={16} />
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={autoSyncEnabled}
-                    onClick={() => setAutoSyncEnabled(v => !v)}
-                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
-                      autoSyncEnabled ? 'bg-[var(--accent-color)]' : 'bg-[var(--border-color)]'
-                    }`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                        autoSyncEnabled ? 'translate-x-4' : 'translate-x-0'
-                      }`}
-                    />
-                  </button>
+                  <div>
+                    <span className="text-xs font-bold text-[var(--text-primary)] block">
+                      Parallel executions per local agent
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)] block">
+                      {useWorktrees ? `Project default: 1 to ${MAX_PARALLELISM} concurrent executions. Additional tasks wait in the local queue.` : 'Without worktrees, executions are limited to one.'}
+                    </span>
+                  </div>
                 </div>
 
-                {autoSyncEnabled && (
-                  <div className="pt-2 border-t border-[var(--border-color)] space-y-1.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-[var(--text-secondary)] font-medium">Période de synchronisation :</span>
-                      <span className="font-mono font-bold text-[var(--accent-color)]">{autoSyncIntervalMin} min</span>
-                    </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={30}
-                      value={autoSyncIntervalMin}
-                      onChange={e => setAutoSyncIntervalMin(parseInt(e.target.value, 10) || 5)}
-                      className="w-full h-1.5 bg-[var(--bg-primary)] rounded-lg appearance-none cursor-pointer accent-[var(--accent-color)]"
-                    />
-                    <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
-                      <span>1 min</span>
-                      <span>15 min</span>
-                      <span>30 min</span>
-                    </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[var(--text-secondary)] font-medium">Exécutions simultanées :</span>
+                    <span className="font-mono font-bold text-[var(--accent-color)]">
+                      {useWorktrees ? parallelism : 1} {(useWorktrees ? parallelism : 1) === 1 ? 'worker' : 'workers'}
+                    </span>
                   </div>
-                )}
+                  <input
+                    type="range"
+                    min={1}
+                    max={MAX_PARALLELISM}
+                    step={1}
+                    disabled={!useWorktrees}
+                    value={useWorktrees ? parallelism : 1}
+                    onChange={e => setParallelism(parseInt(e.target.value, 10) || 1)}
+                    className="w-full h-1.5 bg-[var(--bg-primary)] rounded-lg appearance-none cursor-pointer accent-[var(--accent-color)] disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
+                    <span>1</span>
+                    <span>{Math.round(MAX_PARALLELISM / 2)}</span>
+                    <span>{MAX_PARALLELISM}</span>
+                  </div>
+                </div>
               </div>
 
-              {/* TTY Terminal Mode Setting */}
+            </div>
+          )}
 
+          {/* ========================================================= */}
+          {/* SECTION 3B: AGENTIC WORKFLOW (PR/MR, mapping des statuts) */}
+          {/* ========================================================= */}
+          {activeTab === 'workflow' && (
+            <div className="space-y-4 animate-in fade-in duration-150">
+              {/* Étape à laquelle l'agent ouvre la Pull/Merge Request */}
+              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[var(--accent-light)] accent-text flex items-center justify-center shrink-0 border border-[var(--accent-color)]/30">
+                    <GitBranch size={16} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-[var(--text-primary)] block">
+                      Create PR/MR
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)] block">
+                      Étape du workflow à laquelle l'agent ouvre la Pull/Merge Request en brouillon.
+                    </span>
+                  </div>
+                </div>
+                <select
+                  id="prCreationStage"
+                  value={prCreationStage}
+                  onChange={e => setPRCreationStage(e.target.value as 'specified' | 'implemented')}
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                >
+                  <option value="implemented">Draft after implementation</option>
+                  <option value="specified">Draft after specification</option>
+                </select>
+              </div>
 
               {/* Stage Mapping Table Card */}
               <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2.5">
@@ -1054,7 +957,7 @@ export const ProjectModal: React.FC = () => {
                       disabled={isDetectingStatuses}
                       onClick={() => fetchDetectedStatuses()}
                       className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent-color)] hover:bg-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50"
-                      title="Scanner Linear / GitHub / Base pour détecter les statuts réels"
+                      title="Scanner GitHub / Jira / Base pour détecter les statuts réels"
                     >
                       <RefreshCw size={10} className={isDetectingStatuses ? 'animate-spin text-[var(--accent-color)]' : 'text-cyan-400'} />
                       <span>{isDetectingStatuses ? 'Scan...' : 'Auto-détecter'}</span>
@@ -1228,7 +1131,7 @@ export const ProjectModal: React.FC = () => {
           )}
 
           {/* ========================================================= */}
-          {/* SECTION 4: TRACKER (Linear, GitHub, Jira, Stage Mapping) */}
+          {/* SECTION 4: TRACKER (Sectile local, GitHub, Jira)          */}
           {/* ========================================================= */}
           {activeTab === 'tracker' && (
             <div className="space-y-3.5 animate-in fade-in duration-150">
@@ -1242,33 +1145,23 @@ export const ProjectModal: React.FC = () => {
                   onChange={e => {
                     const newTrk = e.target.value as IssueTracker
                     setIssueTracker(newTrk)
-                    fetchDetectedStatuses(undefined, newTrk)
+                    fetchDetectedStatuses(newTrk)
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
                 >
                   <option value="local">Sectile (Local)</option>
                   <option value="github">GitHub Issues</option>
-                  <option value="linear">Linear</option>
                 </select>
               </div>
 
               {/* Panneau d'information & fonctionnalités supportées par le tracker */}
               <div className="p-3 rounded-xl bg-[var(--bg-tertiary)]/50 border border-[var(--border-color)] space-y-2.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
-                    <Info size={13} className="text-[var(--accent-color)]" />
-                    <span>
-                      {issueTracker === 'local' && 'Sectile (Stockage Local)'}
-                      {issueTracker === 'github' && 'GitHub Issues'}
-                      {issueTracker === 'linear' && 'Linear'}
-                      {issueTracker === 'jira' && 'Jira'}
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-muted)]">
-                    {issueTracker === 'local' && '⚡ 100% Hors-ligne'}
-                    {issueTracker === 'github' && '🐙 CLI gh'}
-                    {issueTracker === 'linear' && '📐 CLI linear'}
-                    {issueTracker === 'jira' && '📋 Jira API'}
+                <div className="flex items-center gap-1.5 font-semibold text-[var(--text-primary)]">
+                  <Info size={13} className="text-[var(--accent-color)]" />
+                  <span>
+                    {issueTracker === 'local' && 'Sectile (Stockage Local)'}
+                    {issueTracker === 'github' && 'GitHub Issues'}
+                    {issueTracker === 'jira' && 'Jira'}
                   </span>
                 </div>
 
@@ -1277,8 +1170,6 @@ export const ProjectModal: React.FC = () => {
                     'Stockage direct en base SQLite locale. Idéal pour travailler hors-ligne avec toutes les capacités des agents et de gestion de branches.'}
                   {issueTracker === 'github' &&
                     'Synchronisation bidirectionnelle via la CLI GitHub. Les statuts du workflow sont reflétés par des labels (#new, #clarified, #specified, etc.) et l’état Open/Closed.'}
-                  {issueTracker === 'linear' &&
-                    'Intégration complète avec vos équipes et statuts Linear via la CLI Linear (transitions natives, labels et assignations).'}
                   {issueTracker === 'jira' &&
                     'Intégration avec les projets Jira Software via l’API Atlassian.'}
                 </p>
@@ -1343,35 +1234,6 @@ export const ProjectModal: React.FC = () => {
                     </>
                   )}
 
-                  {issueTracker === 'linear' && (
-                    <>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Sync Tickets & Équipes</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Transitions de statuts</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Labels & Tags d'équipe</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Assignations</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Cycles & Projets</span>
-                      </div>
-                      <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
-                        <CheckCircle2 size={11} className="shrink-0" />
-                        <span>Commentaires</span>
-                      </div>
-                    </>
-                  )}
-
                   {issueTracker === 'jira' && (
                     <>
                       <div className="flex items-center gap-1 text-[10.5px] text-emerald-400 font-medium">
@@ -1405,28 +1267,6 @@ export const ProjectModal: React.FC = () => {
 
               {/* Team Key & Github Repo inputs */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {issueTracker === 'linear' && (
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Préfixe / Équipe Linear
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={linearTeam}
-                        onChange={e => {
-                          const val = e.target.value.toUpperCase()
-                          setLinearTeam(val)
-                          fetchDetectedStatuses(val)
-                        }}
-                        placeholder="Ex: ENG, PROD, API..."
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono uppercase focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Key size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
-                  </div>
-                )}
-
                 {issueTracker === 'github' && (
                   <div>
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
@@ -1438,7 +1278,7 @@ export const ProjectModal: React.FC = () => {
                         value={githubRepo}
                         onChange={e => {
                           setGithubRepo(e.target.value)
-                          fetchDetectedStatuses(undefined, 'github', e.target.value)
+                          fetchDetectedStatuses('github', e.target.value)
                         }}
                         placeholder="owner/nom-du-repo"
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
@@ -1460,7 +1300,7 @@ export const ProjectModal: React.FC = () => {
                         onChange={e => {
                           const val = e.target.value.toUpperCase()
                           setJiraProject(val)
-                          fetchDetectedStatuses(undefined, 'jira')
+                          fetchDetectedStatuses('jira')
                         }}
                         placeholder="Ex: PE, ENG, OPS..."
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono uppercase focus:outline-none focus:border-[var(--accent-color)]"
@@ -1536,7 +1376,7 @@ export const ProjectModal: React.FC = () => {
                       type="text"
                       value={trackerUrl}
                       onChange={e => setTrackerUrl(e.target.value)}
-                      placeholder={issueTracker === 'jira' ? 'https://mon-org.atlassian.net' : 'https://linear.app/team/project/...'}
+                      placeholder={issueTracker === 'jira' ? 'https://mon-org.atlassian.net' : 'https://github.com/owner/repository'}
                       className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                     />
                     <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -1613,7 +1453,6 @@ export const ProjectModal: React.FC = () => {
                   issueTracker={issueTracker}
                   githubRepo={githubRepo}
                   repoPath={repoPath}
-                  linearTeam={linearTeam}
                 />
               </div>
             </div>

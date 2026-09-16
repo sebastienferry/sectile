@@ -20,7 +20,7 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `schemaVersion` | Must be `1`. Unsupported versions stop preparation. |
 | `projectId`, `projectName`, `description` | Identity and project context. The ID must match an explicit project request. |
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
-| `githubRepo`, `issueTracker`, `trackerUrl`, `linearTeam`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
+| `githubRepo`, `issueTracker`, `trackerUrl`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
 | `useWorktrees` | Create/reuse task worktrees when true; validate the existing checkout when false. |
 | `aiProvider` | `codex`, `claude`, `agy`, `gemini`, `cursor`, `vibe`, or `custom`; empty uses the legacy `agy` default. |
@@ -158,16 +158,16 @@ editor/provider settings retain their existing configuration behavior. Launches 
 Requests normally have a 45-second deadline; purely local read-only inspections
 (Git evidence, status and branches, worktree info, SDD/skill status, skill
 reading, editor opening) allow 15 seconds and CLI probing 30, so an unreachable
-agent fails quickly instead of stalling the caller; digest prompts allow 12
-minutes and SDD installation allows seven minutes.
+agent fails quickly instead of stalling the caller; free-form prompt runs
+(`run_prompt`) allow 12 minutes and SDD installation allows seven minutes.
 Cancellation sends `workspace_cancel` with the same `msgId`. Disconnects and
 unconfirmed results fail visibly and never trigger local server execution or an
 automatic retry of a possibly completed mutation. Some local tool installers
 cannot interrupt immediately; inspect the agent before retrying an uncertain operation.
 Legacy server terminal endpoints return 410 and direct callers to desktop consoles.
 
-GitHub uses REST (GraphQL for Projects and issue transfer), and Linear uses
-GraphQL from the server with [explicit server credentials](../../README.md#server-tracker-credentials).
+GitHub uses REST (GraphQL for Projects and issue transfer) from the server with
+[explicit server credentials](../../README.md#server-tracker-credentials).
 Pagination, authentication, rate-limit and transport errors propagate to tracker
 activities. Jira synchronization is unsupported in the current baseline; no
 Atlassian CLI fallback remains. Tracker credentials are not sent to agents.
