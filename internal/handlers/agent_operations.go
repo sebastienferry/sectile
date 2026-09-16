@@ -22,9 +22,9 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 	if userID == "" {
 		userID = ImplicitUser
 	}
-	ac := d.Lookup(userID, op.ProjectID)
+	ac := d.WaitForAgent(ctx, userID, op.ProjectID, defaultAgentReconnectGrace)
 	if ac == nil {
-		return nil, fmt.Errorf("no local agent connected for project %s", op.ProjectID)
+		return nil, fmt.Errorf("no local agent connected for project %s: the local agent is reconnecting, retry in a few seconds", op.ProjectID)
 	}
 	if op.Action == "execute_skill" || op.Action == "open_terminal" {
 		action := op.SkillID

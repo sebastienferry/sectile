@@ -18,10 +18,16 @@ write mutex, and returns `errWriteTimeout` if it cannot get it in time
 (`conn.go:1158`). The pong is dropped, the read loop carries on, and no log line is produced
 anywhere.
 
-That mutex is contended exactly when the agent is busy: `handleOperation` holds `d.connMu` and
-writes the result with a five-second write deadline (`cmd/agent/agent_operations.go:53`). Any
-result that takes longer than a second to flush — a large `git_diff`, a `skill_files` listing —
-costs a pong.
+How wide that window is deserves precision, because the first reading of it was wrong. `c.mu`
+is taken per frame flush (`conn.go:379`), not for the length of a message, so a large result
+written through the default 4 KB write buffer releases it between chunks. The pong is lost when
+a single flush stalls for more than a second, which needs a socket that has backed up, not
+merely a busy agent. The regression test forces that state — a payload held in one frame flush
+against a server that has stopped reading — and it fails without the fix.
+
+This is why the change does not claim to have found the cause of the 2026-09-16 incident. What
+it can state is that a keepalive reply could be discarded with no log line anywhere, which is
+consistent with the symptom and is a defect either way.
 
 ## Decisions
 

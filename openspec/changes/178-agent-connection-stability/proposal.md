@@ -7,19 +7,27 @@ the desktop app was started, then settled once the machine went idle. While it f
 515fa50d-...`, because every stage transition validates the checkout through the agent's
 `git_evidence` operation. The same call succeeded a minute later, unchanged.
 
-The cause is in the pong path, and it is silent. The agent answers the server's pings with
+Two defects were found in the keepalive path. Neither is proven to be the cause of that
+particular incident, and the change says so rather than claiming a fix it cannot demonstrate.
+
+**The pong can be dropped without a trace.** The agent answers the server's pings with
 gorilla's default ping handler, which writes the pong with `WriteControl` under a hard-coded
 one-second budget. `WriteControl` has to take the connection's write mutex, and returns
 `errWriteTimeout` when it cannot within that second. That error is declared temporary, so the
-default handler swallows it and reports success: the pong is dropped and nobody is told.
+default handler swallows it and reports success: the pong is discarded and nothing is logged
+anywhere. The mutex is held for the duration of each frame flush, so the window is one stalled
+socket write — narrow on a healthy loopback link, real as soon as the socket backs up. A test
+reproduces it: with a frame flush held, the probe is never answered.
 
-The agent holds that write mutex for every message it sends — each operation result is written
-under `d.connMu` with a five-second deadline. Right after startup the agent writes constantly
-and with large payloads (`sync_config`, `workspace_info`, `git_diff`, `skill_files`), so pongs
-are lost. The only keepalive left is the agent's own heartbeat, which runs at exactly the
-server's read timeout, thirty seconds: it arrives on the deadline, so whether the connection
-survives is a coin flip. Once the startup burst is over the agent stops writing, pongs get
-through, and the connection is stable. That is precisely the reported profile.
+**Nothing has any margin.** The agent heartbeat ran at 30 seconds and the server read timeout
+at 30 seconds. The heartbeat is the only keepalive left once the pong path fails, and it
+arrived exactly on the deadline, so whether the connection survived came down to scheduling
+order.
+
+**And a drop was undiagnosable.** The server hung up without a close frame, so the agent log
+only ever showed `close 1006 (abnormal closure)` — neither a reason nor a distinction from a
+rebound session. Seven minutes of flapping left no usable trace, which is why the cause of that
+incident cannot be stated today.
 
 ## What Changes
 - The agent answers server pings from a dedicated sender that never competes for the
@@ -38,3 +46,7 @@ through, and the connection is stable. That is precisely the reported profile.
 `cmd/agent/agent.go` (keepalive and reconnection logging), `internal/handlers/agent_dispatcher.go`
 and the agent WebSocket loop in `internal/handlers/handlers.go`, plus their tests. No schema
 change, no new endpoint, no protocol message added or removed.
+
+Explicitly not claimed: that this closes the incident of 2026-09-16. It removes a silent
+failure mode, gives the keepalives a margin, keeps a stage transition working across a
+reconnection, and makes the next occurrence name itself in the agent log.
