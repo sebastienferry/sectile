@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -17,7 +17,7 @@ import (
 
 	"tasks/internal/runner"
 
-	"github.com/creack/pty"
+	xpty "github.com/aymanbagabas/go-pty"
 	"github.com/gorilla/websocket"
 )
 
@@ -39,8 +39,8 @@ type WsMessage struct {
 type Session struct {
 	ID           string
 	Cwd          string
-	Cmd          *exec.Cmd
-	PtyFile      *os.File
+	Cmd          *xpty.Cmd
+	Pty          xpty.Pty
 	clients      map[*websocket.Conn]bool
 	clientsMu    sync.Mutex
 	history      []byte
@@ -73,16 +73,18 @@ func NewManager() *Manager {
 	}
 }
 
-func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[string]string) (*Session, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if sess, ok := m.sessions[sessionID]; ok && !sess.closed {
-		sess.LastActiveAt = time.Now()
-		return sess, nil
+// sessionShell names the interactive shell a console session runs, and the arguments that
+// make it interactive. On Windows the user's own shell is used rather than an imposed one:
+// pwsh if it is installed, then Windows PowerShell, and cmd.exe only when neither is.
+func sessionShell() (string, []string) {
+	if runtime.GOOS == "windows" {
+		launcher := runner.DetectHostLauncher(runtime.GOOS)
+		if launcher.Shell == runner.ShellPowerShell {
+			// -NoLogo only drops the banner; the shell stays interactive and reads the pty.
+			return launcher.Binary, []string{"-NoLogo"}
+		}
+		return launcher.Binary, nil
 	}
-
-	// Determine shell
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		if _, err := os.Stat("/bin/zsh"); err == nil {
@@ -93,6 +95,19 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 			shell = "sh"
 		}
 	}
+	return shell, []string{"-l"}
+}
+
+func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[string]string) (*Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if sess, ok := m.sessions[sessionID]; ok && !sess.closed {
+		sess.LastActiveAt = time.Now()
+		return sess, nil
+	}
+
+	shell, shellArgs := sessionShell()
 
 	workDir := cwd
 	if workDir == "" {
@@ -102,7 +117,7 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 	if abs, err := filepath.Abs(workDir); err == nil {
 		workDir = abs
 	}
-	// A working directory that cannot be used surfaces from pty.Start as
+	// A working directory that cannot be used surfaces from the shell launch as
 	// "fork/exec /bin/sh: not a directory", which names the shell and hides
 	// what is actually wrong. Say which path, and why.
 	if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -116,16 +131,24 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 		return nil, fmt.Errorf("working directory %s is not a directory", workDir)
 	}
 
-	cmd := exec.Command(shell, "-l")
+	// The pseudo-console is created before the command: on Windows the child has to be
+	// created already attached to it, which is why the command comes from the pty rather
+	// than from os/exec.
+	ptmx, err := xpty.New()
+	if err != nil {
+		return nil, fmt.Errorf("impossible de démarrer le terminal PTY: %w", err)
+	}
+	cmd := ptmx.Command(shell, shellArgs...)
 	cmd.Dir = workDir
 
 	// Prepare environment
 	env := os.Environ()
 	customPath := runner.GetDynamicCustomPath()
+	separator := string(os.PathListSeparator)
 	foundPath := false
 	for i, e := range env {
 		if strings.HasPrefix(e, "PATH=") {
-			env[i] = "PATH=" + customPath + ":" + strings.TrimPrefix(e, "PATH=")
+			env[i] = "PATH=" + customPath + separator + strings.TrimPrefix(e, "PATH=")
 			foundPath = true
 			break
 		}
@@ -134,24 +157,23 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 		env = append(env, "PATH="+customPath)
 	}
 
-	env = append(env,
-		"TERM=xterm-256color",
-		"COLORTERM=truecolor",
-		"LANG=fr_FR.UTF-8",
-		"LC_ALL=fr_FR.UTF-8",
-	)
+	env = append(env, "TERM=xterm-256color", "COLORTERM=truecolor")
+	if runtime.GOOS != "windows" {
+		// A POSIX locale name means nothing to a Windows shell, which reads its
+		// encoding from the console rather than from the environment.
+		env = append(env, "LANG=fr_FR.UTF-8", "LC_ALL=fr_FR.UTF-8")
+	}
 
 	for k, v := range envVars {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 	cmd.Env = env
 
-	// Start PTY with initial size
-	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{
-		Rows: 24,
-		Cols: 80,
-	})
-	if err != nil {
+	// Sized before the shell starts, as StartWithSize did: a shell that draws its first
+	// prompt against one size and is resized after has already wrapped it.
+	_ = ptmx.Resize(80, 24)
+	if err := cmd.Start(); err != nil {
+		_ = ptmx.Close()
 		return nil, fmt.Errorf("impossible de démarrer le terminal PTY: %w", err)
 	}
 
@@ -159,7 +181,7 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 		ID:           sessionID,
 		Cwd:          workDir,
 		Cmd:          cmd,
-		PtyFile:      ptyFile,
+		Pty:          ptmx,
 		clients:      make(map[*websocket.Conn]bool),
 		history:      make([]byte, 0, 32768),
 		watchers:     make(map[*runWatcher]struct{}),
@@ -251,8 +273,8 @@ func (m *Manager) CloseSession(sessionID string) error {
 	sess.closed = true
 	close(sess.closeChan)
 
-	if sess.PtyFile != nil {
-		_ = sess.PtyFile.Close()
+	if sess.Pty != nil {
+		_ = sess.Pty.Close()
 	}
 	if sess.Cmd != nil && sess.Cmd.Process != nil {
 		_ = sess.Cmd.Process.Kill()
@@ -277,8 +299,19 @@ func (m *Manager) SendInput(sessionID string, input string) error {
 		return fmt.Errorf("session de terminal %s non trouvée ou inactive", sessionID)
 	}
 
-	_, err := sess.PtyFile.Write([]byte(input))
+	_, err := sess.Pty.Write([]byte(normalizeInput(input)))
 	return err
+}
+
+// normalizeInput ends a typed line the way the host console expects. A Windows console
+// reads Enter as a carriage return: a bare newline leaves the shell on its continuation
+// prompt, so the command is echoed and never runs. Bytes coming straight from a viewer's
+// keyboard are not touched, only the lines the agent types itself.
+func normalizeInput(input string) string {
+	if runtime.GOOS != "windows" {
+		return input
+	}
+	return strings.ReplaceAll(strings.ReplaceAll(input, "\r\n", "\n"), "\n", "\r\n")
 }
 
 // AddOutputListener adds a callback invoked for every byte chunk read from this session's PTY.
@@ -307,7 +340,7 @@ func (m *Manager) readPtyLoop(sess *Session) {
 		default:
 		}
 
-		n, err := sess.PtyFile.Read(buf)
+		n, err := sess.Pty.Read(buf)
 		if n > 0 {
 			chunk := buf[:n]
 
@@ -396,7 +429,7 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 		sess.LastActiveAt = time.Now()
 
 		if msgType == websocket.BinaryMessage {
-			_, _ = sess.PtyFile.Write(msgData)
+			_, _ = sess.Pty.Write(msgData)
 			continue
 		}
 
@@ -408,13 +441,10 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 					switch wsMsg.Type {
 					case "resize":
 						if wsMsg.Cols > 0 && wsMsg.Rows > 0 {
-							_ = pty.Setsize(sess.PtyFile, &pty.Winsize{
-								Cols: uint16(wsMsg.Cols),
-								Rows: uint16(wsMsg.Rows),
-							})
+							_ = sess.Pty.Resize(wsMsg.Cols, wsMsg.Rows)
 						}
 					case "input":
-						_, _ = sess.PtyFile.Write([]byte(wsMsg.Data))
+						_, _ = sess.Pty.Write([]byte(wsMsg.Data))
 					case "ping":
 						_ = conn.WriteJSON(WsMessage{Type: "pong"})
 					}
@@ -423,7 +453,7 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 			}
 
 			// Raw text input
-			_, _ = sess.PtyFile.Write(msgData)
+			_, _ = sess.Pty.Write(msgData)
 		}
 	}
 }

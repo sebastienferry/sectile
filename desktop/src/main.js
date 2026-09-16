@@ -16,12 +16,18 @@ const api=window.localAgent
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
 const MAX_PARALLELISM=10
 document.querySelector('#app').innerHTML=`
-<header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
+<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Server token<input name="token" type="password" required autocomplete="off"></label><button>Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" hidden>Retry</button></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" aria-label="Close">×</button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
-const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:'Menlo, monospace',scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
+// The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
+// and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
+// Windows every one of those glyphs fell back to a replacement box. The Mono variants are the ones
+// that keep a glyph to a single cell, which is what the grid needs, and Symbols Nerd Font Mono sits
+// near the end as a per-glyph fallback: a host with no patched font still gets the icons.
+const TERMINAL_FONT='"FiraCode Nerd Font Mono", "JetBrainsMono Nerd Font Mono", "Hack Nerd Font Mono", "CaskaydiaCove Nerd Font Mono", "MesloLGS NF", Menlo, Consolas, "Symbols Nerd Font Mono", monospace'
+const terminal=new Terminal({cursorBlink:true,fontSize:13,fontFamily:TERMINAL_FONT,scrollback:20000,theme:{background:'#11151c',foreground:'#d8e0ec'}})
 const fit=new FitAddon();terminal.loadAddon(fit)
 let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
 const submittingSteps=new Set()
@@ -61,6 +67,23 @@ api.onOutput(data=>terminal.write(new Uint8Array(data)))
 terminal.onData(data=>{if(!changes.active&&!logsOpen)api.input(data)})
 function resize(){if(opened&&!changes.active&&!logsOpen){fit.fit();api.resize(terminal.cols,terminal.rows)}}
 window.addEventListener('resize',resize)
+// The system buttons are painted over the header, so the header has to keep their strip clear.
+// Their geometry comes from the overlay itself rather than from a guess: it differs per platform,
+// moves when the window resizes, and is absent entirely when the overlay is hidden - full screen,
+// or a window that was never shown - where the header takes the full width again. Deriving it in
+// CSS from env(titlebar-area-*) looks tidier but reads 0 in exactly that case, which turns the
+// padding into the whole window width.
+function fitTitlebar(){
+ const overlay=navigator.windowControlsOverlay
+ const header=document.querySelector('header')
+ if(!overlay||!overlay.visible){header.style.removeProperty('padding-left');header.style.removeProperty('padding-right');return}
+ const area=overlay.getTitlebarAreaRect()
+ header.style.paddingLeft=(area.x+16)+'px'
+ header.style.paddingRight=Math.max(16,window.innerWidth-area.x-area.width+16)+'px'
+}
+navigator.windowControlsOverlay?.addEventListener('geometrychange',fitTitlebar)
+window.addEventListener('resize',fitTitlebar)
+fitTitlebar()
 function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
 function connectionStatus(status){
  const container=document.querySelector('#connection')
@@ -523,9 +546,19 @@ async function loadProjects(){
  }
  render()
 }
-document.querySelector('#toggle-sidebar').onclick=event=>{
+// A control that looks the same either way says nothing: the chevron points where the next click
+// sends the panel, and the label names that click rather than the state it leaves behind.
+function renderSidebarToggle(hidden){
+ const button=document.querySelector('#toggle-sidebar')
+ const chevron=hidden?'m13 9 3 3-3 3':'m16 9-3 3 3 3'
+ button.setAttribute('aria-expanded',String(!hidden))
+ button.setAttribute('aria-label',hidden?'Show projects':'Hide projects')
+ button.title=hidden?'Show projects':'Hide projects'
+ button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="'+chevron+'"/></svg>'
+}
+document.querySelector('#toggle-sidebar').onclick=()=>{
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
- event.currentTarget.setAttribute('aria-expanded',String(!hidden));localStorage.setItem('sidebarCollapsed',String(hidden));resize()
+ renderSidebarToggle(hidden);localStorage.setItem('sidebarCollapsed',String(hidden));resize()
 }
 document.querySelector('#profile').onclick=()=>{
  showDialog('Profile')
@@ -729,10 +762,8 @@ const iconPaths={
 for(const [id,paths] of Object.entries(iconPaths)){
  document.getElementById(id).innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+paths+'</svg>'
 }
-if(localStorage.getItem('sidebarCollapsed')==='true'){
- document.querySelector('#workspace').classList.add('sidebar-hidden')
- document.querySelector('#toggle-sidebar').setAttribute('aria-expanded','false')
-}
+if(localStorage.getItem('sidebarCollapsed')==='true')document.querySelector('#workspace').classList.add('sidebar-hidden')
+renderSidebarToggle(document.querySelector('#workspace').classList.contains('sidebar-hidden'))
 document.querySelector('#start-agent').onclick=async()=>{
  closeLogs(false)
  await settingsReady

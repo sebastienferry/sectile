@@ -1,4 +1,4 @@
-const {app,BrowserWindow,ipcMain,dialog,safeStorage,shell}=require('electron')
+const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell}=require('electron')
 const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
@@ -232,9 +232,14 @@ ipcMain.handle('attach',(_,id)=>{
 })
 ipcMain.on('terminal-input',(_,data)=>{if(socket?.readyState===WebSocket.OPEN&&typeof data==='string')socket.send(JSON.stringify({type:'input',data}))})
 ipcMain.on('terminal-resize',(_,size)=>{if(socket?.readyState===WebSocket.OPEN&&size.cols>0&&size.rows>0)socket.send(JSON.stringify({type:'resize',...size}))})
+Menu.setApplicationMenu(process.platform==='darwin'?Menu.buildFromTemplate([{role:'appMenu'},{role:'editMenu'},{role:'windowMenu'}]):null)
 function openWindow(){
  if(window&&!window.isDestroyed()){window.show();return}
- window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
+ // The window draws its own title bar: the app header is the title bar, and the system buttons are
+ // painted over it in the app's colours. macOS keeps its traffic lights, positioned to sit centred
+ // in that 68px header. The renderer asks the overlay itself where the buttons ended up, so the
+ // header can keep their strip clear whatever the platform draws.
+ window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',titleBarStyle:'hidden',titleBarOverlay:{color:'#11151c',symbolColor:'#d8e0ec',height:68},trafficLightPosition:{x:18,y:25},webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))

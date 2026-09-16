@@ -109,9 +109,11 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   // The workstation parallelism selection survives a server refresh.
   assert.equal(await parallel.inputValue(),'3')
   await page.getByRole('button',{name:'Close',exact:true}).click()
-  await page.getByRole('button',{name:'Toggle projects',exact:true}).click()
+  // The control is named for the click it offers, so its name flips with the panel.
+  await page.getByRole('button',{name:'Hide projects',exact:true}).click()
   assert.equal(await page.locator('aside').isVisible(),false)
-  await page.getByRole('button',{name:'Toggle projects',exact:true}).click()
+  await page.getByRole('button',{name:'Show projects',exact:true}).click()
+  assert.equal(await page.locator('aside').isVisible(),true)
   await page.getByRole('button',{name:'Profile',exact:true}).click()
   await page.getByRole('heading',{name:'Profile',exact:true}).waitFor()
   await page.getByRole('button',{name:'Close',exact:true}).click()

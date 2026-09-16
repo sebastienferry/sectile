@@ -97,9 +97,12 @@ type terminalChoice struct {
 	manager  *terminal.Manager
 }
 
-// detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)
+// detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app).
+// Windows has no usable pseudo-terminal, so it names the host console instead: claiming "pty"
+// there only produced an unsupported-PTY failure on every dispatch.
 func detectDefaultTerminal() string {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		if _, err := os.Stat("/Applications/Ghostty.app"); err == nil {
 			return "ghostty"
 		}
@@ -107,6 +110,11 @@ func detectDefaultTerminal() string {
 			return "iterm"
 		}
 		return "terminal"
+	case "windows":
+		if _, err := exec.LookPath("wt.exe"); err == nil {
+			return "wt"
+		}
+		return "cmd"
 	}
 	return "pty"
 }
