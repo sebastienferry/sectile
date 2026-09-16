@@ -21,7 +21,7 @@ Sectile supports multiple concurrent software repositories and projects from a s
 - **Isolated Project Configurations**:
   - `repo_path`: Local filesystem path to the project repository.
   - `git_remote_url`: Remote Git repository URL.
-  - `issue_tracker`: Tracker provider (`linear`, `github`, `jira`, or `local`).
+  - `issue_tracker`: Tracker provider (`github`, `jira`, or `local`).
   - `stage_mapping`: Custom mapping between Sectile workflow stages and external tracker states.
   - `skill_overrides`: Project-specific prompt template overrides.
 
@@ -33,13 +33,13 @@ Sectile supports multiple concurrent software repositories and projects from a s
 
 ## 2. Issue Tracker Abstraction Layer
 
-The server owns native GitHub REST/GraphQL and Linear GraphQL adapters. It
+The server owns native GitHub REST/GraphQL adapters. It
 synchronizes, creates and updates issues and comments using explicit server
 credentials, even with all local agents offline. GitHub also supports milestone
 operations and issue transfer. Local tasks stay in SQLite. Jira metadata remains
 readable, but Jira synchronization is unsupported in this baseline.
 
-Projects specify `githubRepo` (`owner/repository`) or `linearTeam` (team key).
+Projects specify `githubRepo` (`owner/repository`).
 Workstation CLI credentials and local repository paths are never used by the
 server. Remote writes remain queued and their actual HTTP/API failures appear
 in Activities. See [server credential configuration](../README.md#server-tracker-credentials).
@@ -116,7 +116,7 @@ as an activity (`skillId: install_spec_framework`).
 Prerequisites are the user's responsibility and are reported rather than
 installed silently: Spec Kit needs `uv` (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
 OpenSpec needs Node.js. The CLI status panel surfaces `uv`, `specify` and
-`openspec` alongside `git`, `gh`, `linear` and `acli`.
+`openspec` alongside `git`, `gh` and `acli`.
 
 Note: OpenSpec is a Spec-Driven Design workflow, unrelated to **OpenFeature**
 (a feature-flag standard). Earlier builds stored `openfeature` as a spec
@@ -128,11 +128,82 @@ framework value; the database migrates that value to `openspec` on startup.
 
 ### Stage 4: Adjust (`adjust-issue`)
 - **Objective**: Reviews and repairs the diff, updates affected documentation, runs final checks, then pushes and updates the same existing branch PR and verifies readiness. Available review feedback is addressed; absence of comments does not block review.
-- **Output**: Verified Pull Request URL attached to the task card and external issue tracker. The autonomous chain stops here for human review and merge.
+- **Output**: Verified Pull Request URL attached to the task card and external issue tracker. The full chain run stops here by default for human review and merge.
 
 ### Stage 5: Handoff (`handoff-issue`)
 - **Objective**: Confirms the merge and writes the handover and acceptance checklist.
 - **Output**: Finished ticket and safe cleanup of clean, unused local worktrees. Shared batch worktrees remain until every associated ticket is handed off.
+
+---
+
+## 3bis. Execution modes
+
+A skill run is executed in one of two modes.
+
+| Mode | What the run does | Who moves the stage |
+| --- | --- | --- |
+| **interactive** | Opens a terminal window with the provider CLI and the task prompt. The user answers it. | The user, by confirming the session is over. |
+| **autonomous** | Runs the CLI headless: no terminal window, no foreground process group. Output is captured and recorded on the run activity, bounded and marked when truncated. | The worker, when the run ends. |
+
+### How the mode of one launch is decided
+
+The first level with an opinion wins:
+
+1. The **one-off override** chosen for that launch.
+2. The **skill's own setting**, edited in the skill editor. Its third value,
+   *project default*, is what lets a skill have no opinion.
+3. The **project default** (`defaultSkillMode` in the project settings).
+4. **Interactive**, which is what the tool did before the setting existed.
+
+The mode is resolved on the server and travels to the agent with the launch.
+The agent applies what it is told and never re-decides from its own
+configuration copy, so a stale agent cannot open a window inside a run nobody
+is watching.
+
+### Where the one-off override is offered
+
+| Surface | Control |
+| --- | --- |
+| Web task card `...` menu | *Advance interactively* / *Advance autonomously*, next to the plain *Advance* |
+| Web task detail modal | A **Mode** selector next to the additional-instructions field |
+| Desktop **Launch** dialog | An **Execution mode** selector per task |
+| Desktop **Relaunch** dialog | An **Execution mode** selector |
+| Desktop next-step button | None: one click, on the resolved mode |
+
+A control left on its default sends no override at all, so the precedence
+applies unchanged.
+
+### Providers supporting an autonomous run
+
+| Provider | Headless invocation |
+| --- | --- |
+| `claude` | `claude -p` |
+| `codex` | `codex exec` |
+| `vibe` | `vibe -p` |
+| `agy`, `gemini`, `cursor` | None attested: an autonomous launch is refused by name |
+
+An autonomous launch is **refused**, never silently downgraded to interactive.
+A project configured with a custom `aiCommandTemplate` owns its own mode: it is
+refused too, unless the template carries a `{mode:AUTONOMOUS|INTERACTIVE}`
+placeholder, for example `agy {mode:-p|-i} '{prompt}'`.
+
+### The full chain run
+
+The `>>` action, **Full chain**, always runs autonomous, whatever mode those
+skills would resolve to on their own. It forces the mode rather than letting the
+precedence decide, since a chain nobody is watching must not open a terminal.
+
+Two entry points exist and they do not do the same thing:
+
+- The web card's `>>` launches the `pickup` skill, which walks the workflow
+  itself. The stop stage reaches it through `get_project_context`.
+- `POST /api/tasks/{id}/advance` with `{"auto": true}` goes through the server's
+  own chain entry, which reads `fullChainStopStage` directly and refuses to start
+  on a task already at or past that stage, or on a provider with no attested
+  headless invocation, before enqueuing anything.
+
+`fullChainStopStage` is either `implemented` (before the pull request) or
+`reviewed` (the default, after it). Merging is never automated.
 
 ---
 

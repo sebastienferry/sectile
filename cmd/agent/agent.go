@@ -743,6 +743,10 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	// Admission is acknowledged promptly; process completion remains MCP-owned.
 	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution accepted into the local queue")
 	launched := false
+	// launchFailure carries why the console never started. Without it the run
+	// closed with "Local console process exited", which is false when nothing
+	// ever ran, and left the real cause only in the agent's terminal.
+	var launchFailure error
 	defer func() {
 		if !launched {
 			d.runsMu.Lock()
@@ -753,7 +757,11 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			run.desktop.Status = status
 			run.once.Do(func() { close(run.exited) })
 			d.runsMu.Unlock()
-			_ = d.finishDesktopRun(context.Background(), taskRef, payload.RunID, status)
+			note := ""
+			if launchFailure != nil {
+				note = "Execution never started: " + launchFailure.Error()
+			}
+			_ = d.finishDesktopRun(context.Background(), taskRef, payload.RunID, status, note)
 		}
 	}()
 	if err := d.awaitRunSlot(ctx, run); err != nil {
@@ -761,6 +769,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
 	if err != nil {
+		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
@@ -816,13 +825,14 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
 
-	if payload.RunID != "" {
+	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
+	if payload.RunID != "" && !autonomous {
 		fullLine, err = d.wrapRun(taskRef, payload.RunID, fullLine)
 		if err != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
@@ -848,6 +858,20 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	if payload.ProjectID != "" {
 		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID
+	}
+
+	// An autonomous run forks here, before any terminal exists: no PTY session,
+	// no foreground process group, no window. The desktop still lists the run and
+	// shows what the CLI printed, but read-only: the output is captured from the
+	// process pipes and posted onto the run activity.
+	if autonomous {
+		if err := d.startHeadlessRun(taskRef, payload, config, workDir, branch, envVars, fullLine); err != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+			return
+		}
+		launched = true
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched headless", payload.Action))
+		return
 	}
 
 	terminalApp := d.dispatchTerminal(config, payload.TerminalOverride)
@@ -888,6 +912,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	// The agent owns consoles independently of any attached companion.
 	if err := d.runInPty(sessionID, workDir, envVars, fullLine); err != nil {
+		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}

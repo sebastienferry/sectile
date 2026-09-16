@@ -11,7 +11,6 @@ import { TeamView } from './components/TeamView'
 import { TrackerSetup } from './components/TrackerSetup'
 import { ActivitiesView } from './components/ActivitiesView'
 import { SyncView } from './components/SyncView'
-import { DigestView } from './components/DigestView'
 import { SkillsView } from './components/SkillsView'
 import { PinnedBar } from './components/PinnedBar'
 import { QuickAddModal } from './components/QuickAddModal'
@@ -78,8 +77,6 @@ const MainContent: React.FC = () => {
               <TeamView />
             ) : activeView === 'sync' ? (
               <SyncView />
-            ) : activeView === 'digest' ? (
-              <DigestView />
             ) : activeView === 'skills' ? (
               <SkillsView />
             ) : (

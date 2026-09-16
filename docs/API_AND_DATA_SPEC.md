@@ -23,18 +23,18 @@ CREATE TABLE IF NOT EXISTS projects (
     repo_path TEXT NOT NULL DEFAULT '.',
     repo_paths TEXT NOT NULL DEFAULT '[]',  -- known working directories, auto-fed when a ticket pins a new CWD
     git_remote_url TEXT DEFAULT '',
-    linear_team TEXT DEFAULT 'TASK',
     github_repo TEXT DEFAULT '',
     jira_project TEXT DEFAULT '',      -- Legacy Jira project identifier
-    issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'linear' | 'github' | 'jira' | 'local'
-    tracker_url TEXT DEFAULT '',       -- Linear project URL, or the Jira base URL
-    project_type TEXT NOT NULL DEFAULT 'standard',  -- 'standard' | 'personal' (personal boards only serve the daily digest)
+    issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'github' | 'jira' | 'local'
+    tracker_url TEXT DEFAULT '',       -- tracker project URL, or the Jira base URL
     is_default INTEGER DEFAULT 0,
     stage_mapping TEXT DEFAULT '{}',
     skill_overrides TEXT DEFAULT '{}',
     ai_provider TEXT DEFAULT '',
     ai_command_template TEXT DEFAULT '',
     spec_framework TEXT DEFAULT '',    -- 'speckit' | 'openspec'
+    default_skill_mode TEXT NOT NULL DEFAULT '',            -- '' (interactive) | 'interactive' | 'autonomous'
+    full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed', -- 'implemented' | 'reviewed'
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -95,8 +95,6 @@ CREATE INDEX IF NOT EXISTS idx_activities_status ON task_activities(status);
 CREATE TABLE IF NOT EXISTS settings (
     id TEXT PRIMARY KEY,
     ai_provider TEXT DEFAULT 'antigravity',
-    linear_api_key TEXT DEFAULT '',
-    linear_team TEXT DEFAULT 'TASK',
     github_token TEXT DEFAULT '',
     github_repo TEXT DEFAULT '',
     jira_project TEXT DEFAULT '',      -- default Jira project key
@@ -127,7 +125,10 @@ CREATE TABLE IF NOT EXISTS settings (
 | `PUT` | `/api/tasks/{id}` | Updates task fields (status, title, description, priority, etc.). |
 | `DELETE` | `/api/tasks/{id}` | Deletes task and prunes associated Git worktree. |
 | `POST` | `/api/tasks/{id}/skills/{skillId}` | Enqueues or immediately executes an AI skill on the task. |
-| `POST` | `/api/tasks/{id}/comment` | Publishes a comment to Linear or GitHub issue tracker. |
+| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?}`. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. |
+| `POST` | `/api/tasks/{id}/advance` | Advances one workflow step, or the full chain with `{"auto": true}`. Body also accepts `mode`, the one-off override for the single step; a full chain run ignores it and is always autonomous. |
+| `POST` | `/api/tasks/{id}/advance/confirm` | Closes an interactive step. A step the worker already transitioned is accepted as a no-op. |
+| `POST` | `/api/tasks/{id}/comment` | Publishes a comment to the GitHub issue tracker. |
 | `POST` | `/api/tasks/{id}/epic` | Queues the attachment to an epic (`202`, returns the activity to follow). |
 | `GET` | `/api/tasks/{id}/diff` | Computes and returns the Git diff of the task branch vs `main`. |
 
@@ -174,17 +175,15 @@ and the tracker's own refusal when it fails.
 | `GET` | `/api/projects/{id}/skills-status` | Reports which workflow skills are scaffolded, per worktree. |
 | `POST` | `/api/projects/{id}/install-skills` | Scaffolds the workflow skills into the repo and all its worktrees. |
 | `POST` | `/api/projects/{id}/init-git` | Initializes a Git repository in the project working directory. |
+| `PUT` | `/api/projects/{id}/skill-editor/{skillId}/mode` | Pins the skill's execution mode for this project. Body `{mode}`: `interactive`, `autonomous`, or empty to clear it and fall back to the project default. |
 | `GET` | `/api/projects/{id}/spec-framework-status` | Per-framework SDD status for this project (see 2.5). |
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
-| `GET` | `/api/projects/{id}/daily-digest` | Daily digest of the project. `?date=YYYY-MM-DD`, `?assignee=`, `?history=1` for the stored dates. Rejected unless the project is of type `personal`. |
-| `POST` | `/api/projects/{id}/daily-digest` | Computes and stores the digest; `{"enrich": true}` also runs the AI agenda pass. Same `personal` restriction. |
 
 ### 2.4 Tracker Synchronization API
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/sync/all` | — | Queues a sync of every configured project across all trackers. |
-| `POST` | `/api/sync/linear` | `{team, projectId}` | Queues a Linear team sync. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
 | `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Reports unsupported Jira synchronization. |
 
@@ -271,6 +270,18 @@ raw server paths are not interpreted as workstation paths. Legacy repository
 path parameters only resolve an exact configured project identity. A missing
 agent, disconnect or unconfirmed operation returns a structured `error` and never
 falls back to execution on the server.
+
+An autonomous run has no terminal for its output to live in, so the agent posts
+what the CLI printed as it goes:
+
+| Method | Path | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/v1/agent/run-output` | Agent-authenticated. Body `{taskId, runId, output}`. Appends captured output to the run activity, bounded; past the bound the record keeps its head and says it was truncated. |
+
+The launch dispatch carries `mode` (`interactive` or `autonomous`) resolved by
+the server. An empty value reads as interactive, so an older server keeps
+working. The desktop's own `POST /desktop/tasks` accepts the same optional
+`mode` and forwards it without interpreting it.
 
 For transport addresses, authentication, operation envelopes, cancellation and
 MCP tool ownership, see [the version 1 contract](contracts/server-agent-v1.md).

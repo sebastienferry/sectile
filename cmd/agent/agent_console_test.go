@@ -164,12 +164,13 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 
 func TestFreeConsoleQueueCancellation(t *testing.T) {
 	d := &agentDaemon{}
-	first, _ := d.enqueueRun("task", agentconfig.Dispatch{RunID: "task"}, "project", "/repo", 2, true)
+	// A shared-checkout execution owns the mapped repository, where a console runs too.
+	first, _ := d.enqueueRun("task", agentconfig.Dispatch{RunID: "task"}, "project", "/repo", 2, false)
 	if err := d.awaitRunSlot(context.Background(), first); err != nil {
 		t.Fatal(err)
 	}
 	run, _ := d.enqueueRun("", agentconfig.Dispatch{RunID: "console"}, "project", "/repo", 2, false)
-	run.desktop.Kind = "console"
+	run.desktop.Kind = consoleRunKind
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	if err := d.awaitRunSlot(ctx, run); err == nil {
@@ -201,7 +202,8 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 	}))
 	defer server.Close()
 	d.serverURL = server.URL
-	first, err := d.enqueueRun("task", agentconfig.Dispatch{RunID: "active"}, "p", d.repoRoot, 3, true)
+	// A shared-checkout execution keeps the mapped repository busy, so the console queues.
+	first, err := d.enqueueRun("task", agentconfig.Dispatch{RunID: "active"}, "p", d.repoRoot, 3, false)
 	if err != nil {
 		t.Fatal(err)
 	}

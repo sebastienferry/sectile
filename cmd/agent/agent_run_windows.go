@@ -70,7 +70,9 @@ func stopControlledCommand(cmd *exec.Cmd, force bool) {
 	_ = cmd.Process.Kill()
 }
 
-// Windows has no controlling terminal to detach from.
+// Windows has no controlling terminal to detach from, but the process group still
+// matters: stopControlledCommand addresses a group, and a child left in the agent's
+// own group would take the whole console down with it instead of stopping alone.
 func detachedSession() *syscall.SysProcAttr {
-	return nil
+	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
 }

@@ -28,7 +28,7 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
   if(url.pathname==='/desktop/project'){
    if(failDetails){res.writeHead(503).end('Server settings unavailable');return}
    const id=url.searchParams.get('id')
-   res.end(JSON.stringify({server:{projectName:'Project '+id,skills:[{id:'specify'}],parallelism:1},path:disconnected.has(id)?'':'/tmp/repository',configured:!disconnected.has(id)}));return
+   res.end(JSON.stringify({server:{projectName:'Project '+id,skills:[{id:'specify'}]},path:disconnected.has(id)?'':'/tmp/repository',configured:!disconnected.has(id)}));return
   }
   if(url.pathname==='/desktop/runs'){
    res.end(JSON.stringify(['a',...(other?['b']:[])].map(id=>({id:'run-'+id,projectId:id,taskId:'task-'+id,taskKey:'#'+id,sessionId:'run-'+id,skill:'specify',status:'completed',directory:'/tmp/repository'}))));return

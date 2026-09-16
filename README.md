@@ -12,7 +12,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 ## ✨ Fonctionnalités implémentées
 
 - **Server-side tracker integration**:
-  - GitHub REST and Linear GraphQL support synchronization, issue creation, updates and comments without an online agent.
+  - GitHub REST supports synchronization, issue creation, updates and comments without an online agent.
   - Configure explicit server credentials and repository/team identifiers. CLI login state is not used by the server.
   - Local tasks remain in SQLite. Jira metadata remains readable, but this baseline does not implement Jira synchronization or mutations.
   - Tracker queues expose actual API errors in Activities.
@@ -38,12 +38,12 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     3. 💻 **Implement** (`/code-issue`) : Plan de code, modification des fichiers et tests unitaires.
     4. **Adjust** (`/adjust-issue`): Review the full branch, address findings and available PR feedback, run final checks, and update the existing PR before human merge.
     5. ⚡ **Auto-Pilot** (`/pick-issue`) : Routeur intelligent qui enchaîne automatiquement l'étape optimale.
-  - **Panneau de statut des CLI** : Vérification en temps réel de l'installation et de l'authentification de `git`, `gh`, `linear`, `acli`, `agy`, `vibe`, `claude`, `gemini`, `codex`, ainsi que des outils SDD `uv`, `specify` et `openspec`.
+  - **Panneau de statut des CLI** : Vérification en temps réel de l'installation et de l'authentification de `git`, `gh`, `agy`, `claude`, `codex`, ainsi que des outils SDD `uv`, `specify` et `openspec`.
 
 - 🗂 **Sidebar complète & Workflow Stages** :
   - `Backlog` ➔ `À clarifier` ➔ `Spécifié` ➔ `En cours` ➔ `À valider` ➔ `Terminé` avec compteurs en temps réel.
   - Bascule des vues (`Tableau Kanban` / `Vue Liste`).
-  - Filtres rapides (`Mes tâches`, `Priorité Haute`, `Étiquettes/Tags`) et filtre par source (`Linear`, `GitHub`, `Jira`, `Local`).
+  - Filtres rapides (`Mes tâches`, `Priorité Haute`, `Étiquettes/Tags`) et filtre par source (`GitHub`, `Jira`, `Local`).
   - Repli / Dépli fluide de la barre latérale.
 
 - 👤 **Profil & Ergonomie Personnalisée** :
@@ -56,7 +56,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     - *Confortable* (15px, espacements aérés).
 
 - 🔀 **Tableau Kanban & Vue Liste (Drag & Drop)** :
-  - **Vue Tableau Kanban** : Glisser-déposer fluide entre colonnes avec mise à jour automatique Linear/GitHub.
+  - **Vue Tableau Kanban** : Glisser-déposer fluide entre colonnes avec mise à jour automatique du tracker.
   - **Vue Liste** : Regroupement par statut, tri multi-colonnes et édition inline.
 
 - 🔍 **Recherche Rapide (`/`) & Palette d'actions (`Cmd+K`)** :
@@ -85,8 +85,9 @@ Start the server with its persistent database and shared agent credential:
 
 ```sh
 export SECTILE_SERVER_TOKEN='<shared agent credential>'
-export SECTILE_GITHUB_TOKEN='<GitHub API token>'
-# For Linear projects: export SECTILE_LINEAR_API_KEY='<Linear API key>'
+export SECTILE_TRACKER_TOKEN='<tracker API token>'
+# Serving several providers at once? Override per provider:
+# export SECTILE_GITHUB_TOKEN='<GitHub API token>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/sectile-server
 ```
 
@@ -112,27 +113,29 @@ For development, use `make dev-server` and `make dev-web` in separate terminals.
 
 | Setting | Meaning |
 | --- | --- |
-| `SECTILE_GITHUB_TOKEN` | GitHub API credential; `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
+| `SECTILE_TRACKER_TOKEN` | Tracker API credential, used by every provider that has no override below. |
+| `SECTILE_GITHUB_TOKEN` | GitHub-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
 | `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
-| `SECTILE_LINEAR_API_KEY` | Linear API credential; `LINEAR_API_KEY` is an environment-only fallback. |
-| `SECTILE_LINEAR_API_URL` | GraphQL endpoint; defaults to `https://api.linear.app/graphql`. |
 
 The token is read from the environment of the **server process itself**, at
 startup only. `make serve`, `go run ./cmd/server` and `./bin/sectile-server`
 inherit the shell they are launched from, so exporting the variable in another
 terminal — or after the server is already running — has no effect: restart the
-server. A `gh` login on the same machine is not picked up either; only
-`SECTILE_GITHUB_TOKEN`, then `GH_TOKEN`, then `GITHUB_TOKEN` are consulted.
+server. A `gh` login on the same machine is not picked up either; for GitHub only
+`SECTILE_GITHUB_TOKEN`, then `SECTILE_TRACKER_TOKEN`, then `GH_TOKEN`, then
+`GITHUB_TOKEN` are consulted. The provider-specific variable comes first so a
+server driving several providers cannot send one provider's credential to
+another.
 
 For a GitHub project the token needs, at minimum, read and write access to the
 issues of the configured repositories, plus repository metadata. A fine-grained
 token therefore grants **Issues: read and write** and **Metadata: read** on those
 repositories; a classic token uses the `repo` scope. For a quick local setup,
-`SECTILE_GITHUB_TOKEN="$(gh auth token)"` reuses an existing `gh` login, which is
+`SECTILE_TRACKER_TOKEN="$(gh auth token)"` reuses an existing `gh` login, which is
 convenient but tied to that CLI session rather than being a durable credential.
 
 Without a usable token the server keeps serving the board from its database, but
-every tracker round-trip fails with `configure SECTILE_GITHUB_TOKEN on the
+every tracker round-trip fails with `configure SECTILE_TRACKER_TOKEN on the
 server`: task comments do not load and workflow stage transitions do not reach
 the ticket. Verify the server picked the credential up by opening a task and
 checking that its comments load — that read goes through the tracker API.
@@ -140,7 +143,7 @@ checking that its comments load — that read goes through the tracker API.
 Credentials are read at server startup and are excluded from agent configuration.
 Supply access to the configured repositories/teams and the operations you use
 (issues, comments, milestones and PR reads). Configure `githubRepo` as
-`owner/repository` and `linearTeam` as the team key. The server never discovers
+`owner/repository`. The server never discovers
 these through a local clone or CLI credential store. Missing credentials and
 API failures fail the operation visibly; there is no workstation fallback.
 
@@ -174,7 +177,7 @@ commands; configure the server credentials separately.
 Une suite documentaire complète pour développeurs et LLMs est disponible dans le dossier [`/docs`](./docs) :
 
 - 🏛️ [**Architecture & Conception Générale** (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md) : Modèle de concurrence, persistance SQLite, isolation Git Worktrees, PTY ZSH & WebSockets.
-- ⚡ [**Capacités & Workflows Agentiques** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md) : Multi-projets, pipeline de 5 skills, Auto-Pilot, synchronisation Linear / GitHub.
+- ⚡ [**Capacités & Workflows Agentiques** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md) : Multi-projets, pipeline de 5 skills, Auto-Pilot, synchronisation GitHub / Jira.
 - 🎨 [**Composants UX & Design Frontend** (`docs/UX_COMPONENTS.md`)](./docs/UX_COMPONENTS.md) : Kanban drag-and-drop, vue liste, terminal interactif Xterm.js, inspecteur de Diff Git.
 - 🔌 [**Spécification API & Schéma de Données** (`docs/API_AND_DATA_SPEC.md`)](./docs/API_AND_DATA_SPEC.md) : Schéma SQLite complet, endpoints REST et agent-owned console protocol.
 - 🤖 [**Guide de Ré-implémentation pour LLMs** (`docs/REIMPLEMENTATION_GUIDE.md`)](./docs/REIMPLEMENTATION_GUIDE.md) : Blueprint étape par étape pour reconstruire Sectile de zéro.
@@ -193,7 +196,7 @@ Une suite documentaire complète pour développeurs et LLMs est disponible dans 
 
 ## Remote execution and MCP
 
-Sectile exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
+Sectile exposes nine typed tools at the Streamable HTTP endpoint `/mcp`:
 
 - `list_projects`: discover project primary keys, names and Git remotes.
 - `get_task`: read task details and comments.
@@ -201,11 +204,31 @@ Sectile exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
 - `add_comment`: post a task comment.
 - `list_tasks`: list tasks with optional filters.
 - `get_project_context`: read project execution settings and effective instructions.
+- `create_task`: file a new ticket on an explicitly named project, remotely whenever its tracker supports it.
 - `start_run`: start or reuse the invocation's remote run.
 - `finish_run`: finish that run without advancing the task stage.
 
 HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
 authentication and workflow validation retain their existing contracts.
+
+`/mcp` is stateful: every connected client holds one server session, so two
+clients sharing the same credential stay distinct and a client that goes away is
+noticed. A run started with `start_run` belongs to the session that started it.
+When that session ends — the client quits, its process is killed, or it falls
+silent past the idle timeout — the server closes the runs it still owns as
+canceled, with a note saying the client disconnected. `finish_run` remains how a
+run reports its own outcome and always wins over that fallback. A run reused from
+a launcher keeps its dispatching agent as owner, since that agent already watches
+the real process.
+
+`GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
+and the runs it owns. The board's status bar shows that count and opens a panel
+naming each connected client, how long it has been attached, and the runs that
+would close with it. `SECTILE_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
+silent session, and `SECTILE_MCP_CLIENT` names a bridge in that list. A server
+restart destroys every session at once, so startup closes the runs they owned as
+canceled; runs dispatched to an agent are preserved, because that agent
+reconnects and reports the real process exit.
 
 ### Signing in and pairing a workstation
 
@@ -286,6 +309,15 @@ selected skill is passed as the initial prompt. The server waits for the local
 agent's launch result, so configuration and terminal-launch errors reach the UI.
 Explicit external requests do not silently fall back to a hidden PTY.
 
+The Discuss action opens the configured agent on a task without running a skill:
+the provider is launched alone, with no skill command and no generated prompt, in
+the task's own checkout and branch. It is offered in the task menu, in the task
+detail and in the desktop launch selectors. The session carries the usual
+`SECTILE_*` environment, so the agent can read the task through the Sectile MCP
+when asked, but the discussion transitions no stage, records no skill result and
+reports nothing to the tracker. It is listed, stoppable and replayable like any
+other execution.
+
 For clients started outside Sectile, manual registration is still available.
 A typical JSON client configuration is:
 
@@ -307,12 +339,14 @@ the actual `SECTILE_AGENT_URL`, including a dynamically allocated port.
 For direct server access, use `sectile-agent mcp --url https://sectile.example.com`
 and set `SECTILE_AGENT_TOKEN` in that client's environment. Against a local
 agent gateway, that variable holds the agent session secret, not a server
-credential: the gateway attaches the workstation's own credential upstream.
+credential: the gateway attaches the workstation's own credential upstream. Set
+`SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in the session
+list; the bridge otherwise reports its host and process id.
 Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
 
-Optional workstation overrides belong in `~/.config/taskflow/settings.json`:
+Optional workstation overrides belong in `~/.config/sectile/settings.json`:
 
 ```json
 {
@@ -335,7 +369,7 @@ never resets them to accommodate a dispatch.
 Skill refresh installs the current server-owned content and records hashes in
 `.taskflow/agent-manifest.json`. Changed local copies are backed up under
 `.taskflow/skill-backups/` before replacement. Personal skills outside the declared
-paths are untouched. Put persistent skill overrides in `~/.config/taskflow/settings.json`.
+paths are untouched. Put persistent skill overrides in `~/.config/sectile/settings.json`.
 The effective `.taskflow/remote-config.json` snapshot is diagnostic only: it is
 never used as an offline fallback. These generated files are ignored by Git.
 
@@ -407,7 +441,7 @@ sectile-agent --url http://localhost:8090
 
 The agent defaults to all projects. The current checkout is matched by its Git
 origin; map other project primary keys to local repositories in
-`~/.config/taskflow/settings.json` in the starting directory (or the directory passed with
+`~/.config/sectile/settings.json` in the starting directory (or the directory passed with
 `--repo`):
 
 ```json
@@ -512,17 +546,42 @@ for the desktop development assets. On Apple Silicon the app is produced at
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Local worktree preferences are stored per project in
-`~/.config/taskflow/settings.json`. Repository layout, remote URL, SDD selection and skill
+`~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
 
+### Execution modes
+
+A skill run is either **interactive** (a terminal window you answer, and the
+stage moves when you confirm) or **autonomous** (the CLI runs headless, its
+output is recorded on the run activity, and the worker posts the stage).
+
+The mode of one launch is resolved in this order, first opinion winning: the
+one-off override chosen for that launch, then the skill's own setting in the
+skill editor, then the project's `defaultSkillMode`, then interactive.
+
+The one-off override is offered wherever you explicitly trigger a skill: the web
+task card menu, the web task detail modal, and the desktop Launch and Relaunch
+dialogs. The desktop next-step button stays a single click on the resolved mode.
+
+`claude -p`, `codex exec` and `vibe -p` are the attested headless invocations.
+On `agy`, `gemini`, `cursor`, or a custom `aiCommandTemplate` with no
+`{mode:AUTONOMOUS|INTERACTIVE}` placeholder, an autonomous launch is refused by
+name rather than silently run interactively.
+
+The project also sets `fullChainStopStage`, where the **Full chain** (`>>`)
+action stops: `implemented` (before the pull request) or `reviewed` (default).
+A full chain run is always autonomous. Merging stays manual.
+
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1 to 3) defaults.
-In the desktop project settings, **Inherit worktrees from server** and
-**Inherit from server** for parallel executions remove local overrides.
-Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:
+The server project supplies the `useWorktrees` default, which **Inherit worktrees
+from server** restores in the desktop project settings. Parallel executions
+(1 to 10, set with a slider) are workstation-owned: the server neither stores nor
+supplies a value, the desktop app is the only surface that sets one, and a
+project without a local value runs a single execution at a time.
+Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
 {
@@ -545,7 +604,7 @@ console history are held in memory for the agent lifetime.
 ### User configuration and commands
 
 Agent settings and project mappings live in
-`~/.config/taskflow/settings.json`, shared by the CLI agent and companion.
+`~/.config/sectile/settings.json`, shared by the CLI agent and companion.
 Writes preserve connection fields, use atomic replacement and mode 0600.
 Legacy repository mappings remain readable and are migrated on the next save.
 
@@ -585,7 +644,7 @@ Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette and choose
 **Quick add task**. The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.
 The server creates the task using its project tracker configuration.
-GitHub and Linear creation must succeed remotely; errors do not silently create
+GitHub creation must succeed remotely; errors do not silently create
 a local fallback. Local projects remain local. Jira remote creation is not
 implemented and returns an explicit error. Creation does not start an execution;
 the success screen offers a separate **Launch task** action.

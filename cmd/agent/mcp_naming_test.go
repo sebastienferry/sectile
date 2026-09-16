@@ -34,7 +34,7 @@ func TestDesktopFinishesCanonicalRun(t *testing.T) {
 	server := httptest.NewServer(handlers.NewHandler(database).MCPHandler())
 	defer server.Close()
 	daemon := &agentDaemon{serverURL: server.URL, token: "desktop-secret"}
-	if err := daemon.finishDesktopRun(context.Background(), task.ID, run.ID, "completed"); err != nil {
+	if err := daemon.finishDesktopRun(context.Background(), task.ID, run.ID, "completed", ""); err != nil {
 		t.Fatal(err)
 	}
 	finished, err := database.GetActivityByID(run.ID)

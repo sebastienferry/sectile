@@ -39,6 +39,9 @@ type desktopRun struct {
 	HostTerminal string `json:"hostTerminal,omitempty"`
 	Directory       string    `json:"directory"`
 	Status          string    `json:"status"`
+	// Headless marks a run that has no PTY on purpose. The desktop shows its
+	// captured output read-only instead of reporting a missing console.
+	Headless bool `json:"headless,omitempty"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +177,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-run.exited:
 			// The native client may have already reported completion via MCP.
-			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled")
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled")
 			w.WriteHeader(http.StatusNoContent)
 		case <-time.After(12 * time.Second):
 			http.Error(w, "Exit not confirmed", 504)
@@ -226,7 +229,10 @@ func (d *agentDaemon) writeDesktopInfo() error {
 }
 
 // Report process exit using the server's authenticated MCP endpoint.
-func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status string) error {
+// finishDesktopRun reports a finished run with the reason it ended. The console
+// path always ends the same way; a headless run has a real result to carry,
+// including the error that stopped it.
+func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status, note string) error {
 	if taskID == "" {
 		return nil
 	}
@@ -238,7 +244,10 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 		return err
 	}
 	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": "Local console process exited"}})
+	if strings.TrimSpace(note) == "" {
+		note = "Local console process exited"
+	}
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": note}})
 	if err != nil {
 		return err
 	}
@@ -301,14 +310,13 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ProjectID          string  `json:"projectId"`
-		Path               string  `json:"path"`
-		AICommandTemplate  *string `json:"aiCommandTemplate"`
-		InheritCommand     bool    `json:"inheritCommand"`
-		InheritWorktrees   bool    `json:"inheritWorktrees"`
-		InheritParallelism bool    `json:"inheritParallelism"`
-		Parallelism        *int    `json:"parallelism"`
-		UseWorktrees       *bool   `json:"useWorktrees"`
+		ProjectID         string  `json:"projectId"`
+		Path              string  `json:"path"`
+		AICommandTemplate *string `json:"aiCommandTemplate"`
+		InheritCommand    bool    `json:"inheritCommand"`
+		InheritWorktrees  bool    `json:"inheritWorktrees"`
+		Parallelism       *int    `json:"parallelism"`
+		UseWorktrees      *bool   `json:"useWorktrees"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
@@ -355,17 +363,14 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		overrides.Commands[input.ProjectID] = command
 	}
 	if input.Parallelism != nil {
-		if *input.Parallelism < 1 || *input.Parallelism > 3 {
-			http.Error(w, "Parallelism must be between 1 and 3", 400)
+		if *input.Parallelism < 1 || *input.Parallelism > agentconfig.MaxParallelism {
+			http.Error(w, fmt.Sprintf("Parallelism must be between 1 and %d", agentconfig.MaxParallelism), 400)
 			return
 		}
 		if overrides.Parallelism == nil {
 			overrides.Parallelism = map[string]int{}
 		}
 		overrides.Parallelism[input.ProjectID] = *input.Parallelism
-	}
-	if input.InheritParallelism {
-		delete(overrides.Parallelism, input.ProjectID)
 	}
 	overrides.Projects[input.ProjectID] = input.Path
 	if input.UseWorktrees != nil {
@@ -496,9 +501,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		}
 		effective := agentconfig.ApplyOverrides(config, overrides)
 		_, worktreeOverride := overrides.Worktrees[id]
-		_, parallelismOverride := overrides.Parallelism[id]
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"server": config, "monoRepo": project.MonoRepo, "path": root, "useWorktrees": effective.UseWorktrees, "configured": mappingErr == nil, "aiCommandTemplate": effective.AICommandTemplate, "commandOverride": overrides.Commands[id] != "", "worktreeOverride": worktreeOverride, "parallelismOverride": parallelismOverride, "parallelism": agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides, config.Parallelism)})
+		_ = json.NewEncoder(w).Encode(map[string]any{"server": config, "monoRepo": project.MonoRepo, "path": root, "useWorktrees": effective.UseWorktrees, "configured": mappingErr == nil, "aiCommandTemplate": effective.AICommandTemplate, "commandOverride": overrides.Commands[id] != "", "worktreeOverride": worktreeOverride, "parallelism": agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides)})
 		return
 	}
 	if mappingErr != nil {
@@ -589,6 +593,10 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		TaskID  string
 		SkillID string
 		Prompt  string
+		// Mode is the one-off execution mode the user chose in the Launch or
+		// Relaunch dialog. Empty means no override: the server's precedence
+		// still applies. The agent does not interpret it, it passes it on.
+		Mode string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -607,13 +615,7 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Task does not belong to project", 400)
 		return
 	}
-	known := input.SkillID == "custom" && strings.TrimSpace(input.Prompt) != ""
-	for _, skill := range config.Skills {
-		if skill.ID == input.SkillID {
-			known = true
-		}
-	}
-	if !known {
+	if !launchableSkill(config, input.SkillID, input.Prompt) {
 		http.Error(w, "Unknown project skill", 400)
 		return
 	}
@@ -621,7 +623,11 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt})
+	if !models.ValidSkillMode(input.Mode) {
+		http.Error(w, "Unknown execution mode", 400)
+		return
+	}
+	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -673,6 +679,23 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(response.Body, 1<<20))
+}
+
+// launchableSkill admits a project skill or one of the reserved identifiers.
+// A discussion carries nothing, unlike custom instructions.
+func launchableSkill(config agentconfig.Config, skillID, prompt string) bool {
+	if skillID == "discuss" {
+		return true
+	}
+	if skillID == "custom" {
+		return strings.TrimSpace(prompt) != ""
+	}
+	for _, skill := range config.Skills {
+		if skill.ID == skillID {
+			return true
+		}
+	}
+	return false
 }
 
 func desktopTaskFinished(task models.Task) bool {

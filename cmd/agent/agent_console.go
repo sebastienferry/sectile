@@ -13,6 +13,9 @@ import (
 	"tasks/internal/runner"
 )
 
+// consoleRunKind marks a free console run, which holds no background worker capacity.
+const consoleRunKind = "console"
+
 func consoleCommand(provider string) (string, error) {
 	switch provider {
 	case "codex", "claude":
@@ -56,13 +59,13 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	id := uuid.NewString()
 	config = agentconfig.ApplyOverrides(config, overrides)
 	d.runsMu.Lock()
-	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: id}, input.ProjectID, root, agentconfig.ExecutionLimit(input.ProjectID, config.UseWorktrees, overrides, config.Parallelism), false)
+	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: id}, input.ProjectID, root, agentconfig.ExecutionLimit(input.ProjectID, config.UseWorktrees, overrides), false)
 	if err != nil {
 		d.runsMu.Unlock()
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	run.desktop.Kind, run.desktop.Provider = "console", input.Provider
+	run.desktop.Kind, run.desktop.Provider = consoleRunKind, input.Provider
 	entry := run.desktop
 	d.runsMu.Unlock()
 	// The daemon owns the execution after admission, independently of the request.
@@ -74,6 +77,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 
 func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 	err := d.awaitRunSlot(context.Background(), run)
+	if err == nil && d.terminalMgr == nil {
+		err = fmt.Errorf("terminal manager unavailable")
+	}
 	if err == nil {
 		var wrapped string
 		wrapped, err = d.wrapRun("", run.desktop.ID, command)

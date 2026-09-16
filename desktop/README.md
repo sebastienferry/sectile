@@ -228,7 +228,7 @@ for the desktop development assets. On Apple Silicon the app is produced at
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Local worktree preferences are stored per project in
-`~/.config/taskflow/settings.json`. Repository layout, remote URL, SDD selection and skill
+`~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
@@ -252,10 +252,12 @@ and restarted before this action is available.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1–3) defaults.
-In the desktop project settings, **Inherit worktrees from server** and
-**Inherit from server** for parallel executions remove local overrides.
-Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:
+The server project supplies the `useWorktrees` default, which **Inherit worktrees
+from server** restores in the desktop project settings. Parallel executions
+(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
+this app is the only surface that sets one, and a project without a local value
+runs a single execution at a time.
+Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
 {
@@ -278,7 +280,7 @@ console history are held in memory for the agent lifetime.
 ### User configuration and commands
 
 Agent settings and project mappings live in
-`~/.config/taskflow/settings.json`, shared by the CLI agent and companion.
+`~/.config/sectile/settings.json`, shared by the CLI agent and companion.
 Writes preserve connection fields, use atomic replacement and mode 0600.
 Legacy repository mappings remain readable and are migrated on the next save.
 
@@ -299,8 +301,9 @@ authentication through `TOKEN`.
 
 Project configuration has three tabs: **Local**, **Deployment** and **Server**.
 Use **Choose folder…** to select a repository through the native directory dialog.
-Worktrees use Yes/No buttons; parallelism uses 1/2/3 buttons. Reset icons restore
-inheritance from server defaults. Changes take effect after **Save local
+Worktrees use Yes/No buttons; parallelism uses 1 to 5 buttons. Reset icons restore
+inheritance from server defaults, and parallelism has none because it never
+inherits. Changes take effect after **Save local
 configuration**. Server metadata and skill content remain read-only.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its

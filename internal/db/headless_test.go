@@ -26,7 +26,7 @@ func TestHeadlessTrackerReadsWithoutAgentOrCLI(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("SECTILE_GITHUB_API_URL", srv.URL)
-	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
+	t.Setenv("SECTILE_TRACKER_TOKEN", "server-secret")
 	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +182,10 @@ func TestSkillEditorUsesAgentEvidenceAndFrameworkOverride(t *testing.T) {
 	t.Fatal("clarify entry missing")
 }
 
+// A restart keeps the executions whose owner it did not take down with it.
+// An agent-dispatched run is supervised by a process that reconnects and
+// reports; a run a client started over MCP was owned by a session the restart
+// destroyed, and a server job was being executed by the server itself.
 func TestServerRestartPreservesRemoteExecutionOwnership(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	d, err := NewDB(path)
@@ -200,6 +204,13 @@ func TestServerRestartPreservesRemoteExecutionOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	reported, err := d.StartRemoteRun(task.ID, "specify", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.FinishRemoteRun(task.ID, reported.ID, "completed", "Done before the restart"); err != nil {
+		t.Fatal(err)
+	}
 	if err := d.AddTaskActivity(models.TaskActivity{ID: "interrupted-server-job", TaskID: task.ID, SkillID: "tracker_update", Status: "running", CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
@@ -211,18 +222,38 @@ func TestServerRestartPreservesRemoteExecutionOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer restarted.Close()
-	for _, id := range []string{remote.ID, agent.ID} {
-		activity, err := restarted.GetActivityByID(id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if activity.Status != "running" {
-			t.Fatalf("restart finished external execution: %#v", activity)
-		}
-		if _, err := restarted.FinishRemoteRun(task.ID, id, "completed", "External execution finished after restart"); err != nil {
-			t.Fatal(err)
-		}
+
+	// The agent still owns its run and reports on it after reconnecting.
+	supervised, err := restarted.GetActivityByID(agent.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if supervised.Status != "running" {
+		t.Fatalf("restart finished a supervised execution: %#v", supervised)
+	}
+	if _, err := restarted.FinishRemoteRun(task.ID, agent.ID, "completed", "External execution finished after restart"); err != nil {
+		t.Fatal(err)
+	}
+
+	// The client's run has no owner left, so the restart closes it rather than
+	// leaving the task active for good.
+	orphan, err := restarted.GetActivityByID(remote.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if orphan.Status != "canceled" || orphan.Summary == "" {
+		t.Fatalf("client run left without an owner: %#v", orphan)
+	}
+
+	// An outcome its client already reported is never rewritten.
+	finished, err := restarted.GetActivityByID(reported.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if finished.Status != "completed" {
+		t.Fatalf("restart overwrote a reported outcome: %#v", finished)
+	}
+
 	local, err := restarted.GetActivityByID("interrupted-server-job")
 	if err != nil {
 		t.Fatal(err)
@@ -298,4 +329,3 @@ func TestSyncRemoteRunStatus(t *testing.T) {
 		t.Fatalf("expected postback listener notification")
 	}
 }
-

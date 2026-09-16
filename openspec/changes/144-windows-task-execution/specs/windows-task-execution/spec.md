@@ -81,6 +81,12 @@ the run is cancelled.
 - **WHEN** it starts a supervised command
 - **THEN** the start is not refused as unsupported on this platform
 
+#### Scenario: An autonomous run is cancelled
+- **GIVEN** an autonomous run started on Windows without a terminal of its own
+- **WHEN** the run is cancelled
+- **THEN** the stop reaches that run's own process group
+- **AND** it leaves the agent's console and the processes sharing it running
+
 ### Requirement: The command line is quoted for the host shell
 The system SHALL quote the supervised command line for the shell that will parse it, so that a
 path containing spaces and a prompt containing quotes survive the round trip.

@@ -25,6 +25,7 @@ import {
   PanelRight,
   Square,
   Bot,
+  MessageCircle,
   Save,
   Check,
   Copy,
@@ -39,7 +40,7 @@ import {
   Target,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta } from '../types'
+import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode } from '../types'
 import { WORKFLOW_ORDER, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
 import { TaskComments } from './TaskComments'
 import { LookupField, type LookupOption } from './LookupField'
@@ -158,6 +159,9 @@ export const TaskDetailModal: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'skills' | 'git' | 'cadrage' | 'history'>('details')
   const [customPrompt, setCustomPrompt] = useState('')
+  // Surcharge ponctuelle du mode d'exécution. Vide veut dire « mode configuré » :
+  // aucune surcharge n'est envoyée et la précédence s'applique normalement.
+  const [launchMode, setLaunchMode] = useState<SkillMode>('')
 
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
   const [isExpandedSpec, setIsExpandedSpec] = useState(false)
@@ -438,18 +442,13 @@ export const TaskDetailModal: React.FC = () => {
         ? `https://github.com/${targetGithubRepo}/issues/${num}`
         : undefined
     }
-    if (source === 'linear' && externalUrl) {
-      const m = externalUrl.match(/^(https?:\/\/linear\.app\/[^/]+\/issue)\//)
-      return m ? `${m[1]}/${key}` : undefined
-    }
     return undefined
   }
 
   const taskUrl = externalUrl || trackerUrlForKey(selectedTask.key)
   const parentUrl = trackerUrlForKey(selectedTask.parentKey)
   const trackerName =
-    selectedTask.source === 'linear' ? 'Linear'
-    : selectedTask.source === 'github' ? 'GitHub'
+    selectedTask.source === 'github' ? 'GitHub'
     : selectedTask.source === 'jira' ? 'Jira'
     : 'le tracker'
 
@@ -459,7 +458,6 @@ export const TaskDetailModal: React.FC = () => {
    */
   const renderTaskRef = () => (
     <span className="font-mono text-sm font-bold text-[var(--accent-color)] bg-[var(--accent-light)] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shrink-0">
-      {selectedTask.source === 'linear' && <span className="text-indigo-400 font-bold font-mono">◆</span>}
       {selectedTask.source === 'github' && <FolderGit2 size={13} className="text-purple-400" />}
       {selectedTask.source === 'jira' && <span className="text-blue-400 font-sans font-black text-xs">J</span>}
       {(!selectedTask.source || selectedTask.source === 'local') && <Folder size={13} className="text-emerald-400" />}
@@ -632,7 +630,7 @@ export const TaskDetailModal: React.FC = () => {
   const handleTriggerSkill = async (skillId: string, overridePrompt?: string) => {
     if (!selectedTask || isSkillRunning) return
     const promptToUse = overridePrompt || customPrompt
-    const activity = await runSkill(selectedTask.id, skillId, promptToUse)
+    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: launchMode })
     if (activity && !overridePrompt) {
       setCustomPrompt('')
     }
@@ -1265,6 +1263,20 @@ export const TaskDetailModal: React.FC = () => {
         </div>
       </div>
 
+      {/* Discuter : session interactive avec l'agent, hors pipeline de skills. */}
+      {selectedTask && resolveTaskStage(selectedTask, taskProject) !== 'finished' && (
+        <button
+          type="button"
+          onClick={() => runSkill(selectedTask.id, 'discuss')}
+          disabled={isSkillRunning}
+          title="Ouvrir une session avec l'agent sur cette tâche, sans lancer de skill"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:border-[var(--accent-color)]/60 transition-all disabled:opacity-50"
+        >
+          {isSkillRunning && runningSkillId === 'discuss' ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} className="text-cyan-400" />}
+          <span>Discuter de la tâche</span>
+        </button>
+      )}
+
       {/* Main Recommended Action Callout */}
       {selectedTask && !selectedTask.prUrl && resolveTaskStage(selectedTask, taskProject) === 'implemented' && <button type="button" onClick={() => handleTriggerSkill(prRecoverySkill(taskProject), 'PR recovery: preserve accepted work and attained stage; complete owner checks and create/reuse/link the PR. Do not advance to reviewed.')} className="px-4 py-2 text-purple-400 text-sm">Complete PR setup through {prRecoverySkill(taskProject)}</button>}
       {nextSkill && (
@@ -1317,9 +1329,22 @@ export const TaskDetailModal: React.FC = () => {
 
       {/* Optional Prompt Refinement */}
       <div>
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
           <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
             Instruction / Contexte additionnel pour l'IA (Optionnel)
+          </label>
+          <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
+            <span>Mode</span>
+            <select
+              value={launchMode}
+              onChange={e => setLaunchMode(e.target.value as SkillMode)}
+              className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
+              title="Mode d'exécution pour ce lancement seulement. Aucun réglage enregistré n'est modifié."
+            >
+              <option value="">Mode configuré</option>
+              <option value="interactive">Interactif</option>
+              <option value="autonomous">Autonome</option>
+            </select>
           </label>
         </div>
         <input
@@ -1471,7 +1496,7 @@ export const TaskDetailModal: React.FC = () => {
                     }
                   }}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-                  title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Linear)"
+                  title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Jira)"
                 >
                   <RefreshCw size={12} className={`text-indigo-400 ${isSyncingTask ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">{isSyncingTask ? 'Sync...' : 'Sync'}</span>
@@ -1684,7 +1709,7 @@ export const TaskDetailModal: React.FC = () => {
                 }
               }}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-              title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Linear)"
+              title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Jira)"
             >
               <RefreshCw size={13} className={`text-indigo-400 ${isSyncingTask ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">{isSyncingTask ? 'Sync...' : 'Sync'}</span>

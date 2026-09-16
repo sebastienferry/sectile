@@ -7,13 +7,25 @@ Go executables are independently buildable; Electron is an optional companion.
 flowchart LR
     Browser[React web UI] <-->|REST| Server[sectile-server]
     Server <--> SQLite[(SQLite)]
-    Server <-->|HTTP APIs| Trackers[GitHub / Linear]
+    Server <-->|HTTP APIs| Trackers[GitHub / Jira]
     Server <-->|Authenticated WebSocket| Agent[sectile-agent]
     Desktop[Electron companion] <-->|Private loopback API| Agent
     Agent --> Git[Local Git and worktrees]
     Agent --> PTY[Native coding CLI consoles]
     PTY --> MCP[Agent stdio MCP bridge]
     MCP -->|Loopback proxy| Server
+```
+
+An interactive, revision-pinned version of the same topology — with per-component
+source links, guided views, light/dark themes and PNG/SVG export — is checked in at
+[`diagrams/sectile-architecture.html`](diagrams/sectile-architecture.html). Its
+[specification](diagrams/sectile-architecture.json) is the editable source; regenerate
+the page from the repository root with the [Archify](https://github.com/tt-a1i/archify)
+skill, after refreshing `meta.repository.revision` to the commit the source links
+should point at:
+
+```bash
+node <archify-checkout>/bin/archify.mjs deliver architecture docs/diagrams/sectile-architecture.json docs/diagrams/sectile-architecture.html --quality showcase --repo-root .
 ```
 
 ## Ownership and packages
@@ -23,7 +35,7 @@ flowchart LR
 | `cmd/server` | HTTP routes, embedded web assets and SQLite startup; no command dispatch or browser launch |
 | `internal/db` | Persisted tasks, projects, board/roadmap/sprint configuration, workflow and tracker queues |
 | `internal/handlers` | Server API, upstream MCP and authenticated agent relay |
-| `internal/trackerapi` | GitHub REST/GraphQL and Linear GraphQL with explicit server credentials |
+| `internal/trackerapi` | GitHub REST/GraphQL with explicit server credentials |
 | `cmd/agent` | Workstation daemon, loopback/control APIs, MCP bridge, launch queue and execution supervision |
 | `internal/agentprotocol` | Shared message envelope and workspace operation DTOs |
 | `internal/agentconfig` | Secret-free configuration contract and agent-owned installation helpers |
@@ -44,7 +56,7 @@ helpers suffixed `Unsafe` assume the caller already holds the appropriate lock.
 Avoid calling public locking methods while holding that lock.
 
 Tracker jobs run on the server even when no agent is connected. GitHub repository
-identity and Linear team identity are explicit configuration. Native HTTP clients
+identity is explicit configuration. Native HTTP clients
 paginate lists and follow redirects within the same origin while preserving the
 request method. Redirect chains are bounded; redirects and pagination to another
 origin are rejected. Missing
@@ -58,23 +70,21 @@ acknowledgement does not advance a stage. For PR-bearing stages, forge data must
 confirm the assigned branch, URL and pushed commit; review additionally requires
 a ready PR and a clean checkout reported by the agent. Human merge remains outside
 this workflow. There is no server-local result-file worker or LLM process.
-Digest generation also delegates LLM execution to an agent.
 
 ## Workstation mapping and worktrees
 
 The agent downloads fresh project configuration for each operation. Configuration
 contains identity, effective skills and defaults, without server filesystem paths
 or tracker credentials. Local repositories are mapped by project primary key in
-`~/.config/taskflow/settings.json`, with repository overrides supported under
+`~/.config/sectile/settings.json`, with repository overrides supported under
 `.taskflow/agent.json`. Git remote identity can match the current repository.
 Repositories are never cloned implicitly.
 
 Task preparation reuses the assigned branch's existing checkout where possible.
 Otherwise it creates `.tasks/worktrees/<taskKey>` locally. Existing mismatched
 worktrees fail visibly; preparation does not reset a branch to accommodate a
-request. Shared checkouts execute serially. Worktree projects admit up to three
-parallel executions according to effective server defaults and workstation
-preferences. Tasks using the same checkout cannot execute concurrently.
+request. Shared checkouts execute serially. Worktree projects admit up to five
+parallel executions according to the workstation setting, which defaults to one. Tasks using the same checkout cannot execute concurrently.
 
 Only the agent writes repository skills and `.taskflow/config.json` or updates
 the marked section of `AGENTS.md`. It preserves unrelated configuration keys and
@@ -107,9 +117,9 @@ restores eligibility for local execution.
 
 ## MCP and authentication
 
-The server's Streamable HTTP `/mcp` service exposes eight typed tools:
-`list_projects`, `get_task`, `list_tasks`, `get_project_context`, `add_comment`,
-`transition_stage`, `start_run` and `finish_run`. The MCP server identity is
+The server's Streamable HTTP `/mcp` service exposes nine typed tools:
+`list_projects`, `get_task`, `list_tasks`, `get_project_context`, `create_task`,
+`add_comment`, `transition_stage`, `start_run` and `finish_run`. The MCP server identity is
 `sectile`. Native clients use `sectile-agent mcp --url <loopback-address>` as a
 stdio bridge. It never opens SQLite and uses the agent's upstream credential.
 

@@ -11,7 +11,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'},{id:'project-b',name:'Other project',path:'/tmp/other-worktree'}]));return}
-  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,parallelism:2,aiCommandTemplate:serverCommand,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
+  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,aiCommandTemplate:serverCommand,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
   if(req.url.startsWith('/desktop/tasks?')){
    if(req.method==='POST'){submitted=true;let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{launches.push({...JSON.parse(raw),projectID:new URL(req.url,'http://localhost').searchParams.get('projectId')});res.end(JSON.stringify({status:'running'}))});return}
    if(createdInput&&new URL(req.url,'http://localhost').searchParams.get('q')==='#49'){res.end(JSON.stringify([{id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title,status:'to_clarify'}]));return}
@@ -76,12 +76,17 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await application.evaluate(({dialog})=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:['/tmp/chosen-repository']})})
   await page.getByRole('button',{name:'Choose folder…',exact:true}).click()
   await page.waitForFunction(()=>document.querySelector('[aria-label="Local repository"]').value==='/tmp/chosen-repository')
+  const parallel=page.getByRole('slider',{name:'Parallel executions',exact:true})
   await page.getByRole('button',{name:'No',exact:true}).click()
-  assert.equal(await page.getByRole('button',{name:'2',exact:true}).isDisabled(),true)
+  assert.equal(await parallel.isDisabled(),true)
   await page.getByRole('button',{name:'Reset worktrees to server default',exact:true}).click()
-  assert.equal(await page.getByRole('button',{name:'2',exact:true}).isDisabled(),false)
-  await page.getByRole('button',{name:'3',exact:true}).click()
-  await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).click()
+  assert.equal(await parallel.isDisabled(),false)
+  // The ceiling is the workstation's, not a five-way segmented control.
+  assert.equal(await parallel.getAttribute('max'),'10')
+  await parallel.fill('3')
+  assert.equal(await parallel.inputValue(),'3')
+  // Parallelism is workstation-owned: no server default, hence no reset control.
+  assert.equal(await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).count(),0)
   const placeholderHelp=await page.locator('p').filter({hasText:'Required: {prompt}'}).textContent()
   for(const token of ['{prompt}','{issueKey}','{issueTitle}','{issueDesc}','{branchName}','{repoPath}','{tracker}','{repo}']){
    assert.ok(placeholderHelp.includes(token),`Missing placeholder help: ${token}`)
@@ -101,7 +106,8 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.waitForFunction(()=>document.querySelector('[aria-label="CLI command"]').value==='latest {prompt}')
 
 
-  assert.equal(await page.getByRole('button',{name:'2',exact:true}).getAttribute('aria-pressed'),'true')
+  // The workstation parallelism selection survives a server refresh.
+  assert.equal(await parallel.inputValue(),'3')
   await page.getByRole('button',{name:'Close',exact:true}).click()
   await page.getByRole('button',{name:'Toggle projects',exact:true}).click()
   assert.equal(await page.locator('aside').isVisible(),false)

@@ -3,6 +3,7 @@ import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
 import React, { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  Bot,
   Flame,
   ListFilter,
   Calendar,
@@ -17,13 +18,15 @@ import {
   FileCode,
   CheckCircle2,
   Eye,
+  MessageCircle,
   Trash2,
   Copy,
   CopyPlus,
   Pin,
+  Terminal,
   X,
 } from 'lucide-react'
-import type { Task, Priority } from '../types'
+import type { Task, Priority, SkillMode } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
@@ -256,12 +259,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   const nextStepInfo = getNextStepInfo(task, taskProject)
   const isFinishedTask = nextStepInfo.currentStage === 'finished'
 
-  // Un pas du workflow. Le serveur lance l'étape en pleine autonomie en arrière-plan.
-  // Une session TTY interactive peut être ouverte manuellement via le bouton terminal.
-  const handleAdvance = async (auto: boolean) => {
+  // Un pas du workflow. Sans surcharge, le mode est celui que la précédence
+  // résout (surcharge > skill > défaut du projet > interactif). La chaîne
+  // complète est autonome par construction et ne prend pas de surcharge.
+  const handleAdvance = async (auto: boolean, mode?: SkillMode) => {
     if (advancing || isFinishedTask) return
     setAdvancing(auto ? 'auto' : 'step')
-    await advanceTask(task.id, auto)
+    await advanceTask(task.id, auto, mode)
     setAdvancing(null)
   }
 
@@ -354,6 +358,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false) }}>
                 <ChevronRight size={12} /><span>{t.compactCard.advance}</span>
               </button>
+              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'interactive') }}>
+                <Terminal size={12} /><span>{t.compactCard.advanceInteractive}</span>
+              </button>
+              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'autonomous') }}>
+                <Bot size={12} /><span>{t.compactCard.advanceAutonomous}</span>
+              </button>
               <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(true) }}>
                 <ChevronsRight size={12} /><span>{t.compactCard.advanceAuto}</span>
               </button>
@@ -407,6 +417,22 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             <span>Voir les détails</span>
           </button>
 
+          {/* Discuter : ouvre l'agent en session interactive, sans lancer de skill. */}
+          {!isFinishedTask && (
+            <button
+              type="button"
+              onClick={async () => {
+                setIsMenuOpen(false)
+                await runSkill(task.id, 'discuss')
+              }}
+              disabled={isSkillRunning}
+              title="Ouvrir une session avec l'agent sur cette tâche, sans lancer de skill"
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSkillRunning && runningSkillId === 'discuss' ? <Loader2 size={12} className="animate-spin" /> : <MessageCircle size={12} className="text-cyan-400" />}
+              <span>Discuter</span>
+            </button>
+          )}
 
           {/* Adjust : masqué quand c'est déjà l'action de l'étape courante */}
           {!task.prUrl && resolveTaskStage(task, taskProject) === 'implemented' && (

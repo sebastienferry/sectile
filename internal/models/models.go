@@ -91,6 +91,14 @@ type Project struct {
 	// nothing. Default true, which is the historical behaviour.
 	UseWorktrees    bool   `json:"useWorktrees"`
 	PRCreationStage string `json:"prCreationStage"`
+	// DefaultSkillMode is the execution mode a skill run falls back to when
+	// neither the launch nor the skill itself pins one. Default "interactive",
+	// which is what the tool did before the setting existed.
+	DefaultSkillMode string `json:"defaultSkillMode"`
+	// FullChainStopStage is where a full chain run stops on its own. Only
+	// "implemented" and "reviewed" mean anything; anything else reads as
+	// "reviewed" so a bad stored value cannot wedge a board.
+	FullChainStopStage string `json:"fullChainStopStage"`
 	// BoardID / TrackerColumns mirror the tracker's board: its columns in order,
 	// with the statuses each one groups. Imported from the tracker, not typed by
 	// hand.
@@ -110,32 +118,26 @@ type Project struct {
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
 	// columns, which is what decides the skill proposed on a card.
-	StageColumns map[string][]string `json:"stageColumns,omitempty"`
-	GitRemoteUrl string              `json:"gitRemoteUrl"` // e.g. "git@github.com:owner/repo.git"
-	LinearTeam   string              `json:"linearTeam"`   // Key / prefix (optionnel)
-	GithubRepo   string              `json:"githubRepo"`   // e.g. "owner/repo"
-	JiraProject  string              `json:"jiraProject"`  // Jira project key, e.g. "PE"
-	IssueTracker string              `json:"issueTracker"` // "linear", "github", "jira", "local"
-	TrackerUrl   string              `json:"trackerUrl"`   // e.g. "https://linear.app/my-team/project/xxx" or "https://acme.atlassian.net"
-	// ProjectType is "standard" (a delivery project) or "personal" (a personal
-	// board). The daily digest is only meaningful on a personal project, so it
-	// is served for that type only.
-	ProjectType             string            `json:"projectType"`
-	IsDefault               bool              `json:"isDefault"`
-	StageMapping            map[string]string `json:"stageMapping,omitempty"`            // mapping AI workflow labels to tracker statuses
-	SkillOverrides          map[string]string `json:"skillOverrides,omitempty"`          // skillId -> custom skill name override
-	AIProvider              string            `json:"aiProvider,omitempty"`              // "agy", "claude", "vibe", "gemini", "cursor", "custom"
-	SetupProviders          []string          `json:"setupProviders"`                    // extra agents to install skills and MCP for
-	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`       // e.g. 'agy -p "{prompt}"'
-	SpecFramework           string            `json:"specFramework,omitempty"`           // "speckit", "openspec"
-	Parallelism             int               `json:"parallelism"`                       // 1 to 3 concurrent AI background workers
-	AutoSyncEnabled         bool              `json:"autoSyncEnabled"`                   // Enable background sync for non-finished tickets
-	AutoSyncIntervalMin     int               `json:"autoSyncIntervalMin"`               // Period in minutes (1 to 30)
-	TtyMode                 string            `json:"ttyMode,omitempty"`                 // "integrated" or "external"
-	ExternalTerminalCommand string            `json:"externalTerminalCommand,omitempty"` // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
-	TaskCount               int               `json:"taskCount"`
-	CreatedAt               time.Time         `json:"createdAt"`
-	UpdatedAt               time.Time         `json:"updatedAt"`
+	StageColumns            map[string][]string `json:"stageColumns,omitempty"`
+	GitRemoteUrl            string              `json:"gitRemoteUrl"` // e.g. "git@github.com:owner/repo.git"
+	GithubRepo              string              `json:"githubRepo"`   // e.g. "owner/repo"
+	JiraProject             string              `json:"jiraProject"`  // Jira project key, e.g. "PE"
+	IssueTracker            string              `json:"issueTracker"` // "github", "jira", "local"
+	TrackerUrl              string              `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
+	IsDefault               bool                `json:"isDefault"`
+	StageMapping            map[string]string   `json:"stageMapping,omitempty"`            // mapping AI workflow labels to tracker statuses
+	SkillOverrides          map[string]string   `json:"skillOverrides,omitempty"`          // skillId -> custom skill name override
+	AIProvider              string              `json:"aiProvider,omitempty"`              // "agy", "claude", "codex", "custom"
+	SetupProviders          []string            `json:"setupProviders"`                    // extra agents to install skills and MCP for
+	AICommandTemplate       string              `json:"aiCommandTemplate,omitempty"`       // e.g. 'agy -p "{prompt}"'
+	SpecFramework           string              `json:"specFramework,omitempty"`           // "speckit", "openspec"
+	AutoSyncEnabled         bool                `json:"autoSyncEnabled"`                   // Enable background sync for non-finished tickets
+	AutoSyncIntervalMin     int                 `json:"autoSyncIntervalMin"`               // Period in minutes (1 to 30)
+	TtyMode                 string              `json:"ttyMode,omitempty"`                 // "integrated" or "external"
+	ExternalTerminalCommand string              `json:"externalTerminalCommand,omitempty"` // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
+	TaskCount               int                 `json:"taskCount"`
+	CreatedAt               time.Time           `json:"createdAt"`
+	UpdatedAt               time.Time           `json:"updatedAt"`
 }
 
 // TrackerColumn is one column of the tracker's own board, with the tracker
@@ -150,7 +152,7 @@ type TaskComment struct {
 	Author    string     `json:"author"`
 	Body      string     `json:"body"`
 	CreatedAt *time.Time `json:"createdAt,omitempty"`
-	Source    string     `json:"source"` // "jira", "github", "linear", "local"
+	Source    string     `json:"source"` // "jira", "github", "local"
 }
 
 type TrackerColumn struct {
@@ -177,7 +179,7 @@ type TrackerSprint struct {
 }
 
 // MacroMeta is the macro-level data Sectile owns. Macros are containers referenced by their children
-// — so their horizon, their framing notes and their todo list have nowhere else to live.
+// so their horizon, their framing notes and their todo list have nowhere else to live.
 type MacroMeta struct {
 	ProjectID      string      `json:"projectId"`
 	Key            string      `json:"key"`
@@ -280,15 +282,15 @@ type CreateProjectRequest struct {
 	RepoPath                string            `json:"repoPath,omitempty"`
 	RepoPaths               []string          `json:"repoPaths,omitempty"`
 	PRCreationStage         string            `json:"prCreationStage,omitempty"`
+	DefaultSkillMode        string            `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage      string            `json:"fullChainStopStage,omitempty"`
 	UseWorktrees            *bool             `json:"useWorktrees,omitempty"`
 	BoardID                 string            `json:"boardId,omitempty"`
 	GitRemoteUrl            string            `json:"gitRemoteUrl,omitempty"`
-	LinearTeam              string            `json:"linearTeam,omitempty"`
 	GithubRepo              string            `json:"githubRepo,omitempty"`
 	JiraProject             string            `json:"jiraProject,omitempty"`
 	IssueTracker            string            `json:"issueTracker,omitempty"`
 	TrackerUrl              string            `json:"trackerUrl,omitempty"`
-	ProjectType             string            `json:"projectType,omitempty"`
 	IsDefault               bool              `json:"isDefault,omitempty"`
 	StageMapping            map[string]string `json:"stageMapping,omitempty"`
 	SkillOverrides          map[string]string `json:"skillOverrides,omitempty"`
@@ -296,7 +298,6 @@ type CreateProjectRequest struct {
 	AIProvider              string            `json:"aiProvider,omitempty"`
 	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`
 	SpecFramework           string            `json:"specFramework,omitempty"`
-	Parallelism             int               `json:"parallelism,omitempty"`
 	AutoSyncEnabled         *bool             `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin     *int              `json:"autoSyncIntervalMin,omitempty"`
 	TtyMode                 string            `json:"ttyMode,omitempty"`
@@ -312,6 +313,8 @@ type UpdateProjectRequest struct {
 	RepoPath                *string              `json:"repoPath,omitempty"`
 	RepoPaths               *[]string            `json:"repoPaths,omitempty"`
 	PRCreationStage         *string              `json:"prCreationStage,omitempty"`
+	DefaultSkillMode        *string              `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage      *string              `json:"fullChainStopStage,omitempty"`
 	UseWorktrees            *bool                `json:"useWorktrees,omitempty"`
 	BoardID                 *string              `json:"boardId,omitempty"`
 	TrackerColumns          *[]TrackerColumn     `json:"trackerColumns,omitempty"`
@@ -320,12 +323,10 @@ type UpdateProjectRequest struct {
 	MonoRepo                *bool                `json:"monoRepo,omitempty"`
 	StageColumns            *map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl            *string              `json:"gitRemoteUrl,omitempty"`
-	LinearTeam              *string              `json:"linearTeam,omitempty"`
 	GithubRepo              *string              `json:"githubRepo,omitempty"`
 	JiraProject             *string              `json:"jiraProject,omitempty"`
 	IssueTracker            *string              `json:"issueTracker,omitempty"`
 	TrackerUrl              *string              `json:"trackerUrl,omitempty"`
-	ProjectType             *string              `json:"projectType,omitempty"`
 	IsDefault               *bool                `json:"isDefault,omitempty"`
 	StageMapping            *map[string]string   `json:"stageMapping,omitempty"`
 	SkillOverrides          *map[string]string   `json:"skillOverrides,omitempty"`
@@ -333,7 +334,6 @@ type UpdateProjectRequest struct {
 	AIProvider              *string              `json:"aiProvider,omitempty"`
 	AICommandTemplate       *string              `json:"aiCommandTemplate,omitempty"`
 	SpecFramework           *string              `json:"specFramework,omitempty"`
-	Parallelism             *int                 `json:"parallelism,omitempty"`
 	AutoSyncEnabled         *bool                `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin     *int                 `json:"autoSyncIntervalMin,omitempty"`
 	TtyMode                 *string              `json:"ttyMode,omitempty"`
@@ -351,15 +351,81 @@ func NormalizeAutoSyncIntervalMin(min int) int {
 	return min
 }
 
-// NormalizeParallelism keeps the concurrent background agent workers count between 1 and 3.
-func NormalizeParallelism(p int) int {
-	if p < 1 {
-		return 1
+// A skill run is executed in one of two modes. Interactive opens a terminal the
+// user answers, and the stage moves only when the user confirms the session is
+// over. Autonomous runs the provider CLI headless, streams its output onto the
+// run activity, and lets the worker post the transition.
+//
+// SkillModeUnset is the third state a stored setting needs: a skill or a project
+// with no opinion, which lets the precedence fall through to the next level. It
+// is not the same as SkillModeInteractive, which pins the mode.
+const (
+	SkillModeUnset       = ""
+	SkillModeInteractive = "interactive"
+	SkillModeAutonomous  = "autonomous"
+)
+
+// NormalizeSkillMode reads a stored or received mode. An unrecognised value
+// reads as unset rather than erroring, so a bad stored value falls through the
+// precedence instead of pinning a mode nobody asked for. Use ValidSkillMode to
+// reject what a client sent.
+func NormalizeSkillMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case SkillModeInteractive:
+		return SkillModeInteractive
+	case SkillModeAutonomous:
+		return SkillModeAutonomous
+	default:
+		return SkillModeUnset
 	}
-	if p > 3 {
-		return 3
+}
+
+// ValidSkillMode says whether a client-supplied mode is one we accept. An empty
+// value is valid and means "no override".
+func ValidSkillMode(mode string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(mode))
+	return trimmed == SkillModeUnset || trimmed == SkillModeInteractive || trimmed == SkillModeAutonomous
+}
+
+// TemplateModePlaceholder is how a custom AI command template says which part of
+// the command line depends on the execution mode: {mode:AUTONOMOUS|INTERACTIVE}.
+// A template without it owns the mode its author wrote, so it cannot serve an
+// autonomous launch.
+const TemplateModePlaceholder = "{mode:"
+
+// SupportsAutonomousRun says whether a project configuration can run headless.
+// The provider list is what this repository attests, nothing guessed: an
+// unsupported flag either fails opaquely or is swallowed as prompt text, which
+// is worse than refusing. A configured template wins over the provider, as it
+// does at launch, and only carries a mode when it declares the placeholder.
+func SupportsAutonomousRun(provider, commandTemplate string) bool {
+	if strings.TrimSpace(commandTemplate) != "" {
+		return strings.Contains(commandTemplate, TemplateModePlaceholder)
 	}
-	return p
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "claude", "codex", "vibe":
+		return true
+	default:
+		return false
+	}
+}
+
+// FullChainStopStages are the only stages a full chain run may stop at. Stopping
+// at implemented leaves the pull request to the user; stopping at reviewed opens
+// it and leaves the merge to the user. Merging is never automated.
+const (
+	FullChainStopImplemented = "implemented"
+	FullChainStopReviewed    = "reviewed"
+)
+
+// NormalizeFullChainStopStage reads a stored stop stage. Anything unrecognised
+// reads as reviewed, which is the historical behaviour, so a bad stored value
+// cannot wedge a board.
+func NormalizeFullChainStopStage(stage string) string {
+	if strings.ToLower(strings.TrimSpace(stage)) == FullChainStopImplemented {
+		return FullChainStopImplemented
+	}
+	return FullChainStopReviewed
 }
 
 type InstalledSkillInfo struct {
@@ -419,16 +485,18 @@ type SkillEditorEntry struct {
 	FromStage              string            `json:"fromStage"`
 	ToStage                string            `json:"toStage"`
 	Scope                  string            `json:"scope,omitempty"`
-	Interactive            bool              `json:"interactive"`
-	Content                string            `json:"content"`
-	DefaultContent         string            `json:"defaultContent"`
-	IsCustom               bool              `json:"isCustom"`
-	UpdatedAt              string            `json:"updatedAt,omitempty"`
-	Installed              bool              `json:"installed"`
-	Paths                  []string          `json:"paths"`
-	Diverged               bool              `json:"diverged"`
-	RepoContent            string            `json:"repoContent,omitempty"`
-	RepoPath               string            `json:"repoPath,omitempty"`
+	// Mode is the skill's own execution mode: "interactive", "autonomous", or
+	// empty when the skill has no opinion and the project default decides.
+	Mode           string   `json:"mode"`
+	Content        string   `json:"content"`
+	DefaultContent string   `json:"defaultContent"`
+	IsCustom       bool     `json:"isCustom"`
+	UpdatedAt      string   `json:"updatedAt,omitempty"`
+	Installed      bool     `json:"installed"`
+	Paths          []string `json:"paths"`
+	Diverged       bool     `json:"diverged"`
+	RepoContent    string   `json:"repoContent,omitempty"`
+	RepoPath       string   `json:"repoPath,omitempty"`
 }
 
 type ProjectSkillsStatus struct {
@@ -458,7 +526,7 @@ type DetectedStatus struct {
 	Name   string `json:"name"`
 	Type   string `json:"type,omitempty"` // "backlog", "unstarted", "started", "completed", "canceled", "triage", "custom"
 	Color  string `json:"color,omitempty"`
-	Source string `json:"source,omitempty"` // "linear", "github", "db", "preset"
+	Source string `json:"source,omitempty"` // "github", "db", "preset"
 }
 
 type GitBranchItem struct {
@@ -563,13 +631,13 @@ type Task struct {
 	// used to read a team's members: the members endpoint is keyed by id, and
 	// two teams may carry the same name.
 	TeamID      string  `json:"teamId,omitempty"`
-	Source      string  `json:"source"` // "linear", "github", "jira", "local"
+	Source      string  `json:"source"` // "github", "jira", "local"
 	ExternalURL *string `json:"externalUrl,omitempty"`
 	// IssueType is the tracker's own work item type. Only "Task" and "Story"
 	// are imported; epics and other types stay out of the board.
 	IssueType string `json:"issueType,omitempty"`
 	// ParentKey / ParentTitle / ParentType describe the work item this task
-	// hangs under — an epic, or a parent story for a sub-task. The parent is a
+	// hangs under: an epic, or a parent story for a sub-task. The parent is a
 	// property of the task rather than a card of its own.
 	ParentKey   string `json:"parentKey,omitempty"`
 	ParentTitle string `json:"parentTitle,omitempty"`
@@ -577,8 +645,8 @@ type Task struct {
 	// TrackerCreatedAt / TrackerUpdatedAt are the tracker's own dates, when it
 	// gave them. CreatedAt and UpdatedAt below are local: on a synced ticket they
 	// hold the import time, which is why they cannot answer "open for how long".
-	// Nil means the tracker did not provide them, and the digest then says so
-	// rather than counting days from an import.
+	// Nil means the tracker did not provide them, so a duration cannot be
+	// counted from an import date.
 	TrackerCreatedAt *time.Time `json:"trackerCreatedAt,omitempty"`
 	TrackerUpdatedAt *time.Time `json:"trackerUpdatedAt,omitempty"`
 	// StatusChangedAt is when the work item entered its current status category,
@@ -615,11 +683,10 @@ type Settings struct {
 	UserName          string `json:"userName"`
 	UserEmail         string `json:"userEmail"`
 	UserAvatar        string `json:"userAvatar"`
-	AIProvider        string `json:"aiProvider"`        // "agy", "vibe", "claude", "custom"
+	AIProvider        string `json:"aiProvider"`        // "agy", "claude", "codex", "custom"
 	AICommandTemplate string `json:"aiCommandTemplate"` // e.g. 'agy -p "{prompt}"'
 	RepoPath          string `json:"repoPath"`          // e.g. '/path/to/project'
-	IssueTracker      string `json:"issueTracker"`      // "linear", "github", "jira", "local"
-	LinearTeam        string `json:"linearTeam"`        // e.g. "ENG"
+	IssueTracker      string `json:"issueTracker"`      // "github", "jira", "local"
 	GithubRepo        string `json:"githubRepo"`        // e.g. "owner/repo"
 	JiraProject       string `json:"jiraProject"`       // e.g. "PE"
 	JiraUrl           string `json:"jiraUrl"`
@@ -630,12 +697,9 @@ type Settings struct {
 	// JiraAPIToken never leaves the server: the API responses carry the two
 	// flags below instead, so the token cannot be read back by anything that
 	// can reach the settings endpoint.
-	JiraAPIToken        string `json:"jiraApiToken,omitempty"`
-	JiraAPITokenSet     bool   `json:"jiraApiTokenSet"`
-	JiraAPITokenFromEnv bool   `json:"jiraApiTokenFromEnv"` // e.g. "https://acme.atlassian.net"
-	// PromptDigestAgenda replaces the built-in agenda prompt of the daily digest.
-	// Empty keeps the default. Placeholders: {project}, {date}.
-	PromptDigestAgenda      string    `json:"promptDigestAgenda"`
+	JiraAPIToken            string    `json:"jiraApiToken,omitempty"`
+	JiraAPITokenSet         bool      `json:"jiraApiTokenSet"`
+	JiraAPITokenFromEnv     bool      `json:"jiraApiTokenFromEnv"` // e.g. "https://acme.atlassian.net"
 	PromptClarify           string    `json:"promptClarify"`
 	PromptSpecify           string    `json:"promptSpecify"`
 	PromptImplement         string    `json:"promptImplement"`
@@ -771,8 +835,12 @@ type Skill struct {
 }
 
 type RunSkillRequest struct {
-	SkillID      string `json:"skillId"`
-	Prompt       string `json:"prompt,omitempty"`
+	SkillID string `json:"skillId"`
+	Prompt  string `json:"prompt,omitempty"`
+	// Mode is the one-off execution mode override for this launch only. Empty
+	// means no override, which is not the same as "interactive": the precedence
+	// still falls through to the skill and then to the project.
+	Mode         string `json:"mode,omitempty"`
 	WithComments bool   `json:"withComments,omitempty"`
 }
 
@@ -791,108 +859,7 @@ type CliStatus struct {
 }
 
 type ConvertTaskRequest struct {
-	Target string `json:"target"` // "linear" or "github"
-}
-
-// -------------------------------------------------------------
-// DAILY DIGEST
-// -------------------------------------------------------------
-//
-// The digest is hybrid by design. Everything derived from the project's tasks is
-// computed deterministically by Taskacao, so opening the view is instant and
-// works offline. The agenda section is the only part that needs the project's AI
-// agent, because meetings live in the user's calendar which Taskacao cannot see.
-
-// DigestTaskRef is the compact view of a task inside a digest section.
-type DigestTaskRef struct {
-	Key         string   `json:"key"`
-	Title       string   `json:"title"`
-	Status      Status   `json:"status"`
-	Priority    Priority `json:"priority"`
-	IssueType   string   `json:"issueType,omitempty"`
-	Assignee    string   `json:"assignee,omitempty"`
-	ParentKey   string   `json:"parentKey,omitempty"`
-	ParentTitle string   `json:"parentTitle,omitempty"`
-	ExternalURL *string  `json:"externalUrl,omitempty"`
-	BranchName  *string  `json:"branchName,omitempty"`
-	PrURL       *string  `json:"prUrl,omitempty"`
-	DueDate     *string  `json:"dueDate,omitempty"`
-	// AgeDays is the number of days since creation; DaysToDue is negative when
-	// the due date is already past.
-	AgeDays int  `json:"ageDays"`
-	IsStale bool `json:"isStale"`
-	// DatesUnknown marks a task whose tracker dates were not available at sync
-	// time, so age and closing date must not be presented as facts.
-	DatesUnknown bool `json:"datesUnknown,omitempty"`
-	DaysToDue    *int `json:"daysToDue,omitempty"`
-}
-
-// DigestMacroGroup summarises how much open work hangs under one parent macro.
-type DigestMacroGroup struct {
-	ParentKey   string `json:"parentKey"`
-	ParentTitle string `json:"parentTitle,omitempty"`
-	OpenCount   int    `json:"openCount"`
-	DoneCount   int    `json:"doneCount"`
-}
-
-type DigestEpicGroup = DigestMacroGroup
-
-// DigestStats are the headline counters of a digest.
-type DigestStats struct {
-	TotalOpen      int `json:"totalOpen"`
-	Urgent         int `json:"urgent"`
-	High           int `json:"high"`
-	Stale          int `json:"stale"`
-	Overdue        int `json:"overdue"`
-	AwaitingReview int `json:"awaitingReview"`
-	DoneLast7Days  int `json:"doneLast7Days"`
-	// Dormant is the open work nobody has touched inside the watch window. It is
-	// counted rather than listed: a brief that prints the whole backlog sorts
-	// nothing, and this number is the honest way to say what was left out.
-	Dormant int `json:"dormant"`
-	// Counters for what could not be dated, so the UI never implies zero.
-	OpenDateUnknown   int `json:"openDateUnknown"`
-	ClosedDateUnknown int `json:"closedDateUnknown"`
-}
-
-// DailyDigest is one project's brief for one day.
-type DailyDigest struct {
-	ProjectID   string `json:"projectId"`
-	ProjectName string `json:"projectName"`
-	Date        string `json:"date"` // YYYY-MM-DD
-	// Assignee narrows the digest to one person; empty means the whole project.
-	Assignee string `json:"assignee"`
-	// Assignees lists every assignee present in the project's tasks, so the UI
-	// can offer the tracker's own spelling rather than guessing.
-	Assignees []string `json:"assignees,omitempty"`
-
-	// Deterministic, task-derived sections.
-	Focus          []DigestTaskRef    `json:"focus"`          // urgent / high, act today
-	Watch          []DigestTaskRef    `json:"watch"`          // medium, this week
-	Stale          []DigestTaskRef    `json:"stale"`          // high+ open too long
-	DueSoon        []DigestTaskRef    `json:"dueSoon"`        // overdue or due within a week
-	AwaitingReview []DigestTaskRef    `json:"awaitingReview"` // has a PR or sits in review
-	RecentlyDone   []DigestTaskRef    `json:"recentlyDone"`   // closed in the last 7 days
-	ByMacro        []DigestMacroGroup `json:"byMacro"`
-	ByEpic         []DigestMacroGroup `json:"byEpic,omitempty"`
-	Stats          DigestStats        `json:"stats"`
-
-	// AI enrichment (agenda / meetings).
-	Agenda       string     `json:"agenda,omitempty"`
-	AIStatus     string     `json:"aiStatus"` // "none" | "queued" | "running" | "completed" | "failed"
-	AIError      string     `json:"aiError,omitempty"`
-	AIActivityID string     `json:"aiActivityId,omitempty"`
-	AIUpdatedAt  *time.Time `json:"aiUpdatedAt,omitempty"`
-
-	Markdown    string    `json:"markdown"`
-	GeneratedAt time.Time `json:"generatedAt"`
-}
-
-// DailyDigestRequest asks for a digest, optionally triggering the agenda pass.
-type DailyDigestRequest struct {
-	Date     string `json:"date,omitempty"`     // YYYY-MM-DD, defaults to today
-	Assignee string `json:"assignee,omitempty"` // narrow to one person
-	Enrich   bool   `json:"enrich,omitempty"`   // run the AI agenda pass
+	Target string `json:"target"` // "github"
 }
 
 // TaskPostBackPayload represents an incoming update payload from local actions or background tracker operations.

@@ -23,7 +23,7 @@ import (
 
 // loadDotEnv reads KEY=VALUE lines from a .env file next to the binary's working
 // directory. A real environment variable always wins, so exporting a value in
-// the shell overrides the file. Secrets such as SECTILE_JIRA_API_TOKEN can then
+// the shell overrides the file. Secrets such as SECTILE_TRACKER_TOKEN can then
 // live outside the database and outside git, .env being already gitignored.
 func loadDotEnv(paths ...string) {
 	for _, path := range paths {
@@ -195,7 +195,6 @@ func main() {
 	mux.HandleFunc("/api/git/checkout", h.HandleGitCheckout)
 	mux.HandleFunc("/api/git-checkout", h.HandleGitCheckout)
 	mux.HandleFunc("/api/sync/all", h.HandleSyncAll)
-	mux.HandleFunc("/api/sync/linear", h.HandleSyncLinear)
 	mux.HandleFunc("/api/sync/github", h.HandleSyncGithub)
 	mux.HandleFunc("/api/sync/jira", h.HandleSyncJira)
 	mux.HandleFunc("/api/sync/auto", h.HandleAutoSyncStatus)
@@ -240,6 +239,7 @@ func main() {
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
 
 	mux.Handle("/mcp", h.MCPHandler())
+	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)
 	// Pairing binds one workstation to one user; the code is the only
 	// unauthenticated credential, and it is single use and short lived.
 	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)
@@ -247,6 +247,7 @@ func main() {
 	mux.HandleFunc("/api/v1/agent/pair", h.HandleAgentPair)
 	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
 	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
+	mux.Handle("/api/v1/agent/run-output", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentRunOutput)))
 
 	// Remote Agent WebSocket & Dispatch Routes
 	mux.HandleFunc("/ws/agent-connect", h.HandleAgentConnect)
