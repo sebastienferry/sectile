@@ -103,7 +103,7 @@ func TestGatewayForwardsMCPAndOwnCredential(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer upstream.Close()
-	d := &agentDaemon{serverURL: upstream.URL, token: "daemon-token", loopback: loopbackServer{token: "session-secret"}}
+	d := &agentDaemon{loopback: loopbackServer{token: "session-secret"}, link: serverLink{serverURL: upstream.URL, token: "daemon-token"}}
 	if err := d.startLocalProxy(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer upstream.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	d := &agentDaemon{serverURL: upstream.URL, token: "test-token", loopback: loopbackServer{token: "session-secret"}}
+	d := &agentDaemon{loopback: loopbackServer{token: "session-secret"}, link: serverLink{serverURL: upstream.URL, token: "test-token"}}
 	if err := d.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(models.Task{ID: "task", Key: "TASK-46", ProjectID: "remote-project", RepoPath: &remotePath, WorktreePath: &remotePath})
 	}))
 	defer srv.Close()
-	d := &agentDaemon{serverURL: srv.URL, token: "token", repoRoot: root, projectID: "remote-project", loopback: loopbackServer{url: "http://127.0.0.1:8091"}}
+	d := &agentDaemon{repoRoot: root, loopback: loopbackServer{url: "http://127.0.0.1:8091"}, link: serverLink{serverURL: srv.URL, token: "token", projectID: "remote-project"}}
 	effective, path, branch, task, err := d.prepareDispatch(ctx, "TASK-46")
 	if err != nil {
 		t.Fatal(err)
@@ -369,7 +369,7 @@ func TestConfigFetchIsFreshAndReportsServerError(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: 1, ProjectID: "project", AIProvider: "codex", Description: fmt.Sprintf("version %d", version)})
 	}))
 	defer server.Close()
-	d := &agentDaemon{serverURL: server.URL, token: "token"}
+	d := &agentDaemon{link: serverLink{serverURL: server.URL, token: "token"}}
 	first, err := d.fetchConfig(context.Background(), "project", "")
 	if err != nil {
 		t.Fatal(err)
@@ -399,7 +399,7 @@ func TestInvalidProjectFailsBeforeAgentRegistration(t *testing.T) {
 		_, _ = w.Write([]byte(`{"error":"project not found: taskativ"}`))
 	}))
 	defer srv.Close()
-	d := &agentDaemon{serverURL: srv.URL, token: "test", projectID: "taskativ", repoRoot: t.TempDir()}
+	d := &agentDaemon{repoRoot: t.TempDir(), link: serverLink{serverURL: srv.URL, token: "test", projectID: "taskativ"}}
 	err := d.connect(context.Background())
 	if err == nil || !strings.Contains(err.Error(), "project not found: taskativ") {
 		t.Fatalf("missing initialization error: %v", err)
@@ -417,7 +417,7 @@ func TestDiscoverProjects(t *testing.T) {
 		_, _ = w.Write([]byte(`{"schemaVersion":1,"projects":[{"id":"project-a","name":"A"},{"id":"project-b","name":"B"}]}`))
 	}))
 	defer srv.Close()
-	daemon := &agentDaemon{serverURL: srv.URL, token: "test-token"}
+	daemon := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "test-token"}}
 	projects, err := daemon.discoverProjects(context.Background())
 	if err != nil || len(projects.Projects) != 2 {
 		t.Fatalf("projects: %+v, %v", projects, err)

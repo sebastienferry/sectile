@@ -35,7 +35,7 @@ func disconnectFixture(t *testing.T) (*agentDaemon, agentconfig.Config) {
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
-	return &agentDaemon{repoRoot: root, projectID: "p", loopback: loopbackServer{desktopToken: "private"}}, agentconfig.Config{SchemaVersion: 1, ProjectID: "p", GitRemoteURL: "https://example.test/project.git"}
+	return &agentDaemon{repoRoot: root, loopback: loopbackServer{desktopToken: "private"}, link: serverLink{projectID: "p"}}, agentconfig.Config{SchemaVersion: 1, ProjectID: "p", GitRemoteURL: "https://example.test/project.git"}
 }
 
 func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
@@ -51,7 +51,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 		json.NewEncoder(w).Encode(config)
 	}))
 	defer srv.Close()
-	d.serverURL = srv.URL
+	d.link.serverURL = srv.URL
 	exited := make(chan struct{})
 	close(exited)
 	d.queue.runs = map[string]*controlledRun{"history": {desktop: desktopRun{ProjectID: "p", Status: "completed"}, exited: exited}}
@@ -74,7 +74,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 		t.Fatal("reconnection deployed tooling")
 	}
 	for _, projectID := range []string{"p", "different"} {
-		restarted := &agentDaemon{repoRoot: d.repoRoot, projectID: projectID}
+		restarted := &agentDaemon{repoRoot: d.repoRoot, link: serverLink{projectID: projectID}}
 		if _, _, err := restarted.localProjectRoot(context.Background(), config); err == nil || !strings.Contains(err.Error(), "disconnected") {
 			t.Fatal("fallback reconnected", err)
 		}

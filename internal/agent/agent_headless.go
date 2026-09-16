@@ -179,12 +179,12 @@ func (d *agentDaemon) postRunOutput(taskRef, runID, chunk string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	body := mustJSON(map[string]string{"taskId": taskRef, "runId": runID, "output": chunk})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.serverURL+"/api/v1/agent/run-output", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.link.serverURL+"/api/v1/agent/run-output", strings.NewReader(body))
 	if err != nil {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := agenthttp.Client(d.token).Do(req)
+	resp, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
 		return
 	}

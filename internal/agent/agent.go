@@ -62,20 +62,30 @@ type agentDaemon struct {
 	restartAgent context.CancelFunc
 	// loopback is the private HTTP surface the Electron companion and the
 	// agent's own subprocesses talk to, and the credentials that gate it.
-	loopback         loopbackServer
-	serverURL        string
-	token            string
-	projectID        string
-	deviceID         string
+	loopback loopbackServer
+	// link is this agent's attachment to the server: who it says it is and the
+	// one connection it speaks over.
+	link             serverLink
 	terminalApp      string
 	terminalExplicit bool
-	conn             *websocket.Conn
-	connMu           sync.Mutex
 	terminalMgr      *terminal.Manager
 	repoRoot         string
 	prepareMu        sync.Mutex
 	done             chan struct{}
 	contract         contractState
+}
+
+// serverLink is the agent's attachment to the server: the identity it presents
+// and the single WebSocket it speaks over. mu guards conn alone, because a
+// reconnection swaps it underneath goroutines that are still writing frames;
+// the identity fields are set at start and only read afterwards.
+type serverLink struct {
+	serverURL string
+	token     string
+	projectID string
+	deviceID  string
+	mu        sync.Mutex
+	conn      *websocket.Conn
 }
 
 // detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)
@@ -184,10 +194,12 @@ func Run(args []string) {
 			desktopToken: os.Getenv("SECTILE_DESKTOP_TOKEN"),
 			echoConsoles: *echoConsoles,
 		},
-		serverURL:        strings.TrimRight(*serverURL, "/"),
-		token:            *token,
-		projectID:        *projectID,
-		deviceID:         *deviceID,
+		link: serverLink{
+			serverURL: strings.TrimRight(*serverURL, "/"),
+			token:     *token,
+			projectID: *projectID,
+			deviceID:  *deviceID,
+		},
 		terminalApp:      termChoice,
 		terminalExplicit: termExplicit,
 		terminalMgr:      terminal.NewManager(),
@@ -263,7 +275,7 @@ func Run(args []string) {
 		close(daemon.done)
 	}()
 
-	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", daemon.serverURL, daemon.projectID, daemon.deviceID)
+	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", daemon.link.serverURL, daemon.link.projectID, daemon.link.deviceID)
 
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
@@ -347,14 +359,14 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 
-	upstream, err := url.Parse(d.serverURL)
+	upstream, err := url.Parse(d.link.serverURL)
 	if err != nil || (upstream.Scheme != "http" && upstream.Scheme != "https") || upstream.Host == "" {
 		_ = ln.Close()
 		return fmt.Errorf("invalid upstream server URL")
 	}
 	proxy := &httputil.ReverseProxy{Rewrite: func(pr *httputil.ProxyRequest) {
 		pr.SetURL(upstream)
-		pr.Out.Header.Set("Authorization", "Bearer "+d.token)
+		pr.Out.Header.Set("Authorization", "Bearer "+d.link.token)
 	}}
 	forward := func(w http.ResponseWriter, r *http.Request) {
 		// Reject browser requests before attaching the daemon's credential.
@@ -383,7 +395,7 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ok","agent":"sectile-local","device":%q,"server":%q}`, d.deviceID, d.serverURL)))
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ok","agent":"sectile-local","device":%q,"server":%q}`, d.link.deviceID, d.link.serverURL)))
 	})
 
 	server := &http.Server{
@@ -404,7 +416,7 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 // connect establishes a single WebSocket connection and runs the message loop
 // until the connection is lost or the context is cancelled.
 func (d *agentDaemon) connect(ctx context.Context) error {
-	if d.projectID == "all" {
+	if d.link.projectID == "all" {
 		projects, err := d.discoverProjects(ctx)
 		if err != nil {
 			return fmt.Errorf("project discovery: %w", err)
@@ -418,8 +430,8 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 			}
 		}
 	}
-	if d.projectID != "" && d.projectID != "default" && d.projectID != "all" {
-		config, err := d.fetchConfig(ctx, d.projectID, "")
+	if d.link.projectID != "" && d.link.projectID != "default" && d.link.projectID != "all" {
+		config, err := d.fetchConfig(ctx, d.link.projectID, "")
 		if err != nil {
 			return fmt.Errorf("configuration sync: %w", err)
 		}
@@ -433,7 +445,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	}
 
 	header := http.Header{}
-	header.Set("Authorization", "Bearer "+d.token)
+	header.Set("Authorization", "Bearer "+d.link.token)
 
 	log.Printf("[Agent] Connecting to %s...", wsURL)
 
@@ -442,22 +454,22 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 		return fmt.Errorf("WebSocket dial failed: %w", err)
 	}
 
-	d.connMu.Lock()
-	d.conn = conn
-	d.connMu.Unlock()
+	d.link.mu.Lock()
+	d.link.conn = conn
+	d.link.mu.Unlock()
 
 	defer func() {
-		d.connMu.Lock()
-		d.conn = nil
-		d.connMu.Unlock()
+		d.link.mu.Lock()
+		d.link.conn = nil
+		d.link.mu.Unlock()
 		_ = conn.Close()
 	}()
 
 	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopClose()
 	log.Printf("[Agent] Connected to remote server")
-	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.serverURL)
-	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.projectID, d.deviceID)
+	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.link.serverURL)
+	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.link.projectID, d.link.deviceID)
 	fmt.Printf("   Prêt ! Les compétences déclenchées sur l'interface web s'exécuteront ici.\n\n")
 
 	// Start heartbeat sender.
@@ -497,7 +509,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 
 // buildWSURL converts the HTTP server URL to a WebSocket URL with query params.
 func (d *agentDaemon) buildWSURL() (string, error) {
-	u, err := url.Parse(d.serverURL)
+	u, err := url.Parse(d.link.serverURL)
 	if err != nil {
 		return "", err
 	}
@@ -511,8 +523,8 @@ func (d *agentDaemon) buildWSURL() (string, error) {
 
 	u.Path = "/ws/agent-connect"
 	q := u.Query()
-	q.Set("projectId", d.projectID)
-	q.Set("deviceId", d.deviceID)
+	q.Set("projectId", d.link.projectID)
+	q.Set("deviceId", d.link.deviceID)
 	u.RawQuery = q.Encode()
 
 	return u.String(), nil
@@ -532,9 +544,9 @@ func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
 			msg := agentprotocol.Message{
 				Type: "heartbeat",
 			}
-			d.connMu.Lock()
+			d.link.mu.Lock()
 			err := conn.WriteJSON(msg)
-			d.connMu.Unlock()
+			d.link.mu.Unlock()
 			if err != nil {
 				log.Printf("[Agent] Heartbeat send failed: %v", err)
 				return
@@ -687,9 +699,9 @@ func (d *agentDaemon) handlePullTasks(ctx context.Context, conn *websocket.Conn,
 		Payload: raw,
 	}
 
-	d.connMu.Lock()
+	d.link.mu.Lock()
 	_ = conn.WriteJSON(resp)
-	d.connMu.Unlock()
+	d.link.mu.Unlock()
 }
 
 // findRepoRoot finds the repository root containing .tasks and all worktrees
@@ -855,13 +867,13 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		}
 		if task.PrURL == nil || *task.PrURL == "" {
 			raw, _ := json.Marshal(map[string]string{"prUrl": pr.URL})
-			req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.serverURL+"/api/tasks/"+url.PathEscape(taskRef), strings.NewReader(string(raw)))
+			req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.link.serverURL+"/api/tasks/"+url.PathEscape(taskRef), strings.NewReader(string(raw)))
 			if err != nil {
 				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 				return
 			}
 			req.Header.Set("Content-Type", "application/json")
-			resp, err := agenthttp.Client(d.token).Do(req)
+			resp, err := agenthttp.Client(d.link.token).Do(req)
 			if err != nil {
 				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 				return
@@ -910,7 +922,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"SECTILE_RUN_ID":        payload.RunID,
 		"SECTILE_REMOTE_MODE":   "true",
 		"SECTILE_AGENT_URL":     d.loopback.url,
-		"SECTILE_SERVER_URL":    d.serverURL,
+		"SECTILE_SERVER_URL":    d.link.serverURL,
 		"SECTILE_AGENT_TOKEN":   d.loopback.token,
 	}
 	if payload.ProjectID != "" {
@@ -1002,9 +1014,9 @@ func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, su
 		Payload: payload,
 	}
 
-	d.connMu.Lock()
+	d.link.mu.Lock()
 	_ = conn.WriteJSON(msg)
-	d.connMu.Unlock()
+	d.link.mu.Unlock()
 }
 
 func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override string) string {

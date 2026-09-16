@@ -24,7 +24,7 @@ func TestMissingContractRouteIsReportedAsMismatch(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Route API non trouvée: " + r.URL.Path})
 	}))
 	defer srv.Close()
-	d := &agentDaemon{serverURL: srv.URL, token: "token"}
+	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
 
 	_, err := d.discoverProjects(context.Background())
 	if !agentconfig.IsMismatch(err) {
@@ -55,7 +55,7 @@ func TestNonContractNotFoundStaysAPlainFailure(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Task not found"})
 	}))
 	defer srv.Close()
-	d := &agentDaemon{serverURL: srv.URL, token: "token"}
+	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
 	var ignored any
 	err := d.readAPI(context.Background(), "/api/tasks/missing", &ignored)
 	if err == nil || agentconfig.IsMismatch(err) {
@@ -74,7 +74,7 @@ func TestUnauthorizedIsNotAMismatch(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "Valid agent bearer token required"})
 	}))
 	defer srv.Close()
-	d := &agentDaemon{serverURL: srv.URL, token: "token"}
+	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
 	if _, err := d.discoverProjects(context.Background()); err == nil || agentconfig.IsMismatch(err) {
 		t.Fatalf("401 reported as a contract mismatch: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestUnsupportedSchemaVersionIsReportedAsMismatch(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(agentconfig.Projects{SchemaVersion: agentconfig.Version + 1})
 	}))
 	defer srv.Close()
-	d := &agentDaemon{serverURL: srv.URL, token: "token"}
+	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
 	_, err := d.discoverProjects(context.Background())
 	if !agentconfig.IsMismatch(err) {
 		t.Fatalf("unsupported version not reported as a contract mismatch: %v", err)
@@ -112,7 +112,7 @@ func TestStandingMismatchIsAnnouncedOnce(t *testing.T) {
 	log.SetOutput(&announcements)
 	defer log.SetOutput(os.Stderr)
 
-	d := &agentDaemon{serverURL: srv.URL, token: "token"}
+	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
 	for range 3 {
 		_, _ = d.discoverProjects(context.Background())
 		_, _ = d.fetchConfig(context.Background(), "project", "")
@@ -136,7 +136,7 @@ func TestUpdatedServerClearsTheMismatch(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(agentconfig.Projects{SchemaVersion: agentconfig.Version})
 	}))
 	defer srv.Close()
-	d := &agentDaemon{serverURL: srv.URL, token: "token"}
+	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
 	if _, err := d.discoverProjects(context.Background()); !agentconfig.IsMismatch(err) {
 		t.Fatalf("setup: %v", err)
 	}

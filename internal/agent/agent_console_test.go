@@ -95,7 +95,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		http.Error(w, "unexpected task access", 500)
 	}))
 	defer remote.Close()
-	d := &agentDaemon{serverURL: remote.URL, terminalMgr: terminal.NewManager(), loopback: loopbackServer{desktopToken: "private"}}
+	d := &agentDaemon{terminalMgr: terminal.NewManager(), loopback: loopbackServer{desktopToken: "private"}, link: serverLink{serverURL: remote.URL}}
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/control/") {
 			d.handleRunControl(w, r)
@@ -213,7 +213,7 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(config)
 	}))
 	defer server.Close()
-	d.serverURL = server.URL
+	d.link.serverURL = server.URL
 	// A shared-checkout execution keeps the mapped repository busy, so the console queues.
 	first, err := d.enqueueRun("task", agentconfig.Dispatch{RunID: "active"}, "p", d.repoRoot, 3, false)
 	if err != nil {

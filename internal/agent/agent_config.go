@@ -70,11 +70,11 @@ func (c *contractState) current() string {
 }
 
 func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.serverURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.link.serverURL+path, nil)
 	if err != nil {
 		return err
 	}
-	resp, err := agenthttp.Client(d.token).Do(req)
+	resp, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 	// retries forever; named for what it is, it points at the build to update.
 	if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, contractPrefix) {
 		route, _, _ := strings.Cut(path, "?")
-		return d.contract.note(&agentconfig.Mismatch{Server: d.serverURL, Route: route, Status: resp.StatusCode})
+		return d.contract.note(&agentconfig.Mismatch{Server: d.link.serverURL, Route: route, Status: resp.StatusCode})
 	}
 	if resp.StatusCode != http.StatusOK {
 		var detail struct {
@@ -118,7 +118,7 @@ func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string
 			// Validate rejects this too, but its message serves local files as
 			// well. A payload from the server is a build disagreement, and
 			// saying so keeps every contract failure reading alike.
-			err = d.contract.note(&agentconfig.Mismatch{Server: d.serverURL, Route: "/api/v1/agent/config", Served: c.SchemaVersion})
+			err = d.contract.note(&agentconfig.Mismatch{Server: d.link.serverURL, Route: "/api/v1/agent/config", Served: c.SchemaVersion})
 		} else {
 			d.contract.clear()
 		}
@@ -170,7 +170,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 			mapped = filepath.Join(root, mapped)
 		}
 		root = mapped
-	} else if d.projectID != c.ProjectID {
+	} else if d.link.projectID != c.ProjectID {
 		remote, err := gitLocal(ctx, root, "remote", "get-url", "origin")
 		if err != nil || c.GitRemoteURL == "" || repositoryIdentity(remote) != repositoryIdentity(c.GitRemoteURL) {
 			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/taskflow/settings.json projects", c.ProjectID)
@@ -549,7 +549,7 @@ func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Project
 		return projects, err
 	}
 	if projects.SchemaVersion != agentconfig.Version {
-		return projects, d.contract.note(&agentconfig.Mismatch{Server: d.serverURL, Route: "/api/v1/agent/projects", Served: projects.SchemaVersion})
+		return projects, d.contract.note(&agentconfig.Mismatch{Server: d.link.serverURL, Route: "/api/v1/agent/projects", Served: projects.SchemaVersion})
 	}
 	d.contract.clear()
 	return projects, nil

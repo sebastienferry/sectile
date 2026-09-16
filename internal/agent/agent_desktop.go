@@ -69,9 +69,9 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/desktop/status" && r.Method == http.MethodGet {
-		d.connMu.Lock()
-		connected := d.conn != nil
-		d.connMu.Unlock()
+		d.link.mu.Lock()
+		connected := d.link.conn != nil
+		d.link.mu.Unlock()
 		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 		if err != nil {
 			http.Error(w, err.Error(), 500)
@@ -87,7 +87,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -260,7 +260,7 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	client := mcp.NewClient(&mcp.Implementation{Name: "sectile-desktop-agent", Version: "1"}, nil)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: d.serverURL + "/mcp", HTTPClient: agenthttp.Client(d.token)}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: d.link.serverURL + "/mcp", HTTPClient: agenthttp.Client(d.link.token)}, nil)
 	if err != nil {
 		return err
 	}
@@ -649,13 +649,13 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode})
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	response, err := agenthttp.Client(d.token).Do(req)
+	response, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
@@ -685,13 +685,13 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	body := mustJSON(models.CreateTaskRequest{ProjectID: input.ProjectID, Title: strings.TrimSpace(input.Title), Description: input.Description, RequireRemoteCreation: true})
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.serverURL+"/api/tasks", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	response, err := agenthttp.Client(d.token).Do(req)
+	response, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return

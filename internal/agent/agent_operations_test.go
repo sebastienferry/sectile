@@ -38,7 +38,7 @@ func TestWorkspaceOperationUsesLocalMappingAndAssignedCheckout(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(task)
 	}))
 	defer srv.Close()
-	daemon := &agentDaemon{serverURL: srv.URL, token: "token", repoRoot: root, projectID: project}
+	daemon := &agentDaemon{repoRoot: root, link: serverLink{serverURL: srv.URL, token: "token", projectID: project}}
 	op := agentprotocol.Operation{ProjectID: project, TaskID: task.ID, Action: "git_evidence"}
 	value, err := daemon.executeOperation(ctx, op)
 	if err != nil {
