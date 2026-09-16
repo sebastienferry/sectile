@@ -876,6 +876,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
+	payload.Mode = liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
 	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())

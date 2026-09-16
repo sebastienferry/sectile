@@ -554,8 +554,12 @@ The profile is a placeholder for future account management.
 ### Execution modes
 
 A skill run is either **interactive** (a terminal window you answer, and the
-stage moves when you confirm) or **autonomous** (the CLI runs headless, its
-output is recorded on the run activity, and the worker posts the stage).
+stage moves when you confirm) or **autonomous** (the CLI runs headless, with the
+provider's non-interactive approval mode, its output recorded on the run
+activity, and it posts its own stage transition through the Sectile MCP tools).
+When an autonomous run of a workflow step closes without having moved the task,
+the run says so: the server checks the hand-back but never invents a transition
+the work may not have earned.
 
 The mode of one launch is resolved in this order, first opinion winning: the
 one-off override chosen for that launch, then the skill's own setting in the
@@ -565,14 +569,17 @@ The one-off override is offered wherever you explicitly trigger a skill: the web
 task card menu, the web task detail modal, and the desktop Launch and Relaunch
 dialogs. The desktop next-step button stays a single click on the resolved mode.
 
-`claude -p`, `codex exec` and `vibe -p` are the attested headless invocations.
+`claude -p --permission-mode bypassPermissions`, `codex exec` and
+`vibe -p --auto-approve` are the attested headless invocations. A discussion and
+a bare terminal stay interactive whatever the project default says.
 On `agy`, `gemini`, `cursor`, or a custom `aiCommandTemplate` with no
 `{mode:AUTONOMOUS|INTERACTIVE}` placeholder, an autonomous launch is refused by
 name rather than silently run interactively.
 
 The project also sets `fullChainStopStage`, where the **Full chain** (`>>`)
 action stops: `implemented` (before the pull request) or `reviewed` (default).
-A full chain run is always autonomous. Merging stays manual.
+A full chain run is always autonomous, and each step enqueues the next one when
+it closes having advanced the stage, until the stop stage. Merging stays manual.
 
 ### Execution defaults and local overrides
 

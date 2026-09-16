@@ -144,7 +144,7 @@ A skill run is executed in one of two modes.
 | Mode | What the run does | Who moves the stage |
 | --- | --- | --- |
 | **interactive** | Opens a terminal window with the provider CLI and the task prompt. The user answers it. | The user, by confirming the session is over. |
-| **autonomous** | Runs the CLI headless: no terminal window, no foreground process group. Output is captured and recorded on the run activity, bounded and marked when truncated. | The worker, when the run ends. |
+| **autonomous** | Runs the CLI headless: no terminal window, no foreground process group, and the provider's non-interactive approval mode so nothing waits for a permission answer nobody can give. Output is captured and recorded on the run activity, bounded and marked when truncated. | The run itself, through `transition_stage`. The server checks, when the run closes, that the stage moved, and records on the run when it did not. It never posts the transition on the run's behalf: an exit status is not evidence that the work was done. |
 
 ### How the mode of one launch is decided
 
@@ -178,10 +178,18 @@ applies unchanged.
 
 | Provider | Headless invocation |
 | --- | --- |
-| `claude` | `claude -p` |
-| `codex` | `codex exec` |
-| `vibe` | `vibe -p` |
+| `claude` | `claude -p --permission-mode bypassPermissions` |
+| `codex` | `codex exec` (approval bypass not attested here yet) |
+| `vibe` | `vibe -p --auto-approve` |
 | `agy`, `gemini`, `cursor` | None attested: an autonomous launch is refused by name |
+
+A headless run carries the provider's non-interactive approval mode because
+there is no terminal and no stdin: without it the CLI is denied every tool it
+asks for, the Sectile MCP tools included, and ends having only printed why it
+could not work. The interactive form carries no bypass — that is where a human
+answers. A discussion and a bare terminal are always interactive, whatever the
+project default says: they open a live session with no prompt of their own, so
+headless they would be a CLI with no input at all.
 
 An autonomous launch is **refused**, never silently downgraded to interactive.
 A project configured with a custom `aiCommandTemplate` owns its own mode: it is
@@ -201,7 +209,11 @@ Two entry points exist and they do not do the same thing:
 - `POST /api/tasks/{id}/advance` with `{"auto": true}` goes through the server's
   own chain entry, which reads `fullChainStopStage` directly and refuses to start
   on a task already at or past that stage, or on a provider with no attested
-  headless invocation, before enqueuing anything.
+  headless invocation, before enqueuing anything. Each step it enqueues carries
+  the stop stage on its run; when that run closes having advanced the stage, the
+  step that follows is enqueued, until the stop stage is reached. The chain stops
+  — and says so on the run that ended — when the step failed, when it completed
+  without moving the task, or when no step follows the stage reached.
 
 `fullChainStopStage` is either `implemented` (before the pull request) or
 `reviewed` (the default, after it). Merging is never automated.

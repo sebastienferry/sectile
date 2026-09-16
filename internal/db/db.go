@@ -44,10 +44,12 @@ type SkillJob struct {
 	SyncTitle       bool
 	SyncDescription bool
 	SyncPriority    bool
-	// AutoChain enchaîne le pas suivant du workflow à la fin de celui-ci, jusqu'à
-	// l'étape de revue. Porté par le job et non par l'interface : la chaîne doit
-	// survivre à la fermeture de l'onglet.
-	AutoChain bool
+	// ChainStopStage porte l'étape où s'arrête la chaîne quand ce job en est un
+	// pas ; vide, le job ne chaîne rien. Porté par le job et non par l'interface :
+	// la chaîne doit survivre à la fermeture de l'onglet. Il est recopié sur le
+	// run distant, seul endroit où il survit au lancement, puisque c'est la fin
+	// du run qui décide s'il y a un pas suivant.
+	ChainStopStage string
 	// Op porte l'écriture tracker à effectuer quand SkillID vaut "tracker_op" :
 	// assignation, rattachement à un épic, découpe d'épic, labels d'horizon.
 	Op *TrackerOp
@@ -357,6 +359,15 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN started_at DATETIME;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN completed_at DATETIME;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN error TEXT NOT NULL DEFAULT '';")
+	// How a run was launched, which is what tells, once it is over, whether it
+	// handed the workflow back. run_mode is the resolved execution mode,
+	// launch_stage the stage the task sat on when the run started, and
+	// chain_stop_stage is set only on a step of a full chain run, to the stage
+	// that chain stops at. All three default to empty, which reads as "unknown"
+	// on every run recorded before this.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_mode TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN launch_stage TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN chain_stop_stage TEXT NOT NULL DEFAULT '';")
 	// Work the server itself was running cannot survive its own restart.
 	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
 	// A remote run dispatched to an agent outlives the server: its supervisor
@@ -3334,7 +3345,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 	task, err := d.GetTaskByID(job.TaskID)
 	if err == nil && task != nil {
 		var run *models.TaskActivity
-		run, err = d.StartAgentRemoteRun(task.ID, job.SkillID)
+		run, err = d.StartAgentRun(task.ID, job.SkillID, RunLaunch{Mode: job.Mode, ChainStop: job.ChainStopStage})
 		if err == nil {
 			err = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode}, nil)
 			if err != nil {
@@ -4071,7 +4082,7 @@ func (d *DB) EnqueueFullChainRun(taskID string) (*models.Task, *models.TaskActiv
 	if !ok {
 		return nil, nil, fmt.Errorf("aucun pas suivant depuis l'étape %s", stage)
 	}
-	return d.enqueueSkillOnTask(taskID, step.SkillID, "", true, models.SkillModeAutonomous)
+	return d.enqueueSkillOnTask(taskID, step.SkillID, "", true, models.SkillModeAutonomous, stopStage)
 }
 
 // FullChainStopStage is where a full chain run stops for a project. A project
@@ -4084,7 +4095,9 @@ func (d *DB) FullChainStopStage(projectID string) string {
 	return models.NormalizeFullChainStopStage(project.FullChainStopStage)
 }
 
-func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, autoChain bool, modeOverride string) (*models.Task, *models.TaskActivity, error) {
+// enqueueSkillOnTask files one skill launch. chainStopStage is variadic so the
+// ordinary launches, which chain nothing, stay a five-argument call.
+func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, autoChain bool, modeOverride string, chainStopStage ...string) (*models.Task, *models.TaskActivity, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
@@ -4142,14 +4155,21 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 	d.mu.Unlock()
 
 	// Push to background channel worker
+	stopStage := ""
+	if autoChain {
+		stopStage = DefaultFullChainStopStage
+		if len(chainStopStage) > 0 && chainStopStage[0] != "" {
+			stopStage = chainStopStage[0]
+		}
+	}
 	d.jobQueue <- SkillJob{
-		ActivityID: activityID,
-		TaskID:     task.ID,
-		ProjectID:  task.ProjectID,
-		SkillID:    targetSkill.ID,
-		Prompt:     prompt,
-		Mode:       d.resolveTaskSkillMode(task.ProjectID, targetSkill.ID, modeOverride),
-		AutoChain:  autoChain,
+		ActivityID:     activityID,
+		TaskID:         task.ID,
+		ProjectID:      task.ProjectID,
+		SkillID:        targetSkill.ID,
+		Prompt:         prompt,
+		Mode:           d.resolveTaskSkillMode(task.ProjectID, targetSkill.ID, modeOverride),
+		ChainStopStage: stopStage,
 	}
 
 	return task, &act, nil

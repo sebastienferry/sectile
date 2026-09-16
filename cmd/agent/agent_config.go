@@ -314,17 +314,39 @@ func agentCommandLine(provider, template, prompt string, contexts ...agentComman
 // others is worse than refusing: an unsupported flag either fails opaquely or is
 // swallowed as prompt text. Adding a provider here is a one-line change once its
 // headless mode is verified.
+//
+// A headless run also carries the provider's non-interactive approval mode. There
+// is nobody to answer a permission prompt in a run with no terminal: without it
+// the CLI is denied every tool it asks for, including the Sectile MCP tools that
+// report the run and move the stage, so the run ends having only printed why it
+// could not work and the board never moves. Only an attested flag is passed, for
+// the same reason the provider list itself is attested.
 func headlessCommandLine(provider, prompt string) (string, error) {
 	switch provider {
 	case "claude":
-		return "claude -p " + quoteShell(prompt), nil
+		return "claude -p --permission-mode bypassPermissions " + quoteShell(prompt), nil
 	case "codex":
+		// codex exec is non-interactive, but its approval bypass flag is not
+		// attested here: it is left to a custom template until it is verified.
 		return "codex exec " + quoteShell(prompt), nil
 	case "vibe":
-		return "vibe -p " + quoteShell(prompt), nil
+		return "vibe -p --auto-approve " + quoteShell(prompt), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
+}
+
+// liveSessionMode pins the mode of a launch that opens a live provider session.
+// A discussion and a bare terminal are interactive by construction: the command
+// they build opens the provider with no prompt to run, so forking it headless
+// gives a CLI with no input at all, which exits at once on "Input must be
+// provided". A project defaulting to autonomous must not turn those two launches
+// into a run that cannot work.
+func liveSessionMode(skillID, action, mode string) string {
+	if models.NormalizeSkillID(skillID) == "discuss" || models.NormalizeSkillID(action) == "open_terminal" {
+		return models.SkillModeInteractive
+	}
+	return mode
 }
 
 // modeCommandLine builds the command line for one resolved mode. A configured
