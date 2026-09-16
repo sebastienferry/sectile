@@ -10,6 +10,17 @@ export const SKILL_MODE_OPTIONS=[
  {value:'autonomous',label:'Autonomous (headless)'}
 ]
 
+// PROJECT_MODE_OPTIONS is the project-level default, which is a different
+// question from the one above: not "how does this launch run" but "what do the
+// skills that express no preference fall back to". The empty value imposes
+// nothing, which is why it reads as a choice delegated to each skill rather
+// than as a mode of its own.
+export const PROJECT_MODE_OPTIONS=[
+ {value:'interactive',label:'Interactive'},
+ {value:'autonomous',label:'Autonomous (headless)'},
+ {value:'',label:'Per-skill choice'}
+]
+
 // launchModeOverride normalizes what a dialog produces into what the launch
 // payload should carry. Anything unrecognized is dropped rather than sent: a
 // stale control must not pin a mode nobody chose.
