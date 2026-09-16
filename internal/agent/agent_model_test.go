@@ -77,8 +77,13 @@ func TestAgentCommandLineTemplateOwnsTheModel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(got, "{model}") {
-		t.Fatalf("unconfigured model must erase the placeholder: %q", got)
+	// The slot leaves with its option rather than as an empty '' the CLI would
+	// read as the model name, taking the prompt flag down with it.
+	if strings.Contains(got, "{model}") || strings.Contains(got, "--model") {
+		t.Fatalf("unconfigured model must take its option away: %q", got)
+	}
+	if !strings.HasPrefix(got, "my-cli -p ") {
+		t.Fatalf("the prompt flag must keep the prompt as its value: %q", got)
 	}
 }
 

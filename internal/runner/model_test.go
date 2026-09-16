@@ -97,6 +97,22 @@ func TestSessionCommandLineTemplateOwnsTheModel(t *testing.T) {
 	if !strings.Contains(line, "--model M") || strings.Contains(line, "{model}") {
 		t.Fatalf("{model} not substituted: %q", line)
 	}
+
+	line, cleanup, err = r.SessionCommandLine(&runner.AIInvocation{
+		Provider: "custom", Template: `my-cli --model {model} -p "{prompt}"`, Prompt: "do it",
+	})
+	cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An unresolved slot takes its option with it; a dangling --model would eat
+	// the -p that follows and the prompt would become a positional argument.
+	if strings.Contains(line, "--model") || strings.Contains(line, "{model}") {
+		t.Fatalf("unconfigured model must take its option away: %q", line)
+	}
+	if !strings.HasPrefix(line, "my-cli -p ") {
+		t.Fatalf("the prompt flag must keep the prompt as its value: %q", line)
+	}
 }
 
 func hasStepContaining(steps []string, needle string) bool {

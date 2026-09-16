@@ -451,8 +451,15 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		// A template owns its command line: the model reaches it through its own
 		// {model} slot, never as a flag spliced in beside the template's words.
 		values := launch.values(prompt)
-		values["model"] = strings.TrimSpace(model)
-		return expandAgentTemplate(resolveTemplateMode(template, autonomous), values)
+		resolved := resolveTemplateMode(template, autonomous)
+		if configured := strings.TrimSpace(model); configured != "" {
+			values["model"] = configured
+		} else {
+			// Nothing to quote: the slot leaves with the option it belongs to
+			// rather than reaching the quoting pass and becoming an empty ''.
+			resolved = agentconfig.ExpandModel(resolved, "")
+		}
+		return expandAgentTemplate(resolved, values)
 	}
 	if autonomous {
 		return headlessCommandLine(provider, model, prompt)
