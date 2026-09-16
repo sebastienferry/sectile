@@ -28,8 +28,8 @@ and a stronger one for an implementation has no way to say so short of writing a
 - Contract: additive `aiModel` / `aiSkillModels` fields on `agentconfig.Config` and `Overrides`.
 - Code: `internal/models/models.go`, `internal/db/agentconfig.go`, `internal/db/db.go`,
   `internal/agentconfig/{config,local,validation}.go`, `internal/runner/runner.go`,
-  `cmd/agent/agent_config.go`, `internal/taskmcp/server.go`, `web/src/components/{ProfileModal,ProjectModal}.tsx`,
-  `desktop/src/main.js`.
+  `cmd/agent/{agent_config,agent_console,agent_operations}.go`, `internal/taskmcp/server.go`,
+  `web/src/components/{AIModelField,ProfileModal,ProjectModal}.tsx`, `web/src/lib/aiModels.ts`.
 - Backward compatible: every field empty reproduces today's exact command lines.
 
 ## Non-goals

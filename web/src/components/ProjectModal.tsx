@@ -361,6 +361,12 @@ export const ProjectModal: React.FC = () => {
     }))
   }
 
+  // Un modèle mal formé désactive l'enregistrement plutôt que de le laisser
+  // échouer en silence : l'entrée fautive peut être dans l'onglet Compétences,
+  // loin du bouton, et un clic sans effet n'indique rien.
+  const modelsAreValid =
+    isValidModel(aiModel) && Object.values(aiSkillModels).every(model => isValidModel(model))
+
   // Une entrée vidée disparaît de la carte : elle signifie « hérite », et non
   // « aucun modèle », ce qui est exactement ce que le serveur normalise.
   const handleSkillModelChange = (skillId: string, model: string) => {
@@ -374,8 +380,7 @@ export const ProjectModal: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || isSubmitting) return
-    if (!isValidModel(aiModel) || Object.values(aiSkillModels).some(model => !isValidModel(model))) return
+    if (!name.trim() || isSubmitting || !modelsAreValid) return
 
     setIsSubmitting(true)
     try {
@@ -1696,7 +1701,7 @@ export const ProjectModal: React.FC = () => {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={isSubmitting || !name.trim()}
+              disabled={isSubmitting || !name.trim() || !modelsAreValid}
               className="px-5 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
             >
               <Save size={14} />

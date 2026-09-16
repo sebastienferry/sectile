@@ -693,13 +693,13 @@ type Settings struct {
 	AICommandTemplate string `json:"aiCommandTemplate"` // e.g. 'agy -p "{prompt}"'
 	// AIModel is the model the engine runs against; empty keeps the CLI default.
 	// AISkillModels names the skills that depart from it, keyed by skill ID.
-	AIModel           string            `json:"aiModel"`
-	AISkillModels     map[string]string `json:"aiSkillModels,omitempty"`
-	RepoPath          string            `json:"repoPath"`     // e.g. '/path/to/project'
-	IssueTracker      string            `json:"issueTracker"` // "github", "jira", "local"
-	GithubRepo        string            `json:"githubRepo"`   // e.g. "owner/repo"
-	JiraProject       string            `json:"jiraProject"`  // e.g. "PE"
-	JiraUrl           string            `json:"jiraUrl"`
+	AIModel       string            `json:"aiModel"`
+	AISkillModels map[string]string `json:"aiSkillModels,omitempty"`
+	RepoPath      string            `json:"repoPath"`     // e.g. '/path/to/project'
+	IssueTracker  string            `json:"issueTracker"` // "github", "jira", "local"
+	GithubRepo    string            `json:"githubRepo"`   // e.g. "owner/repo"
+	JiraProject   string            `json:"jiraProject"`  // e.g. "PE"
+	JiraUrl       string            `json:"jiraUrl"`
 	// JiraEmail / JiraAPIToken authenticate the Jira REST calls that fetch the
 	// fields acli cannot return (Sprint and Team are custom fields, and acli's
 	// --fields only accepts a fixed allow-list). Basic auth over HTTPS.

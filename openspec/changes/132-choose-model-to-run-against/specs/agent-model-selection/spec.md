@@ -56,12 +56,15 @@ ignored without error.
 #### Scenario: Headless run on a provider accepting the flag
 - **GIVEN** the provider is `claude` and the resolved model is `M`
 - **WHEN** a skill runs headlessly
-- **THEN** the invocation is `claude --model M -p "<prompt>"`
+- **THEN** the invocation carries `--model M` alongside the provider's own headless
+  and approval flags, that is `claude -p --permission-mode bypassPermissions --model M "<prompt>"`
 
 #### Scenario: Cursor keeps its subcommand
 - **GIVEN** the provider is `cursor` and the resolved model is `M`
-- **WHEN** a skill runs headlessly
+- **WHEN** an interactive or terminal launch is built
 - **THEN** the invocation is `cursor agent --model M -p "<prompt>"`
+- **AND** a headless launch on `cursor` is still refused, as it was before this change,
+  because no headless invocation is attested for it
 
 #### Scenario: Provider with no model flag
 - **GIVEN** the provider is `agy` or `vibe` and a model is resolved

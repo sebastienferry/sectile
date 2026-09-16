@@ -3111,6 +3111,7 @@ func (d *DB) UpdateSettings(s models.Settings) (*models.Settings, error) {
 		autoSyncEnabledInt = 1
 	}
 
+	s.AIModel = strings.TrimSpace(s.AIModel)
 	s.AISkillModels = normalizeSkillModels(s.AISkillModels)
 	settingsSkillModelsBytes, _ := json.Marshal(s.AISkillModels)
 
@@ -4742,8 +4743,6 @@ func parseRepoPaths(raw string) []string {
 	return normalizeRepoPaths(list)
 }
 
-// parseSetupProviders decodes the agents a project sets up, tolerating an empty
-// column on projects created before the field existed.
 // parseSkillModels reads the per-skill model column. A nil map is the normal
 // shape for "no skill departs from the project model", so a malformed or empty
 // column yields nil rather than an error: a bad row must not make a project
@@ -4780,6 +4779,8 @@ func normalizeSkillModels(in map[string]string) map[string]string {
 	return out
 }
 
+// parseSetupProviders decodes the agents a project sets up, tolerating an empty
+// column on projects created before the field existed.
 func parseSetupProviders(raw string) []string {
 	if strings.TrimSpace(raw) == "" || raw == "[]" {
 		return []string{}

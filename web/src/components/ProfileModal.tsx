@@ -115,8 +115,12 @@ export const ProfileModal: React.FC = () => {
     }
   }
 
+  // Un modèle mal formé désactive l'enregistrement : le bouton est en pied de
+  // modale, loin du champ, et un clic sans effet n'indique rien.
+  const modelIsValid = isValidModel(aiModel)
+
   const handleSave = async () => {
-    if (!isValidModel(aiModel)) return
+    if (!modelIsValid) return
     await updateSettings({
       userName: userName.trim(),
       userEmail: userEmail.trim(),
@@ -660,7 +664,8 @@ export const ProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={handleSave}
-            className="px-5 py-2 rounded-xl text-xs font-semibold text-white accent-bg shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+            disabled={!modelIsValid}
+            className="px-5 py-2 rounded-xl text-xs font-semibold text-white accent-bg shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t.profileModal.save}
           </button>

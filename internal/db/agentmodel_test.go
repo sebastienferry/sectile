@@ -124,3 +124,29 @@ func TestModelRoundTripAndClearing(t *testing.T) {
 		t.Fatalf("clearing the project model did not take effect: %+v", cleared)
 	}
 }
+
+// ValidModel trims before matching, so a padded identifier passes the handler and
+// reaches storage. The project writers trim it; the settings writer has to trim
+// it too, or the same value round-trips clean on a project and padded globally.
+func TestSettingsStoreTrimTheModel(t *testing.T) {
+	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	saved, err := database.UpdateSettings(models.Settings{AIProvider: "claude", AIModel: "  claude-opus-5  "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.AIModel != "claude-opus-5" {
+		t.Fatalf("settings kept the padding: %q", saved.AIModel)
+	}
+	reread, err := database.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.AIModel != "claude-opus-5" {
+		t.Fatalf("stored model kept the padding: %q", reread.AIModel)
+	}
+}
