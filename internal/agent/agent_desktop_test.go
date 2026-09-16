@@ -18,12 +18,12 @@ import (
 )
 
 func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
-	d := &agentDaemon{terminalMgr: terminal.NewManager(), loopback: loopbackServer{desktopToken: "private"}}
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, loopback: loopbackServer{desktopToken: "private"}}
 	root := t.TempDir()
-	if _, err := d.terminalMgr.GetOrCreateSession("run", root, nil); err != nil {
+	if _, err := d.terminal.manager.GetOrCreateSession("run", root, nil); err != nil {
 		t.Fatal(err)
 	}
-	defer d.terminalMgr.CloseSession("run")
+	defer d.terminal.manager.CloseSession("run")
 	d.queue.runs = map[string]*controlledRun{"run": {sequence: 7, desktop: desktopRun{SessionID: "run", Directory: root, Status: "running"}, exited: make(chan struct{})}}
 	server := httptest.NewServer(http.HandlerFunc(d.desktopHandler))
 	defer server.Close()
@@ -216,7 +216,7 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 			t.Fatalf("unstarted %s exposes start: %s (%v)", status, raw, err)
 		}
 	}
-	d := &agentDaemon{terminalMgr: terminal.NewManager(), loopback: loopbackServer{desktopToken: "private"}}
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, loopback: loopbackServer{desktopToken: "private"}}
 	d.queue.runs = map[string]*controlledRun{"run": {
 		token: "control", exited: make(chan struct{}),
 		desktop: desktopRun{CreatedAt: created, Status: "running", SessionID: "run"},
@@ -225,7 +225,7 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 	if err := d.runInPty("run", t.TempDir(), nil, "true"); err != nil {
 		t.Fatal(err)
 	}
-	defer d.terminalMgr.CloseSession("run")
+	defer d.terminal.manager.CloseSession("run")
 	started := d.queue.runs["run"].desktop.StartedAt
 	if started.Before(before) || started.After(time.Now()) {
 		t.Fatalf("start is not launch time: %v", started)

@@ -95,7 +95,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		http.Error(w, "unexpected task access", 500)
 	}))
 	defer remote.Close()
-	d := &agentDaemon{terminalMgr: terminal.NewManager(), loopback: loopbackServer{desktopToken: "private"}, link: serverLink{serverURL: remote.URL}}
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, loopback: loopbackServer{desktopToken: "private"}, link: serverLink{serverURL: remote.URL}}
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/control/") {
 			d.handleRunControl(w, r)
@@ -117,8 +117,8 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 	run.desktop.Kind = "console"
 	run.desktop.Provider = "codex"
 	d.launchConsole(run, "exec "+quoteShell(script))
-	defer d.terminalMgr.CloseSession("free")
-	session, err := d.terminalMgr.GetOrCreateSession("free", root, nil)
+	defer d.terminal.manager.CloseSession("free")
+	session, err := d.terminal.manager.GetOrCreateSession("free", root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		default:
 		}
 	})
-	if err := d.terminalMgr.SendInput("free", "hello console\n"); err != nil {
+	if err := d.terminal.manager.SendInput("free", "hello console\n"); err != nil {
 		t.Fatal(err)
 	}
 	var captured strings.Builder
@@ -260,7 +260,7 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 func TestFreeConsoleExitStatus(t *testing.T) {
 	for _, tt := range []struct{ command, status string }{{"exit 0", "completed"}, {"exec /nonexistent/sectile-test-cli", "failed"}} {
 		t.Run(tt.status, func(t *testing.T) {
-			d := &agentDaemon{terminalMgr: terminal.NewManager(), loopback: loopbackServer{desktopToken: "private"}}
+			d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, loopback: loopbackServer{desktopToken: "private"}}
 			local := httptest.NewServer(http.HandlerFunc(d.handleRunControl))
 			defer local.Close()
 			d.loopback.url = local.URL
@@ -270,7 +270,7 @@ func TestFreeConsoleExitStatus(t *testing.T) {
 			}
 			run.desktop.Kind = "console"
 			d.launchConsole(run, tt.command)
-			defer d.terminalMgr.CloseSession("console")
+			defer d.terminal.manager.CloseSession("console")
 			select {
 			case <-run.exited:
 			case <-time.After(5 * time.Second):

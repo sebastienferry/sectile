@@ -333,7 +333,7 @@ func TestNativePickupBootstrapAndLaunch(t *testing.T) {
 }
 
 func TestTerminalContractPrecedence(t *testing.T) {
-	d := &agentDaemon{terminalApp: "terminal"}
+	d := &agentDaemon{terminal: terminalChoice{app: "terminal"}}
 	c := agentconfig.Config{ExternalTerminalCommand: "iterm"}
 	if got := d.dispatchTerminal(c, ""); got != "iterm" {
 		t.Fatal(got)
@@ -345,11 +345,11 @@ func TestTerminalContractPrecedence(t *testing.T) {
 	if got := d.dispatchTerminal(c, "warp"); got != "warp" {
 		t.Fatal(got)
 	}
-	d.terminalExplicit = true
+	d.terminal.explicit = true
 	if got := d.dispatchTerminal(c, "warp"); got != "terminal" {
 		t.Fatal(got)
 	}
-	d.terminalExplicit = false
+	d.terminal.explicit = false
 	c.ExternalTerminalCommand = "pty"
 	if got := d.dispatchTerminal(c, ""); got != "pty" {
 		t.Fatal(got)

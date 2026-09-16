@@ -65,14 +65,14 @@ type agentDaemon struct {
 	loopback loopbackServer
 	// link is this agent's attachment to the server: who it says it is and the
 	// one connection it speaks over.
-	link             serverLink
-	terminalApp      string
-	terminalExplicit bool
-	terminalMgr      *terminal.Manager
-	repoRoot         string
-	prepareMu        sync.Mutex
-	done             chan struct{}
-	contract         contractState
+	link serverLink
+	// terminal is which native terminal consoles open in, and the PTY manager
+	// that runs them.
+	terminal  terminalChoice
+	repoRoot  string
+	prepareMu sync.Mutex
+	done      chan struct{}
+	contract  contractState
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
@@ -86,6 +86,15 @@ type serverLink struct {
 	deviceID  string
 	mu        sync.Mutex
 	conn      *websocket.Conn
+}
+
+// terminalChoice is which native terminal application consoles open in, and
+// the PTY manager that runs them. explicit records that the user named the
+// application, so a detected default is never mistaken for a deliberate choice.
+type terminalChoice struct {
+	app      string
+	explicit bool
+	manager  *terminal.Manager
 }
 
 // detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)
@@ -200,11 +209,13 @@ func Run(args []string) {
 			projectID: *projectID,
 			deviceID:  *deviceID,
 		},
-		terminalApp:      termChoice,
-		terminalExplicit: termExplicit,
-		terminalMgr:      terminal.NewManager(),
-		repoRoot:         *repoRoot,
-		done:             make(chan struct{}),
+		terminal: terminalChoice{
+			app:      termChoice,
+			explicit: termExplicit,
+			manager:  terminal.NewManager(),
+		},
+		repoRoot: *repoRoot,
+		done:     make(chan struct{}),
 	}
 
 	if *listProjects {
@@ -293,8 +304,8 @@ func Run(args []string) {
 	}()
 
 	defer func() {
-		for _, session := range daemon.terminalMgr.ListSessions() {
-			_ = daemon.terminalMgr.CloseSession(session.ID)
+		for _, session := range daemon.terminal.manager.ListSessions() {
+			_ = daemon.terminal.manager.CloseSession(session.ID)
 		}
 	}()
 	daemon.connectLoop(ctx)
@@ -637,7 +648,7 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 			log.Printf("[Agent] Invalid pty_input payload: %v", err)
 			return
 		}
-		if err := d.terminalMgr.SendInput(payload.SessionID, payload.Data); err != nil {
+		if err := d.terminal.manager.SendInput(payload.SessionID, payload.Data); err != nil {
 			log.Printf("[Agent] Failed to send PTY input: %v", err)
 		}
 
@@ -941,7 +952,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 
 	if payload.RunID != "" {
-		if _, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars); err != nil {
+		if _, err := d.terminal.manager.GetOrCreateSession(sessionID, workDir, envVars); err != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 			return
 		}
@@ -961,7 +972,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 
 // runInPty starts or reuses an embedded PTY session and injects the command line.
 func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]string, fullLine string) error {
-	sess, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars)
+	sess, err := d.terminal.manager.GetOrCreateSession(sessionID, workDir, envVars)
 	if err != nil {
 		log.Printf("[Agent] Failed to create PTY session: %v", err)
 		return err
@@ -982,7 +993,7 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 	// characters. What identifies a launch is the session and where it runs.
 	log.Printf("⚡ [Agent] Launching skill command in local PTY terminal (session: %s, workdir: %s)", sessionID, workDir)
 	startedAt := time.Now().UTC()
-	if err := d.terminalMgr.SendInput(sessionID, fullLine+"\n"); err != nil {
+	if err := d.terminal.manager.SendInput(sessionID, fullLine+"\n"); err != nil {
 		return err
 	}
 	// Controlled executions use their run ID as the session ID.
@@ -1017,8 +1028,8 @@ func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, su
 }
 
 func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override string) string {
-	if d.terminalExplicit {
-		return d.terminalApp
+	if d.terminal.explicit {
+		return d.terminal.app
 	}
 	if override != "" {
 		return override
@@ -1026,8 +1037,8 @@ func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override strin
 	if config.ExternalTerminalCommand != "" {
 		return config.ExternalTerminalCommand
 	}
-	if d.terminalApp != "" {
-		return d.terminalApp
+	if d.terminal.app != "" {
+		return d.terminal.app
 	}
 	return detectDefaultTerminal()
 }

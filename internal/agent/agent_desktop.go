@@ -150,8 +150,8 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		for id, run := range d.queue.runs {
 			select {
 			case <-run.exited:
-				if d.terminalMgr != nil && run.desktop.SessionID != "" {
-					_ = d.terminalMgr.CloseSession(run.desktop.SessionID)
+				if d.terminal.manager != nil && run.desktop.SessionID != "" {
+					_ = d.terminal.manager.CloseSession(run.desktop.SessionID)
 				}
 				delete(d.queue.runs, id)
 				removed = append(removed, id)
@@ -208,7 +208,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	d.queue.mu.Unlock()
 	if r.URL.Path == "/desktop/terminal" && r.Method == http.MethodGet {
 		exists := false
-		for _, session := range d.terminalMgr.ListSessions() {
+		for _, session := range d.terminal.manager.ListSessions() {
 			if session.ID == entry.SessionID {
 				exists = true
 				break
@@ -219,7 +219,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		d.terminalMgr.HandleWebSocket(w, r, entry.SessionID, entry.Directory, nil)
+		d.terminal.manager.HandleWebSocket(w, r, entry.SessionID, entry.Directory, nil)
 		return
 	}
 	http.Error(w, "Not found", 404)

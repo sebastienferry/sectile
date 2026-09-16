@@ -83,7 +83,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 
 func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 	err := d.awaitRunSlot(context.Background(), run)
-	if err == nil && d.terminalMgr == nil {
+	if err == nil && d.terminal.manager == nil {
 		err = fmt.Errorf("terminal manager unavailable")
 	}
 	if err == nil {
@@ -97,7 +97,7 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 				"SECTILE_AGENT_URL":  d.loopback.url, "SECTILE_SERVER_URL": d.link.serverURL,
 				"SECTILE_AGENT_TOKEN": d.loopback.token,
 			}
-			_, err = d.terminalMgr.GetOrCreateSession(run.desktop.ID, run.root, env)
+			_, err = d.terminal.manager.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {
 				d.queue.mu.Lock()
 				run.desktop.SessionID = run.desktop.ID
@@ -115,8 +115,8 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 			}
 		}
 	}
-	if d.terminalMgr != nil {
-		_ = d.terminalMgr.CloseSession(run.desktop.ID)
+	if d.terminal.manager != nil {
+		_ = d.terminal.manager.CloseSession(run.desktop.ID)
 	}
 	d.queue.mu.Lock()
 	run.desktop.SessionID = ""
