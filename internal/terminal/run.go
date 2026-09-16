@@ -130,6 +130,10 @@ type RunResult struct {
 //
 // It returns ErrSessionBusy when the start marker never shows up: the shell was
 // running something else, and the caller must not assume the command ran.
+//
+// The markers are POSIX shell: printf calls around the command, and $? for the exit
+// code. A Windows session runs PowerShell, which reads none of that, so this helper is
+// POSIX-only until someone renders the markers per shell.
 var ErrSessionBusy = fmt.Errorf("la session de terminal n'est pas au prompt")
 
 func (m *Manager) RunCommandInSession(

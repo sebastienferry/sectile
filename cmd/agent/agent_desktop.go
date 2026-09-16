@@ -34,9 +34,6 @@ type desktopRun struct {
 	ProjectID       string    `json:"projectId"`
 	Skill           string    `json:"skill"`
 	SessionID       string    `json:"sessionId"`
-	// HostTerminal names the window a run was handed to when the agent owns no console for it,
-	// so the companion can say where the output went instead of reporting a missing console.
-	HostTerminal string `json:"hostTerminal,omitempty"`
 	Directory       string    `json:"directory"`
 	Status          string    `json:"status"`
 	// Headless marks a run that has no PTY on purpose. The desktop shows its

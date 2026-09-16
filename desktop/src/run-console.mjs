@@ -4,7 +4,6 @@
 // terminal on purpose: nobody answers it, and what the CLI printed is recorded
 // on the task activity. Reporting it as "no console available" would send the
 // user looking for a launch error that never happened.
-// A run handed to the host terminal is the same story: its window is elsewhere.
 
 // needsConsoleNotice says whether the pane shows a message instead of attaching.
 export function needsConsoleNotice(run){
@@ -16,6 +15,5 @@ export function consoleNotice(run){
  if(run.status==='preparing')return 'Preparing execution. Waiting for a console.'
  if(run.headless===true)return 'Autonomous execution: no terminal to answer. Its output is recorded on the task activity.'
  if(run.status==='canceled')return 'Execution canceled before a console was created.'
- if(run.hostTerminal)return 'Running in your terminal ('+run.hostTerminal+'). Output appears in that window; this execution is still tracked here.'
  return 'No console is available for this execution. Check the task activity and local agent.log for launch errors.'
 }

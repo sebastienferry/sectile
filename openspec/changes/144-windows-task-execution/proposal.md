@@ -1,4 +1,4 @@
-# Windows task execution through the host terminal
+# Windows task execution through an embedded pseudo-console
 
 ## Why
 The agent cannot run a single task on Windows. `internal/terminal` starts every execution with
@@ -9,28 +9,38 @@ native execution is not supported on Windows", so a run could not be supervised 
 console existed, and `quoteShell` emits POSIX quoting for a command line no Windows shell
 parses.
 
-The host-terminal path that would sidestep the PTY already exists — the server dispatches
-`open_terminal`, the agent resolves it, and `OpenExternalTerminal` even has a `case "windows"`
-— but it is unreachable: the script it writes is `#!/bin/bash` with `export` and
-`exec "$SHELL" -l`, written to a `.command` file, and `dispatchTerminal`, the function that
-chooses between a PTY and a host terminal, has no callers at all.
+Windows has had a pseudo-terminal since Windows 10 1809 — the Pseudo Console API, ConPTY. What
+is missing is not the platform capability but a Go binding: `creack/pty` never implemented one
+(issue #95, open since 2020, two stalled pull requests), because ConPTY requires the child to be
+created already attached to the pseudo-console through `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`,
+which `os/exec` cannot express. `github.com/aymanbagabas/go-pty` solves exactly that: one
+cross-platform `Pty` interface, `creack/pty` underneath on Unix, ConPTY on Windows, and a
+`Cmd` type that starts the child attached.
 
 ## What Changes
-- On Windows a task runs in the host terminal (Windows Terminal when present, otherwise
-  `cmd.exe`) instead of an embedded PTY. macOS and Linux keep the embedded PTY unchanged.
-- The external terminal script is rendered for the shell that will read it: a PowerShell
-  script on a Windows host that has PowerShell, a `.cmd` batch file on one that does not, and
-  the existing bash script everywhere else. The terminal tab runs the user's own shell.
-- `startControlledCommand` / `stopControlledCommand` gain a real Windows implementation built
-  on a Job Object, so an externally launched run is still supervised: the board sees it start
-  and finish, and cancelling it kills the whole process tree.
-- `dispatchTerminal` becomes reachable and decides the execution mode; `detectDefaultTerminal`
-  stops claiming `pty` on Windows.
-- The command line handed to a host terminal is quoted for that host's shell.
+- `internal/terminal` moves from `creack/pty` to `github.com/aymanbagabas/go-pty`. A console
+  session is now created the same way on every platform: open the pty, then ask it for the
+  command. Windows gets the embedded console the other platforms already had.
+- A Windows session runs the user's own shell — `pwsh`, then Windows PowerShell, and `cmd.exe`
+  only when neither exists — rather than a shell chosen for them.
+- A line typed into a session ends the way the host console expects. A Windows console reads
+  Enter as a carriage return: with a bare newline the shell sits on its continuation prompt and
+  the command is echoed but never runs.
+- The session environment stops assuming POSIX: `PATH` is joined with the host separator, and
+  the POSIX locale variables are set only where they mean something.
+- `startControlledCommand` / `stopControlledCommand` gain a real Windows implementation built on
+  a Job Object, so a run is supervised there as it is on POSIX: the board sees it start and
+  finish, and cancelling it kills the whole process tree.
+- The supervised command line is quoted for the shell that will read it, which on Windows is
+  PowerShell rather than a POSIX shell.
+- The dead external-terminal launcher is removed: `runner.OpenExternalTerminal` and its script
+  renderers had no production caller — `/api/open-terminal` dispatches an `open_terminal`
+  action that the agent runs in the console session like any other command.
 
 ## Impact
-`internal/runner` (script rendering and launcher), `internal/terminal` (Windows guard),
-`cmd/agent` (routing, quoting, process control) and their tests. No schema change, no protocol
-change, no new endpoint. Behaviour on macOS and Linux is unchanged: the same PTY session, the
-same console, the same supervision. Restoring an embedded ConPTY console on Windows is
-explicitly out of scope — this change makes the platform usable, not identical.
+`internal/terminal` (pty backend, shell and environment per platform, line endings),
+`internal/runner` (host shell detection and quoting kept, launcher removed), `cmd/agent`
+(process control, one execution surface again) and their tests. One new direct dependency,
+`github.com/aymanbagabas/go-pty`; `creack/pty` stays in the module as its Unix backend. No
+schema change, no protocol change, no new endpoint. Behaviour on macOS and Linux is unchanged:
+the same session, the same console, the same supervision.

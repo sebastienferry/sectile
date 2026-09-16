@@ -5,12 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"runtime"
 	"strings"
 
 	"github.com/google/uuid"
 	"tasks/internal/agentconfig"
-	"tasks/internal/runner"
 )
 
 // consoleRunKind marks a free console run, which holds no background worker capacity.
@@ -91,18 +89,12 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 				"SECTILE_AGENT_URL":  d.agentURL, "SECTILE_SERVER_URL": d.serverURL,
 				"SECTILE_AGENT_TOKEN": d.loopbackToken,
 			}
-			terminalApp := d.dispatchTerminal(agentconfig.Config{}, "")
-			if !hostTerminalExecution(runtime.GOOS, terminalApp) {
-				_, err = d.terminalMgr.GetOrCreateSession(run.desktop.ID, run.root, env)
-				if err == nil {
-					d.runsMu.Lock()
-					run.desktop.SessionID = run.desktop.ID
-					d.runsMu.Unlock()
-					err = d.runInPty(run.desktop.ID, run.root, env, wrapped)
-				}
-			} else {
-				// Nothing to attach to: the console is a window the agent does not own.
-				err = runner.NewRunner().OpenExternalTerminal(terminalApp, run.root, wrapped, env)
+			_, err = d.terminalMgr.GetOrCreateSession(run.desktop.ID, run.root, env)
+			if err == nil {
+				d.runsMu.Lock()
+				run.desktop.SessionID = run.desktop.ID
+				d.runsMu.Unlock()
+				err = d.runInPty(run.desktop.ID, run.root, env, wrapped)
 			}
 			if err == nil {
 				d.runsMu.Lock()

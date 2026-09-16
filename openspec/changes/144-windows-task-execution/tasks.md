@@ -1,36 +1,39 @@
 # Tasks
 
-## 1. Render the launcher script per platform
-- [x] 1.1 Split `externalTerminalScript` into a POSIX renderer and a Windows batch renderer,
-      selected by target platform rather than by the compiling host, so both are testable anywhere.
-- [x] 1.2 Give the Windows script `set`, `cd /d`, the command, and a self-delete so the agent
-      token does not outlive the run.
-- [x] 1.3 Keep rejecting environment variable names that are not valid identifiers.
+## 1. Give the console a Windows backend
+- [x] 1.1 Move `internal/terminal` from `creack/pty` to `github.com/aymanbagabas/go-pty`:
+      open the pty, take the command from it, resize through the `Pty` interface.
+- [x] 1.2 Start the session in the host's own interactive shell — `pwsh`, then Windows
+      PowerShell, then `cmd.exe` — and keep `$SHELL -l` on POSIX.
+- [x] 1.3 Build the environment per platform: `PATH` with the host separator, POSIX locale
+      variables only on POSIX.
+- [x] 1.4 End a typed line the way the host console expects, leaving a viewer's keystrokes alone.
 
-## 2. Launch the host terminal correctly on Windows
-- [x] 2.1 Write the temporary script with a `.cmd` extension on Windows and skip the POSIX chmod.
-- [x] 2.2 Join `PATH` with the platform separator instead of a hardcoded `:`.
-- [x] 2.3 Default to `wt.exe` when present, otherwise `cmd.exe`, keeping the existing
-      `{script}` / `{cmd}` override.
-
-## 3. Supervise a Windows run
-- [x] 3.1 Implement `startControlledCommand` on a Job Object with a new process group.
-- [x] 3.2 Implement `stopControlledCommand`: break the group when asked politely, terminate the
+## 2. Supervise a Windows run
+- [x] 2.1 Implement `startControlledCommand` on a Job Object with a new process group.
+- [x] 2.2 Implement `stopControlledCommand`: break the group when asked politely, terminate the
       job when forced.
-- [x] 3.3 Quote the supervised command line for the host shell.
+- [x] 2.3 Give a detached child its own process group, so a stop reaches it and nothing else.
+- [x] 2.4 Quote the supervised command line for the shell that will read it.
 
-## 4. Route the execution
-- [x] 4.1 Make `detectDefaultTerminal` report the host terminal on Windows instead of `pty`.
-- [x] 4.2 Call `dispatchTerminal` from the dispatch and console paths and launch the host
-      terminal when it resolves to anything but `pty`.
-- [x] 4.3 Report the launch with the mode that was actually used.
+## 3. Remove the external terminal launch
+- [x] 3.1 Delete `runner.OpenExternalTerminal` and the launcher script renderers, which had no
+      production caller.
+- [x] 3.2 Keep the host shell detection and quoting, now used to start the session and to quote
+      what is typed into it.
+- [x] 3.3 Drop the host-terminal execution branch from the dispatch and the free console, and
+      the `hostTerminal` run field and its console notice with it.
 
-## 5. Tests
-- [x] 5.1 Windows and POSIX script rendering, including the rejected variable name.
-- [x] 5.2 Quoting for both hosts.
-- [x] 5.3 Routing: Windows resolves to a host terminal, other platforms keep the PTY.
-- [x] 5.4 Skip the PTY-bound suites on platforms without a pseudo-terminal instead of failing.
+## 4. Tests
+- [x] 4.1 A line typed into a session really runs, on every platform — the test that catches a
+      console reading a bare newline as a continuation.
+- [x] 4.2 Host shell detection, and `PATH` joined with the host separator.
+- [x] 4.3 Quoting for both hosts, and the encoded multi-line prompt.
+- [x] 4.4 A detached child is its own process group on Windows.
+- [x] 4.5 Scope the POSIX-marker suites to POSIX hosts, naming the real limitation instead of
+      claiming the platform has no pseudo-terminal.
 
-## 6. Gates
-- [x] 6.1 `go build ./...`, `go vet ./...`, `go test ./...` and the web gate.
-- [x] 6.2 Cross-compile the agent for darwin and linux to prove the build tags hold.
+## 5. Gates
+- [x] 5.1 `go build ./...` and the Go, web and desktop suites, compared against the pre-change
+      failure set on this host.
+- [x] 5.2 Cross-compile the agent for darwin and linux to prove the build tags hold.
