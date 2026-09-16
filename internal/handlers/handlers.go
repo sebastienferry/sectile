@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -2657,8 +2658,20 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		_, msgData, err := conn.ReadMessage()
 		if err != nil {
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				silence := time.Since(ac.LastSeen()).Round(time.Second)
 				log.Printf("[AgentConnect] Read loop ended for device=%s after %s of silence: %v",
-					deviceID, time.Since(ac.LastSeen()).Round(time.Second), err)
+					deviceID, silence, err)
+				// Hanging up without saying why leaves the agent log with a bare
+				// "close 1006 (abnormal closure)". Name the silence so the user
+				// reading the agent log can tell a keepalive timeout from a
+				// rebound session or a server restart. The read deadline is
+				// matched on Timeout() rather than os.ErrDeadlineExceeded:
+				// gorilla replaces a temporary network error with one of its
+				// own and the original is no longer in the chain.
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
+					ac.Close(agentCloseKeepaliveTimeout, fmt.Sprintf("no frame received for %s", silence))
+				}
 			}
 			break
 		}
