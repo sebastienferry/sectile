@@ -36,7 +36,7 @@ Welcome to the comprehensive technical documentation for **Sectile** (formerly S
 
 5. [**Interactive architecture diagram** (`diagrams/sectile-architecture.html`)](./diagrams/sectile-architecture.html)
    - Explorable server/agent topology pinned to a repository revision, with source links per component.
-   - Guided views for the control plane, workstation execution and the MCP path.
+   - Guided views for the control plane, workstation execution and the Claude Code MCP path.
    - Editable specification in [`diagrams/sectile-architecture.json`](./diagrams/sectile-architecture.json).
 
 6. [**Re-Implementation Guide for LLMs** (`REIMPLEMENTATION_GUIDE.md`)](./REIMPLEMENTATION_GUIDE.md)
