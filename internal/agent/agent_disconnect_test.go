@@ -35,7 +35,7 @@ func disconnectFixture(t *testing.T) (*agentDaemon, agentconfig.Config) {
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
-	return &agentDaemon{desktopToken: "private", repoRoot: root, projectID: "p"}, agentconfig.Config{SchemaVersion: 1, ProjectID: "p", GitRemoteURL: "https://example.test/project.git"}
+	return &agentDaemon{repoRoot: root, projectID: "p", loopback: loopbackServer{desktopToken: "private"}}, agentconfig.Config{SchemaVersion: 1, ProjectID: "p", GitRemoteURL: "https://example.test/project.git"}
 }
 
 func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {

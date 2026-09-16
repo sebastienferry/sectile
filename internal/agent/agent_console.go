@@ -94,8 +94,8 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 				"SECTILE_TASK_KEY": "", "SECTILE_TASK_ID": "", "SECTILE_RUN_ID": "",
 				"SECTILE_TASK_BRANCH": "", "SECTILE_TASK_WORKTREE": "", "SECTILE_REMOTE_MODE": "",
 				"SECTILE_PROJECT_ID": run.desktop.ProjectID,
-				"SECTILE_AGENT_URL":  d.agentURL, "SECTILE_SERVER_URL": d.serverURL,
-				"SECTILE_AGENT_TOKEN": d.loopbackToken,
+				"SECTILE_AGENT_URL":  d.loopback.url, "SECTILE_SERVER_URL": d.serverURL,
+				"SECTILE_AGENT_TOKEN": d.loopback.token,
 			}
 			_, err = d.terminalMgr.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {

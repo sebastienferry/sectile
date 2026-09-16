@@ -362,7 +362,7 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 		return err
 	}
 	for _, provider := range providers {
-		path, err := agentconfig.BootstrapMCP(provider, executable, d.agentURL)
+		path, err := agentconfig.BootstrapMCP(provider, executable, d.loopback.url)
 		if err != nil {
 			return fmt.Errorf("register the Sectile MCP server for provider %q: %w", provider, err)
 		}

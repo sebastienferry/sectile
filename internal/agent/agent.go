@@ -60,23 +60,15 @@ type agentDaemon struct {
 	// gate admission, behind its own mutex. Reach that state only via d.queue.
 	queue        runQueue
 	restartAgent context.CancelFunc
-	desktopToken string
-	desktopInfo  string
-	// loopbackToken proves a process belongs to this agent session. It carries
-	// no identity, is regenerated at every start and never leaves the machine.
-	loopbackToken string
-	// echoConsoles mirrors console output on the agent's own stdout. Off by
-	// default: it is a debugging aid, not a way to read runs.
-	echoConsoles     bool
+	// loopback is the private HTTP surface the Electron companion and the
+	// agent's own subprocesses talk to, and the credentials that gate it.
+	loopback         loopbackServer
 	serverURL        string
 	token            string
 	projectID        string
 	deviceID         string
 	terminalApp      string
 	terminalExplicit bool
-	agentPort        int
-	agentURL         string
-	httpServer       *http.Server
 	conn             *websocket.Conn
 	connMu           sync.Mutex
 	terminalMgr      *terminal.Manager
@@ -114,7 +106,7 @@ func resolveServerURL(flagURL string) string {
 // secret. Comparison is constant time: the gateway answers unauthenticated
 // callers, so a timing oracle would be reachable by any local process.
 func (d *agentDaemon) validLoopbackRequest(r *http.Request) bool {
-	if d.loopbackToken == "" {
+	if d.loopback.token == "" {
 		return false
 	}
 	header := r.Header.Get("Authorization")
@@ -122,7 +114,7 @@ func (d *agentDaemon) validLoopbackRequest(r *http.Request) bool {
 		return false
 	}
 	presented := strings.TrimPrefix(header, "Bearer ")
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(d.loopbackToken)) == 1
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(d.loopback.token)) == 1
 }
 
 // runningUnderTest reports whether this process is a test binary. Only the
@@ -187,7 +179,11 @@ func Run(args []string) {
 	}
 
 	daemon := &agentDaemon{
-		desktopInfo: *desktopInfo, desktopToken: os.Getenv("SECTILE_DESKTOP_TOKEN"),
+		loopback: loopbackServer{
+			desktopInfo:  *desktopInfo,
+			desktopToken: os.Getenv("SECTILE_DESKTOP_TOKEN"),
+			echoConsoles: *echoConsoles,
+		},
 		serverURL:        strings.TrimRight(*serverURL, "/"),
 		token:            *token,
 		projectID:        *projectID,
@@ -195,7 +191,6 @@ func Run(args []string) {
 		terminalApp:      termChoice,
 		terminalExplicit: termExplicit,
 		terminalMgr:      terminal.NewManager(),
-		echoConsoles:     *echoConsoles,
 		repoRoot:         *repoRoot,
 		done:             make(chan struct{}),
 	}
@@ -212,20 +207,20 @@ func Run(args []string) {
 		return
 	}
 
-	if daemon.desktopToken == "" {
-		daemon.desktopToken = rand.Text()
+	if daemon.loopback.desktopToken == "" {
+		daemon.loopback.desktopToken = rand.Text()
 	}
-	daemon.loopbackToken = rand.Text()
-	if daemon.desktopInfo == "" {
+	daemon.loopback.token = rand.Text()
+	if daemon.loopback.desktopInfo == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			log.Printf("[Agent] Cannot locate local configuration: %v", err)
 			return
 		}
-		daemon.desktopInfo = filepath.Join(home, ".taskflow", "agent-connection.json")
+		daemon.loopback.desktopInfo = filepath.Join(home, ".taskflow", "agent-connection.json")
 	}
-	if localAgentAvailable(daemon.desktopInfo) {
-		log.Printf("[Agent] An agent is already available through %s; connect the companion to it or stop it first", daemon.desktopInfo)
+	if localAgentAvailable(daemon.loopback.desktopInfo) {
+		log.Printf("[Agent] An agent is already available through %s; connect the companion to it or stop it first", daemon.loopback.desktopInfo)
 		return
 	}
 	// Graceful shutdown on SIGINT / SIGTERM.
@@ -280,8 +275,8 @@ func Run(args []string) {
 		return
 	}
 	defer func() {
-		if daemon.httpServer != nil {
-			_ = daemon.httpServer.Shutdown(context.Background())
+		if daemon.loopback.server != nil {
+			_ = daemon.loopback.server.Shutdown(context.Background())
 		}
 	}()
 
@@ -346,9 +341,9 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 	}
 
 	addr := ln.Addr().(*net.TCPAddr)
-	d.agentPort = addr.Port
-	d.agentURL = fmt.Sprintf("http://127.0.0.1:%d", d.agentPort)
-	log.Printf("🔌 [Agent Proxy] Local agent HTTP gateway listening on %s", d.agentURL)
+	d.loopback.port = addr.Port
+	d.loopback.url = fmt.Sprintf("http://127.0.0.1:%d", d.loopback.port)
+	log.Printf("🔌 [Agent Proxy] Local agent HTTP gateway listening on %s", d.loopback.url)
 
 	mux := http.NewServeMux()
 
@@ -374,7 +369,7 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 			http.Error(w, "Valid agent session token required", http.StatusUnauthorized)
 			return
 		}
-		if r.Host != fmt.Sprintf("127.0.0.1:%d", d.agentPort) && r.Host != fmt.Sprintf("localhost:%d", d.agentPort) {
+		if r.Host != fmt.Sprintf("127.0.0.1:%d", d.loopback.port) && r.Host != fmt.Sprintf("localhost:%d", d.loopback.port) {
 			http.Error(w, "Invalid gateway host", http.StatusForbidden)
 			return
 		}
@@ -395,7 +390,7 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 		Handler:           mux,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	d.httpServer = server
+	d.loopback.server = server
 
 	go func() {
 		if err := server.Serve(ln); err != nil && err != http.ErrServerClosed {
@@ -914,9 +909,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"SECTILE_TASK_ID":       taskRef,
 		"SECTILE_RUN_ID":        payload.RunID,
 		"SECTILE_REMOTE_MODE":   "true",
-		"SECTILE_AGENT_URL":     d.agentURL,
+		"SECTILE_AGENT_URL":     d.loopback.url,
 		"SECTILE_SERVER_URL":    d.serverURL,
-		"SECTILE_AGENT_TOKEN":   d.loopbackToken,
+		"SECTILE_AGENT_TOKEN":   d.loopback.token,
 	}
 	if payload.ProjectID != "" {
 		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID
@@ -967,7 +962,7 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 	// kept in the session history. Echoing it here as well buries the agent's
 	// own messages under whatever the model writes, which makes the terminal
 	// the agent runs in unusable exactly when something needs diagnosing.
-	if d.echoConsoles {
+	if d.loopback.echoConsoles {
 		sess.AddOutputListener(func(chunk []byte) {
 			_, _ = os.Stdout.Write(chunk)
 		})

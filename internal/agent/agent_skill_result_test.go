@@ -29,7 +29,7 @@ func TestDesktopSkillResultMatchesOwnedExecution(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	d := &agentDaemon{serverURL: server.URL, desktopToken: "private", queue: runQueue{runs: map[string]*controlledRun{
+	d := &agentDaemon{serverURL: server.URL, loopback: loopbackServer{desktopToken: "private"}, queue: runQueue{runs: map[string]*controlledRun{
 		"run": {taskID: "task", desktop: desktopRun{ProjectID: "project", Status: "running"}},
 	}}}
 	request := httptest.NewRequest("GET", "/desktop/run-result?id=run", nil)

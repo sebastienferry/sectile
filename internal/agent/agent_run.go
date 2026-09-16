@@ -91,7 +91,7 @@ func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
 		run = existing
 	}
 	d.queue.runs[runID] = run
-	return quoteShell(binary) + " agent-exec --url " + quoteShell(d.agentURL+"/control/runs/"+runID) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
+	return quoteShell(binary) + " agent-exec --url " + quoteShell(d.loopback.url+"/control/runs/"+runID) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
 }
 
 func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {

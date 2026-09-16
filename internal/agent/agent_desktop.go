@@ -20,6 +20,26 @@ import (
 	"time"
 )
 
+// loopbackServer is the agent's private HTTP surface: the Electron companion
+// and the agent's own subprocesses reach it over the loopback interface only,
+// and it never leaves the machine. Its fields are set once at start and read
+// afterwards, so they need no lock of their own.
+type loopbackServer struct {
+	server *http.Server
+	port   int
+	url    string
+	// token proves a process belongs to this agent session. It carries no
+	// identity, is regenerated at every start and never leaves the machine.
+	token string
+	// desktopToken authenticates the companion; desktopInfo is the handshake
+	// file it reads to find this session.
+	desktopToken string
+	desktopInfo  string
+	// echoConsoles mirrors console output on the agent's own stdout. Off by
+	// default: it is a debugging aid, not a way to read runs.
+	echoConsoles bool
+}
+
 type desktopRun struct {
 	Branch          string    `json:"branch,omitempty"`
 	Kind            string    `json:"kind,omitempty"`
@@ -44,7 +64,7 @@ type desktopRun struct {
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if r.Header.Get("Origin") != "" || d.desktopToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(d.desktopToken)) != 1 {
+	if r.Header.Get("Origin") != "" || d.loopback.desktopToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(d.loopback.desktopToken)) != 1 {
 		http.Error(w, "Unauthorized", 401)
 		return
 	}
@@ -206,15 +226,15 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *agentDaemon) writeDesktopInfo() error {
-	if d.desktopInfo == "" {
+	if d.loopback.desktopInfo == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(d.desktopInfo), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(d.loopback.desktopInfo), 0700); err != nil {
 		return err
 	}
 	// Publish atomically so a companion never reads a partially written credential.
-	raw, _ := json.Marshal(map[string]string{"url": d.agentURL, "token": d.desktopToken})
-	file, err := os.CreateTemp(filepath.Dir(d.desktopInfo), ".agent-connection-*")
+	raw, _ := json.Marshal(map[string]string{"url": d.loopback.url, "token": d.loopback.desktopToken})
+	file, err := os.CreateTemp(filepath.Dir(d.loopback.desktopInfo), ".agent-connection-*")
 	if err != nil {
 		return err
 	}
@@ -226,7 +246,7 @@ func (d *agentDaemon) writeDesktopInfo() error {
 	if err = file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), d.desktopInfo)
+	return os.Rename(file.Name(), d.loopback.desktopInfo)
 }
 
 // Report process exit using the server's authenticated MCP endpoint.

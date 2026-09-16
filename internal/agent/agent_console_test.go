@@ -55,7 +55,7 @@ func TestConsoleCommandCarriesTheResolvedModel(t *testing.T) {
 }
 
 func TestConsoleAdmissionValidation(t *testing.T) {
-	d := &agentDaemon{desktopToken: "private"}
+	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}}
 	for _, tt := range []struct {
 		method, body string
 		code         int
@@ -95,7 +95,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		http.Error(w, "unexpected task access", 500)
 	}))
 	defer remote.Close()
-	d := &agentDaemon{desktopToken: "private", serverURL: remote.URL, terminalMgr: terminal.NewManager()}
+	d := &agentDaemon{serverURL: remote.URL, terminalMgr: terminal.NewManager(), loopback: loopbackServer{desktopToken: "private"}}
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/control/") {
 			d.handleRunControl(w, r)
@@ -104,7 +104,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		}
 	}))
 	defer local.Close()
-	d.agentURL = local.URL
+	d.loopback.url = local.URL
 	root := t.TempDir()
 	script := filepath.Join(root, "fake-agent")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n[ -t 0 ] || exit 20\n[ \"$#\" -eq 0 ] || exit 21\n[ -z \"$SECTILE_TASK_ID$SECTILE_RUN_ID\" ] || exit 22\nprintf 'READY\\n'\nread answer\nprintf 'ANSWER:%s\\n' \"$answer\"\nsleep 60\n"), 0700); err != nil {
@@ -260,10 +260,10 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 func TestFreeConsoleExitStatus(t *testing.T) {
 	for _, tt := range []struct{ command, status string }{{"exit 0", "completed"}, {"exec /nonexistent/sectile-test-cli", "failed"}} {
 		t.Run(tt.status, func(t *testing.T) {
-			d := &agentDaemon{desktopToken: "private", terminalMgr: terminal.NewManager()}
+			d := &agentDaemon{terminalMgr: terminal.NewManager(), loopback: loopbackServer{desktopToken: "private"}}
 			local := httptest.NewServer(http.HandlerFunc(d.handleRunControl))
 			defer local.Close()
-			d.agentURL = local.URL
+			d.loopback.url = local.URL
 			run, err := d.enqueueRun("", agentconfig.Dispatch{RunID: "console"}, "p", t.TempDir(), 1, false)
 			if err != nil {
 				t.Fatal(err)

@@ -28,7 +28,7 @@ func TestDesktopGitDiffBoundary(t *testing.T) {
 	git("add", ".")
 	git("commit", "-m", "base")
 	git("checkout", "-b", "feat/test")
-	d := &agentDaemon{desktopToken: "private", queue: runQueue{runs: map[string]*controlledRun{"run": {root: root, desktop: desktopRun{Directory: root, Branch: "feat/test", TaskID: "task", ProjectID: "project", Status: "running"}}, "unprepared": {}}}}
+	d := &agentDaemon{queue: runQueue{runs: map[string]*controlledRun{"run": {root: root, desktop: desktopRun{Directory: root, Branch: "feat/test", TaskID: "task", ProjectID: "project", Status: "running"}}, "unprepared": {}}}, loopback: loopbackServer{desktopToken: "private"}}
 	for _, tc := range []struct {
 		name, method, id, token, origin string
 		status                          int

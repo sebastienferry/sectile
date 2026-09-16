@@ -18,7 +18,7 @@ func loopbackRequest(t *testing.T, header string) *http.Request {
 }
 
 func TestGatewayRequiresTheSessionSecret(t *testing.T) {
-	daemon := &agentDaemon{loopbackToken: "session-secret", token: "device-credential"}
+	daemon := &agentDaemon{token: "device-credential", loopback: loopbackServer{token: "session-secret"}}
 
 	cases := []struct {
 		name   string
