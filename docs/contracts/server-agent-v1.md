@@ -180,6 +180,18 @@ automatic retry of a possibly completed mutation. Some local tool installers
 cannot interrupt immediately; inspect the agent before retrying an uncertain operation.
 Legacy server terminal endpoints return 410 and direct callers to desktop consoles.
 
+No `/api/v1/agent/*` handler answers 404: an unknown project is a 400, a rejected
+credential a 401, a wrong method a 405. A 404 on one of these routes therefore
+means the route is not registered at all, which is a server build predating the
+contract, and the agent reports it as a contract mismatch rather than a transport
+failure. A route that answers but carries an unsupported `schemaVersion` is the
+same failure and reads the same way. Both name the server, the route and the
+build to update; the connection loop keeps retrying, because updating and
+restarting the server is what clears them, but it stops calling them lost
+connections. The standing mismatch is exposed as `contractError` on
+`/desktop/status`, so the desktop reports an incompatible server instead of a
+disconnected one. A contract route answering correctly retires it.
+
 GitHub uses REST (GraphQL for Projects and issue transfer) from the server with
 [explicit server credentials](../../README.md#server-tracker-credentials).
 Pagination, authentication, rate-limit and transport errors propagate to tracker
