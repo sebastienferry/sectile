@@ -3,19 +3,15 @@ package runner
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 )
@@ -100,7 +96,7 @@ func (r *Runner) runCommand(ctx context.Context, dir string, name string, args .
 }
 
 func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
-	tools := []string{"git", "gh", "linear", "agy", "vibe", "claude", "gemini", "codex", "uv", "specify", "openspec"}
+	tools := []string{"git", "gh", "agy", "claude", "codex", "uv", "specify", "openspec"}
 	var results []models.CliStatus
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -125,15 +121,6 @@ func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
 				} else {
 					status.AuthStatus = "Not Authenticated"
 					status.Details = "Run 'gh auth login'"
-				}
-			case "linear":
-				out, aErr := r.runCommand(ctx, repoPath, path, "auth", "whoami")
-				if aErr == nil && strings.Contains(out, "Workspace:") {
-					status.AuthStatus = "Authenticated"
-					status.Details = "Linear connected"
-				} else {
-					status.AuthStatus = "Not Authenticated"
-					status.Details = "Run 'linear auth login'"
 				}
 			case "uv":
 				status.AuthStatus = "Ready"
@@ -183,383 +170,6 @@ func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
 	return results
 }
 
-// Linear API Data Models
-type LinearIssueNode struct {
-	ID          string `json:"id"`
-	Identifier  string `json:"identifier"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	URL         string `json:"url"`
-	Priority    int    `json:"priority"`
-	State       struct {
-		ID    string `json:"id"`
-		Name  string `json:"name"`
-		Type  string `json:"type"`
-		Color string `json:"color"`
-	} `json:"state"`
-	Assignee *struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		DisplayName string `json:"displayName"`
-		AvatarUrl   string `json:"avatarUrl"`
-	} `json:"assignee"`
-	Labels *struct {
-		Nodes []struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
-		} `json:"nodes"`
-	} `json:"labels"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
-}
-
-type LinearQueryResponse struct {
-	Nodes []LinearIssueNode `json:"nodes"`
-}
-
-func (r *Runner) SyncFromLinear(teamKey string) ([]models.Task, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	linearPath, _ := FindCliTool("linear")
-	if linearPath == "" {
-		linearPath = "linear"
-	}
-
-	var args []string
-	if teamKey != "" {
-		args = []string{"issue", "query", "--team", teamKey, "--json"}
-	} else {
-		args = []string{"issue", "query", "--json"}
-	}
-
-	output, err := r.runCommand(ctx, "", linearPath, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query Linear: %w (output: %s)", err, output)
-	}
-
-	var resp LinearQueryResponse
-	if err := json.Unmarshal([]byte(output), &resp); err != nil {
-		return nil, fmt.Errorf("failed to parse Linear JSON response: %w", err)
-	}
-
-	var tasks []models.Task
-	for i, node := range resp.Nodes {
-		var priority models.Priority
-		switch node.Priority {
-		case 1:
-			priority = models.PriorityUrgent
-		case 2:
-			priority = models.PriorityHigh
-		case 3:
-			priority = models.PriorityMedium
-		default:
-			priority = models.PriorityLow
-		}
-
-		var status models.Status
-		stateName := strings.ToLower(node.State.Name)
-		switch {
-		case strings.Contains(stateName, "clarif") || strings.Contains(stateName, "triage") || strings.Contains(stateName, "backlog"):
-			status = models.StatusToClarify
-		case strings.Contains(stateName, "specif") || strings.Contains(stateName, "todo") || strings.Contains(stateName, "unstarted"):
-			status = models.StatusClarified
-		case strings.Contains(stateName, "progress") || strings.Contains(stateName, "started") || strings.Contains(stateName, "implem"):
-			status = models.StatusToImplement
-		case strings.Contains(stateName, "test") || strings.Contains(stateName, "valid") || strings.Contains(stateName, "review"):
-			status = models.StatusToTest
-		case strings.Contains(stateName, "done") || strings.Contains(stateName, "completed") || strings.Contains(stateName, "close") || strings.Contains(stateName, "cancel"):
-			status = models.StatusToClose
-		default:
-			status = models.StatusToClarify
-		}
-
-		var labels []string
-		if node.Labels != nil {
-			for _, l := range node.Labels.Nodes {
-				labels = append(labels, l.Name)
-			}
-		}
-
-		assignee := ""
-		if node.Assignee != nil {
-			assignee = node.Assignee.Name
-			if assignee == "" {
-				assignee = node.Assignee.DisplayName
-			}
-		}
-
-		cTime, _ := time.Parse(time.RFC3339, node.CreatedAt)
-		uTime, _ := time.Parse(time.RFC3339, node.UpdatedAt)
-		if cTime.IsZero() {
-			cTime = time.Now()
-		}
-		if uTime.IsZero() {
-			uTime = time.Now()
-		}
-
-		extURL := node.URL
-
-		tasks = append(tasks, models.Task{
-			ID:          node.ID,
-			Key:         node.Identifier,
-			Title:       node.Title,
-			Description: node.Description,
-			Status:      status,
-			Priority:    priority,
-			Labels:      labels,
-			Assignee:    assignee,
-			Position:    i,
-			Source:      "linear",
-			ExternalURL: &extURL,
-			CreatedAt:   cTime,
-			UpdatedAt:   uTime,
-		})
-	}
-
-	return tasks, nil
-}
-
-type LinearCreateOutput struct {
-	ID         string `json:"id"`
-	Identifier string `json:"identifier"`
-	URL        string `json:"url"`
-	Title      string `json:"title"`
-}
-
-var validLinearLabels = map[string]string{
-	"new":          "New",
-	"to-clarify":   "to-clarify",
-	"toclarify":    "to-clarify",
-	"to_clarify":   "to-clarify",
-	"clarified":    "clarified",
-	"clarify":      "clarified",
-	"specified":    "specified",
-	"specify":      "specified",
-	"to-specify":   "specified",
-	"implemented":  "Implemented",
-	"implement":    "Implemented",
-	"to-implement": "Implemented",
-	"to_implement": "Implemented",
-	"handoff":      "finished",
-	"finished":     "finished",
-	"reviewed":     "Reviewed",
-	"review":       "Reviewed",
-	"to-review":    "Reviewed",
-	"to_review":    "Reviewed",
-	"to-test":      "Reviewed",
-	"to_test":      "Reviewed",
-	"to-close":     "Reviewed",
-	"to_close":     "Reviewed",
-	"validate":     "validate",
-	"validated":    "validated",
-	"design":       "design",
-	"enhancement":  "enhancement",
-	"migrated":     "Migrated",
-	"milestone":    "milestone",
-	"improvement":  "Improvement",
-	"feature":      "Feature",
-	"bug":          "Bug",
-	"pinned":       "pinned",
-	"Pinned":       "pinned",
-}
-
-func filterLinearLabels(labels []string) []string {
-	var valid []string
-	seen := make(map[string]bool)
-	for _, l := range labels {
-		cleaned := strings.ToLower(strings.TrimSpace(l))
-		if target, ok := validLinearLabels[cleaned]; ok {
-			if !seen[target] {
-				seen[target] = true
-				valid = append(valid, target)
-			}
-		}
-	}
-	return valid
-}
-
-func (r *Runner) CreateLinearIssue(teamKey string, title string, description string, priority models.Priority, labels []string) (*models.Task, error) {
-	if teamKey == "" {
-		teamKey = "FRE"
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-
-	linearPath, err := exec.LookPath("linear")
-	if err != nil {
-		linearPath = "/opt/homebrew/bin/linear"
-	}
-
-	priorityNum := "3"
-	switch priority {
-	case models.PriorityUrgent:
-		priorityNum = "1"
-	case models.PriorityHigh:
-		priorityNum = "2"
-	case models.PriorityMedium:
-		priorityNum = "3"
-	case models.PriorityLow:
-		priorityNum = "4"
-	}
-
-	filteredLabels := filterLinearLabels(labels)
-
-	args := []string{"issue", "create", "--team", teamKey, "--title", title, "-p", priorityNum, "--no-interactive"}
-	if description != "" {
-		args = append(args, "-d", description)
-	}
-	for _, l := range filteredLabels {
-		if l != "" {
-			args = append(args, "-l", l)
-		}
-	}
-
-	output, err := r.runCommand(ctx, "", linearPath, args...)
-	if err != nil {
-		// Fallback retry without labels if a label doesn't exist on Linear workspace
-		retryArgs := []string{"issue", "create", "--team", teamKey, "--title", title, "-p", priorityNum, "--no-interactive"}
-		if description != "" {
-			retryArgs = append(retryArgs, "-d", description)
-		}
-		retryOutput, retryErr := r.runCommand(ctx, "", linearPath, retryArgs...)
-		if retryErr != nil {
-			return nil, fmt.Errorf("linear issue create failed: %w (output: %s)", err, output)
-		}
-		output = retryOutput
-	}
-
-	urlRe := regexp.MustCompile(`https?://linear\.app/\S+`)
-	urlMatch := urlRe.FindString(output)
-
-	keyRe := regexp.MustCompile(`([A-Z0-9]+-\d+)`)
-	keyMatch := keyRe.FindString(output)
-	if keyMatch == "" {
-		keyMatch = fmt.Sprintf("%s-new", teamKey)
-	}
-
-	var extURL *string
-	if urlMatch != "" {
-		cleanURL := strings.TrimSpace(urlMatch)
-		extURL = &cleanURL
-	}
-
-	now := time.Now()
-	id := uuid.New().String()
-
-	return &models.Task{
-		ID:          id,
-		Key:         keyMatch,
-		Title:       title,
-		Description: description,
-		Status:      models.StatusToClarify,
-		Priority:    priority,
-		Labels:      labels,
-		Source:      "linear",
-		ExternalURL: extURL,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}, nil
-}
-
-func mapStatusToLinearState(status models.Status) string {
-	switch status {
-	case models.StatusToClarify, models.StatusBacklog:
-		return "Backlog"
-	case models.StatusClarified:
-		return "Todo"
-	case models.StatusToImplement, models.StatusInProgress:
-		return "In Progress"
-	case models.StatusToTest, models.StatusToValidate:
-		return "In Review"
-	case models.StatusToClose:
-		return "In Review"
-	case models.StatusDone, models.StatusFinished:
-		return "Done"
-	default:
-		s := strings.ToLower(string(status))
-		if s == "finished" || s == "done" || s == "closed" || s == "completed" {
-			return "Done"
-		}
-		return "Backlog"
-	}
-}
-
-func (r *Runner) UpdateLinearIssueState(issueKey string, status models.Status) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	linearPath, err := exec.LookPath("linear")
-	if err != nil {
-		linearPath = "/opt/homebrew/bin/linear"
-	}
-
-	stateName := mapStatusToLinearState(status)
-	output, err := r.runCommand(ctx, "", linearPath, "issue", "update", issueKey, "--state", stateName)
-	if err != nil {
-		log.Printf("[CLI] linear issue update %s --state '%s' failed: %v (output: %s)", issueKey, stateName, err, output)
-	}
-	return err
-}
-
-func (r *Runner) UpdateLinearIssue(issueKey string, title *string, description *string, priority *models.Priority, status *models.Status, labels []string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	linearPath, err := exec.LookPath("linear")
-	if err != nil {
-		linearPath = "/opt/homebrew/bin/linear"
-	}
-
-	filteredLabels := filterLinearLabels(labels)
-
-	buildArgs := func(withLabels bool) []string {
-		args := []string{"issue", "update", issueKey}
-		if title != nil && *title != "" {
-			args = append(args, "--title", *title)
-		}
-		if description != nil {
-			args = append(args, "--description", *description)
-		}
-		if priority != nil {
-			switch *priority {
-			case models.PriorityUrgent:
-				args = append(args, "--priority", "1")
-			case models.PriorityHigh:
-				args = append(args, "--priority", "2")
-			case models.PriorityMedium:
-				args = append(args, "--priority", "3")
-			case models.PriorityLow:
-				args = append(args, "--priority", "4")
-			}
-		}
-		if status != nil {
-			args = append(args, "--state", mapStatusToLinearState(*status))
-		}
-		if withLabels {
-			for _, l := range filteredLabels {
-				if l != "" {
-					args = append(args, "-l", l)
-				}
-			}
-		}
-		return args
-	}
-
-	args := buildArgs(len(filteredLabels) > 0)
-	output, err := r.runCommand(ctx, "", linearPath, args...)
-	if err != nil {
-		log.Printf("[CLI] linear issue update %s with labels failed: %v (output: %s), retrying without labels...", issueKey, err, output)
-		retryArgs := buildArgs(false)
-		output, err = r.runCommand(ctx, "", linearPath, retryArgs...)
-		if err != nil {
-			log.Printf("[CLI] linear issue update %s without labels also failed: %v (output: %s)", issueKey, err, output)
-		}
-	}
-	return err
-}
-
 // -------------------------------------------------------------
 // JIRA CLI (acli) INTEGRATION
 // -------------------------------------------------------------
@@ -571,71 +181,6 @@ const jiraSearchFields = "key,summary,description,status,priority,assignee,label
 
 // NormalizeIssueTypes cleans a configured list of work item types.
 func NormalizeIssueTypes(types []string) []string { return models.NormalizeIssueTypes(types) }
-
-func (r *Runner) GetLinearIssueComments(repoPath string, key string) ([]models.TaskComment, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	linPath, _ := FindCliTool("linear")
-	if linPath == "" {
-		linPath = "linear"
-	}
-
-	output, err := r.runCommand(ctx, repoPath, linPath, "issue", "view", key, "--json")
-	if err != nil {
-		return nil, fmt.Errorf("linear issue view failed: %w", err)
-	}
-
-	var resp struct {
-		Comments struct {
-			Nodes []struct {
-				ID        string `json:"id"`
-				Body      string `json:"body"`
-				CreatedAt string `json:"createdAt"`
-				User      struct {
-					Name        string `json:"name"`
-					DisplayName string `json:"displayName"`
-				} `json:"user"`
-			} `json:"nodes"`
-		} `json:"comments"`
-		CommentsList []struct {
-			ID        string `json:"id"`
-			Body      string `json:"body"`
-			CreatedAt string `json:"createdAt"`
-			User      struct {
-				Name        string `json:"name"`
-				DisplayName string `json:"displayName"`
-			} `json:"user"`
-		} `json:"commentsList"`
-	}
-	if err := json.Unmarshal([]byte(output), &resp); err != nil {
-		return nil, fmt.Errorf("parse linear comments failed: %w", err)
-	}
-
-	var comments []models.TaskComment
-	nodes := resp.Comments.Nodes
-	if len(nodes) == 0 && len(resp.CommentsList) > 0 {
-		nodes = resp.CommentsList
-	}
-	for _, n := range nodes {
-		author := n.User.DisplayName
-		if author == "" {
-			author = n.User.Name
-		}
-		var t *time.Time
-		if parsed, pErr := time.Parse(time.RFC3339, n.CreatedAt); pErr == nil {
-			t = &parsed
-		}
-		comments = append(comments, models.TaskComment{
-			ID:        n.ID,
-			Author:    author,
-			Body:      n.Body,
-			CreatedAt: t,
-			Source:    "linear",
-		})
-	}
-	return comments, nil
-}
 
 // installedSkillPath returns the SKILL.md of a workflow skill inside a checkout,
 // whichever agent directory holds it. Empty when the skill is not installed.
@@ -691,6 +236,7 @@ type AIInvocation struct {
 	RepoDir  string
 	Provider string
 	Template string // modèle de commande du projet, placeholders déjà résolus
+	Model    string // modèle résolu pour cette étape, vide = défaut du moteur
 	Prompt   string
 	Steps    []string
 }
@@ -707,7 +253,7 @@ func (r *Runner) RunAI(settings *models.Settings, skillID string, task *models.T
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	output, execSteps, execErr := r.execAgentCommand(ctx, inv.RepoDir, inv.Provider, inv.Template, inv.Prompt)
+	output, execSteps, execErr := r.execAgentCommand(ctx, inv.RepoDir, inv.Provider, inv.Template, inv.Model, inv.Prompt)
 	steps = append(steps, execSteps...)
 
 	if execErr != nil {
@@ -908,7 +454,12 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 		provider = "agy"
 	}
 
-	steps = append(steps, fmt.Sprintf("🤖 Moteur IA : %s", strings.ToUpper(provider)))
+	resolvedModel := agentconfig.ResolveSkillModel(agentconfig.ModelConfig{Model: settings.AIModel, SkillModels: settings.AISkillModels}, skillID)
+	engineStep := fmt.Sprintf("🤖 Moteur IA : %s", strings.ToUpper(provider))
+	if resolvedModel != "" {
+		engineStep += " (" + resolvedModel + ")"
+	}
+	steps = append(steps, engineStep)
 
 	// The custom-template branch substitutes the task placeholders first, then
 	// hands the resolved template to the shared dispatcher.
@@ -927,6 +478,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 		RepoDir:  repoDir,
 		Provider: provider,
 		Template: resolvedTemplate,
+		Model:    resolvedModel,
 		Prompt:   finalPrompt,
 		Steps:    steps,
 	}, nil
@@ -938,7 +490,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 //
 // This matters for security, not just for quoting: the AI command template is
 // executed through 'sh -c', and the prompt embeds task titles and descriptions
-// that come straight from Jira, GitHub or Linear. Without escaping, a ticket
+// that come straight from Jira or GitHub. Without escaping, a ticket
 // titled `"; rm -rf ~ #` would run as a shell command.
 func escapeForDoubleQuotes(s string) string {
 	var b strings.Builder
@@ -957,8 +509,12 @@ func escapeForDoubleQuotes(s string) string {
 // cmdTemplate must have every placeholder other than {prompt} already
 // substituted by the caller; it is used when it is non-empty and either the
 // provider is "custom" or the template carries a {prompt} slot.
-func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider string, cmdTemplate string, finalPrompt string) (string, []string, error) {
+func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider string, cmdTemplate string, model string, finalPrompt string) (string, []string, error) {
 	var steps []string
+	// A template owns the whole command line, so the model reaches it only through
+	// its own {model} slot; injecting a flag would duplicate or contradict it.
+	cmdTemplate = agentconfig.ExpandModel(cmdTemplate, model)
+	modelArgs := agentconfig.ModelArgs(provider, model)
 
 	if agentconfig.UsesCommandTemplate(provider, cmdTemplate) {
 		cmdToRun := strings.ReplaceAll(cmdTemplate, "{prompt}", escapeForDoubleQuotes(finalPrompt))
@@ -983,19 +539,19 @@ func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider 
 	case "claude":
 		claudePath, _ := FindCliTool("claude")
 		steps = append(steps, fmt.Sprintf("Exécution de : claude -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, claudePath, "-p", finalPrompt)
+		out, err := r.runCommand(ctx, repoDir, claudePath, append(modelArgs, "-p", finalPrompt)...)
 		return out, steps, err
 
 	case "gemini":
 		geminiPath, _ := FindCliTool("gemini")
 		steps = append(steps, fmt.Sprintf("Exécution de : gemini -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, geminiPath, "-p", finalPrompt)
+		out, err := r.runCommand(ctx, repoDir, geminiPath, append(modelArgs, "-p", finalPrompt)...)
 		return out, steps, err
 
 	case "cursor":
 		cursorPath, _ := FindCliTool("cursor")
 		steps = append(steps, fmt.Sprintf("Exécution de : cursor agent -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, cursorPath, "agent", "-p", finalPrompt)
+		out, err := r.runCommand(ctx, repoDir, cursorPath, append([]string{"agent"}, append(modelArgs, "-p", finalPrompt)...)...)
 		return out, steps, err
 
 	default:
@@ -1011,8 +567,7 @@ func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider 
 }
 
 // RunAgentPrompt executes the configured AI CLI on a free-form prompt with no
-// task context. Used by features that are not tied to a single work item, such
-// as the daily digest agenda.
+// task context, for features that are not tied to a single work item.
 func (r *Runner) RunAgentPrompt(ctx context.Context, settings *models.Settings, prompt string) (string, []string, error) {
 	if settings == nil {
 		return "", nil, fmt.Errorf("réglages IA indisponibles")
@@ -1035,7 +590,7 @@ func (r *Runner) RunAgentPrompt(ctx context.Context, settings *models.Settings, 
 		repoDir = cwd
 	}
 
-	out, steps, err := r.execAgentCommand(ctx, repoDir, provider, settings.AICommandTemplate, prompt)
+	out, steps, err := r.execAgentCommand(ctx, repoDir, provider, settings.AICommandTemplate, settings.AIModel, prompt)
 	if err != nil {
 		return out, steps, fmt.Errorf("exécution de l'agent %s impossible: %w", provider, err)
 	}
@@ -1691,8 +1246,13 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 	// sans apostrophe, et le prompt n'est jamais relu par le shell.
 	promptRef := fmt.Sprintf(`"$(cat '%s')"`, promptFile)
 
-	if agentconfig.UsesCommandTemplate(inv.Provider, inv.Template) {
-		return strings.ReplaceAll(inv.Template, "{prompt}", "$(cat '"+promptFile+"')"), cleanup, nil
+	template := agentconfig.ExpandModel(inv.Template, inv.Model)
+	if agentconfig.UsesCommandTemplate(inv.Provider, template) {
+		return strings.ReplaceAll(template, "{prompt}", "$(cat '"+promptFile+"')"), cleanup, nil
+	}
+	modelFlag := strings.Join(agentconfig.ModelArgs(inv.Provider, inv.Model), " ")
+	if modelFlag != "" {
+		modelFlag += " "
 	}
 
 	switch inv.Provider {
@@ -1704,16 +1264,15 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 		return fmt.Sprintf("%s -p %s --auto-approve", shellQuote(bin), promptRef), cleanup, nil
 	case "claude":
 		bin, _ := FindCliTool("claude")
-		return fmt.Sprintf("%s -p %s --dangerously-skip-permissions", shellQuote(bin), promptRef), cleanup, nil
+		return fmt.Sprintf("%s %s-p %s --dangerously-skip-permissions", shellQuote(bin), modelFlag, promptRef), cleanup, nil
 	case "gemini":
 		bin, _ := FindCliTool("gemini")
-		return fmt.Sprintf("%s -p %s", shellQuote(bin), promptRef), cleanup, nil
+		return fmt.Sprintf("%s %s-p %s", shellQuote(bin), modelFlag, promptRef), cleanup, nil
 	case "cursor":
 		bin, _ := FindCliTool("cursor")
-		return fmt.Sprintf("%s agent -p %s", shellQuote(bin), promptRef), cleanup, nil
+		return fmt.Sprintf("%s agent %s-p %s", shellQuote(bin), modelFlag, promptRef), cleanup, nil
 	}
 
-	template := inv.Template
 	if template == "" {
 		template = `agy -p "{prompt}"`
 	}
@@ -1737,19 +1296,31 @@ func shellQuote(s string) string {
 // de permission, et c'est précisément l'intérêt de ce mode.
 func InteractiveAgentLaunch(settings *models.Settings) (string, error) {
 	provider := "agy"
+	model := ""
 	if settings != nil && strings.TrimSpace(settings.AIProvider) != "" {
 		provider = strings.ToLower(strings.TrimSpace(settings.AIProvider))
+	}
+	if settings != nil {
+		model = strings.TrimSpace(settings.AIModel)
+	}
+	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
+	if modelFlag != "" {
+		modelFlag = " " + modelFlag
 	}
 
 	switch provider {
 	case "agy", "vibe", "claude", "gemini", "codex":
-		return resolveAgentBinary(provider, "")
+		line, err := resolveAgentBinary(provider, "")
+		if err != nil {
+			return "", err
+		}
+		return line + modelFlag, nil
 	case "cursor":
 		line, err := resolveAgentBinary("cursor", "")
 		if err != nil {
 			return "", err
 		}
-		return line + " agent", nil
+		return line + " agent" + modelFlag, nil
 	case "custom":
 		// Un moteur personnalisé n'a que son modèle de commande : son premier mot
 		// est le binaire, et c'est lui qu'on ouvre en interactif.

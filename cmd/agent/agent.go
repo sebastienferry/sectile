@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -30,6 +31,23 @@ import (
 	"tasks/internal/terminal"
 
 	"github.com/gorilla/websocket"
+)
+
+const (
+	// agentHeartbeatInterval is how often the agent sends its own application
+	// heartbeat. It deliberately differs from the server read timeout of 45s
+	// (handlers.defaultAgentReadTimeout): at one keepalive every 10s from each
+	// side, four consecutive keepalives must be lost before the server drops
+	// the connection. The previous 30s sat exactly on that timeout, so whenever
+	// the pong path hiccupped the heartbeat arrived on the deadline and whether
+	// the connection survived was a coin flip.
+	agentHeartbeatInterval = 10 * time.Second
+	// agentPongWriteTimeout is how long the pong sender waits for the
+	// connection write mutex. It is generous on purpose: gorilla's default ping
+	// handler gives up after one second and, because the resulting error is
+	// declared temporary, discards the pong without a word. Waiting instead of
+	// giving up is safe here because the pong is written off the read loop.
+	agentPongWriteTimeout = 20 * time.Second
 )
 
 // agentDaemon runs the local Sectile agent that connects outward to a remote
@@ -66,6 +84,11 @@ type agentDaemon struct {
 	repoRoot         string
 	prepareMu        sync.Mutex
 	done             chan struct{}
+	// contractError is the last contract mismatch seen on any server call, so
+	// the desktop can say the server is incompatible instead of showing a bare
+	// disconnection. Empty once a contract route answers correctly again.
+	contractMu    sync.Mutex
+	contractError string
 }
 
 // detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)
@@ -289,7 +312,16 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 		if err != nil {
 			attempt++
 			backoff := time.Duration(math.Min(float64(time.Second)*math.Pow(2, float64(attempt)), float64(60*time.Second)))
-			log.Printf("[Agent] Connection lost (attempt %d): %v. Reconnecting in %s...", attempt, err, backoff)
+			if agentconfig.IsMismatch(err) {
+				// Retrying is still right, since updating and restarting the
+				// server is what clears this, but calling it a lost connection
+				// sends the reader to the network. noteContract has already
+				// spelled out the cause, so the retry line only has to say the
+				// server has not been updated yet.
+				log.Printf("[Agent] Server still does not serve agent contract v%d (attempt %d). Retrying in %s...", agentconfig.Version, attempt, backoff)
+			} else {
+				log.Printf("[Agent] Connection lost (attempt %d): %v. Reconnecting in %s...", attempt, err, backoff)
+			}
 
 			select {
 			case <-time.After(backoff):
@@ -442,6 +474,8 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	defer heartbeatCancel()
 	go d.heartbeatLoop(heartbeatCtx, conn)
 
+	installKeepalive(heartbeatCtx, conn)
+
 	// Message read loop.
 	for {
 		select {
@@ -452,6 +486,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 
 		_, msgData, err := conn.ReadMessage()
 		if err != nil {
+			logDisconnect(err)
 			return fmt.Errorf("read error: %w", err)
 		}
 
@@ -495,7 +530,7 @@ func (d *agentDaemon) buildWSURL() (string, error) {
 // heartbeatLoop sends periodic heartbeats to keep the connection alive and
 // detect stale connections.
 func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(agentHeartbeatInterval)
 	defer ticker.Stop()
 
 	for {
@@ -515,6 +550,62 @@ func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
 			}
 		}
 	}
+}
+
+// installKeepalive answers the server pings off the read loop. gorilla's default
+// ping handler writes the pong itself with a one-second budget, and the write
+// timeout it gets back is declared temporary, so the handler reports success and
+// the pong is lost. Every operation result the agent writes holds the same
+// connection write mutex, so a busy agent silently stops answering and the
+// server drops it. Queueing the pong keeps the read loop free and lets the
+// sender wait for the mutex instead of abandoning the reply.
+func installKeepalive(ctx context.Context, conn *websocket.Conn) {
+	pongs := make(chan []byte, 1)
+	conn.SetPingHandler(func(payload string) error {
+		select {
+		case pongs <- []byte(payload):
+		default:
+			// A pong is already queued. Pongs are not cumulative: the queued
+			// one answers this ping too.
+		}
+		return nil
+	})
+	go pongLoop(ctx, conn, pongs)
+}
+
+// pongLoop answers the server pings queued by the connection's ping handler.
+// It is the only writer of pong frames, and it runs for the life of the
+// connection so a reply is never dropped because the read loop had to move on.
+func pongLoop(ctx context.Context, conn *websocket.Conn, pongs <-chan []byte) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case payload := <-pongs:
+			err := conn.WriteControl(websocket.PongMessage, payload, time.Now().Add(agentPongWriteTimeout))
+			if err == nil || errors.Is(err, websocket.ErrCloseSent) {
+				continue
+			}
+			// This is the failure that produced minutes of unexplained
+			// flapping with no trace anywhere: say it out loud.
+			log.Printf("[Agent] Could not answer the server keepalive after %s: %v. The server will drop this connection if it stays unanswered.", agentPongWriteTimeout, err)
+			return
+		}
+	}
+}
+
+// logDisconnect reports a lost connection in terms a user reading the agent log
+// can act on. A server that hung up on purpose sends a close code and a reason;
+// without this the log only ever showed "close 1006 (abnormal closure)", which
+// names neither.
+func logDisconnect(err error) {
+	var closeErr *websocket.CloseError
+	if errors.As(err, &closeErr) && closeErr.Text != "" {
+		log.Printf("[Agent] Disconnected by the server: code %d, %s", closeErr.Code, closeErr.Text)
+		fmt.Printf("\n⚠️  [Agent] Déconnecté par le serveur (code %d) : %s\n\n", closeErr.Code, closeErr.Text)
+		return
+	}
+	log.Printf("[Agent] Connection closed without a reason from the server: %v", err)
 }
 
 // handleMessage processes a single message received from the remote server.
@@ -799,6 +890,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
+	payload.Mode = liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
 	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())

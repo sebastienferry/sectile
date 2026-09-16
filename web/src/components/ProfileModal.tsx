@@ -15,7 +15,6 @@ import {
   Terminal,
   FileCode,
   HelpCircle,
-  CalendarDays,
   Flame,
   GitPullRequest,
   Info,
@@ -25,16 +24,15 @@ import { LocalAgentSetup } from './LocalAgentSetup'
 import { WorkstationPairing } from './WorkstationPairing'
 import { SignInStatus } from './SignInStatus'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
+import { AIModelField } from './AIModelField'
+import { isValidModel } from '../lib/aiModels'
 
 type SettingsTab = 'appearance' | 'agentic' | 'prompts'
 
 const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: string; icon: string }[] = [
   { id: 'agy', label: 'Antigravity (agy)', sub: 'Google Deepmind AGY CLI', defaultCmd: 'agy --dangerously-skip-permissions -p "{prompt}"', icon: '🚀' },
   { id: 'claude', label: 'Claude Code (claude)', sub: 'Anthropic Claude Code CLI', defaultCmd: 'claude --dangerously-skip-permissions -p "{prompt}"', icon: '🟣' },
-  { id: 'vibe', label: 'Mistral Vibe (vibe)', sub: 'Mistral AI CLI', defaultCmd: 'vibe -p "{prompt}" --auto-approve', icon: '⚡' },
-  { id: 'gemini', label: 'Gemini (gemini)', sub: 'Google Gemini CLI', defaultCmd: 'gemini -p "{prompt}"', icon: '♊' },
-  { id: 'cursor', label: 'Cursor Agent (cursor)', sub: 'Cursor Editor CLI Agent', defaultCmd: 'cursor agent -p "{prompt}"', icon: '💻' },
-  { id: 'codex', label: 'Codex CLI', sub: 'OpenAI Codex CLI', defaultCmd: 'codex -p "{prompt}"', icon: '🤖' },
+  { id: 'codex', label: 'Codex CLI', sub: 'OpenAI Codex CLI', defaultCmd: "codex --approve-for-me '{prompt}'", icon: '🤖' },
   { id: 'custom', label: 'CLI Personnalisé', sub: 'Binaire ou script custom', defaultCmd: '/path/to/custom-cli -p "{prompt}"', icon: '⚙️' },
 ]
 
@@ -61,10 +59,10 @@ export const ProfileModal: React.FC = () => {
   // Agentic AI & CLI Configuration
   const [aiProvider, setAiProvider] = useState<AIProvider>(settings.aiProvider || 'agy')
   const [aiCommandTemplate, setAiCommandTemplate] = useState(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+  const [aiModel, setAiModel] = useState(settings.aiModel || '')
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
 
   // Skill Prompts
-  const [promptDigestAgenda, setPromptDigestAgenda] = useState(settings.promptDigestAgenda || '')
   const [promptClarify, setPromptClarify] = useState(settings.promptClarify || '')
   const [promptSpecify, setPromptSpecify] = useState(settings.promptSpecify || '')
   const [promptImplement, setPromptImplement] = useState(settings.promptImplement || '')
@@ -81,8 +79,8 @@ export const ProfileModal: React.FC = () => {
       setDetailMode(settings.detailMode || 'panel')
       setAiProvider(settings.aiProvider || 'agy')
       setAiCommandTemplate(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+      setAiModel(settings.aiModel || '')
       setSpecFramework(settings.specFramework || 'speckit')
-      setPromptDigestAgenda(settings.promptDigestAgenda || '')
       setPromptClarify(settings.promptClarify || '')
       setPromptSpecify(settings.promptSpecify || '')
       setPromptImplement(settings.promptImplement || '')
@@ -117,7 +115,12 @@ export const ProfileModal: React.FC = () => {
     }
   }
 
+  // Un modèle mal formé désactive l'enregistrement : le bouton est en pied de
+  // modale, loin du champ, et un clic sans effet n'indique rien.
+  const modelIsValid = isValidModel(aiModel)
+
   const handleSave = async () => {
+    if (!modelIsValid) return
     await updateSettings({
       userName: userName.trim(),
       userEmail: userEmail.trim(),
@@ -128,8 +131,8 @@ export const ProfileModal: React.FC = () => {
       detailMode,
       aiProvider,
       aiCommandTemplate: aiCommandTemplate.trim() || `${aiProvider} -p "{prompt}"`,
+      aiModel: aiModel.trim(),
       specFramework,
-      promptDigestAgenda: promptDigestAgenda.trim(),
       promptClarify: promptClarify.trim(),
       promptSpecify: promptSpecify.trim(),
       promptImplement: promptImplement.trim(),
@@ -152,7 +155,7 @@ export const ProfileModal: React.FC = () => {
                 {t.profileModal.title}
               </h3>
               <p className="text-[11px] text-[var(--text-muted)]">
-                Configuration générale, CLI Agentic et préférences d'affichage
+                Profil utilisateur d'un côté, réglages des agents de l'autre
               </p>
             </div>
           </div>
@@ -176,7 +179,7 @@ export const ProfileModal: React.FC = () => {
             }`}
           >
             <Palette size={14} />
-            <span>Apparence & Profil</span>
+            <span>Profil & Apparence</span>
           </button>
 
           <button
@@ -189,7 +192,7 @@ export const ProfileModal: React.FC = () => {
             }`}
           >
             <Bot size={14} className="text-indigo-400" />
-            <span>CLI Agentic & Commande</span>
+            <span>Agent & Workstations</span>
           </button>
 
           <button
@@ -212,8 +215,6 @@ export const ProfileModal: React.FC = () => {
           {activeTab === 'appearance' && (
             <div className="space-y-6 animate-in fade-in duration-150">
               <SignInStatus />
-              <WorkstationPairing />
-              <LocalAgentSetup />
               {/* User info */}
               <div className="space-y-3">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
@@ -402,9 +403,11 @@ export const ProfileModal: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 2: AGENTIC CLI & COMMAND LINE */}
+          {/* TAB 2: AGENT SETTINGS (workstations, local agent, CLI) */}
           {activeTab === 'agentic' && (
             <div className="space-y-6 animate-in fade-in duration-150">
+              <WorkstationPairing />
+              <LocalAgentSetup />
               {/* Agentic CLI Provider Selection */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -448,6 +451,15 @@ export const ProfileModal: React.FC = () => {
                 </div>
               </div>
 
+              <AIModelField
+                provider={aiProvider}
+                commandTemplate={aiCommandTemplate}
+                value={aiModel}
+                onChange={setAiModel}
+                placeholder="Défaut du CLI (ex : claude-opus-5)"
+                label="Modèle par défaut"
+              />
+
               {/* Command Line Template Configuration */}
               <div className="space-y-2.5 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
                 <div className="flex items-center justify-between">
@@ -474,6 +486,7 @@ export const ProfileModal: React.FC = () => {
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueTitle}'}</code>
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{branchName}'}</code>
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{repoPath}'}</code>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{model}'}</code>
                   </div>
                 </div>
 
@@ -487,9 +500,7 @@ export const ProfileModal: React.FC = () => {
                       { label: 'AGY sans confirmation', cmd: 'agy --dangerously-skip-permissions -p "{prompt}"' },
                       { label: 'AGY interactif', cmd: 'agy -i "{prompt}"' },
                       { label: 'Claude sans confirmation', cmd: 'claude --dangerously-skip-permissions -p "{prompt}"' },
-                      { label: 'Mistral Vibe', cmd: 'vibe -p "{prompt}" --auto-approve' },
-                      { label: 'Gemini CLI', cmd: 'gemini -p "{prompt}"' },
-                      { label: 'Cursor Agent', cmd: 'cursor agent -p "{prompt}"' },
+                      { label: 'Codex', cmd: "codex --approve-for-me '{prompt}'" },
                     ].map(preset => (
                       <button
                         key={preset.label}
@@ -564,33 +575,6 @@ export const ProfileModal: React.FC = () => {
             <div className="space-y-5 animate-in fade-in duration-150">
               <div className="text-[11px] text-[var(--text-muted)] leading-relaxed">
                 Personnalisez les invites (prompts) envoyées au CLI Agentic pour chaque étape du workflow. Si laissé vide, les invites par défaut sont utilisées.
-              </div>
-
-              {/* Digest Agenda Prompt : la seule partie du digest qui passe par
-                  l'agent, les autres sections étant calculées sur les tickets. */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-emerald-400">
-                    <CalendarDays size={13} />
-                    <span>Prompt de l'agenda du Daily Digest</span>
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                    Marqueurs : {'{project}'} {'{date}'}
-                  </span>
-                </label>
-                <textarea
-                  value={promptDigestAgenda}
-                  onChange={e => setPromptDigestAgenda(e.target.value)}
-                  rows={3}
-                  placeholder="/daily-brief {date}"
-                  className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-emerald-500 transition-all resize-y"
-                />
-                <span className="text-[10px] text-[var(--text-muted)] block">
-                  Vide garde le prompt d'origine, qui demande un tableau des réunions et interdit
-                  d'inventer un agenda. Une commande de votre agent fait aussi l'affaire, par exemple
-                  <code className="text-cyan-400"> /daily-brief {'{date}'}</code> : c'est ce texte,
-                  marqueurs substitués, qui lui est envoyé tel quel.
-                </span>
               </div>
 
               {/* Clarify Prompt */}
@@ -680,7 +664,8 @@ export const ProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={handleSave}
-            className="px-5 py-2 rounded-xl text-xs font-semibold text-white accent-bg shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+            disabled={!modelIsValid}
+            className="px-5 py-2 rounded-xl text-xs font-semibold text-white accent-bg shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t.profileModal.save}
           </button>

@@ -18,6 +18,47 @@ import (
 	"tasks/internal/runner"
 )
 
+// contractPrefix is the path every versioned agent route shares. A server that
+// serves the contract serves all of them; one that serves none of them predates
+// the contract entirely.
+const contractPrefix = "/api/v1/agent/"
+
+// noteContract records a mismatch and announces it once per episode, then
+// returns it unchanged. Every server call funnels through here, so a mismatch
+// surfacing during a dispatch or a desktop request is reported as loudly as one
+// surfacing while connecting. Announcing on the message rather than the episode
+// would repeat the banner every time the failing route alternates between the
+// connection loop and a desktop call.
+func (d *agentDaemon) noteContract(mismatch *agentconfig.Mismatch) error {
+	d.contractMu.Lock()
+	first := d.contractError == ""
+	d.contractError = mismatch.Error()
+	d.contractMu.Unlock()
+	if first {
+		log.Printf("⛔ [Agent] Server contract mismatch: %v", mismatch)
+		fmt.Printf("\n⛔ ========================================================\n")
+		fmt.Printf("⛔ [Agent] Server contract mismatch\n")
+		fmt.Printf("   %s\n", mismatch)
+		fmt.Printf("========================================================\n\n")
+	}
+	return mismatch
+}
+
+// clearContract forgets a mismatch once a contract route answers correctly,
+// which is what an updated and restarted server produces.
+func (d *agentDaemon) clearContract() {
+	d.contractMu.Lock()
+	defer d.contractMu.Unlock()
+	d.contractError = ""
+}
+
+// contractMismatch reports the standing mismatch, empty when there is none.
+func (d *agentDaemon) contractMismatch() string {
+	d.contractMu.Lock()
+	defer d.contractMu.Unlock()
+	return d.contractError
+}
+
 func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.serverURL+path, nil)
 	if err != nil {
@@ -28,6 +69,15 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 		return err
 	}
 	defer resp.Body.Close()
+	// No contract handler answers 404: an unknown project is a 400 and a
+	// rejected credential a 401. A 404 here therefore means the route is not
+	// registered at all, which the server's catch-all reports as a missing API
+	// route. Read as a plain HTTP failure it looks transient and the agent
+	// retries forever; named for what it is, it points at the build to update.
+	if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, contractPrefix) {
+		route, _, _ := strings.Cut(path, "?")
+		return d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: route, Status: resp.StatusCode})
+	}
 	if resp.StatusCode != http.StatusOK {
 		var detail struct {
 			Error string `json:"error"`
@@ -53,6 +103,16 @@ func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string
 		q.Set("framework", framework[0])
 	}
 	err := d.readAPI(ctx, "/api/v1/agent/config?"+q.Encode(), &c)
+	if err == nil {
+		if c.SchemaVersion != agentconfig.Version {
+			// Validate rejects this too, but its message serves local files as
+			// well. A payload from the server is a build disagreement, and
+			// saying so keeps every contract failure reading alike.
+			err = d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: "/api/v1/agent/config", Served: c.SchemaVersion})
+		} else {
+			d.clearContract()
+		}
+	}
 	if err == nil {
 		err = c.Validate()
 	}
@@ -304,8 +364,20 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 // quoteShell protects task text when it is passed through an interactive shell.
 func quoteShell(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-func agentCommandLine(provider, template, prompt string, contexts ...agentCommandContext) (string, error) {
-	return modeCommandLine(provider, template, prompt, models.SkillModeInteractive, contexts...)
+// words joins the parts of a provider invocation, eliding the ones that resolve
+// to nothing so an absent model leaves the command line exactly as it was.
+func words(parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			kept = append(kept, part)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
+func agentCommandLine(provider, template, model, prompt string, contexts ...agentCommandContext) (string, error) {
+	return modeCommandLine(provider, template, model, prompt, models.SkillModeInteractive, contexts...)
 }
 
 // headlessCommandLine is the autonomous form of agentCommandLine. It covers only
@@ -314,17 +386,41 @@ func agentCommandLine(provider, template, prompt string, contexts ...agentComman
 // others is worse than refusing: an unsupported flag either fails opaquely or is
 // swallowed as prompt text. Adding a provider here is a one-line change once its
 // headless mode is verified.
-func headlessCommandLine(provider, prompt string) (string, error) {
+//
+// A headless run also carries the provider's non-interactive approval mode. There
+// is nobody to answer a permission prompt in a run with no terminal: without it
+// the CLI is denied every tool it asks for, including the Sectile MCP tools that
+// report the run and move the stage, so the run ends having only printed why it
+// could not work and the board never moves. Only an attested flag is passed, for
+// the same reason the provider list itself is attested.
+func headlessCommandLine(provider, model, prompt string) (string, error) {
+	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "claude":
-		return "claude -p " + quoteShell(prompt), nil
+		return words("claude", "-p", "--permission-mode", "bypassPermissions", modelFlag, quoteShell(prompt)), nil
 	case "codex":
-		return "codex exec " + quoteShell(prompt), nil
+		// codex exec is non-interactive, but its approval bypass flag is not
+		// attested here: it is left to a custom template until it is verified.
+		return words("codex", "exec", modelFlag, quoteShell(prompt)), nil
 	case "vibe":
-		return "vibe -p " + quoteShell(prompt), nil
+		// vibe takes no model flag, so ModelArgs returns nothing for it.
+		return "vibe -p --auto-approve " + quoteShell(prompt), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
+}
+
+// liveSessionMode pins the mode of a launch that opens a live provider session.
+// A discussion and a bare terminal are interactive by construction: the command
+// they build opens the provider with no prompt to run, so forking it headless
+// gives a CLI with no input at all, which exits at once on "Input must be
+// provided". A project defaulting to autonomous must not turn those two launches
+// into a run that cannot work.
+func liveSessionMode(skillID, action, mode string) string {
+	if models.NormalizeSkillID(skillID) == "discuss" || models.NormalizeSkillID(action) == "open_terminal" {
+		return models.SkillModeInteractive
+	}
+	return mode
 }
 
 // modeCommandLine builds the command line for one resolved mode. A configured
@@ -332,7 +428,7 @@ func headlessCommandLine(provider, prompt string) (string, error) {
 // the mode: without a {mode:...|...} placeholder it can only run what its author
 // wrote, so an autonomous launch is refused rather than silently running the
 // template's own mode.
-func modeCommandLine(provider, template, prompt, mode string, contexts ...agentCommandContext) (string, error) {
+func modeCommandLine(provider, template, model, prompt, mode string, contexts ...agentCommandContext) (string, error) {
 	autonomous := models.NormalizeSkillMode(mode) == models.SkillModeAutonomous
 	if strings.TrimSpace(template) != "" {
 		if autonomous && !templateCarriesMode(template) {
@@ -342,20 +438,25 @@ func modeCommandLine(provider, template, prompt, mode string, contexts ...agentC
 		if len(contexts) > 0 {
 			launch = contexts[0]
 		}
-		return expandAgentTemplate(resolveTemplateMode(template, autonomous), launch.values(prompt))
+		// A template owns its command line: the model reaches it through its own
+		// {model} slot, never as a flag spliced in beside the template's words.
+		values := launch.values(prompt)
+		values["model"] = strings.TrimSpace(model)
+		return expandAgentTemplate(resolveTemplateMode(template, autonomous), values)
 	}
 	if autonomous {
-		return headlessCommandLine(provider, prompt)
+		return headlessCommandLine(provider, model, prompt)
 	}
+	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "agy":
-		return "agy -i " + quoteShell(prompt), nil
+		return words("agy", "-i", quoteShell(prompt)), nil
 	case "claude", "codex", "gemini":
-		return provider + " " + quoteShell(prompt), nil
+		return words(provider, modelFlag, quoteShell(prompt)), nil
 	case "vibe":
-		return "vibe -p " + quoteShell(prompt), nil
+		return words("vibe", "-p", quoteShell(prompt)), nil
 	case "cursor":
-		return "cursor agent " + quoteShell(prompt), nil
+		return words("cursor", "agent", modelFlag, quoteShell(prompt)), nil
 	default:
 		return "", fmt.Errorf("unsupported AI provider %q; configure an AI command template", provider)
 	}
@@ -376,9 +477,15 @@ func sameDirectory(a, b string) bool {
 func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command, mode string, contexts ...agentCommandContext) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
+	// A discussion or a bare terminal has no skill, so it runs against the model
+	// the project resolves rather than a per-skill one.
 	live := func() (string, error) {
-		return runner.InteractiveAgentLaunch(&models.Settings{AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate})
+		return runner.InteractiveAgentLaunch(&models.Settings{
+			AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate,
+			AIModel: agentconfig.ResolveModel(config, ""),
+		})
 	}
+	model := agentconfig.ResolveModel(config, skillID)
 	if action == "open_terminal" {
 		if strings.TrimSpace(command) != "" {
 			return command, nil
@@ -396,7 +503,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		if strings.TrimSpace(prompt) == "" {
 			return "", fmt.Errorf("custom instructions required")
 		}
-		return modeCommandLine(config.AIProvider, config.AICommandTemplate, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
+		return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
@@ -423,7 +530,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return modeCommandLine(config.AIProvider, config.AICommandTemplate, promptArg, mode, contexts...)
+	return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, promptArg, mode, contexts...)
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {
@@ -432,8 +539,9 @@ func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Project
 		return projects, err
 	}
 	if projects.SchemaVersion != agentconfig.Version {
-		return projects, fmt.Errorf("unsupported project discovery schemaVersion %d", projects.SchemaVersion)
+		return projects, d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: "/api/v1/agent/projects", Served: projects.SchemaVersion})
 	}
+	d.clearContract()
 	return projects, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -352,30 +353,6 @@ func (h *Handler) HandleSyncAll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) HandleSyncLinear(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	var req struct {
-		Team      string `json:"team"`
-		ProjectID string `json:"projectId"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-
-	activity, err := h.db.EnqueueSync("linear", req.Team, req.ProjectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"message":  "Synchronisation Linear ajoutée à la file d'attente",
-		"activity": activity,
-	})
-}
-
 func (h *Handler) HandleSyncGithub(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -480,6 +457,10 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Le nom du projet est obligatoire")
 			return
 		}
+		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 
 		project, err := h.db.CreateProject(req)
 		if err != nil {
@@ -512,7 +493,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		tracker := r.URL.Query().Get("tracker")
 		repo := r.URL.Query().Get("repo")
 		repoPath := r.URL.Query().Get("repoPath")
-		team := r.URL.Query().Get("team")
 		projID := r.URL.Query().Get("projectId")
 
 		var statuses []string
@@ -523,7 +503,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				IssueTracker: tracker,
 				GithubRepo:   repo,
 				RepoPath:     repoPath,
-				LinearTeam:   team,
 			}
 			// Temporary DB query for draft project
 			_ = dummyProj
@@ -1115,63 +1094,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/daily-digest
-	//   GET  → compute the task sections and merge any stored agenda
-	//   POST → same, then persist; with {"enrich": true} also runs the agenda pass
-	if len(parts) >= 2 && parts[1] == "daily-digest" {
-		switch r.Method {
-		case http.MethodGet:
-			if r.URL.Query().Get("history") == "1" {
-				dates, err := h.db.ListDigestDates(id, 30)
-				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-				writeJSON(w, http.StatusOK, map[string]interface{}{"dates": dates})
-				return
-			}
-			digest, err := h.db.ComputeDailyDigest(id, r.URL.Query().Get("date"), r.URL.Query().Get("assignee"))
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, digest)
-			return
-
-		case http.MethodPost:
-			var payload models.DailyDigestRequest
-			_ = json.NewDecoder(r.Body).Decode(&payload)
-
-			if payload.Enrich {
-				// Runs the agent; can take a while, and reports its own failure
-				// inside the digest rather than as an HTTP error.
-				digest, err := h.db.EnqueueDigestAgenda(id, payload.Date, payload.Assignee)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-				writeJSON(w, http.StatusOK, digest)
-				return
-			}
-
-			digest, err := h.db.ComputeDailyDigest(id, payload.Date, payload.Assignee)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			if err := h.db.SaveDailyDigest(digest); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, digest)
-			return
-
-		default:
-			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-			return
-		}
-	}
-
 	// Sub-action: /api/projects/{id}/spec-framework-status
 	if len(parts) >= 2 && parts[1] == "spec-framework-status" {
 		statuses := h.db.GetSpecFrameworkStatus(id, r.URL.Query().Get("framework"))
@@ -1226,14 +1148,12 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			target = id
 		}
 		tracker := r.URL.Query().Get("tracker")
-		team := r.URL.Query().Get("team")
 		repo := r.URL.Query().Get("repo")
 
 		if r.Method == http.MethodPost {
 			var body struct {
 				ProjectID    string `json:"projectId"`
 				IssueTracker string `json:"issueTracker"`
-				LinearTeam   string `json:"linearTeam"`
 				GithubRepo   string `json:"githubRepo"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
@@ -1243,16 +1163,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				if body.IssueTracker != "" {
 					tracker = body.IssueTracker
 				}
-				if body.LinearTeam != "" {
-					team = body.LinearTeam
-				}
 				if body.GithubRepo != "" {
 					repo = body.GithubRepo
 				}
 			}
 		}
 
-		statuses, err := h.db.DetectTrackerStatuses(target, tracker, team, repo)
+		statuses, err := h.db.DetectTrackerStatuses(target, tracker, repo)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1278,6 +1195,17 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		var req models.UpdateProjectRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Payload invalide: "+err.Error())
+			return
+		}
+		var requested agentconfig.ModelConfig
+		if req.AIModel != nil {
+			requested.Model = *req.AIModel
+		}
+		if req.AISkillModels != nil {
+			requested.SkillModels = *req.AISkillModels
+		}
+		if err := agentconfig.ValidModelConfig(requested); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -1836,7 +1764,11 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = h.db.AddTaskActivity(act)
 
-			remoteRun, runErr := h.db.StartAgentRemoteRun(task.ID, req.SkillID)
+			// The mode is resolved before the run is recorded: it is what tells,
+			// once the run is over, whether anything was supposed to come back
+			// from it without a user closing a session.
+			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode})
 			if runErr != nil {
 				act.Status = "failed"
 				act.Error = runErr.Error()
@@ -1851,7 +1783,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
 				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
 				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
-				Mode: h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode),
+				Mode: mode,
 			})
 			finished := time.Now()
 			act.CompletedAt = &finished
@@ -1928,7 +1860,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Target == "" {
-			writeError(w, http.StatusBadRequest, "Target tracker is required ('linear' or 'github')")
+			writeError(w, http.StatusBadRequest, "Target tracker is required ('github')")
 			return
 		}
 		task, err := h.db.ConvertTaskToRemote(id, req.Target)
@@ -2501,6 +2433,10 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
 			return
 		}
+		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		saved, err := h.db.UpdateSettings(req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -2745,8 +2681,20 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		_, msgData, err := conn.ReadMessage()
 		if err != nil {
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				silence := time.Since(ac.LastSeen()).Round(time.Second)
 				log.Printf("[AgentConnect] Read loop ended for device=%s after %s of silence: %v",
-					deviceID, time.Since(ac.LastSeen()).Round(time.Second), err)
+					deviceID, silence, err)
+				// Hanging up without saying why leaves the agent log with a bare
+				// "close 1006 (abnormal closure)". Name the silence so the user
+				// reading the agent log can tell a keepalive timeout from a
+				// rebound session or a server restart. The read deadline is
+				// matched on Timeout() rather than os.ErrDeadlineExceeded:
+				// gorilla replaces a temporary network error with one of its
+				// own and the original is no longer in the chain.
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
+					ac.Close(agentCloseKeepaliveTimeout, fmt.Sprintf("no frame received for %s", silence))
+				}
 			}
 			break
 		}

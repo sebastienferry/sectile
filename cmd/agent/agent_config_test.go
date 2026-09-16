@@ -24,7 +24,7 @@ import (
 func TestAgentCommandQuotesPrompt(t *testing.T) {
 	prompt := "hello 'world'\n$(touch /tmp/sectile-should-not-exist) `whoami` $HOME"
 	for _, template := range []string{"printf '%s' {prompt}", `printf '%s' "{prompt}"`, "printf '%s' '{prompt}'"} {
-		line, err := agentCommandLine("custom", template, prompt)
+		line, err := agentCommandLine("custom", template, "", prompt)
 		if err != nil {
 			t.Fatal(err)
 		}

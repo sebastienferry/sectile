@@ -14,7 +14,7 @@ Welcome to the comprehensive technical documentation for **Sectile** (formerly S
 
 2. [**Core Capabilities & Workflows** (`CAPABILITIES.md`)](./CAPABILITIES.md)
    - Multi-project management and dynamic CWD resolution.
-   - Issue tracker abstraction (Linear, GitHub Issues, Local SQLite).
+   - Issue tracker abstraction (GitHub Issues, Jira, Local SQLite).
    - Autonomous AI Skill pipeline (`clarify-issue`, `specify-issue`, `code-issue`, `adjust-issue`, `pick-issue`).
    - Interactive live CLI terminal with persistent ZSH sessions.
    - Live Git branch switching, diff inspection, and pull request generation.

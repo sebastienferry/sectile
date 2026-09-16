@@ -20,6 +20,8 @@ function expiry(expiresAt: string): string {
 }
 
 export function WorkstationPairing() {
+  // The address the workstation must be pointed at is the one serving this page.
+  const serverOrigin = window.location.origin
   const [devices, setDevices] = useState<Device[]>([])
   const [code, setCode] = useState<PairingCode | null>(null)
   const [status, setStatus] = useState('')
@@ -103,6 +105,27 @@ export function WorkstationPairing() {
         </div>
       ) : null}
       {code ? <p className="text-[var(--text-muted)]">{expiry(code.expiresAt)}</p> : null}
+
+      {/* A code on its own says nothing about where it is typed: the steps belong
+          next to it, on the screen that issues it. */}
+      <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3">
+        <h4 className="font-semibold text-[var(--text-primary)]">On the workstation</h4>
+        <ol className="list-decimal space-y-1 pl-5 text-[var(--text-muted)]">
+          <li>Install and open Sectile Desktop on the machine you want to pair.</li>
+          <li>
+            In its connection screen, enter this server address:{' '}
+            <code className="rounded bg-[var(--bg-secondary)] px-1 py-0.5 select-text">{serverOrigin}</code>
+          </li>
+          <li>Paste the pairing code above and confirm.</li>
+          <li>
+            The workstation appears in the list below once paired. Its credential is stored on that
+            machine, so the code is never needed again.
+          </li>
+        </ol>
+        <p className="text-[var(--text-muted)]">
+          A code that expired before it was used is not reusable: generate a new one.
+        </p>
+      </div>
 
       {devices.length > 0 ? (
         <ul className="space-y-1">

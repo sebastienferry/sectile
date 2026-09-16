@@ -7,7 +7,7 @@ Go executables are independently buildable; Electron is an optional companion.
 flowchart LR
     Browser[React web UI] <-->|REST| Server[sectile-server]
     Server <--> SQLite[(SQLite)]
-    Server <-->|HTTP APIs| Trackers[GitHub / Linear]
+    Server <-->|HTTP APIs| Trackers[GitHub / Jira]
     Server <-->|Authenticated WebSocket| Agent[sectile-agent]
     Desktop[Electron companion] <-->|Private loopback API| Agent
     Agent --> Git[Local Git and worktrees]
@@ -35,7 +35,7 @@ node <archify-checkout>/bin/archify.mjs deliver architecture docs/diagrams/secti
 | `cmd/server` | HTTP routes, embedded web assets and SQLite startup; no command dispatch or browser launch |
 | `internal/db` | Persisted tasks, projects, board/roadmap/sprint configuration, workflow and tracker queues |
 | `internal/handlers` | Server API, upstream MCP and authenticated agent relay |
-| `internal/trackerapi` | GitHub REST/GraphQL and Linear GraphQL with explicit server credentials |
+| `internal/trackerapi` | GitHub REST/GraphQL with explicit server credentials |
 | `cmd/agent` | Workstation daemon, loopback/control APIs, MCP bridge, launch queue and execution supervision |
 | `internal/agentprotocol` | Shared message envelope and workspace operation DTOs |
 | `internal/agentconfig` | Secret-free configuration contract and agent-owned installation helpers |
@@ -56,7 +56,7 @@ helpers suffixed `Unsafe` assume the caller already holds the appropriate lock.
 Avoid calling public locking methods while holding that lock.
 
 Tracker jobs run on the server even when no agent is connected. GitHub repository
-identity and Linear team identity are explicit configuration. Native HTTP clients
+identity is explicit configuration. Native HTTP clients
 paginate lists and follow redirects within the same origin while preserving the
 request method. Redirect chains are bounded; redirects and pagination to another
 origin are rejected. Missing
@@ -70,7 +70,6 @@ acknowledgement does not advance a stage. For PR-bearing stages, forge data must
 confirm the assigned branch, URL and pushed commit; review additionally requires
 a ready PR and a clean checkout reported by the agent. Human merge remains outside
 this workflow. There is no server-local result-file worker or LLM process.
-Digest generation also delegates LLM execution to an agent.
 
 ## Workstation mapping and worktrees
 

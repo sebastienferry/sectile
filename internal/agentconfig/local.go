@@ -20,6 +20,8 @@ type Overrides struct {
 	Projects             map[string]string `json:"projects"`
 	AIProvider           string            `json:"aiProvider"`
 	AICommandTemplate    string            `json:"aiCommandTemplate"`
+	AIModel              string            `json:"aiModel,omitempty"`
+	AISkillModels        map[string]string `json:"aiSkillModels,omitempty"`
 	Terminal             string            `json:"terminal"`
 	Skills               map[string]string `json:"skills"`
 }
@@ -57,6 +59,8 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 	if overrides.Terminal != "" {
 		c.ExternalTerminalCommand = overrides.Terminal
 	}
+	models := MergeModels(ModelConfig{Model: overrides.AIModel, SkillModels: overrides.AISkillModels}, c.Models())
+	c.AIModel, c.AISkillModels = models.Model, models.SkillModels
 	for i := range c.Skills {
 		id := c.Skills[i].ID
 		if id == "adjust" {
@@ -298,7 +302,7 @@ func refresh(fs, work *os.Root, files, manifest map[string]string, backups *[]st
 // MaxParallelism bounds the concurrent executions a workstation may run for one
 // project. Parallelism is workstation-owned: the server neither stores nor
 // supplies it, so every surface that accepts or clamps a value reads this.
-const MaxParallelism = 5
+const MaxParallelism = 10
 
 // ExecutionLimit is workstation-owned and serializes shared checkout execution.
 // Without a local override a project runs a single execution at a time.

@@ -12,7 +12,6 @@ import (
 func TestAdaptersSatisfyTicketingSystem(t *testing.T) {
 	c := &Client{}
 	var _ tracker.TicketingSystem = NewGithubAdapter(c)
-	var _ tracker.TicketingSystem = NewLinearAdapter(c)
 }
 
 func TestNewDefaultRegistryResolvesTrackers(t *testing.T) {
@@ -22,11 +21,6 @@ func TestNewDefaultRegistryResolvesTrackers(t *testing.T) {
 	gh, ok := reg.Get("github")
 	if !ok || gh.Name() != "github" {
 		t.Errorf("expected github tracker, got %v", gh)
-	}
-
-	lin, ok := reg.Get("linear")
-	if !ok || lin.Name() != "linear" {
-		t.Errorf("expected linear tracker, got %v", lin)
 	}
 
 	loc, ok := reg.Get("local")
@@ -41,12 +35,6 @@ func TestNewDefaultRegistryResolvesTrackers(t *testing.T) {
 		t.Errorf("ForProject(github) failed: %v", err)
 	}
 
-	pLin := &models.Project{IssueTracker: "linear", LinearTeam: "ENG"}
-	resolved, err = reg.ForProject(pLin)
-	if err != nil || resolved.Name() != "linear" {
-		t.Errorf("ForProject(linear) failed: %v", err)
-	}
-
 	// Resolution for task
 	tGH := &models.Task{Source: "github", Key: "#42"}
 	resolved, err = reg.ForTask(tGH, nil)
@@ -54,11 +42,6 @@ func TestNewDefaultRegistryResolvesTrackers(t *testing.T) {
 		t.Errorf("ForTask(github) failed: %v", err)
 	}
 
-	tLin := &models.Task{Source: "linear", Key: "ENG-10"}
-	resolved, err = reg.ForTask(tLin, nil)
-	if err != nil || resolved.Name() != "linear" {
-		t.Errorf("ForTask(linear) failed: %v", err)
-	}
 }
 
 func TestGithubAdapterCreateAndSync(t *testing.T) {
@@ -107,7 +90,6 @@ func TestGithubAdapterCreateAndSync(t *testing.T) {
 func TestFormatTaskID(t *testing.T) {
 	c := &Client{}
 	gh := NewGithubAdapter(c)
-	lin := NewLinearAdapter(c)
 	loc := tracker.NewLocalAdapter()
 
 	// GitHub default project
@@ -127,14 +109,6 @@ func TestFormatTaskID(t *testing.T) {
 	}
 	if id := gh.FormatTaskID("myproj", "", "gh-myproj-42"); id != "gh-myproj-42" {
 		t.Errorf("expected gh-myproj-42, got %s", id)
-	}
-
-	// Linear
-	if id := lin.FormatTaskID("default", "ENG-10", "c7b508f7-6467-422f-a99f-e60d251d234a"); id != "c7b508f7-6467-422f-a99f-e60d251d234a" {
-		t.Errorf("expected linear rawID preserved, got %s", id)
-	}
-	if id := lin.FormatTaskID("default", "ENG-10", ""); id != "ENG-10" {
-		t.Errorf("expected linear key fallback, got %s", id)
 	}
 
 	// Local

@@ -442,18 +442,13 @@ export const TaskDetailModal: React.FC = () => {
         ? `https://github.com/${targetGithubRepo}/issues/${num}`
         : undefined
     }
-    if (source === 'linear' && externalUrl) {
-      const m = externalUrl.match(/^(https?:\/\/linear\.app\/[^/]+\/issue)\//)
-      return m ? `${m[1]}/${key}` : undefined
-    }
     return undefined
   }
 
   const taskUrl = externalUrl || trackerUrlForKey(selectedTask.key)
   const parentUrl = trackerUrlForKey(selectedTask.parentKey)
   const trackerName =
-    selectedTask.source === 'linear' ? 'Linear'
-    : selectedTask.source === 'github' ? 'GitHub'
+    selectedTask.source === 'github' ? 'GitHub'
     : selectedTask.source === 'jira' ? 'Jira'
     : 'le tracker'
 
@@ -463,7 +458,6 @@ export const TaskDetailModal: React.FC = () => {
    */
   const renderTaskRef = () => (
     <span className="font-mono text-sm font-bold text-[var(--accent-color)] bg-[var(--accent-light)] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shrink-0">
-      {selectedTask.source === 'linear' && <span className="text-indigo-400 font-bold font-mono">◆</span>}
       {selectedTask.source === 'github' && <FolderGit2 size={13} className="text-purple-400" />}
       {selectedTask.source === 'jira' && <span className="text-blue-400 font-sans font-black text-xs">J</span>}
       {(!selectedTask.source || selectedTask.source === 'local') && <Folder size={13} className="text-emerald-400" />}
@@ -633,10 +627,14 @@ export const TaskDetailModal: React.FC = () => {
     }
   }
 
-  const handleTriggerSkill = async (skillId: string, overridePrompt?: string) => {
+  // modeOverride est le choix fait sur la carte de la skill, valable pour ce
+  // lancement seulement. Sans lui on retombe sur le sélecteur du panneau, dont
+  // la valeur vide veut dire « pas de surcharge » : c'est alors la précédence
+  // (skill, puis défaut du projet, puis interactif) qui décide.
+  const handleTriggerSkill = async (skillId: string, overridePrompt?: string, modeOverride?: SkillMode) => {
     if (!selectedTask || isSkillRunning) return
     const promptToUse = overridePrompt || customPrompt
-    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: launchMode })
+    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: modeOverride ?? launchMode })
     if (activity && !overridePrompt) {
       setCustomPrompt('')
     }
@@ -1234,36 +1232,69 @@ export const TaskDetailModal: React.FC = () => {
               const isRecommended = nextSkill?.id === s.id
               const isCurrentRunning = isSkillRunning && runningSkillId === s.id
 
+              // La carte n'est plus un bouton : elle en contient trois. Un bouton
+              // imbriqué dans un bouton n'est pas du HTML valide, et le choix du
+              // mode doit être atteignable au clavier comme le lancement.
               return (
-                <button
+                <div
                   key={s.id}
-                  onClick={() => handleTriggerSkill(s.id)}
-                  disabled={isSkillRunning}
                   className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all group relative overflow-hidden ${
                     isRecommended
                       ? 'bg-[var(--accent-light)] border-[var(--accent-color)] accent-text ring-2 ring-[var(--accent-glow)]'
                       : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--accent-color)]/60'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] font-mono font-bold opacity-60">
-                      0{index + 1}
-                    </span>
-                    {isCurrentRunning ? (
-                      <Loader2 size={13} className="animate-spin text-[var(--accent-color)]" />
-                    ) : (
-                      getSkillIcon(s.icon)
-                    )}
-                  </div>
-                  <div>
-                    <div className="font-bold text-xs leading-tight text-[var(--text-primary)] group-hover:text-[var(--accent-color)]">
-                      {s.name}
+                  <button
+                    type="button"
+                    onClick={() => handleTriggerSkill(s.id)}
+                    disabled={isSkillRunning}
+                    aria-label={`Lancer ${s.name} dans le mode configuré`}
+                    className="text-left w-full disabled:opacity-60 cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-mono font-bold opacity-60">
+                        0{index + 1}
+                      </span>
+                      {isCurrentRunning ? (
+                        <Loader2 size={13} className="animate-spin text-[var(--accent-color)]" />
+                      ) : (
+                        getSkillIcon(s.icon)
+                      )}
                     </div>
-                    <div className="text-[9px] text-[var(--text-muted)] font-mono mt-0.5">
-                      {s.command}
+                    <div>
+                      <div className="font-bold text-xs leading-tight text-[var(--text-primary)] group-hover:text-[var(--accent-color)]">
+                        {s.name}
+                      </div>
+                      <div className="text-[9px] text-[var(--text-muted)] font-mono mt-0.5">
+                        {s.command}
+                      </div>
                     </div>
+                  </button>
+                  <div className="mt-2 pt-1.5 flex items-center gap-1 border-t border-[var(--border-color)]/60">
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerSkill(s.id, undefined, 'interactive')}
+                      disabled={isSkillRunning}
+                      aria-label={`Lancer ${s.name} en interactif`}
+                      title="Ouvre un terminal que tu réponds, et tu confirmes la transition"
+                      className="flex-1 flex items-center justify-center gap-1 px-1 py-1 rounded-lg text-[9px] font-bold text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:text-[var(--accent-color)] hover:border-[var(--accent-color)]/60 disabled:opacity-40 cursor-pointer"
+                    >
+                      <Terminal size={9} />
+                      <span>Interactif</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerSkill(s.id, undefined, 'autonomous')}
+                      disabled={isSkillRunning}
+                      aria-label={`Lancer ${s.name} en autonome`}
+                      title="Lance la CLI en headless, sans terminal ; le worker pose la transition"
+                      className="flex-1 flex items-center justify-center gap-1 px-1 py-1 rounded-lg text-[9px] font-bold text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:text-[var(--accent-color)] hover:border-[var(--accent-color)]/60 disabled:opacity-40 cursor-pointer"
+                    >
+                      <Bot size={9} />
+                      <span>Autonome</span>
+                    </button>
                   </div>
-                </button>
+                </div>
               )
             })}
         </div>
@@ -1502,7 +1533,7 @@ export const TaskDetailModal: React.FC = () => {
                     }
                   }}
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-                  title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Linear)"
+                  title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Jira)"
                 >
                   <RefreshCw size={12} className={`text-indigo-400 ${isSyncingTask ? 'animate-spin' : ''}`} />
                   <span className="hidden sm:inline">{isSyncingTask ? 'Sync...' : 'Sync'}</span>
@@ -1715,7 +1746,7 @@ export const TaskDetailModal: React.FC = () => {
                 }
               }}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 transition-all cursor-pointer shadow-xs active:scale-95 disabled:opacity-50"
-              title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Linear)"
+              title="Synchroniser ce ticket dans les deux sens avec le tracker distant (GitHub / Jira)"
             >
               <RefreshCw size={13} className={`text-indigo-400 ${isSyncingTask ? 'animate-spin' : ''}`} />
               <span className="hidden sm:inline">{isSyncingTask ? 'Sync...' : 'Sync'}</span>

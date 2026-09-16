@@ -13,26 +13,29 @@ type Skill struct {
 }
 
 type Config struct {
-	TrackerURL              string   `json:"trackerUrl,omitempty"`
-	LinearTeam              string   `json:"linearTeam,omitempty"`
-	JiraProject             string   `json:"jiraProject,omitempty"`
-	GithubRepo              string   `json:"githubRepo,omitempty"`
-	IssueTracker            string   `json:"issueTracker,omitempty"`
-	PRCreationStage         string   `json:"prCreationStage"`
-	DefaultSkillMode        string   `json:"defaultSkillMode,omitempty"`
-	FullChainStopStage      string   `json:"fullChainStopStage,omitempty"`
-	SchemaVersion           int      `json:"schemaVersion"`
-	ProjectID               string   `json:"projectId"`
-	ProjectName             string   `json:"projectName"`
-	Description             string   `json:"description"`
-	GitRemoteURL            string   `json:"gitRemoteUrl"`
-	SpecFramework           string   `json:"specFramework"`
-	UseWorktrees            bool     `json:"useWorktrees"`
-	AIProvider              string   `json:"aiProvider"`
-	SetupProviders          []string `json:"setupProviders,omitempty"`
-	AICommandTemplate       string   `json:"aiCommandTemplate"`
-	ExternalTerminalCommand string   `json:"externalTerminalCommand"`
-	Skills                  []Skill  `json:"skills"`
+	TrackerURL         string   `json:"trackerUrl,omitempty"`
+	JiraProject        string   `json:"jiraProject,omitempty"`
+	GithubRepo         string   `json:"githubRepo,omitempty"`
+	IssueTracker       string   `json:"issueTracker,omitempty"`
+	PRCreationStage    string   `json:"prCreationStage"`
+	DefaultSkillMode   string   `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage string   `json:"fullChainStopStage,omitempty"`
+	SchemaVersion      int      `json:"schemaVersion"`
+	ProjectID          string   `json:"projectId"`
+	ProjectName        string   `json:"projectName"`
+	Description        string   `json:"description"`
+	GitRemoteURL       string   `json:"gitRemoteUrl"`
+	SpecFramework      string   `json:"specFramework"`
+	UseWorktrees       bool     `json:"useWorktrees"`
+	AIProvider         string   `json:"aiProvider"`
+	SetupProviders     []string `json:"setupProviders,omitempty"`
+	AICommandTemplate  string   `json:"aiCommandTemplate"`
+	// AIModel and AISkillModels are additive: an agent that predates them resolves
+	// no model and builds exactly the command lines it built before.
+	AIModel                 string            `json:"aiModel,omitempty"`
+	AISkillModels           map[string]string `json:"aiSkillModels,omitempty"`
+	ExternalTerminalCommand string            `json:"externalTerminalCommand"`
+	Skills                  []Skill           `json:"skills"`
 }
 
 // Dispatch carries launch intent only. Execution settings are fetched separately.

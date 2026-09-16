@@ -3,8 +3,8 @@ package tracker
 import "context"
 
 // BasicWriter covers the trackers driven through their CLI, which today means
-// Linear and GitHub. They carry no sprint, no team and no epic link, and saying
-// so explicitly is the whole point: the caller gets a sentence naming what is
+// GitHub. They carry no sprint, no team and no epic link, and saying so
+// explicitly is the whole point: the caller gets a sentence naming what is
 // missing instead of a silent no-op or a Jira shaped error.
 //
 // The operations they do support are not wired here yet: they still go through
@@ -17,11 +17,6 @@ type BasicWriter struct {
 	assign       func(ctx context.Context, key string, personID string) error
 	transition   func(ctx context.Context, key string, status string) error
 	labels       func(ctx context.Context, key string, add []string, remove []string) error
-}
-
-// NewLinearWriter describes what Linear answers to.
-func NewLinearWriter() *BasicWriter {
-	return &BasicWriter{name: "linear", capabilities: []Capability{CapLabels, CapComment}}
 }
 
 // NewGithubWriter describes what GitHub Issues answers to.

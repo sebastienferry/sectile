@@ -234,8 +234,8 @@ export const CloneTaskModal: React.FC = () => {
               </label>
               <div className="grid grid-cols-3 gap-1">
                 {[
-                  { id: 'linear' as TaskSource, label: 'Linear', icon: '🟣' },
                   { id: 'github' as TaskSource, label: 'GitHub', icon: '🐙' },
+                  { id: 'jira' as TaskSource, label: 'Jira', icon: '🔷' },
                   { id: 'local' as TaskSource, label: 'Local', icon: '📁' },
                 ].map(opt => (
                   <button

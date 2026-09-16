@@ -38,7 +38,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	}
 	c := &agentconfig.Config{
 		Skills: []agentconfig.Skill{}, SchemaVersion: agentconfig.Version, ProjectID: p.ID, ProjectName: p.Name, Description: p.Description,
-		TrackerURL: p.TrackerUrl, LinearTeam: p.LinearTeam, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
+		TrackerURL: p.TrackerUrl, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
 		SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage,
 		DefaultSkillMode: models.NormalizeSkillMode(p.DefaultSkillMode), FullChainStopStage: models.NormalizeFullChainStopStage(p.FullChainStopStage),
 		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, ExternalTerminalCommand: p.ExternalTerminalCommand,
@@ -61,11 +61,15 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	}
 	// Legacy rows store a bare CLI name here; the runner never used it, so the agent must not see it.
 	c.AICommandTemplate = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplate)
+	// The project speaks over the global settings, level by level: a bare project
+	// model outranks a global per-skill entry, which is what MergeModels encodes.
+	aiModels := agentconfig.MergeModels(
+		agentconfig.ModelConfig{Model: p.AIModel, SkillModels: p.AISkillModels},
+		agentconfig.ModelConfig{Model: s.AIModel, SkillModels: s.AISkillModels},
+	)
+	c.AIModel, c.AISkillModels = aiModels.Model, aiModels.SkillModels
 	if c.ExternalTerminalCommand == "" {
 		c.ExternalTerminalCommand = s.ExternalTerminalCommand
-	}
-	if c.LinearTeam == "" {
-		c.LinearTeam = s.LinearTeam
 	}
 	if len(framework) > 0 && framework[0] != "" {
 		if !isKnownFrameworkAlias(framework[0]) {

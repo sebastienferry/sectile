@@ -14,10 +14,12 @@ import (
 // consoleRunKind marks a free console run, which holds no background worker capacity.
 const consoleRunKind = "console"
 
-func consoleCommand(provider string) (string, error) {
+// consoleCommand opens the picked engine against the model the project resolves,
+// so a free console runs on the same model as the project's skills.
+func consoleCommand(provider, model string) (string, error) {
 	switch provider {
 	case "codex", "claude":
-		return "exec " + provider, nil
+		return strings.TrimRight("exec "+provider+" "+strings.Join(agentconfig.ModelArgs(provider, model), " "), " "), nil
 	default:
 		return "", fmt.Errorf("select Codex or Claude")
 	}
@@ -37,8 +39,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Project and provider required", http.StatusBadRequest)
 		return
 	}
-	command, err := consoleCommand(input.Provider)
-	if err != nil {
+	// The provider is checked before anything is fetched; the command itself is
+	// built once the overrides are applied and the model is known.
+	if _, err := consoleCommand(input.Provider, ""); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -56,6 +59,11 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	}
 	id := uuid.NewString()
 	config = agentconfig.ApplyOverrides(config, overrides)
+	command, err := consoleCommand(input.Provider, agentconfig.ResolveModel(config, ""))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	d.runsMu.Lock()
 	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: id}, input.ProjectID, root, agentconfig.ExecutionLimit(input.ProjectID, config.UseWorktrees, overrides), false)
 	if err != nil {

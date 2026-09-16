@@ -6,7 +6,7 @@ import (
 )
 
 // TicketingSystem is the unified abstraction for issue and work item backends
-// (e.g. GitHub Issues, Linear, GitLab, Jira, Local SQLite, etc.).
+// (e.g. GitHub Issues, GitLab, Jira, Local SQLite, etc.).
 type TicketingSystem interface {
 	// Writer provides the capability querying and fine-grained writes.
 	Writer

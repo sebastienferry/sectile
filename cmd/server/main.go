@@ -195,7 +195,6 @@ func main() {
 	mux.HandleFunc("/api/git/checkout", h.HandleGitCheckout)
 	mux.HandleFunc("/api/git-checkout", h.HandleGitCheckout)
 	mux.HandleFunc("/api/sync/all", h.HandleSyncAll)
-	mux.HandleFunc("/api/sync/linear", h.HandleSyncLinear)
 	mux.HandleFunc("/api/sync/github", h.HandleSyncGithub)
 	mux.HandleFunc("/api/sync/jira", h.HandleSyncJira)
 	mux.HandleFunc("/api/sync/auto", h.HandleAutoSyncStatus)

@@ -77,8 +77,8 @@ func TestAgentTemplateUnknownAndEscapedTokens(t *testing.T) {
 }
 
 func TestAgentCommandContextFallbacks(t *testing.T) {
-	c := agentCommandContext{Directory: "/local/worktrees/task", Tracker: "LINEAR", Repo: "owner/project"}
-	if got := c.values("instructions"); got["tracker"] != "linear" || got["repo"] != "owner/project" {
+	c := agentCommandContext{Directory: "/local/worktrees/task", Tracker: "JIRA", Repo: "owner/project"}
+	if got := c.values("instructions"); got["tracker"] != "jira" || got["repo"] != "owner/project" {
 		t.Fatal(got)
 	}
 	c.Task.Source = "GITHUB"

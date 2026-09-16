@@ -33,6 +33,9 @@ func (c Config) Validate() error {
 	if c.AICommandTemplate != "" && !strings.Contains(c.AICommandTemplate, "{prompt}") {
 		return fmt.Errorf("aiCommandTemplate must contain {prompt}")
 	}
+	if err := ValidModelConfig(c.Models()); err != nil {
+		return err
+	}
 	return validateSkills(c.Skills)
 }
 
