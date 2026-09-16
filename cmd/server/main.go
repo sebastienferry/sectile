@@ -240,6 +240,7 @@ func main() {
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
 
 	mux.Handle("/mcp", h.MCPHandler())
+	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)
 	// Pairing binds one workstation to one user; the code is the only
 	// unauthenticated credential, and it is single use and short lived.
 	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)

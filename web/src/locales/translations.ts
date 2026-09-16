@@ -364,6 +364,18 @@ export interface TranslationSchema {
     branchCopied: string
     viewDiff: string
   }
+  mcp: {
+    panelTitle: string
+    client: string
+    clients: string
+    noClient: string
+    run: string
+    runs: string
+    noRuns: string
+    connected: string
+    unavailable: string
+    ownership: string
+  }
   toasts: {
     taskCreated: string
     taskUpdated: string
@@ -749,6 +761,18 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       branchCopied: 'Nom de la branche copié !',
       viewDiff: 'Voir le Git Diff',
     },
+    mcp: {
+      panelTitle: 'Clients MCP connectés',
+      client: 'client MCP',
+      clients: 'clients MCP',
+      noClient: 'Aucun client MCP',
+      run: 'exécution',
+      runs: 'exécutions',
+      noRuns: 'aucune exécution',
+      connected: 'connecté depuis',
+      unavailable: 'Statut MCP indisponible',
+      ownership: 'Les exécutions listées se ferment si leur client se déconnecte.',
+    },
     toasts: {
       taskCreated: 'Tâche créée avec succès !',
       taskUpdated: 'Tâche mise à jour !',
@@ -1131,6 +1155,18 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       copyBranch: 'Copy branch name',
       branchCopied: 'Branch name copied!',
       viewDiff: 'View Git Diff',
+    },
+    mcp: {
+      panelTitle: 'Connected MCP clients',
+      client: 'MCP client',
+      clients: 'MCP clients',
+      noClient: 'No MCP client',
+      run: 'run',
+      runs: 'runs',
+      noRuns: 'no run',
+      connected: 'connected for',
+      unavailable: 'MCP status unavailable',
+      ownership: 'The runs listed here close if their client disconnects.',
     },
     toasts: {
       taskCreated: 'Task created successfully!',

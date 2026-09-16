@@ -121,7 +121,7 @@ code does not import the server handlers, database or embedded UI.
 | --- | --- | --- |
 | Server API | `http(s)://<server>:8090`; machine endpoints use the `SECTILE_SERVER_TOKEN` bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, upstream `/mcp` |
 | Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; desktop/control calls use the private discovered agent token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
-| MCP | Agent `mcp --url <loopback>` stdio bridge forwards to server `/mcp` | Eight typed tools with server-owned state; no local SQLite |
+| MCP | Agent `mcp --url <loopback>` stdio bridge forwards to server `/mcp`, a stateful Streamable HTTP endpoint | Eight typed tools with server-owned state; no local SQLite; one server session per connected client |
 
 The existing web REST API relies on the deployment's access-control boundary.
 Machine bearer authentication does not add multi-user authorization to that API.
@@ -259,9 +259,49 @@ These activities never acquire the managed-stage transition guard.
 Cards and list rows display a single run icon while a run is active — running takes
 precedence over queued, and a cancellation stays visible briefly — updated
 through server events and polling. Reading a task alone never marks it running.
-Abrupt process termination cannot report completion: the activity remains visible
-until explicitly canceled in the activity UI or finished through MCP. This
-indicator reports declared execution state, not process liveness.
+A run started over MCP is owned by the session that started it, so an abrupt
+client termination closes it as canceled instead of leaving the task active; the
+note records that the client disconnected. Agent-dispatched runs keep their own
+reporting path. This indicator reports declared execution state, not process
+liveness.
+
+## MCP session ownership
+
+`/mcp` is served statefully: each client holds one server session, identified by
+`Mcp-Session-Id` and told apart from any other session sharing the same bearer
+credential. A session begins when its client completes initialization and ends on
+client termination, a dropped connection, or silence beyond the idle timeout.
+
+`GET /api/mcp/sessions` lists live sessions with the identity the client declared
+in `clientInfo`, its connection time, and the runs it owns. It is a browser-facing
+status view and carries no credential; the MCP endpoint itself keeps the machine
+API authentication. The board's status bar polls it and shows the connected
+clients with the runs each one holds. Connecting and disconnecting raise no
+server event, so that view is refreshed by polling and is stale by at most one
+interval.
+
+A run created by `start_run` is adopted by the calling session. Ending the
+session closes the runs it still owns with status `canceled` and a note naming the
+disconnection; `finish_run` releases a run first, so a reported outcome is never
+overwritten. A run reused from a launcher through `runId` or `TASKFLOW_RUN_ID` is
+not adopted: it belongs to the agent that dispatched it, whose supervisor reports
+the real process exit. A client connected through a transport without sessions
+keeps the previous behaviour, where only `finish_run` closes a run.
+
+`SECTILE_MCP_SESSION_TIMEOUT` bounds a session whose client never announces its
+departure, defaulting to fifteen minutes of silence; an unusable value keeps the
+default rather than removing the bound. The stdio bridge pings inside that window,
+so an idle but live conversation stays connected. `SECTILE_MCP_CLIENT` names the
+bridge in the session list, defaulting to host and process id.
+
+A restart destroys every session at once, so startup closes the runs those
+sessions owned, with status `canceled` and a note naming the restart. A run's
+action records its owner and survives the restart: `Agent-owned remote execution`
+keeps a supervisor that reconnects and reports the real process exit, so it is
+preserved, while a run a client created has nothing left to close it. An outcome
+already reported is never rewritten. This refines ADR 0006, which preserves
+active remote executions across startup: the guarantee holds for the executions
+whose owner the restart did not take down with it.
 
 ## Canceling agent-owned executions
 

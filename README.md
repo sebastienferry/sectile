@@ -214,6 +214,25 @@ Sectile exposes nine typed tools at the Streamable HTTP endpoint `/mcp`:
 HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
 authentication and workflow validation retain their existing contracts.
 
+`/mcp` is stateful: every connected client holds one server session, so two
+clients sharing the same credential stay distinct and a client that goes away is
+noticed. A run started with `start_run` belongs to the session that started it.
+When that session ends — the client quits, its process is killed, or it falls
+silent past the idle timeout — the server closes the runs it still owns as
+canceled, with a note saying the client disconnected. `finish_run` remains how a
+run reports its own outcome and always wins over that fallback. A run reused from
+a launcher keeps its dispatching agent as owner, since that agent already watches
+the real process.
+
+`GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
+and the runs it owns. The board's status bar shows that count and opens a panel
+naming each connected client, how long it has been attached, and the runs that
+would close with it. `SECTILE_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
+silent session, and `SECTILE_MCP_CLIENT` names a bridge in that list. A server
+restart destroys every session at once, so startup closes the runs they owned as
+canceled; runs dispatched to an agent are preserved, because that agent
+reconnects and reports the real process exit.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect
@@ -323,7 +342,9 @@ the actual `SECTILE_AGENT_URL`, including a dynamically allocated port.
 For direct server access, use `sectile-agent mcp --url https://sectile.example.com`
 and set `SECTILE_AGENT_TOKEN` in that client's environment. Against a local
 agent gateway, that variable holds the agent session secret, not a server
-credential: the gateway attaches the workstation's own credential upstream.
+credential: the gateway attaches the workstation's own credential upstream. Set
+`SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in the session
+list; the bridge otherwise reports its host and process id.
 Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.

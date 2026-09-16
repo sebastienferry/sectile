@@ -92,8 +92,16 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 	}
 }
 
-func NewServer(database *db.DB) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, nil)
+// NewServer builds the tool catalog. The registry may be nil: session
+// ownership is an addition to the catalog, never a precondition for serving it.
+func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
+	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, &mcp.ServerOptions{
+		// A session begins when its client finishes initializing, which is the
+		// first moment the server knows who connected.
+		InitializedHandler: func(_ context.Context, req *mcp.InitializedRequest) {
+			sessions.Watch(req.Session)
+		},
+	})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_task", Description: "Read task details, workflow labels, branch metadata and live comments. Comments come from the tracker; when they cannot be retrieved the task is still returned and the failure is reported in commentsError."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in taskInput) (*mcp.CallToolResult, any, error) {
 			if strings.TrimSpace(in.TaskKey) == "" {
@@ -161,15 +169,29 @@ func NewServer(database *db.DB) *mcp.Server {
 			projects, err := database.AgentProjects()
 			return nil, projects, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs."},
+	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs. A run this session creates is owned by it: if this client disconnects without finishing it, the server closes the run as canceled. A run reused from a launcher keeps the ownership of that launcher."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in startRunInput) (*mcp.CallToolResult, any, error) {
 			activity, err := database.StartRemoteRun(in.TaskKey, in.Skill, in.RunID)
-			return nil, activity, err
+			if err != nil {
+				return nil, nil, err
+			}
+			// A session owns the runs it creates, and only those. A run reused
+			// from a launcher belongs to the agent that dispatched it, whose
+			// supervisor already reports the real process exit; closing it here
+			// on disconnection would end an execution that is still going.
+			if strings.TrimSpace(in.RunID) == "" {
+				sessions.Adopt(sessionID(req.Session), activity.ID, in.TaskKey, in.Skill)
+			}
+			return nil, activity, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "finish_run", Description: "Finish the specified remote execution with completed, failed or canceled status. Call when the entire invoked skill ends, including when stopping for user input. Does not transition the task."},
+	mcp.AddTool(s, &mcp.Tool{Name: "finish_run", Description: "Finish the specified remote execution with completed, failed or canceled status. Call when the entire invoked skill ends, including when stopping for user input. This is how a run reports its own outcome; a run left open when the session ends is closed as canceled instead. Does not transition the task."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in finishRunInput) (*mcp.CallToolResult, any, error) {
 			activity, err := database.FinishRemoteRun(in.TaskKey, in.RunID, in.Status, in.Note)
-			return nil, activity, err
+			if err != nil {
+				return nil, nil, err
+			}
+			sessions.Release(sessionID(req.Session), in.RunID)
+			return nil, activity, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "create_task", Description: "Create a task on an explicitly named project and return it with its key and external URL. Creation is remote whenever the project's tracker supports it, and fails rather than leaving a ticket that exists only on the local board. The new task enters the workflow at its first stage; it cannot be created at a later one.", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"projectId", "title"},
