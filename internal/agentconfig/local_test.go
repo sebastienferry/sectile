@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"os"
 	"path/filepath"
+	"tasks/internal/models"
 	"testing"
 )
 
@@ -158,6 +159,16 @@ func TestExecutionLimitDefaultsAndOverrides(t *testing.T) {
 	}
 	if ExecutionLimit("a", false, o, 2) != 1 {
 		t.Fatal("shared checkout must be serialized")
+	}
+	bounds := Overrides{Parallelism: map[string]int{"low": 0, "high": models.MaxParallelism + 4, "max": models.MaxParallelism}}
+	if ExecutionLimit("low", true, bounds) != 1 {
+		t.Fatal("limit below the range must clamp to one")
+	}
+	if ExecutionLimit("high", true, bounds) != models.MaxParallelism {
+		t.Fatal("limit above the range must clamp to the ceiling")
+	}
+	if ExecutionLimit("max", true, bounds) != models.MaxParallelism {
+		t.Fatal("ceiling must be selectable")
 	}
 }
 

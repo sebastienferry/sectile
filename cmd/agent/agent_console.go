@@ -11,6 +11,9 @@ import (
 	"tasks/internal/agentconfig"
 )
 
+// consoleRunKind marks a free console run, which holds no background worker capacity.
+const consoleRunKind = "console"
+
 func consoleCommand(provider string) (string, error) {
 	switch provider {
 	case "codex", "claude":
@@ -60,7 +63,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	run.desktop.Kind, run.desktop.Provider = "console", input.Provider
+	run.desktop.Kind, run.desktop.Provider = consoleRunKind, input.Provider
 	entry := run.desktop
 	d.runsMu.Unlock()
 	// The daemon owns the execution after admission, independently of the request.
@@ -72,6 +75,9 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 
 func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 	err := d.awaitRunSlot(context.Background(), run)
+	if err == nil && d.terminalMgr == nil {
+		err = fmt.Errorf("terminal manager unavailable")
+	}
 	if err == nil {
 		var wrapped string
 		wrapped, err = d.wrapRun("", run.desktop.ID, command)
