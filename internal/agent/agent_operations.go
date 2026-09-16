@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
@@ -16,22 +17,53 @@ import (
 	"time"
 )
 
+// operationRegistry tracks the in-flight workspace operations that the server
+// may still cancel, keyed by the message that started them. It owns its mutex.
+type operationRegistry struct {
+	mu      sync.Mutex
+	pending map[string]context.CancelFunc
+}
+
+// claim registers cancel under id and reports whether the claim was free. A
+// duplicate id means the server re-sent a message that is already running, so
+// the caller drops the new one rather than shadowing the live operation.
+func (o *operationRegistry) claim(id string, cancel context.CancelFunc) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if o.pending == nil {
+		o.pending = map[string]context.CancelFunc{}
+	}
+	if _, exists := o.pending[id]; exists {
+		return false
+	}
+	o.pending[id] = cancel
+	return true
+}
+
+// release forgets an operation once it has finished, cancelled or not.
+func (o *operationRegistry) release(id string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	delete(o.pending, id)
+}
+
+// cancelFunc returns the canceller for a live operation, nil when the operation
+// already finished or was never claimed.
+func (o *operationRegistry) cancelFunc(id string) context.CancelFunc {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.pending[id]
+}
+
 func (d *agentDaemon) startOperation(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
 	ctx, cancel := context.WithCancel(ctx)
-	d.operationMu.Lock()
-	if d.operations == nil {
-		d.operations = map[string]context.CancelFunc{}
-	}
-	if _, exists := d.operations[msg.MsgID]; exists {
-		d.operationMu.Unlock()
+	if !d.operations.claim(msg.MsgID, cancel) {
 		cancel()
 		return
 	}
-	d.operations[msg.MsgID] = cancel
-	d.operationMu.Unlock()
 	go func() {
 		defer cancel()
-		defer func() { d.operationMu.Lock(); delete(d.operations, msg.MsgID); d.operationMu.Unlock() }()
+		defer d.operations.release(msg.MsgID)
 		d.handleOperation(ctx, conn, msg)
 	}()
 }

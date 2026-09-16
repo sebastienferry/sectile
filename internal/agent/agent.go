@@ -54,8 +54,8 @@ const (
 // agentDaemon runs the local Sectile agent that connects outward to a remote
 // Sectile server and executes workflow steps locally inside Git worktrees.
 type agentDaemon struct {
-	operationMu sync.Mutex
-	operations  map[string]context.CancelFunc
+	// operations tracks in-flight workspace operations the server may cancel.
+	operations operationRegistry
 	// queue owns every live execution and the process lifecycle flags that
 	// gate admission, behind its own mutex. Reach that state only via d.queue.
 	queue        runQueue
@@ -615,10 +615,7 @@ func logDisconnect(err error) {
 func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
 	switch msg.Type {
 	case "workspace_cancel":
-		d.operationMu.Lock()
-		cancel := d.operations[msg.MsgID]
-		d.operationMu.Unlock()
-		if cancel != nil {
+		if cancel := d.operations.cancelFunc(msg.MsgID); cancel != nil {
 			cancel()
 		}
 	case "workspace_request":
