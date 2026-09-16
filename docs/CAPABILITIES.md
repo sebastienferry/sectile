@@ -133,6 +133,7 @@ framework value; the database migrates that value to `openspec` on startup.
 ### Stage 5: Handoff (`handoff-issue`)
 - **Objective**: Confirms the merge and writes the handover and acceptance checklist.
 - **Output**: Finished ticket and safe cleanup of clean, unused local worktrees. Shared batch worktrees remain until every associated ticket is handed off.
+- **Where it is offered**: the web task card and detail modal, and the desktop app when an execution is stopped on a task already at `reviewed` — the desktop then proposes closing the task rather than leaving it at that stage.
 
 ---
 
