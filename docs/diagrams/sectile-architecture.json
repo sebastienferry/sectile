@@ -9,7 +9,7 @@
       "url": "https://github.com/sebastienferry/sectile",
       "provider": "github",
       "link_mode": "web",
-      "revision": "e7cc0e6908083676e939809d0b823d41853815cb"
+      "revision": "2203fa4cfb57c046ce1f1b55b98c5dbf69a0356c"
     },
     "views": [
       { "id": "control-plane", "label": "Control plane", "focus": ["browser", "server", "db", "trackers"], "note": "Headless server: REST surface, SQLite state and tracker jobs that run without any agent." },
@@ -26,7 +26,7 @@
     { "id": "bridge", "type": "backend", "label": "stdio MCP bridge", "sublabel": "sectile-agent mcp", "tag": "never opens SQLite", "pos": [740, 90], "size": [160, 66], "sources": [{ "path": "internal/agentmcp/mcp.go", "label": "bridge" }] },
     { "id": "agent", "type": "backend", "label": "sectile-agent", "sublabel": "internal/agent", "pos": [740, 250], "size": [160, 66], "sources": [{ "path": "internal/agent/agent.go", "label": "agent daemon" }, { "path": "internal/agentprotocol/message.go", "label": "message envelope" }] },
     { "id": "desktop", "type": "frontend", "label": "Electron companion", "sublabel": "optional consoles UI", "pos": [740, 410], "size": [160, 66], "sources": [{ "path": "desktop/electron/main.cjs", "label": "companion" }] },
-    { "id": "claudecode", "type": "external", "label": "Claude Code", "sublabel": "provider: claude", "tag": "codex / gemini too", "brand": "claude", "pos": [1090, 90], "size": [160, 66], "sources": [{ "path": "internal/runner/runner.go", "line": 1927, "label": "provider dispatch" }, { "path": "internal/agentconfig/locations.go", "line": 54, "label": "skills and MCP files" }] },
+    { "id": "claudecode", "type": "external", "label": "Claude Code", "sublabel": "provider: claude", "tag": "codex / gemini too", "brand": "claude", "pos": [1090, 90], "size": [160, 66], "sources": [{ "path": "internal/runner/runner.go", "line": 1258, "label": "provider dispatch" }, { "path": "internal/agentconfig/locations.go", "line": 54, "label": "skills and MCP files" }] },
     { "id": "pty", "type": "backend", "label": "Native CLI consoles", "sublabel": "PTY sessions", "pos": [1090, 250], "size": [160, 66], "sources": [{ "path": "internal/terminal/terminal.go", "label": "terminal" }, { "path": "internal/runner/runner.go", "label": "tool execution" }] },
     { "id": "worktrees", "type": "database", "label": "Local Git worktrees", "sublabel": ".tasks/worktrees", "pos": [1090, 410], "size": [160, 66], "sources": [{ "path": "internal/workspace/git.go", "label": "workspace" }] }
   ],
