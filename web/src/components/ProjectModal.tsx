@@ -49,6 +49,10 @@ import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_
 
 type ProjectTab = 'general' | 'git' | 'agent' | 'tracker' | 'skills'
 
+/** Concurrent execution workers ceiling per project, aligned with models.MaxParallelism. */
+const MAX_PARALLELISM = 5
+const PARALLELISM_CHOICES = Array.from({ length: MAX_PARALLELISM }, (_, i) => i + 1)
+
 const TABS: { id: ProjectTab; label: string; icon: React.FC<{ size?: number; className?: string }> }[] = [
   { id: 'general', label: 'Général', icon: Folder },
   { id: 'git', label: 'Repository', icon: GitBranch },
@@ -266,7 +270,7 @@ export const ProjectModal: React.FC = () => {
       setSetupProviders(editingProject.setupProviders || [])
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setUseWorktrees(editingProject.useWorktrees !== false)
-      setParallelism(editingProject.parallelism && editingProject.parallelism >= 1 && editingProject.parallelism <= 3 ? editingProject.parallelism : 1)
+      setParallelism(editingProject.parallelism && editingProject.parallelism >= 1 && editingProject.parallelism <= MAX_PARALLELISM ? editingProject.parallelism : 1)
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
@@ -944,13 +948,13 @@ export const ProjectModal: React.FC = () => {
                         Parallel executions per local agent
                       </span>
                       <span className="text-[10px] text-[var(--text-muted)] block">
-                        {useWorktrees ? 'Project default: 1 to 3 concurrent executions. Additional tasks wait in the local queue.' : 'Without worktrees, executions are limited to one.'}
+                        {useWorktrees ? `Project default: 1 to ${MAX_PARALLELISM} concurrent executions. Additional tasks wait in the local queue.` : 'Without worktrees, executions are limited to one.'}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-1 bg-[var(--bg-secondary)] p-1 rounded-xl border border-[var(--border-color)] self-start sm:self-auto shrink-0">
-                    {[1, 2, 3].map(val => (
+                    {PARALLELISM_CHOICES.map(val => (
                       <button
                         key={val}
                         type="button"

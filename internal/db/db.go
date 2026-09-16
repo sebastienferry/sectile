@@ -49,7 +49,7 @@ type SkillJob struct {
 	Op *TrackerOp
 }
 
-// ProjectLimiter limits concurrency of background AI agent skill workers per project (1 to 3).
+// ProjectLimiter limits concurrency of background AI agent skill workers per project (1 to models.MaxParallelism).
 type ProjectLimiter struct {
 	mu      sync.Mutex
 	cond    *sync.Cond
@@ -71,8 +71,8 @@ func (l *ProjectLimiter) Acquire(projectID string, limit int) {
 		if limit < 1 {
 			limit = 1
 		}
-		if limit > 3 {
-			limit = 3
+		if limit > models.MaxParallelism {
+			limit = models.MaxParallelism
 		}
 		if l.running[projectID] < limit {
 			l.running[projectID]++
@@ -3255,7 +3255,7 @@ func (d *DB) startQueueWorker() {
 				return
 			}
 
-			// Concurrency control per project (1 to 3 workers)
+			// Concurrency control per project (1 to models.MaxParallelism workers)
 			limit := d.GetProjectParallelism(projID)
 			d.limiter.Acquire(projID, limit)
 			defer d.limiter.Release(projID)
@@ -3265,12 +3265,12 @@ func (d *DB) startQueueWorker() {
 	}
 }
 
-// GetProjectParallelism returns the configured background workers limit for a project (1 to 3, default 1).
+// GetProjectParallelism returns the configured background workers limit for a project (1 to models.MaxParallelism, default 1).
 func (d *DB) GetProjectParallelism(projectID string) int {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	p, err := d.getProjectByIDUnsafe(projectID)
-	if err == nil && p != nil && p.Parallelism >= 1 && p.Parallelism <= 3 {
+	if err == nil && p != nil && p.Parallelism >= 1 && p.Parallelism <= models.MaxParallelism {
 		return p.Parallelism
 	}
 	return 1

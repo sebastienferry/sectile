@@ -355,8 +355,8 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		overrides.Commands[input.ProjectID] = command
 	}
 	if input.Parallelism != nil {
-		if *input.Parallelism < 1 || *input.Parallelism > 3 {
-			http.Error(w, "Parallelism must be between 1 and 3", 400)
+		if *input.Parallelism < 1 || *input.Parallelism > models.MaxParallelism {
+			http.Error(w, fmt.Sprintf("Parallelism must be between 1 and %d", models.MaxParallelism), 400)
 			return
 		}
 		if overrides.Parallelism == nil {

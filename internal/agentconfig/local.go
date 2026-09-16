@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"tasks/internal/models"
 )
 
 // Overrides stays on the workstation and is never uploaded to the server.
@@ -307,8 +309,8 @@ func ExecutionLimit(projectID string, useWorktrees bool, overrides Overrides, se
 	if n < 1 {
 		return 1
 	}
-	if n > 3 {
-		return 3
+	if n > models.MaxParallelism {
+		return models.MaxParallelism
 	}
 	return n
 }
