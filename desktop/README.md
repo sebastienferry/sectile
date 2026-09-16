@@ -219,8 +219,8 @@ on disk. The Makefile uses atomic replacement for local binaries.
 ### Build all components
 
 Run `make all` to build the embedded web server, standalone local agent and
-packaged desktop app. The outputs are `bin/sectile-server` and
-`bin/sectile-agent`; the agent starts directly. Use `make server` or
+packaged desktop app. The outputs are `bin/server` and
+`bin/agent`; the agent starts directly. Use `make server` or
 `make agent` to build independently, and `make desktop-build`
 for the desktop development assets. On Apple Silicon the app is produced at
 `desktop/release/Sectile-darwin-arm64/Sectile.app`.
@@ -288,13 +288,14 @@ Legacy repository mappings remain readable and are migrated on the next save.
 | --- | --- |
 | `make server` | Build the server |
 | `make agent` | Build the local agent |
-| `make desktop` | Build and package the desktop |
+| `make desktop` | Build the desktop app, without packaging |
+| `make desktop-package` | Build and package the desktop app |
 | `make all` | Build all components |
 | `make start` | Start the local agent |
 | `make serve` | Start the server |
 | `make run` | Start the desktop |
 
-Server and agent are built as `bin/sectile-server` and `bin/sectile-agent` by the `build-*` targets.
+Server and agent are built as `bin/server` and `bin/agent` by the `build-*` targets.
 The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
 arguments with, for example, `make start ARGS="--url http://localhost:8090"`; provide
 authentication through `TOKEN`.
