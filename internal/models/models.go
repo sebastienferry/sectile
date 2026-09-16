@@ -91,6 +91,14 @@ type Project struct {
 	// nothing. Default true, which is the historical behaviour.
 	UseWorktrees    bool   `json:"useWorktrees"`
 	PRCreationStage string `json:"prCreationStage"`
+	// DefaultSkillMode is the execution mode a skill run falls back to when
+	// neither the launch nor the skill itself pins one. Default "interactive",
+	// which is what the tool did before the setting existed.
+	DefaultSkillMode string `json:"defaultSkillMode"`
+	// FullChainStopStage is where a full chain run stops on its own. Only
+	// "implemented" and "reviewed" mean anything; anything else reads as
+	// "reviewed" so a bad stored value cannot wedge a board.
+	FullChainStopStage string `json:"fullChainStopStage"`
 	// BoardID / TrackerColumns mirror the tracker's board: its columns in order,
 	// with the statuses each one groups. Imported from the tracker, not typed by
 	// hand.
@@ -177,7 +185,7 @@ type TrackerSprint struct {
 }
 
 // MacroMeta is the macro-level data TaskFlow owns. Macros are containers referenced by their children
-// — so their horizon, their framing notes and their todo list have nowhere else to live.
+// so their horizon, their framing notes and their todo list have nowhere else to live.
 type MacroMeta struct {
 	ProjectID      string      `json:"projectId"`
 	Key            string      `json:"key"`
@@ -280,6 +288,8 @@ type CreateProjectRequest struct {
 	RepoPath                string            `json:"repoPath,omitempty"`
 	RepoPaths               []string          `json:"repoPaths,omitempty"`
 	PRCreationStage         string            `json:"prCreationStage,omitempty"`
+	DefaultSkillMode        string            `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage      string            `json:"fullChainStopStage,omitempty"`
 	UseWorktrees            *bool             `json:"useWorktrees,omitempty"`
 	BoardID                 string            `json:"boardId,omitempty"`
 	GitRemoteUrl            string            `json:"gitRemoteUrl,omitempty"`
@@ -312,6 +322,8 @@ type UpdateProjectRequest struct {
 	RepoPath                *string              `json:"repoPath,omitempty"`
 	RepoPaths               *[]string            `json:"repoPaths,omitempty"`
 	PRCreationStage         *string              `json:"prCreationStage,omitempty"`
+	DefaultSkillMode        *string              `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage      *string              `json:"fullChainStopStage,omitempty"`
 	UseWorktrees            *bool                `json:"useWorktrees,omitempty"`
 	BoardID                 *string              `json:"boardId,omitempty"`
 	TrackerColumns          *[]TrackerColumn     `json:"trackerColumns,omitempty"`
@@ -349,6 +361,60 @@ func NormalizeAutoSyncIntervalMin(min int) int {
 		return 30
 	}
 	return min
+}
+
+// A skill run is executed in one of two modes. Interactive opens a terminal the
+// user answers, and the stage moves only when the user confirms the session is
+// over. Autonomous runs the provider CLI headless, streams its output onto the
+// run activity, and lets the worker post the transition.
+//
+// SkillModeUnset is the third state a stored setting needs: a skill or a project
+// with no opinion, which lets the precedence fall through to the next level. It
+// is not the same as SkillModeInteractive, which pins the mode.
+const (
+	SkillModeUnset       = ""
+	SkillModeInteractive = "interactive"
+	SkillModeAutonomous  = "autonomous"
+)
+
+// NormalizeSkillMode reads a stored or received mode. An unrecognised value
+// reads as unset rather than erroring, so a bad stored value falls through the
+// precedence instead of pinning a mode nobody asked for. Use ValidSkillMode to
+// reject what a client sent.
+func NormalizeSkillMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case SkillModeInteractive:
+		return SkillModeInteractive
+	case SkillModeAutonomous:
+		return SkillModeAutonomous
+	default:
+		return SkillModeUnset
+	}
+}
+
+// ValidSkillMode says whether a client-supplied mode is one we accept. An empty
+// value is valid and means "no override".
+func ValidSkillMode(mode string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(mode))
+	return trimmed == SkillModeUnset || trimmed == SkillModeInteractive || trimmed == SkillModeAutonomous
+}
+
+// FullChainStopStages are the only stages a full chain run may stop at. Stopping
+// at implemented leaves the pull request to the user; stopping at reviewed opens
+// it and leaves the merge to the user. Merging is never automated.
+const (
+	FullChainStopImplemented = "implemented"
+	FullChainStopReviewed    = "reviewed"
+)
+
+// NormalizeFullChainStopStage reads a stored stop stage. Anything unrecognised
+// reads as reviewed, which is the historical behaviour, so a bad stored value
+// cannot wedge a board.
+func NormalizeFullChainStopStage(stage string) string {
+	if strings.ToLower(strings.TrimSpace(stage)) == FullChainStopImplemented {
+		return FullChainStopImplemented
+	}
+	return FullChainStopReviewed
 }
 
 // NormalizeParallelism keeps the concurrent background agent workers count between 1 and 3.
@@ -419,16 +485,18 @@ type SkillEditorEntry struct {
 	FromStage              string            `json:"fromStage"`
 	ToStage                string            `json:"toStage"`
 	Scope                  string            `json:"scope,omitempty"`
-	Interactive            bool              `json:"interactive"`
-	Content                string            `json:"content"`
-	DefaultContent         string            `json:"defaultContent"`
-	IsCustom               bool              `json:"isCustom"`
-	UpdatedAt              string            `json:"updatedAt,omitempty"`
-	Installed              bool              `json:"installed"`
-	Paths                  []string          `json:"paths"`
-	Diverged               bool              `json:"diverged"`
-	RepoContent            string            `json:"repoContent,omitempty"`
-	RepoPath               string            `json:"repoPath,omitempty"`
+	// Mode is the skill's own execution mode: "interactive", "autonomous", or
+	// empty when the skill has no opinion and the project default decides.
+	Mode           string   `json:"mode"`
+	Content        string   `json:"content"`
+	DefaultContent string   `json:"defaultContent"`
+	IsCustom       bool     `json:"isCustom"`
+	UpdatedAt      string   `json:"updatedAt,omitempty"`
+	Installed      bool     `json:"installed"`
+	Paths          []string `json:"paths"`
+	Diverged       bool     `json:"diverged"`
+	RepoContent    string   `json:"repoContent,omitempty"`
+	RepoPath       string   `json:"repoPath,omitempty"`
 }
 
 type ProjectSkillsStatus struct {
@@ -569,7 +637,7 @@ type Task struct {
 	// are imported; epics and other types stay out of the board.
 	IssueType string `json:"issueType,omitempty"`
 	// ParentKey / ParentTitle / ParentType describe the work item this task
-	// hangs under — an epic, or a parent story for a sub-task. The parent is a
+	// hangs under: an epic, or a parent story for a sub-task. The parent is a
 	// property of the task rather than a card of its own.
 	ParentKey   string `json:"parentKey,omitempty"`
 	ParentTitle string `json:"parentTitle,omitempty"`
@@ -771,8 +839,12 @@ type Skill struct {
 }
 
 type RunSkillRequest struct {
-	SkillID      string `json:"skillId"`
-	Prompt       string `json:"prompt,omitempty"`
+	SkillID string `json:"skillId"`
+	Prompt  string `json:"prompt,omitempty"`
+	// Mode is the one-off execution mode override for this launch only. Empty
+	// means no override, which is not the same as "interactive": the precedence
+	// still falls through to the skill and then to the project.
+	Mode         string `json:"mode,omitempty"`
 	WithComments bool   `json:"withComments,omitempty"`
 }
 

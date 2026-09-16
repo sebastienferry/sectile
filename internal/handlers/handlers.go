@@ -1729,6 +1729,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Skill ID is required")
 			return
 		}
+		// An absent mode means "no override", which is not the same as
+		// interactive: the precedence still falls through to the skill and then
+		// to the project. Anything else is a client mistake, not a fallback.
+		if !models.ValidSkillMode(req.Mode) {
+			writeError(w, http.StatusBadRequest, "mode invalide : "+req.Mode)
+			return
+		}
 
 		if req.WithComments || strings.Contains(req.Prompt, "--with-comments") {
 			comments, err := h.db.GetTaskComments(id)
@@ -1795,6 +1802,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
 				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
 				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
+				Mode: h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode),
 			})
 			finished := time.Now()
 			act.CompletedAt = &finished
@@ -2126,12 +2134,17 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sub-action: /api/tasks/{id}/advance: one step of the agentic workflow, or
-	// the autonomous chain up to the review stage
+	// the full chain up to the project's stop stage
 	if subAction == "advance" && r.Method == http.MethodPost {
 		var req struct {
-			Auto bool `json:"auto"`
+			Auto bool   `json:"auto"`
+			Mode string `json:"mode"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if !models.ValidSkillMode(req.Mode) {
+			writeError(w, http.StatusBadRequest, "mode invalide : "+req.Mode)
+			return
+		}
 
 		task, err := h.db.GetTaskByID(id)
 		if err != nil || task == nil {
@@ -2140,7 +2153,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.Auto {
-			_, act, err := h.db.EnqueueAutonomousRun(task.ID)
+			_, act, err := h.db.EnqueueFullChainRun(task.ID)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -2155,7 +2168,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("aucun pas suivant depuis l'étape %s", stage))
 			return
 		}
-		_, act, err := h.db.EnqueueSkillOnTask(task.ID, step.SkillID, "")
+		_, act, err := h.db.EnqueueSkillOnTaskWithMode(task.ID, step.SkillID, "", req.Mode)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

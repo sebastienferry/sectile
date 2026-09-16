@@ -103,7 +103,7 @@ func TestDispatchExpandsTaskLaunches(t *testing.T) {
 	} {
 		for _, title := range []string{launch.Task.Title, "Updated title"} {
 			launch.Task.Title = title
-			line, err := dispatchCommand(config, launch.Task.ID, route.skill, route.action, route.prompt, "", launch)
+			line, err := dispatchCommand(config, launch.Task.ID, route.skill, route.action, route.prompt, "", models.SkillModeInteractive, launch)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,7 +114,7 @@ func TestDispatchExpandsTaskLaunches(t *testing.T) {
 		}
 	}
 	raw := "echo {issueKey} {prompt}"
-	if got, err := dispatchCommand(config, launch.Task.ID, "", "open_terminal", "", raw, launch); err != nil || got != raw {
+	if got, err := dispatchCommand(config, launch.Task.ID, "", "open_terminal", "", raw, models.SkillModeInteractive, launch); err != nil || got != raw {
 		t.Fatalf("%q %v", got, err)
 	}
 }

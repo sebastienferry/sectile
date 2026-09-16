@@ -127,8 +127,8 @@ func TestRefineMacroSkillTemplate(t *testing.T) {
 		if skill.Command != "/refine-macro" {
 			t.Errorf("Expected command '/refine-macro', got %q", skill.Command)
 		}
-		if !skill.Interactive {
-			t.Errorf("Expected skill.Interactive to be true for alias %q", alias)
+		if skill.Mode != models.SkillModeInteractive {
+			t.Errorf("Expected skill.Mode to be interactive for alias %q, got %q", alias, skill.Mode)
 		}
 	}
 

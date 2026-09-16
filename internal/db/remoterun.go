@@ -162,3 +162,41 @@ func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillNa
 	return activity, nil
 }
 
+// RemoteRunOutputLimit bounds what one autonomous run can record. A headless CLI
+// streams everything it prints into a single activity, and an unbounded record
+// grows with the run. Past the limit the output keeps its head, which is where
+// the launch and the first errors are, and says it was cut.
+const RemoteRunOutputLimit = 256 * 1024
+
+const remoteRunOutputTruncated = "\n\n[output truncated: the run printed more than the recorded limit]"
+
+// AppendRemoteRunOutput adds captured CLI output to a running remote activity.
+// It is the only channel an autonomous run has: nobody is watching a terminal,
+// so what the CLI printed has to survive on the activity itself.
+func (d *DB) AppendRemoteRunOutput(taskKey, runID, chunk string) error {
+	if strings.TrimSpace(chunk) == "" {
+		return nil
+	}
+	task, err := d.GetTaskByID(taskKey)
+	if err != nil {
+		return err
+	}
+	if task == nil {
+		return fmt.Errorf("task not found")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var current string
+	if err := d.conn.QueryRow("SELECT output FROM task_activities WHERE id=? AND task_id=? AND skill_id='remote_run'", runID, task.ID).Scan(&current); err != nil {
+		return err
+	}
+	if strings.HasSuffix(current, remoteRunOutputTruncated) {
+		return nil
+	}
+	combined := current + chunk
+	if len(combined) > RemoteRunOutputLimit {
+		combined = combined[:RemoteRunOutputLimit] + remoteRunOutputTruncated
+	}
+	_, err = d.conn.Exec("UPDATE task_activities SET output=? WHERE id=? AND task_id=?", combined, runID, task.ID)
+	return err
+}

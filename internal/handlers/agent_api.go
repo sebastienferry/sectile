@@ -2,11 +2,13 @@ package handlers
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"tasks/internal/db"
 	"tasks/internal/taskmcp"
 )
 
@@ -66,4 +68,33 @@ func (h *Handler) HandleAgentProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, projects)
+}
+
+// HandleAgentRunOutput records what an autonomous run printed. An interactive
+// run shows its output in a terminal the user is looking at; a headless one has
+// nowhere else to put it, so the agent posts it here as it goes. The body is
+// capped at the record limit so a runaway CLI cannot push an unbounded request.
+func (h *Handler) HandleAgentRunOutput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	var req struct {
+		TaskID string `json:"taskId"`
+		RunID  string `json:"runId"`
+		Output string `json:"output"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, db.RemoteRunOutputLimit)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid run output payload: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(req.TaskID) == "" || strings.TrimSpace(req.RunID) == "" {
+		writeError(w, http.StatusBadRequest, "taskId and runId are required")
+		return
+	}
+	if err := h.db.AppendRemoteRunOutput(req.TaskID, req.RunID, req.Output); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

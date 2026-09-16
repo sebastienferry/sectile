@@ -1,0 +1,188 @@
+package db
+
+import (
+	"path/filepath"
+	"testing"
+
+	"tasks/internal/models"
+)
+
+func modeTestDB(t *testing.T) (*DB, *models.Project) {
+	t.Helper()
+	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	no := false
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Modes", RepoPath: "/not-mounted", IssueTracker: "local", UseWorktrees: &no})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return d, project
+}
+
+// A project saved before these settings existed keeps today's behaviour: runs
+// are interactive and the chain stops where it always stopped.
+func TestProjectDefaultsPreserveExistingBehaviour(t *testing.T) {
+	d, project := modeTestDB(t)
+	if project.DefaultSkillMode != models.SkillModeUnset {
+		t.Fatalf("a new project should pin no mode, got %q", project.DefaultSkillMode)
+	}
+	if project.FullChainStopStage != models.FullChainStopReviewed {
+		t.Fatalf("stop stage = %q, want reviewed", project.FullChainStopStage)
+	}
+	if got := d.resolveTaskSkillMode(project.ID, "clarify", models.SkillModeUnset); got != models.SkillModeInteractive {
+		t.Fatalf("resolved mode = %q, want interactive", got)
+	}
+	if got := d.FullChainStopStage(project.ID); got != DefaultFullChainStopStage {
+		t.Fatalf("FullChainStopStage = %q, want %q", got, DefaultFullChainStopStage)
+	}
+}
+
+func TestProjectSettingsRoundTrip(t *testing.T) {
+	d, project := modeTestDB(t)
+	mode, stop := models.SkillModeAutonomous, models.FullChainStopImplemented
+	updated, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{DefaultSkillMode: &mode, FullChainStopStage: &stop})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.DefaultSkillMode != models.SkillModeAutonomous || updated.FullChainStopStage != models.FullChainStopImplemented {
+		t.Fatalf("not persisted: %+v", updated)
+	}
+	reread, err := d.GetProjectByID(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.DefaultSkillMode != models.SkillModeAutonomous || reread.FullChainStopStage != models.FullChainStopImplemented {
+		t.Fatalf("not reread: %+v", reread)
+	}
+	// A skill with no opinion now follows the project.
+	if got := d.resolveTaskSkillMode(project.ID, "clarify", models.SkillModeUnset); got != models.SkillModeAutonomous {
+		t.Fatalf("resolved mode = %q, want autonomous", got)
+	}
+	// An unrecognised stored stop stage falls back to reviewed rather than
+	// wedging the board.
+	bad := "somewhere"
+	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{FullChainStopStage: &bad}); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.FullChainStopStage(project.ID); got != models.FullChainStopReviewed {
+		t.Fatalf("bad stored stage resolved to %q, want reviewed", got)
+	}
+}
+
+// refine_macro is the one skill the catalogue pins, and it must keep winning
+// over a project that defaults to autonomous.
+func TestSkillSettingWinsOverProjectDefault(t *testing.T) {
+	d, project := modeTestDB(t)
+	mode := models.SkillModeAutonomous
+	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{DefaultSkillMode: &mode}); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.resolveTaskSkillMode(project.ID, "refine_macro", models.SkillModeUnset); got != models.SkillModeInteractive {
+		t.Fatalf("refine_macro resolved to %q, want interactive", got)
+	}
+	// A one-off override still wins over the skill.
+	if got := d.resolveTaskSkillMode(project.ID, "refine_macro", models.SkillModeAutonomous); got != models.SkillModeAutonomous {
+		t.Fatalf("override resolved to %q, want autonomous", got)
+	}
+}
+
+func TestSetProjectSkillMode(t *testing.T) {
+	d, project := modeTestDB(t)
+	if err := d.SetProjectSkillMode(project.ID, "clarify", models.SkillModeAutonomous); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.ProjectSkillMode(project.ID, "clarify"); got != models.SkillModeAutonomous {
+		t.Fatalf("stored skill mode = %q, want autonomous", got)
+	}
+	if got := d.resolveTaskSkillMode(project.ID, "clarify", models.SkillModeUnset); got != models.SkillModeAutonomous {
+		t.Fatalf("resolved mode = %q, want autonomous", got)
+	}
+	// Clearing it puts the skill back on the project default.
+	if err := d.SetProjectSkillMode(project.ID, "clarify", models.SkillModeUnset); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.ProjectSkillMode(project.ID, "clarify"); got != models.SkillModeUnset {
+		t.Fatalf("cleared skill mode = %q, want unset", got)
+	}
+	if got := d.resolveTaskSkillMode(project.ID, "clarify", models.SkillModeUnset); got != models.SkillModeInteractive {
+		t.Fatalf("resolved mode = %q, want interactive", got)
+	}
+	if err := d.SetProjectSkillMode(project.ID, "clarify", "headless"); err == nil {
+		t.Fatal("an invalid mode should be refused")
+	}
+	if err := d.SetProjectSkillMode(project.ID, "no-such-skill", models.SkillModeAutonomous); err == nil {
+		t.Fatal("an unknown skill should be refused")
+	}
+}
+
+// Editing a skill's content must not clear the mode stored for it: they are two
+// independent settings that happen to share a row.
+func TestSkillContentEditKeepsMode(t *testing.T) {
+	d, project := modeTestDB(t)
+	if err := d.SetProjectSkillMode(project.ID, "clarify", models.SkillModeAutonomous); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.SaveProjectSkillContent(project.ID, "clarify", "# Clarify\n\nEdited body.\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.ProjectSkillMode(project.ID, "clarify"); got != models.SkillModeAutonomous {
+		t.Fatalf("skill mode after a content edit = %q, want autonomous", got)
+	}
+}
+
+func TestStageAtOrPast(t *testing.T) {
+	cases := []struct {
+		stage, target string
+		want          bool
+	}{
+		{"new", "reviewed", false},
+		{"implemented", "implemented", true},
+		{"reviewed", "implemented", true},
+		{"finished", "reviewed", true},
+		{"specified", "implemented", false},
+		{"unknown", "reviewed", false},
+		{"reviewed", "unknown", false},
+	}
+	for _, tc := range cases {
+		if got := stageAtOrPast(tc.stage, tc.target); got != tc.want {
+			t.Fatalf("stageAtOrPast(%q,%q) = %v, want %v", tc.stage, tc.target, got, tc.want)
+		}
+	}
+}
+
+// A full chain run refuses to start on a task that is already at or past the
+// project's stop stage: the rest is a human review.
+func TestFullChainRefusesAtOrPastStopStage(t *testing.T) {
+	d, project := modeTestDB(t)
+	stop := models.FullChainStopImplemented
+	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{FullChainStopStage: &stop}); err != nil {
+		t.Fatal(err)
+	}
+	// A task still at the start of the workflow is accepted: the chain has work
+	// to do before the stop stage.
+	fresh, err := d.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "fresh"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.EnqueueFullChainRun(fresh.ID); err != nil {
+		t.Fatalf("a new task should start a full chain run: %v", err)
+	}
+
+	for _, stage := range []string{models.FullChainStopImplemented, models.FullChainStopReviewed} {
+		task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "at " + stage})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// The stage is set on the record directly: reaching it through the real
+		// transition would drag in PR creation, which this test is not about.
+		if _, err := d.conn.Exec(`UPDATE tasks SET labels = ? WHERE id = ?`, `["`+stage+`"]`, task.ID); err != nil {
+			t.Fatal(err)
+		}
+		if _, _, err := d.EnqueueFullChainRun(task.ID); err == nil {
+			t.Fatalf("a task at %q should be refused when the stop stage is implemented", stage)
+		}
+	}
+}

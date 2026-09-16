@@ -253,7 +253,7 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	}
 	for _, template := range []string{`printf '%s\000' {repoPath} {branchName} {issueKey} {prompt}`, `printf '%s\000' "{repoPath}" '{branchName}' {issueKey} {prompt}`} {
 		effective.AICommandTemplate = template
-		line, err := dispatchCommand(effective, task.ID, "implement", "implement", "", "", agentCommandContext{Task: task, Branch: branch, Directory: path})
+		line, err := dispatchCommand(effective, task.ID, "implement", "implement", "", "", models.SkillModeInteractive, agentCommandContext{Task: task, Branch: branch, Directory: path})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,22 +270,22 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 
 func TestExternalTerminalCommandWithoutSkill(t *testing.T) {
 	config := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/sh {prompt}"}
-	command, err := dispatchCommand(config, "TASK-46", "", "open_terminal", "", "")
+	command, err := dispatchCommand(config, "TASK-46", "", "open_terminal", "", "", models.SkillModeInteractive)
 	if err != nil || !strings.Contains(command, "/bin/sh") {
 		t.Fatalf("plain launch rejected: %q %v", command, err)
 	}
 	explicit := "printf 'custom command'"
-	command, err = dispatchCommand(config, "TASK-46", "", "open_terminal", "", explicit)
+	command, err = dispatchCommand(config, "TASK-46", "", "open_terminal", "", explicit, models.SkillModeInteractive)
 	if err != nil || command != explicit {
 		t.Fatalf("explicit command changed: %q %v", command, err)
 	}
-	if _, err = dispatchCommand(config, "TASK-46", "missing", "implement", "", ""); err == nil {
+	if _, err = dispatchCommand(config, "TASK-46", "missing", "implement", "", "", models.SkillModeInteractive); err == nil {
 		t.Fatal("invalid workflow skill accepted")
 	}
 	config.AIProvider = "claude"
 	config.AICommandTemplate = "claude {prompt}"
 	config.Skills = []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Command: "/code-issue"}}
-	command, err = dispatchCommand(config, "TASK-46", "implement", "open_terminal", "", "")
+	command, err = dispatchCommand(config, "TASK-46", "implement", "open_terminal", "", "", models.SkillModeInteractive)
 	if err != nil || !strings.Contains(command, "/code-issue TASK-46") {
 		t.Fatalf("skill launch: %q %v", command, err)
 	}
@@ -310,7 +310,7 @@ func TestNativePickupBootstrapAndLaunch(t *testing.T) {
 			if err != nil || !strings.Contains(string(raw), d.agentURL) {
 				t.Fatalf("native MCP bootstrap: %s %v", raw, err)
 			}
-			command, err := dispatchCommand(config, "#48", "pickup-issue", "pickup-issue", "", "")
+			command, err := dispatchCommand(config, "#48", "pickup-issue", "pickup-issue", "", "", models.SkillModeInteractive)
 			if err != nil || command != provider+" '/pickup-issue #48'" {
 				t.Fatalf("pickup launch: %q %v", command, err)
 			}
@@ -413,13 +413,13 @@ func TestDiscoverProjects(t *testing.T) {
 func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
 	c := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/echo {prompt}", Skills: []agentconfig.Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue"}}}
 	for _, id := range []string{"adjust", "adjust-issue", "review"} {
-		line, err := dispatchCommand(c, "task-61", id, "", "", "")
+		line, err := dispatchCommand(c, "task-61", id, "", "", "", models.SkillModeInteractive)
 		if err != nil || !strings.Contains(line, "adjust-issue") || !strings.Contains(line, "Never create or replace a PR") {
 			t.Fatalf("%s: %s %v", id, line, err)
 		}
 	}
 	c.Skills[0].RequiresReconciliation = true
-	if _, err := dispatchCommand(c, "task-61", "review", "", "", ""); err == nil {
+	if _, err := dispatchCommand(c, "task-61", "review", "", "", "", models.SkillModeInteractive); err == nil {
 		t.Fatal("unreconciled legacy customization launched")
 	}
 }
@@ -427,7 +427,7 @@ func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
 func TestNativeCreatePRDoesNotInvokeAdjustment(t *testing.T) {
 	c := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/echo {prompt}", Skills: []agentconfig.Skill{{ID: "create_pr", Directory: "create-pr", Command: "/create-pr"}}}
 	for _, id := range []string{"create_pr", "create-pr"} {
-		line, err := dispatchCommand(c, "task-61", id, "", "", "")
+		line, err := dispatchCommand(c, "task-61", id, "", "", "", models.SkillModeInteractive)
 		if err != nil || !strings.Contains(line, "create-pr") || strings.Contains(line, "Never create or replace a PR") {
 			t.Fatalf("%s: %s %v", id, line, err)
 		}

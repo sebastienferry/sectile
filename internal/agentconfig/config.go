@@ -47,6 +47,10 @@ type Dispatch struct {
 	Prompt           string `json:"prompt,omitempty"`
 	Command          string `json:"command,omitempty"`
 	TerminalOverride string `json:"terminalOverride,omitempty"`
+	// Mode is the execution mode resolved by the server: "interactive" opens a
+	// terminal the user answers, "autonomous" runs the CLI headless. Empty is
+	// read as interactive, which keeps an older server working.
+	Mode string `json:"mode,omitempty"`
 }
 
 // Project is a discovery record. ID is the server primary key, not a display name.

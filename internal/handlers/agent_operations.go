@@ -27,7 +27,7 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 		if op.Action == "open_terminal" {
 			action = "open_terminal"
 		}
-		err := d.DispatchAndWait(ctx, ac.UserID, ac.ProjectID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID})
+		err := d.DispatchAndWait(ctx, ac.UserID, ac.ProjectID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode})
 		return json.RawMessage("null"), err
 	}
 	raw, err := json.Marshal(op)

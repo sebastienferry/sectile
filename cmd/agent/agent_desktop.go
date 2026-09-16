@@ -36,6 +36,9 @@ type desktopRun struct {
 	SessionID       string    `json:"sessionId"`
 	Directory       string    `json:"directory"`
 	Status          string    `json:"status"`
+	// Headless marks a run that has no PTY on purpose. The desktop shows its
+	// captured output read-only instead of reporting a missing console.
+	Headless bool `json:"headless,omitempty"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
@@ -224,6 +227,13 @@ func (d *agentDaemon) writeDesktopInfo() error {
 
 // Report process exit using the server's authenticated MCP endpoint.
 func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status string) error {
+	return d.finishRemoteRunNote(ctx, taskID, runID, status, "Local console process exited")
+}
+
+// finishRemoteRunNote reports a finished run with the reason it ended. The
+// console path always ends the same way; a headless run has a real result to
+// carry, including the error that stopped it.
+func (d *agentDaemon) finishRemoteRunNote(ctx context.Context, taskID, runID, status, note string) error {
 	if taskID == "" {
 		return nil
 	}
@@ -235,7 +245,7 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 		return err
 	}
 	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": "Local console process exited"}})
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": note}})
 	if err != nil {
 		return err
 	}

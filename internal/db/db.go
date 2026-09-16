@@ -22,11 +22,15 @@ import (
 )
 
 type SkillJob struct {
-	ActivityID    string
-	TaskID        string
-	ProjectID     string
-	SkillID       string
-	Prompt        string
+	ActivityID string
+	TaskID     string
+	ProjectID  string
+	SkillID    string
+	Prompt     string
+	// Mode is the execution mode already resolved by ResolveSkillMode. The
+	// agent applies it; it never re-reads project settings to decide, so a
+	// stale agent configuration cannot open a window inside a full chain run.
+	Mode          string
 	RemovedLabels []string
 	// TrackerStatus is the status named as the tracker spells it. When set, the
 	// transition targets it directly instead of folding the internal status onto
@@ -204,6 +208,8 @@ func (d *DB) initSchema() error {
 			repo_path TEXT NOT NULL DEFAULT '',
 			repo_paths TEXT NOT NULL DEFAULT '[]',
 			use_worktrees INTEGER NOT NULL DEFAULT 1,
+			default_skill_mode TEXT NOT NULL DEFAULT '',
+			full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed',
 			board_id TEXT NOT NULL DEFAULT '',
 			tracker_columns TEXT NOT NULL DEFAULT '[]',
 			sprints TEXT NOT NULL DEFAULT '[]',
@@ -290,6 +296,13 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN repo_paths TEXT NOT NULL DEFAULT '[]';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN pr_creation_stage TEXT NOT NULL DEFAULT 'implemented';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN use_worktrees INTEGER NOT NULL DEFAULT 1;")
+	// default_skill_mode : le mode d'exécution des skills quand ni le lancement
+	// ni la skill n'en fixe un. Vide vaut « interactif », le comportement
+	// historique, donc les projets existants ne changent pas.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN default_skill_mode TEXT NOT NULL DEFAULT '';")
+	// full_chain_stop_stage : l'étape où s'arrête une exécution en chaîne.
+	// 'reviewed' est la constante historique.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN board_id TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tracker_columns TEXT NOT NULL DEFAULT '[]';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN sprints TEXT NOT NULL DEFAULT '[]';")
@@ -3381,7 +3394,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 		var run *models.TaskActivity
 		run, err = d.StartAgentRemoteRun(task.ID, job.SkillID)
 		if err == nil {
-			err = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID}, nil)
+			err = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode}, nil)
 			if err != nil {
 				_, _ = d.FinishRemoteRun(task.ID, run.ID, "failed", err.Error())
 			}
@@ -4121,12 +4134,20 @@ func (d *DB) EnqueueSync(syncType string, param string, projectID string) (*mode
 }
 
 func (d *DB) EnqueueSkillOnTask(taskID string, skillID string, prompt string) (*models.Task, *models.TaskActivity, error) {
-	return d.enqueueSkillOnTask(taskID, skillID, prompt, false)
+	return d.enqueueSkillOnTask(taskID, skillID, prompt, false, models.SkillModeUnset)
 }
 
-// EnqueueAutonomousRun starts the chain: each step enqueues the next until the
-// work reaches the review stage.
-func (d *DB) EnqueueAutonomousRun(taskID string) (*models.Task, *models.TaskActivity, error) {
+// EnqueueSkillOnTaskWithMode is the launch a user made an explicit mode choice
+// for. An empty override is not "interactive": it means no override, and the
+// precedence still falls through to the skill and then to the project.
+func (d *DB) EnqueueSkillOnTaskWithMode(taskID string, skillID string, prompt string, modeOverride string) (*models.Task, *models.TaskActivity, error) {
+	return d.enqueueSkillOnTask(taskID, skillID, prompt, false, modeOverride)
+}
+
+// EnqueueFullChainRun starts the chain: each step enqueues the next until the
+// work reaches the project's stop stage. Every step it enqueues runs autonomous,
+// whatever mode a single launch of that skill would resolve to.
+func (d *DB) EnqueueFullChainRun(taskID string) (*models.Task, *models.TaskActivity, error) {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	d.mu.RUnlock()
@@ -4134,18 +4155,29 @@ func (d *DB) EnqueueAutonomousRun(taskID string) (*models.Task, *models.TaskActi
 		return nil, nil, fmt.Errorf("tâche non trouvée")
 	}
 
+	stopStage := d.FullChainStopStage(task.ProjectID)
 	stage := d.StageOfTask(task)
-	if stage == AutonomousStopStage || stage == "finished" {
+	if stage == stopStage || stage == "finished" || stageAtOrPast(stage, stopStage) {
 		return nil, nil, fmt.Errorf("la tâche est déjà à l'étape %s : la suite demande une revue humaine", stage)
 	}
 	step, ok := NextStep(stage)
 	if !ok {
 		return nil, nil, fmt.Errorf("aucun pas suivant depuis l'étape %s", stage)
 	}
-	return d.enqueueSkillOnTask(taskID, step.SkillID, "", true)
+	return d.enqueueSkillOnTask(taskID, step.SkillID, "", true, models.SkillModeAutonomous)
 }
 
-func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, autoChain bool) (*models.Task, *models.TaskActivity, error) {
+// FullChainStopStage is where a full chain run stops for a project. A project
+// with nothing stored keeps the historical stage.
+func (d *DB) FullChainStopStage(projectID string) string {
+	project, err := d.GetProjectByID(projectID)
+	if err != nil || project == nil {
+		return DefaultFullChainStopStage
+	}
+	return models.NormalizeFullChainStopStage(project.FullChainStopStage)
+}
+
+func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, autoChain bool, modeOverride string) (*models.Task, *models.TaskActivity, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
@@ -4209,6 +4241,7 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 		ProjectID:  task.ProjectID,
 		SkillID:    targetSkill.ID,
 		Prompt:     prompt,
+		Mode:       d.resolveTaskSkillMode(task.ProjectID, targetSkill.ID, modeOverride),
 		AutoChain:  autoChain,
 	}
 
@@ -4217,6 +4250,24 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 
 func (d *DB) RunSkillOnTask(taskID string, skillID string, prompt string) (*models.Task, *models.TaskActivity, error) {
 	return d.EnqueueSkillOnTask(taskID, skillID, prompt)
+}
+
+// ResolveTaskSkillMode is resolveTaskSkillMode for callers outside the package:
+// the handler that dispatches a skill straight to a connected agent resolves the
+// mode the same way the job worker does.
+func (d *DB) ResolveTaskSkillMode(projectID, skillID, modeOverride string) string {
+	return d.resolveTaskSkillMode(projectID, skillID, modeOverride)
+}
+
+// resolveTaskSkillMode applies the precedence for one launch: the override
+// chosen for it, then the skill's setting for this project, then the project
+// default, then interactive.
+func (d *DB) resolveTaskSkillMode(projectID, skillID, modeOverride string) string {
+	projectDefault := ""
+	if project, err := d.GetProjectByID(projectID); err == nil && project != nil {
+		projectDefault = project.DefaultSkillMode
+	}
+	return ResolveSkillMode(modeOverride, d.ProjectSkillMode(projectID, skillID), projectDefault)
 }
 
 func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, limit int) ([]models.TaskActivity, error) {
@@ -4869,7 +4920,7 @@ func parseStageColumns(raw string) map[string][]string {
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.linear_team, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.project_type, p.is_default, p.stage_mapping, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.spec_framework, p.parallelism, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.linear_team, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.project_type, p.is_default, p.stage_mapping, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.spec_framework, p.parallelism, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -4888,11 +4939,12 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var autoSyncEnabledInt, autoSyncIntervalMin int
 		var stageMappingJSON, skillOverridesJSON, setupProvidersJSON, repoPathsJSON string
 		var useWorktrees int
+		var defaultSkillMode, fullChainStopStage sql.NullString
 		var trackerColumnsJSON, stageColumnsJSON, sprintsJSON, issueTypesJSON string
 		var monoRepo int
 		var aiProv, aiCmd, specFw, jiraProj, projType, ttyMode, extTerm sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.LinearTeam, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &projType, &isDefault, &stageMappingJSON, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &specFw, &p.Parallelism, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.LinearTeam, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &projType, &isDefault, &stageMappingJSON, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &specFw, &p.Parallelism, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -4911,6 +4963,8 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		p.SetupProviders = parseSetupProviders(setupProvidersJSON)
 		p.RepoPaths = parseRepoPaths(repoPathsJSON)
 		p.UseWorktrees = useWorktrees == 1
+		p.DefaultSkillMode = models.NormalizeSkillMode(defaultSkillMode.String)
+		p.FullChainStopStage = models.NormalizeFullChainStopStage(fullChainStopStage.String)
 		p.TrackerColumns = parseTrackerColumns(trackerColumnsJSON)
 		p.StageColumns = parseStageColumns(stageColumnsJSON)
 		p.Sprints = parseSprints(sprintsJSON)
@@ -4961,16 +5015,17 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var autoSyncEnabledInt, autoSyncIntervalMin int
 	var stageMappingJSON, skillOverridesJSON, setupProvidersJSON, repoPathsJSON string
 	var useWorktrees int
+	var defaultSkillMode, fullChainStopStage sql.NullString
 	var trackerColumnsJSON, stageColumnsJSON, sprintsJSON, issueTypesJSON string
 	var monoRepo int
 	var aiProv, aiCmd, specFw, jiraProj, projType, ttyMode, extTerm sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.linear_team, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.project_type, p.is_default, p.stage_mapping, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.spec_framework, p.parallelism, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.linear_team, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.project_type, p.is_default, p.stage_mapping, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.spec_framework, p.parallelism, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.LinearTeam, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &projType, &isDefault, &stageMappingJSON, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &specFw, &p.Parallelism, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.LinearTeam, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &projType, &isDefault, &stageMappingJSON, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &specFw, &p.Parallelism, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -4992,6 +5047,8 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	p.SetupProviders = parseSetupProviders(setupProvidersJSON)
 	p.RepoPaths = parseRepoPaths(repoPathsJSON)
 	p.UseWorktrees = useWorktrees == 1
+	p.DefaultSkillMode = models.NormalizeSkillMode(defaultSkillMode.String)
+	p.FullChainStopStage = models.NormalizeFullChainStopStage(fullChainStopStage.String)
 	p.TrackerColumns = parseTrackerColumns(trackerColumnsJSON)
 	p.StageColumns = parseStageColumns(stageColumnsJSON)
 	p.Sprints = parseSprints(sprintsJSON)
@@ -5137,9 +5194,9 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	}
 
 	_, err := d.conn.Exec(`
-		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, linear_team, github_repo, jira_project, issue_tracker, tracker_url, project_type, is_default, stage_mapping, skill_overrides, setup_providers, ai_provider, ai_command_template, spec_framework, parallelism, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, req.LinearTeam, githubRepo, jiraProject, issueTracker, req.TrackerUrl, projectType, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, specFramework, parallelism, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, now, now)
+		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, linear_team, github_repo, jira_project, issue_tracker, tracker_url, project_type, is_default, stage_mapping, skill_overrides, setup_providers, ai_provider, ai_command_template, spec_framework, parallelism, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, req.LinearTeam, githubRepo, jiraProject, issueTracker, req.TrackerUrl, projectType, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, specFramework, parallelism, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, now, now)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -5227,6 +5284,12 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 	}
 	if req.UseWorktrees != nil {
 		p.UseWorktrees = *req.UseWorktrees
+	}
+	if req.DefaultSkillMode != nil {
+		p.DefaultSkillMode = models.NormalizeSkillMode(*req.DefaultSkillMode)
+	}
+	if req.FullChainStopStage != nil {
+		p.FullChainStopStage = models.NormalizeFullChainStopStage(*req.FullChainStopStage)
 	}
 	if req.BoardID != nil {
 		p.BoardID = strings.TrimSpace(*req.BoardID)
@@ -5334,9 +5397,9 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 
 	_, err = d.conn.Exec(`
 		UPDATE projects
-		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, linear_team = ?, github_repo = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, project_type = ?, is_default = ?, stage_mapping = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, spec_framework = ?, parallelism = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, updated_at = ?
+		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, linear_team = ?, github_repo = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, project_type = ?, is_default = ?, stage_mapping = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, spec_framework = ?, parallelism = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.LinearTeam, p.GithubRepo, p.JiraProject, p.IssueTracker, p.TrackerUrl, NormalizeProjectType(p.ProjectType), isDefInt, string(stageMappingBytes), string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.SpecFramework, p.Parallelism, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
+	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.LinearTeam, p.GithubRepo, p.JiraProject, p.IssueTracker, p.TrackerUrl, NormalizeProjectType(p.ProjectType), isDefInt, string(stageMappingBytes), string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.SpecFramework, p.Parallelism, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
