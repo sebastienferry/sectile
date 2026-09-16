@@ -69,11 +69,16 @@
 - [ ] 7.2 Carry the value through `launchServerTask` (`desktop/electron/preload.cjs`), the
   `launch-server-task` IPC handler (`desktop/electron/main.cjs`), the `/desktop/tasks` POST input
   and the body `desktopTasks` forwards (`cmd/agent/agent_desktop.go`).
-- [ ] 7.3 Leave the footer "Next: <label>" button on one click with no override.
+- [ ] 7.3 Leave the footer "Next: <label>" button on one click with no override, and surface a
+  refusal in the footer status with the provider named.
 - [ ] 7.4 Keep the run row and the output pane for an autonomous desktop run, streaming captured
   output read-only; keep stop and log export working.
-- [ ] 7.5 Surface a refused autonomous launch as the dialog's notice text.
-- [ ] 7.6 Test the three desktop entry points: two carry the override, the footer button does not.
+- [ ] 7.5 Stop treating an autonomous run as consoleless in the run selection path
+  (`desktop/src/main.js:116`), so it is not presented as a launch error.
+- [ ] 7.6 Surface a refused autonomous launch as the dialog's notice text, keeping the dialog
+  open for a retry in interactive mode.
+- [ ] 7.7 Test the three desktop entry points: the two dialogs carry the override, the footer
+  button does not.
 
 ## 8. Documentation
 - [ ] 8.1 Update `README.md` and `docs/CAPABILITIES.md` with the two project settings, the
