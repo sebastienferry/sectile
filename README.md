@@ -292,6 +292,15 @@ selected skill is passed as the initial prompt. The server waits for the local
 agent's launch result, so configuration and terminal-launch errors reach the UI.
 Explicit external requests do not silently fall back to a hidden PTY.
 
+The Discuss action opens the configured agent on a task without running a skill:
+the provider is launched alone, with no skill command and no generated prompt, in
+the task's own checkout and branch. It is offered in the task menu, in the task
+detail and in the desktop launch selectors. The session carries the usual
+`SECTILE_*` environment, so the agent can read the task through the Sectile MCP
+when asked, but the discussion transitions no stage, records no skill result and
+reports nothing to the tracker. It is listed, stoppable and replayable like any
+other execution.
+
 For clients started outside Sectile, manual registration is still available.
 A typical JSON client configuration is:
 

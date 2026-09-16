@@ -446,3 +446,22 @@ func TestNativeCreatePRDoesNotInvokeAdjustment(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscussionLaunchesTheProviderAlone(t *testing.T) {
+	config := agentconfig.Config{
+		AIProvider: "custom", AICommandTemplate: "/bin/sh {prompt}",
+		Skills: []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Command: "/code-issue"}},
+	}
+	command, err := dispatchCommand(config, "TASK-46", "discuss", "discuss", "", "")
+	if err != nil || command != "'/bin/sh'" {
+		t.Fatalf("discussion is not a bare launch: %q %v", command, err)
+	}
+	// A dispatch prompt exists for skills; a discussion must not inherit it.
+	command, err = dispatchCommand(config, "TASK-46", "discuss", "discuss", "Remote execution runId: 42", "")
+	if err != nil || strings.Contains(command, "42") || strings.Contains(command, "TASK-46") {
+		t.Fatalf("discussion carried a prompt: %q %v", command, err)
+	}
+	if _, err = dispatchCommand(config, "TASK-46", "discussion", "discussion", "", ""); err == nil {
+		t.Fatal("unknown identifier accepted as a discussion")
+	}
+}

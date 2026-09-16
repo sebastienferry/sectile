@@ -607,13 +607,7 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Task does not belong to project", 400)
 		return
 	}
-	known := input.SkillID == "custom" && strings.TrimSpace(input.Prompt) != ""
-	for _, skill := range config.Skills {
-		if skill.ID == input.SkillID {
-			known = true
-		}
-	}
-	if !known {
+	if !launchableSkill(config, input.SkillID, input.Prompt) {
 		http.Error(w, "Unknown project skill", 400)
 		return
 	}
@@ -673,6 +667,23 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(response.Body, 1<<20))
+}
+
+// launchableSkill admits a project skill or one of the reserved identifiers.
+// A discussion carries nothing, unlike custom instructions.
+func launchableSkill(config agentconfig.Config, skillID, prompt string) bool {
+	if skillID == "discuss" {
+		return true
+	}
+	if skillID == "custom" {
+		return strings.TrimSpace(prompt) != ""
+	}
+	for _, skill := range config.Skills {
+		if skill.ID == skillID {
+			return true
+		}
+	}
+	return false
 }
 
 func desktopTaskFinished(task models.Task) bool {

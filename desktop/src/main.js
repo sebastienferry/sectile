@@ -713,6 +713,7 @@ async function browseTasks(projectID,initialQuery=''){
     const status=document.createElement('p');status.className='task-server-status';status.textContent='Current state: '+taskStage(task)+(task.trackerStatus?' · '+task.trackerStatus:'')
     const skill=document.createElement('select');skill.setAttribute('aria-label','Skill for '+(task.key||task.id))
     for(const item of info.server.skills||[]){const option=document.createElement('option');option.value=item.id;option.textContent=item.command||item.id;skill.append(option)}
+    const discuss=document.createElement('option');discuss.value='discuss';discuss.textContent='Discussion (no skill)';skill.append(discuss)
     const custom=document.createElement('option');custom.value='custom';custom.textContent='Custom instructions';skill.append(custom)
     if((info.server.skills||[]).some(item=>item.id==='pickup'))skill.value='pickup'
     const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions');prompt.hidden=true
@@ -747,6 +748,7 @@ document.querySelector('#rerun').onclick=async()=>{
   for(const item of info.server.skills||[]){
    const option=document.createElement('option');option.value=item.id;option.textContent=item.command||item.id;skill.append(option)
   }
+  const discuss=document.createElement('option');discuss.value='discuss';discuss.textContent='Discussion (no skill)';skill.append(discuss)
   const custom=document.createElement('option');custom.value='custom';custom.textContent='Custom instructions';skill.append(custom)
   skill.value=run.skill
   if(!skill.value){
