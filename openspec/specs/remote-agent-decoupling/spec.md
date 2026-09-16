@@ -4,7 +4,7 @@
 TBD - created by archiving change 46-study-how-we-could-separate-front-a. Update Purpose after archive.
 ## Requirements
 ### Requirement: Outbound Agent WebSocket Registration
-The TaskFlow server SHALL accept outbound WebSocket connection requests at `/ws/agent-connect` and register connected local agents using valid authentication tokens.
+The Sectile server SHALL accept outbound WebSocket connection requests at `/ws/agent-connect` and register connected local agents using valid authentication tokens.
 
 #### Scenario: Successful agent connection registration
 - **GIVEN** a local agent daemon running with a valid user authentication token
@@ -17,7 +17,7 @@ The TaskFlow server SHALL accept outbound WebSocket connection requests at `/ws/
 - **THEN** the server terminates the older connection with close code `4001 Session Rebound` and registers the new agent daemon.
 
 ### Requirement: User Identity Matching for Command Dispatch
-The TaskFlow backend SHALL dispatch task workflow actions to a local agent ONLY IF the requesting Web UI user session matches the connected agent's authenticated user ID.
+The Sectile backend SHALL dispatch task workflow actions to a local agent ONLY IF the requesting Web UI user session matches the connected agent's authenticated user ID.
 
 #### Scenario: Dispatching command with matching user identity
 - **GIVEN** a Web UI session authenticated as User `A` and an active local agent registered to User `A`
@@ -27,7 +27,7 @@ The TaskFlow backend SHALL dispatch task workflow actions to a local agent ONLY 
 #### Scenario: Attempting command dispatch when agent is disconnected
 - **GIVEN** a Web UI session authenticated as User `A` with no active local agent connected
 - **WHEN** User `A` attempts to trigger a workflow action on a task card
-- **THEN** the remote server rejects the request with HTTP 428 Precondition Required and prompts the user to start `taskflow agent`.
+- **THEN** the remote server rejects the request with HTTP 428 Precondition Required and prompts the user to start `sectile agent`.
 
 ### Requirement: Local LLM Workflow Step Execution
 The local agent daemon SHALL receive workflow commands from the remote server and execute them locally within isolated Git worktrees.
@@ -38,7 +38,7 @@ The local agent daemon SHALL receive workflow commands from the remote server an
 - **THEN** the agent creates or checks out the local Git worktree `.tasks/worktrees/#46`, executes the specified LLM skill, and streams activity updates back to the remote server.
 
 ### Requirement: Bi-Directional PTY Terminal Streaming
-The TaskFlow system SHALL stream interactive terminal keystrokes and ANSI terminal output bi-directionally between Xterm.js on the remote Web UI and the local agent's PTY master.
+The Sectile system SHALL stream interactive terminal keystrokes and ANSI terminal output bi-directionally between Xterm.js on the remote Web UI and the local agent's PTY master.
 
 #### Scenario: Real-time terminal interaction
 - **GIVEN** an active terminal session open in the remote Web UI for task `#46`
@@ -47,7 +47,7 @@ The TaskFlow system SHALL stream interactive terminal keystrokes and ANSI termin
 
 ### Requirement: Typed MCP workflow operations
 
-TaskFlow SHALL expose task lookup, stage transition, comment creation, task listing,
+Sectile SHALL expose task lookup, stage transition, comment creation, task listing,
 and project context tools over Streamable HTTP and a database-free stdio bridge.
 
 #### Scenario: Invalid stage input
@@ -59,7 +59,7 @@ and project context tools over Streamable HTTP and a database-free stdio bridge.
 - **THEN** the local stage update is rolled back and no tracker job is dispatched.
 
 #### Scenario: Stdio client discovery
-- **WHEN** a client initializes `taskflow mcp` against an authenticated server or gateway
+- **WHEN** a client initializes `sectile mcp` against an authenticated server or gateway
 - **THEN** it discovers the same five tool schemas and can invoke them over stdio.
 
 ### Requirement: API-only execution configuration
@@ -82,17 +82,17 @@ local database or interpreting server filesystem paths as workstation paths.
 - **THEN** execution fails before launching an AI process.
 
 #### Scenario: Machine API authentication
-- **WHEN** a request presents an invalid bearer credential while TASKFLOW_SERVER_TOKEN is configured
+- **WHEN** a request presents an invalid bearer credential while SECTILE_SERVER_TOKEN is configured
 - **THEN** the MCP/configuration endpoint rejects the request.
 
 ### Requirement: Automatic LLM MCP bootstrap
 
 Before launching the targeted supported LLM CLI, the local agent SHALL register
-TaskFlow's stdio bridge in that CLI's project configuration using the active gateway.
+Sectile's stdio bridge in that CLI's project configuration using the active gateway.
 
 #### Scenario: Existing client configuration
 - **WHEN** a supported client already has settings and other MCP servers
-- **THEN** bootstrap preserves their values and updates only TaskFlow's connection entry.
+- **THEN** bootstrap preserves their values and updates only Sectile's connection entry.
 
 #### Scenario: Malformed client configuration
 - **WHEN** existing MCP configuration cannot be parsed
@@ -114,7 +114,7 @@ launch failures to the initiating browser request.
 
 ### Requirement: Native client pickup without a chat companion
 
-The local agent SHALL support native coding clients without a separate TaskFlow
+The local agent SHALL support native coding clients without a separate Sectile
 chat application. On connection for an explicit project, it SHALL scaffold the
 project skills and register the local MCP bridge in the selected repository.
 

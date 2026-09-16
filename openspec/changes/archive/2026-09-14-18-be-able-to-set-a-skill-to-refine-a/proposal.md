@@ -1,6 +1,6 @@
 ## Why
 
-TaskFlow allows product teams to frame high-level roadmap items ("macros") with initial framing text. Transforming raw framing text into executable action plans and todo items currently requires manual effort. Introducing a macro-level refinement skill (`refine-macro`) enables users to configure macro skills in the **Skills** management view and invoke refinement directly from **Roadmap** screens. The generated action plan dynamically adheres to the project's configured Specification Driven Development (SSD) framework (**SpecKit** or **OpenSpec**), organizing framing text into actionable `MacroTodo` items.
+Sectile allows product teams to frame high-level roadmap items ("macros") with initial framing text. Transforming raw framing text into executable action plans and todo items currently requires manual effort. Introducing a macro-level refinement skill (`refine-macro`) enables users to configure macro skills in the **Skills** management view and invoke refinement directly from **Roadmap** screens. The generated action plan dynamically adheres to the project's configured Specification Driven Development (SSD) framework (**SpecKit** or **OpenSpec**), organizing framing text into actionable `MacroTodo` items.
 
 ## What Changes
 

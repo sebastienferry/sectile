@@ -4,7 +4,7 @@ Validated on September 12, 2026, on the assigned issue 46 branch.
 
 - `go test ./cmd/server ./internal/...`: all packages passed.
 - `go vet ./...`: passed.
-- `go build -o /tmp/taskflow-architecture ./cmd/server`: passed with the built UI embedded.
+- `go build -o /tmp/sectile-architecture ./cmd/server`: passed with the built UI embedded.
 - `cd web && npm test`: 10 tests passed, 0 failed.
 - `npx tsc --noEmit -p tsconfig.app.json`: passed.
 - `npx oxlint src`: exited successfully with warnings in unchanged frontend files.
@@ -24,7 +24,7 @@ are checked in memory, and scaffold behavior is tested in temporary repositories
 Worktree comparisons use filesystem identity to handle macOS `/var` and
 `/private/var` aliases correctly.
 
-The local TaskFlow API at port 8090 was unavailable, so the standalone issue stage
+The local Sectile API at port 8090 was unavailable, so the standalone issue stage
 transition remains pending. No substitute database was opened to record it.
 
 ## External terminal and automatic MCP bootstrap follow-up
@@ -51,7 +51,7 @@ test exercises real task description/comment reads, comment creation and stage
 transition through the local agent gateway to an isolated server database.
 Native LLM execution still requires the user's authenticated CLI and trust approvals;
 no paid LLM request was made. Standalone tracker transition remains pending until
-an authenticated TaskFlow MCP connection is available in this development session.
+an authenticated Sectile MCP connection is available in this development session.
 
 ## Native stage ownership regression
 

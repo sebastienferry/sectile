@@ -9,7 +9,7 @@ import (
 	"tasks/internal/models"
 )
 
-// PinnedLabel est le label dédié utilisé sur tous les trackers (Jira, GitHub, Linear, Local)
+// PinnedLabel est le label dédié utilisé sur tous les trackers (Jira, GitHub, Local)
 // pour marquer les tickets épinglés.
 const PinnedLabel = "pinned"
 
@@ -48,7 +48,7 @@ func RemovePinnedLabel(labels []string) []string {
 // Tickets épinglés, pour basculer vite entre les chantiers en cours.
 //
 // L'épinglage s'appuie désormais sur un label dédié ("pinned") synchronisé avec
-// tous les trackers distants (Jira, GitHub, Linear), combiné à une table
+// tous les trackers distants (Jira, GitHub), combiné à une table
 // pinned_tasks et une colonne/index pinned sur tasks en base locale pour
 // optimiser les requêtes.
 func (d *DB) ensurePinsTable() {

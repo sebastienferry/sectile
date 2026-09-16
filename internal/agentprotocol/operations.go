@@ -4,6 +4,10 @@ import "encoding/json"
 
 // Operation names a local capability; directories are resolved by the agent from project identity.
 type Operation struct {
+	// UserID names the agent owner to reach. Empty means the deployment's
+	// single implicit user, which is what a server without an identity
+	// provider has.
+	UserID            string `json:"userId,omitempty"`
 	AICommandTemplate string `json:"aiCommandTemplate,omitempty"`
 	Framework         string `json:"framework,omitempty"`
 	Provider          string `json:"provider,omitempty"`
@@ -18,6 +22,10 @@ type Operation struct {
 	DeleteRemote      bool   `json:"deleteRemote,omitempty"`
 	Editor            string `json:"editor,omitempty"`
 	Prompt            string `json:"prompt,omitempty"`
+	// Mode is the execution mode the server resolved for this launch:
+	// "interactive" or "autonomous". Empty is read as interactive by the agent,
+	// which keeps an older server working.
+	Mode string `json:"mode,omitempty"`
 }
 type Result struct {
 	Value json.RawMessage `json:"value,omitempty"`

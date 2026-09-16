@@ -16,7 +16,7 @@ func fixture(t *testing.T, handle http.HandlerFunc) *Client {
 	t.Helper()
 	server := httptest.NewServer(handle)
 	t.Cleanup(server.Close)
-	return &Client{HTTP: server.Client(), GithubURL: server.URL, GithubToken: "github-secret", LinearURL: server.URL, LinearToken: "linear-secret"}
+	return &Client{HTTP: server.Client(), GithubURL: server.URL, GithubToken: "github-secret"}
 }
 
 func TestGithubSyncUsesServerHTTPAndPaginatesIssues(t *testing.T) {
@@ -87,10 +87,6 @@ func TestTrackerFailuresNeverSucceedOrExposeSecrets(t *testing.T) {
 	c := fixture(t, func(w http.ResponseWriter, r *http.Request) { calls++; fmt.Fprint(w, `[]`) })
 	c.GithubToken = ""
 	if _, err := c.SyncFromGithub("acme/app", ""); err == nil || calls != 0 {
-		t.Fatalf("missing credentials sent request: %v", err)
-	}
-	c.LinearToken = ""
-	if _, err := c.SyncFromLinear("APP"); err == nil || calls != 0 {
 		t.Fatalf("missing credentials sent request: %v", err)
 	}
 }
@@ -178,85 +174,121 @@ func TestTrackerRejectsForeignRedirectsAndPagination(t *testing.T) {
 	}
 }
 
-func TestLinearSyncPaginatesAndPreservesMapping(t *testing.T) {
-	calls := 0
-	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		if r.Header.Get("Authorization") != "linear-secret" {
-			t.Error("wrong authorization")
-		}
-		var request struct {
-			Query     string
-			Variables map[string]any
-		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			t.Error(err)
-		}
-		if !strings.Contains(request.Query, "issues(first:100") {
-			t.Errorf("query: %s", request.Query)
-		}
-		filter := request.Variables["filter"].(map[string]any)["team"].(map[string]any)["key"].(map[string]any)["eq"]
-		if filter != "APP" {
-			t.Errorf("team filter: %v", filter)
-		}
-		if calls == 1 {
-			fmt.Fprint(w, `{"data":{"issues":{"nodes":[{"id":"one","identifier":"APP-1","title":"First","priority":1,"state":{"name":"In Progress"},"labels":{"nodes":[{"id":"l","name":"#specified"}]}}],"pageInfo":{"hasNextPage":true,"endCursor":"cursor"}}}}`)
-			return
-		}
-		if request.Variables["after"] != "cursor" {
-			t.Errorf("cursor: %v", request.Variables)
-		}
-		fmt.Fprint(w, `{"data":{"issues":{"nodes":[{"id":"two","identifier":"APP-2","title":"Second"}],"pageInfo":{"hasNextPage":false}}}}`)
-	})
-	t.Setenv("PATH", t.TempDir())
-	tasks, err := c.SyncFromLinear("APP")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(tasks) != 2 || tasks[0].Priority != models.PriorityUrgent || tasks[0].Status != models.StatusToImplement || tasks[1].Key != "APP-2" {
-		t.Fatalf("mapping: %#v", tasks)
-	}
-}
-
-func TestLinearMutationRequiresAcknowledgement(t *testing.T) {
-	var input map[string]any
-	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Query     string
-			Variables map[string]any
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Error(err)
-		}
-		if strings.Contains(req.Query, "issue(id:") {
-			fmt.Fprint(w, `{"data":{"issue":{"id":"uuid","identifier":"APP-1","team":{"id":"team"}}}}`)
-			return
-		}
-		input = req.Variables["input"].(map[string]any)
-		if req.Variables["id"] != "uuid" {
-			t.Errorf("mutation identity: %v", req.Variables)
-		}
-		fmt.Fprint(w, `{"data":{"issueUpdate":{"success":false}}}`)
-	})
-	title := "Updated"
-	if err := c.UpdateLinearIssue("APP-1", &title, nil, nil, nil, nil); err == nil {
-		t.Fatal("unconfirmed mutation succeeded")
-	}
-	if !reflect.DeepEqual(input, map[string]any{"title": "Updated"}) {
-		t.Fatalf("unexpected changed fields: %#v", input)
-	}
-}
-
 func TestGraphQLErrorsRejectPartialData(t *testing.T) {
 	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, `{"data":{"issues":{"nodes":[]}},"errors":[{"message":"linear-secret"}]}`)
+		fmt.Fprint(w, `{"data":{"repository":null},"errors":[{"message":"github-secret"}]}`)
 	})
-	if _, err := c.SyncFromLinear("APP"); err == nil || strings.Contains(err.Error(), "linear-secret") {
+	if _, err := c.GithubGraphQL(`query{viewer{login}}`); err == nil || strings.Contains(err.Error(), "github-secret") {
 		t.Fatalf("partial response: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, _, err := c.request(ctx, "GET", c.GithubURL, "token", nil); err == nil {
 		t.Fatal("canceled request succeeded")
+	}
+}
+
+func TestBranchPullRequestPrefersOpenThenMerged(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   string
+		url    string
+		merged bool
+	}{
+		{"open wins", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"old"}},{"html_url":"https://forge/pull/3","state":"open","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/3", false},
+		// The human merge boundary must not strand the task before reviewed.
+		{"merged accepted", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/2", true},
+		{"closed unmerged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","head":{"ref":"ticket","sha":"tip"}}]`, "", false},
+		{"ambiguous merged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"a"}},{"html_url":"https://forge/pull/4","state":"closed","merged_at":"2026-01-02T00:00:00Z","head":{"ref":"ticket","sha":"b"}}]`, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("state") != "all" {
+					t.Errorf("merged PRs are unreachable with state=%q", r.URL.Query().Get("state"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Query().Get("page") == "2" {
+					_, _ = w.Write([]byte(`[]`))
+					return
+				}
+				_, _ = w.Write([]byte(tc.body))
+			})
+			pr, err := c.BranchPullRequest("acme/app", "ticket")
+			if tc.url == "" {
+				if err == nil {
+					t.Fatalf("accepted %+v", pr)
+				}
+				return
+			}
+			if err != nil || pr.URL != tc.url || pr.Merged != tc.merged || pr.Open == tc.merged || pr.SHA != "tip" {
+				t.Fatalf("%+v %v", pr, err)
+			}
+		})
+	}
+}
+
+func TestNewClientResolvesTrackerCredentials(t *testing.T) {
+	cases := []struct {
+		name       string
+		env        map[string]string
+		wantGithub string
+	}{
+		{
+			name:       "generic name alone serves every provider",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic"},
+			wantGithub: "generic",
+		},
+		{
+			name:       "provider-specific names keep working on their own",
+			env:        map[string]string{"SECTILE_GITHUB_TOKEN": "gh"},
+			wantGithub: "gh",
+		},
+		{
+			name:       "provider-specific name overrides the generic one",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "SECTILE_GITHUB_TOKEN": "gh"},
+			wantGithub: "gh",
+		},
+		{
+			name:       "generic name outranks the environment conventions",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "GH_TOKEN": "gh-cli"},
+			wantGithub: "generic",
+		},
+		{
+			name:       "environment conventions remain the last resort",
+			env:        map[string]string{"GITHUB_TOKEN": "ci"},
+			wantGithub: "ci",
+		},
+		{name: "no credential at all"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			for _, name := range []string{"SECTILE_TRACKER_TOKEN", "SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+				t.Setenv(name, "")
+			}
+			for name, value := range testCase.env {
+				t.Setenv(name, value)
+			}
+			c := NewClient()
+			if c.GithubToken != testCase.wantGithub {
+				t.Errorf("got github %q, want %q", c.GithubToken, testCase.wantGithub)
+			}
+		})
+	}
+}
+
+func TestMissingCredentialErrorNamesNoProvider(t *testing.T) {
+	c := &Client{HTTP: http.DefaultClient}
+	for _, call := range []struct {
+		name string
+		run  func() error
+	}{
+		{"github", func() error { return c.github(context.Background(), http.MethodGet, "/rate_limit", nil, nil) }},
+		{"githubPages", func() error { _, err := c.githubPages(context.Background(), "repos/acme/app/issues"); return err }},
+		{"githubGraphQL", func() error { _, err := c.GithubGraphQL("{viewer{login}}"); return err }},
+	} {
+		err := call.run()
+		if err == nil || err.Error() != "configure SECTILE_TRACKER_TOKEN on the server" {
+			t.Errorf("%s: got %v, want the tracker-agnostic credential error", call.name, err)
+		}
 	}
 }

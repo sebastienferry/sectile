@@ -1,6 +1,7 @@
 const {contextBridge,ipcRenderer}=require('electron')
 contextBridge.exposeInMainWorld('localAgent',{
  connect:()=>ipcRenderer.invoke('connect'),
+ pair:(server,code,label)=>ipcRenderer.invoke('pair',{server,code,label}),
  start:settings=>ipcRenderer.invoke('start',settings),
  agentLogs:()=>ipcRenderer.invoke('agent-logs'),
  saveLog:text=>ipcRenderer.invoke('save-log',text),
@@ -11,7 +12,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  chooseRepository:()=>ipcRenderer.invoke('choose-repository'),
  serverTasks:(id,q,launchable=false)=>ipcRenderer.invoke('server-tasks',id,q,launchable),
  launchConsole:(projectId,provider)=>ipcRenderer.invoke('launch-console',projectId,provider),
- launchServerTask:(id,taskID,skillID,prompt)=>ipcRenderer.invoke('launch-server-task',id,taskID,skillID,prompt),
+ launchServerTask:(id,taskID,skillID,prompt,mode)=>ipcRenderer.invoke('launch-server-task',id,taskID,skillID,prompt,mode),
  openBoard:()=>ipcRenderer.invoke('open-board'),
  openTask:id=>ipcRenderer.invoke('open-task',id),
  openPR:url=>ipcRenderer.invoke('open-pr',url),

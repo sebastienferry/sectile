@@ -9,6 +9,18 @@ import (
 	"tasks/internal/models"
 )
 
+// A remote run's action names its owner, which is what decides who may close
+// it. The distinction outlives the server process, so it is the only thing a
+// restart can rely on to tell an abandoned run from one still being watched.
+const (
+	// RunActionClient marks a run a connected client created. Its owner is that
+	// client's MCP session, which lives and dies inside the server process.
+	RunActionClient = "Remote skill execution"
+	// RunActionAgent marks a run an agent dispatched. Its owner is the agent's
+	// supervisor, which outlives the server and reports the real process exit.
+	RunActionAgent = "Agent-owned remote execution"
+)
+
 // StartRemoteRun creates an independent execution record. It never locks stages.
 func (d *DB) StartRemoteRun(taskKey, skill, runID string) (*models.TaskActivity, error) {
 	return d.startRemoteRun(taskKey, skill, runID, false)
@@ -39,11 +51,11 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool) (*mod
 	}
 	now := time.Now()
 	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, ProjectID: task.ProjectID,
-		SkillID: "remote_run", SkillName: skill, Action: "Remote skill execution",
+		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
 		Status: "running", Summary: "Execution reported by a local agent or native client",
 		CreatedAt: now, StartedAt: &now, Steps: []string{}}
 	if agentOwned {
-		activity.Action = "Agent-owned remote execution"
+		activity.Action = RunActionAgent
 	}
 	if err := d.AddTaskActivity(*activity); err != nil {
 		return nil, err
@@ -128,7 +140,7 @@ func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillNa
 			return nil, err
 		}
 	} else {
-		action := "Agent-owned remote execution"
+		action := RunActionAgent
 		if summary == "" {
 			if status == "queued" {
 				summary = "Execution queued on local agent"
@@ -162,3 +174,41 @@ func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillNa
 	return activity, nil
 }
 
+// RemoteRunOutputLimit bounds what one autonomous run can record. A headless CLI
+// streams everything it prints into a single activity, and an unbounded record
+// grows with the run. Past the limit the output keeps its head, which is where
+// the launch and the first errors are, and says it was cut.
+const RemoteRunOutputLimit = 256 * 1024
+
+const remoteRunOutputTruncated = "\n\n[output truncated: the run printed more than the recorded limit]"
+
+// AppendRemoteRunOutput adds captured CLI output to a running remote activity.
+// It is the only channel an autonomous run has: nobody is watching a terminal,
+// so what the CLI printed has to survive on the activity itself.
+func (d *DB) AppendRemoteRunOutput(taskKey, runID, chunk string) error {
+	if strings.TrimSpace(chunk) == "" {
+		return nil
+	}
+	task, err := d.GetTaskByID(taskKey)
+	if err != nil {
+		return err
+	}
+	if task == nil {
+		return fmt.Errorf("task not found")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var current string
+	if err := d.conn.QueryRow("SELECT output FROM task_activities WHERE id=? AND task_id=? AND skill_id='remote_run'", runID, task.ID).Scan(&current); err != nil {
+		return err
+	}
+	if strings.HasSuffix(current, remoteRunOutputTruncated) {
+		return nil
+	}
+	combined := current + chunk
+	if len(combined) > RemoteRunOutputLimit {
+		combined = combined[:RemoteRunOutputLimit] + remoteRunOutputTruncated
+	}
+	_, err = d.conn.Exec("UPDATE task_activities SET output=? WHERE id=? AND task_id=?", combined, runID, task.ID)
+	return err
+}

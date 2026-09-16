@@ -253,9 +253,6 @@ func (c *Client) AddIssueComment(source, repo, repoPath, key, body string) error
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("comment body is required")
 	}
-	if source == "linear" {
-		return c.addLinearComment(key, body)
-	}
 	if source != "github" && !strings.HasPrefix(key, "#") {
 		return fmt.Errorf("unsupported tracker %q", source)
 	}
@@ -310,6 +307,7 @@ type PullRequest struct {
 	SHA    string
 	Open   bool
 	Draft  bool
+	Merged bool
 }
 
 func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
@@ -321,26 +319,42 @@ func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
 		return PullRequest{}, fmt.Errorf("task branch is required")
 	}
 	owner := strings.Split(repo, "/")[0]
-	pages, err := c.githubPages(context.Background(), "repos/"+repo+"/pulls?state=open&head="+url.QueryEscape(owner+":"+branch)+"&per_page=100")
+	// A merged PR is still the task's PR: the human merge boundary must not strand the task before reviewed.
+	pages, err := c.githubPages(context.Background(), "repos/"+repo+"/pulls?state=all&head="+url.QueryEscape(owner+":"+branch)+"&per_page=100")
 	if err != nil {
 		return PullRequest{}, err
 	}
-	if len(pages) != 1 {
-		return PullRequest{}, fmt.Errorf("expected one matching open pull request, got %d", len(pages))
-	}
-	var pr struct {
-		URL   string `json:"html_url"`
-		State string
-		Draft bool
-		Head  struct {
-			Ref string
-			SHA string
+	var open, merged []PullRequest
+	for _, raw := range pages {
+		var pr struct {
+			URL      string     `json:"html_url"`
+			State    string     `json:"state"`
+			Draft    bool       `json:"draft"`
+			MergedAt *time.Time `json:"merged_at"`
+			Head     struct {
+				Ref string
+				SHA string
+			}
 		}
+		if err = json.Unmarshal(raw, &pr); err != nil {
+			return PullRequest{}, err
+		}
+		found := PullRequest{pr.URL, pr.Head.Ref, pr.Head.SHA, pr.State == "open", pr.Draft, pr.MergedAt != nil}
+		switch {
+		case found.Open:
+			open = append(open, found)
+		case found.Merged:
+			merged = append(merged, found)
+		}
+		// A closed-unmerged PR is abandoned work, never evidence.
 	}
-	if err = json.Unmarshal(pages[0], &pr); err != nil {
-		return PullRequest{}, err
+	if len(open) == 1 {
+		return open[0], nil
 	}
-	return PullRequest{pr.URL, pr.Head.Ref, pr.Head.SHA, pr.State == "open", pr.Draft}, nil
+	if len(open) == 0 && len(merged) == 1 {
+		return merged[0], nil
+	}
+	return PullRequest{}, fmt.Errorf("expected one matching open or merged pull request, got %d open and %d merged", len(open), len(merged))
 }
 
 // GithubStatusQuery supports both user-owned and organization-owned Projects.

@@ -4,7 +4,7 @@
 TBD - created by archiving change 54-split-server-agent. Update Purpose after archive.
 ## Requirements
 ### Requirement: Independent runtime artifacts
-The system SHALL distribute separate `taskflow-server` and `taskflow-agent` binaries without a unified executable shim.
+The system SHALL distribute separate `sectile-server` and `sectile-agent` binaries without a unified executable shim.
 
 #### Scenario: Independent agent build
 - **GIVEN** a Go checkout without installed frontend dependencies

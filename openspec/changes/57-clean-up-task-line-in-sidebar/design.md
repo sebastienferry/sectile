@@ -1,7 +1,7 @@
 # Design — clean up task line in sidebar
 
 ## Context
-The TaskFlow desktop application (`desktop/src/main.js` and `desktop/src/style.css`) renders a list of active and recent task executions grouped by project inside an `<aside>` sidebar. Each task entry represents a group of runs for a given task and displays identification, title, execution status, and actions.
+The Sectile desktop application (`desktop/src/main.js` and `desktop/src/style.css`) renders a list of active and recent task executions grouped by project inside an `<aside>` sidebar. Each task entry represents a group of runs for a given task and displays identification, title, execution status, and actions.
 
 Currently, if a task has an associated pull request or merge request URL, a `<button class="pr-indicator">` is appended directly to the project group container (`group.append(pr)`), rather than inside the `.local-task` flex container. This breaks the linear visual flow of tasks and creates an awkward multiline indentation.
 

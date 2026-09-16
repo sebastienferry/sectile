@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 	"tasks/internal/terminal"
 )
@@ -283,6 +284,22 @@ func TestDesktopQueueCancellationMetadata(t *testing.T) {
 	for _, run := range runs {
 		if run.CancelRequested != (run.ID == "waiting") {
 			t.Fatalf("incorrect cancellation metadata: %+v", run)
+		}
+	}
+}
+
+func TestLaunchAdmissionOfReservedSkills(t *testing.T) {
+	config := agentconfig.Config{Skills: []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Command: "/code-issue"}}}
+	// A discussion needs no instructions; custom instructions still do.
+	if !launchableSkill(config, "discuss", "") || !launchableSkill(config, "implement", "") {
+		t.Fatal("legitimate launch rejected")
+	}
+	if !launchableSkill(config, "custom", "look at the failing test") {
+		t.Fatal("custom instructions rejected")
+	}
+	for _, skillID := range []string{"custom", "discussion", "clarify", ""} {
+		if launchableSkill(config, skillID, "") {
+			t.Fatalf("accepted %q without instructions", skillID)
 		}
 	}
 }

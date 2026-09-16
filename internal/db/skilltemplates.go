@@ -18,23 +18,26 @@ import (
 //
 // The files are written in English on purpose: the agents reason on them, and
 // the repositories they land in are read by people who do not all speak French.
-// The TaskFlow interface stays in French.
+// The Sectile interface stays in French.
 type StageSkill struct {
-	ID          string // internal id, shared by the catalogue and the job queue
-	Name        string
-	DirName     string // skill directory, which is also the slash command
-	Command     string
-	FromStage   string
-	ToStage     string
-	Scope       string // "task" (default) or "macro"
-	Interactive bool
-	Description string // shown in the TaskFlow interface, in French
+	ID        string // internal id, shared by the catalogue and the job queue
+	Name      string
+	DirName   string // skill directory, which is also the slash command
+	Command   string
+	FromStage string
+	ToStage   string
+	Scope     string // "task" (default) or "macro"
+	// Mode is the built-in execution mode of the skill: interactive when the
+	// skill only means something with a human answering in the terminal, unset
+	// when the skill has no opinion and the project default decides.
+	Mode        string
+	Description string // shown in the Sectile interface, in French
 	Icon        string
 	Color       string
 	Steps       []string // the step list the interface displays
 
 	// Body of the SKILL.md. The renderer adds the header, the stage line and the
-	// contract with TaskFlow. title is the English heading of the file, kept
+	// contract with Sectile. title is the English heading of the file, kept
 	// apart from Name, which the French interface displays.
 	title           string
 	frontmatterDesc string
@@ -56,7 +59,6 @@ var StageSkills = []StageSkill{
 		Command:     "/clarify-issue",
 		FromStage:   "new",
 		ToStage:     "clarified",
-		Interactive: false,
 		Description: "Résout les ambiguïtés réversibles et identifie les décisions indispensables.",
 		Icon:        "HelpCircle",
 		Color:       "amber",
@@ -64,7 +66,7 @@ var StageSkills = []StageSkill{
 			"Lecture du ticket et du code concerné",
 			"Détection des ambiguïtés et des dépendances",
 			"Questions de cadrage et options recommandées",
-			"Label 'clarified' et transition posés par TaskFlow",
+			"Label 'clarified' et transition posés par Sectile",
 		},
 		title:           "Clarify Issue",
 		frontmatterDesc: "Analyse a ticket against the code, surface what is genuinely undecided, and ask the few questions that unblock specification.",
@@ -109,7 +111,7 @@ would be expensive to reverse later, not for a list of everything unknown.`,
 			"Lecture des principes et des specs existantes",
 			"Création de la branche de travail",
 			"Rédaction de la spécification et de la checklist",
-			"Label 'specified' et transition posés par TaskFlow",
+			"Label 'specified' et transition posés par Sectile",
 		},
 		title:           "Specify Issue",
 		frontmatterDesc: "Write the executable specification of a ticket in the project's Spec-Driven Design framework, before any code.",
@@ -139,7 +141,7 @@ and the two kept in separate files.`,
 			"Lecture de la spécification et des tâches",
 			"Implémentation sur la branche du ticket",
 			"Construction, analyse statique et tests au vert",
-			"Label 'implemented' et transition posés par TaskFlow",
+			"Label 'implemented' et transition posés par Sectile",
 		},
 		title:           "Implement Code",
 		frontmatterDesc: "Implement the ticket from its specification and prove it works with the project's own build, linters and tests.",
@@ -181,7 +183,7 @@ already there, with the project's checks green.`,
 			"Relecture du diff complet",
 			"Commit conventionnel et poussée de la branche",
 			"Update the existing pull request and verify readiness; human merge",
-			"Label 'reviewed' et transition posés par TaskFlow",
+			"Label 'reviewed' et transition posés par Sectile",
 		},
 		title:           "Adjust Existing Pull Request",
 		frontmatterDesc: "Review the branch like a peer would, fix what the review finds, then update the existing merge request and leave the merge to the user.",
@@ -191,7 +193,7 @@ found and fixed, the risky parts pointed out, the test plan written down.`,
 - The specification, to check that what was asked is what was built.
 - The current remote default branch: fetch the remote and identify its configured
   default branch before reviewing or publishing.`,
-		stepsBody: `1. Verify a matching open PR exists for the task repository and branch before changing files. Record its URL. If missing, stop and recover through the configured creation owner (specify or implement). Never create a PR during adjustment. Read available PR feedback; retrieval failure is a blocker, not absence of feedback.
+		stepsBody: `1. Verify a matching PR exists for the task repository and branch before changing files: open, or already merged by the human. Record its URL. If missing, stop and recover through the configured creation owner (specify or implement). Never create a PR during adjustment, and never push onto a merged PR — review the merged state and report it. Read available PR feedback; retrieval failure is a blocker, not absence of feedback.
    Fetch the remote (` + tick + `git fetch origin` + tick + `) and compare the work branch with the
    remote default branch (normally ` + tick + `origin/main` + tick + `; use the repository's configured default when different).
    Integrate missing base commits before the final review: prefer rebase when the branch is private, or merge when
@@ -227,7 +229,7 @@ found and fixed, the risky parts pointed out, the test plan written down.`,
 			"Vérification que la branche est fusionnée",
 			"Compte-rendu de passation et vérifications de recette",
 			"Nettoyage du worktree et de la branche locale",
-			"Label 'finished' et transition posés par TaskFlow",
+			"Label 'finished' et transition posés par Sectile",
 		},
 		title:           "Handoff and Close",
 		frontmatterDesc: "Close the ticket properly: confirm the merge, write the handover and the acceptance checklist, then clean the local workspace.",
@@ -287,7 +289,6 @@ and a local workspace with nothing stale in it.`,
 		Command:     "/pickup-issue",
 		FromStage:   "new",
 		ToStage:     "reviewed",
-		Interactive: false,
 		Description: "Exécute en autonomie complète toutes les étapes d'un ticket jusqu'à la création de la Pull Request.",
 		Icon:        "Sparkles",
 		Color:       "purple",
@@ -321,7 +322,6 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		Command:     "/rewrite-story",
 		FromStage:   "",
 		ToStage:     "",
-		Interactive: false,
 		Description: "Reformate la description d'une tâche en User Story structurée GFM, avec inclusion facultative des commentaires.",
 		Icon:        "Sparkles",
 		Color:       "cyan",
@@ -358,7 +358,7 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		FromStage:   "macro",
 		ToStage:     "macro",
 		Scope:       "macro",
-		Interactive: true,
+		Mode:        models.SkillModeInteractive,
 		Description: "Clarifie de manière interactive le cadrage d'une macro et le décompose en TODOs structurés et cartes Sectile.",
 		Icon:        "ListChecks",
 		Color:       "orange",
@@ -387,7 +387,6 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		Command:     "/pickup-issues",
 		FromStage:   "new",
 		ToStage:     "reviewed",
-		Interactive: false,
 		Description: "Exécute en autonomie complète toutes les étapes d'un lot de tickets dans un unique Git worktree jusqu'à la PR.",
 		Icon:        "Sparkles",
 		Color:       "purple",
@@ -514,11 +513,11 @@ func specifyFrameworkBody(specFramework string) (readFirst, steps string) {
 
 // renderTaskAccessContract keeps task access consistent across skills and commands.
 func renderTaskAccessContract() string {
-	return `## TaskFlow task access
-- Use the local TaskFlow agent's exposed task-management interface first for ticket reads, updates, comments, creation, and workflow results. Discover its actual tools or documented commands from the session/project context; do not invent an endpoint or launch another agent daemon as a substitute.
+	return `## Sectile task access
+- Use the local Sectile agent's exposed task-management interface first for ticket reads, updates, comments, creation, and workflow results. Discover its actual tools or documented commands from the session/project context; do not invent an endpoint or launch another agent daemon as a substitute.
 - Resolve the project against its repository, then verify the task's full ID and external URL. A bare key such as #47 can match another project's ticket. Use the full task ID for mutations and an explicit project ID for creation.
-- If the local agent interface is unavailable or fails after a bounded attempt, use http://localhost:8090 as a temporary fallback. Record the missing capability or error, check for an existing bug in the same project, and register or update that bug when authorized. If reporting is unavailable or not authorized, preserve the report locally and state what remains pending. Do not bypass TaskFlow by writing directly to its database or remote tracker.
-- For a managed run, submit only through its supplied result contract and let TaskFlow validate and synchronize the result. An active run without a usable completion contract is a reportable integration failure. Preserve the artifacts and report the blocked transition; do not cancel the activity, forge launch/completion status, or use another endpoint to evade result validation.
+- If the local agent interface is unavailable or fails after a bounded attempt, use http://localhost:8090 as a temporary fallback. Record the missing capability or error, check for an existing bug in the same project, and register or update that bug when authorized. If reporting is unavailable or not authorized, preserve the report locally and state what remains pending. Do not bypass Sectile by writing directly to its database or remote tracker.
+- For a managed run, submit only through its supplied result contract and let Sectile validate and synchronize the result. An active run without a usable completion contract is a reportable integration failure. Preserve the artifacts and report the blocked transition; do not cancel the activity, forge launch/completion status, or use another endpoint to evade result validation.
 - This routing does not authorize mutations excluded by the skill or user request. Verify each mutation's response and report partial success explicitly.
 
 `
@@ -533,8 +532,8 @@ func renderTicketTransitionContract(s StageSkill) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Execution and ticket state\n")
-	b.WriteString("- **Managed TaskFlow run**: When the invocation supplies a result-file contract, follow it. TaskFlow validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.\n")
-	b.WriteString("- **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If TASKFLOW_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.\n")
+	b.WriteString("- **Managed Sectile run**: When the invocation supplies a result-file contract, follow it. Sectile validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.\n")
+	b.WriteString("- **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.\n")
 	if s.FromStage == "" {
 		return b.String()
 	}
@@ -548,7 +547,7 @@ func renderTicketTransitionContract(s StageSkill) string {
 			b.WriteString("Include prUrl with the verified pull request URL.\n")
 		}
 	}
-	b.WriteString("Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by TaskFlow. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.\n")
+	b.WriteString("Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by Sectile. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.\n")
 	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
 	return b.String()
 }
@@ -601,10 +600,10 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	fmt.Fprintf(&b, "# %s\n\n", name)
 	if s.FromStage != "" && s.Scope != "macro" {
 		fmt.Fprintf(&b, "Stage: %s -> %s.", s.FromStage, s.ToStage)
-		if s.Interactive {
+		if s.Mode == models.SkillModeInteractive {
 			b.WriteString(" Interactive: the user answers in the terminal.")
 		}
-	} else if s.Interactive {
+	} else if s.Mode == models.SkillModeInteractive {
 		b.WriteString("Interactive: the user answers in the terminal.")
 	}
 	b.WriteString("\n\n")
@@ -669,7 +668,7 @@ func SkillDirsFor(root, dirName string) []string {
 // Une skill et une commande ne sont pas la même chose : une skill sous
 // .claude/skills/<nom>/SKILL.md est choisie par le modèle quand il la juge
 // pertinente, alors qu'une commande sous .claude/commands/<nom>.md est
-// invocable par « /<nom> ». TaskFlow appelle ses étapes par leur commande, donc
+// invocable par « /<nom> ». Sectile appelle ses étapes par leur commande, donc
 // il faut écrire les deux, sinon « claude -p "/clarify-issue PROJ-123" » se
 // contente de recopier le texte.
 func SkillCommandPath(root, dirName string) string {

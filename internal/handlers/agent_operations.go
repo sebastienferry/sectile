@@ -18,7 +18,11 @@ type pendingOperation struct {
 }
 
 func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
-	ac := d.Lookup("default", op.ProjectID)
+	userID := op.UserID
+	if userID == "" {
+		userID = ImplicitUser
+	}
+	ac := d.Lookup(userID, op.ProjectID)
 	if ac == nil {
 		return nil, fmt.Errorf("no local agent connected for project %s", op.ProjectID)
 	}
@@ -27,7 +31,7 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 		if op.Action == "open_terminal" {
 			action = "open_terminal"
 		}
-		err := d.DispatchAndWait(ctx, ac.UserID, ac.ProjectID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID})
+		err := d.DispatchAndWait(ctx, ac.UserID, ac.ProjectID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode})
 		return json.RawMessage("null"), err
 	}
 	raw, err := json.Marshal(op)

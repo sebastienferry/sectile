@@ -18,7 +18,7 @@ func TestExternalScriptPreservesValuesAndExecutesCommandOnce(t *testing.T) {
 	marker := filepath.Join(root, "marker")
 	result := filepath.Join(root, "result")
 	command := `printf '%s' "$(printf x >> ` + shellQuote(marker) + `; printf done)" > ` + shellQuote(result)
-	script, err := externalTerminalScript(target, command, map[string]string{"SHELL": "/usr/bin/true", "TASKFLOW_TEST": "$HOME `literal` 'quote'"})
+	script, err := externalTerminalScript(target, command, map[string]string{"SHELL": "/usr/bin/true", "SECTILE_TEST": "$HOME `literal` 'quote'"})
 	if err != nil {
 		t.Fatal(err)
 	}

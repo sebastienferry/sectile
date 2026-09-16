@@ -22,4 +22,4 @@ The Go task creation and cloning paths and React quick-add form need small defau
 Historical label migration, global label normalization, other workflow stages, provider taxonomy changes, and changes to status selection or clone options.
 
 ## Decision Source
-`docs/clarifications/48.md`, current standalone verification dated 2026-09-12. Live TaskFlow identifies the intended task as clarified with description “Currently the default label is #New, it should be #new (lowercap)”. Creation-only scope, inclusion of cloning, and inclusion of the form are the clarification's explicit reversible assumptions. No open requirements remain.
+`docs/clarifications/48.md`, current standalone verification dated 2026-09-12. Live Sectile identifies the intended task as clarified with description “Currently the default label is #New, it should be #new (lowercap)”. Creation-only scope, inclusion of cloning, and inclusion of the form are the clarification's explicit reversible assumptions. No open requirements remain.

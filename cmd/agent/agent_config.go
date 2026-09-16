@@ -34,9 +34,9 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 		}
 		_ = json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&detail)
 		if detail.Error != "" {
-			return fmt.Errorf("TaskFlow API returned HTTP %d: %s", resp.StatusCode, detail.Error)
+			return fmt.Errorf("Sectile API returned HTTP %d: %s", resp.StatusCode, detail.Error)
 		}
-		return fmt.Errorf("TaskFlow API returned HTTP %d", resp.StatusCode)
+		return fmt.Errorf("Sectile API returned HTTP %d", resp.StatusCode)
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(result)
 }
@@ -271,6 +271,19 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 	if err != nil {
 		return err
 	}
+	// The path is written into the registration native clients read later, so
+	// a throwaway binary registers a command that stops resolving as soon as
+	// the build cache is pruned. The client then starts, finds no MCP server
+	// and exits at once, which reads as a failed run and nothing else.
+	// A test binary is temporary by nature and registers into a directory the
+	// test owns, so the guard would only break the suite. What it protects
+	// against is a real agent leaving a registration behind that stops
+	// resolving; temporaryExecutable itself is covered by its own test.
+	if temporaryExecutable(executable) && !runningUnderTest() {
+		log.Printf("[Agent] Refusing to register MCP with the temporary binary %s. "+
+			"Run a built agent (make start) rather than `go run`.", executable)
+		return fmt.Errorf("agent is running from a temporary build at %s; run a built binary so native clients keep resolving it", executable)
+	}
 	if strings.TrimSpace(config.AIProvider) == "" {
 		config.AIProvider = "agy"
 	}
@@ -292,12 +305,47 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 func quoteShell(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 func agentCommandLine(provider, template, prompt string, contexts ...agentCommandContext) (string, error) {
+	return modeCommandLine(provider, template, prompt, models.SkillModeInteractive, contexts...)
+}
+
+// headlessCommandLine is the autonomous form of agentCommandLine. It covers only
+// the providers whose headless invocation this repository attests: claude -p,
+// codex exec, and vibe, which is already headless today. Guessing a flag for the
+// others is worse than refusing: an unsupported flag either fails opaquely or is
+// swallowed as prompt text. Adding a provider here is a one-line change once its
+// headless mode is verified.
+func headlessCommandLine(provider, prompt string) (string, error) {
+	switch provider {
+	case "claude":
+		return "claude -p " + quoteShell(prompt), nil
+	case "codex":
+		return "codex exec " + quoteShell(prompt), nil
+	case "vibe":
+		return "vibe -p " + quoteShell(prompt), nil
+	default:
+		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
+	}
+}
+
+// modeCommandLine builds the command line for one resolved mode. A configured
+// template still wins over the provider defaults, as it does today, but it owns
+// the mode: without a {mode:...|...} placeholder it can only run what its author
+// wrote, so an autonomous launch is refused rather than silently running the
+// template's own mode.
+func modeCommandLine(provider, template, prompt, mode string, contexts ...agentCommandContext) (string, error) {
+	autonomous := models.NormalizeSkillMode(mode) == models.SkillModeAutonomous
 	if strings.TrimSpace(template) != "" {
+		if autonomous && !templateCarriesMode(template) {
+			return "", fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively")
+		}
 		var launch agentCommandContext
 		if len(contexts) > 0 {
 			launch = contexts[0]
 		}
-		return expandAgentTemplate(template, launch.values(prompt))
+		return expandAgentTemplate(resolveTemplateMode(template, autonomous), launch.values(prompt))
+	}
+	if autonomous {
+		return headlessCommandLine(provider, prompt)
 	}
 	switch provider {
 	case "agy":
@@ -323,22 +371,32 @@ func sameDirectory(a, b string) bool {
 }
 
 // dispatchCommand distinguishes opening an interactive agent from running a skill.
-func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command string, contexts ...agentCommandContext) (string, error) {
+// mode is the execution mode the server resolved for this launch; an empty value
+// reads as interactive, which keeps an older server working.
+func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command, mode string, contexts ...agentCommandContext) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
+	live := func() (string, error) {
+		return runner.InteractiveAgentLaunch(&models.Settings{AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate})
+	}
 	if action == "open_terminal" {
 		if strings.TrimSpace(command) != "" {
 			return command, nil
 		}
 		if skillID == "" {
-			return runner.InteractiveAgentLaunch(&models.Settings{AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate})
+			return live()
 		}
+	}
+	// A discussion opens the provider as a live session and nothing else: no
+	// skill command, and none of the prompt the dispatch carries for skills.
+	if skillID == "discuss" {
+		return live()
 	}
 	if skillID == "custom" {
 		if strings.TrimSpace(prompt) == "" {
 			return "", fmt.Errorf("custom instructions required")
 		}
-		return agentCommandLine(config.AIProvider, config.AICommandTemplate, "TaskFlow task: "+taskKey+"\n\n"+prompt, contexts...)
+		return modeCommandLine(config.AIProvider, config.AICommandTemplate, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
@@ -365,7 +423,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return agentCommandLine(config.AIProvider, config.AICommandTemplate, promptArg, contexts...)
+	return modeCommandLine(config.AIProvider, config.AICommandTemplate, promptArg, mode, contexts...)
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {
@@ -398,4 +456,15 @@ func (d *agentDaemon) syncLocalProject(ctx context.Context, config agentconfig.C
 		return err
 	}
 	return d.bootstrapLocalMCP(&config)
+}
+
+// temporaryExecutable reports a binary the toolchain may delete, such as what
+// `go run` builds into the module cache.
+func temporaryExecutable(path string) bool {
+	for _, marker := range []string{"/go-build", string(os.PathSeparator) + "T" + string(os.PathSeparator), os.TempDir()} {
+		if marker != "" && marker != "/" && strings.Contains(path, marker) {
+			return true
+		}
+	}
+	return false
 }

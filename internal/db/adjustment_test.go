@@ -27,7 +27,7 @@ func TestAdjustmentAliasesAndHumanBoundary(t *testing.T) {
 }
 func TestAdjustmentEvidenceRejectsInvalidPR(t *testing.T) {
 	good := trackerapi.PullRequest{URL: "https://forge/pull/1", Branch: "ticket", Open: true}
-	for _, kind := range []string{"valid", "draft", "closed", "branch", "replacement"} {
+	for _, kind := range []string{"valid", "draft", "closed", "branch", "replacement", "merged", "merged-branch"} {
 		t.Run(kind, func(t *testing.T) {
 			p := good
 			switch kind {
@@ -39,14 +39,61 @@ func TestAdjustmentEvidenceRejectsInvalidPR(t *testing.T) {
 				p.Branch = "other"
 			case "replacement":
 				p.URL = "https://forge/pull/2"
+			case "merged":
+				p.Open, p.Merged = false, true
+			case "merged-branch":
+				p.Open, p.Merged, p.Branch = false, true, "other"
 			}
 			err := validatePullRequestEvidence(p, "ticket", p.URL, good.URL, true)
-			if (err == nil) != (kind == "valid") {
+			if (err == nil) != (kind == "valid" || kind == "merged") {
 				t.Fatalf("%s: %v", kind, err)
 			}
 		})
 	}
 }
+func TestMergedPRCompletesReview(t *testing.T) {
+	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	no := false
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Merged", RepoPath: "/not-mounted-on-server", IssueTracker: "local", UseWorktrees: &no})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "merged", Labels: []string{"#implemented"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.conn.Exec("UPDATE tasks SET branch_name='ticket',status='to_test',labels='[\"#implemented\"]' WHERE id=?", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		return json.RawMessage(`{"sha":"agent-commit","branch":"ticket","clean":true}`), nil
+	})
+	// The human merged the PR before the review stage was recorded; that must not strand the task.
+	pr := trackerapi.PullRequest{URL: "https://forge/pull/1", Branch: "ticket", SHA: "agent-commit", Merged: true}
+	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return pr, nil }
+	got, _, err := d.TransitionTaskStage(task.ID, "reviewed", "review complete on a merged PR", pr.URL, "ticket")
+	if err != nil || d.StageOfTask(got) != "reviewed" || got.PrURL == nil || *got.PrURL != pr.URL {
+		t.Fatalf("merged PR rejected: %+v %v", got, err)
+	}
+	// A closed-unmerged PR is abandoned work and still blocks the transition.
+	closed := trackerapi.PullRequest{URL: "https://forge/pull/1", Branch: "ticket", SHA: "agent-commit"}
+	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return closed, nil }
+	if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "closed PR", closed.URL, "ticket"); err == nil {
+		t.Fatal("closed-unmerged PR accepted")
+	}
+	// A merged PR whose head is not the agent checkout is still rejected.
+	stale := pr
+	stale.SHA = "other-commit"
+	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return stale, nil }
+	if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "stale merged PR", stale.URL, "ticket"); err == nil {
+		t.Fatal("merged PR without the checkout commit accepted")
+	}
+}
+
 func TestAdjustmentOverridePrecedence(t *testing.T) {
 	overrides := map[string]projectSkillOverride{"review": {content: "review"}, "create_pr": {content: "create"}}
 	origin, conflicts := adjustmentOverrideOrigin(overrides)

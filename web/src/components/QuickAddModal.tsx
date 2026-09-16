@@ -196,10 +196,10 @@ export const QuickAddModal: React.FC = () => {
                   <span className="text-[10px] text-[var(--text-muted)] flex items-center gap-1 font-mono">
                     <span>Tracker :</span>
                     <span className="font-semibold text-[var(--accent-color)]">
-                      {activeProject.issueTracker === 'linear'
-                        ? `Linear (${activeProject.linearTeam || 'FRE'})`
-                        : activeProject.issueTracker === 'github'
+                      {activeProject.issueTracker === 'github'
                         ? `GitHub (${activeProject.githubRepo ? activeProject.githubRepo.split('/')[1] || activeProject.githubRepo : 'repo'})`
+                        : activeProject.issueTracker === 'jira'
+                        ? `Jira (${activeProject.jiraProject || 'projet non configuré'})`
                         : 'Local'}
                     </span>
                   </span>
@@ -224,9 +224,8 @@ export const QuickAddModal: React.FC = () => {
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
               Destination
             </label>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-2 gap-1.5">
               {([
-                { id: 'linear', label: 'Linear', icon: '🟣', hint: activeProject?.linearTeam || 'équipe non configurée' },
                 { id: 'github', label: 'GitHub', icon: '🐙', hint: activeProject?.githubRepo || 'dépôt non configuré' },
                 { id: 'local', label: 'Sectile', icon: '📁', hint: 'SQLite' },
               ] as { id: TaskSource; label: string; icon: string; hint: string }[]).map(opt => (

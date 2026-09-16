@@ -22,7 +22,7 @@ import (
 )
 
 func TestAgentCommandQuotesPrompt(t *testing.T) {
-	prompt := "hello 'world'\n$(touch /tmp/taskflow-should-not-exist) `whoami` $HOME"
+	prompt := "hello 'world'\n$(touch /tmp/sectile-should-not-exist) `whoami` $HOME"
 	for _, template := range []string{"printf '%s' {prompt}", `printf '%s' "{prompt}"`, "printf '%s' '{prompt}'"} {
 		line, err := agentCommandLine("custom", template, prompt)
 		if err != nil {
@@ -102,13 +102,15 @@ func TestGatewayForwardsMCPAndOwnCredential(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer upstream.Close()
-	d := &agentDaemon{serverURL: upstream.URL, token: "daemon-token"}
+	d := &agentDaemon{serverURL: upstream.URL, token: "daemon-token", loopbackToken: "session-secret"}
 	if err := d.startLocalProxy(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	defer d.httpServer.Close()
+	// Local callers present the session secret; the gateway swaps it for the
+	// device credential on the way out, so the identity never leaves here.
 	req, _ := http.NewRequest("POST", d.agentURL+"/mcp", strings.NewReader(`{}`))
-	req.Header.Set("Authorization", "Bearer caller-token")
+	req.Header.Set("Authorization", "Bearer session-secret")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -117,6 +119,17 @@ func TestGatewayForwardsMCPAndOwnCredential(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("proxy %d", resp.StatusCode)
 	}
+	req, _ = http.NewRequest("POST", d.agentURL+"/mcp", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer caller-token")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != 401 {
+		t.Fatalf("unknown caller %d, want 401", resp.StatusCode)
+	}
+
 	req, _ = http.NewRequest("POST", d.agentURL+"/mcp", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	resp, err = http.DefaultClient.Do(req)
@@ -130,9 +143,9 @@ func TestGatewayForwardsMCPAndOwnCredential(t *testing.T) {
 }
 
 // The test executable acts as the stdio child so this exercises real process
-// pipes without requiring a prebuilt TaskFlow binary or a database in the child.
+// pipes without requiring a prebuilt Sectile binary or a database in the child.
 func TestMCPStdioHelper(t *testing.T) {
-	if os.Getenv("TASKFLOW_MCP_HELPER") != "1" {
+	if os.Getenv("SECTILE_MCP_HELPER") != "1" {
 		return
 	}
 	if err := runMCPCommand(context.Background(), nil); err != nil {
@@ -153,7 +166,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer upstream.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	d := &agentDaemon{serverURL: upstream.URL, token: "test-token"}
+	d := &agentDaemon{serverURL: upstream.URL, token: "test-token", loopbackToken: "session-secret"}
 	if err := d.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +178,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	connect := func() *mcp.ClientSession {
 		t.Helper()
 		command := exec.Command(os.Args[0], "-test.run=^TestMCPStdioHelper$")
-		command.Env = append(os.Environ(), "TASKFLOW_MCP_HELPER=1", "TASKFLOW_AGENT_URL="+d.agentURL, "TASKFLOW_AGENT_TOKEN=")
+		command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+d.agentURL, "SECTILE_AGENT_TOKEN="+d.loopbackToken)
 		session, err := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -177,7 +190,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer session.Close()
 	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 8 {
+	if err != nil || len(list.Tools) != 9 {
 		t.Fatalf("stdio discovery %v %v", list, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_tasks", Arguments: map[string]any{"projectId": "default"}})
@@ -253,7 +266,7 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	}
 	for _, template := range []string{`printf '%s\000' {repoPath} {branchName} {issueKey} {prompt}`, `printf '%s\000' "{repoPath}" '{branchName}' {issueKey} {prompt}`} {
 		effective.AICommandTemplate = template
-		line, err := dispatchCommand(effective, task.ID, "implement", "implement", "", "", agentCommandContext{Task: task, Branch: branch, Directory: path})
+		line, err := dispatchCommand(effective, task.ID, "implement", "implement", "", "", models.SkillModeInteractive, agentCommandContext{Task: task, Branch: branch, Directory: path})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -270,22 +283,22 @@ func TestDispatchPreparesFromAPIContract(t *testing.T) {
 
 func TestExternalTerminalCommandWithoutSkill(t *testing.T) {
 	config := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/sh {prompt}"}
-	command, err := dispatchCommand(config, "TASK-46", "", "open_terminal", "", "")
+	command, err := dispatchCommand(config, "TASK-46", "", "open_terminal", "", "", models.SkillModeInteractive)
 	if err != nil || !strings.Contains(command, "/bin/sh") {
 		t.Fatalf("plain launch rejected: %q %v", command, err)
 	}
 	explicit := "printf 'custom command'"
-	command, err = dispatchCommand(config, "TASK-46", "", "open_terminal", "", explicit)
+	command, err = dispatchCommand(config, "TASK-46", "", "open_terminal", "", explicit, models.SkillModeInteractive)
 	if err != nil || command != explicit {
 		t.Fatalf("explicit command changed: %q %v", command, err)
 	}
-	if _, err = dispatchCommand(config, "TASK-46", "missing", "implement", "", ""); err == nil {
+	if _, err = dispatchCommand(config, "TASK-46", "missing", "implement", "", "", models.SkillModeInteractive); err == nil {
 		t.Fatal("invalid workflow skill accepted")
 	}
 	config.AIProvider = "claude"
 	config.AICommandTemplate = "claude {prompt}"
 	config.Skills = []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Command: "/code-issue"}}
-	command, err = dispatchCommand(config, "TASK-46", "implement", "open_terminal", "", "")
+	command, err = dispatchCommand(config, "TASK-46", "implement", "open_terminal", "", "", models.SkillModeInteractive)
 	if err != nil || !strings.Contains(command, "/code-issue TASK-46") {
 		t.Fatalf("skill launch: %q %v", command, err)
 	}
@@ -310,7 +323,7 @@ func TestNativePickupBootstrapAndLaunch(t *testing.T) {
 			if err != nil || !strings.Contains(string(raw), d.agentURL) {
 				t.Fatalf("native MCP bootstrap: %s %v", raw, err)
 			}
-			command, err := dispatchCommand(config, "#48", "pickup-issue", "pickup-issue", "", "")
+			command, err := dispatchCommand(config, "#48", "pickup-issue", "pickup-issue", "", "", models.SkillModeInteractive)
 			if err != nil || command != provider+" '/pickup-issue #48'" {
 				t.Fatalf("pickup launch: %q %v", command, err)
 			}
@@ -413,13 +426,13 @@ func TestDiscoverProjects(t *testing.T) {
 func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
 	c := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/echo {prompt}", Skills: []agentconfig.Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue"}}}
 	for _, id := range []string{"adjust", "adjust-issue", "review"} {
-		line, err := dispatchCommand(c, "task-61", id, "", "", "")
+		line, err := dispatchCommand(c, "task-61", id, "", "", "", models.SkillModeInteractive)
 		if err != nil || !strings.Contains(line, "adjust-issue") || !strings.Contains(line, "Never create or replace a PR") {
 			t.Fatalf("%s: %s %v", id, line, err)
 		}
 	}
 	c.Skills[0].RequiresReconciliation = true
-	if _, err := dispatchCommand(c, "task-61", "review", "", "", ""); err == nil {
+	if _, err := dispatchCommand(c, "task-61", "review", "", "", "", models.SkillModeInteractive); err == nil {
 		t.Fatal("unreconciled legacy customization launched")
 	}
 }
@@ -427,9 +440,28 @@ func TestNativeAdjustmentAliasesAndReconciliation(t *testing.T) {
 func TestNativeCreatePRDoesNotInvokeAdjustment(t *testing.T) {
 	c := agentconfig.Config{AIProvider: "custom", AICommandTemplate: "/bin/echo {prompt}", Skills: []agentconfig.Skill{{ID: "create_pr", Directory: "create-pr", Command: "/create-pr"}}}
 	for _, id := range []string{"create_pr", "create-pr"} {
-		line, err := dispatchCommand(c, "task-61", id, "", "", "")
+		line, err := dispatchCommand(c, "task-61", id, "", "", "", models.SkillModeInteractive)
 		if err != nil || !strings.Contains(line, "create-pr") || strings.Contains(line, "Never create or replace a PR") {
 			t.Fatalf("%s: %s %v", id, line, err)
 		}
+	}
+}
+
+func TestDiscussionLaunchesTheProviderAlone(t *testing.T) {
+	config := agentconfig.Config{
+		AIProvider: "custom", AICommandTemplate: "/bin/sh {prompt}",
+		Skills: []agentconfig.Skill{{ID: "implement", Directory: "code-issue", Command: "/code-issue"}},
+	}
+	command, err := dispatchCommand(config, "TASK-46", "discuss", "discuss", "", "", models.SkillModeInteractive)
+	if err != nil || command != "'/bin/sh'" {
+		t.Fatalf("discussion is not a bare launch: %q %v", command, err)
+	}
+	// A dispatch prompt exists for skills; a discussion must not inherit it.
+	command, err = dispatchCommand(config, "TASK-46", "discuss", "discuss", "Remote execution runId: 42", "", models.SkillModeInteractive)
+	if err != nil || strings.Contains(command, "42") || strings.Contains(command, "TASK-46") {
+		t.Fatalf("discussion carried a prompt: %q %v", command, err)
+	}
+	if _, err = dispatchCommand(config, "TASK-46", "discussion", "discussion", "", "", models.SkillModeInteractive); err == nil {
+		t.Fatal("unknown identifier accepted as a discussion")
 	}
 }

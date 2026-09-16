@@ -5,7 +5,7 @@ Issue #57 requests reorganizing the task line in the desktop application sidebar
 
 ## What Changes
 - Reorganize each `.local-task` row in `desktop/src/main.js` so that elements flow sequentially on a single line:
-  1. Task ID button (`context`, `.task-number`), clicking opens the task in TaskFlow.
+  1. Task ID button (`context`, `.task-number`), clicking opens the task in Sectile.
   2. Execution selection button (`.run`), containing the task title (`strong`) and status icon (`.status`).
   3. PR icon button (when `pullRequests.get(run.taskId)` exists), displaying a Git Pull Request SVG icon inline, with full title and accessible name (`Open PR ... for ...`), opening the PR externally on click.
   4. Archive button (`.task-archive`), visible on hover/focus.

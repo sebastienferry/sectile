@@ -8,6 +8,7 @@ import {
 import type {
   MacroRequiredField,
   SkillEditorEntry,
+  SkillMode,
   Task,
   CloneTaskRequest,
   Status,
@@ -29,7 +30,6 @@ import type {
   MacroMeta,
   MacroHorizon,
   MacroTodo,
-  DailyDigest,
   TrackerTeam,
   TeamMember,
   TeamWorkload,
@@ -180,14 +180,6 @@ interface AppContextType {
   /** Docked workspace terminal on the right side of the app. */
 
 
-  /** True when the selected project is a personal board, the only kind the digest is served for. */
-  isDigestAvailable: boolean
-  /** Daily digest of the active project: task sections plus an optional AI agenda. */
-  dailyDigest: DailyDigest | null
-  isDigestLoading: boolean
-  isDigestEnriching: boolean
-  fetchDailyDigest: (date?: string, assignee?: string) => Promise<DailyDigest | null>
-  generateDailyDigest: (opts?: { date?: string; assignee?: string; enrich?: boolean }) => Promise<DailyDigest | null>
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void
   selectedTask: Task | null
@@ -280,7 +272,7 @@ interface AppContextType {
   moveTasksToEpic: (projectId: string, taskIds: string[], targetEpicKey: string, newEpicTitle?: string, fields?: Record<string, string>) => Promise<boolean>
   /** Transitions a task's agentic workflow stage/label, updating local state and queueing tracker sync. */
   transitionTaskStage: (taskIdOrKey: string, stage: string, note?: string, prUrl?: string, branch?: string) => Promise<{ success: boolean; task?: Task; activity?: TaskActivity; error?: string }>
-  advanceTask: (taskId: string, auto?: boolean) => Promise<{ mode: string; skillId?: string; label?: string } | null>
+  advanceTask: (taskId: string, auto?: boolean, mode?: SkillMode) => Promise<{ mode: string; skillId?: string; label?: string } | null>
   // Pas interactif en cours : la tâche dont la session TTY attend d'être clôturée.
   pendingInteractive: { taskId: string; taskKey: string; skillId: string; label: string } | null
   /** Tickets épinglés : la barre de bascule rapide entre chantiers en cours. */
@@ -296,17 +288,17 @@ interface AppContextType {
   fetchSkillEditor: () => Promise<SkillEditorEntry[]>
   saveSkillContent: (skillId: string, content: string) => Promise<SkillEditorEntry | null>
   resetSkillContent: (skillId: string) => Promise<SkillEditorEntry | null>
+  saveSkillMode: (skillId: string, mode: SkillMode) => Promise<SkillEditorEntry | null>
   importSkillFromRepo: (skillId: string) => Promise<SkillEditorEntry | null>
   launchInteractiveStep: (task: Task, skillId: string, label: string) => Promise<void>
   confirmInteractiveStep: (note?: string) => Promise<void>
   dismissInteractiveStep: () => void
-  convertTask: (id: string, target: 'linear' | 'github') => Promise<Task | null>
+  convertTask: (id: string, target: 'github') => Promise<Task | null>
   moveTask: (id: string, newStatus: Status, newPosition: number) => Promise<void>
   moveTaskWorkflowStage: (taskId: string, targetStage: WorkflowStage) => Promise<Task | null>
   deleteTask: (id: string) => Promise<boolean>
-  runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean }) => Promise<TaskActivity | null>
+  runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean; mode?: SkillMode }) => Promise<TaskActivity | null>
   syncAll: () => Promise<void>
-  syncLinear: (team?: string) => Promise<void>
   syncGithub: (repo?: string) => Promise<void>
   syncJira: (projectKey?: string) => Promise<void>
   syncCurrentProject: () => Promise<void>
@@ -337,7 +329,7 @@ interface AppContextType {
  * Vues connues. Ce qui sort du stockage local n'est pas fiable : une vue retirée
  * d'une version à l'autre laisserait un écran vide au démarrage.
  */
-const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'digest', 'skills', 'team']
+const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'skills', 'team']
 
 const defaultSettings: UserSettings = {
   id: 1,
@@ -355,7 +347,6 @@ const defaultSettings: UserSettings = {
   aiCommandTemplate: 'agy -p "{prompt}"',
   repoPath: '',
   issueTracker: 'local',
-  linearTeam: '',
   githubRepo: '',
   jiraProject: '',
   jiraUrl: '',
@@ -410,7 +401,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
    */
   const [activeView, setActiveViewState] = useState<ViewMode>(() => {
     try {
-      const stored = localStorage.getItem('taskflow_active_view') ?? localStorage.getItem('taskacao_active_view')
+      const stored = localStorage.getItem('sectile_active_view') ?? localStorage.getItem('taskacao_active_view')
       return stored && VIEW_MODES.includes(stored as ViewMode) ? (stored as ViewMode) : 'board'
     } catch {
       return 'board'
@@ -421,7 +412,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const defaultViewPending = useRef<boolean>(
     (() => {
       try {
-        return !(localStorage.getItem('taskflow_active_view') ?? localStorage.getItem('taskacao_active_view'))
+        return !(localStorage.getItem('sectile_active_view') ?? localStorage.getItem('taskacao_active_view'))
       } catch {
         return false
       }
@@ -432,7 +423,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setActiveViewState(view)
     defaultViewPending.current = false
     try {
-      localStorage.setItem('taskflow_active_view', view)
+      localStorage.setItem('sectile_active_view', view)
     } catch {
       // stockage indisponible : la vue vaut pour cette session
     }
@@ -440,7 +431,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [boardGrouping, setBoardGroupingState] = useState<BoardGroupingMode>(() => {
     try {
-      const val = (localStorage.getItem('taskflow_board_grouping') ?? localStorage.getItem('taskacao_board_grouping')) as BoardGroupingMode
+      const val = (localStorage.getItem('sectile_board_grouping') ?? localStorage.getItem('taskacao_board_grouping')) as BoardGroupingMode
       return val || 'status'
     } catch {
       return 'status'
@@ -450,7 +441,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const persistBoardGrouping = useCallback((mode: BoardGroupingMode) => {
     setBoardGroupingState(mode)
     try {
-      localStorage.setItem('taskflow_board_grouping', mode)
+      localStorage.setItem('sectile_board_grouping', mode)
     } catch {
       // stockage indisponible : le mode vaut pour cette session
     }
@@ -514,9 +505,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [assigneeFilter, setAssigneeFilterState] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskSource>('all')
   const [parentFilter, setParentFilterState] = useState<string | null>(null)
-  const [dailyDigest, setDailyDigest] = useState<DailyDigest | null>(null)
-  const [isDigestLoading, setIsDigestLoading] = useState(false)
-  const [isDigestEnriching, setIsDigestEnriching] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   // chatTask désigne la tâche dont le PTY est affiché. Il vit dans le panneau
@@ -542,7 +530,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [hideDone, setHideDoneState] = useState<boolean>(() => {
     try {
-      const val = localStorage.getItem('taskflow_hide_done') ?? localStorage.getItem('taskacao_hide_done')
+      const val = localStorage.getItem('sectile_hide_done') ?? localStorage.getItem('taskacao_hide_done')
       return val === 'true'
     } catch {
       return false
@@ -553,7 +541,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setHideDoneState(prev => {
       const next = typeof val === 'function' ? val(prev) : val
       try {
-        localStorage.setItem('taskflow_hide_done', String(next))
+        localStorage.setItem('sectile_hide_done', String(next))
       } catch {}
       return next
     })
@@ -582,7 +570,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectIdState] = useState<string | 'all'>(() => {
     try {
-      return localStorage.getItem('taskflow_selected_project_id') || localStorage.getItem('taskacao_selected_project_id') || 'all'
+      return localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id') || 'all'
     } catch {
       return 'all'
     }
@@ -590,14 +578,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const setSelectedProjectId = useCallback((id: string | 'all') => {
     setSelectedProjectIdState(id)
     try {
-      localStorage.setItem('taskflow_selected_project_id', id)
+      localStorage.setItem('sectile_selected_project_id', id)
     } catch {}
   }, [])
 
   // Les filtres sont mémorisés par projet : sprint et équipe n'ont de sens que
   // dans le projet où ils ont été choisis, et on retrouve son contexte de
   // travail en revenant sur un projet ou après un rechargement.
-  const filterStorageKey = (projectId: string) => `taskflow_filters_${projectId || 'all'}`
+  const filterStorageKey = (projectId: string) => `sectile_filters_${projectId || 'all'}`
   const legacyFilterStorageKey = (projectId: string) => `taskacao_filters_${projectId || 'all'}`
 
   const readStoredFilters = (projectId: string): Record<string, string | null> => {
@@ -870,7 +858,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             return prev
           }
           try {
-            const stored = localStorage.getItem('taskflow_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
+            const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
             if (stored === 'all') return 'all'
             if (stored && projectList.some(p => p.id === stored || p.slug === stored)) {
               return stored
@@ -881,7 +869,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const projWithTasks = projectList.find(p => (p.taskCount || 0) > 0)
           if (projWithTasks) {
             try {
-              localStorage.setItem('taskflow_selected_project_id', projWithTasks.id)
+              localStorage.setItem('sectile_selected_project_id', projWithTasks.id)
             } catch {}
             return projWithTasks.id
           }
@@ -1447,41 +1435,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const syncLinear = async (team?: string) => {
-    setIsSyncing(true)
-    try {
-      const activeProj = selectedProjectId !== 'all' ? projects.find(p => p.id === selectedProjectId) : (projects.find(p => p.isDefault) || projects[0])
-      const targetTeam = team || activeProj?.linearTeam || settings.linearTeam || ''
-      const res = await fetch(`${API_BASE}/sync/linear`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team: targetTeam, projectId: activeProj?.id }),
-      })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Linear sync failed')
-      }
-      const data = await res.json()
-      if (data.activity) {
-        setActivities(prev => [data.activity, ...prev.filter(a => a.id !== data.activity.id)])
-      }
-      fetchActivityStats()
-      addToast({
-        type: 'info',
-        title: 'Synchronisation Linear lancée',
-        description: targetTeam ? `Équipe ${targetTeam} (${activeProj?.name || ''}) — Suivi en direct dans Activités.` : 'Synchronisation Linear en cours...',
-      })
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: t.toasts.error,
-        description: err.message,
-      })
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
   const syncGithub = async (repo?: string) => {
     setIsSyncing(true)
     try {
@@ -1555,9 +1508,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const syncCurrentProject = async () => {
     const activeProj = currentProject || (projects.find(p => p.isDefault) || projects[0])
     const tracker = activeProj?.issueTracker || 'local'
-    if (tracker === 'linear') {
-      await syncLinear(activeProj?.linearTeam)
-    } else if (tracker === 'github') {
+    if (tracker === 'github') {
       await syncGithub(activeProj?.githubRepo)
     } else if (tracker === 'jira') {
       await syncJira(activeProj?.jiraProject)
@@ -2439,13 +2390,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
   // l'étape de la tâche : l'interface ne fait qu'ouvrir le terminal quand le pas
   // est interactif.
-  const advanceTask = async (taskId: string, auto?: boolean): Promise<{mode:string;skillId?:string;label?:string}|null> => {
+  const advanceTask = async (taskId: string, auto?: boolean, mode?: SkillMode): Promise<{mode:string;skillId?:string;label?:string}|null> => {
     const task = tasks.find(task => task.id === taskId)
     if (!task) return null
     const project = projects.find(project => project.id === task.projectId)
     const skillId = auto ? 'pickup' : skillForStage(resolveTaskStage(task,project))
     if (!skillId) return null
-    const activity = await runSkill(taskId,skillId)
+    // Une chaîne complète est autonome par construction : elle force le mode au
+    // lieu de laisser la précédence décider, sinon elle ouvrirait un terminal
+    // que personne ne regarde. Le pas suivant lancé seul, lui, accepte la
+    // surcharge ponctuelle.
+    const activity = await runSkill(taskId,skillId,undefined,{mode:auto ? 'autonomous' : mode})
     return activity ? {mode:'remote',skillId} : null
   }
 
@@ -2581,6 +2536,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       'Skill enregistrée'
     )
 
+  const saveSkillMode = (skillId: string, mode: SkillMode) =>
+    skillEditorAction(
+      `/${encodeURIComponent(skillId)}/mode`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      },
+      'Mode d\'exécution enregistré'
+    )
+
   const resetSkillContent = (skillId: string) =>
     skillEditorAction(`/${encodeURIComponent(skillId)}/reset`, { method: 'POST' }, 'Modèle intégré restauré')
 
@@ -2642,7 +2608,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const convertTask = async (id: string, target: 'linear' | 'github'): Promise<Task | null> => {
+  const convertTask = async (id: string, target: 'github'): Promise<Task | null> => {
     try {
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(id)}/convert`, {
         method: 'POST',
@@ -2659,12 +2625,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setSelectedTask(updated)
       }
       const activeProj = selectedProjectId !== 'all' ? projects.find(p => p.id === selectedProjectId) : projects[0]
-      const teamLabel = activeProj?.linearTeam || settings.linearTeam || 'Linear'
       const repoLabel = activeProj?.githubRepo || settings.githubRepo || 'GitHub'
       addToast({
         type: 'success',
-        title: target === 'linear' ? 'Exporté vers Linear' : 'Exporté vers GitHub',
-        description: `${updated.key} (${target === 'linear' ? teamLabel : repoLabel}) créé avec succès !`,
+        title: 'Exporté vers GitHub',
+        description: `${updated.key} (${repoLabel}) créé avec succès !`,
       })
       return updated
     } catch (err: any) {
@@ -2777,7 +2742,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     taskId: string,
     skillId: string,
     prompt?: string,
-    opts?: { withComments?: boolean }
+    opts?: { withComments?: boolean; mode?: SkillMode }
   ): Promise<TaskActivity | null> => {
     setIsSkillRunning(true)
     setRunningSkillId(skillId)
@@ -2791,7 +2756,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/run-skill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skillId, prompt, withComments: opts?.withComments }),
+        // `mode` absent veut dire « pas de surcharge » : la précédence retombe
+        // sur la skill puis sur le projet. Ce n'est pas « interactif ».
+        body: JSON.stringify({ skillId, prompt, withComments: opts?.withComments, mode: opts?.mode || undefined }),
       })
       if (!res.ok) {
         const errorData = await res.json()
@@ -2927,7 +2894,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  // Filter tasks by active source filter (all / linear / github / jira / local)
+  // Filter tasks by active source filter (all / github / jira / local)
   // then by the active parent (epic or parent story), when one is selected.
   const filteredTasks = React.useMemo(() => {
     let out = sourceFilter === 'all'
@@ -2942,87 +2909,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     return out
   }, [tasks, sourceFilter, parentFilter, selectedProjectId])
-
-  // The daily digest reads as a brief for one person, so it is served only for
-  // a selected project of type "personal" — never for a delivery project, and
-  // never for the "all projects" view.
-  const isDigestAvailable = currentProject?.projectType === 'personal'
-
-  const digestProjectId = useCallback((): string | null => {
-    return currentProject?.projectType === 'personal' ? currentProject.id : null
-  }, [currentProject])
-
-  // Switching to a delivery project while the digest is open would leave an
-  // empty view behind: fall back to the board.
-  useEffect(() => {
-    if (activeView === 'digest' && !isDigestAvailable) {
-      setActiveView('board')
-    }
-  }, [activeView, isDigestAvailable, setActiveView])
-
-  const fetchDailyDigest = useCallback(async (date?: string, assignee?: string): Promise<DailyDigest | null> => {
-    const pid = digestProjectId()
-    if (!pid) return null
-    setIsDigestLoading(true)
-    try {
-      const params = new URLSearchParams()
-      if (date) params.set('date', date)
-      if (assignee) params.set('assignee', assignee)
-      const qs = params.toString() ? `?${params.toString()}` : ''
-      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(pid)}/daily-digest${qs}`)
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Digest indisponible')
-      }
-      const data: DailyDigest = await res.json()
-      setDailyDigest(data)
-      return data
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Digest indisponible', description: err.message })
-      return null
-    } finally {
-      setIsDigestLoading(false)
-    }
-  }, [digestProjectId])
-
-  const generateDailyDigest = useCallback(async (
-    opts?: { date?: string; assignee?: string; enrich?: boolean }
-  ): Promise<DailyDigest | null> => {
-    const pid = digestProjectId()
-    if (!pid) return null
-    const enrich = Boolean(opts?.enrich)
-    if (enrich) setIsDigestEnriching(true)
-    else setIsDigestLoading(true)
-    try {
-      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(pid)}/daily-digest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: opts?.date || '', assignee: opts?.assignee || '', enrich }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Génération du digest impossible')
-      }
-      const data: DailyDigest = await res.json()
-      setDailyDigest(data)
-      if (enrich) {
-        addToast({
-          type: data.aiStatus === 'completed' ? 'success' : 'error',
-          title: data.aiStatus === 'completed' ? 'Agenda récupéré' : 'Agenda indisponible',
-          description: data.aiStatus === 'completed'
-            ? `Agenda du ${data.date} ajouté au digest.`
-            : (data.aiError || "L'agent n'a rien renvoyé."),
-        })
-      }
-      return data
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Digest', description: err.message })
-      return null
-    } finally {
-      setIsDigestEnriching(false)
-      setIsDigestLoading(false)
-    }
-  }, [digestProjectId])
 
   // A project can rename any workflow skill through `skillOverrides`
   // (skillId -> custom label). Every place that shows a skill name goes through
@@ -3272,12 +3158,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         skillCommand,
 
 
-        isDigestAvailable,
-        dailyDigest,
-        isDigestLoading,
-        isDigestEnriching,
-        fetchDailyDigest,
-        generateDailyDigest,
         sidebarCollapsed,
         setSidebarCollapsed,
         selectedTask,
@@ -3356,6 +3236,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         fetchSkillEditor,
         saveSkillContent,
         resetSkillContent,
+        saveSkillMode,
         importSkillFromRepo,
         launchInteractiveStep,
         confirmInteractiveStep,
@@ -3365,7 +3246,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         deleteTask,
         runSkill,
         syncAll,
-        syncLinear,
         syncGithub,
         syncJira,
         syncCurrentProject,

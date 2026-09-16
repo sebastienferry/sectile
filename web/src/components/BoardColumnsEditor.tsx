@@ -17,8 +17,8 @@ const WORKFLOW_STAGES: { id: WorkflowStage; label: string }[] = [
   { id: 'finished', label: '#finished' },
 ]
 
-const DRAG_STATUS = 'application/x-taskflow-status'
-const DRAG_STAGE = 'application/x-taskflow-stage'
+const DRAG_STATUS = 'application/x-sectile-status'
+const DRAG_STAGE = 'application/x-sectile-stage'
 
 interface Props {
   project: Project | null
@@ -29,7 +29,6 @@ interface Props {
   issueTracker?: string
   githubRepo?: string
   repoPath?: string
-  linearTeam?: string
 }
 
 type DragPayload =
@@ -46,7 +45,6 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   issueTracker,
   githubRepo,
   repoPath,
-  linearTeam,
 }) => {
   const { fetchProjectTrackerStatuses, addToast } = useApp()
 
@@ -79,7 +77,6 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       if (project?.id) params.append('projectId', project.id)
       if (issueTracker) params.append('tracker', issueTracker)
       if (githubRepo) params.append('repo', githubRepo)
-      if (linearTeam) params.append('team', linearTeam)
       if (repoPath) params.append('repoPath', repoPath)
 
       let detectedList: string[] = []
@@ -270,7 +267,7 @@ export const BoardColumnsEditor: React.FC<Props> = ({
           disabled={isDetecting}
           onClick={handleDetect}
           className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent-color)] hover:bg-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50"
-          title="Détecter les statuts depuis le tracker (GitHub / Linear / Base)"
+          title="Détecter les statuts depuis le tracker (GitHub / Jira / Base)"
         >
           <RefreshCw size={10} className={isDetecting ? 'animate-spin text-[var(--accent-color)]' : 'text-cyan-400'} />
           <span>{isDetecting ? 'Détection...' : 'Détecter les statuts'}</span>

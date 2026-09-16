@@ -1,5 +1,5 @@
 {
-  "name": "taskflow-desktop",
+  "name": "sectile-desktop",
   "version": "0.2.0",
   "private": true,
   "main": "electron/main.cjs",

@@ -1,6 +1,6 @@
 ## Purpose
 
-Permet de regrouper et d'exécuter un lot de tâches en autonomie au sein d'un Git Worktree dédié avec un skill agent et de fournir une action UX directe de sélection par lot dans les différentes vues de TaskFlow.
+Permet de regrouper et d'exécuter un lot de tâches en autonomie au sein d'un Git Worktree dédié avec un skill agent et de fournir une action UX directe de sélection par lot dans les différentes vues de Sectile.
 
 ## ADDED Requirements
 

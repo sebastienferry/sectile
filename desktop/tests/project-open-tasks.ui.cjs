@@ -4,7 +4,7 @@ const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
 test('project open tasks load immediately, search safely and launch the selected ticket',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-open-tasks-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-open-tasks-'))
  const requests=[],launches=[],pending=[]
  let failRead=false,failLaunch=false,configured=true,empty=false
  const tasks=[
@@ -38,7 +38,7 @@ test('project open tasks load immediately, search safely and launch the selected
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
@@ -91,6 +91,14 @@ test('project open tasks load immediately, search safely and launch the selected
   await page.getByRole('button',{name:'Launch',exact:true}).click()
   await expect(page.locator('#project-dialog')).not.toBeVisible()
   assert.deepEqual(launches,[{project:'project-b',taskID:'b1',skillID:'specify',prompt:''}])
+  // A discussion is launchable with no instructions at all.
+  await open('B').click();await expect(cards).toContainText('Other project task')
+  const instructions=page.getByRole('textbox',{name:'Custom instructions',exact:true})
+  await page.getByRole('combobox',{name:'Skill for #1',exact:true}).selectOption('discuss')
+  await expect(instructions).toBeHidden()
+  await page.getByRole('button',{name:'Launch',exact:true}).click()
+  await expect(page.locator('#project-dialog')).not.toBeVisible()
+  assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'discuss',prompt:''})
   failRead=true;await open('A').click();await page.getByRole('alert').filter({hasText:'Could not load open tasks'}).waitFor()
   failRead=false;await search.click();await expect(cards).toHaveCount(2)
   empty=true;await search.click();await page.getByText('No open tasks in this project',{exact:true}).waitFor()
@@ -107,7 +115,7 @@ test('project open tasks load immediately, search safely and launch the selected
    const control=await button.boundingBox()
    assert.ok(control.x>=bounds.x&&control.x+control.width<=bounds.x+bounds.width+1)
   }
-  assert.equal(launches.length,1)
+  assert.equal(launches.length,2)
  }finally{
   for(const response of pending)response.end('[]')
   if(app)await app.close()

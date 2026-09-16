@@ -1,6 +1,6 @@
 # Sectile Architecture & Engineering Documentation
 
-Welcome to the comprehensive technical documentation for **Sectile** (formerly TaskFlow, the Autonomous AI Task & Project Orchestrator). This documentation is designed to provide complete architectural clarity, component blueprints, data specifications, and step-by-step instructions so that any software engineer or Large Language Model (LLM) can understand, maintain, extend, or completely re-implement this system from scratch.
+Welcome to the comprehensive technical documentation for **Sectile** (formerly Sectile, the Autonomous AI Task & Project Orchestrator). This documentation is designed to provide complete architectural clarity, component blueprints, data specifications, and step-by-step instructions so that any software engineer or Large Language Model (LLM) can understand, maintain, extend, or completely re-implement this system from scratch.
 
 ---
 
@@ -14,7 +14,7 @@ Welcome to the comprehensive technical documentation for **Sectile** (formerly T
 
 2. [**Core Capabilities & Workflows** (`CAPABILITIES.md`)](./CAPABILITIES.md)
    - Multi-project management and dynamic CWD resolution.
-   - Issue tracker abstraction (Linear, GitHub Issues, Local SQLite).
+   - Issue tracker abstraction (GitHub Issues, Jira, Local SQLite).
    - Autonomous AI Skill pipeline (`clarify-issue`, `specify-issue`, `code-issue`, `adjust-issue`, `pick-issue`).
    - Interactive live CLI terminal with persistent ZSH sessions.
    - Live Git branch switching, diff inspection, and pull request generation.
@@ -34,7 +34,12 @@ Welcome to the comprehensive technical documentation for **Sectile** (formerly T
    - WebSocket protocol specification for live terminal streaming and window resizing.
    - Task workflow lifecycle and activity status state machines.
 
-5. [**Re-Implementation Guide for LLMs** (`REIMPLEMENTATION_GUIDE.md`)](./REIMPLEMENTATION_GUIDE.md)
-   - Step-by-step guide to rebuild TaskFlow from zero.
+5. [**Interactive architecture diagram** (`diagrams/sectile-architecture.html`)](./diagrams/sectile-architecture.html)
+   - Explorable server/agent topology pinned to a repository revision, with source links per component.
+   - Guided views for the control plane, workstation execution and the Claude Code MCP path.
+   - Editable specification in [`diagrams/sectile-architecture.json`](./diagrams/sectile-architecture.json).
+
+6. [**Re-Implementation Guide for LLMs** (`REIMPLEMENTATION_GUIDE.md`)](./REIMPLEMENTATION_GUIDE.md)
+   - Step-by-step guide to rebuild Sectile from zero.
    - Critical implementation pitfalls, concurrency rules, and deadlock prevention.
    - Verification checklist and test suite specification.

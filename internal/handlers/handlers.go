@@ -18,8 +18,10 @@ import (
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
+	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/taskmcp"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -42,6 +44,12 @@ type Handler struct {
 	subMu           sync.RWMutex
 	agentDispatcher *AgentDispatcher
 	pullOnConnect   bool
+	// mcpSessions owns the lifecycle of MCP client sessions and of the runs
+	// they start, so a client that disappears cannot leave a task active.
+	mcpSessions *taskmcp.SessionRegistry
+	// identityProvider is nil when no OpenID Connect provider is configured,
+	// which leaves the interface on its single implicit user.
+	identityProvider *auth.Provider
 	// agentPingInterval and agentReadTimeout tune the WebSocket keepalive that
 	// detects agents which vanished without closing their connection. Set once
 	// at construction; tests shorten them to observe a drop quickly.
@@ -54,10 +62,17 @@ func (h *Handler) SetPullOnConnect(enable bool) {
 }
 
 func NewHandler(database *db.DB) *Handler {
+	// A typed nil database would satisfy the closer interface and panic on the
+	// first disconnection, so the registry is given one only when it exists.
+	var runs taskmcp.RunCloser
+	if database != nil {
+		runs = database
+	}
 	h := &Handler{
 		db:                database,
 		subscribers:       make(map[chan Event]bool),
 		agentDispatcher:   NewAgentDispatcher(),
+		mcpSessions:       taskmcp.NewSessionRegistry(runs),
 		agentPingInterval: defaultAgentPingInterval,
 		agentReadTimeout:  defaultAgentReadTimeout,
 	}
@@ -138,7 +153,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "taskflow-api"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "sectile-api"})
 }
 
 func (h *Handler) HandleCliStatus(w http.ResponseWriter, r *http.Request) {
@@ -337,30 +352,6 @@ func (h *Handler) HandleSyncAll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) HandleSyncLinear(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	var req struct {
-		Team      string `json:"team"`
-		ProjectID string `json:"projectId"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-
-	activity, err := h.db.EnqueueSync("linear", req.Team, req.ProjectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"message":  "Synchronisation Linear ajoutée à la file d'attente",
-		"activity": activity,
-	})
-}
-
 func (h *Handler) HandleSyncGithub(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -497,7 +488,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		tracker := r.URL.Query().Get("tracker")
 		repo := r.URL.Query().Get("repo")
 		repoPath := r.URL.Query().Get("repoPath")
-		team := r.URL.Query().Get("team")
 		projID := r.URL.Query().Get("projectId")
 
 		var statuses []string
@@ -508,7 +498,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				IssueTracker: tracker,
 				GithubRepo:   repo,
 				RepoPath:     repoPath,
-				LinearTeam:   team,
 			}
 			// Temporary DB query for draft project
 			_ = dummyProj
@@ -808,7 +797,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/macros: the macro metadata TaskFlow owns:
+	// Sub-action: /api/projects/{id}/macros: the macro metadata Sectile owns:
 	// horizon (NOW / NEXT / LATER), shaping notes and todos.
 	if len(parts) >= 2 && (parts[1] == "macros" || parts[1] == "epics") {
 		// Creation: /api/projects/{id}/macros/create
@@ -985,6 +974,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	//   PUT    /{skillId}            → save the edited content and regenerate the files
 	//   POST   /{skillId}/reset      → back to the built-in template
 	//   POST   /{skillId}/import     → take the file on disk as the new content
+	//   PUT    /{skillId}/mode       → pin the skill's execution mode, or clear it
 	if len(parts) >= 2 && parts[1] == "skill-editor" {
 		skillID := ""
 		if len(parts) >= 3 {
@@ -1030,6 +1020,32 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, entry)
 			return
 
+		case r.Method == http.MethodPut && skillID != "" && sub == "mode":
+			var payload struct {
+				Mode string `json:"mode"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+				return
+			}
+			if err := h.db.SetProjectSkillMode(id, skillID, payload.Mode); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			entries, err := h.db.ListProjectSkillEditor(id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			for _, entry := range entries {
+				if entry.ID == models.NormalizeSkillID(skillID) {
+					writeJSON(w, http.StatusOK, entry)
+					return
+				}
+			}
+			writeError(w, http.StatusNotFound, "skill introuvable après enregistrement")
+			return
+
 		case r.Method == http.MethodPost && skillID != "" && sub == "import":
 			entry, err := h.db.ImportProjectSkillFromRepo(id, skillID)
 			if err != nil {
@@ -1071,63 +1087,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			"status":  status,
 		})
 		return
-	}
-
-	// Sub-action: /api/projects/{id}/daily-digest
-	//   GET  → compute the task sections and merge any stored agenda
-	//   POST → same, then persist; with {"enrich": true} also runs the agenda pass
-	if len(parts) >= 2 && parts[1] == "daily-digest" {
-		switch r.Method {
-		case http.MethodGet:
-			if r.URL.Query().Get("history") == "1" {
-				dates, err := h.db.ListDigestDates(id, 30)
-				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-				writeJSON(w, http.StatusOK, map[string]interface{}{"dates": dates})
-				return
-			}
-			digest, err := h.db.ComputeDailyDigest(id, r.URL.Query().Get("date"), r.URL.Query().Get("assignee"))
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, digest)
-			return
-
-		case http.MethodPost:
-			var payload models.DailyDigestRequest
-			_ = json.NewDecoder(r.Body).Decode(&payload)
-
-			if payload.Enrich {
-				// Runs the agent; can take a while, and reports its own failure
-				// inside the digest rather than as an HTTP error.
-				digest, err := h.db.EnqueueDigestAgenda(id, payload.Date, payload.Assignee)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-				writeJSON(w, http.StatusOK, digest)
-				return
-			}
-
-			digest, err := h.db.ComputeDailyDigest(id, payload.Date, payload.Assignee)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			if err := h.db.SaveDailyDigest(digest); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, digest)
-			return
-
-		default:
-			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-			return
-		}
 	}
 
 	// Sub-action: /api/projects/{id}/spec-framework-status
@@ -1184,14 +1143,12 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			target = id
 		}
 		tracker := r.URL.Query().Get("tracker")
-		team := r.URL.Query().Get("team")
 		repo := r.URL.Query().Get("repo")
 
 		if r.Method == http.MethodPost {
 			var body struct {
 				ProjectID    string `json:"projectId"`
 				IssueTracker string `json:"issueTracker"`
-				LinearTeam   string `json:"linearTeam"`
 				GithubRepo   string `json:"githubRepo"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
@@ -1201,16 +1158,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				if body.IssueTracker != "" {
 					tracker = body.IssueTracker
 				}
-				if body.LinearTeam != "" {
-					team = body.LinearTeam
-				}
 				if body.GithubRepo != "" {
 					repo = body.GithubRepo
 				}
 			}
 		}
 
-		statuses, err := h.db.DetectTrackerStatuses(target, tracker, team, repo)
+		statuses, err := h.db.DetectTrackerStatuses(target, tracker, repo)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1736,6 +1690,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Skill ID is required")
 			return
 		}
+		// An absent mode means "no override", which is not the same as
+		// interactive: the precedence still falls through to the skill and then
+		// to the project. Anything else is a client mistake, not a fallback.
+		if !models.ValidSkillMode(req.Mode) {
+			writeError(w, http.StatusBadRequest, "mode invalide : "+req.Mode)
+			return
+		}
 
 		if req.WithComments || strings.Contains(req.Prompt, "--with-comments") {
 			comments, err := h.db.GetTaskComments(id)
@@ -1759,7 +1720,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if task.ProjectID != "" {
 			projectID = task.ProjectID
 		}
-		userID := "default"
+		userID := h.webSessionUser(r)
 		ac := h.agentDispatcher.Lookup(userID, projectID)
 
 		// 1. If a local agent daemon is connected, delegate the execution directly to it!
@@ -1802,6 +1763,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
 				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
 				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
+				Mode: h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode),
 			})
 			finished := time.Now()
 			act.CompletedAt = &finished
@@ -1878,7 +1840,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Target == "" {
-			writeError(w, http.StatusBadRequest, "Target tracker is required ('linear' or 'github')")
+			writeError(w, http.StatusBadRequest, "Target tracker is required ('github')")
 			return
 		}
 		task, err := h.db.ConvertTaskToRemote(id, req.Target)
@@ -1973,8 +1935,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
-			if ac := h.agentDispatcher.Lookup("default", task.ProjectID); ac != nil {
-				err := h.agentDispatcher.Dispatch("default", task.ProjectID, "dispatch_step", task.ID, map[string]string{
+			userID := h.webSessionUser(r)
+			if ac := h.agentDispatcher.Lookup(userID, task.ProjectID); ac != nil {
+				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
 					"taskKey": task.Key, "taskId": task.ID, "projectId": task.ProjectID, "skillId": req.SkillID, "action": req.SkillID,
 				})
 				if err != nil {
@@ -2005,7 +1968,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		res, err := h.launchTaskExternalTerminal(r.Context(), id, req.Command, req.SkillID, req.TerminalCommand)
+		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID, req.TerminalCommand)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2133,12 +2096,17 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sub-action: /api/tasks/{id}/advance: one step of the agentic workflow, or
-	// the autonomous chain up to the review stage
+	// the full chain up to the project's stop stage
 	if subAction == "advance" && r.Method == http.MethodPost {
 		var req struct {
-			Auto bool `json:"auto"`
+			Auto bool   `json:"auto"`
+			Mode string `json:"mode"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if !models.ValidSkillMode(req.Mode) {
+			writeError(w, http.StatusBadRequest, "mode invalide : "+req.Mode)
+			return
+		}
 
 		task, err := h.db.GetTaskByID(id)
 		if err != nil || task == nil {
@@ -2147,7 +2115,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.Auto {
-			_, act, err := h.db.EnqueueAutonomousRun(task.ID)
+			_, act, err := h.db.EnqueueFullChainRun(task.ID)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -2162,7 +2130,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("aucun pas suivant depuis l'étape %s", stage))
 			return
 		}
-		_, act, err := h.db.EnqueueSkillOnTask(task.ID, step.SkillID, "")
+		_, act, err := h.db.EnqueueSkillOnTaskWithMode(task.ID, step.SkillID, "", req.Mode)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2590,19 +2558,19 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 // HandleTerminalWs upgrades the connection to WebSocket and streams the interactive PTY session
 func (h *Handler) HandleTerminalWs(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalSessions(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalSend(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalReset(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
@@ -2730,13 +2698,19 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveAgentUser maps an agent authentication token to a user ID. In the
-// current single-user deployment, any non-empty token resolves to "default".
+// resolveAgentUser maps an agent device credential to the user it is bound to.
+// A deployment that has not paired any workstation keeps working through the
+// shared server token, which resolves to the single implicit user.
 func (h *Handler) resolveAgentUser(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	if userID := h.db.UserForDeviceToken(token); userID != "" {
+		return userID
+	}
 	if !validAgentToken(token) {
 		return ""
 	}
-	// Future: validate against a user/token store.
 	return "default"
 }
 
@@ -2773,7 +2747,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.UserID == "" {
-		req.UserID = "default"
+		req.UserID = h.webSessionUser(r)
 	}
 	if req.ProjectID == "" {
 		req.ProjectID = "default"
@@ -2782,7 +2756,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 	// Session guard: verify the requesting user matches the agent owner.
 	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
 	if ac == nil {
-		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'taskflow-agent' on your workstation.")
+		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'sectile-agent' on your workstation.")
 		return
 	}
 
@@ -2957,7 +2931,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-	result, err := h.launchTaskExternalTerminal(r.Context(), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
+	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -2965,11 +2939,13 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
+// LaunchTaskExternalTerminal serves callers with no HTTP request of their own,
+// which is why it names the implicit user rather than resolving one.
 func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
-	return h.launchTaskExternalTerminal(context.Background(), taskID, command, skillID, customTermCmd)
+	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID, customTermCmd)
 }
 
-func (h *Handler) launchTaskExternalTerminal(ctx context.Context, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
+func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
@@ -2994,7 +2970,9 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, taskID, comman
 	if task.ProjectID != "" {
 		projectID = task.ProjectID
 	}
-	userID := "default"
+	if userID == "" {
+		userID = ImplicitUser
+	}
 	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
 		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
 		launchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)

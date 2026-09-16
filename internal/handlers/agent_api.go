@@ -2,16 +2,39 @@ package handlers
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"tasks/internal/db"
 	"tasks/internal/taskmcp"
 )
 
+// defaultMCPSessionTimeout bounds a session whose client never says goodbye: a
+// process killed outright sends no termination, so only silence reveals it.
+// Sectile's own bridge pings well inside this window, which keeps a live but
+// idle conversation connected while still closing an abandoned one.
+const defaultMCPSessionTimeout = 15 * time.Minute
+
+// mcpSessionTimeout reads the deployment's override. An unparseable or
+// negative value keeps the default rather than disabling the bound silently.
+func mcpSessionTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("SECTILE_MCP_SESSION_TIMEOUT"))
+	if raw == "" {
+		return defaultMCPSessionTimeout
+	}
+	timeout, err := time.ParseDuration(raw)
+	if err != nil || timeout <= 0 {
+		return defaultMCPSessionTimeout
+	}
+	return timeout
+}
+
 // AgentAPIAuth shares the agent handshake's identity policy. Deployments can pin
-// a bearer credential with TASKFLOW_SERVER_TOKEN; without it this is local mode.
+// a bearer credential with SECTILE_SERVER_TOKEN; without it this is local mode.
 func (h *Handler) AgentAPIAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {
@@ -33,13 +56,31 @@ func validAgentToken(token string) bool {
 	if strings.TrimSpace(token) == "" {
 		return false
 	}
-	expected := os.Getenv("TASKFLOW_SERVER_TOKEN")
+	expected := os.Getenv("SECTILE_SERVER_TOKEN")
 	return expected == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
 }
 
+// MCPHandler serves the tool catalog over a stateful Streamable HTTP session.
+// Statefulness is what makes a connection observable: a stateless endpoint
+// builds a throwaway session per request, so it can neither tell two clients
+// apart nor notice that one went away.
 func (h *Handler) MCPHandler() http.Handler {
-	server := taskmcp.NewServer(h.db)
-	return h.AgentAPIAuth(mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return server }, &mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true}))
+	server := taskmcp.NewServer(h.db, h.mcpSessions)
+	return h.AgentAPIAuth(mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return server },
+		&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: mcpSessionTimeout()},
+	))
+}
+
+// HandleMCPSessions reports the clients currently connected to the MCP
+// endpoint. It is a browser-facing status view, so it stays outside the
+// machine-API authentication that guards the endpoint itself.
+func (h *Handler) HandleMCPSessions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": h.mcpSessions.Snapshot()})
 }
 
 func (h *Handler) HandleAgentConfig(w http.ResponseWriter, r *http.Request) {
@@ -66,4 +107,33 @@ func (h *Handler) HandleAgentProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, projects)
+}
+
+// HandleAgentRunOutput records what an autonomous run printed. An interactive
+// run shows its output in a terminal the user is looking at; a headless one has
+// nowhere else to put it, so the agent posts it here as it goes. The body is
+// capped at the record limit so a runaway CLI cannot push an unbounded request.
+func (h *Handler) HandleAgentRunOutput(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	var req struct {
+		TaskID string `json:"taskId"`
+		RunID  string `json:"runId"`
+		Output string `json:"output"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, db.RemoteRunOutputLimit)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid run output payload: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(req.TaskID) == "" || strings.TrimSpace(req.RunID) == "" {
+		writeError(w, http.StatusBadRequest, "taskId and runId are required")
+		return
+	}
+	if err := h.db.AppendRemoteRunOutput(req.TaskID, req.RunID, req.Output); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

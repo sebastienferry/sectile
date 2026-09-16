@@ -24,20 +24,20 @@ Each canonical tool SHALL preserve its former argument and response contracts, v
 - **AND** reading a task or finishing a run does not implicitly advance its workflow stage.
 
 ### Requirement: Legacy tool names are unsupported
-Neither transport SHALL advertise or execute any of the eight `taskflow_` tool names, and first-party callers SHALL NOT retry using a legacy name. No `sectile_` tool aliases SHALL be introduced.
+Neither transport SHALL advertise or execute any of the eight `sectile_` tool names, and first-party callers SHALL NOT retry using a legacy name. No `sectile_` tool aliases SHALL be introduced.
 
 #### Scenario: Reject every former name
 - **GIVEN** an upgraded deployment and valid arguments for any former tool
-- **WHEN** a client calls that tool using its `taskflow_` name through HTTP or stdio
+- **WHEN** a client calls that tool using its `sectile_` name through HTTP or stdio
 - **THEN** the call fails as an unknown tool and produces no task, comment, run or tracker mutation.
 
 ### Requirement: Managed registrations converge on Sectile
-Normal bootstrap SHALL create or migrate to exactly one managed `sectile` registration and remove the reserved `taskflow` registration for Codex, Claude, Antigravity, Gemini, Cursor and Vibe. It SHALL preserve unrelated settings and registrations, explicit permission restrictions and provider-specific configuration locations. It SHALL NOT persist bearer credentials.
+Normal bootstrap SHALL create or migrate to exactly one managed `sectile` registration and remove the reserved `sectile` registration for Codex, Claude, Antigravity, Gemini, Cursor and Vibe. It SHALL preserve unrelated settings and registrations, explicit permission restrictions and provider-specific configuration locations. It SHALL NOT persist bearer credentials.
 
 #### Scenario: Fresh or legacy-only configuration
-- **GIVEN** a supported provider with no managed registration or only a legacy `taskflow` registration
+- **GIVEN** a supported provider with no managed registration or only a legacy `sectile` registration
 - **WHEN** bootstrap succeeds
-- **THEN** exactly one `sectile` registration uses the current managed connection settings and no `taskflow` registration remains
+- **THEN** exactly one `sectile` registration uses the current managed connection settings and no `sectile` registration remains
 - **AND** unrelated content and the effective explicit restrictions on the corresponding renamed tools are preserved.
 
 #### Scenario: Repeat bootstrap or refresh the gateway
@@ -47,7 +47,7 @@ Normal bootstrap SHALL create or migrate to exactly one managed `sectile` regist
 - **AND** Antigravity retains its shared user-level registration without a process-specific gateway.
 
 #### Scenario: Both registrations already exist
-- **GIVEN** existing `sectile` and `taskflow` registrations
+- **GIVEN** existing `sectile` and `sectile` registrations
 - **WHEN** bootstrap can reconcile them without discarding Sectile settings or broadening either entry's explicit permissions
 - **THEN** it retains the Sectile configuration, refreshes managed connection settings and removes the redundant legacy registration.
 
@@ -83,5 +83,5 @@ Current MCP documentation SHALL present Sectile service identities, canonical to
 #### Scenario: Preserve unrelated compatibility contracts
 - **GIVEN** existing environment configuration, data and historical records
 - **WHEN** the MCP naming change is installed
-- **THEN** existing `TASKFLOW_*` variables, `.taskflow/` and data paths, `/mcp`, machine markers, module and repository identities continue unchanged
+- **THEN** existing `SECTILE_*` variables, `.taskflow/` and data paths, `/mcp`, machine markers, module and repository identities continue unchanged
 - **AND** historical clarification, specification and decision records are retained.

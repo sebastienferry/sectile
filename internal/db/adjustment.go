@@ -35,7 +35,7 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (trackerapi.P
 		return pr, fmt.Errorf("adjustment prerequisite: %w (creation owner: %s)", err, d.prCreationOwner(task))
 	}
 	if task.PrURL != nil && strings.TrimSpace(*task.PrURL) != "" && *task.PrURL != pr.URL {
-		return pr, fmt.Errorf("recorded PR does not match the open task-branch PR")
+		return pr, fmt.Errorf("recorded PR does not match the task-branch PR")
 	}
 	if ready && pr.Draft {
 		return pr, fmt.Errorf("adjustment requires a ready PR")
@@ -53,8 +53,9 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (trackerapi.P
 }
 
 func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url, expected string, ready bool) error {
-	if !pr.Open || pr.Branch != branch || pr.URL == "" || pr.URL != url {
-		return fmt.Errorf("forge does not confirm the matching open PR")
+	// A merged PR is accepted: the human merge is the boundary adjustment stops at, not a reason to strand the task.
+	if (!pr.Open && !pr.Merged) || pr.Branch != branch || pr.URL == "" || pr.URL != url {
+		return fmt.Errorf("forge does not confirm the matching open or merged PR")
 	}
 	if expected != "" && pr.URL != expected {
 		return fmt.Errorf("adjustment replaced the original PR")

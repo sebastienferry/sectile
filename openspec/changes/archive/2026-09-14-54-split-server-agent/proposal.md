@@ -4,7 +4,7 @@
 The current executable embeds the web server, local agent, SQLite access, MCP bridge and subprocess execution. The server also calls Git and tracker CLIs through database helpers, so separating build outputs alone would not make it deployable as a headless control plane.
 
 ## What Changes
-- Build `taskflow-server` from `cmd/server` and `taskflow-agent` from `cmd/agent`.
+- Build `sectile-server` from `cmd/server` and `sectile-agent` from `cmd/agent`.
 - Keep SQLite, board/roadmap/sprint configuration, tracker synchronization, REST, the agent relay and upstream HTTP MCP on the server.
 - Move workspace, Git, pull-request, terminal, editor and LLM execution to the local agent, with explicit unavailability when it is disconnected.
 - Replace server-side tracker subprocess adapters with native HTTP requests while preserving existing tracker operations.

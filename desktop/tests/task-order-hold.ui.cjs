@@ -4,7 +4,7 @@ const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
 test('sidebar holds its order while the pointer or focus stays on the task list',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-task-hold-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-task-hold-'))
  const run=(id,taskId,status,hour)=>({id,taskId,taskKey:'#'+taskId,projectId:'project-a',skill:'clarify',status,createdAt:`2026-09-13T${hour}:00:00Z`})
  // #7 is running and leads; #8 is queued and trails.
  let runs=[run('lead','7','running','10'),run('trailing','8','queued','09')]
@@ -19,7 +19,7 @@ test('sidebar holds its order while the pointer or focus stays on the task list'
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
@@ -28,7 +28,7 @@ test('sidebar holds its order while the pointer or focus stays on the task list'
   await page.waitForFunction(()=>document.querySelectorAll('.local-task').length===2)
   assert.deepEqual(await order(),['#7','#8'])
 
-  const lead=page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #7 in TaskFlow',exact:true})}).locator('.run')
+  const lead=page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #7 in Sectile',exact:true})}).locator('.run')
   await lead.hover()
   // The leading execution finishes: it would drop below the queued task, but
   // the pointer is on the row so the sequence must not change.

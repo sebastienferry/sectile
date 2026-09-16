@@ -77,8 +77,8 @@ func TestAgentTemplateUnknownAndEscapedTokens(t *testing.T) {
 }
 
 func TestAgentCommandContextFallbacks(t *testing.T) {
-	c := agentCommandContext{Directory: "/local/worktrees/task", Tracker: "LINEAR", Repo: "owner/project"}
-	if got := c.values("instructions"); got["tracker"] != "linear" || got["repo"] != "owner/project" {
+	c := agentCommandContext{Directory: "/local/worktrees/task", Tracker: "JIRA", Repo: "owner/project"}
+	if got := c.values("instructions"); got["tracker"] != "jira" || got["repo"] != "owner/project" {
 		t.Fatal(got)
 	}
 	c.Task.Source = "GITHUB"
@@ -99,11 +99,11 @@ func TestDispatchExpandsTaskLaunches(t *testing.T) {
 	for _, route := range []struct{ skill, action, prompt, want string }{
 		{"implement", "implement", "run metadata", "/code-issue full-task-id\n\nrun metadata"},
 		{"implement", "open_terminal", "run metadata", "/code-issue full-task-id\n\nrun metadata"},
-		{"custom", "custom", "custom instructions", "TaskFlow task: full-task-id\n\ncustom instructions"},
+		{"custom", "custom", "custom instructions", "Sectile task: full-task-id\n\ncustom instructions"},
 	} {
 		for _, title := range []string{launch.Task.Title, "Updated title"} {
 			launch.Task.Title = title
-			line, err := dispatchCommand(config, launch.Task.ID, route.skill, route.action, route.prompt, "", launch)
+			line, err := dispatchCommand(config, launch.Task.ID, route.skill, route.action, route.prompt, "", models.SkillModeInteractive, launch)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -114,13 +114,13 @@ func TestDispatchExpandsTaskLaunches(t *testing.T) {
 		}
 	}
 	raw := "echo {issueKey} {prompt}"
-	if got, err := dispatchCommand(config, launch.Task.ID, "", "open_terminal", "", raw, launch); err != nil || got != raw {
+	if got, err := dispatchCommand(config, launch.Task.ID, "", "open_terminal", "", raw, models.SkillModeInteractive, launch); err != nil || got != raw {
 		t.Fatalf("%q %v", got, err)
 	}
 }
 
 func TestAgentTemplateInteractiveHistory(t *testing.T) {
-	value := "!taskflow_missing_history_event 'quoted' $HOME `printf INJECTED`"
+	value := "!sectile_missing_history_event 'quoted' $HOME `printf INJECTED`"
 	for _, shell := range []string{"bash", "zsh"} {
 		if _, err := exec.LookPath(shell); err != nil {
 			continue
@@ -135,6 +135,7 @@ func TestAgentTemplateInteractiveHistory(t *testing.T) {
 				args = []string{"-f", "-i"}
 			}
 			cmd := exec.Command(shell, args...)
+			cmd.SysProcAttr = detachedSession()
 			cmd.Stdin = strings.NewReader(line + "\nexit\n")
 			out, err := cmd.Output()
 			want := value + "\x00"

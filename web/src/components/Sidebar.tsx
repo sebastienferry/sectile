@@ -7,9 +7,7 @@ import {
   CheckCircle2,
   Columns,
   ListFilter,
-  Map as MapIcon,
   Activity,
-  Tag,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -29,15 +27,12 @@ import {
   Workflow,
   Plus,
   Settings2,
-  CalendarDays,
   FileCode2,
-  SlidersHorizontal,
-  Clock,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { accentBadgeStyle } from '../lib/accents'
 import type { Status, TaskSource } from '../types'
-import { TaskFlowLogo } from './TaskFlowLogo'
+import { SectileLogo } from './SectileLogo'
 
 const renderProjectIcon = (iconName: string, size = 15, className = '') => {
   switch (iconName) {
@@ -67,7 +62,7 @@ const SidebarSection: React.FC<{
 }> = ({ id, title, collapsedBar, children, action }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
-      const val = localStorage.getItem(`taskflow_sidebar_section_${id}`) ?? localStorage.getItem(`taskacao_sidebar_section_${id}`)
+      const val = localStorage.getItem(`sectile_sidebar_section_${id}`) ?? localStorage.getItem(`taskacao_sidebar_section_${id}`)
       return val !== 'closed'
     } catch {
       return true
@@ -78,7 +73,7 @@ const SidebarSection: React.FC<{
     setIsOpen(prev => {
       const next = !prev
       try {
-        localStorage.setItem(`taskflow_sidebar_section_${id}`, next ? 'open' : 'closed')
+        localStorage.setItem(`sectile_sidebar_section_${id}`, next ? 'open' : 'closed')
       } catch {
         // stockage indisponible : le repli vaut pour cette session
       }
@@ -125,7 +120,6 @@ export const Sidebar: React.FC = () => {
     activeJobCount,
     activeView,
     setActiveView,
-    isDigestAvailable,
     statusFilter,
     setStatusFilter,
     priorityFilter,
@@ -136,15 +130,11 @@ export const Sidebar: React.FC = () => {
     setAssigneeFilter,
     sourceFilter,
     setSourceFilter,
-    parentFilter,
-    setParentFilter,
-    availableParents,
     sidebarCollapsed,
     setSidebarCollapsed,
     setIsProfileOpen,
     isSyncing,
     settings,
-    availableLabels,
     teams,
     tasks,
     taskFacets,
@@ -211,23 +201,21 @@ export const Sidebar: React.FC = () => {
   const sourceCounts: Record<'all' | TaskSource, number> = hasSourceFacets
     ? {
         all: totalCount,
-        linear: facetCount(taskFacets.sources, 'linear'),
         github: facetCount(taskFacets.sources, 'github'),
-        jira: 0,
+        jira: facetCount(taskFacets.sources, 'jira'),
         local: facetCount(taskFacets.sources, 'local'),
       }
     : {
         all: tasks.length,
-        linear: tasks.filter(t => t.source === 'linear').length,
         github: tasks.filter(t => t.source === 'github').length,
-        jira: 0,
+        jira: tasks.filter(t => t.source === 'jira').length,
         local: tasks.filter(t => !t.source || t.source === 'local').length,
       }
 
   const sourceItems: { id: 'all' | TaskSource; label: string; icon: string; color: string }[] = [
     { id: 'all', label: t.nav.allSources, icon: '◎', color: 'text-slate-400' },
-    { id: 'linear', label: 'Linear', icon: '◆', color: 'text-indigo-400' },
     { id: 'github', label: 'GitHub', icon: '⑄', color: 'text-slate-300' },
+    { id: 'jira', label: 'Jira', icon: '◆', color: 'text-blue-400' },
     { id: 'local', label: t.nav.localSource, icon: '▤', color: 'text-emerald-400' },
   ]
 
@@ -295,7 +283,7 @@ export const Sidebar: React.FC = () => {
           <>
             <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
               <div className="p-0.5 rounded-xl bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shadow-[0_0_12px_var(--accent-glow)]">
-                <TaskFlowLogo size={28} className="shrink-0" />
+                <SectileLogo size={28} className="shrink-0" />
               </div>
               <span className="font-bold tracking-tight text-base text-[var(--text-primary)] truncate">
                 {t.app.title}
@@ -320,7 +308,7 @@ export const Sidebar: React.FC = () => {
               title={`${t.app.title} - ${t.nav.toggleSidebar || 'Déplier'}`}
             >
               <div className="p-0.5 rounded-lg bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shadow-[0_0_8px_var(--accent-glow)]">
-                <TaskFlowLogo size={24} className="shrink-0" />
+                <SectileLogo size={24} className="shrink-0" />
               </div>
               <span className="absolute -bottom-0.5 -right-0.5 bg-[var(--bg-secondary)] border border-[var(--sidebar-border)] rounded-full p-0.5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] opacity-0 group-hover:opacity-100 transition-opacity shadow-xs">
                 <ChevronRight size={10} />
@@ -353,7 +341,7 @@ export const Sidebar: React.FC = () => {
                     {currentProject ? currentProject.name : 'Tous les projets'}
                   </span>
                   <span className="text-[10px] text-[var(--text-muted)] font-mono truncate">
-                    {currentProject ? `${currentProject.linearTeam ? currentProject.linearTeam + ' · ' : ''}${currentProject.taskCount || 0} tâches` : `${projects.length} projets`}
+                    {currentProject ? `${currentProject.taskCount || 0} tâches` : `${projects.length} projets`}
                   </span>
                 </div>
               </div>
@@ -420,7 +408,7 @@ export const Sidebar: React.FC = () => {
                           <div className="flex flex-col min-w-0">
                             <span className="truncate">{p.name}</span>
                             <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
-                              {p.linearTeam ? p.linearTeam + ' · ' : ''}{p.repoPath ? p.repoPath.split('/').pop() : ''}
+                              {p.repoPath ? p.repoPath.split('/').pop() : ''}
                             </span>
                           </div>
                         </div>
@@ -483,25 +471,6 @@ export const Sidebar: React.FC = () => {
         {/* Quick Views */}
         <SidebarSection id="views" title="Vues" collapsedBar={sidebarCollapsed}>
           <div className="space-y-0.5">
-            {/* Le digest ouvre la journée : réunions, ce qui traîne, ce qui
-                ferme. Il est en tête parce que c'est par là qu'on commence. */}
-            {isDigestAvailable && (
-            <button
-              onClick={() => setActiveView('digest')}
-              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                activeView === 'digest'
-                  ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-              }`}
-              title={t.nav.digest}
-            >
-              <div className="flex items-center gap-2.5 min-w-0 truncate">
-                <CalendarDays size={15} className="shrink-0 text-emerald-400" />
-                {!sidebarCollapsed && <span className="truncate">{t.nav.digest}</span>}
-              </div>
-            </button>
-            )}
-
             {/* 1. Mes tâches */}
             <button
               onClick={() => setAssigneeFilter(isMyTasksActive ? null : settings.userName)}
@@ -515,22 +484,6 @@ export const Sidebar: React.FC = () => {
               <div className="flex items-center gap-2.5 truncate">
                 <User size={15} className="text-cyan-400 shrink-0" />
                 {!sidebarCollapsed && <span className="truncate">{t.nav.myTasks}</span>}
-              </div>
-            </button>
-
-            {/* 2. Triage */}
-            <button
-              onClick={() => setActiveView('triage')}
-              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                activeView === 'triage'
-                  ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-              }`}
-              title="Triage : affectation rapide Sprints et Macros"
-            >
-              <div className="flex items-center gap-2.5 min-w-0 truncate">
-                <SlidersHorizontal size={15} className="shrink-0 text-violet-400" />
-                {!sidebarCollapsed && <span className="truncate">Triage</span>}
               </div>
             </button>
 
@@ -560,34 +513,6 @@ export const Sidebar: React.FC = () => {
             >
               <Columns size={15} className="shrink-0 text-emerald-400" />
               {!sidebarCollapsed && <span className="truncate">Board</span>}
-            </button>
-
-            {/* 5. Roadmap */}
-            <button
-              onClick={() => setActiveView('roadmap')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                activeView === 'roadmap'
-                  ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-              }`}
-              title="Roadmap : NOW / NEXT / FUTURE"
-            >
-              <MapIcon size={15} className="shrink-0 text-amber-400" />
-              {!sidebarCollapsed && <span className="truncate">Roadmap</span>}
-            </button>
-
-            {/* Timeline */}
-            <button
-              onClick={() => setActiveView('timeline')}
-              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                activeView === 'timeline'
-                  ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-              }`}
-              title="Timeline Sprints"
-            >
-              <Clock size={15} className="shrink-0 text-blue-400" />
-              {!sidebarCollapsed && <span className="truncate">Timeline</span>}
             </button>
 
             {/* 6. Activités */}
@@ -768,7 +693,7 @@ export const Sidebar: React.FC = () => {
           )}
         </SidebarSection>
 
-        {/* Tracker Origin Filter (Linear / GitHub / Jira / Local) */}
+        {/* Tracker Origin Filter (GitHub / Jira / Local) */}
         <div>
           {!sidebarCollapsed && (
             <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
@@ -811,100 +736,6 @@ export const Sidebar: React.FC = () => {
           </div>
         </div>
 
-        {/* Epics / Parent stories filter */}
-        {availableParents.length > 0 && (
-          <div>
-            {!sidebarCollapsed && (
-              <div className="px-2 pb-1 flex items-center justify-between">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  {t.nav.parents}
-                </span>
-                {parentFilter && (
-                  <button
-                    onClick={() => setParentFilter(null)}
-                    className="text-[10px] font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
-                    title={t.nav.clearParentFilter}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            )}
-            <div className="space-y-0.5 max-h-56 overflow-y-auto">
-              {availableParents.slice(0, 12).map(par => {
-                const isSelected = parentFilter === par.key
-                const isEpic = (par.type || '').toLowerCase() === 'epic'
-                return (
-                  <button
-                    key={par.key}
-                    onClick={() => setParentFilter(isSelected ? null : par.key)}
-                    className={`w-full flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                    }`}
-                    title={`${par.type || 'Parent'} ${par.key}${par.title ? ` — ${par.title}` : ''}`}
-                  >
-                    <div className="flex items-center gap-2 truncate min-w-0">
-                      <Layers
-                        size={12}
-                        className={`shrink-0 ${isEpic ? 'text-violet-400' : 'text-amber-400'}`}
-                      />
-                      {!sidebarCollapsed && (
-                        <span className="truncate">
-                          <span className="font-mono font-bold">{par.key}</span>
-                          {par.title ? ` ${par.title}` : ''}
-                        </span>
-                      )}
-                    </div>
-                    {!sidebarCollapsed && (
-                      <span
-                        className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold shrink-0 ${
-                          isSelected
-                            ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                            : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
-                        }`}
-                      >
-                        {par.count}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Labels Section */}
-        {availableLabels.length > 0 && (
-          <div>
-            {!sidebarCollapsed && (
-              <div className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                {t.nav.labels}
-              </div>
-            )}
-            <div className="space-y-0.5">
-              {availableLabels.slice(0, 6).map(lbl => {
-                const isSelected = labelFilter === lbl
-                return (
-                  <button
-                    key={lbl}
-                    onClick={() => setLabelFilter(isSelected ? null : lbl)}
-                    className={`w-full flex items-center gap-2 px-2.5 py-1 rounded-lg text-xs transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
-                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                    }`}
-                    title={lbl}
-                  >
-                    <Tag size={12} className="shrink-0 text-slate-400" />
-                    {!sidebarCollapsed && <span className="truncate">#{lbl.replace(/^#+/, '')}</span>}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Footer Profile & Settings */}

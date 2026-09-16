@@ -30,7 +30,7 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 		return nil, nil, runErr
 	}
 	if running {
-		return nil, nil, fmt.Errorf("une étape TaskFlow est en cours : son résultat doit être vérifié avant la transition")
+		return nil, nil, fmt.Errorf("une étape Sectile est en cours : son résultat doit être vérifié avant la transition")
 	}
 
 	cleanStage := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(targetStage), "#"))
@@ -133,7 +133,7 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 			return err
 		}
 		if running {
-			return fmt.Errorf("a managed TaskFlow stage is still running")
+			return fmt.Errorf("a managed Sectile stage is still running")
 		}
 		tx, err := d.conn.Begin()
 		if err != nil {

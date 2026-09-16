@@ -51,8 +51,6 @@ func (r *Registry) ForProject(proj *models.Project) (TicketingSystem, error) {
 		// Try heuristic detection if tracker not explicitly set
 		if proj.GithubRepo != "" {
 			trackerName = "github"
-		} else if proj.LinearTeam != "" {
-			trackerName = "linear"
 		} else {
 			trackerName = "local"
 		}
@@ -80,11 +78,6 @@ func (r *Registry) ForTask(task *models.Task, proj *models.Project) (TicketingSy
 	}
 
 	// Detect by task key or URL prefixes if source is missing
-	if strings.HasPrefix(task.Key, "FRE-") || (task.ExternalURL != nil && strings.Contains(*task.ExternalURL, "linear.app")) {
-		if ts, ok := r.Get("linear"); ok {
-			return ts, nil
-		}
-	}
 	if strings.HasPrefix(task.Key, "gh-") || strings.HasPrefix(task.Key, "#") || strings.HasPrefix(task.Key, "GH-#") ||
 		(task.ExternalURL != nil && strings.Contains(*task.ExternalURL, "github.com")) {
 		if ts, ok := r.Get("github"); ok {
