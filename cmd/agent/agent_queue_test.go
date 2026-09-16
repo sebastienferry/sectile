@@ -146,3 +146,62 @@ func TestAgentPullTasks(t *testing.T) {
 		t.Fatalf("expected run two to be queued, got: %s", statuses["two"])
 	}
 }
+
+// A free console holds no background worker capacity: it is neither counted in a
+// project's active executions nor queued behind them.
+func TestConsoleDoesNotConsumeWorkerCapacity(t *testing.T) {
+	d := &agentDaemon{}
+	first, _ := d.enqueueRun("task1", agentconfig.Dispatch{RunID: "one"}, "project", "/repo", 1, true)
+	if err := d.awaitRunSlot(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	console, _ := d.enqueueRun("", agentconfig.Dispatch{RunID: "console"}, "project", "/repo", 1, false)
+	console.desktop.Kind = consoleRunKind
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if err := d.awaitRunSlot(ctx, console); err != nil {
+		t.Fatal("console waited for a background worker slot:", err)
+	}
+	second, _ := d.enqueueRun("task2", agentconfig.Dispatch{RunID: "two"}, "project", "/repo", 2, true)
+	if err := d.awaitRunSlot(ctx, second); err != nil {
+		t.Fatal("running console consumed a worker slot:", err)
+	}
+}
+
+// Two consoles are opened deliberately by the user and do not serialize.
+func TestConsolesRunSideBySide(t *testing.T) {
+	d := &agentDaemon{}
+	first, _ := d.enqueueRun("", agentconfig.Dispatch{RunID: "one"}, "project", "/repo", 1, false)
+	first.desktop.Kind = consoleRunKind
+	if err := d.awaitRunSlot(context.Background(), first); err != nil {
+		t.Fatal(err)
+	}
+	second, _ := d.enqueueRun("", agentconfig.Dispatch{RunID: "two"}, "project", "/repo", 1, false)
+	second.desktop.Kind = consoleRunKind
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if err := d.awaitRunSlot(ctx, second); err != nil {
+		t.Fatal("second console serialized behind the first:", err)
+	}
+}
+
+// The mapped checkout is still serialized: a console waits for an execution that
+// works in it, and blocks a shared-checkout execution while it runs.
+func TestConsoleStillSerializesSharedCheckout(t *testing.T) {
+	d := &agentDaemon{}
+	console, _ := d.enqueueRun("", agentconfig.Dispatch{RunID: "console"}, "project", "/repo", 3, false)
+	console.desktop.Kind = consoleRunKind
+	if err := d.awaitRunSlot(context.Background(), console); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := d.enqueueRun("task1", agentconfig.Dispatch{RunID: "one"}, "project", "/repo", 3, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	if err := d.awaitRunSlot(ctx, task); err == nil {
+		t.Fatal("shared checkout execution ran alongside a console")
+	}
+	close(console.exited)
+	if err := d.awaitRunSlot(context.Background(), task); err != nil {
+		t.Fatal(err)
+	}
+}

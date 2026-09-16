@@ -25,9 +25,16 @@ Two independent rules:
 - A console never increments `active` for another run.
 - A console is not compared against `run.limit` at all.
 
-The `shared` rule, which blocks when another live run uses the same checkout root,
-is deliberately left intact for both directions: it is a correctness guard against
-two processes mutating one working tree, not a capacity limit.
+The checkout guard stays, but it is stated precisely. A console works in the mapped
+checkout; a task execution either works there too (`isolated == false`) or in its own
+worktree. `sharesCheckout` therefore makes a console collide only with non-isolated
+executions, and never with worktree-isolated ones. Two consoles do not collide: each
+is opened deliberately by the user, and the free-console capability already promises
+they run side by side. Non-console pairs keep their existing rule unchanged.
+
+Without this precision the exemption would be inert: an execution enqueued on the
+project root with `isolated == true` blocked every console, which is what the report
+describes.
 
 ### Rejected alternative
 Giving consoles a dedicated limit of their own. It adds a second setting to

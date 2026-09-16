@@ -525,7 +525,7 @@ The profile is a placeholder for future account management.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1 to 3) defaults.
+The server project supplies `useWorktrees` and `parallelism` (1 to 5) defaults.
 In the desktop project settings, **Inherit worktrees from server** and
 **Inherit from server** for parallel executions remove local overrides.
 Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:

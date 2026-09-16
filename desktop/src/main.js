@@ -10,6 +10,9 @@ import '@xterm/xterm/css/xterm.css'
 import './style.css'
 import { taskStage, nextTaskStep } from './workflow.mjs'
 const api=window.localAgent
+// Concurrent execution workers ceiling per project, aligned with models.MaxParallelism.
+const MAX_PARALLELISM=5
+const PARALLELISM_CHOICES=Array.from({length:MAX_PARALLELISM},(_,i)=>i+1)
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
@@ -563,7 +566,7 @@ async function openProject(id){
    return {section,buttons,hint,reset}
   }
   controls.worktrees=setting('Worktrees',['Yes','No'],'Reset worktrees to server default',value=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()},()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()})
-  controls.parallel=setting('Parallel executions',[1,2,3],'Reset parallelism to server default',value=>{parallelism=value;inheritParallelism=false;update()},()=>{parallelism=config.parallelism||1;inheritParallelism=true;update()})
+  controls.parallel=setting('Parallel executions',PARALLELISM_CHOICES,'Reset parallelism to server default',value=>{parallelism=value;inheritParallelism=false;update()},()=>{parallelism=config.parallelism||1;inheritParallelism=true;update()})
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
    controls.worktrees.hint.textContent=(inheritWorktrees?'Inherited':'Local override')+' · Server default: '+(config.useWorktrees?'Yes':'No')
