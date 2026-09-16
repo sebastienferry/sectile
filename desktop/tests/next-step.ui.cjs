@@ -4,7 +4,7 @@ const {_electron:electron}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
 test('console next step rechecks task state, guards active history and handles failures',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-next-step-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-next-step-'))
  let stage='clarified',active=false,failRead=false,failLaunch=false,delayRead=0,launches=[]
  const runs=()=>[
   {id:'old',taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:'clarify',status:'completed'},
@@ -31,14 +31,14 @@ test('console next step rechecks task state, guards active history and handles f
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   const button=page.locator('#next-step'),status=page.locator('#next-step-status')
-  const selectA=()=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #1 in TaskFlow',exact:true})}).locator('.run').click()
-  const selectB=()=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #2 in TaskFlow',exact:true})}).locator('.run').click()
+  const selectA=()=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #1 in Sectile',exact:true})}).locator('.run').click()
+  const selectB=()=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #2 in Sectile',exact:true})}).locator('.run').click()
   await page.getByRole('button',{name:'Next: Specify',exact:true}).waitFor()
   stage='specified'
   await button.click()

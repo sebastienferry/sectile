@@ -1,6 +1,6 @@
 ## Context
 
-TaskFlow provides agentic skills (such as `clarify-issue`, `specify-issue`, `code-issue`, `create-pr`, `handoff-issue`, `pickup-issue`) that operate on tasks. Users often need to refine a task's initial description before specifying or coding it. Currently, there is no skill or UI button specifically tailored to reformat task descriptions into standard Agile/SDD structure (User Story: As a..., I want..., So that... + Context + Acceptance Criteria + Notes). Furthermore, task discussions in comments frequently contain refined requirements that should be folded back into the primary task description. The output of this ticket must include a prebuilt skill file shipped with the codebase.
+Sectile provides agentic skills (such as `clarify-issue`, `specify-issue`, `code-issue`, `create-pr`, `handoff-issue`, `pickup-issue`) that operate on tasks. Users often need to refine a task's initial description before specifying or coding it. Currently, there is no skill or UI button specifically tailored to reformat task descriptions into standard Agile/SDD structure (User Story: As a..., I want..., So that... + Context + Acceptance Criteria + Notes). Furthermore, task discussions in comments frequently contain refined requirements that should be folded back into the primary task description. The output of this ticket must include a prebuilt skill file shipped with the codebase.
 
 ## Goals / Non-Goals
 
@@ -9,7 +9,7 @@ TaskFlow provides agentic skills (such as `clarify-issue`, `specify-issue`, `cod
 - Add a "Rewrite Story" trigger and "Include comments" toggle in `TaskDetailModal.tsx`.
 - Generate structured GFM markdown containing User Story, Context, Acceptance Criteria, and Notes.
 - Support preview and explicit user confirmation before replacing task description.
-- Register `rewrite-story` in TaskFlow Go backend `StageSkills` and skill file generators.
+- Register `rewrite-story` in Sectile Go backend `StageSkills` and skill file generators.
 
 **Non-Goals:**
 - Automatic execution upon task creation.

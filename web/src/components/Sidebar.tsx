@@ -37,7 +37,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { accentBadgeStyle } from '../lib/accents'
 import type { Status, TaskSource } from '../types'
-import { TaskFlowLogo } from './TaskFlowLogo'
+import { SectileLogo } from './SectileLogo'
 
 const renderProjectIcon = (iconName: string, size = 15, className = '') => {
   switch (iconName) {
@@ -67,7 +67,7 @@ const SidebarSection: React.FC<{
 }> = ({ id, title, collapsedBar, children, action }) => {
   const [isOpen, setIsOpen] = useState<boolean>(() => {
     try {
-      const val = localStorage.getItem(`taskflow_sidebar_section_${id}`) ?? localStorage.getItem(`taskacao_sidebar_section_${id}`)
+      const val = localStorage.getItem(`sectile_sidebar_section_${id}`) ?? localStorage.getItem(`taskacao_sidebar_section_${id}`)
       return val !== 'closed'
     } catch {
       return true
@@ -78,7 +78,7 @@ const SidebarSection: React.FC<{
     setIsOpen(prev => {
       const next = !prev
       try {
-        localStorage.setItem(`taskflow_sidebar_section_${id}`, next ? 'open' : 'closed')
+        localStorage.setItem(`sectile_sidebar_section_${id}`, next ? 'open' : 'closed')
       } catch {
         // stockage indisponible : le repli vaut pour cette session
       }
@@ -295,7 +295,7 @@ export const Sidebar: React.FC = () => {
           <>
             <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
               <div className="p-0.5 rounded-xl bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shadow-[0_0_12px_var(--accent-glow)]">
-                <TaskFlowLogo size={28} className="shrink-0" />
+                <SectileLogo size={28} className="shrink-0" />
               </div>
               <span className="font-bold tracking-tight text-base text-[var(--text-primary)] truncate">
                 {t.app.title}
@@ -320,7 +320,7 @@ export const Sidebar: React.FC = () => {
               title={`${t.app.title} - ${t.nav.toggleSidebar || 'Déplier'}`}
             >
               <div className="p-0.5 rounded-lg bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shadow-[0_0_8px_var(--accent-glow)]">
-                <TaskFlowLogo size={24} className="shrink-0" />
+                <SectileLogo size={24} className="shrink-0" />
               </div>
               <span className="absolute -bottom-0.5 -right-0.5 bg-[var(--bg-secondary)] border border-[var(--sidebar-border)] rounded-full p-0.5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)] opacity-0 group-hover:opacity-100 transition-opacity shadow-xs">
                 <ChevronRight size={10} />

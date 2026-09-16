@@ -3,7 +3,7 @@
 aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resizer{width:5px;flex-shrink:0;cursor:col-resize;touch-action:none;background:transparent}
 #sidebar-resizer:hover,#sidebar-resizer:focus-visible{background:#62d3be}.resizing-sidebar{cursor:col-resize;user-select:none}
 .local-task{align-items:center}.project-group .local-task .run{display:flex;flex-direction:row;align-items:center;gap:8px;margin:0;width:auto;padding:7px 8px;min-height:34px;background:transparent}
-.project-group .local-task .run.selected{background:#203033}.local-task .run .task-number{flex-shrink:0;color:#738197;font-size:11px;white-space:nowrap}
+.project-group .local-task.selected{background:#203033;border-radius:8px}.project-group .local-task .run.selected{background:transparent}.local-task .run .task-number{flex-shrink:0;color:#738197;font-size:11px;white-space:nowrap}
 .local-task .run strong{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;font-weight:400}
 .local-task .run .status{flex-shrink:0;font-size:14px}.local-task .task-menu{margin:0;padding:4px}
 .project-row>button:not(.project-heading),.task-menu,#add-project{border:0;background:transparent;opacity:0;transition:opacity .12s}

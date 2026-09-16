@@ -4,7 +4,7 @@ const {agentName} = require('./runtime.cjs')
 
 packager({
  dir: path.resolve(__dirname, '..'),
- name: 'TaskFlow',
+ name: 'Sectile',
  out: path.resolve(__dirname, '../release'),
  overwrite: true,
  extraResource: path.resolve(__dirname, '../bin', agentName()),

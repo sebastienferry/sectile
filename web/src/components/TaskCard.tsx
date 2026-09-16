@@ -18,6 +18,7 @@ import {
   FileCode,
   CheckCircle2,
   Eye,
+  MessageCircle,
   Trash2,
   Copy,
   CopyPlus,
@@ -416,6 +417,22 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             <span>Voir les détails</span>
           </button>
 
+          {/* Discuter : ouvre l'agent en session interactive, sans lancer de skill. */}
+          {!isFinishedTask && (
+            <button
+              type="button"
+              onClick={async () => {
+                setIsMenuOpen(false)
+                await runSkill(task.id, 'discuss')
+              }}
+              disabled={isSkillRunning}
+              title="Ouvrir une session avec l'agent sur cette tâche, sans lancer de skill"
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSkillRunning && runningSkillId === 'discuss' ? <Loader2 size={12} className="animate-spin" /> : <MessageCircle size={12} className="text-cyan-400" />}
+              <span>Discuter</span>
+            </button>
+          )}
 
           {/* Adjust : masqué quand c'est déjà l'action de l'étape courante */}
           {!task.prUrl && resolveTaskStage(task, taskProject) === 'implemented' && (

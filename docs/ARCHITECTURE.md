@@ -5,10 +5,10 @@ Go executables are independently buildable; Electron is an optional companion.
 
 ```mermaid
 flowchart LR
-    Browser[React web UI] <-->|REST| Server[taskflow-server]
+    Browser[React web UI] <-->|REST| Server[sectile-server]
     Server <--> SQLite[(SQLite)]
     Server <-->|HTTP APIs| Trackers[GitHub / Linear]
-    Server <-->|Authenticated WebSocket| Agent[taskflow-agent]
+    Server <-->|Authenticated WebSocket| Agent[sectile-agent]
     Desktop[Electron companion] <-->|Private loopback API| Agent
     Agent --> Git[Local Git and worktrees]
     Agent --> PTY[Native coding CLI consoles]
@@ -65,16 +65,15 @@ Digest generation also delegates LLM execution to an agent.
 The agent downloads fresh project configuration for each operation. Configuration
 contains identity, effective skills and defaults, without server filesystem paths
 or tracker credentials. Local repositories are mapped by project primary key in
-`~/.config/taskflow/settings.json`, with repository overrides supported under
+`~/.config/sectile/settings.json`, with repository overrides supported under
 `.taskflow/agent.json`. Git remote identity can match the current repository.
 Repositories are never cloned implicitly.
 
 Task preparation reuses the assigned branch's existing checkout where possible.
 Otherwise it creates `.tasks/worktrees/<taskKey>` locally. Existing mismatched
 worktrees fail visibly; preparation does not reset a branch to accommodate a
-request. Shared checkouts execute serially. Worktree projects admit up to three
-parallel executions according to effective server defaults and workstation
-preferences. Tasks using the same checkout cannot execute concurrently.
+request. Shared checkouts execute serially. Worktree projects admit up to five
+parallel executions according to the workstation setting, which defaults to one. Tasks using the same checkout cannot execute concurrently.
 
 Only the agent writes repository skills and `.taskflow/config.json` or updates
 the marked section of `AGENTS.md`. It preserves unrelated configuration keys and
@@ -107,10 +106,10 @@ restores eligibility for local execution.
 
 ## MCP and authentication
 
-The server's Streamable HTTP `/mcp` service exposes eight typed tools:
-`list_projects`, `get_task`, `list_tasks`, `get_project_context`, `add_comment`,
-`transition_stage`, `start_run` and `finish_run`. The MCP server identity is
-`sectile`. Native clients use `taskflow-agent mcp --url <loopback-address>` as a
+The server's Streamable HTTP `/mcp` service exposes nine typed tools:
+`list_projects`, `get_task`, `list_tasks`, `get_project_context`, `create_task`,
+`add_comment`, `transition_stage`, `start_run` and `finish_run`. The MCP server identity is
+`sectile`. Native clients use `sectile-agent mcp --url <loopback-address>` as a
 stdio bridge. It never opens SQLite and uses the agent's upstream credential.
 
 The agent refreshes native provider MCP registration before launch. Generated
@@ -118,10 +117,15 @@ entries contain the executable and active gateway address, without bearer tokens
 Existing unrelated provider settings are preserved; malformed settings prevent
 launch rather than being overwritten. Native client trust prompts remain native.
 
-Server machine endpoints validate `TASKFLOW_SERVER_TOKEN` when configured. The
-agent uses `TASKFLOW_AGENT_TOKEN`; loopback control APIs have their own private
-token and reject cross-origin access. This retains the existing single-user model;
-it does not add browser login or multi-tenant authorization. Deploy the browser
+Server machine endpoints validate `SECTILE_SERVER_TOKEN` when configured. The
+agent reads its device credential from `--token` or `TOKEN` and keeps it in
+process: local callers reach its gateway with a per-session loopback secret,
+which the gateway exchanges for that credential upstream. The server resolves a
+device credential to the user it was paired with, so actions are attributed per
+user while the task board stays shared. Loopback control APIs have their own
+private token and reject cross-origin access. Workstations are paired
+through a single-use, short-lived code issued by the web interface; see
+[ADR 0007](adrs/0007-user-identity-and-agent-binding.md). Deploy the browser
 REST interface behind the appropriate access-control boundary.
 
 See [the complete interface contract](contracts/server-agent-v1.md),

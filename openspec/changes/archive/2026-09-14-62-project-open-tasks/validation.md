@@ -1,6 +1,6 @@
 # Validation
 
-Branch: `feat/62`. Pull request: https://github.com/sebastienferry/taskflow/pull/88.
+Branch: `feat/62`. Pull request: https://github.com/sebastienferry/sectile/pull/88.
 
 PR #88 was verified open and ready for review with implementation commit `bc247090470560b4a1e5c498de740c937b3c79f8`. GitHub reports no configured status checks; the local checks below supply validation evidence. No merge was performed.
 
@@ -26,7 +26,7 @@ The first UI test attempt asserted opacity before the existing 120 ms transition
 - [x] `npm run lint --prefix web`: exit 0; warnings in unchanged web components/hooks remain.
 - [x] `npm test --prefix web`: `tests 22`, `pass 22`, `fail 0`.
 - [x] `go test ./...`: all tested packages reported `ok`, including `tasks/cmd/server` and `tasks/internal/terminal`.
-- [x] `go build -o /tmp/taskflow-62-server ./cmd/server`: exit 0.
+- [x] `go build -o /tmp/sectile-62-server ./cmd/server`: exit 0.
 - [x] `go vet ./...`: exit 0.
 - [x] `git diff --check`: exit 0.
 

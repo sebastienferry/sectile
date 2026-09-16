@@ -7,7 +7,7 @@
 
 ## 2. Local Agent Daemon Implementation
 
-- [x] 2.1 Add `taskflow agent` sub-command in CLI entrypoint (`cmd/server/main.go` or `cmd/taskflow/main.go`) accepting `--token` and `--url`.
+- [x] 2.1 Add `sectile agent` sub-command in CLI entrypoint (`cmd/server/main.go` or `cmd/sectile/main.go`) accepting `--token` and `--url`.
 - [x] 2.2 Implement outbound `wss://` client with exponential backoff auto-reconnect.
 - [x] 2.3 Connect local daemon to local `terminal.Manager` (`internal/terminal/terminal.go`) and Git worktree isolation engine.
 - [x] 2.4 Implement local handler for executing LLM workflow steps (`clarify`, `specify`, `code`) in local worktrees.
@@ -27,7 +27,7 @@
 ## 5. MCP and API configuration follow-up
 
 - [x] 5.1 Expose five typed MCP tools over authenticated Streamable HTTP using existing task services.
-- [x] 5.2 Add the database-free `taskflow mcp` stdio bridge and gateway forwarding.
+- [x] 5.2 Add the database-free `sectile mcp` stdio bridge and gateway forwarding.
 - [x] 5.3 Publish and consume a versioned, secret-free project execution configuration.
 - [x] 5.4 Prepare local worktrees and scaffold effective skills with local overrides and edit preservation.
 - [x] 5.5 Replace generated curl instructions with native MCP calls, retaining managed-run ownership.

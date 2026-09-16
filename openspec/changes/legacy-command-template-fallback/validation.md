@@ -1,6 +1,6 @@
 # Validation
 
-- Root cause reproduced against the running agent: `GET /desktop/project?id=…` answered 502 with `TaskFlow API returned HTTP 400: aiCommandTemplate must contain {prompt}` for both projects; the server database holds `agy` (global) and `claude` (project) as bare command templates.
+- Root cause reproduced against the running agent: `GET /desktop/project?id=…` answered 502 with `Sectile API returned HTTP 400: aiCommandTemplate must contain {prompt}` for both projects; the server database holds `agy` (global) and `claude` (project) as bare command templates.
 - `go test ./internal/agentconfig`: passed, including the new `TestEffectiveCommandTemplate` table (bare names for named and legacy-default providers, `{prompt}` templates kept, `custom` unchanged).
 - `go test ./internal/db`: passed, including `TestAgentConfigLegacyBareCommandTemplate` with the exact stored values (`agy`/`agy` inherited, `claude`/`claude` on the project, `{prompt}` template preserved, `custom` still rejected).
 - `go test ./internal/handlers`: passed, including `TestAgentConfigServesLegacyBareTemplateAsEmpty` (200 with an empty template through `HandleAgentConfig`).

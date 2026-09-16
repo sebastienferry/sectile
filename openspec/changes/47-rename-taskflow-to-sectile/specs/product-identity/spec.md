@@ -35,13 +35,13 @@ The rename SHALL preserve existing database selection precedence, environment co
 #### Scenario: Database selection on upgrade
 - **GIVEN** databases with distinguishable tasks at multiple supported locations
 - **WHEN** the renamed application starts
-- **THEN** an explicit `DB_PATH` wins, followed by an existing working-directory database, the TaskFlow user database, then the Taskacao user database
+- **THEN** an explicit `DB_PATH` wins, followed by an existing working-directory database, the Sectile user database, then the Taskacao user database
 - **AND** non-selected databases are untouched.
 
 #### Scenario: Fresh installation or unavailable data directory
 - **GIVEN** no explicit database path and no existing supported database
 - **WHEN** Sectile starts
-- **THEN** it uses the existing TaskFlow data-directory default or the working-directory fallback when that directory is unavailable
+- **THEN** it uses the existing Sectile data-directory default or the working-directory fallback when that directory is unavailable
 - **AND** no separate Sectile data store is created.
 
 #### Scenario: Credentials and preferences survive
@@ -65,21 +65,21 @@ Existing environment variables, machine-facing health checks, terminal protocols
 - **GIVEN** a custom command consuming existing task/project environment variables and a supported terminal run
 - **WHEN** Sectile launches and observes the command
 - **THEN** the existing variables carry the same values
-- **AND** output and completion status are recognized under the existing protocol (`__TASKFLOW_*`)
+- **AND** output and completion status are recognized under the existing protocol (`__SECTILE_*`)
 - **AND** stored custom scripts are not rewritten.
 
 #### Scenario: Existing service detection
-- **GIVEN** a supported TaskFlow or Taskacao service already occupying the configured port
+- **GIVEN** a supported Sectile or Taskacao service already occupying the configured port
 - **WHEN** the Sectile executable starts
-- **THEN** it recognizes the service as before via health check `taskflow-api`
+- **THEN** it recognizes the service as before via health check `sectile-api`
 - **AND** an unrelated service on the port is rejected under existing detection rules.
 
 ### Requirement: Documentation explains the rename and retained identifiers
 Current installation and technical documentation SHALL use Sectile and explain intentional legacy compatibility identifiers and how to update hard-coded executable launchers. Real remote URLs, historical reports, and user-owned content SHALL not be rewritten merely to remove the previous name.
 
 #### Scenario: Follow upgrade instructions
-- **GIVEN** a user with an existing TaskFlow installation or a launcher referencing its executable
+- **GIVEN** a user with an existing Sectile installation or a launcher referencing its executable
 - **WHEN** the user follows the Sectile upgrade instructions
 - **THEN** the instructions identify the new executable and release names, preserved data/configuration locations, and environment names
 - **AND** explain updating the launcher or supplying a local compatibility alias
-- **AND** source links still target `sebastienferry/taskflow` until an actual external repository rename occurs.
+- **AND** source links still target `sebastienferry/sectile` until an actual external repository rename occurs.

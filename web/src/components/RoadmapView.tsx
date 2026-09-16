@@ -221,7 +221,7 @@ export const RoadmapView: React.FC = () => {
   const PANEL_MIN = 420
   const LIST_MIN = 280
   const [panelWidth, setPanelWidth] = useState<number>(() => {
-    const stored = Number(localStorage.getItem('taskflow_roadmap_panel_width') || localStorage.getItem('taskacao_roadmap_panel_width') || '')
+    const stored = Number(localStorage.getItem('sectile_roadmap_panel_width') || localStorage.getItem('taskacao_roadmap_panel_width') || '')
     return Number.isFinite(stored) && stored >= PANEL_MIN ? stored : 720
   })
   const splitRef = useRef<HTMLDivElement>(null)
@@ -245,7 +245,7 @@ export const RoadmapView: React.FC = () => {
       window.removeEventListener('pointerup', onUp)
       setPanelWidth(current => {
         try {
-          localStorage.setItem('taskflow_roadmap_panel_width', String(current))
+          localStorage.setItem('sectile_roadmap_panel_width', String(current))
         } catch {
           // stockage indisponible : la largeur vaut pour cette session
         }

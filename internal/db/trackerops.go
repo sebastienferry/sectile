@@ -743,17 +743,17 @@ func (d *DB) runStageOp(op TrackerOp, steps *[]string) (string, error) {
 		header := ""
 		switch cleanStage {
 		case "clarified":
-			header = "### 💬 [TaskFlow] Rapport de Clarification\n\n"
+			header = "### 💬 [Sectile] Rapport de Clarification\n\n"
 		case "specified":
-			header = "### 📋 [TaskFlow] Spécification Technique & Plan d'Implémentation\n\n"
+			header = "### 📋 [Sectile] Spécification Technique & Plan d'Implémentation\n\n"
 		case "implemented":
-			header = "### ⚡ [TaskFlow] Rapport d'Implémentation\n\n"
+			header = "### ⚡ [Sectile] Rapport d'Implémentation\n\n"
 		case "reviewed":
-			header = "### 🚀 [TaskFlow] Revue de Code & Préparation PR\n\n"
+			header = "### 🚀 [Sectile] Revue de Code & Préparation PR\n\n"
 		case "finished":
-			header = "### 🏁 [TaskFlow] Rapport de Clôture & Handoff\n\n"
+			header = "### 🏁 [Sectile] Rapport de Clôture & Handoff\n\n"
 		default:
-			header = fmt.Sprintf("### 🤖 [TaskFlow] Étape : %s\n\n", cleanStage)
+			header = fmt.Sprintf("### 🤖 [Sectile] Étape : %s\n\n", cleanStage)
 		}
 		commentBody := header + op.Note
 		_ = d.AddTaskComment(task.ID, commentBody)

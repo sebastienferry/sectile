@@ -57,7 +57,7 @@ func (d *DB) pushStageToTracker(task *models.Task, stageLabel, statusTarget, tra
 	stale := StaleWorkflowLabels(stageLabel)
 	body := ""
 	if strings.TrimSpace(note) != "" {
-		body = "### 💬 [TaskFlow] Rapport de session interactive\n\n" + note
+		body = "### 💬 [Sectile] Rapport de session interactive\n\n" + note
 	}
 
 	proj, _ := d.GetProjectByID(task.ProjectID)

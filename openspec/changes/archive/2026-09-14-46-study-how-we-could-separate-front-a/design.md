@@ -1,11 +1,11 @@
 ## Context
 
-TaskFlow's core engine relies on executing AI coding skills (`clarify-issue`, `specify-issue`, `code-issue`, etc.) and PTY terminal sessions within isolated local Git worktrees (`.tasks/worktrees/<taskKey>`). To host TaskFlow centrally on a remote website while keeping code files, Git worktrees, and LLM credentials local, we must decouple the remote Web UI/Database from local task execution via an outbound WebSocket relay.
+Sectile's core engine relies on executing AI coding skills (`clarify-issue`, `specify-issue`, `code-issue`, etc.) and PTY terminal sessions within isolated local Git worktrees (`.tasks/worktrees/<taskKey>`). To host Sectile centrally on a remote website while keeping code files, Git worktrees, and LLM credentials local, we must decouple the remote Web UI/Database from local task execution via an outbound WebSocket relay.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Implement an outbound WebSocket connection protocol between a local `taskflow agent` daemon and a remote TaskFlow server.
+- Implement an outbound WebSocket connection protocol between a local `sectile agent` daemon and a remote Sectile server.
 - Route Web UI workflow actions (e.g. `clarify`, `specify`, `code`, interactive shell) from the remote server to the user's connected local agent.
 - Enforce strict identity matching (`web_session.user_id == agent_session.user_id`) and project workspace mapping.
 - Stream live PTY terminal I/O bi-directionally between remote Xterm.js and the local agent's `creack/pty` manager.
@@ -27,7 +27,7 @@ graph TD
     end
 
     subgraph Developer Local Machine
-        LocalAgent["TaskFlow Agent Daemon (taskflow agent)"]
+        LocalAgent["Sectile Agent Daemon (sectile agent)"]
         PTYMgr["PTY Manager (creack/pty)"]
         GitEngine["Local Git Worktrees (.tasks/worktrees)"]
         LLMTools["AI CLI Tools (codex / agy / claude)"]
@@ -59,7 +59,7 @@ graph TD
 
 4. **1:1 Agent Concurrency & Rebind Policy**:
    - Hard cap of 1 active local agent connection per user/project mapping.
-   - If a user launches `taskflow agent` on a second machine for the same project, the server terminates the previous WebSocket session with code `4001 Session Rebound` and registers the new daemon.
+   - If a user launches `sectile agent` on a second machine for the same project, the server terminates the previous WebSocket session with code `4001 Session Rebound` and registers the new daemon.
 
 ## Risks & Trade-offs
 
@@ -72,7 +72,7 @@ graph TD
 
 The follow-up implements architecture sections 7.2–7.5. The official MCP Go SDK
 owns protocol negotiation, typed tool schemas and Streamable HTTP at `/mcp`.
-`taskflow mcp` bridges stdio to that endpoint through the loopback agent gateway
+`sectile mcp` bridges stdio to that endpoint through the loopback agent gateway
 or directly to the configured server; neither agent command opens a database.
 The existing database services remain authoritative for stage validation, managed
 run guards, comments, and queued tracker synchronization. Tool results explicitly
@@ -93,7 +93,7 @@ take precedence over remote configuration. No offline stale-config execution is
 attempted when the authoritative API is unavailable.
 
 Both machine endpoints share the agent bearer identity policy. Setting
-`TASKFLOW_SERVER_TOKEN` pins a credential; without it, legacy single-user mode
+`SECTILE_SERVER_TOKEN` pins a credential; without it, legacy single-user mode
 accepts a nonempty token. This is not multi-user authentication. The gateway binds
 only to loopback, rejects browser Origin and unexpected Host headers, and attaches
 the daemon credential itself. Existing public REST/UI authentication is unchanged.

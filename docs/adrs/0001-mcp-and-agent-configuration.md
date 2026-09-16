@@ -4,7 +4,7 @@ Status: Accepted
 
 ## Context
 
-The central TaskFlow service owns task state and tracker synchronization, while
+The central Sectile service owns task state and tracker synchronization, while
 workstation agents own code, worktrees and AI subprocesses. Prompt-generated curl
 calls and server filesystem paths crossed that boundary unreliably.
 

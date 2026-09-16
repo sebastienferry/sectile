@@ -1,6 +1,7 @@
 const {contextBridge,ipcRenderer}=require('electron')
 contextBridge.exposeInMainWorld('localAgent',{
  connect:()=>ipcRenderer.invoke('connect'),
+ pair:(server,code,label)=>ipcRenderer.invoke('pair',{server,code,label}),
  start:settings=>ipcRenderer.invoke('start',settings),
  agentLogs:()=>ipcRenderer.invoke('agent-logs'),
  saveLog:text=>ipcRenderer.invoke('save-log',text),

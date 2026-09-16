@@ -158,7 +158,7 @@ func (d *agentDaemon) finishHeadlessRun(taskRef, runID string, run *controlledRu
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := d.finishRemoteRunNote(ctx, taskRef, runID, status, note); err != nil {
+	if err := d.finishDesktopRun(ctx, taskRef, runID, status, note); err != nil {
 		d.postRunOutput(taskRef, runID, "\n[agent] could not report the run result: "+err.Error()+"\n")
 	}
 }

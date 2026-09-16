@@ -1,6 +1,6 @@
 ## Context
 
-The TaskFlow web frontend current combines sprint timeline management (`SprintTimelineView`) and epic/macro horizon management (`RoadmapView`) into a single composite view component (`RoadmapView.tsx`) gated by a local component state `roadmapMode: 'sprints' | 'macros'`.
+The Sectile web frontend current combines sprint timeline management (`SprintTimelineView`) and epic/macro horizon management (`RoadmapView`) into a single composite view component (`RoadmapView.tsx`) gated by a local component state `roadmapMode: 'sprints' | 'macros'`.
 
 This architecture introduces unnecessary complexity:
 1. Navigating to the sprint timeline requires opening the Roadmap view and then clicking a sub-toggle button.

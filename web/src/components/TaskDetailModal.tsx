@@ -25,6 +25,7 @@ import {
   PanelRight,
   Square,
   Bot,
+  MessageCircle,
   Save,
   Check,
   Copy,
@@ -172,7 +173,7 @@ export const TaskDetailModal: React.FC = () => {
 
   const [isTtyExpanded, setIsTtyExpandedState] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('taskflow_modal_tty_expanded') === 'true'
+      return localStorage.getItem('sectile_modal_tty_expanded') === 'true'
     } catch {
       return false
     }
@@ -181,7 +182,7 @@ export const TaskDetailModal: React.FC = () => {
     setIsTtyExpandedState(prev => {
       const next = typeof expanded === 'function' ? expanded(prev) : expanded
       try {
-        localStorage.setItem('taskflow_modal_tty_expanded', String(next))
+        localStorage.setItem('sectile_modal_tty_expanded', String(next))
       } catch {}
       return next
     })
@@ -775,7 +776,7 @@ export const TaskDetailModal: React.FC = () => {
       <CopyTaskSkillMenu key={selectedTask.id} task={selectedTask} />
       <div className="rounded-xl border border-[var(--border-color)] p-4 space-y-3">
         <h3 className="font-semibold">Clarification and specification</h3>
-        <p className="text-xs text-[var(--text-muted)]">Launch a skill on your local agent. Follow its execution in TaskFlow Desktop.</p>
+        <p className="text-xs text-[var(--text-muted)]">Launch a skill on your local agent. Follow its execution in Sectile Desktop.</p>
         <div className="flex gap-2">
           <button type="button" disabled={isSkillRunning} onClick={()=>handleTriggerSkill('clarify')} className="rounded-lg bg-amber-500/15 text-amber-400 px-3 py-2">Clarify</button>
           <button type="button" disabled={isSkillRunning} onClick={()=>handleTriggerSkill('specify')} className="rounded-lg bg-blue-500/15 text-blue-400 px-3 py-2">Specify</button>
@@ -1267,6 +1268,20 @@ export const TaskDetailModal: React.FC = () => {
             })}
         </div>
       </div>
+
+      {/* Discuter : session interactive avec l'agent, hors pipeline de skills. */}
+      {selectedTask && resolveTaskStage(selectedTask, taskProject) !== 'finished' && (
+        <button
+          type="button"
+          onClick={() => runSkill(selectedTask.id, 'discuss')}
+          disabled={isSkillRunning}
+          title="Ouvrir une session avec l'agent sur cette tâche, sans lancer de skill"
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-[var(--border-color)] bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:border-[var(--accent-color)]/60 transition-all disabled:opacity-50"
+        >
+          {isSkillRunning && runningSkillId === 'discuss' ? <Loader2 size={13} className="animate-spin" /> : <MessageCircle size={13} className="text-cyan-400" />}
+          <span>Discuter de la tâche</span>
+        </button>
+      )}
 
       {/* Main Recommended Action Callout */}
       {selectedTask && !selectedTask.prUrl && resolveTaskStage(selectedTask, taskProject) === 'implemented' && <button type="button" onClick={() => handleTriggerSkill(prRecoverySkill(taskProject), 'PR recovery: preserve accepted work and attained stage; complete owner checks and create/reuse/link the PR. Do not advance to reviewed.')} className="px-4 py-2 text-purple-400 text-sm">Complete PR setup through {prRecoverySkill(taskProject)}</button>}

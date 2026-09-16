@@ -295,20 +295,23 @@ func refresh(fs, work *os.Root, files, manifest map[string]string, backups *[]st
 	return install, nil
 }
 
+// MaxParallelism bounds the concurrent executions a workstation may run for one
+// project. Parallelism is workstation-owned: the server neither stores nor
+// supplies it, so every surface that accepts or clamps a value reads this.
+const MaxParallelism = 5
+
 // ExecutionLimit is workstation-owned and serializes shared checkout execution.
-func ExecutionLimit(projectID string, useWorktrees bool, overrides Overrides, serverDefault ...int) int {
+// Without a local override a project runs a single execution at a time.
+func ExecutionLimit(projectID string, useWorktrees bool, overrides Overrides) int {
 	if !useWorktrees {
 		return 1
 	}
-	n, overridden := overrides.Parallelism[projectID]
-	if !overridden && len(serverDefault) > 0 {
-		n = serverDefault[0]
-	}
+	n := overrides.Parallelism[projectID]
 	if n < 1 {
 		return 1
 	}
-	if n > 3 {
-		return 3
+	if n > MaxParallelism {
+		return MaxParallelism
 	}
 	return n
 }

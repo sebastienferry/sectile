@@ -4,13 +4,13 @@ Task descriptions imported from external issue trackers (Jira, GitHub, Linear) o
 
 ## What Changes
 
-- Ship a prebuilt workflow skill `rewrite-story` (`/rewrite-story <KEY> [--with-comments]`) in `.agents/skills/rewrite-story/SKILL.md` and register it across TaskFlow skill directories (`.skills/`, `.claude/`, `.gemini/`, `.agy/`).
-- Extend TaskFlow Go backend (`internal/db/skilltemplates.go`, `internal/models/models.go`) to define `rewrite-story` as an available prebuilt skill with template rendering and slash command generation.
+- Ship a prebuilt workflow skill `rewrite-story` (`/rewrite-story <KEY> [--with-comments]`) in `.agents/skills/rewrite-story/SKILL.md` and register it across Sectile skill directories (`.skills/`, `.claude/`, `.gemini/`, `.agy/`).
+- Extend Sectile Go backend (`internal/db/skilltemplates.go`, `internal/models/models.go`) to define `rewrite-story` as an available prebuilt skill with template rendering and slash command generation.
 - Add UI controls in `TaskDetailModal.tsx`:
   - "Rewrite Story" action button in the description section header and Skills tab.
   - "Include task comments" toggle checkbox allowing optional comment context aggregation.
   - Interactive preview modal/panel allowing users to inspect the generated markdown before applying it to the task description.
-- Connect description updates to `PUT /api/tasks/:id` for persisting rewritten descriptions back to TaskFlow database and synced tracker items.
+- Connect description updates to `PUT /api/tasks/:id` for persisting rewritten descriptions back to Sectile database and synced tracker items.
 
 ## Capabilities
 

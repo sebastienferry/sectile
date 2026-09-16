@@ -2,7 +2,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 
 function agentName(platform = process.platform) {
- return platform === 'win32' ? 'taskflow-agent.exe' : 'taskflow-agent'
+ return platform === 'win32' ? 'sectile-agent.exe' : 'sectile-agent'
 }
 
 function resolveAgentBinary({packaged, resourcesPath, directory, platform = process.platform}) {
@@ -11,7 +11,7 @@ function resolveAgentBinary({packaged, resourcesPath, directory, platform = proc
   ? [path.join(resourcesPath, name)]
   : [path.resolve(directory, '../bin', name), path.resolve(directory, '../../bin', name)]
  const binary = candidates.find(candidate => fs.existsSync(candidate))
- if (!binary) throw Error('The bundled TaskFlow agent is missing. Rebuild or reinstall the app.')
+ if (!binary) throw Error('The bundled Sectile agent is missing. Rebuild or reinstall the app.')
  return binary
 }
 

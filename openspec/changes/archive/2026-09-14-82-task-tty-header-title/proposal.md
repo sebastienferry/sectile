@@ -10,7 +10,7 @@ The selected console header displays the task key and execution skill but omits 
 - Keep useful identity/skill fallbacks and make long titles readable without displacing toolbar controls.
 
 ## Scope
-Desktop header presentation, focused desktop UI regression coverage, and desktop usage documentation. This implements the clarification recorded on [ticket #82](https://github.com/sebastienferry/taskflow/issues/82).
+Desktop header presentation, focused desktop UI regression coverage, and desktop usage documentation. This implements the clarification recorded on [ticket #82](https://github.com/sebastienferry/sectile/issues/82).
 
 ## Non-goals
 No restored web terminal, external terminal window title changes, task editing feature, new API, database migration, or terminal lifecycle change.

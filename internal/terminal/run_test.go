@@ -24,7 +24,7 @@ func TestRunCommandInSessionCapturesOutputAndExitCode(t *testing.T) {
 	if !strings.Contains(res.Output, "ligne un") || !strings.Contains(res.Output, "ligne deux") {
 		t.Fatalf("sortie incomplète: %q", res.Output)
 	}
-	if strings.Contains(res.Output, "__TASKFLOW_") {
+	if strings.Contains(res.Output, "__SECTILE_") {
 		t.Fatalf("les marqueurs ne doivent pas rester dans la sortie: %q", res.Output)
 	}
 }
@@ -81,12 +81,12 @@ func TestRunCommandInSessionPropagatesEnvVars(t *testing.T) {
 	defer func() { _ = m.CloseSession("test-env") }()
 
 	env := map[string]string{
-		"TASKFLOW_TASK_ID":   "test-uuid-123",
-		"TASKFLOW_TASK_KEY":  "#47",
+		"SECTILE_TASK_ID":   "test-uuid-123",
+		"SECTILE_TASK_KEY":  "#47",
 		"TASKACAO_COMPAT":    "legacy-val",
 	}
 
-	cmd := `printf "ID=%s KEY=%s LEGACY=%s\n" "$TASKFLOW_TASK_ID" "$TASKFLOW_TASK_KEY" "$TASKACAO_COMPAT"`
+	cmd := `printf "ID=%s KEY=%s LEGACY=%s\n" "$SECTILE_TASK_ID" "$SECTILE_TASK_KEY" "$TASKACAO_COMPAT"`
 	res, err := m.RunCommandInSession(context.Background(), "test-env", t.TempDir(), env, cmd, time.Minute)
 	if err != nil {
 		t.Fatalf("exécution impossible: %v", err)
@@ -97,7 +97,7 @@ func TestRunCommandInSessionPropagatesEnvVars(t *testing.T) {
 	if !strings.Contains(res.Output, "ID=test-uuid-123") || !strings.Contains(res.Output, "KEY=#47") || !strings.Contains(res.Output, "LEGACY=legacy-val") {
 		t.Fatalf("variables d'environnement non propagées: %q", res.Output)
 	}
-	if strings.Contains(res.Output, "__TASKFLOW_") {
-		t.Fatalf("les marqueurs __TASKFLOW_ ne doivent pas rester dans la sortie: %q", res.Output)
+	if strings.Contains(res.Output, "__SECTILE_") {
+		t.Fatalf("les marqueurs __SECTILE_ ne doivent pas rester dans la sortie: %q", res.Output)
 	}
 }

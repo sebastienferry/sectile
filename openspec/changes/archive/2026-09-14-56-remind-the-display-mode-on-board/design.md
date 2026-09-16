@@ -1,7 +1,7 @@
 # Design — Remind board display mode
 
 ## Context & Architecture
-TaskFlow uses a client-side React single-page application (`web/src/`). Board cards support two presentation formats in `TaskCard.tsx`:
+Sectile uses a client-side React single-page application (`web/src/`). Board cards support two presentation formats in `TaskCard.tsx`:
 - Condensed: single-line format (`compact={true}`), showing key, title and actions menu.
 - Expanded: multi-line format (`compact={false}`), showing key, title, priority, parent, labels, branch, PR, assignee, dates, and direct action buttons.
 
@@ -14,8 +14,8 @@ Because this state was not persisted to browser storage, refreshing the page or 
 ## Technical Decisions
 
 ### 1. Storage Key & Values
-Following TaskFlow's convention for view-level preferences (such as `taskflow_board_grouping`, `taskflow_hide_done`, `taskflow_sprint_display_mode`):
-- Primary storage key: `taskflow_board_display_mode`
+Following Sectile's convention for view-level preferences (such as `sectile_board_grouping`, `sectile_hide_done`, `sectile_sprint_display_mode`):
+- Primary storage key: `sectile_board_display_mode`
 - Legacy fallback storage key: `taskacao_board_display_mode`
 - Values: `'condensed'` | `'expanded'`
 - Default value: `'condensed'`
@@ -44,5 +44,5 @@ In `BoardView.tsx`:
   - title / aria-label: "Afficher les cartes sur une ligne"
 
 ### 4. Rejected Alternatives
-- *Backend database persistence in `UserSettings`*: Rejected because view-level toggle preferences (grouping mode, hide-done, sprint display mode) are consistently managed client-side in localStorage across TaskFlow without requiring database migrations or network requests.
+- *Backend database persistence in `UserSettings`*: Rejected because view-level toggle preferences (grouping mode, hide-done, sprint display mode) are consistently managed client-side in localStorage across Sectile without requiring database migrations or network requests.
 - *Component-local persistence in `BoardView.tsx` only*: Rejected because switching between views causes unnecessary re-reads and doesn't allow centralized preference management.

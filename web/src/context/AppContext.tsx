@@ -412,7 +412,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
    */
   const [activeView, setActiveViewState] = useState<ViewMode>(() => {
     try {
-      const stored = localStorage.getItem('taskflow_active_view') ?? localStorage.getItem('taskacao_active_view')
+      const stored = localStorage.getItem('sectile_active_view') ?? localStorage.getItem('taskacao_active_view')
       return stored && VIEW_MODES.includes(stored as ViewMode) ? (stored as ViewMode) : 'board'
     } catch {
       return 'board'
@@ -423,7 +423,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const defaultViewPending = useRef<boolean>(
     (() => {
       try {
-        return !(localStorage.getItem('taskflow_active_view') ?? localStorage.getItem('taskacao_active_view'))
+        return !(localStorage.getItem('sectile_active_view') ?? localStorage.getItem('taskacao_active_view'))
       } catch {
         return false
       }
@@ -434,7 +434,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setActiveViewState(view)
     defaultViewPending.current = false
     try {
-      localStorage.setItem('taskflow_active_view', view)
+      localStorage.setItem('sectile_active_view', view)
     } catch {
       // stockage indisponible : la vue vaut pour cette session
     }
@@ -442,7 +442,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [boardGrouping, setBoardGroupingState] = useState<BoardGroupingMode>(() => {
     try {
-      const val = (localStorage.getItem('taskflow_board_grouping') ?? localStorage.getItem('taskacao_board_grouping')) as BoardGroupingMode
+      const val = (localStorage.getItem('sectile_board_grouping') ?? localStorage.getItem('taskacao_board_grouping')) as BoardGroupingMode
       return val || 'status'
     } catch {
       return 'status'
@@ -452,7 +452,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const persistBoardGrouping = useCallback((mode: BoardGroupingMode) => {
     setBoardGroupingState(mode)
     try {
-      localStorage.setItem('taskflow_board_grouping', mode)
+      localStorage.setItem('sectile_board_grouping', mode)
     } catch {
       // stockage indisponible : le mode vaut pour cette session
     }
@@ -544,7 +544,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [hideDone, setHideDoneState] = useState<boolean>(() => {
     try {
-      const val = localStorage.getItem('taskflow_hide_done') ?? localStorage.getItem('taskacao_hide_done')
+      const val = localStorage.getItem('sectile_hide_done') ?? localStorage.getItem('taskacao_hide_done')
       return val === 'true'
     } catch {
       return false
@@ -555,7 +555,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setHideDoneState(prev => {
       const next = typeof val === 'function' ? val(prev) : val
       try {
-        localStorage.setItem('taskflow_hide_done', String(next))
+        localStorage.setItem('sectile_hide_done', String(next))
       } catch {}
       return next
     })
@@ -584,7 +584,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [projects, setProjects] = useState<Project[]>([])
   const [selectedProjectId, setSelectedProjectIdState] = useState<string | 'all'>(() => {
     try {
-      return localStorage.getItem('taskflow_selected_project_id') || localStorage.getItem('taskacao_selected_project_id') || 'all'
+      return localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id') || 'all'
     } catch {
       return 'all'
     }
@@ -592,14 +592,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const setSelectedProjectId = useCallback((id: string | 'all') => {
     setSelectedProjectIdState(id)
     try {
-      localStorage.setItem('taskflow_selected_project_id', id)
+      localStorage.setItem('sectile_selected_project_id', id)
     } catch {}
   }, [])
 
   // Les filtres sont mémorisés par projet : sprint et équipe n'ont de sens que
   // dans le projet où ils ont été choisis, et on retrouve son contexte de
   // travail en revenant sur un projet ou après un rechargement.
-  const filterStorageKey = (projectId: string) => `taskflow_filters_${projectId || 'all'}`
+  const filterStorageKey = (projectId: string) => `sectile_filters_${projectId || 'all'}`
   const legacyFilterStorageKey = (projectId: string) => `taskacao_filters_${projectId || 'all'}`
 
   const readStoredFilters = (projectId: string): Record<string, string | null> => {
@@ -872,7 +872,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             return prev
           }
           try {
-            const stored = localStorage.getItem('taskflow_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
+            const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
             if (stored === 'all') return 'all'
             if (stored && projectList.some(p => p.id === stored || p.slug === stored)) {
               return stored
@@ -883,7 +883,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           const projWithTasks = projectList.find(p => (p.taskCount || 0) > 0)
           if (projWithTasks) {
             try {
-              localStorage.setItem('taskflow_selected_project_id', projWithTasks.id)
+              localStorage.setItem('sectile_selected_project_id', projWithTasks.id)
             } catch {}
             return projWithTasks.id
           }

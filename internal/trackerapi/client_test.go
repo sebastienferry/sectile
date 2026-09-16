@@ -260,3 +260,108 @@ func TestGraphQLErrorsRejectPartialData(t *testing.T) {
 		t.Fatal("canceled request succeeded")
 	}
 }
+
+func TestBranchPullRequestPrefersOpenThenMerged(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   string
+		url    string
+		merged bool
+	}{
+		{"open wins", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"old"}},{"html_url":"https://forge/pull/3","state":"open","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/3", false},
+		// The human merge boundary must not strand the task before reviewed.
+		{"merged accepted", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/2", true},
+		{"closed unmerged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","head":{"ref":"ticket","sha":"tip"}}]`, "", false},
+		{"ambiguous merged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"a"}},{"html_url":"https://forge/pull/4","state":"closed","merged_at":"2026-01-02T00:00:00Z","head":{"ref":"ticket","sha":"b"}}]`, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Query().Get("state") != "all" {
+					t.Errorf("merged PRs are unreachable with state=%q", r.URL.Query().Get("state"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Query().Get("page") == "2" {
+					_, _ = w.Write([]byte(`[]`))
+					return
+				}
+				_, _ = w.Write([]byte(tc.body))
+			})
+			pr, err := c.BranchPullRequest("acme/app", "ticket")
+			if tc.url == "" {
+				if err == nil {
+					t.Fatalf("accepted %+v", pr)
+				}
+				return
+			}
+			if err != nil || pr.URL != tc.url || pr.Merged != tc.merged || pr.Open == tc.merged || pr.SHA != "tip" {
+				t.Fatalf("%+v %v", pr, err)
+			}
+		})
+	}
+}
+
+func TestNewClientResolvesTrackerCredentials(t *testing.T) {
+	cases := []struct {
+		name                   string
+		env                    map[string]string
+		wantGithub, wantLinear string
+	}{
+		{
+			name:       "generic name alone serves every provider",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic"},
+			wantGithub: "generic", wantLinear: "generic",
+		},
+		{
+			name:       "provider-specific names keep working on their own",
+			env:        map[string]string{"SECTILE_GITHUB_TOKEN": "gh", "SECTILE_LINEAR_API_KEY": "lin"},
+			wantGithub: "gh", wantLinear: "lin",
+		},
+		{
+			name:       "provider-specific name overrides the generic one",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "SECTILE_LINEAR_API_KEY": "lin"},
+			wantGithub: "generic", wantLinear: "lin",
+		},
+		{
+			name:       "generic name outranks the environment conventions",
+			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "GH_TOKEN": "gh-cli", "LINEAR_API_KEY": "lin-cli"},
+			wantGithub: "generic", wantLinear: "generic",
+		},
+		{
+			name:       "environment conventions remain the last resort",
+			env:        map[string]string{"GITHUB_TOKEN": "ci", "LINEAR_API_KEY": "lin-cli"},
+			wantGithub: "ci", wantLinear: "lin-cli",
+		},
+		{name: "no credential at all"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			for _, name := range []string{"SECTILE_TRACKER_TOKEN", "SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "SECTILE_LINEAR_API_KEY", "LINEAR_API_KEY"} {
+				t.Setenv(name, "")
+			}
+			for name, value := range testCase.env {
+				t.Setenv(name, value)
+			}
+			c := NewClient()
+			if c.GithubToken != testCase.wantGithub || c.LinearToken != testCase.wantLinear {
+				t.Errorf("got github %q linear %q, want %q and %q", c.GithubToken, c.LinearToken, testCase.wantGithub, testCase.wantLinear)
+			}
+		})
+	}
+}
+
+func TestMissingCredentialErrorNamesNoProvider(t *testing.T) {
+	c := &Client{HTTP: http.DefaultClient}
+	for _, call := range []struct {
+		name string
+		run  func() error
+	}{
+		{"github", func() error { return c.github(context.Background(), http.MethodGet, "/rate_limit", nil, nil) }},
+		{"githubPages", func() error { _, err := c.githubPages(context.Background(), "repos/acme/app/issues"); return err }},
+		{"githubGraphQL", func() error { _, err := c.GithubGraphQL("{viewer{login}}"); return err }},
+	} {
+		err := call.run()
+		if err == nil || err.Error() != "configure SECTILE_TRACKER_TOKEN on the server" {
+			t.Errorf("%s: got %v, want the tracker-agnostic credential error", call.name, err)
+		}
+	}
+}

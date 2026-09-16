@@ -5,13 +5,13 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 const {WebSocketServer}=require('ws')
 
 test('desktop console reconnects, accepts input and stops the owned run',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-desktop-test-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-desktop-test-'))
  let stopped=false,input='',submitted=false,launches=[],available=true,extraRun=false,createdInput=null,serverCommand='codex {prompt}',withoutConsole=false,attachments=0
  const server=http.createServer((req,res)=>{
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'},{id:'project-b',name:'Other project',path:'/tmp/other-worktree'}]));return}
-  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,parallelism:2,aiCommandTemplate:serverCommand,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
+  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,aiCommandTemplate:serverCommand,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
   if(req.url.startsWith('/desktop/tasks?')){
    if(req.method==='POST'){submitted=true;let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{launches.push({...JSON.parse(raw),projectID:new URL(req.url,'http://localhost').searchParams.get('projectId')});res.end(JSON.stringify({status:'running'}))});return}
    if(createdInput&&new URL(req.url,'http://localhost').searchParams.get('q')==='#49'){res.end(JSON.stringify([{id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title,status:'to_clarify'}]));return}
@@ -37,11 +37,11 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}),{mode:0o600})
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'}
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'}
  delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   let page=await application.firstWindow()
   await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.xterm-screen').waitFor()
@@ -62,7 +62,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Open PR #48 for #48',exact:true}).waitFor()
   assert.equal(await page.locator('#selected-pr').textContent(),'PR #48')
   await page.getByRole('button',{name:'Local agent',exact:true}).click()
-  await page.getByRole('heading',{name:'Connect to TaskFlow'}).waitFor()
+  await page.getByRole('heading',{name:'Connect to Sectile'}).waitFor()
   assert.equal(await page.locator('#setup input').count(),2)
   assert.equal(await page.getByRole('button',{name:'Connect',exact:true}).isDisabled(),true)
   await page.getByRole('button',{name:'Local agent',exact:true}).click()
@@ -81,7 +81,9 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Reset worktrees to server default',exact:true}).click()
   assert.equal(await page.getByRole('button',{name:'2',exact:true}).isDisabled(),false)
   await page.getByRole('button',{name:'3',exact:true}).click()
-  await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).click()
+  assert.equal(await page.getByRole('button',{name:'3',exact:true}).getAttribute('aria-pressed'),'true')
+  // Parallelism is workstation-owned: no server default, hence no reset control.
+  assert.equal(await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).count(),0)
   const placeholderHelp=await page.locator('p').filter({hasText:'Required: {prompt}'}).textContent()
   for(const token of ['{prompt}','{issueKey}','{issueTitle}','{issueDesc}','{branchName}','{repoPath}','{tracker}','{repo}']){
    assert.ok(placeholderHelp.includes(token),`Missing placeholder help: ${token}`)
@@ -101,7 +103,8 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.waitForFunction(()=>document.querySelector('[aria-label="CLI command"]').value==='latest {prompt}')
 
 
-  assert.equal(await page.getByRole('button',{name:'2',exact:true}).getAttribute('aria-pressed'),'true')
+  // The workstation parallelism selection survives a server refresh.
+  assert.equal(await page.getByRole('button',{name:'3',exact:true}).getAttribute('aria-pressed'),'true')
   await page.getByRole('button',{name:'Close',exact:true}).click()
   await page.getByRole('button',{name:'Toggle projects',exact:true}).click()
   assert.equal(await page.locator('aside').isVisible(),false)
@@ -178,7 +181,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(launches.at(-1).prompt,'Updated instructions')
 
   await application.close()
-  application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   page=await application.firstWindow()
   await page.getByText('#48 · Server specification task · specify',{exact:true}).waitFor()
   await page.locator('.run[data-status=canceled]').waitFor()

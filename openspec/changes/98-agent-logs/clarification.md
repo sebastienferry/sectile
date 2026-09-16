@@ -6,4 +6,4 @@ Read: desktop/src/main.js, desktop/src/style.css, desktop/src/gitDiff.js, deskto
 
 No essential ambiguities, questions or unavailable product dependencies remain. Reversible choices follow existing desktop conventions: preserve sidebar width/collapse preferences, restore execution/setup with Close or Escape, and return to an execution through sidebar selection. Background polling must not dismiss logs. Sanitization is presentation-only and retains textContent safety and bounded raw reads.
 
-The live project and GitHub API confirm that taskflow was renamed to sectile: both repository names resolve to ID R_kgDOUBe_1g. Reuse assigned branch feat/98 and draft PR #105. Existing unrelated generated skill-file changes are excluded from the PR.
+The live project and GitHub API confirm that sectile was renamed to sectile: both repository names resolve to ID R_kgDOUBe_1g. Reuse assigned branch feat/98 and draft PR #105. Existing unrelated generated skill-file changes are excluded from the PR.

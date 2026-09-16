@@ -47,6 +47,11 @@ Server settings resolve project overrides over global defaults. On the workstati
 These values are never uploaded. Changing the provider locally without a local
 command template clears the inherited provider's command template.
 
+Execution parallelism has no server-side counterpart: the configuration payload
+carries no `parallelism` field, and the workstation value in
+`~/.config/sectile/settings.json` is the only source. An agent predating this
+removal reads no value and falls back to a single execution per project.
+
 Terminal application selection is: explicit `--terminal`, explicit request
 `terminalOverride`, local overrides, project configuration, global configuration,
 then environment/platform detection. Selecting `pty` or `none` uses a local PTY;
@@ -109,8 +114,8 @@ reports. All local workflow workers dispatch to the agent; the former server-man
 
 ## Runtime artifacts
 
-`taskflow-server` owns SQLite, HTTP APIs, tracker queues and the upstream MCP
-service. `taskflow-agent` starts the workstation daemon directly and owns the
+`sectile-server` owns SQLite, HTTP APIs, tracker queues and the upstream MCP
+service. `sectile-agent` starts the workstation daemon directly and owns the
 `mcp` stdio bridge and internal `agent-exec` supervisor. Electron bundles only the
 agent. Shared relay envelopes live in `internal/agentprotocol`; agent production
 code does not import the server handlers, database or embedded UI.
@@ -119,14 +124,22 @@ code does not import the server handlers, database or embedded UI.
 
 | Interface | Address and authentication | Ownership |
 | --- | --- | --- |
-| Server API | `http(s)://<server>:8090`; machine endpoints use the `TASKFLOW_SERVER_TOKEN` bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, upstream `/mcp` |
+| Server API | `http(s)://<server>:8090`; machine endpoints use the `SECTILE_SERVER_TOKEN` bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, upstream `/mcp` |
 | Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; desktop/control calls use the private discovered agent token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
-| MCP | Agent `mcp --url <loopback>` stdio bridge forwards to server `/mcp` | Eight typed tools with server-owned state; no local SQLite |
+| MCP | Agent `mcp --url <loopback>` stdio bridge forwards to server `/mcp`, a stateful Streamable HTTP endpoint | Eight typed tools with server-owned state; no local SQLite; one server session per connected client |
 
 The existing web REST API relies on the deployment's access-control boundary.
 Machine bearer authentication does not add multi-user authorization to that API.
 Cross-origin loopback requests are rejected. The private discovery file is
 `~/.taskflow/agent-connection.json`; tokens never enter project configuration.
+
+The server pings each agent connection every 10 seconds and drops a connection
+that produces neither a frame nor a pong for 30. The agent answers these pings
+from its own read loop, which stays responsive because operations run
+concurrently. Without this, a connection lost without a close frame — a
+suspended machine, a dropped VPN, an expired NAT binding — stays registered and
+every request routed to it waits out its full deadline. The agent keeps sending
+its own 30-second `heartbeat` message, which also refreshes the deadline.
 
 Local workspace requests use the authenticated agent WebSocket:
 
@@ -147,7 +160,11 @@ inspection; editor opening; CLI/skill/SDD status and provisioning; skill reading
 and LLM prompt execution. There is no arbitrary shell action or working-directory parameter. Explicit
 editor/provider settings retain their existing configuration behavior. Launches use the existing `dispatch_step` contract.
 
-Requests normally have a 45-second deadline; digest prompts allow 12 minutes and SDD installation allows seven minutes.
+Requests normally have a 45-second deadline; purely local read-only inspections
+(Git evidence, status and branches, worktree info, SDD/skill status, skill
+reading, editor opening) allow 15 seconds and CLI probing 30, so an unreachable
+agent fails quickly instead of stalling the caller; digest prompts allow 12
+minutes and SDD installation allows seven minutes.
 Cancellation sends `workspace_cancel` with the same `msgId`. Disconnects and
 unconfirmed results fail visibly and never trigger local server execution or an
 automatic retry of a possibly completed mutation. Some local tool installers
@@ -166,7 +183,7 @@ Authenticated `GET /api/v1/agent/projects` returns
 `{"schemaVersion":1,"projects":[{"id":"server-primary-key","name":"Project","gitRemoteUrl":"..."}]}`.
 Discovery excludes server filesystem paths and credentials.
 
-`taskflow-agent` defaults to `--project all`. Use `--list-projects` to
+`sectile-agent` defaults to `--project all`. Use `--list-projects` to
 print available projects without starting the gateway or modifying repositories.
 A single agent accepts launches for multiple projects. Each launch fetches fresh
 project settings and resolves its repository using the local
@@ -178,8 +195,8 @@ multi-project launch is prepared.
 
 `projectId` and `taskId` already mean server primary keys; `taskKey` is
 the human-readable tracker reference. New dispatches carry all three. Native skill
-invocation uses the full task reference, also exposed as `TASKFLOW_TASK_ID`;
-`TASKFLOW_PROJECT_ID` identifies its project and `TASKFLOW_TASK_KEY` remains
+invocation uses the full task reference, also exposed as `SECTILE_TASK_ID`;
+`SECTILE_PROJECT_ID` identifies its project and `SECTILE_TASK_KEY` remains
 available for display. MCP's historical `taskKey` argument accepts the full task
 primary key, which should be preferred for transitions across projects.
 
@@ -205,6 +222,15 @@ discussion and not the ticket: the response then carries `commentsError` with th
 reason and no `comments` field, so an unreadable discussion is never mistaken for
 an empty one. Only an unknown task key is an error.
 
+`create_task` files a new ticket on an explicitly named project and returns it with
+its allocated key and external URL. The project identifier is required and is never
+inferred: the HTTP creation path falls back to the first project when an identifier
+does not resolve, so the tool rejects an unknown one rather than filing on another
+board. Creation is remote whenever the project's tracker supports it, and a tracker
+that cannot create remotely fails the call instead of leaving a ticket that exists
+only locally. The new task enters the workflow at its first stage; no argument
+places it at a later one.
+
 `get_project_context` returns project identity, execution settings, specification
 framework, pull-request creation stage and skill references (`id`, `directory`,
 `command`), plus `skillDirectories`, the directories the agent writes skill files
@@ -225,7 +251,7 @@ an existing link. For example:
 ## Remote execution visibility
 
 A delegated skill creates a `remote_run` activity before dispatch. Its ID travels
-as `runId` and `TASKFLOW_RUN_ID`. Launch failure closes the run as failed;
+as `runId` and `SECTILE_RUN_ID`. Launch failure closes the run as failed;
 successful process launch leaves it running.
 
 Standalone skills call `start_run(taskKey, skill, runId?)`, retaining
@@ -235,11 +261,52 @@ with completed, failed or canceled when it ends, including a stop for user input
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
-Cards and list rows display **Remote execution** while a run is active, updated
+Cards and list rows display a single run icon while a run is active — running takes
+precedence over queued, and a cancellation stays visible briefly — updated
 through server events and polling. Reading a task alone never marks it running.
-Abrupt process termination cannot report completion: the activity remains visible
-until explicitly canceled in the activity UI or finished through MCP. This
-indicator reports declared execution state, not process liveness.
+A run started over MCP is owned by the session that started it, so an abrupt
+client termination closes it as canceled instead of leaving the task active; the
+note records that the client disconnected. Agent-dispatched runs keep their own
+reporting path. This indicator reports declared execution state, not process
+liveness.
+
+## MCP session ownership
+
+`/mcp` is served statefully: each client holds one server session, identified by
+`Mcp-Session-Id` and told apart from any other session sharing the same bearer
+credential. A session begins when its client completes initialization and ends on
+client termination, a dropped connection, or silence beyond the idle timeout.
+
+`GET /api/mcp/sessions` lists live sessions with the identity the client declared
+in `clientInfo`, its connection time, and the runs it owns. It is a browser-facing
+status view and carries no credential; the MCP endpoint itself keeps the machine
+API authentication. The board's status bar polls it and shows the connected
+clients with the runs each one holds. Connecting and disconnecting raise no
+server event, so that view is refreshed by polling and is stale by at most one
+interval.
+
+A run created by `start_run` is adopted by the calling session. Ending the
+session closes the runs it still owns with status `canceled` and a note naming the
+disconnection; `finish_run` releases a run first, so a reported outcome is never
+overwritten. A run reused from a launcher through `runId` or `TASKFLOW_RUN_ID` is
+not adopted: it belongs to the agent that dispatched it, whose supervisor reports
+the real process exit. A client connected through a transport without sessions
+keeps the previous behaviour, where only `finish_run` closes a run.
+
+`SECTILE_MCP_SESSION_TIMEOUT` bounds a session whose client never announces its
+departure, defaulting to fifteen minutes of silence; an unusable value keeps the
+default rather than removing the bound. The stdio bridge pings inside that window,
+so an idle but live conversation stays connected. `SECTILE_MCP_CLIENT` names the
+bridge in the session list, defaulting to host and process id.
+
+A restart destroys every session at once, so startup closes the runs those
+sessions owned, with status `canceled` and a note naming the restart. A run's
+action records its owner and survives the restart: `Agent-owned remote execution`
+keeps a supervisor that reconnects and reports the real process exit, so it is
+preserved, while a run a client created has nothing left to close it. An outcome
+already reported is never rewritten. This refines ADR 0006, which preserves
+active remote executions across startup: the guarantee holds for the executions
+whose owner the restart did not take down with it.
 
 ## Canceling agent-owned executions
 
@@ -312,8 +379,8 @@ The server, local agent and desktop app are independent components. Start the
 agent without the app:
 
 ```sh
-export TASKFLOW_AGENT_TOKEN='your-server-token'
-taskflow-agent --url http://localhost:8090 --repo /path/to/repository
+export TOKEN='your-server-token'
+sectile-agent --url http://localhost:8090 --repo /path/to/repository
 ```
 
 The agent owns PTYs, supervision and console history. The desktop discovers it
@@ -327,10 +394,12 @@ default file and its legacy private connection file.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1 to 3) defaults.
-In the desktop project settings, **Inherit worktrees from server** and
-**Inherit from server** for parallel executions remove local overrides.
-Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:
+The server project supplies the `useWorktrees` default, which **Inherit worktrees
+from server** restores in the desktop project settings. Parallel executions
+(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
+the desktop app is the only surface that sets one, and a project without a local
+value runs a single execution at a time.
+Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
 {
@@ -353,7 +422,7 @@ console history are held in memory for the agent lifetime.
 ### User configuration and commands
 
 Agent settings and project mappings live in
-`~/.config/taskflow/settings.json`, shared by the CLI agent and companion.
+`~/.config/sectile/settings.json`, shared by the CLI agent and companion.
 Writes preserve connection fields, use atomic replacement and mode 0600.
 Legacy repository mappings remain readable and are migrated on the next save.
 
@@ -367,10 +436,36 @@ Legacy repository mappings remain readable and are migrated on the next save.
 | `make serve` | Start the server |
 | `make run` | Start the desktop |
 
-Server and agent are built as `bin/taskflow-server` and `bin/taskflow-agent`. Launch targets use existing
-builds and do not rebuild. Pass agent arguments with, for example,
-`make start ARGS="--url http://localhost:8090"`; provide authentication through
-`TASKFLOW_AGENT_TOKEN`.
+Server and agent are built as `bin/sectile-server` and `bin/sectile-agent` by the `build-*` targets.
+The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
+arguments with, for example, `make start ARGS="--url http://localhost:8090"`; provide
+authentication through `TOKEN`.
+
+## Workstation pairing and identity
+
+The agent authenticates with a device credential that binds one workstation to
+one user. It is obtained once, not configured by hand:
+
+1. The signed-in web interface issues a single-use code, `POST /api/pairing-codes`,
+   valid for ten minutes.
+2. The desktop app exchanges it, `POST /api/v1/agent/pair` with `{"code", "label"}`,
+   and receives `{"token", "deviceId", "userId"}`. This is the only agent endpoint
+   that is not itself authenticated: the code is the proof, and it is consumed
+   atomically, so a replay returns 401.
+3. The agent presents that token on every request. The server resolves it to the
+   user and attributes actions to them.
+
+Unknown, consumed and expired codes all answer `401 Invalid or expired pairing
+code`: distinguishing them would reveal whether a code ever existed. Only the
+hash of a credential is stored, so a copy of the database yields no usable token.
+
+`GET /api/devices` lists a user's workstations and `DELETE /api/devices?id=` revokes
+one, without affecting the others.
+
+Local processes never receive the device credential. They address the agent
+gateway with a loopback secret regenerated at each agent start, and the gateway
+exchanges it for the credential upstream. A caller presenting anything else,
+including the device credential itself, gets 401.
 
 ## Local project disconnection
 
@@ -401,7 +496,8 @@ States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finis
 A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
 
 The `prCreationStage` policy assigns draft creation to specification or implementation
-(default). Adjustment requires an existing matching open PR, performs full review
+(default). Adjustment requires an existing matching PR — open, or already merged by the
+human, in which case it reviews the merged state without pushing — performs full review
 and feedback disposition, checks the final code, updates the same PR and verifies
 readiness. Lookup failure is not absence. Creation-owner recovery retains an already
 implemented stage. Completion records the PR URL at the owning stage.
@@ -461,8 +557,9 @@ Messages explain recovery without returning subprocess output or source contents
 
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
-`add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`
-and `finish_run`. The former `taskflow_` names are unsupported on both transports.
+`add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
+`finish_run` and `create_task`. The former `sectile_` names are unsupported on both
+transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
 Agent launch prompts, desktop exit reporting and built-in policy text use the
@@ -470,7 +567,7 @@ canonical names. User-owned stored instructions remain untouched. Upgrade server
 and agent together, migrate registration through normal bootstrap, reconcile any
 explicit policies requiring manual migration, and reconnect clients. See the
 [upgrade guide](../../README.md#mcp-naming-upgrade). No change is made to the
-versioned agent DTO, `TASKFLOW_RUN_ID`, filesystem paths or protocol markers.
+versioned agent DTO, `SECTILE_RUN_ID`, filesystem paths or protocol markers.
 
 ### Desktop skill result lookup
 

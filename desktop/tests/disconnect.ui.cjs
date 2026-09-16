@@ -5,7 +5,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 const {WebSocketServer}=require('ws')
 
 test('desktop disconnects locally, preserves history, and explicitly reconnects',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-disconnect-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-disconnect-'))
  const disconnected=new Set()
  let removalError='',supported=true,removals=0,other=false,attached=0,detached=0,failDiscovery=false,failDetails=false
  const server=http.createServer((req,res)=>{
@@ -28,7 +28,7 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
   if(url.pathname==='/desktop/project'){
    if(failDetails){res.writeHead(503).end('Server settings unavailable');return}
    const id=url.searchParams.get('id')
-   res.end(JSON.stringify({server:{projectName:'Project '+id,skills:[{id:'specify'}],parallelism:1},path:disconnected.has(id)?'':'/tmp/repository',configured:!disconnected.has(id)}));return
+   res.end(JSON.stringify({server:{projectName:'Project '+id,skills:[{id:'specify'}]},path:disconnected.has(id)?'':'/tmp/repository',configured:!disconnected.has(id)}));return
   }
   if(url.pathname==='/desktop/runs'){
    res.end(JSON.stringify(['a',...(other?['b']:[])].map(id=>({id:'run-'+id,projectId:id,taskId:'task-'+id,taskKey:'#'+id,sessionId:'run-'+id,skill:'specify',status:'completed',directory:'/tmp/repository'}))));return
@@ -42,10 +42,10 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
  }))
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}),{mode:0o600})
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let application
  try{
-  application=await electron.launch({executablePath:process.env.TASKFLOW_DESKTOP_EXECUTABLE,args:process.env.TASKFLOW_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
+  application=await electron.launch({executablePath:process.env.SECTILE_DESKTOP_EXECUTABLE,args:process.env.SECTILE_DESKTOP_EXECUTABLE?[]:[path.resolve(__dirname,'..')],env})
   const page=await application.firstWindow()
   await page.getByText('#a · specify',{exact:true}).waitFor()
   await page.getByRole('button',{name:'Next: Specify',exact:true}).waitFor()

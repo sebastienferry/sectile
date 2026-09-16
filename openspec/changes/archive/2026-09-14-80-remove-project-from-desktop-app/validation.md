@@ -5,7 +5,7 @@
 - `go test ./internal/agentconfig ./cmd/server` — passed (`tasks/internal/agentconfig`, `tasks/cmd/server`).
 - `go test -race ./internal/agentconfig ./cmd/server` — passed; server tests completed in 5.002s with no reported races.
 - `go vet ./internal/agentconfig ./cmd/server` — passed without output.
-- `go build -o /tmp/taskflow-80-build ./cmd/server` — passed; output redirected outside the worktree to avoid an untracked binary.
+- `go build -o /tmp/sectile-80-build ./cmd/server` — passed; output redirected outside the worktree to avoid an untracked binary.
 - `npm --prefix desktop run build` — passed; Vite transformed 8 modules. It emitted its existing warning about the assigned worktree's `#` character, but produced the assets successfully.
 - `npm --prefix desktop run test:ui` — passed: 3 tests, 3 passed, 0 failed. Covers existing console behavior, project disconnection/re-add, and offline/authentication startup behavior.
 - `openspec validate 80-remove-project-from-desktop-app --strict` — passed: `Change '80-remove-project-from-desktop-app' is valid`.
@@ -40,7 +40,7 @@ Final checks:
 - `go test ./...` — passed for all packages, including `tasks/cmd/server`, `tasks/internal/agentconfig`, database, handlers, runner, terminal, and tracker.
 - `go test -race ./internal/agentconfig ./cmd/server` — passed (`1.579s`, `6.185s`); no races reported.
 - `go vet ./...` — passed without output.
-- `go build -o /tmp/taskflow-80-review ./cmd/server` — passed, including after web assets were generated.
+- `go build -o /tmp/sectile-80-review ./cmd/server` — passed, including after web assets were generated.
 - `npm --prefix desktop run build` — passed: 11 modules transformed.
 - `npm --prefix desktop run test:ui` — `tests 11`, `pass 11`, `fail 0`.
 - `node --test desktop/tests/disconnect.ui.cjs` — after the added integration assertions: `tests 1`, `pass 1`, `fail 0`.

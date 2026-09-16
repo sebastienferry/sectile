@@ -1,6 +1,6 @@
 ## Purpose
 
-Functional specification and acceptance criteria for interactive terminal button actions, session control hierarchy, and explicit terminology in TaskFlow UI.
+Functional specification and acceptance criteria for interactive terminal button actions, session control hierarchy, and explicit terminology in Sectile UI.
 
 ## ADDED Requirements
 
