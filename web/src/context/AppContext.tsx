@@ -38,6 +38,7 @@ import type {
   RefineMacroResult,
   AutoSyncState,
   TrackerCheck,
+  TrackerCredentials,
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
@@ -111,14 +112,9 @@ interface AppContextType {
   isTrackerSetupOpen: boolean
   setIsTrackerSetupOpen: (open: boolean) => void
   /** Vérifie des accès tracker sans rien enregistrer. */
-  checkTrackerCredentials: (siteUrl: string, email: string, token: string) => Promise<TrackerCheck>
+  checkTrackerCredentials: (params: TrackerCredentials) => Promise<TrackerCheck>
   /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
-  saveTrackerCredentials: (
-    siteUrl: string,
-    email: string,
-    token: string,
-    storeTokenInFile: boolean
-  ) => Promise<boolean>
+  saveTrackerCredentials: (params: TrackerCredentials) => Promise<boolean>
   /**
    * Statuts du tracker affichés. Vide veut dire « tous » : c'est le choix
    * explicite de ce qu'on regarde, board comme liste, et il remplace le
@@ -1037,12 +1033,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [fetchTaskFacets, tasks.length])
 
   const checkTrackerCredentials = useCallback(
-    async (siteUrl: string, email: string, token: string): Promise<TrackerCheck> => {
+    async (params: TrackerCredentials): Promise<TrackerCheck> => {
       try {
         const res = await fetch(`${API_BASE}/setup/tracker/check`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ siteUrl, email, token }),
+          body: JSON.stringify(params),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) return { ok: false, error: data.error || 'Vérification impossible' }
@@ -1055,12 +1051,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   )
 
   const saveTrackerCredentials = useCallback(
-    async (siteUrl: string, email: string, token: string, storeTokenInFile: boolean): Promise<boolean> => {
+    async (params: TrackerCredentials): Promise<boolean> => {
       try {
         const res = await fetch(`${API_BASE}/setup/tracker`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ siteUrl, email, token, storeTokenInFile }),
+          body: JSON.stringify(params),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.error || 'Enregistrement refusé')

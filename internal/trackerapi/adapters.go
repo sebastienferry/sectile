@@ -43,6 +43,15 @@ func NewGithubAdapter(client *Client) *GithubAdapter {
 	}
 }
 
+// forProject is the client to run one request with: the same one when nothing is
+// stored, one carrying the project's own connection parameters otherwise.
+func (g *GithubAdapter) forProject(p *models.Project) *Client {
+	if p == nil {
+		return g.client.For("")
+	}
+	return g.client.For(p.ID)
+}
+
 func resolveGithubRepo(p *models.Project) string {
 	if p == nil {
 		return ""
@@ -63,7 +72,7 @@ func (g *GithubAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssue
 		return nil, fmt.Errorf("configure an explicit GitHub owner/repository")
 	}
 	repoPath := resolveRepoPath(req.Project)
-	return g.client.CreateGithubIssue(repo, repoPath, req.Title, req.Description, req.Labels)
+	return g.forProject(req.Project).CreateGithubIssue(repo, repoPath, req.Title, req.Description, req.Labels)
 }
 
 func (g *GithubAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
@@ -76,7 +85,7 @@ func (g *GithubAdapter) GetIssue(ctx context.Context, req tracker.GetIssueReques
 	if err != nil {
 		return nil, err
 	}
-	return g.client.FetchSingleGithubIssue(repo, repoPath, num)
+	return g.forProject(req.Project).FetchSingleGithubIssue(repo, repoPath, num)
 }
 
 func (g *GithubAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRequest) error {
@@ -89,7 +98,7 @@ func (g *GithubAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssue
 	if key == "" {
 		return fmt.Errorf("issue key is required")
 	}
-	return g.client.UpdateGithubIssue(repo, repoPath, key, req.Title, req.Description, req.Status, req.Labels, req.RemovedLabels)
+	return g.forProject(req.Project).UpdateGithubIssue(repo, repoPath, key, req.Title, req.Description, req.Status, req.Labels, req.RemovedLabels)
 }
 
 func (g *GithubAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssueRequest) error {
@@ -98,7 +107,7 @@ func (g *GithubAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssue
 	if req.Key == "" {
 		return fmt.Errorf("issue key is required")
 	}
-	return g.client.UpdateGithubIssueState(repo, repoPath, req.Key, models.StatusFinished)
+	return g.forProject(req.Project).UpdateGithubIssueState(repo, repoPath, req.Key, models.StatusFinished)
 }
 
 func (g *GithubAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest) ([]models.Task, error) {
@@ -110,23 +119,23 @@ func (g *GithubAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest)
 	if repoPath == "" && req.Project != nil {
 		repoPath = req.Project.RepoPath
 	}
-	return g.client.SyncFromGithub(repo, repoPath)
+	return g.forProject(req.Project).SyncFromGithub(repo, repoPath)
 }
 
 func (g *GithubAdapter) AddComment(ctx context.Context, req tracker.AddCommentRequest) error {
 	repo := resolveGithubRepo(req.Project)
 	repoPath := resolveRepoPath(req.Project)
-	return g.client.AddIssueComment("github", repo, repoPath, req.Key, req.Body)
+	return g.forProject(req.Project).AddIssueComment("github", repo, repoPath, req.Key, req.Body)
 }
 
 func (g *GithubAdapter) GetComments(ctx context.Context, req tracker.GetCommentsRequest) ([]models.TaskComment, error) {
 	repo := resolveGithubRepo(req.Project)
 	repoPath := resolveRepoPath(req.Project)
-	return g.client.GetGithubIssueComments(repo, repoPath, req.Key)
+	return g.forProject(req.Project).GetGithubIssueComments(repo, repoPath, req.Key)
 }
 
 func (g *GithubAdapter) UpdateLabels(ctx context.Context, key string, add []string, remove []string) error {
-	return g.client.UpdateGithubIssue("", "", key, nil, nil, nil, add, remove)
+	return g.forProject(nil).UpdateGithubIssue("", "", key, nil, nil, nil, add, remove)
 }
 
 func (g *GithubAdapter) FormatTaskID(projectID string, key string, rawID string) string {

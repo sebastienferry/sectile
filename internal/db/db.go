@@ -130,6 +130,9 @@ func NewDB(dbPath string) (*DB, error) {
 		limiter:         newProjectLimiter(),
 		cancelMap:       make(map[string]context.CancelFunc),
 	}
+	// The client resolves its credentials through the store, which is the only
+	// component able to read the settings and the project override.
+	trackerClient.Resolve = db.trackerCredentials
 	if err := db.initIdentitySchema(); err != nil {
 		return nil, err
 	}
@@ -408,6 +411,12 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_url TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_email TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_api_token TEXT NOT NULL DEFAULT '';")
+	// Tracker connection parameters, held in the user configuration so they no
+	// longer require a server environment variable and a restart.
+	for _, column := range []string{"github_api_url", "github_token", "gitlab_url", "gitlab_project", "gitlab_token"} {
+		_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN " + column + " TEXT NOT NULL DEFAULT '';")
+		_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN " + column + " TEXT NOT NULL DEFAULT '';")
+	}
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_enabled INTEGER NOT NULL DEFAULT 0;")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_interval_min INTEGER NOT NULL DEFAULT 5;")
 
@@ -2405,12 +2414,14 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 	var s models.Settings
 	var aiModel, aiSkillModelsJSON sql.NullString
 	var detMode, aiProv, aiCmd, repoP, issTrk, ghRepo, jiraProj, jiraUrl, jiraMail, jiraTok, pClar, pSpec, pImpl, pPR, pPick, editCmd, specFw sql.NullString
+	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 	var uiScale sql.NullInt64
 	var autoSyncEnabled, autoSyncInterval sql.NullInt64
 
 	err := d.conn.QueryRow(`
 		SELECT id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar,
 		       ai_provider, ai_command_template, ai_model, ai_skill_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token,
+		       github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token,
 		       prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at
 		FROM settings WHERE id = 1
 	`).Scan(
@@ -2435,6 +2446,11 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 		&jiraUrl,
 		&jiraMail,
 		&jiraTok,
+		&ghURL,
+		&ghTok,
+		&glURL,
+		&glProj,
+		&glTok,
 		&pClar,
 		&pSpec,
 		&pImpl,
@@ -2487,6 +2503,11 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 	if jiraTok.Valid {
 		s.JiraAPIToken = jiraTok.String
 	}
+	s.GithubApiUrl = ghURL.String
+	s.GithubToken = ghTok.String
+	s.GitlabUrl = glURL.String
+	s.GitlabProject = glProj.String
+	s.GitlabToken = glTok.String
 	s.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 	if pClar.Valid {
 		s.PromptClarify = pClar.String
@@ -2818,9 +2839,10 @@ func (d *DB) GetTaskActivities(taskID string) ([]models.TaskActivity, error) {
 	return d.getTaskActivitiesUnsafe(taskID)
 }
 
-// JiraTokenClearSentinel is what the UI sends to delete a stored token, since an
-// empty field means "leave it alone".
-const JiraTokenClearSentinel = "__clear__"
+// TrackerTokenClearSentinel is what the UI sends to delete a stored token, since
+// an empty field means "leave it alone". It applies to every tracker credential,
+// Jira included, which is why it no longer carries Jira's name.
+const TrackerTokenClearSentinel = "__clear__"
 
 func (d *DB) GetSettings() (*models.Settings, error) {
 	d.mu.RLock()
@@ -2829,12 +2851,14 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 	var s models.Settings
 	var aiModel, aiSkillModelsJSON sql.NullString
 	var detMode, aiProv, aiCmd, repoP, issTrk, ghRepo, jiraProj, jiraUrl, jiraMail, jiraTok, pClar, pSpec, pImpl, pPR, pPick, specFw, extTerm sql.NullString
+	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 	var uiScale sql.NullInt64
 	var autoSyncEnabled, autoSyncInterval sql.NullInt64
 
 	err := d.conn.QueryRow(`
 		SELECT id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar,
 		       ai_provider, ai_command_template, ai_model, ai_skill_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token,
+		       github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token,
 		       prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at
 		FROM settings WHERE id = 1
 	`).Scan(
@@ -2859,6 +2883,11 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 		&jiraUrl,
 		&jiraMail,
 		&jiraTok,
+		&ghURL,
+		&ghTok,
+		&glURL,
+		&glProj,
+		&glTok,
 		&pClar,
 		&pSpec,
 		&pImpl,
@@ -2874,7 +2903,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return &models.Settings{
+			return d.withoutTrackerTokens(&models.Settings{
 				ID:                1,
 				Theme:             "dark",
 				AccentColor:       "indigo",
@@ -2898,7 +2927,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 				EditorCommand:     "code",
 				SpecFramework:     "speckit",
 				UpdatedAt:         time.Now(),
-			}, nil
+			}), nil
 		}
 		return nil, err
 	}
@@ -2950,6 +2979,11 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 	if jiraTok.Valid {
 		s.JiraAPIToken = jiraTok.String
 	}
+	s.GithubApiUrl = ghURL.String
+	s.GithubToken = ghTok.String
+	s.GitlabUrl = glURL.String
+	s.GitlabProject = glProj.String
+	s.GitlabToken = glTok.String
 	if pClar.Valid {
 		s.PromptClarify = pClar.String
 	}
@@ -2970,7 +3004,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 	}
 	s.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 
-	return &s, nil
+	return d.withoutTrackerTokens(&s), nil
 }
 
 func (d *DB) UpdateSettings(s models.Settings) (*models.Settings, error) {
@@ -3031,9 +3065,20 @@ func (d *DB) UpdateSettings(s models.Settings) (*models.Settings, error) {
 			// The UI never receives the token back, so it sends an empty field
 			// unless the user typed a new one.
 			s.JiraAPIToken = current.JiraAPIToken
-		} else if s.JiraAPIToken == JiraTokenClearSentinel {
+		} else if s.JiraAPIToken == TrackerTokenClearSentinel {
 			s.JiraAPIToken = ""
 		}
+		if s.GithubApiUrl == "" {
+			s.GithubApiUrl = current.GithubApiUrl
+		}
+		if s.GitlabUrl == "" {
+			s.GitlabUrl = current.GitlabUrl
+		}
+		if s.GitlabProject == "" {
+			s.GitlabProject = current.GitlabProject
+		}
+		s.GithubToken = keptToken(s.GithubToken, current.GithubToken)
+		s.GitlabToken = keptToken(s.GitlabToken, current.GitlabToken)
 		if s.PromptClarify == "" {
 			s.PromptClarify = current.PromptClarify
 		}
@@ -3117,8 +3162,8 @@ func (d *DB) UpdateSettings(s models.Settings) (*models.Settings, error) {
 
 	now := time.Now()
 	_, err := d.conn.Exec(`
-		INSERT INTO settings (id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar, ai_provider, ai_command_template, ai_model, ai_skill_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token, prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO settings (id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar, ai_provider, ai_command_template, ai_model, ai_skill_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			theme = excluded.theme,
 			accent_color = excluded.accent_color,
@@ -3140,6 +3185,11 @@ func (d *DB) UpdateSettings(s models.Settings) (*models.Settings, error) {
 			jira_url = excluded.jira_url,
 			jira_email = excluded.jira_email,
 			jira_api_token = excluded.jira_api_token,
+			github_api_url = excluded.github_api_url,
+			github_token = excluded.github_token,
+			gitlab_url = excluded.gitlab_url,
+			gitlab_project = excluded.gitlab_project,
+			gitlab_token = excluded.gitlab_token,
 			prompt_clarify = excluded.prompt_clarify,
 			prompt_specify = excluded.prompt_specify,
 			prompt_implement = excluded.prompt_implement,
@@ -3152,7 +3202,7 @@ func (d *DB) UpdateSettings(s models.Settings) (*models.Settings, error) {
 			auto_sync_enabled = excluded.auto_sync_enabled,
 			auto_sync_interval_sec = excluded.auto_sync_interval_sec,
 			updated_at = excluded.updated_at
-	`, s.Theme, s.AccentColor, s.Language, s.Density, s.DefaultView, s.DetailMode, s.UserName, s.UserEmail, s.UserAvatar, s.AIProvider, s.AICommandTemplate, s.AIModel, string(settingsSkillModelsBytes), s.RepoPath, s.IssueTracker, s.GithubRepo, s.JiraProject, s.JiraUrl, s.JiraEmail, s.JiraAPIToken, s.PromptClarify, s.PromptSpecify, s.PromptImplement, s.PromptCreatePR, s.PromptPick, s.EditorCommand, s.ExternalTerminalCommand, s.SpecFramework, s.UIScale, autoSyncEnabledInt, s.AutoSyncIntervalSec, now)
+	`, s.Theme, s.AccentColor, s.Language, s.Density, s.DefaultView, s.DetailMode, s.UserName, s.UserEmail, s.UserAvatar, s.AIProvider, s.AICommandTemplate, s.AIModel, string(settingsSkillModelsBytes), s.RepoPath, s.IssueTracker, s.GithubRepo, s.JiraProject, s.JiraUrl, s.JiraEmail, s.JiraAPIToken, s.GithubApiUrl, s.GithubToken, s.GitlabUrl, s.GitlabProject, s.GitlabToken, s.PromptClarify, s.PromptSpecify, s.PromptImplement, s.PromptCreatePR, s.PromptPick, s.EditorCommand, s.ExternalTerminalCommand, s.SpecFramework, s.UIScale, autoSyncEnabledInt, s.AutoSyncIntervalSec, now)
 
 	if err != nil {
 		return nil, err
@@ -3160,7 +3210,7 @@ func (d *DB) UpdateSettings(s models.Settings) (*models.Settings, error) {
 
 	s.ID = 1
 	s.UpdatedAt = now
-	return &s, nil
+	return d.withoutTrackerTokens(&s), nil
 }
 
 // GetAvailableSkills exposes the workflow catalogue. It derives from the single
@@ -4896,7 +4946,7 @@ func parseStageColumns(raw string) map[string][]string {
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.stage_mapping, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.stage_mapping, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -4920,8 +4970,9 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var monoRepo int
 		var aiProv, aiCmd, specFw, jiraProj, ttyMode, extTerm sql.NullString
 		var projModel, projSkillModelsJSON sql.NullString
+		var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &stageMappingJSON, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &stageMappingJSON, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -4965,6 +5016,8 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		if jiraProj.Valid {
 			p.JiraProject = jiraProj.String
 		}
+		p.GithubApiUrl, p.GithubToken = ghURL.String, ghTok.String
+		p.GitlabUrl, p.GitlabProject, p.GitlabToken = glURL.String, glProj.String, glTok.String
 		p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 		projects = append(projects, p)
 	}
@@ -4977,13 +5030,18 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 func (d *DB) GetProjects() ([]models.Project, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.getProjectsUnsafe()
+	projects, err := d.getProjectsUnsafe()
+	for i := range projects {
+		withoutProjectTokens(&projects[i])
+	}
+	return projects, err
 }
 
 func (d *DB) GetProjectByID(id string) (*models.Project, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.getProjectByIDUnsafe(id)
+	proj, err := d.getProjectByIDUnsafe(id)
+	return withoutProjectTokens(proj), err
 }
 
 func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
@@ -4997,13 +5055,14 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var monoRepo int
 	var aiProv, aiCmd, specFw, jiraProj, ttyMode, extTerm sql.NullString
 	var projModel, projSkillModelsJSON sql.NullString
+	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.stage_mapping, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.stage_mapping, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &stageMappingJSON, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &stageMappingJSON, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -5050,6 +5109,8 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	if jiraProj.Valid {
 		p.JiraProject = jiraProj.String
 	}
+	p.GithubApiUrl, p.GithubToken = ghURL.String, ghTok.String
+	p.GitlabUrl, p.GitlabProject, p.GitlabToken = glURL.String, glProj.String, glTok.String
 	p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
 	return &p, nil
 }
@@ -5172,9 +5233,9 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	}
 
 	_, err := d.conn.Exec(`
-		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, github_repo, jira_project, issue_tracker, tracker_url, is_default, stage_mapping, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, githubRepo, jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, now, now)
+		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, stage_mapping, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, now, now)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -5186,7 +5247,7 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 		return nil, err
 	}
 
-	return project, nil
+	return withoutProjectTokens(project), nil
 }
 
 func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.Project, error) {
@@ -5290,6 +5351,23 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 	if req.MonoRepo != nil {
 		p.MonoRepo = *req.MonoRepo
 	}
+	if req.GithubApiUrl != nil {
+		p.GithubApiUrl = strings.TrimSpace(*req.GithubApiUrl)
+	}
+	if req.GitlabUrl != nil {
+		p.GitlabUrl = strings.TrimSpace(*req.GitlabUrl)
+	}
+	if req.GitlabProject != nil {
+		p.GitlabProject = strings.TrimSpace(*req.GitlabProject)
+	}
+	// The interface never receives a project token back either, so the same
+	// empty-means-unchanged rule applies here.
+	if req.GithubToken != nil {
+		p.GithubToken = keptToken(strings.TrimSpace(*req.GithubToken), p.GithubToken)
+	}
+	if req.GitlabToken != nil {
+		p.GitlabToken = keptToken(strings.TrimSpace(*req.GitlabToken), p.GitlabToken)
+	}
 	if req.AIProvider != nil {
 		p.AIProvider = *req.AIProvider
 	}
@@ -5372,9 +5450,9 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 
 	_, err = d.conn.Exec(`
 		UPDATE projects
-		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, stage_mapping = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, updated_at = ?
+		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, stage_mapping = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
+	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(stageMappingBytes), string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -5385,6 +5463,7 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 	if err != nil {
 		return nil, err
 	}
+	project = withoutProjectTokens(project)
 
 	return project, nil
 }

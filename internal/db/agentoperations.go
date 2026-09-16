@@ -112,4 +112,4 @@ func (d *DB) AgentOperation(op agentprotocol.Operation, result any) error {
 	return d.callAgent(op, result)
 }
 
-func (d *DB) TrackerGraphQL(query string) ([]byte, error) { return d.trackers.GithubGraphQL(query) }
+func (d *DB) TrackerGraphQL(query string) ([]byte, error) { return d.tracker("").GithubGraphQL(query) }

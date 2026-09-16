@@ -1387,12 +1387,14 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 // HandleTrackerSetup checks tracker credentials, and saves them once they are
 // known good.
 //
-//	POST /api/setup/tracker/check  {siteUrl, email, token}
-//	POST /api/setup/tracker        {siteUrl, email, token, storeTokenInFile}
+//	POST /api/setup/tracker/check  {tracker, siteUrl, project, email, token}
+//	POST /api/setup/tracker        {tracker, siteUrl, project, email, token, storeTokenInFile}
 //
 // Checking before saving is the point: a wrong site or a stale token never
 // reaches the settings, and the answer names what is wrong instead of leaving a
-// sync to fail later with nothing to show.
+// sync to fail later with nothing to show. `tracker` selects the fields that
+// matter: GitHub and GitLab are checked against the instance and persisted here;
+// the Jira path keeps the behaviour it had, which persists nothing.
 func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1400,7 +1402,9 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		Tracker          string `json:"tracker"`
 		SiteURL          string `json:"siteUrl"`
+		Project          string `json:"project"`
 		Email            string `json:"email"`
 		Token            string `json:"token"`
 		StoreTokenInFile bool   `json:"storeTokenInFile"`
@@ -1410,8 +1414,32 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check") {
-		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
+	tracker := strings.ToLower(strings.TrimSpace(req.Tracker))
+	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
+	verified := ""
+	if tracker == "github" || tracker == "gitlab" {
+		account, err := h.db.CheckTrackerCredentials(r.Context(), tracker, req.SiteURL, req.Token)
+		if err != nil {
+			// Nothing is persisted on a failed check: the user configuration
+			// keeps the parameters that were working.
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		verified = account
+	}
+
+	if checkOnly {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "account": verified})
+		return
+	}
+
+	if tracker == "github" || tracker == "gitlab" {
+		settings, err := h.db.SaveTrackerCredentials(tracker, req.SiteURL, req.Project, req.Token)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, settings)
 		return
 	}
 
