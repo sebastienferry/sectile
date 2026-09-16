@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"tasks/internal/agenthttp"
 
 	"tasks/internal/agentconfig"
@@ -24,17 +25,25 @@ import (
 // the contract entirely.
 const contractPrefix = "/api/v1/agent/"
 
-// noteContract records a mismatch and announces it once per episode, then
-// returns it unchanged. Every server call funnels through here, so a mismatch
-// surfacing during a dispatch or a desktop request is reported as loudly as one
-// surfacing while connecting. Announcing on the message rather than the episode
-// would repeat the banner every time the failing route alternates between the
+// contractState remembers the last contract mismatch seen on any server call,
+// so the desktop can say the server is incompatible instead of showing a bare
+// disconnection. It owns its mutex: nothing else is read or written under it.
+type contractState struct {
+	mu       sync.Mutex
+	mismatch string
+}
+
+// note records a mismatch and announces it once per episode, then returns it
+// unchanged. Every server call funnels through here, so a mismatch surfacing
+// during a dispatch or a desktop request is reported as loudly as one surfacing
+// while connecting. Announcing on the message rather than the episode would
+// repeat the banner every time the failing route alternates between the
 // connection loop and a desktop call.
-func (d *agentDaemon) noteContract(mismatch *agentconfig.Mismatch) error {
-	d.contractMu.Lock()
-	first := d.contractError == ""
-	d.contractError = mismatch.Error()
-	d.contractMu.Unlock()
+func (c *contractState) note(mismatch *agentconfig.Mismatch) error {
+	c.mu.Lock()
+	first := c.mismatch == ""
+	c.mismatch = mismatch.Error()
+	c.mu.Unlock()
 	if first {
 		log.Printf("⛔ [Agent] Server contract mismatch: %v", mismatch)
 		fmt.Printf("\n⛔ ========================================================\n")
@@ -45,27 +54,27 @@ func (d *agentDaemon) noteContract(mismatch *agentconfig.Mismatch) error {
 	return mismatch
 }
 
-// clearContract forgets a mismatch once a contract route answers correctly,
-// which is what an updated and restarted server produces.
-func (d *agentDaemon) clearContract() {
-	d.contractMu.Lock()
-	defer d.contractMu.Unlock()
-	d.contractError = ""
+// clear forgets a mismatch once a contract route answers correctly, which is
+// what an updated and restarted server produces.
+func (c *contractState) clear() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mismatch = ""
 }
 
-// contractMismatch reports the standing mismatch, empty when there is none.
-func (d *agentDaemon) contractMismatch() string {
-	d.contractMu.Lock()
-	defer d.contractMu.Unlock()
-	return d.contractError
+// current reports the standing mismatch, empty when there is none.
+func (c *contractState) current() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.mismatch
 }
 
 func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.serverURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.link.serverURL+path, nil)
 	if err != nil {
 		return err
 	}
-	resp, err := agenthttp.Client(d.token).Do(req)
+	resp, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
 		return err
 	}
@@ -77,7 +86,7 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 	// retries forever; named for what it is, it points at the build to update.
 	if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, contractPrefix) {
 		route, _, _ := strings.Cut(path, "?")
-		return d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: route, Status: resp.StatusCode})
+		return d.contract.note(&agentconfig.Mismatch{Server: d.link.serverURL, Route: route, Status: resp.StatusCode})
 	}
 	if resp.StatusCode != http.StatusOK {
 		var detail struct {
@@ -109,9 +118,9 @@ func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string
 			// Validate rejects this too, but its message serves local files as
 			// well. A payload from the server is a build disagreement, and
 			// saying so keeps every contract failure reading alike.
-			err = d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: "/api/v1/agent/config", Served: c.SchemaVersion})
+			err = d.contract.note(&agentconfig.Mismatch{Server: d.link.serverURL, Route: "/api/v1/agent/config", Served: c.SchemaVersion})
 		} else {
-			d.clearContract()
+			d.contract.clear()
 		}
 	}
 	if err == nil {
@@ -161,7 +170,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 			mapped = filepath.Join(root, mapped)
 		}
 		root = mapped
-	} else if d.projectID != c.ProjectID {
+	} else if d.link.projectID != c.ProjectID {
 		remote, err := gitLocal(ctx, root, "remote", "get-url", "origin")
 		if err != nil || c.GitRemoteURL == "" || repositoryIdentity(remote) != repositoryIdentity(c.GitRemoteURL) {
 			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/taskflow/settings.json projects", c.ProjectID)
@@ -353,7 +362,7 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 		return err
 	}
 	for _, provider := range providers {
-		path, err := agentconfig.BootstrapMCP(provider, executable, d.agentURL)
+		path, err := agentconfig.BootstrapMCP(provider, executable, d.loopback.url)
 		if err != nil {
 			return fmt.Errorf("register the Sectile MCP server for provider %q: %w", provider, err)
 		}
@@ -540,9 +549,9 @@ func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Project
 		return projects, err
 	}
 	if projects.SchemaVersion != agentconfig.Version {
-		return projects, d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: "/api/v1/agent/projects", Served: projects.SchemaVersion})
+		return projects, d.contract.note(&agentconfig.Mismatch{Server: d.link.serverURL, Route: "/api/v1/agent/projects", Served: projects.SchemaVersion})
 	}
-	d.clearContract()
+	d.contract.clear()
 	return projects, nil
 }
 

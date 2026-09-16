@@ -56,14 +56,14 @@ func (h *headlessServer) captured() string {
 func runHeadless(t *testing.T, command string) (*headlessServer, *controlledRun) {
 	t.Helper()
 	server := newHeadlessServer(t)
-	d := &agentDaemon{serverURL: server.server.URL}
+	d := &agentDaemon{link: serverLink{serverURL: server.server.URL}}
 	payload := agentconfig.Dispatch{RunID: "run-1", TaskKey: "#7", SkillID: "clarify"}
 	if err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, command); err != nil {
 		t.Fatalf("startHeadlessRun: %v", err)
 	}
-	d.runsMu.Lock()
-	run := d.runs["run-1"]
-	d.runsMu.Unlock()
+	d.queue.mu.Lock()
+	run := d.queue.runs["run-1"]
+	d.queue.mu.Unlock()
 	select {
 	case <-run.exited:
 	case <-time.After(20 * time.Second):
@@ -117,15 +117,15 @@ func TestHeadlessRunReportsFailure(t *testing.T) {
 // signals the process GROUP, so the child has to be its own group leader.
 func TestHeadlessRunIsStoppable(t *testing.T) {
 	server := newHeadlessServer(t)
-	d := &agentDaemon{serverURL: server.server.URL}
+	d := &agentDaemon{link: serverLink{serverURL: server.server.URL}}
 	payload := agentconfig.Dispatch{RunID: "run-stop", TaskKey: "#7", SkillID: "clarify"}
 	if err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, "sleep 120"); err != nil {
 		t.Fatalf("startHeadlessRun: %v", err)
 	}
-	d.runsMu.Lock()
-	run := d.runs["run-stop"]
+	d.queue.mu.Lock()
+	run := d.queue.runs["run-stop"]
 	run.canceled = true
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 
 	select {
 	case <-run.exited:

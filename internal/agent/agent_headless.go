@@ -64,15 +64,15 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 // session: an autonomous run has no terminal to attach to, and the desktop must
 // not present it as an execution whose console is missing.
 func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch string) *controlledRun {
-	d.runsMu.Lock()
-	defer d.runsMu.Unlock()
-	if d.runs == nil {
-		d.runs = make(map[string]*controlledRun)
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	if d.queue.runs == nil {
+		d.queue.runs = make(map[string]*controlledRun)
 	}
-	run := d.runs[payload.RunID]
+	run := d.queue.runs[payload.RunID]
 	if run == nil {
 		run = &controlledRun{taskID: taskRef, exited: make(chan struct{})}
-		d.runs[payload.RunID] = run
+		d.queue.runs[payload.RunID] = run
 	}
 	run.taskID = taskRef
 	run.desktop = desktopRun{
@@ -128,10 +128,7 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 			draining = false
 		case <-ticker.C:
 			flush()
-			d.runsMu.Lock()
-			canceled := run.canceled
-			d.runsMu.Unlock()
-			if canceled && cmd.Process != nil {
+			if d.queue.canceled(run) && cmd.Process != nil {
 				// Escalate on the second pass, as the interactive supervisor
 				// does: a CLI that traps the interrupt and keeps working must
 				// not turn a stop request into a run that never ends.
@@ -150,22 +147,19 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	if err != nil {
 		status, note = "failed", err.Error()
 	}
-	d.runsMu.Lock()
-	canceled := run.canceled
-	d.runsMu.Unlock()
-	if canceled {
+	if d.queue.canceled(run) {
 		status, note = "canceled", "Headless run canceled"
 	}
 	d.finishHeadlessRun(taskRef, runID, run, status, note)
 }
 
 func (d *agentDaemon) finishHeadlessRun(taskRef, runID string, run *controlledRun, status, note string) {
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	if run != nil {
 		run.desktop.Status = status
 		run.once.Do(func() { close(run.exited) })
 	}
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	if runID == "" {
 		return
 	}
@@ -185,12 +179,12 @@ func (d *agentDaemon) postRunOutput(taskRef, runID, chunk string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	body := mustJSON(map[string]string{"taskId": taskRef, "runId": runID, "output": chunk})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.serverURL+"/api/v1/agent/run-output", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.link.serverURL+"/api/v1/agent/run-output", strings.NewReader(body))
 	if err != nil {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := agenthttp.Client(d.token).Do(req)
+	resp, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
 		return
 	}

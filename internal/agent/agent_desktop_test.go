@@ -18,13 +18,13 @@ import (
 )
 
 func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
-	d := &agentDaemon{desktopToken: "private", terminalMgr: terminal.NewManager()}
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, loopback: loopbackServer{desktopToken: "private"}}
 	root := t.TempDir()
-	if _, err := d.terminalMgr.GetOrCreateSession("run", root, nil); err != nil {
+	if _, err := d.terminal.manager.GetOrCreateSession("run", root, nil); err != nil {
 		t.Fatal(err)
 	}
-	defer d.terminalMgr.CloseSession("run")
-	d.runs = map[string]*controlledRun{"run": {sequence: 7, desktop: desktopRun{SessionID: "run", Directory: root, Status: "running"}, exited: make(chan struct{})}}
+	defer d.terminal.manager.CloseSession("run")
+	d.queue.runs = map[string]*controlledRun{"run": {sequence: 7, desktop: desktopRun{SessionID: "run", Directory: root, Status: "running"}, exited: make(chan struct{})}}
 	server := httptest.NewServer(http.HandlerFunc(d.desktopHandler))
 	defer server.Close()
 	request := httptest.NewRequest("GET", "/desktop/runs", nil)
@@ -87,8 +87,8 @@ func TestDesktopRestartRequiresConfirmedExit(t *testing.T) {
 	restarted := false
 	run := &controlledRun{exited: make(chan struct{})}
 	d := &agentDaemon{
-		desktopToken: "private",
-		runs:         map[string]*controlledRun{"run": run},
+		loopback:     loopbackServer{desktopToken: "private"},
+		queue:        runQueue{runs: map[string]*controlledRun{"run": run}},
 		restartAgent: func() { restarted = true },
 	}
 	call := func(token string) int {
@@ -118,12 +118,12 @@ func TestDesktopRestartRequiresConfirmedExit(t *testing.T) {
 
 func TestDesktopShutdownDoesNotRelaunch(t *testing.T) {
 	stopped := false
-	d := &agentDaemon{desktopToken: "private", restartAgent: func() { stopped = true }}
+	d := &agentDaemon{restartAgent: func() { stopped = true }, loopback: loopbackServer{desktopToken: "private"}}
 	req := httptest.NewRequest(http.MethodPost, "/desktop/shutdown", nil)
 	req.Header.Set("Authorization", "Bearer private")
 	response := httptest.NewRecorder()
 	d.desktopHandler(response, req)
-	if response.Code != 204 || !stopped || d.restartRequested || !d.shuttingDown {
+	if response.Code != 204 || !stopped || d.queue.restartRequested || !d.queue.shuttingDown {
 		t.Fatalf("unexpected shutdown state: status=%d stopped=%v", response.Code, stopped)
 	}
 	if _, err := d.wrapRun("task", "new", "echo unexpected"); err == nil {
@@ -134,10 +134,10 @@ func TestDesktopShutdownDoesNotRelaunch(t *testing.T) {
 func TestDesktopClearHistoryPreservesActiveRuns(t *testing.T) {
 	finished := make(chan struct{})
 	close(finished)
-	d := &agentDaemon{desktopToken: "private", runs: map[string]*controlledRun{
+	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}, queue: runQueue{runs: map[string]*controlledRun{
 		"finished": {exited: finished},
 		"active":   {exited: make(chan struct{})},
-	}}
+	}}}
 	call := func(token string) int {
 		req := httptest.NewRequest(http.MethodDelete, "/desktop/history", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -145,10 +145,10 @@ func TestDesktopClearHistoryPreservesActiveRuns(t *testing.T) {
 		d.desktopHandler(res, req)
 		return res.Code
 	}
-	if call("wrong") != 401 || len(d.runs) != 2 {
+	if call("wrong") != 401 || len(d.queue.runs) != 2 {
 		t.Fatal("unauthorized cleanup")
 	}
-	if call("private") != 200 || len(d.runs) != 1 || d.runs["active"] == nil {
+	if call("private") != 200 || len(d.queue.runs) != 1 || d.queue.runs["active"] == nil {
 		t.Fatal("cleanup must preserve active executions")
 	}
 	if call("private") != 200 {
@@ -157,34 +157,34 @@ func TestDesktopClearHistoryPreservesActiveRuns(t *testing.T) {
 }
 
 func TestLocalAgentDiscoveryWithoutDesktopMode(t *testing.T) {
-	d := &agentDaemon{desktopToken: "private", desktopInfo: filepath.Join(t.TempDir(), "nested", "agent-connection.json")}
+	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private", desktopInfo: filepath.Join(t.TempDir(), "nested", "agent-connection.json")}}
 	server := httptest.NewServer(http.HandlerFunc(d.desktopHandler))
 	defer server.Close()
-	d.agentURL = server.URL
+	d.loopback.url = server.URL
 	if err := d.writeDesktopInfo(); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(d.desktopInfo)
+	info, err := os.Stat(d.loopback.desktopInfo)
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatal("discovery file must be private")
 	}
-	if !localAgentAvailable(d.desktopInfo) {
+	if !localAgentAvailable(d.loopback.desktopInfo) {
 		t.Fatal("standalone agent not discovered")
 	}
-	d.desktopToken = "rotated"
-	if localAgentAvailable(d.desktopInfo) {
+	d.loopback.desktopToken = "rotated"
+	if localAgentAvailable(d.loopback.desktopInfo) {
 		t.Fatal("stale credential accepted")
 	}
 	if err := d.writeDesktopInfo(); err != nil {
 		t.Fatal(err)
 	}
-	if !localAgentAvailable(d.desktopInfo) {
+	if !localAgentAvailable(d.loopback.desktopInfo) {
 		t.Fatal("refreshed credential not discovered")
 	}
 }
 
 func TestDesktopShutdownRefusesProjectDeployment(t *testing.T) {
-	d := &agentDaemon{desktopToken: "private", restartAgent: func() { t.Fatal("shutdown during deployment") }}
+	d := &agentDaemon{restartAgent: func() { t.Fatal("shutdown during deployment") }, loopback: loopbackServer{desktopToken: "private"}}
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
 	req := httptest.NewRequest(http.MethodPost, "/desktop/shutdown", nil)
@@ -216,8 +216,8 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 			t.Fatalf("unstarted %s exposes start: %s (%v)", status, raw, err)
 		}
 	}
-	d := &agentDaemon{desktopToken: "private", terminalMgr: terminal.NewManager()}
-	d.runs = map[string]*controlledRun{"run": {
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, loopback: loopbackServer{desktopToken: "private"}}
+	d.queue.runs = map[string]*controlledRun{"run": {
 		token: "control", exited: make(chan struct{}),
 		desktop: desktopRun{CreatedAt: created, Status: "running", SessionID: "run"},
 	}}
@@ -225,8 +225,8 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 	if err := d.runInPty("run", t.TempDir(), nil, "true"); err != nil {
 		t.Fatal(err)
 	}
-	defer d.terminalMgr.CloseSession("run")
-	started := d.runs["run"].desktop.StartedAt
+	defer d.terminal.manager.CloseSession("run")
+	started := d.queue.runs["run"].desktop.StartedAt
 	if started.Before(before) || started.After(time.Now()) {
 		t.Fatalf("start is not launch time: %v", started)
 	}
@@ -252,7 +252,7 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 		t.Fatalf("timestamps changed through completion/reuse: %+v", runs[0])
 	}
 
-	d.runs["failed"] = &controlledRun{desktop: desktopRun{CreatedAt: created, Status: "preparing"}}
+	d.queue.runs["failed"] = &controlledRun{desktop: desktopRun{CreatedAt: created, Status: "preparing"}}
 	invalidDir := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(invalidDir, []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
@@ -260,16 +260,16 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 	if err := d.runInPty("failed", invalidDir, nil, "true"); err == nil {
 		t.Fatal("launch with a file as working directory succeeded")
 	}
-	if !d.runs["failed"].desktop.StartedAt.IsZero() {
+	if !d.queue.runs["failed"].desktop.StartedAt.IsZero() {
 		t.Fatal("failed launch recorded a start")
 	}
 }
 
 func TestDesktopQueueCancellationMetadata(t *testing.T) {
-	d := &agentDaemon{desktopToken: "private", runs: map[string]*controlledRun{
+	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}, queue: runQueue{runs: map[string]*controlledRun{
 		"waiting":  {sequence: 2, canceled: true, desktop: desktopRun{Status: "queued"}},
 		"finished": {sequence: 1, canceled: true, desktop: desktopRun{Status: "canceled"}},
-	}}
+	}}}
 	request := httptest.NewRequest("GET", "/desktop/runs", nil)
 	request.Header.Set("Authorization", "Bearer private")
 	response := httptest.NewRecorder()

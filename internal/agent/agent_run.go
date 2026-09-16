@@ -17,6 +17,44 @@ import (
 	"tasks/internal/agentprotocol"
 )
 
+// runQueue owns every execution the agent supervises, from admission to exit,
+// together with the lifecycle flags that decide whether new work is admitted at
+// all. It is the sole owner of mu: nothing outside this type's own state may be
+// read or written under that lock.
+type runQueue struct {
+	mu   sync.Mutex
+	runs map[string]*controlledRun
+	// sequence orders queued runs so admission is first-come, first-served.
+	sequence uint64
+	// shuttingDown stops admitting work; restartRequested distinguishes a
+	// restart from a plain stop once the process is on its way out.
+	shuttingDown     bool
+	restartRequested bool
+}
+
+// read runs fn against the execution registered under id, holding the queue
+// lock for exactly that call, and reports whether the execution existed. It
+// spares every caller that only needs to copy or amend a couple of fields from
+// spelling the locking out.
+func (q *runQueue) read(id string, fn func(*controlledRun)) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	run := q.runs[id]
+	if run == nil {
+		return false
+	}
+	fn(run)
+	return true
+}
+
+// canceled reports whether a stop was requested on a run the caller already
+// holds. Supervisors poll it from outside the lock while the run is live.
+func (q *runQueue) canceled(run *controlledRun) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return run.canceled
+}
+
 type controlledRun struct {
 	sequence uint64
 	limit    int
@@ -35,15 +73,15 @@ func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	d.runsMu.Lock()
-	defer d.runsMu.Unlock()
-	if d.shuttingDown {
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	if d.queue.shuttingDown {
 		return "", fmt.Errorf("agent is restarting")
 	}
-	if d.runs == nil {
-		d.runs = make(map[string]*controlledRun)
+	if d.queue.runs == nil {
+		d.queue.runs = make(map[string]*controlledRun)
 	}
-	existing := d.runs[runID]
+	existing := d.queue.runs[runID]
 	if existing != nil && (existing.token != "" || existing.taskID != taskID || existing.desktop.Status != "preparing") {
 		return "", fmt.Errorf("execution already registered")
 	}
@@ -52,8 +90,8 @@ func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
 		existing.token = run.token
 		run = existing
 	}
-	d.runs[runID] = run
-	return quoteShell(binary) + " agent-exec --url " + quoteShell(d.agentURL+"/control/runs/"+runID) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
+	d.queue.runs[runID] = run
+	return quoteShell(binary) + " agent-exec --url " + quoteShell(d.loopback.url+"/control/runs/"+runID) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
 }
 
 func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
@@ -62,10 +100,10 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/control/runs/")
-	d.runsMu.Lock()
-	run := d.runs[id]
+	d.queue.mu.Lock()
+	run := d.queue.runs[id]
 	if run == nil || subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")), []byte(run.token)) != 1 {
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		http.Error(w, "Unauthorized", 401)
 		return
 	}
@@ -85,7 +123,7 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 		go func() { _ = d.finishDesktopRun(context.Background(), run.taskID, id, result.Status, "") }()
 		run.once.Do(func() { close(run.exited) })
 	}
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", 405)
 		return
@@ -95,17 +133,17 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *agentDaemon) cancelRun(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message, payload agentconfig.Dispatch) {
-	d.runsMu.Lock()
-	run := d.runs[payload.RunID]
+	d.queue.mu.Lock()
+	run := d.queue.runs[payload.RunID]
 	if run == nil || run.taskID != msg.TaskID {
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		// The marker lets the server close a run this agent cannot own, which
 		// happens whenever the agent restarted while a run was recorded.
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", agentprotocol.RunNotOwned+": this agent does not own the execution")
 		return
 	}
 	run.canceled = true
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	timer := time.NewTimer(12 * time.Second)
 	defer timer.Stop()
 	select {
@@ -130,26 +168,26 @@ func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payloa
 }
 
 func (d *agentDaemon) enqueueRun(taskID string, payload agentconfig.Dispatch, projectID, root string, limit int, isolated bool) (*controlledRun, error) {
-	d.runsMu.Lock()
-	defer d.runsMu.Unlock()
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
 	return d.enqueueRunLocked(taskID, payload, projectID, root, limit, isolated)
 }
 
 // enqueueRunLocked lets local admission publish complete metadata atomically.
 func (d *agentDaemon) enqueueRunLocked(taskID string, payload agentconfig.Dispatch, projectID, root string, limit int, isolated bool) (*controlledRun, error) {
-	if d.shuttingDown {
+	if d.queue.shuttingDown {
 		return nil, fmt.Errorf("agent is stopping")
 	}
-	if d.runs == nil {
-		d.runs = map[string]*controlledRun{}
+	if d.queue.runs == nil {
+		d.queue.runs = map[string]*controlledRun{}
 	}
-	if d.runs[payload.RunID] != nil {
+	if d.queue.runs[payload.RunID] != nil {
 		return nil, fmt.Errorf("execution already registered")
 	}
-	d.queueSequence++
-	run := &controlledRun{taskID: taskID, exited: make(chan struct{}), sequence: d.queueSequence, limit: limit, root: root, isolated: isolated,
+	d.queue.sequence++
+	run := &controlledRun{taskID: taskID, exited: make(chan struct{}), sequence: d.queue.sequence, limit: limit, root: root, isolated: isolated,
 		desktop: desktopRun{CreatedAt: time.Now().UTC(), Prompt: payload.Prompt, ID: payload.RunID, TaskID: taskID, TaskKey: payload.TaskKey, ProjectID: projectID, Skill: payload.SkillID, Directory: root, Status: "queued"}}
-	d.runs[payload.RunID] = run
+	d.queue.runs[payload.RunID] = run
 	return run, nil
 }
 
@@ -179,13 +217,13 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		d.runsMu.Lock()
-		if run.canceled || d.shuttingDown {
-			d.runsMu.Unlock()
+		d.queue.mu.Lock()
+		if run.canceled || d.queue.shuttingDown {
+			d.queue.mu.Unlock()
 			return fmt.Errorf("execution canceled")
 		}
 		active, blocked := 0, false
-		for _, other := range d.runs {
+		for _, other := range d.queue.runs {
 			if other == run {
 				continue
 			}
@@ -220,10 +258,10 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 		}
 		if !blocked && (active < run.limit || run.isConsole()) {
 			run.desktop.Status = "preparing"
-			d.runsMu.Unlock()
+			d.queue.mu.Unlock()
 			return nil
 		}
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

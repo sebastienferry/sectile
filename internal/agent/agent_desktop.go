@@ -20,6 +20,26 @@ import (
 	"time"
 )
 
+// loopbackServer is the agent's private HTTP surface: the Electron companion
+// and the agent's own subprocesses reach it over the loopback interface only,
+// and it never leaves the machine. Its fields are set once at start and read
+// afterwards, so they need no lock of their own.
+type loopbackServer struct {
+	server *http.Server
+	port   int
+	url    string
+	// token proves a process belongs to this agent session. It carries no
+	// identity, is regenerated at every start and never leaves the machine.
+	token string
+	// desktopToken authenticates the companion; desktopInfo is the handshake
+	// file it reads to find this session.
+	desktopToken string
+	desktopInfo  string
+	// echoConsoles mirrors console output on the agent's own stdout. Off by
+	// default: it is a debugging aid, not a way to read runs.
+	echoConsoles bool
+}
+
 type desktopRun struct {
 	Branch          string    `json:"branch,omitempty"`
 	Kind            string    `json:"kind,omitempty"`
@@ -44,14 +64,14 @@ type desktopRun struct {
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if r.Header.Get("Origin") != "" || d.desktopToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(d.desktopToken)) != 1 {
+	if r.Header.Get("Origin") != "" || d.loopback.desktopToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(d.loopback.desktopToken)) != 1 {
 		http.Error(w, "Unauthorized", 401)
 		return
 	}
 	if r.URL.Path == "/desktop/status" && r.Method == http.MethodGet {
-		d.connMu.Lock()
-		connected := d.conn != nil
-		d.connMu.Unlock()
+		d.link.mu.Lock()
+		connected := d.link.conn != nil
+		d.link.mu.Unlock()
 		settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 		if err != nil {
 			http.Error(w, err.Error(), 500)
@@ -67,7 +87,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.serverURL, "contractError": d.contractMismatch(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -76,13 +96,13 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer d.prepareMu.Unlock()
-		d.runsMu.Lock()
-		defer d.runsMu.Unlock()
-		if d.restartAgent == nil || d.shuttingDown {
+		d.queue.mu.Lock()
+		defer d.queue.mu.Unlock()
+		if d.restartAgent == nil || d.queue.shuttingDown {
 			http.Error(w, "Restart unavailable", http.StatusConflict)
 			return
 		}
-		for _, run := range d.runs {
+		for _, run := range d.queue.runs {
 			select {
 			case <-run.exited:
 			default:
@@ -90,8 +110,8 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		d.shuttingDown = true
-		d.restartRequested = r.URL.Path == "/desktop/restart"
+		d.queue.shuttingDown = true
+		d.queue.restartRequested = r.URL.Path == "/desktop/restart"
 		w.WriteHeader(http.StatusNoContent)
 		d.restartAgent()
 		return
@@ -125,20 +145,20 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/desktop/history" && r.Method == http.MethodDelete {
-		d.runsMu.Lock()
+		d.queue.mu.Lock()
 		removed := []string{}
-		for id, run := range d.runs {
+		for id, run := range d.queue.runs {
 			select {
 			case <-run.exited:
-				if d.terminalMgr != nil && run.desktop.SessionID != "" {
-					_ = d.terminalMgr.CloseSession(run.desktop.SessionID)
+				if d.terminal.manager != nil && run.desktop.SessionID != "" {
+					_ = d.terminal.manager.CloseSession(run.desktop.SessionID)
 				}
-				delete(d.runs, id)
+				delete(d.queue.runs, id)
 				removed = append(removed, id)
 			default:
 			}
 		}
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"removed": removed})
 		return
@@ -148,10 +168,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("id")
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	if r.URL.Path == "/desktop/runs" && r.Method == http.MethodGet {
 		runs := []desktopRun{}
-		for key, run := range d.runs {
+		for key, run := range d.queue.runs {
 			entry := run.desktop
 			entry.ID = key
 			entry.QueueSequence = run.sequence
@@ -160,21 +180,21 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 				runs = append(runs, entry)
 			}
 		}
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(runs)
 		return
 	}
-	run := d.runs[id]
+	run := d.queue.runs[id]
 	if run == nil {
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		http.Error(w, "Run not found", 404)
 		return
 	}
 	entry := run.desktop
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		select {
 		case <-run.exited:
 			// The native client may have already reported completion via MCP.
@@ -185,10 +205,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	if r.URL.Path == "/desktop/terminal" && r.Method == http.MethodGet {
 		exists := false
-		for _, session := range d.terminalMgr.ListSessions() {
+		for _, session := range d.terminal.manager.ListSessions() {
 			if session.ID == entry.SessionID {
 				exists = true
 				break
@@ -199,22 +219,22 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		d.terminalMgr.HandleWebSocket(w, r, entry.SessionID, entry.Directory, nil)
+		d.terminal.manager.HandleWebSocket(w, r, entry.SessionID, entry.Directory, nil)
 		return
 	}
 	http.Error(w, "Not found", 404)
 }
 
 func (d *agentDaemon) writeDesktopInfo() error {
-	if d.desktopInfo == "" {
+	if d.loopback.desktopInfo == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(d.desktopInfo), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(d.loopback.desktopInfo), 0700); err != nil {
 		return err
 	}
 	// Publish atomically so a companion never reads a partially written credential.
-	raw, _ := json.Marshal(map[string]string{"url": d.agentURL, "token": d.desktopToken})
-	file, err := os.CreateTemp(filepath.Dir(d.desktopInfo), ".agent-connection-*")
+	raw, _ := json.Marshal(map[string]string{"url": d.loopback.url, "token": d.loopback.desktopToken})
+	file, err := os.CreateTemp(filepath.Dir(d.loopback.desktopInfo), ".agent-connection-*")
 	if err != nil {
 		return err
 	}
@@ -226,7 +246,7 @@ func (d *agentDaemon) writeDesktopInfo() error {
 	if err = file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), d.desktopInfo)
+	return os.Rename(file.Name(), d.loopback.desktopInfo)
 }
 
 // Report process exit using the server's authenticated MCP endpoint.
@@ -240,7 +260,7 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	client := mcp.NewClient(&mcp.Implementation{Name: "sectile-desktop-agent", Version: "1"}, nil)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: d.serverURL + "/mcp", HTTPClient: agenthttp.Client(d.token)}, nil)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: d.link.serverURL + "/mcp", HTTPClient: agenthttp.Client(d.link.token)}, nil)
 	if err != nil {
 		return err
 	}
@@ -411,9 +431,9 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer d.prepareMu.Unlock()
-	d.runsMu.Lock()
-	defer d.runsMu.Unlock()
-	for _, run := range d.runs {
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	for _, run := range d.queue.runs {
 		if run.desktop.ProjectID != id {
 			continue
 		}
@@ -511,22 +531,22 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Do not change scaffolding underneath active native clients.
-	d.runsMu.Lock()
-	for _, run := range d.runs {
+	d.queue.mu.Lock()
+	for _, run := range d.queue.runs {
 		select {
 		case <-run.exited:
 		default:
-			d.runsMu.Unlock()
+			d.queue.mu.Unlock()
 			http.Error(w, "Stop active executions before deploying project tooling", 409)
 			return
 		}
 	}
-	if d.shuttingDown {
-		d.runsMu.Unlock()
+	if d.queue.shuttingDown {
+		d.queue.mu.Unlock()
 		http.Error(w, "Agent is stopping", 409)
 		return
 	}
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	switch r.URL.Query().Get("action") {
 	case "skills":
 		_, err = agentconfig.Scaffold(root, config)
@@ -629,13 +649,13 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode})
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	response, err := agenthttp.Client(d.token).Do(req)
+	response, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
@@ -665,13 +685,13 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	body := mustJSON(models.CreateTaskRequest{ProjectID: input.ProjectID, Title: strings.TrimSpace(input.Title), Description: input.Description, RequireRemoteCreation: true})
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.serverURL+"/api/tasks", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	response, err := agenthttp.Client(d.token).Do(req)
+	response, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
 		http.Error(w, err.Error(), 502)
 		return
@@ -714,15 +734,11 @@ func desktopTaskFinished(task models.Task) bool {
 // Resolve the selected execution against server activity, independently of PTY exit.
 func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
-	d.runsMu.Lock()
-	run := d.runs[id]
-	if run == nil {
-		d.runsMu.Unlock()
+	var taskID, projectID string
+	if !d.queue.read(id, func(run *controlledRun) { taskID, projectID = run.taskID, run.desktop.ProjectID }) {
 		http.Error(w, "Run not found", 404)
 		return
 	}
-	taskID, projectID := run.taskID, run.desktop.ProjectID
-	d.runsMu.Unlock()
 	if taskID == "" {
 		http.Error(w, "Free consoles have no task result", http.StatusNotFound)
 		return

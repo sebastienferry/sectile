@@ -64,16 +64,16 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: id}, input.ProjectID, root, agentconfig.ExecutionLimit(input.ProjectID, config.UseWorktrees, overrides), false)
 	if err != nil {
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	run.desktop.Kind, run.desktop.Provider = consoleRunKind, input.Provider
 	entry := run.desktop
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	// The daemon owns the execution after admission, independently of the request.
 	go d.launchConsole(run, command)
 	w.Header().Set("Content-Type", "application/json")
@@ -83,7 +83,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 
 func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 	err := d.awaitRunSlot(context.Background(), run)
-	if err == nil && d.terminalMgr == nil {
+	if err == nil && d.terminal.manager == nil {
 		err = fmt.Errorf("terminal manager unavailable")
 	}
 	if err == nil {
@@ -94,36 +94,36 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 				"SECTILE_TASK_KEY": "", "SECTILE_TASK_ID": "", "SECTILE_RUN_ID": "",
 				"SECTILE_TASK_BRANCH": "", "SECTILE_TASK_WORKTREE": "", "SECTILE_REMOTE_MODE": "",
 				"SECTILE_PROJECT_ID": run.desktop.ProjectID,
-				"SECTILE_AGENT_URL":  d.agentURL, "SECTILE_SERVER_URL": d.serverURL,
-				"SECTILE_AGENT_TOKEN": d.loopbackToken,
+				"SECTILE_AGENT_URL":  d.loopback.url, "SECTILE_SERVER_URL": d.link.serverURL,
+				"SECTILE_AGENT_TOKEN": d.loopback.token,
 			}
-			_, err = d.terminalMgr.GetOrCreateSession(run.desktop.ID, run.root, env)
+			_, err = d.terminal.manager.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {
-				d.runsMu.Lock()
+				d.queue.mu.Lock()
 				run.desktop.SessionID = run.desktop.ID
-				d.runsMu.Unlock()
+				d.queue.mu.Unlock()
 				err = d.runInPty(run.desktop.ID, run.root, env, wrapped)
 			}
 			if err == nil {
-				d.runsMu.Lock()
+				d.queue.mu.Lock()
 				// A fast command may have already reported its exit.
 				if run.desktop.Status == "preparing" {
 					run.desktop.Status = "running"
 				}
-				d.runsMu.Unlock()
+				d.queue.mu.Unlock()
 				return
 			}
 		}
 	}
-	if d.terminalMgr != nil {
-		_ = d.terminalMgr.CloseSession(run.desktop.ID)
+	if d.terminal.manager != nil {
+		_ = d.terminal.manager.CloseSession(run.desktop.ID)
 	}
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	run.desktop.SessionID = ""
 	run.desktop.Status = "failed"
-	if run.canceled || d.shuttingDown {
+	if run.canceled || d.queue.shuttingDown {
 		run.desktop.Status = "canceled"
 	}
 	run.once.Do(func() { close(run.exited) })
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 }

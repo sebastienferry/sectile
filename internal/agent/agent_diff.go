@@ -20,15 +20,12 @@ func (d *agentDaemon) desktopGitDiff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.URL.Query().Get("id")
-	d.runsMu.Lock()
-	run := d.runs[id]
-	if run == nil {
-		d.runsMu.Unlock()
+	var entry desktopRun
+	var root string
+	if !d.queue.read(id, func(run *controlledRun) { entry, root = run.desktop, run.root }) {
 		fail(404, "run_not_found", "This execution is no longer available.")
 		return
 	}
-	entry, root := run.desktop, run.root
-	d.runsMu.Unlock()
 	if entry.Directory == "" || entry.Branch == "" || root == "" {
 		fail(409, "checkout_unavailable", "This execution has no recorded checkout. Launch a new execution with the updated agent.")
 		return

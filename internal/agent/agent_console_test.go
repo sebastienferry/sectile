@@ -55,7 +55,7 @@ func TestConsoleCommandCarriesTheResolvedModel(t *testing.T) {
 }
 
 func TestConsoleAdmissionValidation(t *testing.T) {
-	d := &agentDaemon{desktopToken: "private"}
+	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}}
 	for _, tt := range []struct {
 		method, body string
 		code         int
@@ -81,7 +81,7 @@ func TestConsoleAdmissionValidation(t *testing.T) {
 	if rec.Code != 401 {
 		t.Fatal(rec.Code)
 	}
-	if len(d.runs) != 0 {
+	if len(d.queue.runs) != 0 {
 		t.Fatal("invalid request registered a console")
 	}
 }
@@ -95,7 +95,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		http.Error(w, "unexpected task access", 500)
 	}))
 	defer remote.Close()
-	d := &agentDaemon{desktopToken: "private", serverURL: remote.URL, terminalMgr: terminal.NewManager()}
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, loopback: loopbackServer{desktopToken: "private"}, link: serverLink{serverURL: remote.URL}}
 	local := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/control/") {
 			d.handleRunControl(w, r)
@@ -104,7 +104,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		}
 	}))
 	defer local.Close()
-	d.agentURL = local.URL
+	d.loopback.url = local.URL
 	root := t.TempDir()
 	script := filepath.Join(root, "fake-agent")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n[ -t 0 ] || exit 20\n[ \"$#\" -eq 0 ] || exit 21\n[ -z \"$SECTILE_TASK_ID$SECTILE_RUN_ID\" ] || exit 22\nprintf 'READY\\n'\nread answer\nprintf 'ANSWER:%s\\n' \"$answer\"\nsleep 60\n"), 0700); err != nil {
@@ -117,8 +117,8 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 	run.desktop.Kind = "console"
 	run.desktop.Provider = "codex"
 	d.launchConsole(run, "exec "+quoteShell(script))
-	defer d.terminalMgr.CloseSession("free")
-	session, err := d.terminalMgr.GetOrCreateSession("free", root, nil)
+	defer d.terminal.manager.CloseSession("free")
+	session, err := d.terminal.manager.GetOrCreateSession("free", root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		default:
 		}
 	})
-	if err := d.terminalMgr.SendInput("free", "hello console\n"); err != nil {
+	if err := d.terminal.manager.SendInput("free", "hello console\n"); err != nil {
 		t.Fatal(err)
 	}
 	var captured strings.Builder
@@ -162,9 +162,9 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 	if remoteRequests.Load() != 0 {
 		t.Fatal("free console contacted task tracker")
 	}
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	status := run.desktop.Status
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	if status != "canceled" {
 		t.Fatal(status)
 	}
@@ -188,9 +188,9 @@ func TestFreeConsoleQueueCancellation(t *testing.T) {
 	if err := d.awaitRunSlot(ctx, run); err == nil {
 		t.Fatal("free console bypassed checkout ownership")
 	}
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	run.canceled = true
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	d.launchConsole(run, "exec codex")
 	select {
 	case <-run.exited:
@@ -213,7 +213,7 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(config)
 	}))
 	defer server.Close()
-	d.serverURL = server.URL
+	d.link.serverURL = server.URL
 	// A shared-checkout execution keeps the mapped repository busy, so the console queues.
 	first, err := d.enqueueRun("task", agentconfig.Dispatch{RunID: "active"}, "p", d.repoRoot, 3, false)
 	if err != nil {
@@ -231,10 +231,10 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 		if entry.Kind != "console" || entry.Provider != provider || entry.TaskID != "" || entry.Prompt != "" || entry.Skill != "" || entry.Directory != d.repoRoot || entry.Status != "queued" {
 			t.Fatalf("unexpected entry: %+v", entry)
 		}
-		d.runsMu.Lock()
-		run := d.runs[entry.ID]
+		d.queue.mu.Lock()
+		run := d.queue.runs[entry.ID]
 		isolated := run.isolated
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		if isolated {
 			t.Fatal("console must reserve mapped checkout")
 		}
@@ -260,25 +260,25 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 func TestFreeConsoleExitStatus(t *testing.T) {
 	for _, tt := range []struct{ command, status string }{{"exit 0", "completed"}, {"exec /nonexistent/sectile-test-cli", "failed"}} {
 		t.Run(tt.status, func(t *testing.T) {
-			d := &agentDaemon{desktopToken: "private", terminalMgr: terminal.NewManager()}
+			d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, loopback: loopbackServer{desktopToken: "private"}}
 			local := httptest.NewServer(http.HandlerFunc(d.handleRunControl))
 			defer local.Close()
-			d.agentURL = local.URL
+			d.loopback.url = local.URL
 			run, err := d.enqueueRun("", agentconfig.Dispatch{RunID: "console"}, "p", t.TempDir(), 1, false)
 			if err != nil {
 				t.Fatal(err)
 			}
 			run.desktop.Kind = "console"
 			d.launchConsole(run, tt.command)
-			defer d.terminalMgr.CloseSession("console")
+			defer d.terminal.manager.CloseSession("console")
 			select {
 			case <-run.exited:
 			case <-time.After(5 * time.Second):
 				t.Fatal("console exit was not reported")
 			}
-			d.runsMu.Lock()
+			d.queue.mu.Lock()
 			status, session := run.desktop.Status, run.desktop.SessionID
-			d.runsMu.Unlock()
+			d.queue.mu.Unlock()
 			if status != tt.status || session != "console" {
 				t.Fatalf("%s: %s %s", tt.command, status, session)
 			}

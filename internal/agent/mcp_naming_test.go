@@ -28,7 +28,7 @@ func TestDesktopFinishesCanonicalRun(t *testing.T) {
 	t.Setenv("SECTILE_SERVER_TOKEN", "desktop-secret")
 	server := httptest.NewServer(handlers.NewHandler(database).MCPHandler())
 	defer server.Close()
-	daemon := &agentDaemon{serverURL: server.URL, token: "desktop-secret"}
+	daemon := &agentDaemon{link: serverLink{serverURL: server.URL, token: "desktop-secret"}}
 	if err := daemon.finishDesktopRun(context.Background(), task.ID, run.ID, "completed", ""); err != nil {
 		t.Fatal(err)
 	}
