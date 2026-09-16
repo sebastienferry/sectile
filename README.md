@@ -198,7 +198,9 @@ a launcher keeps its dispatching agent as owner, since that agent already watche
 the real process.
 
 `GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
-and the runs it owns. `TASKFLOW_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
+and the runs it owns. The board's status bar shows that count and opens a panel
+naming each connected client, how long it has been attached, and the runs that
+would close with it. `TASKFLOW_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
 silent session, and `TASKFLOW_MCP_CLIENT` names a bridge in that list. A server
 restart ends every session without closing its runs: the server cannot tell a
 client that died from one that will reconnect, so those runs are finished from

@@ -253,7 +253,10 @@ client termination, a dropped connection, or silence beyond the idle timeout.
 `GET /api/mcp/sessions` lists live sessions with the identity the client declared
 in `clientInfo`, its connection time, and the runs it owns. It is a browser-facing
 status view and carries no credential; the MCP endpoint itself keeps the machine
-API authentication.
+API authentication. The board's status bar polls it and shows the connected
+clients with the runs each one holds. Connecting and disconnecting raise no
+server event, so that view is refreshed by polling and is stale by at most one
+interval.
 
 A run created by `start_run` is adopted by the calling session. Ending the
 session closes the runs it still owns with status `canceled` and a note naming the
