@@ -110,28 +110,13 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 		}
 	}()
 
-	exit := make(chan error, 1)
-	go func() { exit <- cmd.Wait() }()
-
 	ticker := time.NewTicker(headlessFlushInterval)
 	defer ticker.Stop()
-	for {
+	draining := true
+	for draining {
 		select {
-		case err := <-exit:
-			<-done
-			flush()
-			status, note := "completed", "Headless run finished"
-			if err != nil {
-				status, note = "failed", err.Error()
-			}
-			d.runsMu.Lock()
-			canceled := run.canceled
-			d.runsMu.Unlock()
-			if canceled {
-				status, note = "canceled", "Headless run canceled"
-			}
-			d.finishHeadlessRun(taskRef, runID, run, status, note)
-			return
+		case <-done:
+			draining = false
 		case <-ticker.C:
 			flush()
 			d.runsMu.Lock()
@@ -142,6 +127,23 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 			}
 		}
 	}
+
+	// Wait only once the pipe is drained. Wait closes the read end as soon as it
+	// sees the process exit, so calling it alongside the reader would truncate
+	// the tail of the output, which is exactly where a failure explains itself.
+	err := cmd.Wait()
+	flush()
+	status, note := "completed", "Headless run finished"
+	if err != nil {
+		status, note = "failed", err.Error()
+	}
+	d.runsMu.Lock()
+	canceled := run.canceled
+	d.runsMu.Unlock()
+	if canceled {
+		status, note = "canceled", "Headless run canceled"
+	}
+	d.finishHeadlessRun(taskRef, runID, run, status, note)
 }
 
 func (d *agentDaemon) finishHeadlessRun(taskRef, runID string, run *controlledRun, status, note string) {
