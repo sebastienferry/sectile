@@ -19,7 +19,7 @@ func TestInteractiveCommandLineIsUnchanged(t *testing.T) {
 		"cursor": "cursor agent 'do the thing'",
 	}
 	for provider, want := range cases {
-		got, err := modeCommandLine(provider, "", "do the thing", models.SkillModeInteractive)
+		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeInteractive)
 		if err != nil {
 			t.Fatalf("%s: unexpected error %v", provider, err)
 		}
@@ -36,7 +36,7 @@ func TestHeadlessCommandLineCoversAttestedProviders(t *testing.T) {
 		"vibe":   "vibe -p --auto-approve 'do the thing'",
 	}
 	for provider, want := range cases {
-		got, err := modeCommandLine(provider, "", "do the thing", models.SkillModeAutonomous)
+		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeAutonomous)
 		if err != nil {
 			t.Fatalf("%s: unexpected error %v", provider, err)
 		}
@@ -51,7 +51,7 @@ func TestHeadlessCommandLineCoversAttestedProviders(t *testing.T) {
 // watching, which is the failure the refusal exists to prevent.
 func TestAutonomousLaunchRefusesUnsupportedProvider(t *testing.T) {
 	for _, provider := range []string{"agy", "gemini", "cursor", "unknown"} {
-		line, err := modeCommandLine(provider, "", "do the thing", models.SkillModeAutonomous)
+		line, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeAutonomous)
 		if err == nil {
 			t.Fatalf("%s: expected a refusal, got command %q", provider, line)
 		}
@@ -65,7 +65,7 @@ func TestAutonomousLaunchRefusesUnsupportedProvider(t *testing.T) {
 }
 
 func TestAutonomousLaunchRefusesTemplateWithoutModePlaceholder(t *testing.T) {
-	line, err := modeCommandLine("claude", "agy -i '{prompt}'", "do the thing", models.SkillModeAutonomous)
+	line, err := modeCommandLine("claude", "agy -i '{prompt}'", "", "do the thing", models.SkillModeAutonomous)
 	if err == nil {
 		t.Fatalf("expected a refusal, got command %q", line)
 	}
@@ -78,14 +78,14 @@ func TestAutonomousLaunchRefusesTemplateWithoutModePlaceholder(t *testing.T) {
 // provider defaults in both directions.
 func TestTemplateModePlaceholderSelectsTheSide(t *testing.T) {
 	template := "agy {mode:-p|-i} '{prompt}'"
-	autonomous, err := modeCommandLine("agy", template, "do the thing", models.SkillModeAutonomous)
+	autonomous, err := modeCommandLine("agy", template, "", "do the thing", models.SkillModeAutonomous)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if autonomous != "agy -p 'do the thing'" {
 		t.Fatalf("autonomous: got %q", autonomous)
 	}
-	interactive, err := modeCommandLine("agy", template, "do the thing", models.SkillModeInteractive)
+	interactive, err := modeCommandLine("agy", template, "", "do the thing", models.SkillModeInteractive)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestTemplateCarriesMode(t *testing.T) {
 // An empty mode is what an older server sends. It must read as interactive
 // rather than refusing or running headless.
 func TestEmptyModeReadsAsInteractive(t *testing.T) {
-	got, err := modeCommandLine("agy", "", "do the thing", "")
+	got, err := modeCommandLine("agy", "", "", "do the thing", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestHeadlessCommandLineCarriesApprovalMode(t *testing.T) {
 		"vibe":   "--auto-approve",
 	}
 	for provider, flag := range cases {
-		got, err := modeCommandLine(provider, "", "do the thing", models.SkillModeAutonomous)
+		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeAutonomous)
 		if err != nil {
 			t.Fatalf("%s: unexpected error %v", provider, err)
 		}
@@ -158,7 +158,7 @@ func TestHeadlessCommandLineCarriesApprovalMode(t *testing.T) {
 	}
 	// The interactive form is where a human answers, and must not bypass anything.
 	for provider := range cases {
-		got, err := modeCommandLine(provider, "", "do the thing", models.SkillModeInteractive)
+		got, err := modeCommandLine(provider, "", "", "do the thing", models.SkillModeInteractive)
 		if err != nil {
 			t.Fatalf("%s: unexpected error %v", provider, err)
 		}

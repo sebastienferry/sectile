@@ -1172,6 +1172,7 @@ type AIInvocation struct {
 	RepoDir  string
 	Provider string
 	Template string // modèle de commande du projet, placeholders déjà résolus
+	Model    string // modèle résolu pour cette étape, vide = défaut du moteur
 	Prompt   string
 	Steps    []string
 }
@@ -1188,7 +1189,7 @@ func (r *Runner) RunAI(settings *models.Settings, skillID string, task *models.T
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	output, execSteps, execErr := r.execAgentCommand(ctx, inv.RepoDir, inv.Provider, inv.Template, inv.Prompt)
+	output, execSteps, execErr := r.execAgentCommand(ctx, inv.RepoDir, inv.Provider, inv.Template, inv.Model, inv.Prompt)
 	steps = append(steps, execSteps...)
 
 	if execErr != nil {
@@ -1389,7 +1390,12 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 		provider = "agy"
 	}
 
-	steps = append(steps, fmt.Sprintf("🤖 Moteur IA : %s", strings.ToUpper(provider)))
+	resolvedModel := agentconfig.ResolveSkillModel(agentconfig.ModelConfig{Model: settings.AIModel, SkillModels: settings.AISkillModels}, skillID)
+	engineStep := fmt.Sprintf("🤖 Moteur IA : %s", strings.ToUpper(provider))
+	if resolvedModel != "" {
+		engineStep += " (" + resolvedModel + ")"
+	}
+	steps = append(steps, engineStep)
 
 	// The custom-template branch substitutes the task placeholders first, then
 	// hands the resolved template to the shared dispatcher.
@@ -1408,6 +1414,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 		RepoDir:  repoDir,
 		Provider: provider,
 		Template: resolvedTemplate,
+		Model:    resolvedModel,
 		Prompt:   finalPrompt,
 		Steps:    steps,
 	}, nil
@@ -1438,8 +1445,12 @@ func escapeForDoubleQuotes(s string) string {
 // cmdTemplate must have every placeholder other than {prompt} already
 // substituted by the caller; it is used when it is non-empty and either the
 // provider is "custom" or the template carries a {prompt} slot.
-func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider string, cmdTemplate string, finalPrompt string) (string, []string, error) {
+func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider string, cmdTemplate string, model string, finalPrompt string) (string, []string, error) {
 	var steps []string
+	// A template owns the whole command line, so the model reaches it only through
+	// its own {model} slot; injecting a flag would duplicate or contradict it.
+	cmdTemplate = agentconfig.ExpandModel(cmdTemplate, model)
+	modelArgs := agentconfig.ModelArgs(provider, model)
 
 	if agentconfig.UsesCommandTemplate(provider, cmdTemplate) {
 		cmdToRun := strings.ReplaceAll(cmdTemplate, "{prompt}", escapeForDoubleQuotes(finalPrompt))
@@ -1464,19 +1475,19 @@ func (r *Runner) execAgentCommand(ctx context.Context, repoDir string, provider 
 	case "claude":
 		claudePath, _ := FindCliTool("claude")
 		steps = append(steps, fmt.Sprintf("Exécution de : claude -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, claudePath, "-p", finalPrompt)
+		out, err := r.runCommand(ctx, repoDir, claudePath, append(modelArgs, "-p", finalPrompt)...)
 		return out, steps, err
 
 	case "gemini":
 		geminiPath, _ := FindCliTool("gemini")
 		steps = append(steps, fmt.Sprintf("Exécution de : gemini -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, geminiPath, "-p", finalPrompt)
+		out, err := r.runCommand(ctx, repoDir, geminiPath, append(modelArgs, "-p", finalPrompt)...)
 		return out, steps, err
 
 	case "cursor":
 		cursorPath, _ := FindCliTool("cursor")
 		steps = append(steps, fmt.Sprintf("Exécution de : cursor agent -p \"...\" dans %s", filepath.Base(repoDir)))
-		out, err := r.runCommand(ctx, repoDir, cursorPath, "agent", "-p", finalPrompt)
+		out, err := r.runCommand(ctx, repoDir, cursorPath, append([]string{"agent"}, append(modelArgs, "-p", finalPrompt)...)...)
 		return out, steps, err
 
 	default:
@@ -1515,7 +1526,7 @@ func (r *Runner) RunAgentPrompt(ctx context.Context, settings *models.Settings, 
 		repoDir = cwd
 	}
 
-	out, steps, err := r.execAgentCommand(ctx, repoDir, provider, settings.AICommandTemplate, prompt)
+	out, steps, err := r.execAgentCommand(ctx, repoDir, provider, settings.AICommandTemplate, settings.AIModel, prompt)
 	if err != nil {
 		return out, steps, fmt.Errorf("exécution de l'agent %s impossible: %w", provider, err)
 	}
@@ -2171,8 +2182,13 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 	// sans apostrophe, et le prompt n'est jamais relu par le shell.
 	promptRef := fmt.Sprintf(`"$(cat '%s')"`, promptFile)
 
-	if agentconfig.UsesCommandTemplate(inv.Provider, inv.Template) {
-		return strings.ReplaceAll(inv.Template, "{prompt}", "$(cat '"+promptFile+"')"), cleanup, nil
+	template := agentconfig.ExpandModel(inv.Template, inv.Model)
+	if agentconfig.UsesCommandTemplate(inv.Provider, template) {
+		return strings.ReplaceAll(template, "{prompt}", "$(cat '"+promptFile+"')"), cleanup, nil
+	}
+	modelFlag := strings.Join(agentconfig.ModelArgs(inv.Provider, inv.Model), " ")
+	if modelFlag != "" {
+		modelFlag += " "
 	}
 
 	switch inv.Provider {
@@ -2184,16 +2200,15 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 		return fmt.Sprintf("%s -p %s --auto-approve", shellQuote(bin), promptRef), cleanup, nil
 	case "claude":
 		bin, _ := FindCliTool("claude")
-		return fmt.Sprintf("%s -p %s --dangerously-skip-permissions", shellQuote(bin), promptRef), cleanup, nil
+		return fmt.Sprintf("%s %s-p %s --dangerously-skip-permissions", shellQuote(bin), modelFlag, promptRef), cleanup, nil
 	case "gemini":
 		bin, _ := FindCliTool("gemini")
-		return fmt.Sprintf("%s -p %s", shellQuote(bin), promptRef), cleanup, nil
+		return fmt.Sprintf("%s %s-p %s", shellQuote(bin), modelFlag, promptRef), cleanup, nil
 	case "cursor":
 		bin, _ := FindCliTool("cursor")
-		return fmt.Sprintf("%s agent -p %s", shellQuote(bin), promptRef), cleanup, nil
+		return fmt.Sprintf("%s agent %s-p %s", shellQuote(bin), modelFlag, promptRef), cleanup, nil
 	}
 
-	template := inv.Template
 	if template == "" {
 		template = `agy -p "{prompt}"`
 	}
@@ -2217,19 +2232,31 @@ func shellQuote(s string) string {
 // de permission, et c'est précisément l'intérêt de ce mode.
 func InteractiveAgentLaunch(settings *models.Settings) (string, error) {
 	provider := "agy"
+	model := ""
 	if settings != nil && strings.TrimSpace(settings.AIProvider) != "" {
 		provider = strings.ToLower(strings.TrimSpace(settings.AIProvider))
+	}
+	if settings != nil {
+		model = strings.TrimSpace(settings.AIModel)
+	}
+	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
+	if modelFlag != "" {
+		modelFlag = " " + modelFlag
 	}
 
 	switch provider {
 	case "agy", "vibe", "claude", "gemini", "codex":
-		return resolveAgentBinary(provider, "")
+		line, err := resolveAgentBinary(provider, "")
+		if err != nil {
+			return "", err
+		}
+		return line + modelFlag, nil
 	case "cursor":
 		line, err := resolveAgentBinary("cursor", "")
 		if err != nil {
 			return "", err
 		}
-		return line + " agent", nil
+		return line + " agent" + modelFlag, nil
 	case "custom":
 		// Un moteur personnalisé n'a que son modèle de commande : son premier mot
 		// est le binaire, et c'est lui qu'on ouvre en interactif.

@@ -127,9 +127,11 @@ type Project struct {
 	IsDefault               bool                `json:"isDefault"`
 	StageMapping            map[string]string   `json:"stageMapping,omitempty"`            // mapping AI workflow labels to tracker statuses
 	SkillOverrides          map[string]string   `json:"skillOverrides,omitempty"`          // skillId -> custom skill name override
-	AIProvider              string              `json:"aiProvider,omitempty"`              // "agy", "claude", "codex", "custom"
+	AIProvider              string              `json:"aiProvider,omitempty"`              // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
 	SetupProviders          []string            `json:"setupProviders"`                    // extra agents to install skills and MCP for
 	AICommandTemplate       string              `json:"aiCommandTemplate,omitempty"`       // e.g. 'agy -p "{prompt}"'
+	AIModel                 string              `json:"aiModel,omitempty"`                 // e.g. "claude-opus-5"; empty inherits the global setting
+	AISkillModels           map[string]string   `json:"aiSkillModels,omitempty"`           // skillId -> model, for the skills that depart from AIModel
 	SpecFramework           string              `json:"specFramework,omitempty"`           // "speckit", "openspec"
 	AutoSyncEnabled         bool                `json:"autoSyncEnabled"`                   // Enable background sync for non-finished tickets
 	AutoSyncIntervalMin     int                 `json:"autoSyncIntervalMin"`               // Period in minutes (1 to 30)
@@ -297,6 +299,8 @@ type CreateProjectRequest struct {
 	SetupProviders          []string          `json:"setupProviders,omitempty"`
 	AIProvider              string            `json:"aiProvider,omitempty"`
 	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`
+	AIModel                 string            `json:"aiModel,omitempty"`
+	AISkillModels           map[string]string `json:"aiSkillModels,omitempty"`
 	SpecFramework           string            `json:"specFramework,omitempty"`
 	AutoSyncEnabled         *bool             `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin     *int              `json:"autoSyncIntervalMin,omitempty"`
@@ -333,6 +337,8 @@ type UpdateProjectRequest struct {
 	SetupProviders          *[]string            `json:"setupProviders,omitempty"`
 	AIProvider              *string              `json:"aiProvider,omitempty"`
 	AICommandTemplate       *string              `json:"aiCommandTemplate,omitempty"`
+	AIModel                 *string              `json:"aiModel,omitempty"`
+	AISkillModels           *map[string]string   `json:"aiSkillModels,omitempty"`
 	SpecFramework           *string              `json:"specFramework,omitempty"`
 	AutoSyncEnabled         *bool                `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin     *int                 `json:"autoSyncIntervalMin,omitempty"`
@@ -685,11 +691,15 @@ type Settings struct {
 	UserAvatar        string `json:"userAvatar"`
 	AIProvider        string `json:"aiProvider"`        // "agy", "claude", "codex", "custom"
 	AICommandTemplate string `json:"aiCommandTemplate"` // e.g. 'agy -p "{prompt}"'
-	RepoPath          string `json:"repoPath"`          // e.g. '/path/to/project'
-	IssueTracker      string `json:"issueTracker"`      // "github", "jira", "local"
-	GithubRepo        string `json:"githubRepo"`        // e.g. "owner/repo"
-	JiraProject       string `json:"jiraProject"`       // e.g. "PE"
-	JiraUrl           string `json:"jiraUrl"`
+	// AIModel is the model the engine runs against; empty keeps the CLI default.
+	// AISkillModels names the skills that depart from it, keyed by skill ID.
+	AIModel           string            `json:"aiModel"`
+	AISkillModels     map[string]string `json:"aiSkillModels,omitempty"`
+	RepoPath          string            `json:"repoPath"`     // e.g. '/path/to/project'
+	IssueTracker      string            `json:"issueTracker"` // "github", "jira", "local"
+	GithubRepo        string            `json:"githubRepo"`   // e.g. "owner/repo"
+	JiraProject       string            `json:"jiraProject"`  // e.g. "PE"
+	JiraUrl           string            `json:"jiraUrl"`
 	// JiraEmail / JiraAPIToken authenticate the Jira REST calls that fetch the
 	// fields acli cannot return (Sprint and Team are custom fields, and acli's
 	// --fields only accepts a fixed allow-list). Basic auth over HTTPS.

@@ -24,6 +24,8 @@ import { LocalAgentSetup } from './LocalAgentSetup'
 import { WorkstationPairing } from './WorkstationPairing'
 import { SignInStatus } from './SignInStatus'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
+import { AIModelField } from './AIModelField'
+import { isValidModel } from '../lib/aiModels'
 
 type SettingsTab = 'appearance' | 'agentic' | 'prompts'
 
@@ -57,6 +59,7 @@ export const ProfileModal: React.FC = () => {
   // Agentic AI & CLI Configuration
   const [aiProvider, setAiProvider] = useState<AIProvider>(settings.aiProvider || 'agy')
   const [aiCommandTemplate, setAiCommandTemplate] = useState(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+  const [aiModel, setAiModel] = useState(settings.aiModel || '')
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
 
   // Skill Prompts
@@ -76,6 +79,7 @@ export const ProfileModal: React.FC = () => {
       setDetailMode(settings.detailMode || 'panel')
       setAiProvider(settings.aiProvider || 'agy')
       setAiCommandTemplate(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+      setAiModel(settings.aiModel || '')
       setSpecFramework(settings.specFramework || 'speckit')
       setPromptClarify(settings.promptClarify || '')
       setPromptSpecify(settings.promptSpecify || '')
@@ -112,6 +116,7 @@ export const ProfileModal: React.FC = () => {
   }
 
   const handleSave = async () => {
+    if (!isValidModel(aiModel)) return
     await updateSettings({
       userName: userName.trim(),
       userEmail: userEmail.trim(),
@@ -122,6 +127,7 @@ export const ProfileModal: React.FC = () => {
       detailMode,
       aiProvider,
       aiCommandTemplate: aiCommandTemplate.trim() || `${aiProvider} -p "{prompt}"`,
+      aiModel: aiModel.trim(),
       specFramework,
       promptClarify: promptClarify.trim(),
       promptSpecify: promptSpecify.trim(),
@@ -441,6 +447,15 @@ export const ProfileModal: React.FC = () => {
                 </div>
               </div>
 
+              <AIModelField
+                provider={aiProvider}
+                commandTemplate={aiCommandTemplate}
+                value={aiModel}
+                onChange={setAiModel}
+                placeholder="Défaut du CLI (ex : claude-opus-5)"
+                label="Modèle par défaut"
+              />
+
               {/* Command Line Template Configuration */}
               <div className="space-y-2.5 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
                 <div className="flex items-center justify-between">
@@ -467,6 +482,7 @@ export const ProfileModal: React.FC = () => {
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueTitle}'}</code>
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{branchName}'}</code>
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{repoPath}'}</code>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{model}'}</code>
                   </div>
                 </div>
 

@@ -345,6 +345,7 @@ const defaultSettings: UserSettings = {
   userAvatar: '',
   aiProvider: 'agy',
   aiCommandTemplate: 'agy -p "{prompt}"',
+  aiModel: '',
   repoPath: '',
   issueTracker: 'local',
   githubRepo: '',

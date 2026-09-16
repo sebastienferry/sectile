@@ -457,6 +457,10 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Le nom du projet est obligatoire")
 			return
 		}
+		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 
 		project, err := h.db.CreateProject(req)
 		if err != nil {
@@ -1191,6 +1195,17 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		var req models.UpdateProjectRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Payload invalide: "+err.Error())
+			return
+		}
+		var requested agentconfig.ModelConfig
+		if req.AIModel != nil {
+			requested.Model = *req.AIModel
+		}
+		if req.AISkillModels != nil {
+			requested.SkillModels = *req.AISkillModels
+		}
+		if err := agentconfig.ValidModelConfig(requested); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -2416,6 +2431,10 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 		var req models.Settings
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
+			return
+		}
+		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		saved, err := h.db.UpdateSettings(req)

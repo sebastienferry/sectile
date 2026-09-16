@@ -88,7 +88,7 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo,
 		"jiraProject": config.JiraProject, "specFramework": config.SpecFramework, "prCreationStage": config.PRCreationStage,
 		"defaultSkillMode": config.DefaultSkillMode, "fullChainStopStage": config.FullChainStopStage,
-		"useWorktrees": config.UseWorktrees, "aiProvider": config.AIProvider,
+		"useWorktrees": config.UseWorktrees, "aiProvider": config.AIProvider, "aiModel": config.AIModel,
 		"skills": skills, "skillDirectories": []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"},
 	}
 }
