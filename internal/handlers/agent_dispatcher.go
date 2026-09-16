@@ -26,7 +26,7 @@ const (
 	// message nor a pong within this window. It must leave room for several
 	// missed pings so a briefly stalled network does not unregister a healthy
 	// agent. At one server ping every 10s and one agent heartbeat every 10s
-	// (agentHeartbeatInterval in cmd/agent), four consecutive keepalives have
+	// (agentHeartbeatInterval in internal/agent), four consecutive keepalives have
 	// to be lost before this fires. It is deliberately not equal to the agent
 	// heartbeat period: when the two matched at 30s, a heartbeat arrived
 	// exactly on the deadline and whether the connection survived came down to

@@ -36,7 +36,11 @@ node <archify-checkout>/bin/archify.mjs deliver architecture docs/diagrams/secti
 | `internal/db` | Persisted tasks, projects, board/roadmap/sprint configuration, workflow and tracker queues |
 | `internal/handlers` | Server API, upstream MCP and authenticated agent relay |
 | `internal/trackerapi` | GitHub REST/GraphQL with explicit server credentials |
-| `cmd/agent` | Workstation daemon, loopback/control APIs, MCP bridge, launch queue and execution supervision |
+| `cmd/agent` | Dispatch only: picks the daemon, the MCP bridge or the command supervisor and wires nothing else |
+| `internal/agent` | Workstation daemon, loopback/control APIs, launch queue and execution supervision |
+| `internal/agentmcp` | Stdio MCP bridge a coding CLI spawns; never opens SQLite |
+| `internal/agentexec` | Terminal-side supervisor of one agent-owned command, and process-group control |
+| `internal/agenthttp` | Agent-side HTTP client that carries the device credential on its transport |
 | `internal/agentprotocol` | Shared message envelope and workspace operation DTOs |
 | `internal/agentconfig` | Secret-free configuration contract and agent-owned installation helpers |
 | `internal/workspace`, `internal/runner`, `internal/terminal` | Local Git, tool execution and PTYs |
