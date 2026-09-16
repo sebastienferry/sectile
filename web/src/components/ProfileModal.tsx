@@ -24,6 +24,8 @@ import { LocalAgentSetup } from './LocalAgentSetup'
 import { WorkstationPairing } from './WorkstationPairing'
 import { SignInStatus } from './SignInStatus'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
+import { AIModelField } from './AIModelField'
+import { isValidModel } from '../lib/aiModels'
 
 type SettingsTab = 'appearance' | 'agentic' | 'prompts'
 
@@ -57,6 +59,7 @@ export const ProfileModal: React.FC = () => {
   // Agentic AI & CLI Configuration
   const [aiProvider, setAiProvider] = useState<AIProvider>(settings.aiProvider || 'agy')
   const [aiCommandTemplate, setAiCommandTemplate] = useState(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+  const [aiModel, setAiModel] = useState(settings.aiModel || '')
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
 
   // Skill Prompts
@@ -76,6 +79,7 @@ export const ProfileModal: React.FC = () => {
       setDetailMode(settings.detailMode || 'panel')
       setAiProvider(settings.aiProvider || 'agy')
       setAiCommandTemplate(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+      setAiModel(settings.aiModel || '')
       setSpecFramework(settings.specFramework || 'speckit')
       setPromptClarify(settings.promptClarify || '')
       setPromptSpecify(settings.promptSpecify || '')
@@ -111,7 +115,12 @@ export const ProfileModal: React.FC = () => {
     }
   }
 
+  // Un modèle mal formé désactive l'enregistrement : le bouton est en pied de
+  // modale, loin du champ, et un clic sans effet n'indique rien.
+  const modelIsValid = isValidModel(aiModel)
+
   const handleSave = async () => {
+    if (!modelIsValid) return
     await updateSettings({
       userName: userName.trim(),
       userEmail: userEmail.trim(),
@@ -122,6 +131,7 @@ export const ProfileModal: React.FC = () => {
       detailMode,
       aiProvider,
       aiCommandTemplate: aiCommandTemplate.trim() || `${aiProvider} -p "{prompt}"`,
+      aiModel: aiModel.trim(),
       specFramework,
       promptClarify: promptClarify.trim(),
       promptSpecify: promptSpecify.trim(),
@@ -441,6 +451,15 @@ export const ProfileModal: React.FC = () => {
                 </div>
               </div>
 
+              <AIModelField
+                provider={aiProvider}
+                commandTemplate={aiCommandTemplate}
+                value={aiModel}
+                onChange={setAiModel}
+                placeholder="Défaut du CLI (ex : claude-opus-5)"
+                label="Modèle par défaut"
+              />
+
               {/* Command Line Template Configuration */}
               <div className="space-y-2.5 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
                 <div className="flex items-center justify-between">
@@ -467,6 +486,7 @@ export const ProfileModal: React.FC = () => {
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueTitle}'}</code>
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{branchName}'}</code>
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{repoPath}'}</code>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{model}'}</code>
                   </div>
                 </div>
 
@@ -644,7 +664,8 @@ export const ProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={handleSave}
-            className="px-5 py-2 rounded-xl text-xs font-semibold text-white accent-bg shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer"
+            disabled={!modelIsValid}
+            className="px-5 py-2 rounded-xl text-xs font-semibold text-white accent-bg shadow hover:opacity-90 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {t.profileModal.save}
           </button>

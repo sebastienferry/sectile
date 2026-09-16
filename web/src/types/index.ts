@@ -229,6 +229,10 @@ export interface Project {
   setupProviders?: string[]
   aiProvider?: AIProvider
   aiCommandTemplate?: string
+  /** Modèle du moteur pour ce projet. Vide : le réglage global s'applique. */
+  aiModel?: string
+  /** Modèle par compétence (skillId -> modèle) pour celles qui s'écartent d'aiModel. */
+  aiSkillModels?: Record<string, string>
   specFramework?: SpecFramework
   /** Synchronisation automatique en arrière-plan activée pour ce projet. */
   autoSyncEnabled?: boolean
@@ -523,6 +527,10 @@ export interface UserSettings {
   userAvatar: string
   aiProvider: AIProvider
   aiCommandTemplate: string
+  /** Modèle du moteur. Vide : le CLI garde son défaut. */
+  aiModel?: string
+  /** Modèle par compétence (skillId -> modèle). */
+  aiSkillModels?: Record<string, string>
   repoPath: string
   issueTracker: IssueTracker
   githubRepo: string

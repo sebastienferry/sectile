@@ -30,14 +30,25 @@ func TestMain(m *testing.M) {
 
 func TestConsoleCommandsHaveNoPromptOrFlags(t *testing.T) {
 	for _, provider := range []string{"codex", "claude"} {
-		command, err := consoleCommand(provider)
+		command, err := consoleCommand(provider, "")
 		if err != nil || command != "exec "+provider {
 			t.Fatalf("%q: %q %v", provider, command, err)
 		}
 	}
 	for _, provider := range []string{"", "custom", "codex --prompt hi", "claude; touch /tmp/unexpected"} {
-		if _, err := consoleCommand(provider); err == nil {
+		if _, err := consoleCommand(provider, ""); err == nil {
 			t.Fatalf("accepted %q", provider)
+		}
+	}
+}
+
+// A free console runs against the model the project resolves, and carries no
+// model flag when none is configured.
+func TestConsoleCommandCarriesTheResolvedModel(t *testing.T) {
+	for _, provider := range []string{"codex", "claude"} {
+		command, err := consoleCommand(provider, "M")
+		if err != nil || command != "exec "+provider+" --model M" {
+			t.Fatalf("%q: %q %v", provider, command, err)
 		}
 	}
 }

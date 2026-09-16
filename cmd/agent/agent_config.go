@@ -304,8 +304,20 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 // quoteShell protects task text when it is passed through an interactive shell.
 func quoteShell(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-func agentCommandLine(provider, template, prompt string, contexts ...agentCommandContext) (string, error) {
-	return modeCommandLine(provider, template, prompt, models.SkillModeInteractive, contexts...)
+// words joins the parts of a provider invocation, eliding the ones that resolve
+// to nothing so an absent model leaves the command line exactly as it was.
+func words(parts ...string) string {
+	kept := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			kept = append(kept, part)
+		}
+	}
+	return strings.Join(kept, " ")
+}
+
+func agentCommandLine(provider, template, model, prompt string, contexts ...agentCommandContext) (string, error) {
+	return modeCommandLine(provider, template, model, prompt, models.SkillModeInteractive, contexts...)
 }
 
 // headlessCommandLine is the autonomous form of agentCommandLine. It covers only
@@ -321,15 +333,17 @@ func agentCommandLine(provider, template, prompt string, contexts ...agentComman
 // report the run and move the stage, so the run ends having only printed why it
 // could not work and the board never moves. Only an attested flag is passed, for
 // the same reason the provider list itself is attested.
-func headlessCommandLine(provider, prompt string) (string, error) {
+func headlessCommandLine(provider, model, prompt string) (string, error) {
+	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "claude":
-		return "claude -p --permission-mode bypassPermissions " + quoteShell(prompt), nil
+		return words("claude", "-p", "--permission-mode", "bypassPermissions", modelFlag, quoteShell(prompt)), nil
 	case "codex":
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
-		return "codex exec " + quoteShell(prompt), nil
+		return words("codex", "exec", modelFlag, quoteShell(prompt)), nil
 	case "vibe":
+		// vibe takes no model flag, so ModelArgs returns nothing for it.
 		return "vibe -p --auto-approve " + quoteShell(prompt), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
@@ -354,7 +368,7 @@ func liveSessionMode(skillID, action, mode string) string {
 // the mode: without a {mode:...|...} placeholder it can only run what its author
 // wrote, so an autonomous launch is refused rather than silently running the
 // template's own mode.
-func modeCommandLine(provider, template, prompt, mode string, contexts ...agentCommandContext) (string, error) {
+func modeCommandLine(provider, template, model, prompt, mode string, contexts ...agentCommandContext) (string, error) {
 	autonomous := models.NormalizeSkillMode(mode) == models.SkillModeAutonomous
 	if strings.TrimSpace(template) != "" {
 		if autonomous && !templateCarriesMode(template) {
@@ -364,20 +378,25 @@ func modeCommandLine(provider, template, prompt, mode string, contexts ...agentC
 		if len(contexts) > 0 {
 			launch = contexts[0]
 		}
-		return expandAgentTemplate(resolveTemplateMode(template, autonomous), launch.values(prompt))
+		// A template owns its command line: the model reaches it through its own
+		// {model} slot, never as a flag spliced in beside the template's words.
+		values := launch.values(prompt)
+		values["model"] = strings.TrimSpace(model)
+		return expandAgentTemplate(resolveTemplateMode(template, autonomous), values)
 	}
 	if autonomous {
-		return headlessCommandLine(provider, prompt)
+		return headlessCommandLine(provider, model, prompt)
 	}
+	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "agy":
-		return "agy -i " + quoteShell(prompt), nil
+		return words("agy", "-i", quoteShell(prompt)), nil
 	case "claude", "codex", "gemini":
-		return provider + " " + quoteShell(prompt), nil
+		return words(provider, modelFlag, quoteShell(prompt)), nil
 	case "vibe":
-		return "vibe -p " + quoteShell(prompt), nil
+		return words("vibe", "-p", quoteShell(prompt)), nil
 	case "cursor":
-		return "cursor agent " + quoteShell(prompt), nil
+		return words("cursor", "agent", modelFlag, quoteShell(prompt)), nil
 	default:
 		return "", fmt.Errorf("unsupported AI provider %q; configure an AI command template", provider)
 	}
@@ -398,9 +417,15 @@ func sameDirectory(a, b string) bool {
 func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command, mode string, contexts ...agentCommandContext) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
+	// A discussion or a bare terminal has no skill, so it runs against the model
+	// the project resolves rather than a per-skill one.
 	live := func() (string, error) {
-		return runner.InteractiveAgentLaunch(&models.Settings{AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate})
+		return runner.InteractiveAgentLaunch(&models.Settings{
+			AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate,
+			AIModel: agentconfig.ResolveModel(config, ""),
+		})
 	}
+	model := agentconfig.ResolveModel(config, skillID)
 	if action == "open_terminal" {
 		if strings.TrimSpace(command) != "" {
 			return command, nil
@@ -418,7 +443,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		if strings.TrimSpace(prompt) == "" {
 			return "", fmt.Errorf("custom instructions required")
 		}
-		return modeCommandLine(config.AIProvider, config.AICommandTemplate, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
+		return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
@@ -445,7 +470,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return modeCommandLine(config.AIProvider, config.AICommandTemplate, promptArg, mode, contexts...)
+	return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, promptArg, mode, contexts...)
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {
