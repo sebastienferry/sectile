@@ -554,6 +554,29 @@ content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
 
+### Execution modes
+
+A skill run is either **interactive** (a terminal window you answer, and the
+stage moves when you confirm) or **autonomous** (the CLI runs headless, its
+output is recorded on the run activity, and the worker posts the stage).
+
+The mode of one launch is resolved in this order, first opinion winning: the
+one-off override chosen for that launch, then the skill's own setting in the
+skill editor, then the project's `defaultSkillMode`, then interactive.
+
+The one-off override is offered wherever you explicitly trigger a skill: the web
+task card menu, the web task detail modal, and the desktop Launch and Relaunch
+dialogs. The desktop next-step button stays a single click on the resolved mode.
+
+`claude -p`, `codex exec` and `vibe -p` are the attested headless invocations.
+On `agy`, `gemini`, `cursor`, or a custom `aiCommandTemplate` with no
+`{mode:AUTONOMOUS|INTERACTIVE}` placeholder, an autonomous launch is refused by
+name rather than silently run interactively.
+
+The project also sets `fullChainStopStage`, where the **Full chain** (`>>`)
+action stops: `implemented` (before the pull request) or `reviewed` (default).
+A full chain run is always autonomous. Merging stays manual.
+
 ### Execution defaults and local overrides
 
 The server project supplies the `useWorktrees` default, which **Inherit worktrees

@@ -341,6 +341,8 @@ export interface TranslationSchema {
     unpin: string
     advance: string
     advanceAuto: string
+    advanceInteractive: string
+    advanceAutonomous: string
     filterParent: string
     clearParent: string
     openPr: string
@@ -737,7 +739,9 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       pin: 'Épingler',
       unpin: 'Désépingler',
       advance: 'Avancer une étape',
-      advanceAuto: 'Avancer automatiquement',
+      advanceAuto: 'Chaîne complète',
+      advanceInteractive: 'Avancer en interactif',
+      advanceAutonomous: 'Avancer en autonome',
       filterParent: 'Filtrer par parent',
       clearParent: 'Retirer le filtre parent',
       openPr: 'Ouvrir la PR / MR',
@@ -1132,7 +1136,9 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       pin: 'Pin',
       unpin: 'Unpin',
       advance: 'Advance one step',
-      advanceAuto: 'Advance automatically',
+      advanceAuto: 'Full chain',
+      advanceInteractive: 'Advance interactively',
+      advanceAutonomous: 'Advance autonomously',
       filterParent: 'Filter by parent',
       clearParent: 'Clear parent filter',
       openPr: 'Open PR / MR',

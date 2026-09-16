@@ -36,6 +36,9 @@ type desktopRun struct {
 	SessionID       string    `json:"sessionId"`
 	Directory       string    `json:"directory"`
 	Status          string    `json:"status"`
+	// Headless marks a run that has no PTY on purpose. The desktop shows its
+	// captured output read-only instead of reporting a missing console.
+	Headless bool `json:"headless,omitempty"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
@@ -223,6 +226,9 @@ func (d *agentDaemon) writeDesktopInfo() error {
 }
 
 // Report process exit using the server's authenticated MCP endpoint.
+// finishDesktopRun reports a finished run with the reason it ended. The console
+// path always ends the same way; a headless run has a real result to carry,
+// including the error that stopped it.
 func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status, note string) error {
 	if taskID == "" {
 		return nil
@@ -584,6 +590,10 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		TaskID  string
 		SkillID string
 		Prompt  string
+		// Mode is the one-off execution mode the user chose in the Launch or
+		// Relaunch dialog. Empty means no override: the server's precedence
+		// still applies. The agent does not interpret it, it passes it on.
+		Mode string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -610,7 +620,11 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
-	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt})
+	if !models.ValidSkillMode(input.Mode) {
+		http.Error(w, "Unknown execution mode", 400)
+		return
+	}
+	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)

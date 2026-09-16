@@ -44,6 +44,7 @@ import type {
   SpecFramework,
   SpecFrameworkStatus,
   SpecFrameworkInstallResult,
+  SkillMode,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 
@@ -162,6 +163,8 @@ export const ProjectModal: React.FC = () => {
   // Section 2: Git (Local path, URL distante git@..., init git)
   const [repoPath, setRepoPath] = useState('')
   const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
+  const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
+  const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
   // Mono-dépôt : conditionne tout ce qui parle de « la » branche courante.
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
@@ -254,6 +257,8 @@ export const ProjectModal: React.FC = () => {
 
       setRepoPath(editingProject.repoPath || '')
       setPRCreationStage(editingProject.prCreationStage || 'implemented')
+      setDefaultSkillMode(editingProject.defaultSkillMode || '')
+      setFullChainStopStage(editingProject.fullChainStopStage || 'reviewed')
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
@@ -380,6 +385,8 @@ export const ProjectModal: React.FC = () => {
         isDefault,
         repoPath: repoPath.trim(),
         prCreationStage,
+        defaultSkillMode,
+        fullChainStopStage,
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
@@ -710,6 +717,42 @@ export const ProjectModal: React.FC = () => {
                   <option value="implemented">Draft after implementation</option>
                   <option value="specified">Draft after specification</option>
                 </select>
+              </div>
+              <div>
+                <label htmlFor="defaultSkillMode" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Mode d'exécution par défaut
+                </label>
+                <select
+                  id="defaultSkillMode"
+                  value={defaultSkillMode}
+                  onChange={e => setDefaultSkillMode(e.target.value as SkillMode)}
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                >
+                  <option value="">Interactif (défaut)</option>
+                  <option value="interactive">Interactif</option>
+                  <option value="autonomous">Autonome (headless)</option>
+                </select>
+                <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  S'applique aux skills qui ne fixent pas leur propre mode. Une surcharge au
+                  lancement l'emporte, pour ce lancement seulement.
+                </p>
+              </div>
+              <div>
+                <label htmlFor="fullChainStopStage" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Arrêt de la chaîne complète
+                </label>
+                <select
+                  id="fullChainStopStage"
+                  value={fullChainStopStage}
+                  onChange={e => setFullChainStopStage(e.target.value as 'implemented' | 'reviewed')}
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                >
+                  <option value="reviewed">Après la PR (reviewed)</option>
+                  <option value="implemented">Avant la PR (implemented)</option>
+                </select>
+                <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  La fusion reste manuelle dans les deux cas.
+                </p>
               </div>
               <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
                 Local repositories and execution consoles are managed in the desktop agent.

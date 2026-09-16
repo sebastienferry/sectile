@@ -9,6 +9,8 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
 import { taskStage, nextTaskStep } from './workflow.mjs'
+import { launchModeOverride, modeSelect } from './skill-mode.mjs'
+import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -115,10 +117,9 @@ function select(run,background=false,options){
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
  terminal.reset()
- if(run.status==='queued'||run.status==='preparing'||!run.sessionId){
+ if(needsConsoleNotice(run)){
   api.detach().catch(error)
-  const message=run.status==='queued'?'Execution queued. Waiting for a console.':run.status==='preparing'?'Preparing execution. Waiting for a console.':run.status==='canceled'?'Execution canceled before a console was created.':'No console is available for this execution. Check the task activity and local agent.log for launch errors.'
-  terminal.writeln(message)
+  terminal.writeln(consoleNotice(run))
   render(options);return
  }
  api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen)terminal.focus()}).catch(error)
@@ -726,15 +727,16 @@ async function browseTasks(projectID,initialQuery=''){
     if((info.server.skills||[]).some(item=>item.id==='pickup'))skill.value='pickup'
     const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions');prompt.hidden=true
     skill.onchange=()=>{prompt.hidden=skill.value!=='custom'}
+    const mode=modeSelect(document,'Execution mode for '+(task.key||task.id))
     const launch=document.createElement('button');launch.textContent='Launch';launch.disabled=!info.configured||!skill.options.length
     const notice=document.createElement('p');notice.setAttribute('role','status')
     launch.onclick=async()=>{
      if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
      launch.disabled=true;notice.textContent='Submitting execution…'
-     try{await api.launchServerTask(projectID,task.id,skill.value,prompt.value);notice.textContent='Execution submitted';dialog.close();await refresh()}
+     try{await api.launchServerTask(projectID,task.id,skill.value,prompt.value,launchModeOverride(mode.value));notice.textContent='Execution submitted';dialog.close();await refresh()}
      catch(err){notice.textContent=err.message;launch.disabled=false}
     }
-    card.append(title,status,skill,prompt,launch,notice);list.append(card)
+    card.append(title,status,skill,prompt,mode,launch,notice);list.append(card)
    }
   }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
   finally{if(isCurrent())list.setAttribute('aria-busy','false')}
@@ -766,16 +768,18 @@ document.querySelector('#rerun').onclick=async()=>{
   const promptLabel=document.createElement('label');promptLabel.textContent='Instructions'
   const prompt=document.createElement('textarea');prompt.className='cli-command';prompt.setAttribute('aria-label','Relaunch instructions');prompt.value=run.prompt||''
   promptLabel.append(prompt)
+  const modeLabel=document.createElement('label');modeLabel.textContent='Execution mode'
+  const mode=modeSelect(document,'Relaunch execution mode');modeLabel.append(mode)
   const submit=document.createElement('button');submit.textContent='Launch new execution';submit.disabled=!info.configured
   const notice=document.createElement('p');notice.setAttribute('role','status')
   if(!info.configured)notice.textContent='Configure a local repository before relaunching.'
-  form.append(skillLabel,promptLabel,submit,notice);dialogBody.append(form)
+  form.append(skillLabel,promptLabel,modeLabel,submit,notice);dialogBody.append(form)
   form.onsubmit=async event=>{
    event.preventDefault()
    if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
    submit.disabled=true
    try{
-    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value)
+    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value))
     dialog.close();await refresh()
    }catch(err){notice.textContent=err.message;submit.disabled=false}
   }

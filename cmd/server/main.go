@@ -248,6 +248,7 @@ func main() {
 	mux.HandleFunc("/api/v1/agent/pair", h.HandleAgentPair)
 	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
 	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
+	mux.Handle("/api/v1/agent/run-output", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentRunOutput)))
 
 	// Remote Agent WebSocket & Dispatch Routes
 	mux.HandleFunc("/ws/agent-connect", h.HandleAgentConnect)

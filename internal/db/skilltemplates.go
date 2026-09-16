@@ -20,14 +20,17 @@ import (
 // the repositories they land in are read by people who do not all speak French.
 // The Sectile interface stays in French.
 type StageSkill struct {
-	ID          string // internal id, shared by the catalogue and the job queue
-	Name        string
-	DirName     string // skill directory, which is also the slash command
-	Command     string
-	FromStage   string
-	ToStage     string
-	Scope       string // "task" (default) or "macro"
-	Interactive bool
+	ID        string // internal id, shared by the catalogue and the job queue
+	Name      string
+	DirName   string // skill directory, which is also the slash command
+	Command   string
+	FromStage string
+	ToStage   string
+	Scope     string // "task" (default) or "macro"
+	// Mode is the built-in execution mode of the skill: interactive when the
+	// skill only means something with a human answering in the terminal, unset
+	// when the skill has no opinion and the project default decides.
+	Mode        string
 	Description string // shown in the Sectile interface, in French
 	Icon        string
 	Color       string
@@ -56,7 +59,6 @@ var StageSkills = []StageSkill{
 		Command:     "/clarify-issue",
 		FromStage:   "new",
 		ToStage:     "clarified",
-		Interactive: false,
 		Description: "Résout les ambiguïtés réversibles et identifie les décisions indispensables.",
 		Icon:        "HelpCircle",
 		Color:       "amber",
@@ -287,7 +289,6 @@ and a local workspace with nothing stale in it.`,
 		Command:     "/pickup-issue",
 		FromStage:   "new",
 		ToStage:     "reviewed",
-		Interactive: false,
 		Description: "Exécute en autonomie complète toutes les étapes d'un ticket jusqu'à la création de la Pull Request.",
 		Icon:        "Sparkles",
 		Color:       "purple",
@@ -321,7 +322,6 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		Command:     "/rewrite-story",
 		FromStage:   "",
 		ToStage:     "",
-		Interactive: false,
 		Description: "Reformate la description d'une tâche en User Story structurée GFM, avec inclusion facultative des commentaires.",
 		Icon:        "Sparkles",
 		Color:       "cyan",
@@ -358,7 +358,7 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		FromStage:   "macro",
 		ToStage:     "macro",
 		Scope:       "macro",
-		Interactive: true,
+		Mode:        models.SkillModeInteractive,
 		Description: "Clarifie de manière interactive le cadrage d'une macro et le décompose en TODOs structurés et cartes Sectile.",
 		Icon:        "ListChecks",
 		Color:       "orange",
@@ -387,7 +387,6 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 		Command:     "/pickup-issues",
 		FromStage:   "new",
 		ToStage:     "reviewed",
-		Interactive: false,
 		Description: "Exécute en autonomie complète toutes les étapes d'un lot de tickets dans un unique Git worktree jusqu'à la PR.",
 		Icon:        "Sparkles",
 		Color:       "purple",
@@ -601,10 +600,10 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	fmt.Fprintf(&b, "# %s\n\n", name)
 	if s.FromStage != "" && s.Scope != "macro" {
 		fmt.Fprintf(&b, "Stage: %s -> %s.", s.FromStage, s.ToStage)
-		if s.Interactive {
+		if s.Mode == models.SkillModeInteractive {
 			b.WriteString(" Interactive: the user answers in the terminal.")
 		}
-	} else if s.Interactive {
+	} else if s.Mode == models.SkillModeInteractive {
 		b.WriteString("Interactive: the user answers in the terminal.")
 	}
 	b.WriteString("\n\n")

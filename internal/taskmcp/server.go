@@ -87,6 +87,7 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 		"description": config.Description, "gitRemoteUrl": config.GitRemoteURL, "issueTracker": config.IssueTracker,
 		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo, "linearTeam": config.LinearTeam,
 		"jiraProject": config.JiraProject, "specFramework": config.SpecFramework, "prCreationStage": config.PRCreationStage,
+		"defaultSkillMode": config.DefaultSkillMode, "fullChainStopStage": config.FullChainStopStage,
 		"useWorktrees": config.UseWorktrees, "aiProvider": config.AIProvider,
 		"skills": skills, "skillDirectories": []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"},
 	}
@@ -156,7 +157,7 @@ func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
 			tasks, err := database.GetTasks("", in.Status, "", "", in.ProjectID, in.Sprint, "", "", "", nil, nil, false)
 			return nil, map[string]any{"tasks": tasks}, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "get_project_context", Description: "Read project description, repository identity, execution settings, specification framework, pull-request creation stage and skill references. Supply projectId or taskKey. Skill bodies are not inlined: open <skillDirectory>/<skill directory>/SKILL.md in the checkout, and read repository AGENTS.md for additional conventions."},
+	mcp.AddTool(s, &mcp.Tool{Name: "get_project_context", Description: "Read project description, repository identity, execution settings, specification framework, pull-request creation stage, default skill execution mode, full chain stop stage and skill references. Supply projectId or taskKey. Skill bodies are not inlined: open <skillDirectory>/<skill directory>/SKILL.md in the checkout, and read repository AGENTS.md for additional conventions."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in contextInput) (*mcp.CallToolResult, any, error) {
 			config, err := database.AgentConfig(in.ProjectID, in.TaskKey)
 			if err != nil {
