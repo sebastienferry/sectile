@@ -315,6 +315,21 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
 
   const isCondensed = compact
   const compactActionClass = 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
+  // The one-off mode override for the next step. Both card shapes offer it: on a
+  // condensed card the chevrons live in this menu, on a full card they sit on
+  // the card itself and carry no mode, so without these entries there is no way
+  // to depart from the configured mode without opening the project settings.
+  const modeActions = (
+    <>
+      <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'interactive') }}>
+        <Terminal size={12} /><span>{t.compactCard.advanceInteractive}</span>
+      </button>
+      <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'autonomous') }}>
+        <Bot size={12} /><span>{t.compactCard.advanceAutonomous}</span>
+      </button>
+    </>
+  )
+
   const actionsMenu = (
     <div className="flex items-center gap-1 relative" ref={menuRef} onClick={e => e.stopPropagation()}>
       {/* Menu (...) Button */}
@@ -358,12 +373,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false) }}>
                 <ChevronRight size={12} /><span>{t.compactCard.advance}</span>
               </button>
-              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'interactive') }}>
-                <Terminal size={12} /><span>{t.compactCard.advanceInteractive}</span>
-              </button>
-              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'autonomous') }}>
-                <Bot size={12} /><span>{t.compactCard.advanceAutonomous}</span>
-              </button>
+              {modeActions}
               <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(true) }}>
                 <ChevronsRight size={12} /><span>{t.compactCard.advanceAuto}</span>
               </button>
@@ -377,6 +387,12 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
                   <GitPullRequest size={12} /><span>{t.compactCard.openPr}</span>
                 </a>
               )}
+              <div className="h-px bg-[var(--border-color)] my-1" />
+            </>
+          )}
+          {!isCondensed && (
+            <>
+              {modeActions}
               <div className="h-px bg-[var(--border-color)] my-1" />
             </>
           )}

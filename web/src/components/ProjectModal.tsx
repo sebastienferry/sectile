@@ -942,13 +942,16 @@ export const ProjectModal: React.FC = () => {
                   onChange={e => setDefaultSkillMode(e.target.value as SkillMode)}
                   className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 >
-                  <option value="">Interactif (défaut)</option>
                   <option value="interactive">Interactif</option>
                   <option value="autonomous">Autonome (headless)</option>
+                  <option value="">Choisir par skill</option>
                 </select>
                 <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
-                  S'applique aux skills qui ne fixent pas leur propre mode. Une surcharge au
-                  lancement l'emporte, pour ce lancement seulement.
+                  S'applique aux skills qui ne fixent pas leur propre mode : un skill qui
+                  fixe le sien l'emporte toujours. « Choisir par skill » n'impose rien au
+                  niveau du projet et laisse chaque skill décider ; ceux qui ne décident pas
+                  restent interactifs. Une surcharge au lancement l'emporte sur tout, pour
+                  ce lancement seulement.
                 </p>
               </div>
 
