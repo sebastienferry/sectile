@@ -15,6 +15,9 @@ type agentCommandContext struct {
 	Directory string
 	Tracker   string
 	Repo      string
+	// Mode is the execution mode the server resolved. Empty reads as
+	// interactive, which is what a launch that predates the setting means.
+	Mode string
 }
 
 func (c agentCommandContext) values(prompt string) map[string]string {
@@ -33,6 +36,7 @@ func (c agentCommandContext) values(prompt string) map[string]string {
 		"prompt": prompt, "issueKey": c.Task.Key, "issueTitle": c.Task.Title,
 		"issueDesc": c.Task.Description, "branchName": c.Branch,
 		"repoPath": c.Directory, "tracker": strings.ToLower(tracker), "repo": repo,
+		"mode": c.Mode,
 	}
 }
 

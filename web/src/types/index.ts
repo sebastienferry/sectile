@@ -1,3 +1,5 @@
+export type SkillMode = 'interactive' | 'non_interactive'
+
 export type Priority = 'urgent' | 'high' | 'medium' | 'low'
 
 export type Status = 
@@ -186,6 +188,8 @@ export interface Project {
    */
   prCreationStage?: 'specified' | 'implemented'
   useWorktrees?: boolean
+  defaultSkillMode?: SkillMode
+  autonomousStopStage?: 'implemented' | 'reviewed'
   /** Board du tracker retenu pour ce projet. */
   boardId?: string
   /**
@@ -733,7 +737,8 @@ export interface SkillEditorEntry {
   fromStage: string
   toStage: string
   scope?: 'task' | 'macro' | string
-  interactive: boolean
+  /** '' means the skill has no opinion and the project default decides. */
+  mode?: SkillMode | ''
   content: string
   defaultContent: string
   isCustom: boolean

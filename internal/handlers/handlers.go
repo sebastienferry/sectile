@@ -1020,6 +1020,22 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, entries)
 			return
 
+		case r.Method == http.MethodPut && skillID != "" && sub == "mode":
+			var payload struct {
+				Mode string `json:"mode"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+				return
+			}
+			entry, err := h.db.SaveProjectSkillMode(id, skillID, payload.Mode)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, entry)
+			return
+
 		case r.Method == http.MethodPut && skillID != "":
 			var payload struct {
 				Content string `json:"content"`
@@ -1774,6 +1790,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if task.ProjectID != "" {
 			projectID = task.ProjectID
 		}
+		// The mode is resolved here, before anything is recorded: a launch the
+		// provider cannot honour is refused rather than opening a window.
+		launchMode, modeErr := h.db.ResolveLaunchMode(task.ProjectID, req.SkillID, req.Mode)
+		if modeErr != nil {
+			writeError(w, http.StatusBadRequest, modeErr.Error())
+			return
+		}
 		userID := h.webSessionUser(r)
 		ac := h.agentDispatcher.Lookup(userID, projectID)
 
@@ -1816,7 +1839,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			defer cancel()
 			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
 				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
-				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
+				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID, Mode: launchMode,
 			})
 			finished := time.Now()
 			act.CompletedAt = &finished
@@ -2153,6 +2176,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if subAction == "advance" && r.Method == http.MethodPost {
 		var req struct {
 			Auto bool `json:"auto"`
+			// Mode is the one-off override from the card's ... menu. It applies
+			// to this launch only and persists nothing.
+			Mode string `json:"mode"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -2178,7 +2204,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("aucun pas suivant depuis l'étape %s", stage))
 			return
 		}
-		_, act, err := h.db.EnqueueSkillOnTask(task.ID, step.SkillID, "")
+		_, act, err := h.db.EnqueueSkillOnTaskWithMode(task.ID, step.SkillID, "", req.Mode)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

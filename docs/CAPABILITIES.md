@@ -130,6 +130,34 @@ framework value; the database migrates that value to `openspec` on startup.
 - **Objective**: Reviews and repairs the diff, updates affected documentation, runs final checks, then pushes and updates the same existing branch PR and verifies readiness. Available review feedback is addressed; absence of comments does not block review.
 - **Output**: Verified Pull Request URL attached to the task card and external issue tracker. The autonomous chain stops here for human review and merge.
 
+### Execution mode: interactive or headless
+
+A skill runs either **interactive** — the provider CLI is injected into a
+terminal session, the user answers in it, and the stage transition is confirmed
+through `/api/tasks/{id}/advance/confirm` — or **non interactive**, where the CLI
+is invoked headless (`claude -p`, `codex exec`, `vibe -p`), no window opens, and
+the run reports its own outcome with its captured output bounded to the tail.
+
+The mode is resolved per launch, most specific first:
+
+1. the one-off choice in the card's `...` menu, which persists nothing;
+2. the skill's own setting, edited in the skill editor. It is ternary: an empty
+   value means the skill has no opinion, which a boolean could not express;
+3. the project's `defaultSkillMode`;
+4. interactive.
+
+Only `claude`, `codex` and `vibe` have an attested headless mode. A
+non-interactive launch on any other provider is **refused by name** rather than
+falling back to interactive, which inside an unattended chain would open a window
+waiting for a human nobody is watching. A custom `aiCommandTemplate` owns the
+whole command line and therefore the mode: it must carry a `{mode}` placeholder
+to be launchable non-interactively.
+
+The `>>` autonomous run forces the headless mode whatever the settings say, and
+stops at the project's `autonomousStopStage` — `reviewed` (the default, pull
+request opened) or `implemented` (before the pull request). Merging stays manual
+in either case.
+
 ### Stage 5: Handoff (`handoff-issue`)
 - **Objective**: Confirms the merge and writes the handover and acceptance checklist.
 - **Output**: Finished ticket and safe cleanup of clean, unused local worktrees. Shared batch worktrees remain until every associated ticket is handed off.

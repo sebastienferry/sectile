@@ -174,6 +174,8 @@ export const ProjectModal: React.FC = () => {
   const [useCustomAgent, setUseCustomAgent] = useState(false)
   const [setupProviders, setSetupProviders] = useState<string[]>([])
   const [useWorktrees, setUseWorktrees] = useState(true)
+  const [defaultSkillMode, setDefaultSkillMode] = useState<'interactive' | 'non_interactive'>('interactive')
+  const [autonomousStopStage, setAutonomousStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
 
@@ -265,6 +267,8 @@ export const ProjectModal: React.FC = () => {
       setSetupProviders(editingProject.setupProviders || [])
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setUseWorktrees(editingProject.useWorktrees !== false)
+      setDefaultSkillMode(editingProject.defaultSkillMode === 'non_interactive' ? 'non_interactive' : 'interactive')
+      setAutonomousStopStage(editingProject.autonomousStopStage === 'implemented' ? 'implemented' : 'reviewed')
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
@@ -388,6 +392,8 @@ export const ProjectModal: React.FC = () => {
         setupProviders,
         specFramework,
         useWorktrees,
+        defaultSkillMode,
+        autonomousStopStage,
         autoSyncEnabled,
         autoSyncIntervalMin,
         issueTracker,
@@ -928,6 +934,22 @@ export const ProjectModal: React.FC = () => {
                 <h3>Local agent execution defaults</h3>
                 <p className="text-xs text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
                 <label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={useWorktrees} onChange={e=>setUseWorktrees(e.target.checked)} />Use a worktree for each task</label>
+                <label className="flex items-center gap-2 mt-3">
+                  Default skill mode
+                  <select value={defaultSkillMode} onChange={e=>setDefaultSkillMode(e.target.value as 'interactive' | 'non_interactive')} className="px-2 py-1 rounded-lg text-xs bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)]">
+                    <option value="interactive">Interactive (terminal session)</option>
+                    <option value="non_interactive">Non interactive (headless)</option>
+                  </select>
+                </label>
+                <p className="text-xs text-[var(--text-muted)] mt-1">A skill pinning its own mode wins over this default, and the card's ... menu wins over both. Headless requires claude, codex or vibe.</p>
+                <label className="flex items-center gap-2 mt-3">
+                  Autonomous run stops at
+                  <select value={autonomousStopStage} onChange={e=>setAutonomousStopStage(e.target.value as 'implemented' | 'reviewed')} className="px-2 py-1 rounded-lg text-xs bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)]">
+                    <option value="reviewed">reviewed (pull request opened)</option>
+                    <option value="implemented">implemented (before the pull request)</option>
+                  </select>
+                </label>
+                <p className="text-xs text-[var(--text-muted)] mt-1">Merging stays manual either way.</p>
               </div>
 
               {/* Section Synchronisation en arrière-plan */}

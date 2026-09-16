@@ -383,20 +383,19 @@ func (d *DB) StageOfTask(task *models.Task) string {
 }
 
 // StageStep describes what advancing one step from a stage means: which skill
-// runs, and whether it is interactive. Clarification is the one step that needs a
-// human in the loop, so it opens a TTY instead of running headless.
+// runs. How it runs is not a property of the step: a step is the pair (stage,
+// skill) and the mode is resolved per launch by ResolveSkillMode.
 type StageStep struct {
-	SkillID     string
-	Interactive bool
-	Label       string
+	SkillID string
+	Label   string
 }
 
 var stageSteps = map[string]StageStep{
-	"new":         {SkillID: "clarify", Interactive: false, Label: "Clarifier les exigences"},
-	"clarified":   {SkillID: "specify", Interactive: false, Label: "Spécifier la solution (SDD)"},
-	"specified":   {SkillID: "implement", Interactive: false, Label: "Implémenter le code et tests"},
-	"implemented": {SkillID: "adjust", Interactive: false, Label: "Adjust the existing PR/MR; merge remains manual"},
-	"reviewed":    {SkillID: "handoff", Interactive: false, Label: "Handoff et nettoyage local"},
+	"new":         {SkillID: "clarify", Label: "Clarifier les exigences"},
+	"clarified":   {SkillID: "specify", Label: "Spécifier la solution (SDD)"},
+	"specified":   {SkillID: "implement", Label: "Implémenter le code et tests"},
+	"implemented": {SkillID: "adjust", Label: "Adjust the existing PR/MR; merge remains manual"},
+	"reviewed":    {SkillID: "handoff", Label: "Handoff et nettoyage local"},
 }
 
 // NextStep returns the step to run from a stage, and whether there is one.
@@ -405,6 +404,8 @@ func NextStep(stage string) (StageStep, bool) {
 	return step, ok
 }
 
-// AutonomousStopStage is where an autonomous run stops on its own: the PR is opened
-// and waiting for the user to review and merge. Merging is strictly reserved for the human user.
-const AutonomousStopStage = "reviewed"
+// AutonomousStopStage is the fallback stop stage for an autonomous run: the PR is
+// opened and waiting for the user to review and merge. A project can stop earlier
+// through its own autonomousStopStage setting. Merging is strictly reserved for
+// the human user in either case.
+const AutonomousStopStage = models.StopStageReviewed

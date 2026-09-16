@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS projects (
     ai_provider TEXT DEFAULT '',
     ai_command_template TEXT DEFAULT '',
     spec_framework TEXT DEFAULT '',    -- 'speckit' | 'openspec'
+    default_skill_mode TEXT NOT NULL DEFAULT '',     -- '' | 'interactive' | 'non_interactive'; empty reads as interactive
+    autonomous_stop_stage TEXT NOT NULL DEFAULT '',  -- '' | 'implemented' | 'reviewed'; anything unknown reads as reviewed
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -174,6 +176,7 @@ and the tracker's own refusal when it fails.
 | `GET` | `/api/projects/{id}/skills-status` | Reports which workflow skills are scaffolded, per worktree. |
 | `POST` | `/api/projects/{id}/install-skills` | Scaffolds the workflow skills into the repo and all its worktrees. |
 | `POST` | `/api/projects/{id}/init-git` | Initializes a Git repository in the project working directory. |
+| `PUT` | `/api/projects/{id}/skill-editor/{skillId}/mode` | Pins this skill's execution mode on this project. Body `{"mode": "interactive" \| "non_interactive" \| ""}`; an empty mode clears the pin and hands the decision back to the project default. |
 | `GET` | `/api/projects/{id}/spec-framework-status` | Per-framework SDD status for this project (see 2.5). |
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
 | `GET` | `/api/projects/{id}/daily-digest` | Daily digest of the project. `?date=YYYY-MM-DD`, `?assignee=`, `?history=1` for the stored dates. Rejected unless the project is of type `personal`. |

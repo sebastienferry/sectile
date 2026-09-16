@@ -91,6 +91,16 @@ type Project struct {
 	// nothing. Default true, which is the historical behaviour.
 	UseWorktrees    bool   `json:"useWorktrees"`
 	PRCreationStage string `json:"prCreationStage"`
+	// DefaultSkillMode is the mode a skill runs in when neither the launch nor
+	// the skill pins one: "interactive" opens a terminal session the user
+	// answers in, "non_interactive" runs the provider CLI headless and streams
+	// its output onto the run activity. Empty reads as interactive, which is
+	// the historical behaviour.
+	DefaultSkillMode string `json:"defaultSkillMode,omitempty"`
+	// AutonomousStopStage is where an autonomous run stops on its own:
+	// "implemented" leaves it before the pull request, "reviewed" stops once the
+	// PR is open. Merging is never automated, whichever value is stored.
+	AutonomousStopStage string `json:"autonomousStopStage,omitempty"`
 	// BoardID / TrackerColumns mirror the tracker's board: its columns in order,
 	// with the statuses each one groups. Imported from the tracker, not typed by
 	// hand.
@@ -280,6 +290,8 @@ type CreateProjectRequest struct {
 	RepoPaths               []string          `json:"repoPaths,omitempty"`
 	PRCreationStage         string            `json:"prCreationStage,omitempty"`
 	UseWorktrees            *bool             `json:"useWorktrees,omitempty"`
+	DefaultSkillMode        string            `json:"defaultSkillMode,omitempty"`
+	AutonomousStopStage     string            `json:"autonomousStopStage,omitempty"`
 	BoardID                 string            `json:"boardId,omitempty"`
 	GitRemoteUrl            string            `json:"gitRemoteUrl,omitempty"`
 	LinearTeam              string            `json:"linearTeam,omitempty"`
@@ -311,6 +323,8 @@ type UpdateProjectRequest struct {
 	RepoPaths               *[]string            `json:"repoPaths,omitempty"`
 	PRCreationStage         *string              `json:"prCreationStage,omitempty"`
 	UseWorktrees            *bool                `json:"useWorktrees,omitempty"`
+	DefaultSkillMode        *string              `json:"defaultSkillMode,omitempty"`
+	AutonomousStopStage     *string              `json:"autonomousStopStage,omitempty"`
 	BoardID                 *string              `json:"boardId,omitempty"`
 	TrackerColumns          *[]TrackerColumn     `json:"trackerColumns,omitempty"`
 	Sprints                 *[]TrackerSprint     `json:"sprints,omitempty"`
@@ -335,6 +349,43 @@ type UpdateProjectRequest struct {
 	AutoSyncIntervalMin     *int                 `json:"autoSyncIntervalMin,omitempty"`
 	TtyMode                 *string              `json:"ttyMode,omitempty"`
 	ExternalTerminalCommand *string              `json:"externalTerminalCommand,omitempty"`
+}
+
+// Skill execution modes. An interactive run opens a terminal session the user
+// answers in; a non-interactive run invokes the provider CLI headless.
+const (
+	SkillModeInteractive    = "interactive"
+	SkillModeNonInteractive = "non_interactive"
+)
+
+// NormalizeSkillMode reads a stored or submitted mode. An unknown value reads as
+// unset rather than as a mode: a bad value must fall through to the next level
+// of the precedence chain, not pin a mode nobody chose.
+func NormalizeSkillMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case SkillModeInteractive:
+		return SkillModeInteractive
+	case SkillModeNonInteractive, "noninteractive", "headless":
+		return SkillModeNonInteractive
+	default:
+		return ""
+	}
+}
+
+// Autonomous stop stages: where a `>>` run gives the board back to the human.
+const (
+	StopStageImplemented = "implemented"
+	StopStageReviewed    = "reviewed"
+)
+
+// NormalizeAutonomousStopStage reads the project stop stage. Anything unknown,
+// the empty value included, reads as "reviewed": a bad stored value must not be
+// able to wedge a board, and "reviewed" is the historical behaviour.
+func NormalizeAutonomousStopStage(stage string) string {
+	if strings.ToLower(strings.TrimSpace(stage)) == StopStageImplemented {
+		return StopStageImplemented
+	}
+	return StopStageReviewed
 }
 
 // NormalizeAutoSyncIntervalMin clamps the project background sync interval between 1 and 30 minutes (default 5).
@@ -405,7 +456,10 @@ type SkillEditorEntry struct {
 	FromStage              string            `json:"fromStage"`
 	ToStage                string            `json:"toStage"`
 	Scope                  string            `json:"scope,omitempty"`
-	Interactive            bool              `json:"interactive"`
+	// Mode pins how this skill runs, overriding the project default. Empty means
+	// the skill has no opinion and the project decides: a plain bool could not
+	// tell "runs interactively" from "no opinion".
+	Mode                   string            `json:"mode,omitempty"`
 	Content                string            `json:"content"`
 	DefaultContent         string            `json:"defaultContent"`
 	IsCustom               bool              `json:"isCustom"`
@@ -760,6 +814,9 @@ type RunSkillRequest struct {
 	SkillID      string `json:"skillId"`
 	Prompt       string `json:"prompt,omitempty"`
 	WithComments bool   `json:"withComments,omitempty"`
+	// Mode is the one-off override from the card's ... menu. It applies to this
+	// launch only and persists nothing.
+	Mode string `json:"mode,omitempty"`
 }
 
 type RunSkillResponse struct {

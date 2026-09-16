@@ -26,6 +26,8 @@ type Config struct {
 	GitRemoteURL            string   `json:"gitRemoteUrl"`
 	SpecFramework           string   `json:"specFramework"`
 	UseWorktrees            bool     `json:"useWorktrees"`
+	DefaultSkillMode        string   `json:"defaultSkillMode,omitempty"`
+	AutonomousStopStage     string   `json:"autonomousStopStage,omitempty"`
 	AIProvider              string   `json:"aiProvider"`
 	SetupProviders          []string `json:"setupProviders,omitempty"`
 	AICommandTemplate       string   `json:"aiCommandTemplate"`
@@ -46,6 +48,10 @@ type Dispatch struct {
 	Prompt           string `json:"prompt,omitempty"`
 	Command          string `json:"command,omitempty"`
 	TerminalOverride string `json:"terminalOverride,omitempty"`
+	// Mode is the execution mode resolved by the server: "interactive" opens a
+	// terminal session, "non_interactive" runs the provider CLI headless. Empty
+	// reads as interactive, which is what legacy senders mean.
+	Mode string `json:"mode,omitempty"`
 }
 
 // Project is a discovery record. ID is the server primary key, not a display name.

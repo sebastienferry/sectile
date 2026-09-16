@@ -27,6 +27,14 @@ func (d *DB) CompleteInteractiveStep(taskID, skillID, note string) (*models.Task
 		return nil, nil, fmt.Errorf("skill %q sans étape de workflow", skillID)
 	}
 
+	// A non-interactive run of the same skill has already posted this
+	// transition. The user confirming afterwards is confirming something that
+	// happened, so it succeeds and changes nothing rather than failing on a
+	// board that is already where it should be.
+	if task, err := d.GetTaskByID(taskID); err == nil && task != nil && d.StageOfTask(task) == stageLabel {
+		return task, nil, nil
+	}
+
 	return d.TransitionTaskStage(taskID, stageLabel, note, "", "")
 }
 

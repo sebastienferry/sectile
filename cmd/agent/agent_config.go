@@ -304,13 +304,40 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 // quoteShell protects task text when it is passed through an interactive shell.
 func quoteShell(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
+// headlessCommandLine renders the print/exec invocation of a provider CLI: no
+// terminal, no prompt to answer, output on the process pipes. Only what this
+// repository attests is covered; every other provider is refused by name rather
+// than launched with a guessed flag, which would either fail opaquely or be
+// swallowed as prompt text.
+func headlessCommandLine(provider, prompt string) (string, error) {
+	switch provider {
+	case "claude":
+		return "claude -p " + quoteShell(prompt), nil
+	case "codex":
+		return "codex exec " + quoteShell(prompt), nil
+	case "vibe":
+		return "vibe -p " + quoteShell(prompt), nil
+	default:
+		return "", fmt.Errorf("provider %q has no attested headless mode; launch interactively or switch the project to claude, codex or vibe", provider)
+	}
+}
+
 func agentCommandLine(provider, template, prompt string, contexts ...agentCommandContext) (string, error) {
+	var launch agentCommandContext
+	if len(contexts) > 0 {
+		launch = contexts[0]
+	}
 	if strings.TrimSpace(template) != "" {
-		var launch agentCommandContext
-		if len(contexts) > 0 {
-			launch = contexts[0]
+		// A custom template owns the whole command line, the mode included. It
+		// can opt in by carrying {mode}; without it, a non-interactive launch is
+		// refused rather than silently opening a window.
+		if launch.Mode == models.SkillModeNonInteractive && !strings.Contains(template, "{mode}") {
+			return "", fmt.Errorf("the configured AI command template has no {mode} placeholder, so it cannot run non-interactively; add the placeholder or launch interactively")
 		}
 		return expandAgentTemplate(template, launch.values(prompt))
+	}
+	if launch.Mode == models.SkillModeNonInteractive {
+		return headlessCommandLine(provider, prompt)
 	}
 	switch provider {
 	case "agy":

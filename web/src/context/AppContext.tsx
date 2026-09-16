@@ -38,6 +38,7 @@ import type {
   RefineMacroResult,
   AutoSyncState,
   TrackerCheck,
+  SkillMode,
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
@@ -280,7 +281,7 @@ interface AppContextType {
   moveTasksToEpic: (projectId: string, taskIds: string[], targetEpicKey: string, newEpicTitle?: string, fields?: Record<string, string>) => Promise<boolean>
   /** Transitions a task's agentic workflow stage/label, updating local state and queueing tracker sync. */
   transitionTaskStage: (taskIdOrKey: string, stage: string, note?: string, prUrl?: string, branch?: string) => Promise<{ success: boolean; task?: Task; activity?: TaskActivity; error?: string }>
-  advanceTask: (taskId: string, auto?: boolean) => Promise<{ mode: string; skillId?: string; label?: string } | null>
+  advanceTask: (taskId: string, auto?: boolean, modeOverride?: SkillMode) => Promise<{ mode: string; skillId?: string; label?: string } | null>
   // Pas interactif en cours : la tâche dont la session TTY attend d'être clôturée.
   pendingInteractive: { taskId: string; taskKey: string; skillId: string; label: string } | null
   /** Tickets épinglés : la barre de bascule rapide entre chantiers en cours. */
@@ -296,6 +297,7 @@ interface AppContextType {
   fetchSkillEditor: () => Promise<SkillEditorEntry[]>
   saveSkillContent: (skillId: string, content: string) => Promise<SkillEditorEntry | null>
   resetSkillContent: (skillId: string) => Promise<SkillEditorEntry | null>
+  saveSkillMode: (skillId: string, mode: string) => Promise<SkillEditorEntry | null>
   importSkillFromRepo: (skillId: string) => Promise<SkillEditorEntry | null>
   launchInteractiveStep: (task: Task, skillId: string, label: string) => Promise<void>
   confirmInteractiveStep: (note?: string) => Promise<void>
@@ -2439,13 +2441,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
   // l'étape de la tâche : l'interface ne fait qu'ouvrir le terminal quand le pas
   // est interactif.
-  const advanceTask = async (taskId: string, auto?: boolean): Promise<{mode:string;skillId?:string;label?:string}|null> => {
+  // modeOverride est la surcharge ponctuelle du menu ... : elle ne vaut que pour
+  // ce lancement et n'enregistre rien. Le run autonome force le headless côté
+  // serveur, quel que soit le réglage.
+  const advanceTask = async (taskId: string, auto?: boolean, modeOverride?: SkillMode): Promise<{mode:string;skillId?:string;label?:string}|null> => {
     const task = tasks.find(task => task.id === taskId)
     if (!task) return null
     const project = projects.find(project => project.id === task.projectId)
     const skillId = auto ? 'pickup' : skillForStage(resolveTaskStage(task,project))
     if (!skillId) return null
-    const activity = await runSkill(taskId,skillId)
+    const activity = await runSkill(taskId,skillId,undefined,{ mode: modeOverride })
     return activity ? {mode:'remote',skillId} : null
   }
 
@@ -2579,6 +2584,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         body: JSON.stringify({ content }),
       },
       'Skill enregistrée'
+    )
+
+  // Le mode est ternaire : vide rend la décision au réglage du projet, ce qu'un
+  // booléen ne saurait exprimer.
+  const saveSkillMode = (skillId: string, mode: string) =>
+    skillEditorAction(
+      `/${encodeURIComponent(skillId)}/mode`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode }),
+      },
+      'Mode d’exécution enregistré'
     )
 
   const resetSkillContent = (skillId: string) =>
@@ -2777,7 +2795,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     taskId: string,
     skillId: string,
     prompt?: string,
-    opts?: { withComments?: boolean }
+    opts?: { withComments?: boolean; mode?: SkillMode }
   ): Promise<TaskActivity | null> => {
     setIsSkillRunning(true)
     setRunningSkillId(skillId)
@@ -2791,7 +2809,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/run-skill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ skillId, prompt, withComments: opts?.withComments }),
+        body: JSON.stringify({ skillId, prompt, withComments: opts?.withComments, mode: opts?.mode }),
       })
       if (!res.ok) {
         const errorData = await res.json()
@@ -3356,6 +3374,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         fetchSkillEditor,
         saveSkillContent,
         resetSkillContent,
+        saveSkillMode,
         importSkillFromRepo,
         launchInteractiveStep,
         confirmInteractiveStep,

@@ -26,6 +26,68 @@ func (d *DB) ensureProjectSkillsTable() {
 		updated_at TEXT NOT NULL,
 		PRIMARY KEY (project_id, skill_id)
 	)`)
+	// The per-skill execution mode lives next to the content override: both are
+	// project-scoped customizations of the same built-in skill.
+	_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN mode TEXT NOT NULL DEFAULT ''`)
+}
+
+// projectSkillModes reads the per-skill mode overrides of a project. An entry is
+// present only when the project pinned a mode for that skill.
+func (d *DB) projectSkillModes(projectID string) map[string]string {
+	out := map[string]string{}
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return out
+	}
+	d.ensureProjectSkillsTable()
+
+	d.mu.RLock()
+	rows, err := d.conn.Query(`SELECT skill_id, mode FROM project_skills WHERE project_id = ? AND mode != ''`, projectID)
+	d.mu.RUnlock()
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, mode string
+		if err := rows.Scan(&id, &mode); err == nil {
+			if normalized := models.NormalizeSkillMode(mode); normalized != "" {
+				out[id] = normalized
+			}
+		}
+	}
+	return out
+}
+
+// SaveProjectSkillMode pins, or with an empty mode clears, the execution mode of
+// one skill on one project. Clearing it hands the decision back to the project
+// default, which is why the value is ternary and not a bool.
+func (d *DB) SaveProjectSkillMode(projectIDOrPath, skillID, mode string) (*models.SkillEditorEntry, error) {
+	stage, ok := StageSkillByID(skillID)
+	if !ok {
+		return nil, fmt.Errorf("skill %q inconnue", skillID)
+	}
+	normalized := models.NormalizeSkillMode(mode)
+	if normalized == "" && strings.TrimSpace(mode) != "" {
+		return nil, fmt.Errorf("mode %q inconnu : attendu %q ou %q", mode, models.SkillModeInteractive, models.SkillModeNonInteractive)
+	}
+	projectID, _, _ := d.projectSkillContext(projectIDOrPath)
+	if projectID == "" {
+		return nil, fmt.Errorf("projet introuvable")
+	}
+	d.ensureProjectSkillsTable()
+
+	d.mu.Lock()
+	_, err := d.conn.Exec(`
+		INSERT INTO project_skills (project_id, skill_id, content, updated_at, mode)
+		VALUES (?, ?, '', ?, ?)
+		ON CONFLICT(project_id, skill_id) DO UPDATE SET mode = excluded.mode, updated_at = excluded.updated_at
+	`, projectID, stage.ID, time.Now().Format(time.RFC3339), normalized)
+	d.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return d.projectSkillEntry(projectIDOrPath, stage.ID)
 }
 
 type projectSkillOverride struct {
@@ -136,6 +198,7 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 	// The server editor remains usable offline; disk evidence is optional.
 	_ = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: projectID, Action: "skill_files"}, &localFiles)
 
+	modes := d.projectSkillModes(projectID)
 	entries := make([]models.SkillEditorEntry, 0, len(StageSkills))
 	for i, stage := range StageSkills {
 		def := defaults[i]
@@ -158,12 +221,15 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 			FromStage:      stage.FromStage,
 			ToStage:        stage.ToStage,
 			Scope:          stage.Scope,
-			Interactive:    stage.Interactive,
+			Mode:           stage.Mode,
 			Content:        content,
 			DefaultContent: def.Content,
 			IsCustom:       isCustom,
 			UpdatedAt:      updatedAt,
 			Paths:          []string{},
+		}
+		if mode, ok := modes[stage.ID]; ok {
+			entry.Mode = mode
 		}
 
 		if stage.ID == "adjust" {

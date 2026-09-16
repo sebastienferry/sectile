@@ -18,7 +18,7 @@ import type { SkillEditorEntry } from '../types'
  * silence, il est signalé comme divergent et peut être réimporté.
  */
 export const SkillsView: React.FC = () => {
-  const { currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent } = useApp()
+  const { currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent, saveSkillMode } = useApp()
 
   const [entries, setEntries] = useState<SkillEditorEntry[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -138,10 +138,13 @@ export const SkillsView: React.FC = () => {
                         <span>#{entry.toStage}</span>
                       </>
                     ) : <span>Additional skill</span>}
-                    {entry.interactive && (
-                      <span className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)]" title="Session interactive">
+                    {entry.mode && (
+                      <span
+                        className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)]"
+                        title={entry.mode === 'interactive' ? 'Session interactive : la fenêtre attend une réponse' : 'Exécution headless : aucune fenêtre, sortie dans l’activité'}
+                      >
                         <Terminal size={8} />
-                        Interactive
+                        {entry.mode === 'interactive' ? 'Interactive' : 'Headless'}
                       </span>
                     )}
                   </div>
@@ -182,6 +185,19 @@ export const SkillsView: React.FC = () => {
               </div>
 
               <div className="ml-auto flex items-center gap-1.5">
+                <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]" title="Mode d’exécution de cette skill. « Réglage du projet » laisse décider le défaut du projet.">
+                  Mode
+                  <select
+                    value={selected.mode || ''}
+                    onChange={e => run('mode', () => saveSkillMode(selected.id, e.target.value))}
+                    disabled={busy !== null}
+                    className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] disabled:opacity-40 cursor-pointer"
+                  >
+                    <option value="">Réglage du projet</option>
+                    <option value="interactive">Interactif</option>
+                    <option value="non_interactive">Non interactif</option>
+                  </select>
+                </label>
 
                 {selected.isCustom && (
                   <button

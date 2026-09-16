@@ -24,7 +24,7 @@ import {
   Pin,
   X,
 } from 'lucide-react'
-import type { Task, Priority } from '../types'
+import type { Task, Priority, SkillMode } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
@@ -259,10 +259,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
 
   // Un pas du workflow. Le serveur lance l'étape en pleine autonomie en arrière-plan.
   // Une session TTY interactive peut être ouverte manuellement via le bouton terminal.
-  const handleAdvance = async (auto: boolean) => {
+  const handleAdvance = async (auto: boolean, modeOverride?: SkillMode) => {
     if (advancing || isFinishedTask) return
     setAdvancing(auto ? 'auto' : 'step')
-    await advanceTask(task.id, auto)
+    await advanceTask(task.id, auto, modeOverride)
     setAdvancing(null)
   }
 
@@ -357,6 +357,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               </button>
               <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(true) }}>
                 <ChevronsRight size={12} /><span>{t.compactCard.advanceAuto}</span>
+              </button>
+              {/* Surcharge ponctuelle du mode : ce lancement seulement, rien n'est enregistré. */}
+              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'interactive') }}>
+                <ChevronRight size={12} /><span>Avancer en interactif</span>
+              </button>
+              <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'non_interactive') }}>
+                <ChevronRight size={12} /><span>Avancer en non interactif</span>
               </button>
               {task.parentKey && (
                 <button type="button" className={compactActionClass} onClick={() => { setIsMenuOpen(false); setParentFilter(parentFilter === task.parentKey ? null : task.parentKey!) }}>

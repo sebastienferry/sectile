@@ -799,9 +799,27 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if payload.RunID != "" {
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
+	mode := models.NormalizeSkillMode(payload.Mode)
+	if mode == "" {
+		mode = models.SkillModeInteractive
+	}
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, Mode: mode})
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+		return
+	}
+
+	if mode == models.SkillModeNonInteractive {
+		// A headless run never reaches a terminal session: no PTY, no window,
+		// nothing for the user to answer in. The command is supervised in
+		// process and its output goes onto the run activity.
+		if err := d.runHeadless(taskRef, payload, workDir, branch, fullLine); err != nil {
+			launchFailure = err
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
+			return
+		}
+		launched = true
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", fmt.Sprintf("Step %s launched headless", payload.Action))
 		return
 	}
 
@@ -818,20 +836,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		sessionID = payload.RunID
 	}
 
-	envVars := map[string]string{
-		"SECTILE_TASK_KEY":      payload.TaskKey,
-		"SECTILE_TASK_BRANCH":   branch,
-		"SECTILE_TASK_WORKTREE": workDir,
-		"SECTILE_TASK_ID":       taskRef,
-		"SECTILE_RUN_ID":        payload.RunID,
-		"SECTILE_REMOTE_MODE":   "true",
-		"SECTILE_AGENT_URL":     d.agentURL,
-		"SECTILE_SERVER_URL":    d.serverURL,
-		"SECTILE_AGENT_TOKEN":   d.loopbackToken,
-	}
-	if payload.ProjectID != "" {
-		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID
-	}
+	envVars := d.runEnv(taskRef, workDir, branch, payload)
 
 	if payload.RunID != "" {
 		if _, err := d.terminalMgr.GetOrCreateSession(sessionID, workDir, envVars); err != nil {

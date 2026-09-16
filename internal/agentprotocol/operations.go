@@ -22,6 +22,8 @@ type Operation struct {
 	DeleteRemote      bool   `json:"deleteRemote,omitempty"`
 	Editor            string `json:"editor,omitempty"`
 	Prompt            string `json:"prompt,omitempty"`
+	// Mode is the execution mode the server resolved for this launch.
+	Mode string `json:"mode,omitempty"`
 }
 type Result struct {
 	Value json.RawMessage `json:"value,omitempty"`

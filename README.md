@@ -419,6 +419,27 @@ The agent prepares the task worktree, installs MCP there, and launches the nativ
 CLI. Execution and approvals stay in that CLI. The server owns task data and
 tracker synchronization; the launcher has no local task database.
 
+### Interactive or headless skill runs
+
+A skill launch is either interactive — the CLI opens in a terminal session the
+user answers in — or non interactive, where the CLI runs headless (`claude -p`,
+`codex exec`, `vibe -p`), opens no window, and streams its output onto the run
+activity.
+
+The mode is decided per launch: the one-off choice in the card's `...` menu wins,
+then the skill's own setting in the skill editor, then the project's **Default
+skill mode**, then interactive. The skill setting is ternary — leaving it on
+*Réglage du projet* means the skill has no opinion.
+
+Headless is refused, by name, for a provider with no attested headless mode
+(`agy`, `gemini`, `cursor`) and for a custom `aiCommandTemplate` that carries no
+`{mode}` placeholder. There is no silent fallback to interactive: inside an
+unattended chain it would open a window nobody is watching.
+
+The `>>` autonomous run always runs headless and stops at the project's
+**Autonomous run stops at** setting — `reviewed` (default, pull request opened)
+or `implemented` (before the pull request). Merging remains manual.
+
 ### Browser startup and workflow completion
 
 Open `http://localhost:8090` manually. The server does not launch a browser.
