@@ -64,7 +64,16 @@ window.addEventListener('resize',resize)
 function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
 function connectionStatus(status){
  const container=document.querySelector('#connection')
- if(!status.connected){container.textContent=status.text||'Local agent ready · Server disconnected';return}
+ // A contract mismatch is not a dropped link: the server answers, but with a
+ // build this agent cannot talk to. Reported as a disconnection it reads as a
+ // network problem and nobody looks at the build, so name it and carry the
+ // agent's own diagnosis in the tooltip.
+ if(!status.connected){
+  container.title=status.contractError||''
+  container.textContent=status.contractError?'Local agent ready · Server incompatible':status.text||'Local agent ready · Server disconnected'
+  return
+ }
+ container.title=''
  let link=container.querySelector('a')
  if(!link){
   link=document.createElement('a')

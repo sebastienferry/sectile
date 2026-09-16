@@ -18,6 +18,47 @@ import (
 	"tasks/internal/runner"
 )
 
+// contractPrefix is the path every versioned agent route shares. A server that
+// serves the contract serves all of them; one that serves none of them predates
+// the contract entirely.
+const contractPrefix = "/api/v1/agent/"
+
+// noteContract records a mismatch and announces it once per episode, then
+// returns it unchanged. Every server call funnels through here, so a mismatch
+// surfacing during a dispatch or a desktop request is reported as loudly as one
+// surfacing while connecting. Announcing on the message rather than the episode
+// would repeat the banner every time the failing route alternates between the
+// connection loop and a desktop call.
+func (d *agentDaemon) noteContract(mismatch *agentconfig.Mismatch) error {
+	d.contractMu.Lock()
+	first := d.contractError == ""
+	d.contractError = mismatch.Error()
+	d.contractMu.Unlock()
+	if first {
+		log.Printf("⛔ [Agent] Server contract mismatch: %v", mismatch)
+		fmt.Printf("\n⛔ ========================================================\n")
+		fmt.Printf("⛔ [Agent] Server contract mismatch\n")
+		fmt.Printf("   %s\n", mismatch)
+		fmt.Printf("========================================================\n\n")
+	}
+	return mismatch
+}
+
+// clearContract forgets a mismatch once a contract route answers correctly,
+// which is what an updated and restarted server produces.
+func (d *agentDaemon) clearContract() {
+	d.contractMu.Lock()
+	defer d.contractMu.Unlock()
+	d.contractError = ""
+}
+
+// contractMismatch reports the standing mismatch, empty when there is none.
+func (d *agentDaemon) contractMismatch() string {
+	d.contractMu.Lock()
+	defer d.contractMu.Unlock()
+	return d.contractError
+}
+
 func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.serverURL+path, nil)
 	if err != nil {
@@ -28,6 +69,15 @@ func (d *agentDaemon) readAPI(ctx context.Context, path string, result any) erro
 		return err
 	}
 	defer resp.Body.Close()
+	// No contract handler answers 404: an unknown project is a 400 and a
+	// rejected credential a 401. A 404 here therefore means the route is not
+	// registered at all, which the server's catch-all reports as a missing API
+	// route. Read as a plain HTTP failure it looks transient and the agent
+	// retries forever; named for what it is, it points at the build to update.
+	if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, contractPrefix) {
+		route, _, _ := strings.Cut(path, "?")
+		return d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: route, Status: resp.StatusCode})
+	}
 	if resp.StatusCode != http.StatusOK {
 		var detail struct {
 			Error string `json:"error"`
@@ -53,6 +103,16 @@ func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string
 		q.Set("framework", framework[0])
 	}
 	err := d.readAPI(ctx, "/api/v1/agent/config?"+q.Encode(), &c)
+	if err == nil {
+		if c.SchemaVersion != agentconfig.Version {
+			// Validate rejects this too, but its message serves local files as
+			// well. A payload from the server is a build disagreement, and
+			// saying so keeps every contract failure reading alike.
+			err = d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: "/api/v1/agent/config", Served: c.SchemaVersion})
+		} else {
+			d.clearContract()
+		}
+	}
 	if err == nil {
 		err = c.Validate()
 	}
@@ -479,8 +539,9 @@ func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Project
 		return projects, err
 	}
 	if projects.SchemaVersion != agentconfig.Version {
-		return projects, fmt.Errorf("unsupported project discovery schemaVersion %d", projects.SchemaVersion)
+		return projects, d.noteContract(&agentconfig.Mismatch{Server: d.serverURL, Route: "/api/v1/agent/projects", Served: projects.SchemaVersion})
 	}
+	d.clearContract()
 	return projects, nil
 }
 

@@ -84,6 +84,11 @@ type agentDaemon struct {
 	repoRoot         string
 	prepareMu        sync.Mutex
 	done             chan struct{}
+	// contractError is the last contract mismatch seen on any server call, so
+	// the desktop can say the server is incompatible instead of showing a bare
+	// disconnection. Empty once a contract route answers correctly again.
+	contractMu    sync.Mutex
+	contractError string
 }
 
 // detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)
@@ -307,7 +312,16 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 		if err != nil {
 			attempt++
 			backoff := time.Duration(math.Min(float64(time.Second)*math.Pow(2, float64(attempt)), float64(60*time.Second)))
-			log.Printf("[Agent] Connection lost (attempt %d): %v. Reconnecting in %s...", attempt, err, backoff)
+			if agentconfig.IsMismatch(err) {
+				// Retrying is still right, since updating and restarting the
+				// server is what clears this, but calling it a lost connection
+				// sends the reader to the network. noteContract has already
+				// spelled out the cause, so the retry line only has to say the
+				// server has not been updated yet.
+				log.Printf("[Agent] Server still does not serve agent contract v%d (attempt %d). Retrying in %s...", agentconfig.Version, attempt, backoff)
+			} else {
+				log.Printf("[Agent] Connection lost (attempt %d): %v. Reconnecting in %s...", attempt, err, backoff)
+			}
 
 			select {
 			case <-time.After(backoff):
