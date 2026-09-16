@@ -19,7 +19,7 @@ func call(t *testing.T, database *db.DB, name string, args map[string]any) (map[
 	t.Helper()
 	ctx := context.Background()
 	client, server := mcp.NewInMemoryTransports()
-	go func() { _ = NewServer(database).Run(ctx, server) }()
+	go func() { _ = NewServer(database, nil).Run(ctx, server) }()
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, client, nil)
 	if err != nil {
 		t.Fatal(err)

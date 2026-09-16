@@ -12,6 +12,26 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+// bridgeKeepAlive keeps the upstream session alive and makes a dead server
+// visible. The server closes sessions that fall silent, because a bridge that
+// is killed outright never gets to announce its departure; pinging well inside
+// that window is how a live conversation says it is still there.
+const bridgeKeepAlive = 60 * time.Second
+
+// clientLabel describes this bridge to the server, so an operator reading the
+// session list sees which client is connected rather than an opaque identifier.
+// Deployments name their own clients; the host and process are the fallback.
+func clientLabel() string {
+	if label := strings.TrimSpace(os.Getenv("TASKFLOW_MCP_CLIENT")); label != "" {
+		return label
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "unknown-host"
+	}
+	return fmt.Sprintf("%s/%d", host, os.Getpid())
+}
+
 type bearerTransport struct {
 	token string
 	base  http.RoundTripper
@@ -41,13 +61,17 @@ func runMCPCommand(ctx context.Context, args []string) error {
 	}
 	serverURL := fs.String("url", endpoint, "Agent gateway or Sectile server URL")
 	token := fs.String("token", os.Getenv("TASKFLOW_AGENT_TOKEN"), "Agent bearer token (prefer TASKFLOW_AGENT_TOKEN)")
+	label := fs.String("client", clientLabel(), "Name reported to the server for this client session")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return nil
 		}
 		return err
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "sectile-stdio", Version: "1.0.0"}, nil)
+	client := mcp.NewClient(
+		&mcp.Implementation{Name: "sectile-stdio", Title: *label, Version: "1.0.0"},
+		&mcp.ClientOptions{KeepAlive: bridgeKeepAlive},
+	)
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: strings.TrimRight(*serverURL, "/") + "/mcp", HTTPClient: agentHTTPClient(*token)}, nil)
 	if err != nil {
 		return fmt.Errorf("connect to Sectile MCP: %w", err)

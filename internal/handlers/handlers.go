@@ -20,6 +20,7 @@ import (
 	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/taskmcp"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -42,6 +43,9 @@ type Handler struct {
 	subMu           sync.RWMutex
 	agentDispatcher *AgentDispatcher
 	pullOnConnect   bool
+	// mcpSessions owns the lifecycle of MCP client sessions and of the runs
+	// they start, so a client that disappears cannot leave a task active.
+	mcpSessions *taskmcp.SessionRegistry
 }
 
 func (h *Handler) SetPullOnConnect(enable bool) {
@@ -49,10 +53,17 @@ func (h *Handler) SetPullOnConnect(enable bool) {
 }
 
 func NewHandler(database *db.DB) *Handler {
+	// A typed nil database would satisfy the closer interface and panic on the
+	// first disconnection, so the registry is given one only when it exists.
+	var runs taskmcp.RunCloser
+	if database != nil {
+		runs = database
+	}
 	h := &Handler{
 		db:              database,
 		subscribers:     make(map[chan Event]bool),
 		agentDispatcher: NewAgentDispatcher(),
+		mcpSessions:     taskmcp.NewSessionRegistry(runs),
 	}
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)

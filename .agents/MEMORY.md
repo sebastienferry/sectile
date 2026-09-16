@@ -19,3 +19,12 @@
   - Implement `FormatTaskID(projectID, key, rawID string) string` on each tracker to encapsulate canonical task ID formatting (e.g. `gh-<projID>-<num>` for GitHub vs UUID for Linear). Never hardcode tracker-specific ID prefixing in `internal/db`.
   - Register the adapter in `trackerapi.NewDefaultRegistry` or via `registry.Register(name, adapter)`.
   - Sync routines (`processSyncJob`) dynamically resolve tracker adapters from `d.TrackerRegistry().Get(trackerName)`, allowing any registered tracker with `CapSync` to synchronize without modifying core switch statements.
+
+### 3. MCP Session Ownership (ADR 0007)
+- **Constraint**: `/mcp` is served **statefully** (`mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: ...}` in `internal/handlers/agent_api.go`). Do not restore `Stateless: true`: a stateless endpoint builds a throwaway session per request, so the server can neither tell two clients apart nor observe a disconnection, which is what closes abandoned runs.
+- **Ownership rule**: a run created by `start_run` is adopted by the calling session (`taskmcp.SessionRegistry`) and closed as `canceled` when that session ends. A run **reused** through `runId`/`TASKFLOW_RUN_ID` is deliberately **not** adopted — it belongs to the dispatching agent, whose supervisor reports the real process exit (see ADR 0006). Adopting it would cancel an execution that is still running.
+- **Non-obvious SDK behaviour** (`modelcontextprotocol/go-sdk` v1.7.0):
+  - `StreamableHTTPOptions.SessionTimeout` counts idle time, and **only POST requests reset it** (`sessionInfo.startPOST`). A long-lived GET/SSE stream does not. Clients that must stay connected have to ping; the stdio bridge sets `ClientOptions.KeepAlive` for exactly that reason.
+  - Session lifecycle hooks: `ServerOptions.InitializedHandler` gives the start, `ServerSession.Wait()` blocks until the end (client `DELETE`, dropped connection, or idle timeout), and `ServerSession.ID()` is the `Mcp-Session-Id`.
+- **Closure status**: the `finish_run` contract accepts only `completed`, `failed` and `canceled`, so a disconnection closes with `canceled` plus an explanatory note rather than a new status value.
+- **Known gap**: a server restart ends every session without closing its runs; those stay `running` until finished from the activity UI or through MCP.

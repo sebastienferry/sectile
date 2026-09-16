@@ -220,6 +220,7 @@ func main() {
 	mux.HandleFunc("/api/terminal/reset", h.HandleTerminalReset)
 
 	mux.Handle("/mcp", h.MCPHandler())
+	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)
 	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
 	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
 
