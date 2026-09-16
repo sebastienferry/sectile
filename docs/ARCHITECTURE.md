@@ -107,9 +107,9 @@ restores eligibility for local execution.
 
 ## MCP and authentication
 
-The server's Streamable HTTP `/mcp` service exposes eight typed tools:
-`list_projects`, `get_task`, `list_tasks`, `get_project_context`, `add_comment`,
-`transition_stage`, `start_run` and `finish_run`. The MCP server identity is
+The server's Streamable HTTP `/mcp` service exposes nine typed tools:
+`list_projects`, `get_task`, `list_tasks`, `get_project_context`, `create_task`,
+`add_comment`, `transition_stage`, `start_run` and `finish_run`. The MCP server identity is
 `sectile`. Native clients use `sectile-agent mcp --url <loopback-address>` as a
 stdio bridge. It never opens SQLite and uses the agent's upstream credential.
 

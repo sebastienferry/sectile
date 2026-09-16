@@ -190,7 +190,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer session.Close()
 	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 8 {
+	if err != nil || len(list.Tools) != 9 {
 		t.Fatalf("stdio discovery %v %v", list, err)
 	}
 	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "list_tasks", Arguments: map[string]any{"projectId": "default"}})

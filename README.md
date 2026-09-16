@@ -199,7 +199,7 @@ Une suite documentaire complète pour développeurs et LLMs est disponible dans 
 
 ## Remote execution and MCP
 
-Sectile exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
+Sectile exposes nine typed tools at the Streamable HTTP endpoint `/mcp`:
 
 - `list_projects`: discover project primary keys, names and Git remotes.
 - `get_task`: read task details and comments.
@@ -207,6 +207,7 @@ Sectile exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
 - `add_comment`: post a task comment.
 - `list_tasks`: list tasks with optional filters.
 - `get_project_context`: read project execution settings and effective instructions.
+- `create_task`: file a new ticket on an explicitly named project, remotely whenever its tracker supports it.
 - `start_run`: start or reuse the invocation's remote run.
 - `finish_run`: finish that run without advancing the task stage.
 

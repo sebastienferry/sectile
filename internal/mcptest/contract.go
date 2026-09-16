@@ -28,6 +28,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 		"list_projects":       {},
 		"start_run":           {"taskKey": task.ID, "skill": "implement"},
 		"finish_run":          {"taskKey": task.ID, "status": "completed", "note": "Canonical contract"},
+		"create_task":         {"projectId": "default", "title": "Canonical contract"},
 	}
 	list, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -63,7 +64,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 	args["start_run"]["runId"] = run.ID
 	args["finish_run"]["runId"] = run.ID
 	call("start_run")
-	for _, name := range []string{"get_task", "get_project_context", "list_tasks", "list_projects"} {
+	for _, name := range []string{"get_task", "get_project_context", "list_tasks", "list_projects", "create_task"} {
 		call(name)
 	}
 	snapshot := func() string {

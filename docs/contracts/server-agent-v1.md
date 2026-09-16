@@ -217,6 +217,15 @@ discussion and not the ticket: the response then carries `commentsError` with th
 reason and no `comments` field, so an unreadable discussion is never mistaken for
 an empty one. Only an unknown task key is an error.
 
+`create_task` files a new ticket on an explicitly named project and returns it with
+its allocated key and external URL. The project identifier is required and is never
+inferred: the HTTP creation path falls back to the first project when an identifier
+does not resolve, so the tool rejects an unknown one rather than filing on another
+board. Creation is remote whenever the project's tracker supports it, and a tracker
+that cannot create remotely fails the call instead of leaving a ticket that exists
+only locally. The new task enters the workflow at its first stage; no argument
+places it at a later one.
+
 `get_project_context` returns project identity, execution settings, specification
 framework, pull-request creation stage and skill references (`id`, `directory`,
 `command`), plus `skillDirectories`, the directories the agent writes skill files
@@ -501,8 +510,9 @@ Messages explain recovery without returning subprocess output or source contents
 
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
-`add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`
-and `finish_run`. The former `sectile_` names are unsupported on both transports.
+`add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
+`finish_run` and `create_task`. The former `sectile_` names are unsupported on both
+transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
 Agent launch prompts, desktop exit reporting and built-in policy text use the
