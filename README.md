@@ -229,9 +229,9 @@ and the runs it owns. The board's status bar shows that count and opens a panel
 naming each connected client, how long it has been attached, and the runs that
 would close with it. `SECTILE_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
 silent session, and `SECTILE_MCP_CLIENT` names a bridge in that list. A server
-restart ends every session without closing its runs: the server cannot tell a
-client that died from one that will reconnect, so those runs are finished from
-the activity UI or through MCP.
+restart destroys every session at once, so startup closes the runs they owned as
+canceled; runs dispatched to an agent are preserved, because that agent
+reconnects and reports the real process exit.
 
 ### Signing in and pairing a workstation
 

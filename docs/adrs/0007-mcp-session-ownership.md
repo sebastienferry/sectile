@@ -55,10 +55,18 @@ that the client disappeared rather than reported. `finish_run` remains the way t
 close a run early and precisely; it stops being the only thing standing between a
 crash and a permanently active task.
 
+A restart is the one ending a session cannot report, because it destroys the
+registry along with every session in it. Startup therefore closes the runs those
+sessions owned. Telling them apart needs an owner marker that survives the
+process, and one already exists: a run's action distinguishes an agent-dispatched
+execution from one a client created. Agent-dispatched runs keep the preservation
+ADR 0006 gives them, since their supervisor reconnects and reports the real
+process exit; a client's run has nothing left that could ever close it.
+
 ## Consequences
 
-Runs can no longer outlive their client, and the failure mode becomes an accurate
-"client disconnected" instead of a stale active indicator. Sessions from clients
+Runs can no longer outlive their client, not even a restart, and the failure mode
+becomes an accurate "client disconnected" instead of a stale active indicator. Sessions from clients
 without managed skills, Claude Desktop in particular, appear as connections
 without inventing runs for them.
 

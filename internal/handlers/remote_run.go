@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"tasks/internal/agentconfig"
+	"tasks/internal/db"
 	"time"
 )
 
@@ -41,7 +42,7 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	run, err := h.db.GetActivityByID(input.RunID)
-	if err != nil || run == nil || run.TaskID != task.ID || run.SkillID != "remote_run" || run.Status != "running" || run.Action != "Agent-owned remote execution" {
+	if err != nil || run == nil || run.TaskID != task.ID || run.SkillID != "remote_run" || run.Status != "running" || run.Action != db.RunActionAgent {
 		writeError(w, 409, "Active remote execution not found")
 		return
 	}

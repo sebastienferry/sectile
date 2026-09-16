@@ -369,8 +369,16 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN started_at DATETIME;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN completed_at DATETIME;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN error TEXT NOT NULL DEFAULT '';")
-	// Remote invocations outlive the server process and report their own outcome.
+	// Work the server itself was running cannot survive its own restart.
 	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
+	// A remote run dispatched to an agent outlives the server: its supervisor
+	// watches the real process and reports the outcome on reconnection. A run a
+	// client started is owned by that client's MCP session, which the restart
+	// destroyed along with every other, so nothing is left that could ever close
+	// it. Canceled rather than failed: the work did not fail here, its outcome
+	// merely became unknowable.
+	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ? WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
+		"Interrupted by server restart: the client session that owned this run is gone", time.Now(), RunActionAgent)
 
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN detail_mode TEXT NOT NULL DEFAULT 'panel';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'agy';")

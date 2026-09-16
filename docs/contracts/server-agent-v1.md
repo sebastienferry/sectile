@@ -288,15 +288,20 @@ not adopted: it belongs to the agent that dispatched it, whose supervisor report
 the real process exit. A client connected through a transport without sessions
 keeps the previous behaviour, where only `finish_run` closes a run.
 
-`TASKFLOW_MCP_SESSION_TIMEOUT` bounds a session whose client never announces its
+`SECTILE_MCP_SESSION_TIMEOUT` bounds a session whose client never announces its
 departure, defaulting to fifteen minutes of silence; an unusable value keeps the
 default rather than removing the bound. The stdio bridge pings inside that window,
-so an idle but live conversation stays connected. `TASKFLOW_MCP_CLIENT` names the
+so an idle but live conversation stays connected. `SECTILE_MCP_CLIENT` names the
 bridge in the session list, defaulting to host and process id.
 
-A server restart ends every session without closing its runs, because the server
-cannot distinguish a client that died from one that will reconnect. Runs left
-running by a restart are still finished through the activity UI or MCP.
+A restart destroys every session at once, so startup closes the runs those
+sessions owned, with status `canceled` and a note naming the restart. A run's
+action records its owner and survives the restart: `Agent-owned remote execution`
+keeps a supervisor that reconnects and reports the real process exit, so it is
+preserved, while a run a client created has nothing left to close it. An outcome
+already reported is never rewritten. This refines ADR 0006, which preserves
+active remote executions across startup: the guarantee holds for the executions
+whose owner the restart did not take down with it.
 
 ## Canceling agent-owned executions
 
