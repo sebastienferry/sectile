@@ -31,9 +31,9 @@ func TestInteractiveCommandLineIsUnchanged(t *testing.T) {
 
 func TestHeadlessCommandLineCoversAttestedProviders(t *testing.T) {
 	cases := map[string]string{
-		"claude": "claude -p 'do the thing'",
+		"claude": "claude -p --permission-mode bypassPermissions 'do the thing'",
 		"codex":  "codex exec 'do the thing'",
-		"vibe":   "vibe -p 'do the thing'",
+		"vibe":   "vibe -p --auto-approve 'do the thing'",
 	}
 	for provider, want := range cases {
 		got, err := modeCommandLine(provider, "", "do the thing", models.SkillModeAutonomous)
@@ -134,5 +134,57 @@ func TestEmptyModeReadsAsInteractive(t *testing.T) {
 	}
 	if got != "agy -i 'do the thing'" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// A headless run has nobody to answer a permission prompt. Without the
+// provider's non-interactive approval mode the CLI is denied every tool it asks
+// for, the Sectile MCP tools included, so the run ends having printed why it
+// could not work and the board never moves. This is the one thing the headless
+// command line must carry beyond the prompt.
+func TestHeadlessCommandLineCarriesApprovalMode(t *testing.T) {
+	cases := map[string]string{
+		"claude": "--permission-mode bypassPermissions",
+		"vibe":   "--auto-approve",
+	}
+	for provider, flag := range cases {
+		got, err := modeCommandLine(provider, "", "do the thing", models.SkillModeAutonomous)
+		if err != nil {
+			t.Fatalf("%s: unexpected error %v", provider, err)
+		}
+		if !strings.Contains(got, flag) {
+			t.Fatalf("%s: headless launch does not carry %q: %q", provider, flag, got)
+		}
+	}
+	// The interactive form is where a human answers, and must not bypass anything.
+	for provider := range cases {
+		got, err := modeCommandLine(provider, "", "do the thing", models.SkillModeInteractive)
+		if err != nil {
+			t.Fatalf("%s: unexpected error %v", provider, err)
+		}
+		if strings.Contains(got, "bypassPermissions") || strings.Contains(got, "--auto-approve") {
+			t.Fatalf("%s: interactive launch bypasses permissions: %q", provider, got)
+		}
+	}
+}
+
+// A discussion opens a live provider session with no prompt of its own. Run
+// headless it becomes a CLI reading from a closed stdin, which exits at once;
+// that is what a project defaulting to autonomous did to every discussion.
+func TestLiveSessionsNeverRunHeadless(t *testing.T) {
+	for _, launch := range []struct{ skill, action string }{
+		{"discuss", ""},
+		{"discuss", "open_terminal"},
+		{"", "open_terminal"},
+	} {
+		if got := liveSessionMode(launch.skill, launch.action, models.SkillModeAutonomous); got != models.SkillModeInteractive {
+			t.Fatalf("skill %q action %q resolved to %q, want interactive", launch.skill, launch.action, got)
+		}
+	}
+	// Every other launch keeps the mode the server resolved for it.
+	for _, skill := range []string{"clarify", "specify", "implement", "adjust", "pickup"} {
+		if got := liveSessionMode(skill, skill, models.SkillModeAutonomous); got != models.SkillModeAutonomous {
+			t.Fatalf("skill %q resolved to %q, want autonomous", skill, got)
+		}
 	}
 }

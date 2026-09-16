@@ -1749,7 +1749,11 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = h.db.AddTaskActivity(act)
 
-			remoteRun, runErr := h.db.StartAgentRemoteRun(task.ID, req.SkillID)
+			// The mode is resolved before the run is recorded: it is what tells,
+			// once the run is over, whether anything was supposed to come back
+			// from it without a user closing a session.
+			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode})
 			if runErr != nil {
 				act.Status = "failed"
 				act.Error = runErr.Error()
@@ -1764,7 +1768,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
 				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
 				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
-				Mode: h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode),
+				Mode: mode,
 			})
 			finished := time.Now()
 			act.CompletedAt = &finished
