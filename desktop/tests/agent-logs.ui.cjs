@@ -89,12 +89,15 @@ test('agent logs preserve the connected execution and ignore late reads after an
   assert.ok((await sidebar.boundingBox()).width>width)
   const resized=(await sidebar.boundingBox()).width
   await page.locator('#toggle-sidebar').click();await expect(sidebar).not.toBeVisible()
+  // The control names the click it offers, so a collapsed sidebar does not look like a broken one.
+  await expect(page.locator('#toggle-sidebar')).toHaveAttribute('aria-label','Show projects')
   await page.getByRole('button',{name:'Close logs',exact:true}).click()
   await expect(page.getByRole('button',{name:'Agent logs',exact:true})).toBeFocused()
   await expect(page.locator('#workspace article')).toBeVisible()
   await page.getByRole('button',{name:'Agent logs',exact:true}).click()
   await expect(sidebar).not.toBeVisible()
   await page.locator('#toggle-sidebar').click();await expect(sidebar).toBeVisible()
+  await expect(page.locator('#toggle-sidebar')).toHaveAttribute('aria-label','Hide projects')
   assert.equal((await sidebar.boundingBox()).width,resized)
   await page.locator('.run.selected').click()
   await expect(pane).not.toBeVisible()
