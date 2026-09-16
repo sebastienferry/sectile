@@ -2447,9 +2447,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const project = projects.find(project => project.id === task.projectId)
     const skillId = auto ? 'pickup' : skillForStage(resolveTaskStage(task,project))
     if (!skillId) return null
-    // Une chaîne complète est autonome par construction : elle ne prend pas de
-    // surcharge, contrairement au pas suivant lancé seul.
-    const activity = await runSkill(taskId,skillId,undefined,auto ? undefined : {mode})
+    // Une chaîne complète est autonome par construction : elle force le mode au
+    // lieu de laisser la précédence décider, sinon elle ouvrirait un terminal
+    // que personne ne regarde. Le pas suivant lancé seul, lui, accepte la
+    // surcharge ponctuelle.
+    const activity = await runSkill(taskId,skillId,undefined,{mode:auto ? 'autonomous' : mode})
     return activity ? {mode:'remote',skillId} : null
   }
 

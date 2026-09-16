@@ -198,6 +198,27 @@ func TestSetProjectSkillMode(t *testing.T) {
 
 // Editing a skill's content must not clear the mode stored for it: they are two
 // independent settings that happen to share a row.
+// A skill has several spellings. Writing under one and reading under another
+// made a pinned mode silently do nothing, and the launch fell back to the
+// project default without saying so.
+func TestProjectSkillModeResolvesAliases(t *testing.T) {
+	d, project := modeTestDB(t)
+	if err := d.SetProjectSkillMode(project.ID, "pickup-issue", models.SkillModeAutonomous); err != nil {
+		t.Fatal(err)
+	}
+	for _, alias := range []string{"pickup", "pickup-issue", "pickup_issue", "pick"} {
+		if got := d.ProjectSkillMode(project.ID, alias); got != models.SkillModeAutonomous {
+			t.Fatalf("ProjectSkillMode(%q) = %q, want autonomous", alias, got)
+		}
+		if got := d.resolveTaskSkillMode(project.ID, alias, models.SkillModeUnset); got != models.SkillModeAutonomous {
+			t.Fatalf("resolveTaskSkillMode(%q) = %q, want autonomous", alias, got)
+		}
+	}
+	if got := d.ProjectSkillMode(project.ID, "no-such-skill"); got != models.SkillModeUnset {
+		t.Fatalf("an unknown skill should pin nothing, got %q", got)
+	}
+}
+
 func TestSkillContentEditKeepsMode(t *testing.T) {
 	d, project := modeTestDB(t)
 	if err := d.SetProjectSkillMode(project.ID, "clarify", models.SkillModeAutonomous); err != nil {
