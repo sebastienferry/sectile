@@ -128,11 +128,72 @@ framework value; the database migrates that value to `openspec` on startup.
 
 ### Stage 4: Adjust (`adjust-issue`)
 - **Objective**: Reviews and repairs the diff, updates affected documentation, runs final checks, then pushes and updates the same existing branch PR and verifies readiness. Available review feedback is addressed; absence of comments does not block review.
-- **Output**: Verified Pull Request URL attached to the task card and external issue tracker. The autonomous chain stops here for human review and merge.
+- **Output**: Verified Pull Request URL attached to the task card and external issue tracker. The full chain run stops here by default for human review and merge.
 
 ### Stage 5: Handoff (`handoff-issue`)
 - **Objective**: Confirms the merge and writes the handover and acceptance checklist.
 - **Output**: Finished ticket and safe cleanup of clean, unused local worktrees. Shared batch worktrees remain until every associated ticket is handed off.
+
+---
+
+## 3bis. Execution modes
+
+A skill run is executed in one of two modes.
+
+| Mode | What the run does | Who moves the stage |
+| --- | --- | --- |
+| **interactive** | Opens a terminal window with the provider CLI and the task prompt. The user answers it. | The user, by confirming the session is over. |
+| **autonomous** | Runs the CLI headless: no terminal window, no foreground process group. Output is captured and recorded on the run activity, bounded and marked when truncated. | The worker, when the run ends. |
+
+### How the mode of one launch is decided
+
+The first level with an opinion wins:
+
+1. The **one-off override** chosen for that launch.
+2. The **skill's own setting**, edited in the skill editor. Its third value,
+   *project default*, is what lets a skill have no opinion.
+3. The **project default** (`defaultSkillMode` in the project settings).
+4. **Interactive**, which is what the tool did before the setting existed.
+
+The mode is resolved on the server and travels to the agent with the launch.
+The agent applies what it is told and never re-decides from its own
+configuration copy, so a stale agent cannot open a window inside a run nobody
+is watching.
+
+### Where the one-off override is offered
+
+| Surface | Control |
+| --- | --- |
+| Web task card `...` menu | *Advance interactively* / *Advance autonomously*, next to the plain *Advance* |
+| Web task detail modal | A **Mode** selector next to the additional-instructions field |
+| Desktop **Launch** dialog | An **Execution mode** selector per task |
+| Desktop **Relaunch** dialog | An **Execution mode** selector |
+| Desktop next-step button | None: one click, on the resolved mode |
+
+A control left on its default sends no override at all, so the precedence
+applies unchanged.
+
+### Providers supporting an autonomous run
+
+| Provider | Headless invocation |
+| --- | --- |
+| `claude` | `claude -p` |
+| `codex` | `codex exec` |
+| `vibe` | `vibe -p` |
+| `agy`, `gemini`, `cursor` | None attested: an autonomous launch is refused by name |
+
+An autonomous launch is **refused**, never silently downgraded to interactive.
+A project configured with a custom `aiCommandTemplate` owns its own mode: it is
+refused too, unless the template carries a `{mode:AUTONOMOUS|INTERACTIVE}`
+placeholder, for example `agy {mode:-p|-i} '{prompt}'`.
+
+### The full chain run
+
+The `>>` action, **Full chain**, runs every step it enqueues in autonomous mode
+whatever those skills would resolve to on their own. It stops at the project's
+`fullChainStopStage`, either `implemented` (before the pull request) or
+`reviewed` (the default, after it), and refuses to start on a task already at or
+past that stage. Merging is never automated.
 
 ---
 

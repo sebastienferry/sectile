@@ -2,6 +2,7 @@ package db
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tasks/internal/models"
@@ -15,11 +16,88 @@ func modeTestDB(t *testing.T) (*DB, *models.Project) {
 	}
 	t.Cleanup(func() { d.Close() })
 	no := false
-	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Modes", RepoPath: "/not-mounted", IssueTracker: "local", UseWorktrees: &no})
+	// claude is one of the attested headless providers, so a full chain run is
+	// not refused for a reason the test is not about.
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Modes", RepoPath: "/not-mounted", IssueTracker: "local", UseWorktrees: &no, AIProvider: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return d, project
+}
+
+func TestSupportsAutonomousRun(t *testing.T) {
+	cases := []struct {
+		provider, template string
+		want               bool
+	}{
+		{"claude", "", true},
+		{"codex", "", true},
+		{"vibe", "", true},
+		{"agy", "", false},
+		{"gemini", "", false},
+		{"cursor", "", false},
+		{"", "", false},
+		// A configured template wins over the provider, in both directions.
+		{"claude", "agy -i '{prompt}'", false},
+		{"agy", "agy {mode:-p|-i} '{prompt}'", true},
+	}
+	for _, tc := range cases {
+		if got := models.SupportsAutonomousRun(tc.provider, tc.template); got != tc.want {
+			t.Fatalf("SupportsAutonomousRun(%q,%q) = %v, want %v", tc.provider, tc.template, got, tc.want)
+		}
+	}
+}
+
+// Refusing at enqueue time is what makes "no step is enqueued" true. Letting the
+// chain start and fail on the agent would leave a queued step behind and an
+// error nobody is watching for.
+func TestFullChainRefusesProviderWithoutHeadlessMode(t *testing.T) {
+	d, project := modeTestDB(t)
+	for _, provider := range []string{"agy", "gemini", "cursor"} {
+		value := provider
+		if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{AIProvider: &value}); err != nil {
+			t.Fatal(err)
+		}
+		task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "chain on " + provider})
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := len(mustActivities(t, d, task.ID))
+		_, _, err = d.EnqueueFullChainRun(task.ID)
+		if err == nil {
+			t.Fatalf("%s: a full chain run should be refused", provider)
+		}
+		if !strings.Contains(err.Error(), provider) {
+			t.Fatalf("%s: the refusal should name the provider: %v", provider, err)
+		}
+		if after := len(mustActivities(t, d, task.ID)); after != before {
+			t.Fatalf("%s: a refused chain enqueued %d step(s)", provider, after-before)
+		}
+	}
+
+	// A custom template with no mode placeholder is refused for its own reason.
+	template := "agy -i '{prompt}'"
+	claude := "claude"
+	if _, err := d.UpdateProject(project.ID, models.UpdateProjectRequest{AIProvider: &claude, AICommandTemplate: &template}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "templated"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = d.EnqueueFullChainRun(task.ID)
+	if err == nil || !strings.Contains(err.Error(), models.TemplateModePlaceholder) {
+		t.Fatalf("a placeholder-less template should be refused by name: %v", err)
+	}
+}
+
+func mustActivities(t *testing.T, d *DB, taskID string) []models.TaskActivity {
+	t.Helper()
+	activities, err := d.GetTaskActivities(taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return activities
 }
 
 // A project saved before these settings existed keeps today's behaviour: runs

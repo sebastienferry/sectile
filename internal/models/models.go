@@ -399,6 +399,29 @@ func ValidSkillMode(mode string) bool {
 	return trimmed == SkillModeUnset || trimmed == SkillModeInteractive || trimmed == SkillModeAutonomous
 }
 
+// TemplateModePlaceholder is how a custom AI command template says which part of
+// the command line depends on the execution mode: {mode:AUTONOMOUS|INTERACTIVE}.
+// A template without it owns the mode its author wrote, so it cannot serve an
+// autonomous launch.
+const TemplateModePlaceholder = "{mode:"
+
+// SupportsAutonomousRun says whether a project configuration can run headless.
+// The provider list is what this repository attests, nothing guessed: an
+// unsupported flag either fails opaquely or is swallowed as prompt text, which
+// is worse than refusing. A configured template wins over the provider, as it
+// does at launch, and only carries a mode when it declares the placeholder.
+func SupportsAutonomousRun(provider, commandTemplate string) bool {
+	if strings.TrimSpace(commandTemplate) != "" {
+		return strings.Contains(commandTemplate, TemplateModePlaceholder)
+	}
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "claude", "codex", "vibe":
+		return true
+	default:
+		return false
+	}
+}
+
 // FullChainStopStages are the only stages a full chain run may stop at. Stopping
 // at implemented leaves the pull request to the user; stopping at reviewed opens
 // it and leaves the merge to the user. Merging is never automated.

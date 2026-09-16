@@ -40,7 +40,7 @@ func (c agentCommandContext) values(prompt string) map[string]string {
 // the command line depends on the execution mode: {mode:AUTONOMOUS|INTERACTIVE}
 // keeps the left side for an autonomous run and the right side otherwise, e.g.
 // `agy {mode:-p|-i} '{prompt}'`.
-const templateModePlaceholder = "{mode:"
+const templateModePlaceholder = models.TemplateModePlaceholder
 
 // templateCarriesMode says whether a template author took ownership of the mode.
 // Without the placeholder the template can only run what its author wrote, which

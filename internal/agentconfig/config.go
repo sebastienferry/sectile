@@ -20,6 +20,8 @@ type Config struct {
 	IssueTracker            string   `json:"issueTracker,omitempty"`
 	Parallelism             int      `json:"parallelism"`
 	PRCreationStage         string   `json:"prCreationStage"`
+	DefaultSkillMode        string   `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage      string   `json:"fullChainStopStage,omitempty"`
 	SchemaVersion           int      `json:"schemaVersion"`
 	ProjectID               string   `json:"projectId"`
 	ProjectName             string   `json:"projectName"`
