@@ -1,6 +1,6 @@
 # Re-Implementation Guide for LLMs & Engineers
 
-This document is an actionable, step-by-step blueprint designed to enable another AI model or software engineer to re-implement **TaskFlow** from scratch with full fidelity.
+This document is an actionable, step-by-step blueprint designed to enable another AI model or software engineer to re-implement **Sectile** from scratch with full fidelity.
 
 ---
 
@@ -42,7 +42,7 @@ This document is an actionable, step-by-step blueprint designed to enable anothe
 ### Step 3: Interactive PTY Manager (`internal/terminal/terminal.go`)
 1. Define `Session` with `pty.StartWithSize` running `/bin/zsh -l` (or `$SHELL`).
 2. Set session `Dir` to the task worktree path.
-3. Inject environment variables: `TASKFLOW_TASK_ID`, `TASKFLOW_TASK_KEY`, `TASKFLOW_TASK_WORKTREE`.
+3. Inject environment variables: `SECTILE_TASK_ID`, `SECTILE_TASK_KEY`, `SECTILE_TASK_WORKTREE`.
 4. Buffer output into a 64KB ring buffer for tab reconnects.
 5. Handle WebSocket connection `/ws/terminal`:
    - Stream PTY read buffer to WebSocket client.

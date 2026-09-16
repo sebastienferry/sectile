@@ -171,7 +171,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-run.exited:
 			// The native client may have already reported completion via MCP.
-			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled")
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled")
 			w.WriteHeader(http.StatusNoContent)
 		case <-time.After(12 * time.Second):
 			http.Error(w, "Exit not confirmed", 504)
@@ -223,7 +223,7 @@ func (d *agentDaemon) writeDesktopInfo() error {
 }
 
 // Report process exit using the server's authenticated MCP endpoint.
-func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status string) error {
+func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status, note string) error {
 	if taskID == "" {
 		return nil
 	}
@@ -235,7 +235,10 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 		return err
 	}
 	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": "Local console process exited"}})
+	if strings.TrimSpace(note) == "" {
+		note = "Local console process exited"
+	}
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": note}})
 	if err != nil {
 		return err
 	}
@@ -352,8 +355,8 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		overrides.Commands[input.ProjectID] = command
 	}
 	if input.Parallelism != nil {
-		if *input.Parallelism < 1 || *input.Parallelism > 3 {
-			http.Error(w, "Parallelism must be between 1 and 3", 400)
+		if *input.Parallelism < 1 || *input.Parallelism > models.MaxParallelism {
+			http.Error(w, fmt.Sprintf("Parallelism must be between 1 and %d", models.MaxParallelism), 400)
 			return
 		}
 		if overrides.Parallelism == nil {
@@ -604,13 +607,7 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Task does not belong to project", 400)
 		return
 	}
-	known := input.SkillID == "custom" && strings.TrimSpace(input.Prompt) != ""
-	for _, skill := range config.Skills {
-		if skill.ID == input.SkillID {
-			known = true
-		}
-	}
-	if !known {
+	if !launchableSkill(config, input.SkillID, input.Prompt) {
 		http.Error(w, "Unknown project skill", 400)
 		return
 	}
@@ -670,6 +667,23 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(response.Body, 1<<20))
+}
+
+// launchableSkill admits a project skill or one of the reserved identifiers.
+// A discussion carries nothing, unlike custom instructions.
+func launchableSkill(config agentconfig.Config, skillID, prompt string) bool {
+	if skillID == "discuss" {
+		return true
+	}
+	if skillID == "custom" {
+		return strings.TrimSpace(prompt) != ""
+	}
+	for _, skill := range config.Skills {
+		if skill.ID == skillID {
+			return true
+		}
+	}
+	return false
 }
 
 func desktopTaskFinished(task models.Task) bool {

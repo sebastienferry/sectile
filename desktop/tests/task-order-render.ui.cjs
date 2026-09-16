@@ -4,7 +4,7 @@ const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
 test('sidebar orders tasks across refreshes while retaining selection and history',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'taskflow-task-order-'))
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-task-order-'))
  const run=(id,taskId,status,hour,start)=>({id,taskId,taskKey:'#'+taskId,projectId:'project-a',skill:'clarify',status,createdAt:`2026-09-13T${hour}:00:00Z`,...(start?{startedAt:`2026-09-13T${start}:00:00Z`}:{})})
  let runs=[run('recent','5','failed','11'),run('done','3','completed','10'),run('queued','2','queued','09'),run('active','1','running','01','08'),run('old','1','completed','02'),run('next','1','queued','12'),run('other','4','running','05','07')]
  let requests=0
@@ -19,7 +19,7 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
  })
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
  fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
- const env={...process.env,TASKFLOW_DESKTOP_DATA_DIR:root,TASKFLOW_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
@@ -52,7 +52,7 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   await page.getByRole('button',{name:'Close queue for Alpha',exact:true}).click()
   await expect(alphaQueue).toBeFocused()
   assert.equal(await page.locator('.execution-queue').count(),0)
-  await page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #1 in TaskFlow',exact:true})}).locator('.run').click()
+  await page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #1 in Sectile',exact:true})}).locator('.run').click()
   assert.match(await page.locator('#title').textContent(),/#1/)
   assert.equal(await page.locator('#execution-history').inputValue(),'active')
   assert.deepEqual(await page.locator('#execution-history option').evaluateAll(options=>options.map(option=>option.value)),['active','old','next'])
@@ -67,6 +67,13 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   await expect(page.locator('.project-capacity').first()).toHaveText('(3/3)')
   assert.equal(await page.locator('#execution-history').inputValue(),'old')
   assert.equal(await page.locator('.run.selected').count(),1)
+  // The selection highlight spans the whole row, not just the inner run button.
+  const selectedRow=page.locator('.local-task.selected')
+  assert.equal(await selectedRow.count(),1)
+  await expect(selectedRow.locator('.task-number')).toHaveText('#1')
+  await expect(selectedRow).toHaveCSS('background-color','rgb(32, 48, 51)')
+  await expect(selectedRow.locator('.run.selected')).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+  await expect(page.locator('.local-task').filter({hasNot:page.locator('.run.selected')}).first()).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
   const before=requests;runs.reverse()
   await expect.poll(()=>requests,{timeout:7000}).toBeGreaterThan(before)
   assert.deepEqual(await order(),['#2','#4','#1','#5','#3'])

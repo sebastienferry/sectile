@@ -18,7 +18,11 @@ type pendingOperation struct {
 }
 
 func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
-	ac := d.Lookup("default", op.ProjectID)
+	userID := op.UserID
+	if userID == "" {
+		userID = ImplicitUser
+	}
+	ac := d.Lookup(userID, op.ProjectID)
 	if ac == nil {
 		return nil, fmt.Errorf("no local agent connected for project %s", op.ProjectID)
 	}

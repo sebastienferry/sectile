@@ -17,8 +17,8 @@ const WORKFLOW_STAGES: { id: WorkflowStage; label: string }[] = [
   { id: 'finished', label: '#finished' },
 ]
 
-const DRAG_STATUS = 'application/x-taskflow-status'
-const DRAG_STAGE = 'application/x-taskflow-stage'
+const DRAG_STATUS = 'application/x-sectile-status'
+const DRAG_STAGE = 'application/x-sectile-stage'
 
 interface Props {
   project: Project | null

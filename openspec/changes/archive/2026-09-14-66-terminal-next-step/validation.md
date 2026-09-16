@@ -16,7 +16,7 @@
 - `npm --prefix web test`: 19 tests passed, 0 failed.
 - `web/node_modules/.bin/oxlint desktop/src/main.js desktop/src/workflow.mjs desktop/tests/next-step.ui.cjs desktop/tests/workflow.ui.cjs`: exit 0, no diagnostics.
 - `go test ./internal/...` and `go test ./cmd/server`: all tested packages passed.
-- `go vet ./...` and `go build -o /tmp/taskflow-66 ./cmd/server`: exit 0.
+- `go vet ./...` and `go build -o /tmp/sectile-66 ./cmd/server`: exit 0.
 - `git diff --check`: no whitespace errors.
 
 Vite reports the assigned worktree's `#` character and the existing web bundle size as warnings. Initial sandbox attempts could not bind local test servers or access the Go cache; the authorized reruns passed.

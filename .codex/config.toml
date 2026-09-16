@@ -1,4 +1,0 @@
-[mcp_servers]
-[mcp_servers.taskflow]
-args = ['mcp', '--url', 'http://127.0.0.1:8091']
-command = '/Users/sferry/Sources/taskflow/bin/taskflow'

@@ -561,4 +561,3 @@ func TestTryPullLocalAgentTasks(t *testing.T) {
 		t.Fatalf("unexpected activity status: %#v", act)
 	}
 }
-

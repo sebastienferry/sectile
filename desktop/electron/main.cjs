@@ -3,10 +3,16 @@ const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypt
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
+const {exchangePairingCode}=require('./pairing.cjs')
+const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
-if(process.env.TASKFLOW_DESKTOP_DATA_DIR)app.setPath('userData',process.env.TASKFLOW_DESKTOP_DATA_DIR)
+if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
+// The app kept its data under the previous package name; carry it over once.
+if(!process.env.SECTILE_DESKTOP_DATA_DIR){
+ carryOverDataDirectory(path.join(app.getPath('appData'),'taskflow-desktop'),app.getPath('userData'))
+}
 let window,connection,socket,starting=false
-const defaultInfoPath=()=>process.env.TASKFLOW_DESKTOP_DATA_DIR
+const defaultInfoPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
  ? path.join(app.getPath('userData'),'agent-connection.json')
  : path.join(app.getPath('home'),'.taskflow','agent-connection.json')
 let connectedInfoPath
@@ -36,9 +42,21 @@ async function connectAgent(){
  return false
 }
 ipcMain.handle('connect',connectAgent)
-const settingsPath=()=>process.env.TASKFLOW_DESKTOP_DATA_DIR
+ipcMain.handle('pair',async(_,{server,code,label})=>{
+ const credential=await exchangePairingCode(server,code,label)
+ let previous={}
+ try{previous=readSettings()}catch{}
+ const saved={...previous,server,deviceId:credential.deviceId}
+ delete saved.binary
+ fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
+ if(safeStorage.isEncryptionAvailable())saved.secret=safeStorage.encryptString(credential.token).toString('base64')
+ fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
+ fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ return {deviceId:credential.deviceId,token:credential.token}
+})
+const settingsPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
  ? path.join(app.getPath('userData'),'settings.json')
- : path.join(app.getPath('home'),'.config','taskflow','settings.json')
+ : path.join(app.getPath('home'),'.config','sectile','settings.json')
 function readSettings(){
  try{return JSON.parse(fs.readFileSync(settingsPath(),'utf8'))}
  catch(error){
@@ -82,7 +100,7 @@ ipcMain.handle('start',async(_,settings)=>{
   if(fs.existsSync(info))fs.unlinkSync(info)
   const child=spawn(binary,['--desktop-info',info,'--url',settings.server,'--repo',repo],{
    detached:true,stdio:['ignore',output,output],
-   env:{...process.env,TASKFLOW_AGENT_TOKEN:settings.token,TASKFLOW_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
+   env:{...process.env,TOKEN:settings.token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
   })
   let spawnError
   child.on('error',error=>{spawnError=error})
@@ -138,7 +156,7 @@ ipcMain.handle('shutdown',()=>lifecycle('stop'))
 ipcMain.handle('agent-logs',()=>readAgentLog(path.join(app.getPath('userData'),'agent.log')))
 ipcMain.handle('save-log',async(_,text)=>{
  if(typeof text!=='string'||text.length>10_000_000)throw Error('Invalid log')
- const result=await dialog.showSaveDialog(window,{defaultPath:'taskflow-execution.log'})
+ const result=await dialog.showSaveDialog(window,{defaultPath:'sectile-execution.log'})
  if(!result.canceled&&result.filePath)fs.writeFileSync(result.filePath,text,{mode:0o600})
 })
 ipcMain.handle('status',()=>api('/desktop/status'))
@@ -214,7 +232,7 @@ ipcMain.on('terminal-input',(_,data)=>{if(socket?.readyState===WebSocket.OPEN&&t
 ipcMain.on('terminal-resize',(_,size)=>{if(socket?.readyState===WebSocket.OPEN&&size.cols>0&&size.rows>0)socket.send(JSON.stringify({type:'resize',...size}))})
 function openWindow(){
  if(window&&!window.isDestroyed()){window.show();return}
- window=new BrowserWindow({show:process.env.TASKFLOW_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
+ window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))

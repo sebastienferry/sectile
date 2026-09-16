@@ -84,7 +84,7 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 			result.Status = "canceled"
 		}
 		run.desktop.Status = result.Status
-		go func() { _ = d.finishDesktopRun(context.Background(), run.taskID, id, result.Status) }()
+		go func() { _ = d.finishDesktopRun(context.Background(), run.taskID, id, result.Status, "") }()
 		run.once.Do(func() { close(run.exited) })
 	}
 	d.runsMu.Unlock()
@@ -101,7 +101,9 @@ func (d *agentDaemon) cancelRun(ctx context.Context, conn *websocket.Conn, msg a
 	run := d.runs[payload.RunID]
 	if run == nil || run.taskID != msg.TaskID {
 		d.runsMu.Unlock()
-		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "This agent does not own the execution")
+		// The marker lets the server close a run this agent cannot own, which
+		// happens whenever the agent restarted while a run was recorded.
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", agentprotocol.RunNotOwned+": this agent does not own the execution")
 		return
 	}
 	run.canceled = true
@@ -238,6 +240,28 @@ func (d *agentDaemon) enqueueRunLocked(taskID string, payload agentconfig.Dispat
 	return run, nil
 }
 
+func (r *controlledRun) isConsole() bool { return r.desktop.Kind == consoleRunKind }
+
+// sharesCheckout reports whether two live runs would work in the same directory.
+// A console runs in the mapped checkout, so it collides with executions that also
+// use it, but not with worktree-isolated ones. Two consoles are opened deliberately
+// by the user and are left alone.
+func sharesCheckout(other, run *controlledRun) bool {
+	if other.root != run.root {
+		return false
+	}
+	if other.isConsole() && run.isConsole() {
+		return false
+	}
+	if other.isConsole() {
+		return !run.isolated
+	}
+	if run.isConsole() {
+		return !other.isolated
+	}
+	return !other.isolated || !run.isolated || other.taskID == run.taskID
+}
+
 func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
@@ -258,8 +282,11 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 			default:
 			}
 			sameProject := other.desktop.ProjectID == run.desktop.ProjectID
-			shared := other.root == run.root && (!other.isolated || !run.isolated || other.taskID == run.taskID)
-			if !sameProject && !shared {
+			shared := sharesCheckout(other, run)
+			// A free console is human-initiated and holds no background worker
+			// capacity: it neither counts nor queues behind background work.
+			capacity := sameProject && !other.isConsole() && !run.isConsole()
+			if !capacity && !shared {
 				continue
 			}
 			if other.desktop.Status == "queued" {
@@ -270,7 +297,7 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 					blocked = true
 				}
 			} else {
-				if sameProject {
+				if capacity {
 					active++
 				}
 				if shared {
@@ -278,7 +305,7 @@ func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) erro
 				}
 			}
 		}
-		if !blocked && active < run.limit {
+		if !blocked && (active < run.limit || run.isConsole()) {
 			run.desktop.Status = "preparing"
 			d.runsMu.Unlock()
 			return nil

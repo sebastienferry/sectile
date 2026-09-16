@@ -1,57 +1,69 @@
-.DEFAULT_GOAL := all
+.DEFAULT_GOAL := help
 EXE := $(if $(filter windows,$(shell go env GOOS)),.exe,)
-.PHONY: all server agent desktop start serve run binary-build dev dev-server dev-web build server-build agent-build test clean release reset-db
+# electron/runtime.cjs resolves the agent under this name, packaged or not.
+DESKTOP_AGENT := desktop/bin/sectile-agent$(EXE)
+.PHONY: help build-all build-server build-agent build-app build-app-package build-release \
+        all build server server-build agent agent-build binary-build desktop desktop-build desktop-package build-desktop build-desktop-package release \
+        start serve run test clean reset-db
 
-# Development runs the Go API and Vite hot reload independently.
-dev:
-	@echo "Starting Go backend & Vite frontend in development mode..."
-	@(go run ./cmd/server & cd web && npm run dev)
-
-dev-server:
-	go run ./cmd/server
-
-dev-web:
-	cd web && npm run dev
+# Print every documented target (the default goal).
+help:
+	@echo "Usage: make <target>"
+	@echo ""
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+		| sort \
+		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}'
 
 # The server embeds the compiled web UI.
-all: server agent desktop
+build-all: build-server build-agent build-app ## Build server, agent and desktop app
 	@echo "Built server, local agent and desktop app."
 
 # Compatibility aliases for existing scripts.
-build: all
-server-build: server
-agent-build: agent
+all build: build-all
+server server-build: build-server
+agent agent-build: build-agent
+binary-build: build-server build-agent
+desktop desktop-build build-desktop: build-app
+desktop-package build-desktop-package: build-app-package
+release: build-release
 
 # The server embeds the UI; the agent builds independently of Node dependencies.
-server:
+build-server: ## Build the web UI and the server binary
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
 	@mkdir -p bin
-	go build -o bin/taskflow-server$(EXE).new ./cmd/server
-	mv -f bin/taskflow-server$(EXE).new bin/taskflow-server$(EXE)
+	go build -o bin/server$(EXE).new ./cmd/server
+	mv -f bin/server$(EXE).new bin/server$(EXE)
 
-agent:
+build-agent: ## Build the agent binary
 	@mkdir -p bin
-	go build -o bin/taskflow-agent$(EXE).new ./cmd/agent
-	mv -f bin/taskflow-agent$(EXE).new bin/taskflow-agent$(EXE)
+	go build -o bin/agent$(EXE).new ./cmd/agent
+	mv -f bin/agent$(EXE).new bin/agent$(EXE)
 
-binary-build: server agent
+# The agent writes its own path into the MCP registration native clients read,
+# so it needs a stable one: `go run` would leave a build-cache path that stops
+# resolving as soon as the cache is pruned. Building first keeps the target as
+# convenient without that cost.
+start: build-agent ## Build and run the agent (ARGS=...)
+	./bin/agent$(EXE) $(ARGS)
 
-start:
-	./bin/taskflow-agent$(EXE) $(ARGS)
+serve: ## Run the server from source (ARGS=...)
+	go run ./cmd/server $(ARGS)
 
-serve:
-	./bin/taskflow-server$(EXE) $(ARGS)
-
-run:
+# Same idea as serve and start: build what the app loads, then run it.
+run: build-agent ## Run the desktop app from source (Vite build + Electron)
+	@mkdir -p desktop/bin
+	cp bin/agent$(EXE) $(DESKTOP_AGENT).new
+	mv -f $(DESKTOP_AGENT).new $(DESKTOP_AGENT)
+	cd desktop && npm run build
 	cd desktop && npm start
 
-test:
+test: ## Run Go and web test suites
 	go test ./...
 	cd web && npm test && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
 
 # Both components cross-compile with pure Go dependencies.
-release: 
+build-release: ## Cross-compile every binary into dist/
 	@echo "Building interface..."
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
@@ -59,7 +71,7 @@ release:
 	@for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do \
 		os=$${target%/*}; arch=$${target#*/}; \
 		for component in server agent; do \
-			out=dist/taskflow-$$component-$$os-$$arch; \
+			out=dist/$$component-$$os-$$arch; \
 			if [ "$$os" = "windows" ]; then out=$$out.exe; fi; \
 			echo "  $$component $$os/$$arch"; \
 			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o $$out ./cmd/$$component || exit 1; \
@@ -71,7 +83,7 @@ release:
 # Repartir d'une base vide. Les trois fichiers comptent : supprimer tasks.db en
 # laissant tasks.db-wal fait revenir les données au démarrage suivant, SQLite
 # rejouant son journal.
-reset-db:
+reset-db: ## Delete local and user-data SQLite databases
 	rm -f tasks.db tasks.db-wal tasks.db-shm
 	rm -f "$${HOME}/Library/Application Support/taskflow/tasks.db" \
 	      "$${HOME}/Library/Application Support/taskflow/tasks.db-wal" \
@@ -81,21 +93,18 @@ reset-db:
 	      "$${HOME}/Library/Application Support/taskacao/tasks.db-shm"
 	@echo "Bases supprimées : répertoire courant et dossiers de données."
 
-clean:
+clean: ## Remove build artifacts
 	rm -rf bin/ dist/ web/dist
 	rm -rf internal/webui/dist
 	@mkdir -p internal/webui/dist && touch internal/webui/dist/.gitkeep
 
-.PHONY: desktop-build desktop desktop-package
-desktop-build: agent
+build-app: build-agent ## Build the desktop app without packaging
 	mkdir -p desktop/bin
-	cp bin/taskflow-agent$(EXE) desktop/bin/taskflow-agent$(EXE).new
-	mv -f desktop/bin/taskflow-agent$(EXE).new desktop/bin/taskflow-agent$(EXE)
+	cp bin/agent$(EXE) $(DESKTOP_AGENT).new
+	mv -f $(DESKTOP_AGENT).new $(DESKTOP_AGENT)
 	cd desktop && npm ci
 	cd desktop && node node_modules/electron/install.js
 	cd desktop && npm run build
 
-desktop: desktop-package
-
-desktop-package: desktop-build
+build-app-package: build-app ## Package the desktop app
 	cd desktop && npm run package

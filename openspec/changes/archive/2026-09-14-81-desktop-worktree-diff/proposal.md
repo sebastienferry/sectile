@@ -1,8 +1,8 @@
 ## Why
 
-Users cannot inspect an agent's current local changes inside TaskFlow Desktop. The legacy server diff endpoint reads the server's filesystem and can concatenate overlapping patches or display an unrelated last commit when a comparison is empty. It therefore cannot represent the agent's actual worktree reliably.
+Users cannot inspect an agent's current local changes inside Sectile Desktop. The legacy server diff endpoint reads the server's filesystem and can concatenate overlapping patches or display an unrelated last commit when a comparison is empty. It therefore cannot represent the agent's actual worktree reliably.
 
-Issue: https://github.com/sebastienferry/taskflow/issues/81. The confirmed clarification is recorded in `docs/clarifications/81.md`.
+Issue: https://github.com/sebastienferry/sectile/issues/81. The confirmed clarification is recorded in `docs/clarifications/81.md`.
 
 ## What Changes
 
@@ -16,7 +16,7 @@ Issue: https://github.com/sebastienferry/taskflow/issues/81. The confirmed clari
 
 ### New Capabilities
 
-- `desktop-worktree-diff`: Inspect the current contents of a task checkout against its default-branch common ancestor through TaskFlow Desktop.
+- `desktop-worktree-diff`: Inspect the current contents of a task checkout against its default-branch common ancestor through Sectile Desktop.
 
 ### Modified Capabilities
 

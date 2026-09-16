@@ -29,7 +29,7 @@
 - [x] 4.2 Keep the failure fatal in `bootstrapLocalMCP`/`prepareDispatch`, with an error naming the
       provider and the target path; assert the original file is untouched on failure.
 - [x] 4.3 Extend `internal/agentconfig/mcp_test.go` and `mcp_migration_test.go` to the user-level
-      roots, including the legacy `taskflow`→`sectile` migration at the new location.
+      roots, including the legacy `sectile`→`sectile` migration at the new location.
 
 ## 5. Migrate existing checkouts
 - [x] 5.1 On dispatch, read `.taskflow/agent-manifest.json`, retire the unedited managed copies

@@ -1,13 +1,13 @@
 ## Context
 
-TaskFlow macros represent high-level roadmap epics or initiatives. Previously, the "Raffiner la macro" action executed a static helper `GenerateMacroTodosFromFraming` that split description lines into `MacroTodo` items without AI reasoning or interactive dialogue. Users need an interactive session where an AI agent can detect ambiguities in macro framing, ask clarification questions, and generate concrete tasks (User Stories, Technical Tasks, Bugs) attached to the macro.
+Sectile macros represent high-level roadmap epics or initiatives. Previously, the "Raffiner la macro" action executed a static helper `GenerateMacroTodosFromFraming` that split description lines into `MacroTodo` items without AI reasoning or interactive dialogue. Users need an interactive session where an AI agent can detect ambiguities in macro framing, ask clarification questions, and generate concrete tasks (User Stories, Technical Tasks, Bugs) attached to the macro.
 
 ## Goals / Non-Goals
 
 **Goals:**
 - Connect "Raffiner la macro" in `RoadmapView.tsx` to an interactive TTY session running `/refine-macro <KEY>`.
 - Prompt the LLM to inspect macro framing text; if vague, ask 3–5 clarification questions in the interactive terminal.
-- Provide a bulk task creation handler ("Générer les tickets TaskFlow") in the UI that creates TaskFlow cards with `parentKey` matching the macro key.
+- Provide a bulk task creation handler ("Générer les tickets Sectile") in the UI that creates Sectile cards with `parentKey` matching the macro key.
 - Persist refined `MacroTodo` items into macro metadata (`MacroMeta`).
 
 **Non-Goals:**

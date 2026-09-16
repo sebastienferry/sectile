@@ -21,7 +21,7 @@ Each interactive control on the task row SHALL maintain its designated action wi
 #### Scenario: Clicking task ID
 - **GIVEN** a task row in the desktop sidebar
 - **WHEN** the user clicks the task ID button
-- **THEN** the task is opened in the TaskFlow web interface
+- **THEN** the task is opened in the Sectile web interface
 - **AND** the console execution is not selected.
 
 #### Scenario: Clicking title and status area

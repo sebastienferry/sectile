@@ -128,7 +128,7 @@ type Project struct {
 	SetupProviders          []string          `json:"setupProviders"`                    // extra agents to install skills and MCP for
 	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`       // e.g. 'agy -p "{prompt}"'
 	SpecFramework           string            `json:"specFramework,omitempty"`           // "speckit", "openspec"
-	Parallelism             int               `json:"parallelism"`                       // 1 to 3 concurrent AI background workers
+	Parallelism             int               `json:"parallelism"`                       // 1 to MaxParallelism concurrent AI background workers
 	AutoSyncEnabled         bool              `json:"autoSyncEnabled"`                   // Enable background sync for non-finished tickets
 	AutoSyncIntervalMin     int               `json:"autoSyncIntervalMin"`               // Period in minutes (1 to 30)
 	TtyMode                 string            `json:"ttyMode,omitempty"`                 // "integrated" or "external"
@@ -176,7 +176,7 @@ type TrackerSprint struct {
 	EndDate   string `json:"endDate,omitempty"`
 }
 
-// MacroMeta is the macro-level data TaskFlow owns. Macros are containers referenced by their children
+// MacroMeta is the macro-level data Sectile owns. Macros are containers referenced by their children
 // — so their horizon, their framing notes and their todo list have nowhere else to live.
 type MacroMeta struct {
 	ProjectID      string      `json:"projectId"`
@@ -351,13 +351,17 @@ func NormalizeAutoSyncIntervalMin(min int) int {
 	return min
 }
 
-// NormalizeParallelism keeps the concurrent background agent workers count between 1 and 3.
+// MaxParallelism bounds the concurrent background agent workers a project may
+// run. Every surface that accepts or clamps a parallelism reads this value.
+const MaxParallelism = 5
+
+// NormalizeParallelism keeps the concurrent background agent workers count between 1 and MaxParallelism.
 func NormalizeParallelism(p int) int {
 	if p < 1 {
 		return 1
 	}
-	if p > 3 {
-		return 3
+	if p > MaxParallelism {
+		return MaxParallelism
 	}
 	return p
 }

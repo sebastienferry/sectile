@@ -39,8 +39,8 @@ import type { Task, TrackerSprint, WorkflowStage } from '../types'
 import { resolveTaskStage } from '../lib/workflow'
 import { Avatar } from './Avatar'
 
-const DRAG_TASK_ID = 'application/x-taskflow-task-id'
-const DRAG_TASK_IDS = 'application/x-taskflow-task-ids'
+const DRAG_TASK_ID = 'application/x-sectile-task-id'
+const DRAG_TASK_IDS = 'application/x-sectile-task-ids'
 
 export const SprintTimelineView: React.FC = () => {
   const {
@@ -89,7 +89,7 @@ export const SprintTimelineView: React.FC = () => {
   const [collapsedSprints, setCollapsedSprints] = useState<Record<string, boolean>>({})
   const [hideClosedSprints, setHideClosedSprints] = useState<boolean>(() => {
     try {
-      const stored = localStorage.getItem('taskflow_sprint_hide_closed')
+      const stored = localStorage.getItem('sectile_sprint_hide_closed')
       if (stored !== null) return stored === 'true'
     } catch {}
     return true // Masqués par défaut
@@ -99,7 +99,7 @@ export const SprintTimelineView: React.FC = () => {
     setHideClosedSprints(prev => {
       const next = !prev
       try {
-        localStorage.setItem('taskflow_sprint_hide_closed', String(next))
+        localStorage.setItem('sectile_sprint_hide_closed', String(next))
       } catch {}
       return next
     })
@@ -112,7 +112,7 @@ export const SprintTimelineView: React.FC = () => {
   // Toggle Display Mode: 'cards' vs 'chips'
   const [displayMode, setDisplayMode] = useState<'cards' | 'chips'>(() => {
     try {
-      const stored = localStorage.getItem('taskflow_sprint_display_mode')
+      const stored = localStorage.getItem('sectile_sprint_display_mode')
       return stored === 'chips' ? 'chips' : 'cards'
     } catch {
       return 'cards'
@@ -122,14 +122,14 @@ export const SprintTimelineView: React.FC = () => {
   const handleSetDisplayMode = (mode: 'cards' | 'chips') => {
     setDisplayMode(mode)
     try {
-      localStorage.setItem('taskflow_sprint_display_mode', mode)
+      localStorage.setItem('sectile_sprint_display_mode', mode)
     } catch {}
   }
 
   // Backlog Width Resizing State
   const [backlogWidth, setBacklogWidth] = useState<number>(() => {
     try {
-      const stored = localStorage.getItem('taskflow_sprint_backlog_width')
+      const stored = localStorage.getItem('sectile_sprint_backlog_width')
       const parsed = Number(stored)
       return parsed >= 280 && parsed <= 900 ? parsed : 360
     } catch {
@@ -158,7 +158,7 @@ export const SprintTimelineView: React.FC = () => {
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       try {
-        localStorage.setItem('taskflow_sprint_backlog_width', String(backlogWidth))
+        localStorage.setItem('sectile_sprint_backlog_width', String(backlogWidth))
       } catch {}
     }
 

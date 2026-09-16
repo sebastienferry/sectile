@@ -43,8 +43,8 @@ func TestResolveDBPathPrecedence(t *testing.T) {
 		}
 	})
 
-	// Scenario 3 & 4: User config dir taskflow vs taskacao
-	t.Run("user config directory taskflow then legacy taskacao", func(t *testing.T) {
+	// Scenario 3 & 4: User config dir sectile vs taskacao
+	t.Run("user config directory sectile then legacy taskacao", func(t *testing.T) {
 		tempDir := t.TempDir()
 		cwd, err := os.Getwd()
 		if err != nil {
@@ -66,9 +66,9 @@ func TestResolveDBPathPrecedence(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		taskflowDir := filepath.Join(userDir, "taskflow")
+		sectileDir := filepath.Join(userDir, "sectile")
 		taskacaoDir := filepath.Join(userDir, "taskacao")
-		if err := os.MkdirAll(taskflowDir, 0755); err != nil {
+		if err := os.MkdirAll(sectileDir, 0755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.MkdirAll(taskacaoDir, 0755); err != nil {
@@ -86,15 +86,15 @@ func TestResolveDBPathPrecedence(t *testing.T) {
 			t.Fatalf("expected legacy taskacao db (%q), got (%q, %q)", legacyDB, path, origin)
 		}
 
-		// Now taskflow DB also exists -> taskflow must take precedence over taskacao
-		taskflowDB := filepath.Join(taskflowDir, "tasks.db")
-		if err := os.WriteFile(taskflowDB, []byte("taskflow"), 0644); err != nil {
+		// Now sectile DB also exists -> sectile must take precedence over taskacao
+		sectileDB := filepath.Join(sectileDir, "tasks.db")
+		if err := os.WriteFile(sectileDB, []byte("sectile"), 0644); err != nil {
 			t.Fatal(err)
 		}
 
 		path, origin = resolveDBPath("")
-		if path != taskflowDB || origin != "dossier de données" {
-			t.Fatalf("expected taskflow db (%q), got (%q, %q)", taskflowDB, path, origin)
+		if path != sectileDB || origin != "dossier de données" {
+			t.Fatalf("expected sectile db (%q), got (%q, %q)", sectileDB, path, origin)
 		}
 	})
 }
@@ -107,8 +107,8 @@ func TestAlreadyServing(t *testing.T) {
 		expected bool
 	}{
 		{
-			name:     "taskflow-api service identifier",
-			response: `{"status":"ok","service":"taskflow-api"}`,
+			name:     "sectile-api service identifier",
+			response: `{"status":"ok","service":"sectile-api"}`,
 			status:   http.StatusOK,
 			expected: true,
 		},

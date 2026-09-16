@@ -8,14 +8,14 @@ HTTP and stdio server implementation names become `sectile`; bridge client ident
 
 | Former tool | Canonical tool |
 | --- | --- |
-| `taskflow_get_task` | `get_task` |
-| `taskflow_transition_stage` | `transition_stage` |
-| `taskflow_add_comment` | `add_comment` |
-| `taskflow_list_tasks` | `list_tasks` |
-| `taskflow_get_project_context` | `get_project_context` |
-| `taskflow_list_projects` | `list_projects` |
-| `taskflow_start_run` | `start_run` |
-| `taskflow_finish_run` | `finish_run` |
+| `sectile_get_task` | `get_task` |
+| `sectile_transition_stage` | `transition_stage` |
+| `sectile_add_comment` | `add_comment` |
+| `sectile_list_tasks` | `list_tasks` |
+| `sectile_get_project_context` | `get_project_context` |
+| `sectile_list_projects` | `list_projects` |
+| `sectile_start_run` | `start_run` |
+| `sectile_finish_run` | `finish_run` |
 
 Change registration names and cross-references without changing handler bodies, schemas or delegation to database workflow services. Validate that the upstream catalog contains exactly the eight canonical tools before serving stdio clients, then retain transparent forwarding and upstream errors. Do not introduce a name translation or compatibility layer at runtime.
 
@@ -38,7 +38,7 @@ Permission preservation is semantic: leaving a deny rule pointing at a nonexiste
 For both-name collisions, retain existing Sectile non-transport values. Equal normalized restrictions can be deduplicated; missing legacy restrictions may be carried over only when their semantics remain intact. For conflicting or unrecognized policy combinations, return an error identifying the configuration and conflicting fields, without logging secrets or modifying bytes. This conservative error path is the chosen implementation of the clarification's unsafe-reconciliation rule; do not invent a permissive merge of policy values. Repeated bootstrap must be semantically idempotent.
 
 ## Callers, instructions and documentation
-Update `cmd/server/agent.go` launch text, `cmd/server/agent_desktop.go` client identity/completion call, `internal/db/skilltemplates.go` and `internal/db/projectskills.go`, plus any remaining first-party producers discovered by a targeted search. Preserve `TASKFLOW_RUN_ID` and all other environment contracts. Retain `internal/agentconfig/local.go` manifest and backup behavior. Inspect template refresh logic so built-in defaults move forward without overwriting stored custom overrides. Test generated outputs; do not blindly replace user-owned skills or pre-existing worktree edits.
+Update `cmd/server/agent.go` launch text, `cmd/server/agent_desktop.go` client identity/completion call, `internal/db/skilltemplates.go` and `internal/db/projectskills.go`, plus any remaining first-party producers discovered by a targeted search. Preserve `SECTILE_RUN_ID` and all other environment contracts. Retain `internal/agentconfig/local.go` manifest and backup behavior. Inspect template refresh logic so built-in defaults move forward without overwriting stored custom overrides. Test generated outputs; do not blindly replace user-owned skills or pre-existing worktree edits.
 
 Update `README.md`, `docs/ARCHITECTURE.md` and `docs/contracts/server-agent-v1.md` for current names, all eight tools and migration steps. Correct current registration examples consistently, including Antigravity's user-level registry. Preserve historical files and markers. Add an ADR documenting the deliberate break with MCP naming compatibility and conservative permission migration, referencing ADR 0001 and change #47; no new runtime architecture is introduced. Update a changelog if one exists at implementation time.
 
@@ -51,7 +51,7 @@ Coordinate server and agent deployment, then run normal bootstrap, manually upda
 - `internal/agentconfig/mcp_test.go`: table-driven six-provider coverage for fresh, legacy-only, canonical-only and both-name inputs; gateway refresh and repeated bootstrap; preserved unrelated settings, Vibe policies, explicit tool restrictions and namespace references; invalid shapes, duplicate/conflicting entries, unsupported policies, byte-identical failure and absence of persisted credentials. Keep provider-reader smoke tests conditional on executable availability.
 - `internal/db/skills_test.go` and local skill refresh tests: canonical built-in/project policy output, preserved custom overrides and backup behavior for modified managed files.
 - Run `openspec validate 64-sectile-mcp-tool-names --strict`, `git diff --check`, `go test ./...`, `go vet ./...`, `make test` and `make binary-build` during implementation. These use the repository's Go/frontend checks and build without requiring desktop packaging for an MCP-only change. Run the focused MCP tests again against the built bridge if the existing integration harness requires an executable.
-- Search active first-party MCP sources/docs for old names, classifying retained migration inputs, negative tests and historical references rather than asserting that every `taskflow` string must disappear.
+- Search active first-party MCP sources/docs for old names, classifying retained migration inputs, negative tests and historical references rather than asserting that every `sectile` string must disappear.
 
 ## Rejected alternatives
 - Prefixing tools with `sectile_`: contradicts generic names.

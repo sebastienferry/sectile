@@ -4,7 +4,7 @@
 
 Ticket #61 requires PR creation to belong to specification or implementation, according to project policy. The current Create PR action conflates creation with the review gate, including a default policy that creates the PR after review. Users need an Adjust action that reviews and corrects the complete branch and updates an existing PR before human merge.
 
-Source: https://github.com/sebastienferry/taskflow/issues/61. The confirmed clarification in `docs/clarifications/61.md` selects “Full review, earlier-stage”; no product questions remain open.
+Source: https://github.com/sebastienferry/sectile/issues/61. The confirmed clarification in `docs/clarifications/61.md` selects “Full review, earlier-stage”; no product questions remain open.
 
 ## What Changes
 

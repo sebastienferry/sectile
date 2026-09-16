@@ -1,6 +1,6 @@
 # UX Components & Frontend Design
 
-This document details the user interface architecture, component hierarchy, interaction models, and styling patterns used across **TaskFlow**.
+This document details the user interface architecture, component hierarchy, interaction models, and styling patterns used across **Sectile**.
 
 ---
 

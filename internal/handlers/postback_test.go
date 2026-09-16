@@ -15,7 +15,7 @@ import (
 )
 
 func setupTestHandler(t *testing.T) (*Handler, *db.DB, func()) {
-	tmpDir, err := os.MkdirTemp("", "taskflow-handler-test-*")
+	tmpDir, err := os.MkdirTemp("", "sectile-handler-test-*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}

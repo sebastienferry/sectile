@@ -10,6 +10,9 @@ import '@xterm/xterm/css/xterm.css'
 import './style.css'
 import { taskStage, nextTaskStep } from './workflow.mjs'
 const api=window.localAgent
+// Concurrent execution workers ceiling per project, aligned with models.MaxParallelism.
+const MAX_PARALLELISM=5
+const PARALLELISM_CHOICES=Array.from({length:MAX_PARALLELISM},(_,i)=>i+1)
 document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-label="Toggle projects" aria-expanded="true">☰</button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to TaskFlow</h1><p>Enter your server address and authentication token. Account sign-in is not available yet.</p>
@@ -251,8 +254,9 @@ function render(options){
   }else if(!collapsedProjects.has(project.id)){
    if(!children.length){const empty=document.createElement('p');empty.className='hint';empty.textContent='No local tasks';group.append(empty)}
    for(const {executions,run} of orderedTaskGroups(taskGroups.values())){
-    const row=document.createElement('div');row.className='local-task'
-    const button=document.createElement('button');button.className='run '+(executions.some(item=>item.id===selected)?'selected':'')
+    const isSelected=executions.some(item=>item.id===selected)
+    const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
+    const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in TaskFlow';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in TaskFlow');context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
@@ -562,7 +566,7 @@ async function openProject(id){
    return {section,buttons,hint,reset}
   }
   controls.worktrees=setting('Worktrees',['Yes','No'],'Reset worktrees to server default',value=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()},()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()})
-  controls.parallel=setting('Parallel executions',[1,2,3],'Reset parallelism to server default',value=>{parallelism=value;inheritParallelism=false;update()},()=>{parallelism=config.parallelism||1;inheritParallelism=true;update()})
+  controls.parallel=setting('Parallel executions',PARALLELISM_CHOICES,'Reset parallelism to server default',value=>{parallelism=value;inheritParallelism=false;update()},()=>{parallelism=config.parallelism||1;inheritParallelism=true;update()})
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
    controls.worktrees.hint.textContent=(inheritWorktrees?'Inherited':'Local override')+' · Server default: '+(config.useWorktrees?'Yes':'No')
@@ -712,6 +716,7 @@ async function browseTasks(projectID,initialQuery=''){
     const status=document.createElement('p');status.className='task-server-status';status.textContent='Current state: '+taskStage(task)+(task.trackerStatus?' · '+task.trackerStatus:'')
     const skill=document.createElement('select');skill.setAttribute('aria-label','Skill for '+(task.key||task.id))
     for(const item of info.server.skills||[]){const option=document.createElement('option');option.value=item.id;option.textContent=item.command||item.id;skill.append(option)}
+    const discuss=document.createElement('option');discuss.value='discuss';discuss.textContent='Discussion (no skill)';skill.append(discuss)
     const custom=document.createElement('option');custom.value='custom';custom.textContent='Custom instructions';skill.append(custom)
     if((info.server.skills||[]).some(item=>item.id==='pickup'))skill.value='pickup'
     const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions');prompt.hidden=true
@@ -746,6 +751,7 @@ document.querySelector('#rerun').onclick=async()=>{
   for(const item of info.server.skills||[]){
    const option=document.createElement('option');option.value=item.id;option.textContent=item.command||item.id;skill.append(option)
   }
+  const discuss=document.createElement('option');discuss.value='discuss';discuss.textContent='Discussion (no skill)';skill.append(discuss)
   const custom=document.createElement('option');custom.value='custom';custom.textContent='Custom instructions';skill.append(custom)
   skill.value=run.skill
   if(!skill.value){

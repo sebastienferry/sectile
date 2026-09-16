@@ -11,7 +11,7 @@ while every workstation is offline.
 
 ## Decision
 
-Build `taskflow-server` and `taskflow-agent` from independent command packages.
+Build `sectile-server` and `sectile-agent` from independent command packages.
 The server owns persisted state, UI/API/MCP services and native HTTP tracker
 adapters. GitHub and Linear use explicit server credentials; neither depends on
 CLI login state. Jira metadata is preserved, but its unsupported integration is

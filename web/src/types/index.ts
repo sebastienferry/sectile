@@ -459,7 +459,7 @@ export type IssueTracker = 'linear' | 'github' | 'jira' | 'local'
 export type ProjectType = 'standard' | 'personal'
 
 /**
- * Spec-Driven Design frameworks TaskFlow can scaffold into a project.
+ * Spec-Driven Design frameworks Sectile can scaffold into a project.
  * - `speckit`  : GitHub Spec Kit (`specify` CLI, `.specify/` + `specs/`)
  * - `openspec` : OpenSpec (`openspec` CLI, `openspec/changes/` + `openspec/specs/`)
  */
@@ -540,7 +540,7 @@ export interface UserSettings {
   jiraApiToken?: string
   /** Un jeton est configuré, en base ou par variable d'environnement. */
   jiraApiTokenSet?: boolean
-  /** Le jeton vient de TASKFLOW_JIRA_API_TOKEN et prime sur la base. */
+  /** Le jeton vient de SECTILE_JIRA_API_TOKEN et prime sur la base. */
   jiraApiTokenFromEnv?: boolean
   /**
    * Remplace le prompt d'agenda du digest quotidien. Vide garde celui d'origine.
@@ -718,7 +718,7 @@ export interface ProjectGitInitResult {
 
 /**
  * Une skill du workflow telle que l'éditeur la voit. Le contenu vient de la base
- * TaskFlow, le modèle intégré sert de valeur par défaut, et `diverged` signale
+ * Sectile, le modèle intégré sert de valeur par défaut, et `diverged` signale
  * qu'un SKILL.md a été retouché à la main dans le dépôt.
  */
 export interface SkillEditorEntry {

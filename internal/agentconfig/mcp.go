@@ -14,7 +14,7 @@ import (
 
 // BootstrapMCP registers the daemon's stdio bridge in the selected CLI's
 // user-level configuration. Nothing is written inside the repository: a checkout
-// must stay free of agent configuration. The reserved TaskFlow entry migrates to
+// must stay free of agent configuration. The reserved Sectile entry migrates to
 // Sectile; bearer credentials are never written. Native tool permissions remain
 // in force.
 func BootstrapMCP(provider, executable, gateway string) (string, error) {
@@ -58,7 +58,7 @@ func BootstrapMCP(provider, executable, gateway string) (string, error) {
 	entry := map[string]any{"command": executable, "args": []string{"mcp", "--url", gateway}}
 	if provider == "agy" {
 		// Keep the shared registration independent of a particular agent process.
-		// The bridge reads TASKFLOW_AGENT_URL and TASKFLOW_AGENT_TOKEN at runtime.
+		// The bridge reads SECTILE_AGENT_URL and SECTILE_AGENT_TOKEN at runtime.
 		entry["args"] = []string{"mcp"}
 	}
 	if err := migrateMCPRegistration(data, provider, entry); err != nil {
@@ -78,7 +78,7 @@ func BootstrapMCP(provider, executable, gateway string) (string, error) {
 	if err = fs.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return "", err
 	}
-	temp := filepath.Join(filepath.Dir(path), ".taskflow-mcp-"+uuid.NewString()+".tmp")
+	temp := filepath.Join(filepath.Dir(path), ".sectile-mcp-"+uuid.NewString()+".tmp")
 	defer fs.Remove(temp)
 	if err = fs.WriteFile(temp, raw, 0600); err != nil {
 		return "", err

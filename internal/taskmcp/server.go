@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/agentconfig"
 	"tasks/internal/db"
+	"tasks/internal/models"
 )
 
 type taskInput struct {
@@ -33,6 +34,20 @@ type listInput struct {
 type contextInput struct {
 	ProjectID string `json:"projectId,omitempty"`
 	TaskKey   string `json:"taskKey,omitempty"`
+}
+
+// createTaskInput mirrors the descriptive half of models.CreateTaskRequest. The
+// fields a caller could use to contradict the board's own invariants — status,
+// source, external URL — are deliberately absent: a task created here enters the
+// workflow where every other new task enters it.
+type createTaskInput struct {
+	ProjectID   string   `json:"projectId"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	IssueType   string   `json:"issueType,omitempty"`
+	Priority    string   `json:"priority,omitempty"`
+	Labels      []string `json:"labels,omitempty"`
+	ParentKey   string   `json:"parentKey,omitempty"`
 }
 
 type startRunInput struct {
@@ -154,7 +169,7 @@ func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
 			projects, err := database.AgentProjects()
 			return nil, projects, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply TASKFLOW_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs. A run this session creates is owned by it: if this client disconnects without finishing it, the server closes the run as canceled. A run reused from a launcher keeps the ownership of that launcher."},
+	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs. A run this session creates is owned by it: if this client disconnects without finishing it, the server closes the run as canceled. A run reused from a launcher keeps the ownership of that launcher."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in startRunInput) (*mcp.CallToolResult, any, error) {
 			activity, err := database.StartRemoteRun(in.TaskKey, in.Skill, in.RunID)
 			if err != nil {
@@ -178,5 +193,51 @@ func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
 			sessions.Release(sessionID(req.Session), in.RunID)
 			return nil, activity, nil
 		})
+	mcp.AddTool(s, &mcp.Tool{Name: "create_task", Description: "Create a task on an explicitly named project and return it with its key and external URL. Creation is remote whenever the project's tracker supports it, and fails rather than leaving a ticket that exists only on the local board. The new task enters the workflow at its first stage; it cannot be created at a later one.", InputSchema: map[string]any{
+		"type": "object", "additionalProperties": false, "required": []string{"projectId", "title"},
+		"properties": map[string]any{
+			"projectId":   map[string]any{"type": "string", "minLength": 1, "description": "Project primary key from list_projects. Required and never inferred: a bare task key can name another project's ticket."},
+			"title":       map[string]any{"type": "string", "minLength": 1},
+			"description": map[string]any{"type": "string"},
+			"issueType":   map[string]any{"type": "string", "description": "Project issue type, for example Task or Story."},
+			"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "urgent"}},
+			"labels":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Custom labels. The workflow label is assigned by the board."},
+			"parentKey":   map[string]any{"type": "string", "description": "Key of the parent macro or epic."},
+		},
+	}}, func(ctx context.Context, req *mcp.CallToolRequest, in createTaskInput) (*mcp.CallToolResult, any, error) {
+		projectID := strings.TrimSpace(in.ProjectID)
+		if projectID == "" {
+			return nil, nil, fmt.Errorf("projectId is required: name the project explicitly, list_projects reports the available primary keys")
+		}
+		if strings.TrimSpace(in.Title) == "" {
+			return nil, nil, fmt.Errorf("title is required")
+		}
+		// CreateTask falls back to the first project when the identifier does not
+		// resolve, which would file the ticket on someone else's board without
+		// saying so. A session that names a project must get that project.
+		project, err := database.GetProjectByID(projectID)
+		if err != nil {
+			return nil, nil, err
+		}
+		if project == nil {
+			return nil, nil, fmt.Errorf("project not found: %s", projectID)
+		}
+		task, err := database.CreateTask(models.CreateTaskRequest{
+			// Remote creation is required, not preferred: a ticket an agent files
+			// has to exist where a human will see it.
+			RequireRemoteCreation: true,
+			ProjectID:             project.ID,
+			Title:                 strings.TrimSpace(in.Title),
+			Description:           in.Description,
+			Priority:              models.Priority(strings.TrimSpace(in.Priority)),
+			Labels:                in.Labels,
+			IssueType:             strings.TrimSpace(in.IssueType),
+			ParentKey:             strings.TrimSpace(in.ParentKey),
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"task": task}, nil
+	})
 	return s
 }

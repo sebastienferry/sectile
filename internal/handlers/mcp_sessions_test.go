@@ -261,13 +261,13 @@ func TestMCPSessionTimeoutOverride(t *testing.T) {
 	if got := mcpSessionTimeout(); got != defaultMCPSessionTimeout {
 		t.Fatalf("default timeout = %s, want %s", got, defaultMCPSessionTimeout)
 	}
-	t.Setenv("TASKFLOW_MCP_SESSION_TIMEOUT", "90s")
+	t.Setenv("SECTILE_MCP_SESSION_TIMEOUT", "90s")
 	if got := mcpSessionTimeout(); got != 90*time.Second {
 		t.Fatalf("configured timeout = %s, want 90s", got)
 	}
 	// An unusable value must not silently remove the bound on zombie sessions.
 	for _, raw := range []string{"soon", "-1m", "0"} {
-		t.Setenv("TASKFLOW_MCP_SESSION_TIMEOUT", raw)
+		t.Setenv("SECTILE_MCP_SESSION_TIMEOUT", raw)
 		if got := mcpSessionTimeout(); got != defaultMCPSessionTimeout {
 			t.Fatalf("timeout for %q = %s, want the default", raw, got)
 		}

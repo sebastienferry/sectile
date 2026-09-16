@@ -24,7 +24,7 @@ import (
 // identifier without knowing what it means.
 func TestKilledBridgeClosesItsRun(t *testing.T) {
 	// The handler reads the timeout when it is built, so this must precede it.
-	t.Setenv("TASKFLOW_MCP_SESSION_TIMEOUT", "1s")
+	t.Setenv("SECTILE_MCP_SESSION_TIMEOUT", "1s")
 	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestKilledBridgeClosesItsRun(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	daemon := &agentDaemon{serverURL: upstream.URL, token: "test-token"}
+	daemon := &agentDaemon{serverURL: upstream.URL, token: "test-token", loopbackToken: "session-secret"}
 	if err := daemon.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestKilledBridgeClosesItsRun(t *testing.T) {
 	}
 
 	command := exec.Command(os.Args[0], "-test.run=^TestMCPStdioHelper$")
-	command.Env = append(os.Environ(), "TASKFLOW_MCP_HELPER=1", "TASKFLOW_AGENT_URL="+daemon.agentURL, "TASKFLOW_AGENT_TOKEN=")
+	command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+daemon.agentURL, "SECTILE_AGENT_TOKEN="+daemon.loopbackToken)
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
 	if err != nil {
 		t.Fatal(err)

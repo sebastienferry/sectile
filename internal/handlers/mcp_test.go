@@ -25,7 +25,7 @@ func (tr testTokenTransport) RoundTrip(r *http.Request) (*http.Response, error) 
 func TestMCPToolsEndToEnd(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "integration-secret")
+	t.Setenv("SECTILE_SERVER_TOKEN", "integration-secret")
 	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "MCP workflow", Status: models.StatusToClarify})
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +46,7 @@ func TestMCPToolsEndToEnd(t *testing.T) {
 	defer session.Close()
 	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 8 {
+	if err != nil || len(list.Tools) != 9 {
 		t.Fatalf("tools = %+v, %v", list, err)
 	}
 	call := func(name string, args any, wantError bool) *mcp.CallToolResult {
@@ -123,7 +123,7 @@ func TestMCPToolsEndToEnd(t *testing.T) {
 func TestAgentConfigAuthAndProjection(t *testing.T) {
 	h, _, cleanup := setupTestHandler(t)
 	defer cleanup()
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "expected")
+	t.Setenv("SECTILE_SERVER_TOKEN", "expected")
 	handler := h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig))
 	for _, token := range []string{"", "wrong", "expected"} {
 		req := httptest.NewRequest("GET", "/api/v1/agent/config?projectId=default", nil)
@@ -165,7 +165,7 @@ func TestAgentConfigAuthAndProjection(t *testing.T) {
 func TestAgentProjectDiscovery(t *testing.T) {
 	h, _, cleanup := setupTestHandler(t)
 	defer cleanup()
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "discovery-secret")
+	t.Setenv("SECTILE_SERVER_TOKEN", "discovery-secret")
 	handler := h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects))
 	for _, token := range []string{"", "discovery-secret"} {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/agent/projects", nil)
@@ -257,7 +257,7 @@ func TestWebSkillRequiresLocalAgent(t *testing.T) {
 func TestAgentConfigServesLegacyBareTemplateAsEmpty(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "expected")
+	t.Setenv("SECTILE_SERVER_TOKEN", "expected")
 	if _, err := database.UpdateSettings(models.Settings{AIProvider: "agy", AICommandTemplate: "agy"}); err != nil {
 		t.Fatal(err)
 	}

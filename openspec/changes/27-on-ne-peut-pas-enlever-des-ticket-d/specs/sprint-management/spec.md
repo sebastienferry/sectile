@@ -1,6 +1,6 @@
 ## Purpose
 
-Functional specification and acceptance criteria for unassigning individual tasks or batch tasks from a sprint to the backlog in TaskFlow UI and API.
+Functional specification and acceptance criteria for unassigning individual tasks or batch tasks from a sprint to the backlog in Sectile UI and API.
 
 ## ADDED Requirements
 
@@ -39,7 +39,7 @@ The application SHALL allow selecting multiple cards within the Sprint view and 
 ---
 
 ### Requirement: Backend Persistence and Tracker Sync for Sprint Unassignment
-The TaskFlow backend server SHALL persist sprint removal in the local database (SQLite) and queue the corresponding synchronization operation with the configured tracker (GitHub, Linear, or Jira).
+The Sectile backend server SHALL persist sprint removal in the local database (SQLite) and queue the corresponding synchronization operation with the configured tracker (GitHub, Linear, or Jira).
 
 #### Scenario: Backend processing of sprint unassignment
 - **GIVEN** an HTTP request `POST /api/tasks/{id}/sprint` sent with payload `{"sprintId": "", "sprintName": ""}`

@@ -4,7 +4,7 @@
 - `npm run build --prefix desktop`: passed, 10 modules transformed.
 - `npm run test:ui --prefix desktop`: baseline and final rerun each passed 7 tests, 0 failed.
 - Web `npm run build`, `npm run lint`, `npm test`: passed; 22 tests, 0 failures. Existing React lint warnings, bundle-size warning, and Vite worktree-path warning remain.
-- `go test ./internal/...`, `go vet ./...`, `go build -o /tmp/taskflow-65 ./cmd/server`: passed after granting cache/socket access.
+- `go test ./internal/...`, `go vet ./...`, `go build -o /tmp/sectile-65 ./cmd/server`: passed after granting cache/socket access.
 - Temporary assertions in the existing isolated Electron fixture passed: selected background `rgb(32, 48, 51)`, transparent border, unselected transparent background, unchanged size `182.8125 x 35.5`, and keyboard focus `outline-style: auto; outline-width: 1px` with `:focus-visible` true.
 - Inspected the rendered screenshot: selection is a solid background without an accent border. Temporary fixture removed; no permanent test added for this small CSS-only change.
 

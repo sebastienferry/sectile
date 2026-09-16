@@ -11,6 +11,9 @@ import (
 	"tasks/internal/agentconfig"
 )
 
+// consoleRunKind marks a free console run, which holds no background worker capacity.
+const consoleRunKind = "console"
+
 func consoleCommand(provider string) (string, error) {
 	switch provider {
 	case "codex", "claude":
@@ -60,7 +63,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	run.desktop.Kind, run.desktop.Provider = "console", input.Provider
+	run.desktop.Kind, run.desktop.Provider = consoleRunKind, input.Provider
 	entry := run.desktop
 	d.runsMu.Unlock()
 	// The daemon owns the execution after admission, independently of the request.
@@ -72,16 +75,19 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 
 func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 	err := d.awaitRunSlot(context.Background(), run)
+	if err == nil && d.terminalMgr == nil {
+		err = fmt.Errorf("terminal manager unavailable")
+	}
 	if err == nil {
 		var wrapped string
 		wrapped, err = d.wrapRun("", run.desktop.ID, command)
 		if err == nil {
 			env := map[string]string{
-				"TASKFLOW_TASK_KEY": "", "TASKFLOW_TASK_ID": "", "TASKFLOW_RUN_ID": "",
-				"TASKFLOW_TASK_BRANCH": "", "TASKFLOW_TASK_WORKTREE": "", "TASKFLOW_REMOTE_MODE": "",
-				"TASKFLOW_PROJECT_ID": run.desktop.ProjectID,
-				"TASKFLOW_AGENT_URL":  d.agentURL, "TASKFLOW_SERVER_URL": d.serverURL,
-				"TASKFLOW_AGENT_TOKEN": d.token,
+				"SECTILE_TASK_KEY": "", "SECTILE_TASK_ID": "", "SECTILE_RUN_ID": "",
+				"SECTILE_TASK_BRANCH": "", "SECTILE_TASK_WORKTREE": "", "SECTILE_REMOTE_MODE": "",
+				"SECTILE_PROJECT_ID": run.desktop.ProjectID,
+				"SECTILE_AGENT_URL":  d.agentURL, "SECTILE_SERVER_URL": d.serverURL,
+				"SECTILE_AGENT_TOKEN": d.loopbackToken,
 			}
 			_, err = d.terminalMgr.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {

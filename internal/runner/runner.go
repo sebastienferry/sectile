@@ -1779,7 +1779,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	case "adjust":
 		promptTemplate = `Adjust the existing PR for {issueKey}: {issueTitle}.
 Repository: {repoPath}. Assigned branch: {branchName}.
-Before modifying files, verify and record the matching open PR. If missing, stop and use the configured earlier creation stage. Never create or replace a PR here.
+Before modifying files, verify and record the matching task-branch PR: open, or already merged by the human. If missing, stop and use the configured earlier creation stage. Never create or replace a PR here, and never push onto a merged PR.
 Fetch and reconcile the remote default branch, review the complete diff against the specification, retrieve available review feedback, fix findings and record feedback dispositions. Feedback retrieval failure blocks completion; no human comments is valid.
 Run build, lint and tests on the final code; commit and push changes; update the same PR description and evidence and verify it is ready and contains the pushed final commit. Preserve work on any failure. Never merge, approve, close the ticket or clean up the worktree.`
 		if settings.PromptCreatePR != "" {
@@ -1819,7 +1819,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	}
 
 	if skillID == "specify" || skillID == "implement" {
-		promptTemplate += "\nRead the project PR creation policy through TaskFlow. Specification owns creation only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
+		promptTemplate += "\nRead the project PR creation policy through Sectile. Specification owns creation only for specified timing; otherwise implementation owns it. After required owner checks, commit/push, discover and reuse the branch PR or create a draft only on confirmed absence, and report prUrl. Lookup failure is not absence. Preserve a reused ready PR. On PR recovery, preserve accepted work and the attained stage; do not advance to reviewed."
 	}
 	if skillID == "adjust" {
 		promptTemplate += "\n\n" + AdjustmentContract
@@ -2441,7 +2441,7 @@ func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, i
 	customTermCmd = strings.TrimSpace(customTermCmd)
 
 	// Create a temporary launcher script
-	tmpFile, err := os.CreateTemp("", "taskflow-term-*.command")
+	tmpFile, err := os.CreateTemp("", "sectile-term-*.command")
 	if err != nil {
 		return fmt.Errorf("failed to create temporary terminal script: %w", err)
 	}
@@ -2618,7 +2618,7 @@ func (r *Runner) SessionCommandLine(inv *AIInvocation) (string, func(), error) {
 		return "", func() {}, fmt.Errorf("invocation vide")
 	}
 
-	f, err := os.CreateTemp("", "taskflow-prompt-*.md")
+	f, err := os.CreateTemp("", "sectile-prompt-*.md")
 	if err != nil {
 		return "", func() {}, err
 	}

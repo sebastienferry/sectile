@@ -18,6 +18,7 @@ import (
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
+	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/models"
 	"tasks/internal/taskmcp"
@@ -46,6 +47,14 @@ type Handler struct {
 	// mcpSessions owns the lifecycle of MCP client sessions and of the runs
 	// they start, so a client that disappears cannot leave a task active.
 	mcpSessions *taskmcp.SessionRegistry
+	// identityProvider is nil when no OpenID Connect provider is configured,
+	// which leaves the interface on its single implicit user.
+	identityProvider *auth.Provider
+	// agentPingInterval and agentReadTimeout tune the WebSocket keepalive that
+	// detects agents which vanished without closing their connection. Set once
+	// at construction; tests shorten them to observe a drop quickly.
+	agentPingInterval time.Duration
+	agentReadTimeout  time.Duration
 }
 
 func (h *Handler) SetPullOnConnect(enable bool) {
@@ -60,10 +69,12 @@ func NewHandler(database *db.DB) *Handler {
 		runs = database
 	}
 	h := &Handler{
-		db:              database,
-		subscribers:     make(map[chan Event]bool),
-		agentDispatcher: NewAgentDispatcher(),
-		mcpSessions:     taskmcp.NewSessionRegistry(runs),
+		db:                database,
+		subscribers:       make(map[chan Event]bool),
+		agentDispatcher:   NewAgentDispatcher(),
+		mcpSessions:       taskmcp.NewSessionRegistry(runs),
+		agentPingInterval: defaultAgentPingInterval,
+		agentReadTimeout:  defaultAgentReadTimeout,
 	}
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
@@ -142,7 +153,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "taskflow-api"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "sectile-api"})
 }
 
 func (h *Handler) HandleCliStatus(w http.ResponseWriter, r *http.Request) {
@@ -812,7 +823,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/macros: the macro metadata TaskFlow owns:
+	// Sub-action: /api/projects/{id}/macros: the macro metadata Sectile owns:
 	// horizon (NOW / NEXT / LATER), shaping notes and todos.
 	if len(parts) >= 2 && (parts[1] == "macros" || parts[1] == "epics") {
 		// Creation: /api/projects/{id}/macros/create
@@ -1763,7 +1774,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if task.ProjectID != "" {
 			projectID = task.ProjectID
 		}
-		userID := "default"
+		userID := h.webSessionUser(r)
 		ac := h.agentDispatcher.Lookup(userID, projectID)
 
 		// 1. If a local agent daemon is connected, delegate the execution directly to it!
@@ -1977,8 +1988,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
-			if ac := h.agentDispatcher.Lookup("default", task.ProjectID); ac != nil {
-				err := h.agentDispatcher.Dispatch("default", task.ProjectID, "dispatch_step", task.ID, map[string]string{
+			userID := h.webSessionUser(r)
+			if ac := h.agentDispatcher.Lookup(userID, task.ProjectID); ac != nil {
+				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
 					"taskKey": task.Key, "taskId": task.ID, "projectId": task.ProjectID, "skillId": req.SkillID, "action": req.SkillID,
 				})
 				if err != nil {
@@ -2009,7 +2021,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		res, err := h.launchTaskExternalTerminal(r.Context(), id, req.Command, req.SkillID, req.TerminalCommand)
+		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID, req.TerminalCommand)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2594,19 +2606,19 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 // HandleTerminalWs upgrades the connection to WebSocket and streams the interactive PTY session
 func (h *Handler) HandleTerminalWs(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalSessions(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalSend(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleTerminalReset(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusGone, "Terminal consoles are owned by taskflow-agent. Open the local desktop console.")
+	writeError(w, http.StatusGone, "Terminal consoles are owned by sectile-agent. Open the local desktop console.")
 }
 
 func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
@@ -2656,6 +2668,18 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	// Register the agent, potentially rebinding an existing session.
 	ac := h.agentDispatcher.Register(userID, projectID, deviceID, conn)
 
+	// Keepalive: without a read deadline a silently dropped connection stays
+	// registered forever, and every operation routed to it stalls for its full
+	// timeout. The deadline is refreshed by each frame the agent sends, pongs
+	// included; gorilla answers the server pings from the agent's own read
+	// loop, which stays responsive because operations run in goroutines.
+	_ = conn.SetReadDeadline(time.Now().Add(h.agentReadTimeout))
+	conn.SetPongHandler(func(string) error {
+		ac.Touch()
+		return conn.SetReadDeadline(time.Now().Add(h.agentReadTimeout))
+	})
+	go ac.Keepalive(h.agentPingInterval)
+
 	// Broadcast agent connection event to SSE subscribers.
 	h.BroadcastEvent(Event{
 		Type: "agent_connected",
@@ -2680,9 +2704,14 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, msgData, err := conn.ReadMessage()
 		if err != nil {
+			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				log.Printf("[AgentConnect] Read loop ended for device=%s after %s of silence: %v",
+					deviceID, time.Since(ac.LastSeen()).Round(time.Second), err)
+			}
 			break
 		}
-		ac.LastPingAt = time.Now()
+		ac.Touch()
+		_ = conn.SetReadDeadline(time.Now().Add(h.agentReadTimeout))
 
 		var msg AgentMessage
 		if err := json.Unmarshal(msgData, &msg); err != nil {
@@ -2717,13 +2746,19 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveAgentUser maps an agent authentication token to a user ID. In the
-// current single-user deployment, any non-empty token resolves to "default".
+// resolveAgentUser maps an agent device credential to the user it is bound to.
+// A deployment that has not paired any workstation keeps working through the
+// shared server token, which resolves to the single implicit user.
 func (h *Handler) resolveAgentUser(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	if userID := h.db.UserForDeviceToken(token); userID != "" {
+		return userID
+	}
 	if !validAgentToken(token) {
 		return ""
 	}
-	// Future: validate against a user/token store.
 	return "default"
 }
 
@@ -2760,7 +2795,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.UserID == "" {
-		req.UserID = "default"
+		req.UserID = h.webSessionUser(r)
 	}
 	if req.ProjectID == "" {
 		req.ProjectID = "default"
@@ -2769,7 +2804,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 	// Session guard: verify the requesting user matches the agent owner.
 	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
 	if ac == nil {
-		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'taskflow-agent' on your workstation.")
+		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'sectile-agent' on your workstation.")
 		return
 	}
 
@@ -2889,7 +2924,6 @@ func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-
 // HandleOpenEditor opens a workspace, worktree, or path in the user's code editor (default: code)
 func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -2945,7 +2979,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-	result, err := h.launchTaskExternalTerminal(r.Context(), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
+	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -2953,11 +2987,13 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 	writeJSON(w, http.StatusOK, result)
 }
 
+// LaunchTaskExternalTerminal serves callers with no HTTP request of their own,
+// which is why it names the implicit user rather than resolving one.
 func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
-	return h.launchTaskExternalTerminal(context.Background(), taskID, command, skillID, customTermCmd)
+	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID, customTermCmd)
 }
 
-func (h *Handler) launchTaskExternalTerminal(ctx context.Context, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
+func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
@@ -2982,7 +3018,9 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, taskID, comman
 	if task.ProjectID != "" {
 		projectID = task.ProjectID
 	}
-	userID := "default"
+	if userID == "" {
+		userID = ImplicitUser
+	}
 	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
 		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
 		launchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)

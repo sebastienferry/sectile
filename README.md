@@ -70,7 +70,7 @@ In Sectile Desktop, click the connected server address in the header (or focus i
 
 ## Task access from workflow skills
 
-Workflow skills use the local TaskFlow agent's exposed task-management interface first. When that interface is unavailable, `http://localhost:8090` is a temporary fallback and the integration failure must be recorded. Resolve the project and full task ID before mutations: a ticket key alone can match another repository. Managed runs retain ownership of result validation and stage transitions. See [the workflow access policy](docs/CAPABILITIES.md#task-access-from-agent-sessions).
+Workflow skills use the local Sectile agent's exposed task-management interface first. When that interface is unavailable, `http://localhost:8090` is a temporary fallback and the integration failure must be recorded. Resolve the project and full task ID before mutations: a ticket key alone can match another repository. Managed runs retain ownership of result validation and stage transitions. See [the workflow access policy](docs/CAPABILITIES.md#task-access-from-agent-sessions).
 
 ## Quick start
 
@@ -84,10 +84,12 @@ make server agent
 Start the server with its persistent database and shared agent credential:
 
 ```sh
-export TASKFLOW_SERVER_TOKEN='<shared agent credential>'
-export TASKFLOW_GITHUB_TOKEN='<GitHub API token>'
-# For Linear projects: export TASKFLOW_LINEAR_API_KEY='<Linear API key>'
-DB_PATH=/path/to/tasks.db PORT=8090 ./bin/taskflow-server
+export SECTILE_SERVER_TOKEN='<shared agent credential>'
+export SECTILE_TRACKER_TOKEN='<tracker API token>'
+# Serving GitHub and Linear at once? Override per provider:
+# export SECTILE_GITHUB_TOKEN='<GitHub API token>'
+# export SECTILE_LINEAR_API_KEY='<Linear API key>'
+DB_PATH=/path/to/tasks.db PORT=8090 ./bin/sectile-server
 ```
 
 Open **http://localhost:8090**. The server never opens a browser or starts local
@@ -99,8 +101,8 @@ existing browser REST API is still a single-user interface.
 On the workstation:
 
 ```sh
-export TASKFLOW_AGENT_TOKEN='<same shared agent credential>'
-./bin/taskflow-agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
+export TOKEN='<same shared agent credential>'
+./bin/sectile-agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
 
 Install and authenticate the coding CLI and Git tools on that workstation.
@@ -112,10 +114,34 @@ For development, use `make dev-server` and `make dev-web` in separate terminals.
 
 | Setting | Meaning |
 | --- | --- |
-| `TASKFLOW_GITHUB_TOKEN` | GitHub API credential; `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
-| `TASKFLOW_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
-| `TASKFLOW_LINEAR_API_KEY` | Linear API credential; `LINEAR_API_KEY` is an environment-only fallback. |
-| `TASKFLOW_LINEAR_API_URL` | GraphQL endpoint; defaults to `https://api.linear.app/graphql`. |
+| `SECTILE_TRACKER_TOKEN` | Tracker API credential, used by every provider that has no override below. |
+| `SECTILE_GITHUB_TOKEN` | GitHub-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
+| `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
+| `SECTILE_LINEAR_API_KEY` | Linear-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `LINEAR_API_KEY` is an environment-only fallback. |
+| `SECTILE_LINEAR_API_URL` | GraphQL endpoint; defaults to `https://api.linear.app/graphql`. |
+
+The token is read from the environment of the **server process itself**, at
+startup only. `make serve`, `go run ./cmd/server` and `./bin/sectile-server`
+inherit the shell they are launched from, so exporting the variable in another
+terminal — or after the server is already running — has no effect: restart the
+server. A `gh` login on the same machine is not picked up either; for GitHub only
+`SECTILE_GITHUB_TOKEN`, then `SECTILE_TRACKER_TOKEN`, then `GH_TOKEN`, then
+`GITHUB_TOKEN` are consulted. The provider-specific variable comes first so a
+server driving both GitHub and Linear cannot send one provider's credential to
+the other.
+
+For a GitHub project the token needs, at minimum, read and write access to the
+issues of the configured repositories, plus repository metadata. A fine-grained
+token therefore grants **Issues: read and write** and **Metadata: read** on those
+repositories; a classic token uses the `repo` scope. For a quick local setup,
+`SECTILE_TRACKER_TOKEN="$(gh auth token)"` reuses an existing `gh` login, which is
+convenient but tied to that CLI session rather than being a durable credential.
+
+Without a usable token the server keeps serving the board from its database, but
+every tracker round-trip fails with `configure SECTILE_TRACKER_TOKEN on the
+server`: task comments do not load and workflow stage transitions do not reach
+the ticket. Verify the server picked the credential up by opening a task and
+checking that its comments load — that read goes through the tracker API.
 
 Credentials are read at server startup and are excluded from agent configuration.
 Supply access to the configured repositories/teams and the operations you use
@@ -126,26 +152,26 @@ API failures fail the operation visibly; there is no workstation fallback.
 
 ### Releases and migration
 
-`make release` emits `taskflow-server-<os>-<arch>` and
-`taskflow-agent-<os>-<arch>` under `dist/`, with `.exe` for Windows.
+`make release` emits `sectile-server-<os>-<arch>` and
+`sectile-agent-<os>-<arch>` under `dist/`, with `.exe` for Windows.
 Supported targets are Darwin arm64/amd64, Linux arm64/amd64 and Windows amd64.
 
 | Previous invocation | Replacement |
 | --- | --- |
-| `taskflow` or `sectile` (server) | `taskflow-server` |
-| `taskflow agent ...` | `taskflow-agent ...` |
-| `taskflow mcp ...` or `sectile mcp ...` | `taskflow-agent mcp ...` |
+| `sectile` or `sectile` (server) | `sectile-server` |
+| `sectile agent ...` | `sectile-agent ...` |
+| `sectile mcp ...` or `sectile mcp ...` | `sectile-agent mcp ...` |
 | Unified `stage` / `sync-skills` commands | Agent MCP `transition_stage` / project skill deployment through the agent |
 
 Upgrade the server and agent together. No unified compatibility executable is
 built. Update service units, native client MCP registrations and custom launchers.
-The agent refreshes generated MCP registrations on dispatch. `TASKFLOW_OPEN_BROWSER`
-and `TASKFLOW_NO_BROWSER` are obsolete. The old server `/ws/terminal` and terminal
+The agent refreshes generated MCP registrations on dispatch. `SECTILE_OPEN_BROWSER`
+and `SECTILE_NO_BROWSER` are obsolete. The old server `/ws/terminal` and terminal
 session routes return 410; use the agent-owned desktop console.
 
 The product remains **Sectile**. Database lookup, `.taskflow/` configuration,
-`.tasks/` worktrees, `TASKFLOW_*`/legacy `TASKACAO_*` execution context and the
-`taskflow-api` health identifier remain compatible. No database files are moved
+`.tasks/` worktrees, `SECTILE_*`/legacy `TASKACAO_*` execution context and the
+`sectile-api` health identifier remain compatible. No database files are moved
 or deleted. Local CLI credentials remain available to agent-side coding and PR
 commands; configure the server credentials separately.
 
@@ -157,7 +183,7 @@ Une suite documentaire complète pour développeurs et LLMs est disponible dans 
 - ⚡ [**Capacités & Workflows Agentiques** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md) : Multi-projets, pipeline de 5 skills, Auto-Pilot, synchronisation Linear / GitHub.
 - 🎨 [**Composants UX & Design Frontend** (`docs/UX_COMPONENTS.md`)](./docs/UX_COMPONENTS.md) : Kanban drag-and-drop, vue liste, terminal interactif Xterm.js, inspecteur de Diff Git.
 - 🔌 [**Spécification API & Schéma de Données** (`docs/API_AND_DATA_SPEC.md`)](./docs/API_AND_DATA_SPEC.md) : Schéma SQLite complet, endpoints REST et agent-owned console protocol.
-- 🤖 [**Guide de Ré-implémentation pour LLMs** (`docs/REIMPLEMENTATION_GUIDE.md`)](./docs/REIMPLEMENTATION_GUIDE.md) : Blueprint étape par étape pour reconstruire TaskFlow de zéro.
+- 🤖 [**Guide de Ré-implémentation pour LLMs** (`docs/REIMPLEMENTATION_GUIDE.md`)](./docs/REIMPLEMENTATION_GUIDE.md) : Blueprint étape par étape pour reconstruire Sectile de zéro.
 
 ---
 
@@ -173,7 +199,7 @@ Une suite documentaire complète pour développeurs et LLMs est disponible dans 
 
 ## Remote execution and MCP
 
-Sectile exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
+Sectile exposes nine typed tools at the Streamable HTTP endpoint `/mcp`:
 
 - `list_projects`: discover project primary keys, names and Git remotes.
 - `get_task`: read task details and comments.
@@ -181,6 +207,7 @@ Sectile exposes eight typed tools at the Streamable HTTP endpoint `/mcp`:
 - `add_comment`: post a task comment.
 - `list_tasks`: list tasks with optional filters.
 - `get_project_context`: read project execution settings and effective instructions.
+- `create_task`: file a new ticket on an explicitly named project, remotely whenever its tracker supports it.
 - `start_run`: start or reuse the invocation's remote run.
 - `finish_run`: finish that run without advancing the task stage.
 
@@ -200,18 +227,45 @@ the real process.
 `GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
 and the runs it owns. The board's status bar shows that count and opens a panel
 naming each connected client, how long it has been attached, and the runs that
-would close with it. `TASKFLOW_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
-silent session, and `TASKFLOW_MCP_CLIENT` names a bridge in that list. A server
+would close with it. `SECTILE_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
+silent session, and `SECTILE_MCP_CLIENT` names a bridge in that list. A server
 restart ends every session without closing its runs: the server cannot tell a
 client that died from one that will reconnect, so those runs are finished from
 the activity UI or through MCP.
 
-Run the central server with `TASKFLOW_SERVER_TOKEN` set to a shared agent
+### Signing in and pairing a workstation
+
+A deployment shared by several people signs them in through an OpenID Connect
+provider. Configure it on the server:
+
+```sh
+export SECTILE_OIDC_ISSUER='https://example.okta.com'
+export SECTILE_OIDC_CLIENT_ID='<client id>'
+export SECTILE_OIDC_CLIENT_SECRET='<client secret>'
+export SECTILE_OIDC_REDIRECT_URL='https://sectile.example.com/auth/callback'
+```
+
+The provider's endpoints are discovered from its metadata document at startup.
+A provider that cannot be reached stops the server rather than serving the
+interface unauthenticated. Without these variables the interface keeps a single
+implicit user, which is how a personal deployment runs.
+
+Each person then pairs their workstation from the profile dialog: generate a
+pairing code, and enter it once in the desktop app. The code is single use and
+expires in ten minutes; it is exchanged for a credential stored on that
+machine, revocable per workstation without disturbing the others.
+
+`SECTILE_DEV_IDENTITY=1` allows naming a user through an `X-Sectile-User`
+header, to exercise several accounts before a provider exists. It is an
+impersonation switch: it is ignored once a provider is configured, and it must
+stay off elsewhere.
+
+Run the central server with `SECTILE_SERVER_TOKEN` set to a shared agent
 credential, then start the workstation agent in an existing clone:
 
 ```sh
-export TASKFLOW_AGENT_TOKEN='<same credential as TASKFLOW_SERVER_TOKEN>'
-taskflow-agent --url https://taskflow.example.com --project '<project-id>' --repo /path/to/clone
+export TOKEN='<same credential as SECTILE_SERVER_TOKEN>'
+sectile-agent --url https://sectile.example.com --project '<project-id>' --repo /path/to/clone
 ```
 
 The agent fetches `GET /api/v1/agent/config`, creates or validates local Git
@@ -223,7 +277,7 @@ excluded from the configuration contract. The old agent `--db` option is removed
 A disconnected or incompatible configuration API prevents execution.
 
 Before launching an LLM CLI, the local agent automatically registers its own
-`taskflow-agent mcp --url <active-gateway>` bridge in that CLI's **user-level**
+`sectile-agent mcp --url <active-gateway>` bridge in that CLI's **user-level**
 configuration, and installs the managed skills there too. It refreshes both on each
 dispatch, including dynamic gateway ports. Existing settings and other MCP servers
 are preserved; bearer tokens are not written. Native workspace/MCP trust prompts
@@ -249,7 +303,7 @@ project's AI tab; unchecking an agent retires its installation on the next dispa
 
 Custom command templates can use these providers. A `custom` provider is inferred
 from the template's executable name; unknown executables produce an explicit
-bootstrap error. The `taskflow` MCP name is reserved for the agent-managed entry.
+bootstrap error. The `sectile` MCP name is reserved for the agent-managed entry.
 JSON/TOML files are serialized when updated; unrelated setting values are retained.
 
 The External terminal button works without a skill selection and launches the
@@ -257,6 +311,15 @@ configured interactive agent. An explicit command is executed as supplied; a
 selected skill is passed as the initial prompt. The server waits for the local
 agent's launch result, so configuration and terminal-launch errors reach the UI.
 Explicit external requests do not silently fall back to a hidden PTY.
+
+The Discuss action opens the configured agent on a task without running a skill:
+the provider is launched alone, with no skill command and no generated prompt, in
+the task's own checkout and branch. It is offered in the task menu, in the task
+detail and in the desktop launch selectors. The session carries the usual
+`SECTILE_*` environment, so the agent can read the task through the Sectile MCP
+when asked, but the discussion transitions no stage, records no skill result and
+reports nothing to the tracker. It is listed, stoppable and replayable like any
+other execution.
 
 For clients started outside Sectile, manual registration is still available.
 A typical JSON client configuration is:
@@ -267,7 +330,7 @@ A typical JSON client configuration is:
     "sectile": {
       "command": "/absolute/path/to/sectile",
       "args": ["mcp"],
-      "env": {"TASKFLOW_AGENT_URL": "http://127.0.0.1:8091"}
+      "env": {"SECTILE_AGENT_URL": "http://127.0.0.1:8091"}
     }
   }
 }
@@ -275,11 +338,14 @@ A typical JSON client configuration is:
 
 The gateway attaches the daemon's authentication token. If port 8091 is occupied,
 use the gateway URL printed by the agent. Terminals launched by the agent inherit
-the actual `TASKFLOW_AGENT_URL`, including a dynamically allocated port.
-For direct server access, use `taskflow-agent mcp --url https://taskflow.example.com`
-and set `TASKFLOW_AGENT_TOKEN` in that client's environment. Set
-`TASKFLOW_MCP_CLIENT`, or pass `--client`, to name that client in the session
-list; the bridge otherwise reports its host and process id. Protocol output uses
+the actual `SECTILE_AGENT_URL`, including a dynamically allocated port.
+For direct server access, use `sectile-agent mcp --url https://sectile.example.com`
+and set `SECTILE_AGENT_TOKEN` in that client's environment. Against a local
+agent gateway, that variable holds the agent session secret, not a server
+credential: the gateway attaches the workstation's own credential upstream. Set
+`SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in the session
+list; the bridge otherwise reports its host and process id.
+Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
 
@@ -300,7 +366,7 @@ by an explicit terminal choice on the launch request, local overrides, remote
 project/global settings, and environment/auto-detection. The legacy project
 `.taskflow/config.json` is not used as a terminal override. Wildcard agents (`--project all`) require a local
 project mapping or a matching Git origin. A registered concrete project can use
-`--repo` directly. Existing worktrees must match the assigned branch; TaskFlow
+`--repo` directly. Existing worktrees must match the assigned branch; Sectile
 never resets them to accommodate a dispatch.
 
 Skill refresh installs the current server-owned content and records hashes in
@@ -310,7 +376,7 @@ paths are untouched. Put persistent skill overrides in `~/.config/taskflow/setti
 The effective `.taskflow/remote-config.json` snapshot is diagnostic only: it is
 never used as an offline fallback. These generated files are ignored by Git.
 
-The new machine endpoints and agent handshake validate `TASKFLOW_SERVER_TOKEN`
+The new machine endpoints and agent handshake validate `SECTILE_SERVER_TOKEN`
 when configured. Without it, legacy single-user mode accepts any nonempty token.
 This does not add multi-user login or authentication to the existing web/REST UI;
 remote deployments still need their existing access-control boundary.
@@ -324,16 +390,16 @@ application, see the desktop setup section below. Start the server in one termin
 ```sh
 npm ci --prefix web
 make server agent
-export TASKFLOW_SERVER_TOKEN='<your shared token>'
-./bin/taskflow-server
+export SECTILE_SERVER_TOKEN='<your shared token>'
+./bin/sectile-server
 ```
 
 Start the local launcher in another terminal, using the project ID shown in
-TaskFlow and an existing local clone:
+Sectile and an existing local clone:
 
 ```sh
-export TASKFLOW_AGENT_TOKEN='<the same shared token>'
-./bin/taskflow-agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
+export TOKEN='<the same shared token>'
+./bin/sectile-agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
 ```
 
 `terminal` selects Terminal.app on macOS. Other supported choices include
@@ -369,11 +435,11 @@ launch downloads fresh configuration; there is no offline execution fallback.
 
 ### One local agent for multiple projects
 
-With `TASKFLOW_AGENT_TOKEN` set, discover projects and start the agent:
+With `TOKEN` set, discover projects and start the agent:
 
 ```sh
-taskflow-agent --url http://localhost:8090 --list-projects
-taskflow-agent --url http://localhost:8090
+sectile-agent --url http://localhost:8090 --list-projects
+sectile-agent --url http://localhost:8090
 ```
 
 The agent defaults to all projects. The current checkout is matched by its Git
@@ -391,7 +457,7 @@ skill settings are downloaded from the server before each launch; no
 [server/agent contract](docs/contracts/server-agent-v1.md) for identity and mapping rules.
 
 The profile dialog includes a **Local agent** section with an editable server URL
-and a copyable launch command. Set `TASKFLOW_AGENT_TOKEN` in your terminal before
+and a copyable launch command. Set `TOKEN` in your terminal before
 running it; the UI does not store or display the server credential.
 
 Task cards and the task clarification panel provide **Copy skill command**.
@@ -400,13 +466,16 @@ command. Commands use the task primary key and project identity with MCP
 instructions. Run them in a local repository where the project skills and
 Sectile MCP are already configured.
 
-Remote work is shown on task cards and list rows with a **Remote execution** badge.
+Remote work is shown on task cards and list rows with a single run icon: spinning
+while running, a clock while queued, and a crossed circle for a few seconds after a
+cancellation. Hovering or focusing an icon for a run owned by your own agent turns it
+into a stop control that cancels the run in place.
 The MCP tools `start_run` and `finish_run` track the invocation
 independently of stage transitions. Updated standalone skills and copied commands
 report this lifecycle; existing installed skills need to be refreshed. An abruptly
 closed client may leave an activity to cancel manually in the activity view.
 
-Agent-owned remote executions have a **Stop** button on the task. TaskFlow waits
+Agent-owned remote executions have a **Stop** button on the task. Sectile waits
 for the local supervisor to confirm process termination before marking the run
 canceled. Worktree changes are preserved. This requires restarting the local
 agent with the updated binary; previously launched or independent Codex/Claude
@@ -427,7 +496,7 @@ when disconnected, with a bounded snapshot and Refresh. Logs fill the workspace
 beside the project sidebar and omit terminal control sequences for readability.
 See [desktop usage](desktop/README.md#use).
 
-Use TaskFlow Desktop to follow native Codex/Claude terminals locally:
+Use Sectile Desktop to follow native Codex/Claude terminals locally:
 
 ```sh
 make desktop-build
@@ -455,8 +524,8 @@ The server, local agent and desktop app are independent components. Start the
 agent without the app:
 
 ```sh
-export TASKFLOW_AGENT_TOKEN='your-server-token'
-taskflow-agent --url http://localhost:8090 --repo /path/to/repository
+export TOKEN='your-server-token'
+sectile-agent --url http://localhost:8090 --repo /path/to/repository
 ```
 
 The agent owns PTYs, supervision and console history. The desktop discovers it
@@ -471,11 +540,11 @@ default file and its legacy private connection file.
 ### Build all components
 
 Run `make all` to build the embedded web server, standalone local agent and
-packaged desktop app. The outputs are `bin/taskflow-server` and
-`bin/taskflow-agent`; the agent starts directly. Use `make server` or
+packaged desktop app. The outputs are `bin/sectile-server` and
+`bin/sectile-agent`; the agent starts directly. Use `make server` or
 `make agent` to build independently, and `make desktop-build`
 for the desktop development assets. On Apple Silicon the app is produced at
-`desktop/release/TaskFlow-darwin-arm64/TaskFlow.app`.
+`desktop/release/Sectile-darwin-arm64/Sectile.app`.
 
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
@@ -487,7 +556,7 @@ The profile is a placeholder for future account management.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1 to 3) defaults.
+The server project supplies `useWorktrees` and `parallelism` (1 to 5) defaults.
 In the desktop project settings, **Inherit worktrees from server** and
 **Inherit from server** for parallel executions remove local overrides.
 Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:
@@ -527,10 +596,10 @@ Legacy repository mappings remain readable and are migrated on the next save.
 | `make serve` | Start the server |
 | `make run` | Start the desktop |
 
-Server and agent are built as `bin/taskflow-server` and `bin/taskflow-agent`. Launch targets use existing
-builds and do not rebuild. Pass agent arguments with, for example,
-`make start ARGS="--url http://localhost:8090"`; provide authentication through
-`TASKFLOW_AGENT_TOKEN`.
+Server and agent are built as `bin/sectile-server` and `bin/sectile-agent` by the `build-*` targets.
+The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
+arguments with, for example, `make start ARGS="--url http://localhost:8090"`; provide
+authentication through `TOKEN`.
 
 ### Browse desktop project tasks
 
@@ -558,19 +627,21 @@ a local fallback. Local projects remain local. Jira remote creation is not
 implemented and returns an explicit error. Creation does not start an execution;
 the success screen offers a separate **Launch task** action.
 
-Task IDs in the desktop sidebar open the task directly on the configured TaskFlow server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.
+Task IDs in the desktop sidebar open the task directly on the configured Sectile server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.
 
-For `agy`, the local agent registers the TaskFlow stdio bridge in
+For `agy`, the local agent registers the Sectile stdio bridge in
 `~/.gemini/config/mcp_config.json`; this CLI does not read the workspace
 `.agents/mcp_config.json`. Other MCP registrations and explicit tool policies are
 preserved. The shared entry contains no token or gateway URL: agent-launched
-sessions inherit `TASKFLOW_AGENT_URL` and `TASKFLOW_AGENT_TOKEN`. Standalone agy
+sessions inherit `SECTILE_AGENT_URL` and `SECTILE_AGENT_TOKEN`, the gateway
+address and its session secret. The credential that identifies the user stays
+inside the agent process and is never exported. Standalone agy
 sessions must supply those variables themselves. Restart agy after registration
 so it loads the updated MCP tools.
 
 ## MCP naming upgrade
 
-MCP tool names now omit the `taskflow_` prefix and the managed server registration
+MCP tool names now omit the `sectile_` prefix and the managed server registration
 is `sectile`. This intentionally breaks old MCP calls: no aliases or fallback
 calls are supported. The bridge and desktop client identities are `sectile-stdio`
 and `sectile-desktop-agent`.
@@ -578,7 +649,7 @@ and `sectile-desktop-agent`.
 1. Upgrade the central server and workstation agent together. Mixed versions are
    unsupported; the stdio bridge rejects incompatible upstream catalogs. Stop
    existing native sessions before switching.
-2. On the next normal agent dispatch, bootstrap migrates the reserved `taskflow`
+2. On the next normal agent dispatch, bootstrap migrates the reserved `sectile`
    registration to one `sectile` entry. It refreshes the connection settings and
    preserves unrelated entries and explicit restrictions for all six providers.
 3. Resolve any migration error before retrying. Recognized server-scoped tool
@@ -605,7 +676,7 @@ Bootstrap does not rewrite separate user or enterprise policy files. Operators
 must also update restrictions supplied by enterprise policy, plugins or custom
 configuration paths before reconnecting clients.
 
-`TASKFLOW_*` variables (including `TASKFLOW_RUN_ID`), `.taskflow/`, database paths,
+`SECTILE_*` variables (including `SECTILE_RUN_ID`), `.taskflow/`, database paths,
 `/mcp`, machine markers and repository/module names remain unchanged. There is no
 data migration. Rollback requires coordinating both binaries and restoring the
 matching client registration and custom instructions.

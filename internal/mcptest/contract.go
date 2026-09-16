@@ -28,6 +28,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 		"list_projects":       {},
 		"start_run":           {"taskKey": task.ID, "skill": "implement"},
 		"finish_run":          {"taskKey": task.ID, "status": "completed", "note": "Canonical contract"},
+		"create_task":         {"projectId": "default", "title": "Canonical contract"},
 	}
 	list, err := session.ListTools(ctx, nil)
 	if err != nil {
@@ -42,7 +43,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 			t.Fatalf("unexpected tool %s", tool.Name)
 		}
 		seen[tool.Name] = true
-		if strings.Contains(tool.Description, "taskflow_") || tool.InputSchema == nil {
+		if strings.Contains(tool.Description, "sectile_") || tool.InputSchema == nil {
 			t.Fatalf("invalid metadata for %s", tool.Name)
 		}
 	}
@@ -63,7 +64,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 	args["start_run"]["runId"] = run.ID
 	args["finish_run"]["runId"] = run.ID
 	call("start_run")
-	for _, name := range []string{"get_task", "get_project_context", "list_tasks", "list_projects"} {
+	for _, name := range []string{"get_task", "get_project_context", "list_tasks", "list_projects", "create_task"} {
 		call(name)
 	}
 	snapshot := func() string {
@@ -89,7 +90,7 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 	before := snapshot()
 	for name, input := range args {
 		legacySession := connect()
-		_, err := legacySession.CallTool(ctx, &mcp.CallToolParams{Name: "taskflow_" + name, Arguments: input})
+		_, err := legacySession.CallTool(ctx, &mcp.CallToolParams{Name: "sectile_" + name, Arguments: input})
 		legacySession.Close()
 		if err == nil || !strings.Contains(err.Error(), "unknown tool") {
 			t.Fatalf("legacy %s was not rejected as unknown: %v", name, err)

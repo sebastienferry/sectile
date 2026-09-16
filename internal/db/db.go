@@ -49,7 +49,7 @@ type SkillJob struct {
 	Op *TrackerOp
 }
 
-// ProjectLimiter limits concurrency of background AI agent skill workers per project (1 to 3).
+// ProjectLimiter limits concurrency of background AI agent skill workers per project (1 to models.MaxParallelism).
 type ProjectLimiter struct {
 	mu      sync.Mutex
 	cond    *sync.Cond
@@ -71,8 +71,8 @@ func (l *ProjectLimiter) Acquire(projectID string, limit int) {
 		if limit < 1 {
 			limit = 1
 		}
-		if limit > 3 {
-			limit = 3
+		if limit > models.MaxParallelism {
+			limit = models.MaxParallelism
 		}
 		if l.running[projectID] < limit {
 			l.running[projectID]++
@@ -125,6 +125,12 @@ func NewDB(dbPath string) (*DB, error) {
 		jobQueue:        make(chan SkillJob, 100),
 		limiter:         newProjectLimiter(),
 		cancelMap:       make(map[string]context.CancelFunc),
+	}
+	if err := db.initIdentitySchema(); err != nil {
+		return nil, err
+	}
+	if err := db.initSessionSchema(); err != nil {
+		return nil, err
 	}
 	if err := db.initSchema(); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
@@ -1783,7 +1789,7 @@ func GetStageLabelForStatus(status models.Status) string {
 }
 
 // workflowLabelVariants est la liste des libellés d'étape, dans les casses que
-// TaskFlow et les trackers utilisent. Jira distingue la casse, donc retirer un
+// Sectile et les trackers utilisent. Jira distingue la casse, donc retirer un
 // label exige de viser la bonne graphie — on les vise toutes.
 var workflowLabelVariants = []string{
 	"untouched", "new", "clarified", "specified", "implemented", "reviewed", "finished", "closed",
@@ -1794,7 +1800,7 @@ var workflowLabelVariants = []string{
 
 // StaleWorkflowLabels liste les labels d'étape à retirer côté tracker quand on
 // pose targetLabel. Sans ça, un ticket accumule clarified, specified,
-// implemented… dans Jira/GitHub alors que TaskFlow n'en montre qu'un.
+// implemented… dans Jira/GitHub alors que Sectile n'en montre qu'un.
 func StaleWorkflowLabels(targetLabel string) []string {
 	target := strings.ToLower(strings.TrimLeft(strings.TrimSpace(targetLabel), "#"))
 	out := []string{}
@@ -3249,7 +3255,7 @@ func (d *DB) startQueueWorker() {
 				return
 			}
 
-			// Concurrency control per project (1 to 3 workers)
+			// Concurrency control per project (1 to models.MaxParallelism workers)
 			limit := d.GetProjectParallelism(projID)
 			d.limiter.Acquire(projID, limit)
 			defer d.limiter.Release(projID)
@@ -3259,12 +3265,12 @@ func (d *DB) startQueueWorker() {
 	}
 }
 
-// GetProjectParallelism returns the configured background workers limit for a project (1 to 3, default 1).
+// GetProjectParallelism returns the configured background workers limit for a project (1 to models.MaxParallelism, default 1).
 func (d *DB) GetProjectParallelism(projectID string) int {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	p, err := d.getProjectByIDUnsafe(projectID)
-	if err == nil && p != nil && p.Parallelism >= 1 && p.Parallelism <= 3 {
+	if err == nil && p != nil && p.Parallelism >= 1 && p.Parallelism <= models.MaxParallelism {
 		return p.Parallelism
 	}
 	return 1
@@ -3411,7 +3417,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 	case job.SkillID == "sync_jira":
 		hasError = true
 		summary = "Support Jira retiré"
-		outputLines = append(outputLines, "Le support de Jira a été retiré de TaskFlow. Utilisez GitHub.")
+		outputLines = append(outputLines, "Le support de Jira a été retiré de Sectile. Utilisez GitHub.")
 
 	case job.SkillID == "sync_all":
 		steps = append(steps, "1. Starting global multi-tracker synchronization...")
@@ -5518,15 +5524,6 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, linearTeam, githubRepo st
 	}
 
 	return results, nil
-}
-
-// skillDirNames lists the installed skill directories, for .taskflow/config.json.
-func skillDirNames(skills []ProjectSkillTemplate) []string {
-	out := make([]string, 0, len(skills))
-	for _, s := range skills {
-		out = append(out, s.DirName)
-	}
-	return out
 }
 
 // applyProjectSettings layers a project's own configuration over the global

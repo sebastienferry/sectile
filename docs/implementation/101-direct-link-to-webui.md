@@ -32,7 +32,7 @@ Existing web lint warnings and the Vite chunk-size warning are in unchanged web 
 PR: https://github.com/sebastienferry/sectile/pull/103
 Branch: `feat/101`.
 
-The configured repository name `taskflow` redirects to `sectile`; GitHub confirms the canonical repository and default branch `main`. The branch includes the fetched default branch. The existing PR has no review or inline feedback. Review verified specification coverage, current-status URL validation, focus persistence, and failure handling. Pre-existing generated skill changes remain outside the issue commits.
+The configured repository name `sectile` redirects to `sectile`; GitHub confirms the canonical repository and default branch `main`. The branch includes the fetched default branch. The existing PR has no review or inline feedback. Review verified specification coverage, current-status URL validation, focus persistence, and failure handling. Pre-existing generated skill changes remain outside the issue commits.
 
 Clarification was recorded successfully. Two `specified` transition calls failed with `local operation not confirmed; check the agent before retrying: context deadline exceeded`. A subsequent task read confirms it remains clarified. The running local agent log contains `[Agent] Unknown message type: workspace_request` at 2026-09-14 20:58:48. The current source handles that message, indicating that the running agent is outdated. Related integration history exists in issue #50; no task-creation MCP tool is exposed. The failure is recorded on #101 and preserved here.
 

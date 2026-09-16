@@ -21,7 +21,7 @@ ok  tasks/internal/tracker    0.811s
 ?   tasks/internal/webui      [no test files]
 ```
 
-- `go build -o /tmp/taskflow-39-bin ./cmd/server`: exit 0, no output.
+- `go build -o /tmp/sectile-39-bin ./cmd/server`: exit 0, no output.
 - Browser regression: exit 0. Actual output:
 
 ```text
