@@ -8,7 +8,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
-import { taskStage, nextTaskStep } from './workflow.mjs'
+import { taskStage, nextTaskStep, closingStep } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
 const api=window.localAgent
@@ -87,7 +87,16 @@ fitTitlebar()
 function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
 function connectionStatus(status){
  const container=document.querySelector('#connection')
- if(!status.connected){container.textContent=status.text||'Local agent ready · Server disconnected';return}
+ // A contract mismatch is not a dropped link: the server answers, but with a
+ // build this agent cannot talk to. Reported as a disconnection it reads as a
+ // network problem and nobody looks at the build, so name it and carry the
+ // agent's own diagnosis in the tooltip.
+ if(!status.connected){
+  container.title=status.contractError||''
+  container.textContent=status.contractError?'Local agent ready · Server incompatible':status.text||'Local agent ready · Server disconnected'
+  return
+ }
+ container.title=''
  let link=container.querySelector('a')
  if(!link){
   link=document.createElement('a')
@@ -360,8 +369,37 @@ document.querySelector('#start').onsubmit=async event=>{
  catch(err){error(err)}finally{button.disabled=!document.querySelector('#shutdown').hidden}
 }
 document.querySelector('#stop').onclick=async()=>{
- if(!selected)return;stopping=true;render()
- try{await api.stop(selected);await refresh()}catch(err){error(err)}finally{stopping=false;render()}
+ if(!selected)return
+ const run=runs.find(item=>item.id===selected)
+ stopping=true;render()
+ let stopped=false
+ try{await api.stop(selected);await refresh();stopped=true}catch(err){error(err)}finally{stopping=false;render()}
+ if(stopped&&run)await offerClosure(run)
+}
+// Stopping an execution is where the user stands when a task has reached
+// reviewed, and nothing else in the desktop proposes its closing step. The
+// offer comes after the stop so that stopping never depends on it: an
+// unreadable task, a project without the skill or a failed stop simply means
+// no dialog.
+async function offerClosure(run){
+ if(freeConsole(run))return
+ let task=null,step=null
+ try{
+  const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
+  task=tasks.find(item=>item.id===run.taskId)
+  step=task?closingStep(task,project):null
+ }catch{return}
+ if(!step)return
+ showDialog('Close '+(task.key||run.taskKey||run.taskId)+'?')
+ paragraph('This task is reviewed: its pull request is in human hands. Closing it runs the handoff skill, which writes the handover report and takes the task to finished.')
+ const confirm=document.createElement('button');confirm.textContent=step.label
+ const notice=document.createElement('p');notice.setAttribute('role','status')
+ dialogBody.append(confirm,notice);confirm.focus()
+ confirm.onclick=async()=>{
+  confirm.disabled=true;notice.textContent='Launching the closing skill…'
+  try{await api.launchServerTask(run.projectId,run.taskId,step.skillId,'');dialog.close();await refresh()}
+  catch(err){notice.textContent=err.message;confirm.disabled=false}
+ }
 }
 function flushSidebar(){if(pendingRender&&!sidebarBusy())render()}
 // Hover and focus targets settle after the event, so the check runs next tick.

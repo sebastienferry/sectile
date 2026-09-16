@@ -21,14 +21,39 @@ const (
 	RunActionAgent = "Agent-owned remote execution"
 )
 
+// RunLaunch is what the launcher knows about a run that the run itself cannot
+// report: the mode it was resolved to, the stage the task sat on when it
+// started, and, for a step of a full chain, the stage that chain stops at. It is
+// recorded at launch because that is the only moment those values are true, and
+// read when the run ends to tell a run that handed the workflow back from one
+// that merely exited.
+type RunLaunch struct {
+	// Mode is the resolved execution mode, autonomous or interactive. Empty when
+	// the launcher did not resolve one, as for a run a standalone CLI declares.
+	Mode string
+	// Stage is the workflow stage of the task at launch.
+	Stage string
+	// ChainStop is set only on a step of a full chain run, to the stage that
+	// chain stops at. Empty means this run chains nothing.
+	ChainStop string
+}
+
 // StartRemoteRun creates an independent execution record. It never locks stages.
 func (d *DB) StartRemoteRun(taskKey, skill, runID string) (*models.TaskActivity, error) {
-	return d.startRemoteRun(taskKey, skill, runID, false)
+	return d.startRemoteRun(taskKey, skill, runID, false, RunLaunch{})
 }
 func (d *DB) StartAgentRemoteRun(taskKey, skill string) (*models.TaskActivity, error) {
-	return d.startRemoteRun(taskKey, skill, "", true)
+	return d.startRemoteRun(taskKey, skill, "", true, RunLaunch{})
 }
-func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool) (*models.TaskActivity, error) {
+
+// StartAgentRun is StartAgentRemoteRun for a launcher that knows how the run was
+// resolved. The stage is read here rather than taken from the caller: the run
+// record must carry the stage the task is really on at the instant it starts.
+func (d *DB) StartAgentRun(taskKey, skill string, launch RunLaunch) (*models.TaskActivity, error) {
+	return d.startRemoteRun(taskKey, skill, "", true, launch)
+}
+
+func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launch RunLaunch) (*models.TaskActivity, error) {
 	task, err := d.GetTaskByID(taskKey)
 	if err != nil {
 		return nil, err
@@ -60,6 +85,13 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool) (*mod
 	if err := d.AddTaskActivity(*activity); err != nil {
 		return nil, err
 	}
+	launch.Stage = d.StageOfTask(task)
+	if launch.Mode != "" || launch.Stage != "" || launch.ChainStop != "" {
+		d.mu.Lock()
+		_, _ = d.conn.Exec("UPDATE task_activities SET run_mode=?, launch_stage=?, chain_stop_stage=? WHERE id=?",
+			models.NormalizeSkillMode(launch.Mode), launch.Stage, launch.ChainStop, activity.ID)
+		d.mu.Unlock()
+	}
 	d.notifyPostBackListeners(task, activity, nil)
 	return activity, nil
 }
@@ -85,6 +117,11 @@ func (d *DB) FinishRemoteRun(taskKey, runID, status, note string) (*models.TaskA
 	count, err := result.RowsAffected()
 	if err != nil {
 		return nil, err
+	}
+	// Only the call that actually closed the run hands it back: finish_run is
+	// idempotent, and a second report must not enqueue a second chain step.
+	if count == 1 {
+		d.handBackRun(task.ID, runID, status)
 	}
 	activity, err := d.GetActivityByID(runID)
 	if err != nil {

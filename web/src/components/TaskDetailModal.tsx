@@ -627,10 +627,14 @@ export const TaskDetailModal: React.FC = () => {
     }
   }
 
-  const handleTriggerSkill = async (skillId: string, overridePrompt?: string) => {
+  // modeOverride est le choix fait sur la carte de la skill, valable pour ce
+  // lancement seulement. Sans lui on retombe sur le sélecteur du panneau, dont
+  // la valeur vide veut dire « pas de surcharge » : c'est alors la précédence
+  // (skill, puis défaut du projet, puis interactif) qui décide.
+  const handleTriggerSkill = async (skillId: string, overridePrompt?: string, modeOverride?: SkillMode) => {
     if (!selectedTask || isSkillRunning) return
     const promptToUse = overridePrompt || customPrompt
-    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: launchMode })
+    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: modeOverride ?? launchMode })
     if (activity && !overridePrompt) {
       setCustomPrompt('')
     }
@@ -1228,36 +1232,69 @@ export const TaskDetailModal: React.FC = () => {
               const isRecommended = nextSkill?.id === s.id
               const isCurrentRunning = isSkillRunning && runningSkillId === s.id
 
+              // La carte n'est plus un bouton : elle en contient trois. Un bouton
+              // imbriqué dans un bouton n'est pas du HTML valide, et le choix du
+              // mode doit être atteignable au clavier comme le lancement.
               return (
-                <button
+                <div
                   key={s.id}
-                  onClick={() => handleTriggerSkill(s.id)}
-                  disabled={isSkillRunning}
                   className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all group relative overflow-hidden ${
                     isRecommended
                       ? 'bg-[var(--accent-light)] border-[var(--accent-color)] accent-text ring-2 ring-[var(--accent-glow)]'
                       : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--accent-color)]/60'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] font-mono font-bold opacity-60">
-                      0{index + 1}
-                    </span>
-                    {isCurrentRunning ? (
-                      <Loader2 size={13} className="animate-spin text-[var(--accent-color)]" />
-                    ) : (
-                      getSkillIcon(s.icon)
-                    )}
-                  </div>
-                  <div>
-                    <div className="font-bold text-xs leading-tight text-[var(--text-primary)] group-hover:text-[var(--accent-color)]">
-                      {s.name}
+                  <button
+                    type="button"
+                    onClick={() => handleTriggerSkill(s.id)}
+                    disabled={isSkillRunning}
+                    aria-label={`Lancer ${s.name} dans le mode configuré`}
+                    className="text-left w-full disabled:opacity-60 cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[10px] font-mono font-bold opacity-60">
+                        0{index + 1}
+                      </span>
+                      {isCurrentRunning ? (
+                        <Loader2 size={13} className="animate-spin text-[var(--accent-color)]" />
+                      ) : (
+                        getSkillIcon(s.icon)
+                      )}
                     </div>
-                    <div className="text-[9px] text-[var(--text-muted)] font-mono mt-0.5">
-                      {s.command}
+                    <div>
+                      <div className="font-bold text-xs leading-tight text-[var(--text-primary)] group-hover:text-[var(--accent-color)]">
+                        {s.name}
+                      </div>
+                      <div className="text-[9px] text-[var(--text-muted)] font-mono mt-0.5">
+                        {s.command}
+                      </div>
                     </div>
+                  </button>
+                  <div className="mt-2 pt-1.5 flex items-center gap-1 border-t border-[var(--border-color)]/60">
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerSkill(s.id, undefined, 'interactive')}
+                      disabled={isSkillRunning}
+                      aria-label={`Lancer ${s.name} en interactif`}
+                      title="Ouvre un terminal que tu réponds, et tu confirmes la transition"
+                      className="flex-1 flex items-center justify-center gap-1 px-1 py-1 rounded-lg text-[9px] font-bold text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:text-[var(--accent-color)] hover:border-[var(--accent-color)]/60 disabled:opacity-40 cursor-pointer"
+                    >
+                      <Terminal size={9} />
+                      <span>Interactif</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerSkill(s.id, undefined, 'autonomous')}
+                      disabled={isSkillRunning}
+                      aria-label={`Lancer ${s.name} en autonome`}
+                      title="Lance la CLI en headless, sans terminal ; le worker pose la transition"
+                      className="flex-1 flex items-center justify-center gap-1 px-1 py-1 rounded-lg text-[9px] font-bold text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-color)] hover:text-[var(--accent-color)] hover:border-[var(--accent-color)]/60 disabled:opacity-40 cursor-pointer"
+                    >
+                      <Bot size={9} />
+                      <span>Autonome</span>
+                    </button>
                   </div>
-                </button>
+                </div>
               )
             })}
         </div>

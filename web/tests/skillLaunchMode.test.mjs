@@ -1,0 +1,65 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { readFile } from 'node:fs/promises'
+
+// The execution mode is wired through JSX handlers, which these files are the
+// only record of: there is no exported function to call. Asserting on the source
+// is weaker than a behavioural test, but it is what stops the wiring from being
+// dropped by an unrelated refactor, which is how the choice went missing from
+// the skill cards in the first place.
+const modal = await readFile(new URL('../src/components/TaskDetailModal.tsx', import.meta.url), 'utf8')
+const context = await readFile(new URL('../src/context/AppContext.tsx', import.meta.url), 'utf8')
+const card = await readFile(new URL('../src/components/TaskCard.tsx', import.meta.url), 'utf8')
+const skills = await readFile(new URL('../src/components/SkillsView.tsx', import.meta.url), 'utf8')
+const project = await readFile(new URL('../src/components/ProjectModal.tsx', import.meta.url), 'utf8')
+
+test('the launch request carries the one-off mode override', () => {
+  assert.match(context, /mode: opts\?\.mode/)
+  assert.match(context, /runSkill: \(taskId: string, skillId: string, prompt\?: string, opts\?: \{ withComments\?: boolean; mode\?: SkillMode \}\)/)
+})
+
+test('a full chain run forces the autonomous mode instead of resolving it', () => {
+  assert.match(context, /auto \? 'autonomous' : mode/)
+})
+
+test('each skill card can be started in either mode', () => {
+  // The card stopped being a single button so it can hold the two mode buttons:
+  // a button nested in a button is invalid HTML.
+  assert.match(modal, /handleTriggerSkill\(s\.id, undefined, 'interactive'\)/)
+  assert.match(modal, /handleTriggerSkill\(s\.id, undefined, 'autonomous'\)/)
+  // The card body still launches in whatever the precedence resolves.
+  assert.match(modal, /onClick=\{\(\) => handleTriggerSkill\(s\.id\)\}/)
+  // Every control is named, since three buttons per card are otherwise
+  // indistinguishable to a screen reader.
+  assert.match(modal, /aria-label=\{`Lancer \$\{s\.name\} en interactif`\}/)
+  assert.match(modal, /aria-label=\{`Lancer \$\{s\.name\} en autonome`\}/)
+  assert.match(modal, /aria-label=\{`Lancer \$\{s\.name\} dans le mode configuré`\}/)
+})
+
+test('a card choice overrides the panel selector for that launch only', () => {
+  assert.match(modal, /const handleTriggerSkill = async \(skillId: string, overridePrompt\?: string, modeOverride\?: SkillMode\)/)
+  assert.match(modal, /\{ mode: modeOverride \?\? launchMode \}/)
+  // The panel selector's empty value stays "no override", not "interactive".
+  assert.match(modal, /<option value="">Mode configuré<\/option>/)
+})
+
+test('the card ... menu offers both modes for a single launch', () => {
+  assert.match(card, /handleAdvance\(false, 'interactive'\)/)
+  assert.match(card, /handleAdvance\(false, 'autonomous'\)/)
+  // The full chain takes no override: it is autonomous by construction.
+  assert.match(card, /handleAdvance\(true\)/)
+})
+
+test('the project modal edits both execution settings', () => {
+  assert.match(project, /defaultSkillMode/)
+  assert.match(project, /fullChainStopStage/)
+  assert.match(project, /<option value="autonomous">/)
+  assert.match(project, /<option value="implemented">/)
+})
+
+test('the skill editor writes a ternary mode', () => {
+  assert.match(skills, /saveSkillMode\(selected\.id, e\.target\.value as SkillMode\)/)
+  // The empty option is what hands the decision back to the project default.
+  assert.match(skills, /\{ value: '', label: 'Défaut du projet'/)
+  assert.match(context, /\/mode`/)
+})

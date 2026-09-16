@@ -44,6 +44,8 @@ import type {
   SkillMode,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
+import { AIModelField } from './AIModelField'
+import { isValidModel } from '../lib/aiModels'
 
 type ProjectTab = 'general' | 'agent' | 'workflow' | 'tracker' | 'skills'
 
@@ -167,6 +169,8 @@ export const ProjectModal: React.FC = () => {
   // Section 3: Agent IA & CLI
   const [aiProvider, setAiProvider] = useState<AIProvider | ''>('')
   const [aiCommandTemplate, setAiCommandTemplate] = useState('')
+  const [aiModel, setAiModel] = useState('')
+  const [aiSkillModels, setAiSkillModels] = useState<Record<string, string>>({})
   const [useCustomAgent, setUseCustomAgent] = useState(false)
   const [setupProviders, setSetupProviders] = useState<string[]>([])
   const [useWorktrees, setUseWorktrees] = useState(true)
@@ -256,6 +260,8 @@ export const ProjectModal: React.FC = () => {
       setUseCustomAgent(hasCustomAgent)
       setAiProvider(editingProject.aiProvider || '')
       setAiCommandTemplate(editingProject.aiCommandTemplate || '')
+      setAiModel(editingProject.aiModel || '')
+      setAiSkillModels(editingProject.aiSkillModels || {})
       setSetupProviders(editingProject.setupProviders || [])
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setUseWorktrees(editingProject.useWorktrees !== false)
@@ -355,9 +361,26 @@ export const ProjectModal: React.FC = () => {
     }))
   }
 
+  // Un modèle mal formé désactive l'enregistrement plutôt que de le laisser
+  // échouer en silence : l'entrée fautive peut être dans l'onglet Compétences,
+  // loin du bouton, et un clic sans effet n'indique rien.
+  const modelsAreValid =
+    isValidModel(aiModel) && Object.values(aiSkillModels).every(model => isValidModel(model))
+
+  // Une entrée vidée disparaît de la carte : elle signifie « hérite », et non
+  // « aucun modèle », ce qui est exactement ce que le serveur normalise.
+  const handleSkillModelChange = (skillId: string, model: string) => {
+    setAiSkillModels(prev => {
+      const next = { ...prev }
+      if (model.trim() === '') delete next[skillId]
+      else next[skillId] = model
+      return next
+    })
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || isSubmitting) return
+    if (!name.trim() || isSubmitting || !modelsAreValid) return
 
     setIsSubmitting(true)
     try {
@@ -378,6 +401,10 @@ export const ProjectModal: React.FC = () => {
         gitRemoteUrl: gitRemoteUrl.trim(),
         aiProvider: useCustomAgent && aiProvider ? (aiProvider as AIProvider) : undefined,
         aiCommandTemplate: useCustomAgent && aiCommandTemplate.trim() ? aiCommandTemplate.trim() : undefined,
+        // Toujours transmis, y compris vide : c'est ainsi qu'on efface une valeur
+        // au lieu de conserver silencieusement celle qui est enregistrée.
+        aiModel: useCustomAgent ? aiModel.trim() : '',
+        aiSkillModels,
         setupProviders,
         specFramework,
         useWorktrees,
@@ -756,6 +783,15 @@ export const ProjectModal: React.FC = () => {
                       })}
                     </div>
                   </div>
+
+                  <AIModelField
+                    provider={aiProvider || settings.aiProvider}
+                    commandTemplate={aiCommandTemplate}
+                    value={aiModel}
+                    onChange={setAiModel}
+                    placeholder={settings.aiModel ? `Hérite du global : ${settings.aiModel}` : 'Défaut du CLI (ex : claude-opus-5)'}
+                    label="Modèle du projet"
+                  />
 
                   {/* AI Command Line Template */}
                   <div>
@@ -1596,6 +1632,22 @@ export const ProjectModal: React.FC = () => {
                             )}
                           </div>
 
+                          <div className="relative w-[150px] shrink-0">
+                            <input
+                              type="text"
+                              value={aiSkillModels[s.id] || ''}
+                              onChange={e => handleSkillModelChange(s.id, e.target.value)}
+                              placeholder="Modèle hérité"
+                              aria-label={`Modèle pour ${displayDefaultName}`}
+                              aria-invalid={!isValidModel(aiSkillModels[s.id] || '')}
+                              className={`w-full px-2.5 py-1 text-xs font-mono rounded-lg bg-[var(--bg-secondary)] border text-[var(--text-primary)] focus:outline-none ${
+                                isValidModel(aiSkillModels[s.id] || '')
+                                  ? 'border-[var(--border-color)] focus:border-[var(--accent-color)]'
+                                  : 'border-red-500'
+                              }`}
+                            />
+                          </div>
+
                           <div className="shrink-0 w-20 text-right">
                             {isInst ? (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400">
@@ -1649,7 +1701,7 @@ export const ProjectModal: React.FC = () => {
             <button
               type="button"
               onClick={handleSubmit}
-              disabled={isSubmitting || !name.trim()}
+              disabled={isSubmitting || !name.trim() || !modelsAreValid}
               className="px-5 py-2 rounded-xl text-xs font-bold text-white accent-bg shadow-md hover:opacity-90 active:scale-95 flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
             >
               <Save size={14} />

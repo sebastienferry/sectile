@@ -20,6 +20,8 @@ type Overrides struct {
 	Projects             map[string]string `json:"projects"`
 	AIProvider           string            `json:"aiProvider"`
 	AICommandTemplate    string            `json:"aiCommandTemplate"`
+	AIModel              string            `json:"aiModel,omitempty"`
+	AISkillModels        map[string]string `json:"aiSkillModels,omitempty"`
 	Terminal             string            `json:"terminal"`
 	Skills               map[string]string `json:"skills"`
 }
@@ -57,6 +59,8 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 	if overrides.Terminal != "" {
 		c.ExternalTerminalCommand = overrides.Terminal
 	}
+	models := MergeModels(ModelConfig{Model: overrides.AIModel, SkillModels: overrides.AISkillModels}, c.Models())
+	c.AIModel, c.AISkillModels = models.Model, models.SkillModels
 	for i := range c.Skills {
 		id := c.Skills[i].ID
 		if id == "adjust" {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -454,6 +455,10 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.TrimSpace(req.Name) == "" {
 			writeError(w, http.StatusBadRequest, "Le nom du projet est obligatoire")
+			return
+		}
+		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
@@ -1192,6 +1197,17 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Payload invalide: "+err.Error())
 			return
 		}
+		var requested agentconfig.ModelConfig
+		if req.AIModel != nil {
+			requested.Model = *req.AIModel
+		}
+		if req.AISkillModels != nil {
+			requested.SkillModels = *req.AISkillModels
+		}
+		if err := agentconfig.ValidModelConfig(requested); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 
 		project, err := h.db.UpdateProject(id, req)
 		if err != nil {
@@ -1748,7 +1764,11 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = h.db.AddTaskActivity(act)
 
-			remoteRun, runErr := h.db.StartAgentRemoteRun(task.ID, req.SkillID)
+			// The mode is resolved before the run is recorded: it is what tells,
+			// once the run is over, whether anything was supposed to come back
+			// from it without a user closing a session.
+			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode})
 			if runErr != nil {
 				act.Status = "failed"
 				act.Error = runErr.Error()
@@ -1763,7 +1783,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			err := h.agentDispatcher.DispatchAndWait(launchCtx, ac.UserID, ac.ProjectID, task.ID, agentconfig.Dispatch{
 				SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
 				SkillID: req.SkillID, Action: req.SkillID, Prompt: req.Prompt, RunID: remoteRun.ID,
-				Mode: h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode),
+				Mode: mode,
 			})
 			finished := time.Now()
 			act.CompletedAt = &finished
@@ -2413,6 +2433,10 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
 			return
 		}
+		if err := agentconfig.ValidModelConfig(agentconfig.ModelConfig{Model: req.AIModel, SkillModels: req.AISkillModels}); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		saved, err := h.db.UpdateSettings(req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -2657,8 +2681,20 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		_, msgData, err := conn.ReadMessage()
 		if err != nil {
 			if !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				silence := time.Since(ac.LastSeen()).Round(time.Second)
 				log.Printf("[AgentConnect] Read loop ended for device=%s after %s of silence: %v",
-					deviceID, time.Since(ac.LastSeen()).Round(time.Second), err)
+					deviceID, silence, err)
+				// Hanging up without saying why leaves the agent log with a bare
+				// "close 1006 (abnormal closure)". Name the silence so the user
+				// reading the agent log can tell a keepalive timeout from a
+				// rebound session or a server restart. The read deadline is
+				// matched on Timeout() rather than os.ErrDeadlineExceeded:
+				// gorilla replaces a temporary network error with one of its
+				// own and the original is no longer in the chain.
+				var netErr net.Error
+				if errors.As(err, &netErr) && netErr.Timeout() {
+					ac.Close(agentCloseKeepaliveTimeout, fmt.Sprintf("no frame received for %s", silence))
+				}
 			}
 			break
 		}

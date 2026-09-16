@@ -81,14 +81,17 @@ npm ci --prefix web
 make server agent
 ```
 
-Start the server with its persistent database and shared agent credential:
+Start the server with its persistent database and shared agent credential.
+[`.env.sample`](./.env.sample) documents every variable the server, the agent and
+the MCP bridge read; copy it to `.env`, which the server loads at startup and
+which is gitignored:
 
 ```sh
 export SECTILE_SERVER_TOKEN='<shared agent credential>'
 export SECTILE_TRACKER_TOKEN='<tracker API token>'
 # Serving several providers at once? Override per provider:
 # export SECTILE_GITHUB_TOKEN='<GitHub API token>'
-DB_PATH=/path/to/tasks.db PORT=8090 ./bin/sectile-server
+DB_PATH=/path/to/tasks.db PORT=8090 ./bin/server
 ```
 
 Open **http://localhost:8090**. The server never opens a browser or starts local
@@ -101,13 +104,15 @@ On the workstation:
 
 ```sh
 export TOKEN='<same shared agent credential>'
-./bin/sectile-agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
+./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
 
 Install and authenticate the coding CLI and Git tools on that workstation.
 `make agent` requires only Go; it does not build the web UI. `make desktop`
-packages the agent with the optional console companion. `make run` opens it.
-For development, use `make dev-server` and `make dev-web` in separate terminals.
+builds the agent with the optional console companion, and `make desktop-package`
+packages it. `make run` opens it. For development, run `make serve` and
+`npm run dev --prefix web` in separate terminals; the Vite server listens on
+port 5173 and proxies `/api` to `http://localhost:8090`.
 
 ### Server tracker credentials
 
@@ -118,7 +123,7 @@ For development, use `make dev-server` and `make dev-web` in separate terminals.
 | `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
 
 The token is read from the environment of the **server process itself**, at
-startup only. `make serve`, `go run ./cmd/server` and `./bin/sectile-server`
+startup only. `make serve`, `go run ./cmd/server` and `./bin/server`
 inherit the shell they are launched from, so exporting the variable in another
 terminal — or after the server is already running — has no effect: restart the
 server. A `gh` login on the same machine is not picked up either; for GitHub only
@@ -149,8 +154,9 @@ API failures fail the operation visibly; there is no workstation fallback.
 
 ### Releases and migration
 
-`make release` emits `sectile-server-<os>-<arch>` and
-`sectile-agent-<os>-<arch>` under `dist/`, with `.exe` for Windows.
+`make release` emits `server-<os>-<arch>` and `agent-<os>-<arch>` under
+`dist/`, with `.exe` for Windows. Install them under the canonical command
+names `sectile-server` and `sectile-agent` used throughout this document.
 Supported targets are Darwin arm64/amd64, Linux arm64/amd64 and Windows amd64.
 
 | Previous invocation | Replacement |
@@ -388,7 +394,7 @@ application, see the desktop setup section below. Start the server in one termin
 npm ci --prefix web
 make server agent
 export SECTILE_SERVER_TOKEN='<your shared token>'
-./bin/sectile-server
+./bin/server
 ```
 
 Start the local launcher in another terminal, using the project ID shown in
@@ -396,7 +402,7 @@ Sectile and an existing local clone:
 
 ```sh
 export TOKEN='<the same shared token>'
-./bin/sectile-agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
+./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
 ```
 
 `terminal` selects Terminal.app on macOS. Other supported choices include
@@ -537,8 +543,8 @@ default file and its legacy private connection file.
 ### Build all components
 
 Run `make all` to build the embedded web server, standalone local agent and
-packaged desktop app. The outputs are `bin/sectile-server` and
-`bin/sectile-agent`; the agent starts directly. Use `make server` or
+packaged desktop app. The outputs are `bin/server` and
+`bin/agent`; the agent starts directly. Use `make server` or
 `make agent` to build independently, and `make desktop-build`
 for the desktop development assets. On Apple Silicon the app is produced at
 `desktop/release/Sectile-darwin-arm64/Sectile.app`.
@@ -554,8 +560,12 @@ The profile is a placeholder for future account management.
 ### Execution modes
 
 A skill run is either **interactive** (a terminal window you answer, and the
-stage moves when you confirm) or **autonomous** (the CLI runs headless, its
-output is recorded on the run activity, and the worker posts the stage).
+stage moves when you confirm) or **autonomous** (the CLI runs headless, with the
+provider's non-interactive approval mode, its output recorded on the run
+activity, and it posts its own stage transition through the Sectile MCP tools).
+When an autonomous run of a workflow step closes without having moved the task,
+the run says so: the server checks the hand-back but never invents a transition
+the work may not have earned.
 
 The mode of one launch is resolved in this order, first opinion winning: the
 one-off override chosen for that launch, then the skill's own setting in the
@@ -565,14 +575,17 @@ The one-off override is offered wherever you explicitly trigger a skill: the web
 task card menu, the web task detail modal, and the desktop Launch and Relaunch
 dialogs. The desktop next-step button stays a single click on the resolved mode.
 
-`claude -p`, `codex exec` and `vibe -p` are the attested headless invocations.
+`claude -p --permission-mode bypassPermissions`, `codex exec` and
+`vibe -p --auto-approve` are the attested headless invocations. A discussion and
+a bare terminal stay interactive whatever the project default says.
 On `agy`, `gemini`, `cursor`, or a custom `aiCommandTemplate` with no
 `{mode:AUTONOMOUS|INTERACTIVE}` placeholder, an autonomous launch is refused by
 name rather than silently run interactively.
 
 The project also sets `fullChainStopStage`, where the **Full chain** (`>>`)
 action stops: `implemented` (before the pull request) or `reviewed` (default).
-A full chain run is always autonomous. Merging stays manual.
+A full chain run is always autonomous, and each step enqueues the next one when
+it closes having advanced the stage, until the stop stage. Merging stays manual.
 
 ### Execution defaults and local overrides
 
@@ -612,13 +625,14 @@ Legacy repository mappings remain readable and are migrated on the next save.
 | --- | --- |
 | `make server` | Build the server |
 | `make agent` | Build the local agent |
-| `make desktop` | Build and package the desktop |
+| `make desktop` | Build the desktop app, without packaging |
+| `make desktop-package` | Build and package the desktop app |
 | `make all` | Build all components |
 | `make start` | Start the local agent |
 | `make serve` | Start the server |
 | `make run` | Start the desktop |
 
-Server and agent are built as `bin/sectile-server` and `bin/sectile-agent` by the `build-*` targets.
+Server and agent are built as `bin/server` and `bin/agent` by the `build-*` targets.
 The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
 arguments with, for example, `make start ARGS="--url http://localhost:8090"`; provide
 authentication through `TOKEN`.

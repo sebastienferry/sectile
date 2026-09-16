@@ -4,7 +4,22 @@ EXE := $(if $(filter windows,$(shell go env GOOS)),.exe,)
 DESKTOP_AGENT := desktop/bin/sectile-agent$(EXE)
 .PHONY: help build-all build-server build-agent build-app build-app-package build-release \
         all build server server-build agent agent-build binary-build desktop desktop-build desktop-package build-desktop build-desktop-package release \
-        start serve run test clean reset-db
+        web-deps desktop-deps start serve run test clean reset-db
+
+# Node dependencies are reinstalled as soon as a lockfile moves, so a build never
+# starts with a package missing from node_modules. The stamp keeps repeat builds
+# free: npm only runs again when package.json or package-lock.json is newer.
+web-deps: web/node_modules/.install-stamp
+desktop-deps: desktop/node_modules/.install-stamp
+
+web/node_modules/.install-stamp: web/package.json web/package-lock.json
+	cd web && npm ci
+	@touch $@
+
+desktop/node_modules/.install-stamp: desktop/package.json desktop/package-lock.json
+	cd desktop && npm ci
+	cd desktop && node node_modules/electron/install.js
+	@touch $@
 
 # Print every documented target (the default goal).
 help:
@@ -28,7 +43,7 @@ desktop-package build-desktop-package: build-app-package
 release: build-release
 
 # The server embeds the UI; the agent builds independently of Node dependencies.
-build-server: ## Build the web UI and the server binary
+build-server: web-deps ## Build the web UI and the server binary
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
 	@mkdir -p bin
@@ -51,19 +66,19 @@ serve: ## Run the server from source (ARGS=...)
 	go run ./cmd/server $(ARGS)
 
 # Same idea as serve and start: build what the app loads, then run it.
-run: build-agent ## Run the desktop app from source (Vite build + Electron)
+run: build-agent desktop-deps ## Run the desktop app from source (Vite build + Electron)
 	@mkdir -p desktop/bin
 	cp bin/agent$(EXE) $(DESKTOP_AGENT).new
 	mv -f $(DESKTOP_AGENT).new $(DESKTOP_AGENT)
 	cd desktop && npm run build
 	cd desktop && npm start
 
-test: ## Run Go and web test suites
+test: web-deps ## Run Go and web test suites
 	go test ./...
 	cd web && npm test && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
 
 # Both components cross-compile with pure Go dependencies.
-build-release: ## Cross-compile every binary into dist/
+build-release: web-deps ## Cross-compile every binary into dist/
 	@echo "Building interface..."
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
@@ -98,12 +113,10 @@ clean: ## Remove build artifacts
 	rm -rf internal/webui/dist
 	@mkdir -p internal/webui/dist && touch internal/webui/dist/.gitkeep
 
-build-app: build-agent ## Build the desktop app without packaging
+build-app: build-agent desktop-deps ## Build the desktop app without packaging
 	mkdir -p desktop/bin
 	cp bin/agent$(EXE) $(DESKTOP_AGENT).new
 	mv -f $(DESKTOP_AGENT).new $(DESKTOP_AGENT)
-	cd desktop && npm ci
-	cd desktop && node node_modules/electron/install.js
 	cd desktop && npm run build
 
 build-app-package: build-app ## Package the desktop app

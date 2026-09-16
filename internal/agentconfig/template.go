@@ -16,3 +16,13 @@ func EffectiveCommandTemplate(provider, template string) string {
 	}
 	return ""
 }
+
+// ExpandModel fills the optional {model} slot a command template may carry. An
+// unconfigured model yields the empty string rather than a literal placeholder,
+// so a template written with the slot still runs when no model is set.
+func ExpandModel(template, model string) string {
+	if !strings.Contains(template, "{model}") {
+		return template
+	}
+	return strings.ReplaceAll(template, "{model}", strings.TrimSpace(model))
+}
