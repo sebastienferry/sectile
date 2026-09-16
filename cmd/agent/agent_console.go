@@ -57,7 +57,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 	id := uuid.NewString()
 	config = agentconfig.ApplyOverrides(config, overrides)
 	d.runsMu.Lock()
-	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: id}, input.ProjectID, root, agentconfig.ExecutionLimit(input.ProjectID, config.UseWorktrees, overrides, config.Parallelism), false)
+	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: id}, input.ProjectID, root, agentconfig.ExecutionLimit(input.ProjectID, config.UseWorktrees, overrides), false)
 	if err != nil {
 		d.runsMu.Unlock()
 		http.Error(w, err.Error(), http.StatusConflict)

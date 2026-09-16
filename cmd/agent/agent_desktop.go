@@ -301,14 +301,13 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ProjectID          string  `json:"projectId"`
-		Path               string  `json:"path"`
-		AICommandTemplate  *string `json:"aiCommandTemplate"`
-		InheritCommand     bool    `json:"inheritCommand"`
-		InheritWorktrees   bool    `json:"inheritWorktrees"`
-		InheritParallelism bool    `json:"inheritParallelism"`
-		Parallelism        *int    `json:"parallelism"`
-		UseWorktrees       *bool   `json:"useWorktrees"`
+		ProjectID         string  `json:"projectId"`
+		Path              string  `json:"path"`
+		AICommandTemplate *string `json:"aiCommandTemplate"`
+		InheritCommand    bool    `json:"inheritCommand"`
+		InheritWorktrees  bool    `json:"inheritWorktrees"`
+		Parallelism       *int    `json:"parallelism"`
+		UseWorktrees      *bool   `json:"useWorktrees"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
@@ -355,17 +354,14 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		overrides.Commands[input.ProjectID] = command
 	}
 	if input.Parallelism != nil {
-		if *input.Parallelism < 1 || *input.Parallelism > models.MaxParallelism {
-			http.Error(w, fmt.Sprintf("Parallelism must be between 1 and %d", models.MaxParallelism), 400)
+		if *input.Parallelism < 1 || *input.Parallelism > agentconfig.MaxParallelism {
+			http.Error(w, fmt.Sprintf("Parallelism must be between 1 and %d", agentconfig.MaxParallelism), 400)
 			return
 		}
 		if overrides.Parallelism == nil {
 			overrides.Parallelism = map[string]int{}
 		}
 		overrides.Parallelism[input.ProjectID] = *input.Parallelism
-	}
-	if input.InheritParallelism {
-		delete(overrides.Parallelism, input.ProjectID)
 	}
 	overrides.Projects[input.ProjectID] = input.Path
 	if input.UseWorktrees != nil {
@@ -496,9 +492,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		}
 		effective := agentconfig.ApplyOverrides(config, overrides)
 		_, worktreeOverride := overrides.Worktrees[id]
-		_, parallelismOverride := overrides.Parallelism[id]
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"server": config, "monoRepo": project.MonoRepo, "path": root, "useWorktrees": effective.UseWorktrees, "configured": mappingErr == nil, "aiCommandTemplate": effective.AICommandTemplate, "commandOverride": overrides.Commands[id] != "", "worktreeOverride": worktreeOverride, "parallelismOverride": parallelismOverride, "parallelism": agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides, config.Parallelism)})
+		_ = json.NewEncoder(w).Encode(map[string]any{"server": config, "monoRepo": project.MonoRepo, "path": root, "useWorktrees": effective.UseWorktrees, "configured": mappingErr == nil, "aiCommandTemplate": effective.AICommandTemplate, "commandOverride": overrides.Commands[id] != "", "worktreeOverride": worktreeOverride, "parallelism": agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides)})
 		return
 	}
 	if mappingErr != nil {

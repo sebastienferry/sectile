@@ -328,7 +328,7 @@ Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
 
-Optional workstation overrides belong in `~/.config/taskflow/settings.json`:
+Optional workstation overrides belong in `~/.config/sectile/settings.json`:
 
 ```json
 {
@@ -351,7 +351,7 @@ never resets them to accommodate a dispatch.
 Skill refresh installs the current server-owned content and records hashes in
 `.taskflow/agent-manifest.json`. Changed local copies are backed up under
 `.taskflow/skill-backups/` before replacement. Personal skills outside the declared
-paths are untouched. Put persistent skill overrides in `~/.config/taskflow/settings.json`.
+paths are untouched. Put persistent skill overrides in `~/.config/sectile/settings.json`.
 The effective `.taskflow/remote-config.json` snapshot is diagnostic only: it is
 never used as an offline fallback. These generated files are ignored by Git.
 
@@ -423,7 +423,7 @@ sectile-agent --url http://localhost:8090
 
 The agent defaults to all projects. The current checkout is matched by its Git
 origin; map other project primary keys to local repositories in
-`~/.config/taskflow/settings.json` in the starting directory (or the directory passed with
+`~/.config/sectile/settings.json` in the starting directory (or the directory passed with
 `--repo`):
 
 ```json
@@ -528,17 +528,19 @@ for the desktop development assets. On Apple Silicon the app is produced at
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
 directory. Local worktree preferences are stored per project in
-`~/.config/taskflow/settings.json`. Repository layout, remote URL, SDD selection and skill
+`~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1 to 5) defaults.
-In the desktop project settings, **Inherit worktrees from server** and
-**Inherit from server** for parallel executions remove local overrides.
-Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:
+The server project supplies the `useWorktrees` default, which **Inherit worktrees
+from server** restores in the desktop project settings. Parallel executions
+(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
+the desktop app is the only surface that sets one, and a project without a local
+value runs a single execution at a time.
+Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
 {
@@ -561,7 +563,7 @@ console history are held in memory for the agent lifetime.
 ### User configuration and commands
 
 Agent settings and project mappings live in
-`~/.config/taskflow/settings.json`, shared by the CLI agent and companion.
+`~/.config/sectile/settings.json`, shared by the CLI agent and companion.
 Writes preserve connection fields, use atomic replacement and mode 0600.
 Legacy repository mappings remain readable and are migrated on the next save.
 

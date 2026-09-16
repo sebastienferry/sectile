@@ -47,6 +47,11 @@ Server settings resolve project overrides over global defaults. On the workstati
 These values are never uploaded. Changing the provider locally without a local
 command template clears the inherited provider's command template.
 
+Execution parallelism has no server-side counterpart: the configuration payload
+carries no `parallelism` field, and the workstation value in
+`~/.config/sectile/settings.json` is the only source. An agent predating this
+removal reads no value and falls back to a single execution per project.
+
 Terminal application selection is: explicit `--terminal`, explicit request
 `terminalOverride`, local overrides, project configuration, global configuration,
 then environment/platform detection. Selecting `pty` or `none` uses a local PTY;
@@ -349,10 +354,12 @@ default file and its legacy private connection file.
 
 ### Execution defaults and local overrides
 
-The server project supplies `useWorktrees` and `parallelism` (1 to 5) defaults.
-In the desktop project settings, **Inherit worktrees from server** and
-**Inherit from server** for parallel executions remove local overrides.
-Workstation overrides are saved in `~/.config/taskflow/settings.json` as project-ID maps:
+The server project supplies the `useWorktrees` default, which **Inherit worktrees
+from server** restores in the desktop project settings. Parallel executions
+(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
+the desktop app is the only surface that sets one, and a project without a local
+value runs a single execution at a time.
+Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
 {
@@ -375,7 +382,7 @@ console history are held in memory for the agent lifetime.
 ### User configuration and commands
 
 Agent settings and project mappings live in
-`~/.config/taskflow/settings.json`, shared by the CLI agent and companion.
+`~/.config/sectile/settings.json`, shared by the CLI agent and companion.
 Writes preserve connection fields, use atomic replacement and mode 0600.
 Legacy repository mappings remain readable and are migrated on the next save.
 
