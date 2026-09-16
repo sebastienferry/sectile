@@ -339,13 +339,21 @@ func sameDirectory(a, b string) bool {
 func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command string, contexts ...agentCommandContext) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
+	live := func() (string, error) {
+		return runner.InteractiveAgentLaunch(&models.Settings{AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate})
+	}
 	if action == "open_terminal" {
 		if strings.TrimSpace(command) != "" {
 			return command, nil
 		}
 		if skillID == "" {
-			return runner.InteractiveAgentLaunch(&models.Settings{AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate})
+			return live()
 		}
+	}
+	// A discussion opens the provider as a live session and nothing else: no
+	// skill command, and none of the prompt the dispatch carries for skills.
+	if skillID == "discuss" {
+		return live()
 	}
 	if skillID == "custom" {
 		if strings.TrimSpace(prompt) == "" {
