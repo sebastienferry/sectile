@@ -60,7 +60,7 @@ func runMCPCommand(ctx context.Context, args []string) error {
 			return err
 		}
 		switch tool.Name {
-		case "get_task", "transition_stage", "add_comment", "list_tasks", "get_project_context", "list_projects", "start_run", "finish_run":
+		case "get_task", "transition_stage", "add_comment", "list_tasks", "get_project_context", "list_projects", "start_run", "finish_run", "create_task":
 		default:
 			return fmt.Errorf("incompatible Sectile MCP catalog: upgrade server and agent together")
 		}
@@ -72,8 +72,8 @@ func runMCPCommand(ctx context.Context, args []string) error {
 			return session.CallTool(ctx, &mcp.CallToolParams{Name: req.Params.Name, Arguments: req.Params.Arguments})
 		})
 	}
-	if len(seen) != 8 {
-		return fmt.Errorf("incompatible Sectile MCP catalog: expected eight tools; upgrade server and agent together")
+	if len(seen) != 9 {
+		return fmt.Errorf("incompatible Sectile MCP catalog: expected nine tools; upgrade server and agent together")
 	}
 	return proxy.Run(ctx, &mcp.StdioTransport{})
 }
