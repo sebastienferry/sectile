@@ -16,6 +16,18 @@ flowchart LR
     MCP -->|Loopback proxy| Server
 ```
 
+An interactive, revision-pinned version of the same topology — with per-component
+source links, guided views, light/dark themes and PNG/SVG export — is checked in at
+[`diagrams/sectile-architecture.html`](diagrams/sectile-architecture.html). Its
+[specification](diagrams/sectile-architecture.json) is the editable source; regenerate
+the page from the repository root with the [Archify](https://github.com/tt-a1i/archify)
+skill, after refreshing `meta.repository.revision` to the commit the source links
+should point at:
+
+```bash
+node <archify-checkout>/bin/archify.mjs deliver architecture docs/diagrams/sectile-architecture.json docs/diagrams/sectile-architecture.html --quality showcase --repo-root .
+```
+
 ## Ownership and packages
 
 | Component | Responsibility |
