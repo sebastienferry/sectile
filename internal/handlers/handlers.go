@@ -352,30 +352,6 @@ func (h *Handler) HandleSyncAll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) HandleSyncLinear(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-		return
-	}
-
-	var req struct {
-		Team      string `json:"team"`
-		ProjectID string `json:"projectId"`
-	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
-
-	activity, err := h.db.EnqueueSync("linear", req.Team, req.ProjectID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"message":  "Synchronisation Linear ajoutée à la file d'attente",
-		"activity": activity,
-	})
-}
-
 func (h *Handler) HandleSyncGithub(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -512,7 +488,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		tracker := r.URL.Query().Get("tracker")
 		repo := r.URL.Query().Get("repo")
 		repoPath := r.URL.Query().Get("repoPath")
-		team := r.URL.Query().Get("team")
 		projID := r.URL.Query().Get("projectId")
 
 		var statuses []string
@@ -523,7 +498,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				IssueTracker: tracker,
 				GithubRepo:   repo,
 				RepoPath:     repoPath,
-				LinearTeam:   team,
 			}
 			// Temporary DB query for draft project
 			_ = dummyProj
@@ -1115,63 +1089,6 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sub-action: /api/projects/{id}/daily-digest
-	//   GET  → compute the task sections and merge any stored agenda
-	//   POST → same, then persist; with {"enrich": true} also runs the agenda pass
-	if len(parts) >= 2 && parts[1] == "daily-digest" {
-		switch r.Method {
-		case http.MethodGet:
-			if r.URL.Query().Get("history") == "1" {
-				dates, err := h.db.ListDigestDates(id, 30)
-				if err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-				writeJSON(w, http.StatusOK, map[string]interface{}{"dates": dates})
-				return
-			}
-			digest, err := h.db.ComputeDailyDigest(id, r.URL.Query().Get("date"), r.URL.Query().Get("assignee"))
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, digest)
-			return
-
-		case http.MethodPost:
-			var payload models.DailyDigestRequest
-			_ = json.NewDecoder(r.Body).Decode(&payload)
-
-			if payload.Enrich {
-				// Runs the agent; can take a while, and reports its own failure
-				// inside the digest rather than as an HTTP error.
-				digest, err := h.db.EnqueueDigestAgenda(id, payload.Date, payload.Assignee)
-				if err != nil {
-					writeError(w, http.StatusBadRequest, err.Error())
-					return
-				}
-				writeJSON(w, http.StatusOK, digest)
-				return
-			}
-
-			digest, err := h.db.ComputeDailyDigest(id, payload.Date, payload.Assignee)
-			if err != nil {
-				writeError(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			if err := h.db.SaveDailyDigest(digest); err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, digest)
-			return
-
-		default:
-			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
-			return
-		}
-	}
-
 	// Sub-action: /api/projects/{id}/spec-framework-status
 	if len(parts) >= 2 && parts[1] == "spec-framework-status" {
 		statuses := h.db.GetSpecFrameworkStatus(id, r.URL.Query().Get("framework"))
@@ -1226,14 +1143,12 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			target = id
 		}
 		tracker := r.URL.Query().Get("tracker")
-		team := r.URL.Query().Get("team")
 		repo := r.URL.Query().Get("repo")
 
 		if r.Method == http.MethodPost {
 			var body struct {
 				ProjectID    string `json:"projectId"`
 				IssueTracker string `json:"issueTracker"`
-				LinearTeam   string `json:"linearTeam"`
 				GithubRepo   string `json:"githubRepo"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
@@ -1243,16 +1158,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				if body.IssueTracker != "" {
 					tracker = body.IssueTracker
 				}
-				if body.LinearTeam != "" {
-					team = body.LinearTeam
-				}
 				if body.GithubRepo != "" {
 					repo = body.GithubRepo
 				}
 			}
 		}
 
-		statuses, err := h.db.DetectTrackerStatuses(target, tracker, team, repo)
+		statuses, err := h.db.DetectTrackerStatuses(target, tracker, repo)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1928,7 +1840,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if req.Target == "" {
-			writeError(w, http.StatusBadRequest, "Target tracker is required ('linear' or 'github')")
+			writeError(w, http.StatusBadRequest, "Target tracker is required ('github')")
 			return
 		}
 		task, err := h.db.ConvertTaskToRemote(id, req.Target)

@@ -21,7 +21,6 @@ const genericTokenVar = "SECTILE_TRACKER_TOKEN"
 type Client struct {
 	HTTP                   *http.Client
 	GithubURL, GithubToken string
-	LinearURL, LinearToken string
 }
 
 func NewClient() *Client {
@@ -30,18 +29,14 @@ func NewClient() *Client {
 		gh = "https://api.github.com"
 	}
 	token := trackerToken("SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
-	linear := os.Getenv("SECTILE_LINEAR_API_URL")
-	if linear == "" {
-		linear = "https://api.linear.app/graphql"
-	}
-	lt := trackerToken("SECTILE_LINEAR_API_KEY", "LINEAR_API_KEY")
-	return &Client{HTTP: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, GithubURL: strings.TrimRight(gh, "/"), GithubToken: token, LinearURL: linear, LinearToken: lt}
+	return &Client{HTTP: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, GithubURL: strings.TrimRight(gh, "/"), GithubToken: token}
 }
 
 // trackerToken resolves one provider's credential. The provider-specific variable
-// comes first so a deployment serving two trackers cannot hand a GitHub credential
-// to Linear; the tracker-agnostic name covers the common single-tracker setup, and
-// the remaining names are the providers' own environment conventions.
+// comes first so a deployment serving two trackers cannot hand one provider's
+// credential to another; the tracker-agnostic name covers the common
+// single-tracker setup, and the remaining names are the providers' own
+// environment conventions.
 func trackerToken(specific string, fallbacks ...string) string {
 	for _, name := range append([]string{specific, genericTokenVar}, fallbacks...) {
 		if value := os.Getenv(name); value != "" {
@@ -180,13 +175,6 @@ func (c *Client) graphql(ctx context.Context, endpoint, token, query string, var
 		return fmt.Errorf("tracker returned no GraphQL data")
 	}
 	return json.Unmarshal(envelope.Data, result)
-}
-
-func (c *Client) linear(query string, variables map[string]any, result any) error {
-	if c.LinearToken == "" {
-		return fmt.Errorf("configure SECTILE_LINEAR_API_KEY on the server")
-	}
-	return c.graphql(context.Background(), c.LinearURL, c.LinearToken, query, variables, result)
 }
 
 func repository(repo string) (string, error) {

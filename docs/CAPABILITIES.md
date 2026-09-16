@@ -21,7 +21,7 @@ Sectile supports multiple concurrent software repositories and projects from a s
 - **Isolated Project Configurations**:
   - `repo_path`: Local filesystem path to the project repository.
   - `git_remote_url`: Remote Git repository URL.
-  - `issue_tracker`: Tracker provider (`linear`, `github`, `jira`, or `local`).
+  - `issue_tracker`: Tracker provider (`github`, `jira`, or `local`).
   - `stage_mapping`: Custom mapping between Sectile workflow stages and external tracker states.
   - `skill_overrides`: Project-specific prompt template overrides.
 
@@ -33,13 +33,13 @@ Sectile supports multiple concurrent software repositories and projects from a s
 
 ## 2. Issue Tracker Abstraction Layer
 
-The server owns native GitHub REST/GraphQL and Linear GraphQL adapters. It
+The server owns native GitHub REST/GraphQL adapters. It
 synchronizes, creates and updates issues and comments using explicit server
 credentials, even with all local agents offline. GitHub also supports milestone
 operations and issue transfer. Local tasks stay in SQLite. Jira metadata remains
 readable, but Jira synchronization is unsupported in this baseline.
 
-Projects specify `githubRepo` (`owner/repository`) or `linearTeam` (team key).
+Projects specify `githubRepo` (`owner/repository`).
 Workstation CLI credentials and local repository paths are never used by the
 server. Remote writes remain queued and their actual HTTP/API failures appear
 in Activities. See [server credential configuration](../README.md#server-tracker-credentials).
@@ -116,7 +116,7 @@ as an activity (`skillId: install_spec_framework`).
 Prerequisites are the user's responsibility and are reported rather than
 installed silently: Spec Kit needs `uv` (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
 OpenSpec needs Node.js. The CLI status panel surfaces `uv`, `specify` and
-`openspec` alongside `git`, `gh`, `linear` and `acli`.
+`openspec` alongside `git`, `gh` and `acli`.
 
 Note: OpenSpec is a Spec-Driven Design workflow, unrelated to **OpenFeature**
 (a feature-flag standard). Earlier builds stored `openfeature` as a spec

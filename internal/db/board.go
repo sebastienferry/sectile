@@ -143,17 +143,6 @@ func (d *DB) GetProjectTrackerStatuses(projectID string) ([]string, error) {
 				}
 			}
 		}
-	} else if proj.IssueTracker == "linear" && proj.LinearTeam != "" {
-		tasks, err := d.trackers.SyncFromLinear(proj.LinearTeam)
-		if err == nil && len(tasks) > 0 {
-			for _, t := range tasks {
-				st := strings.TrimSpace(string(t.Status))
-				if st != "" && !seen[strings.ToLower(st)] {
-					seen[strings.ToLower(st)] = true
-					out = append(out, st)
-				}
-			}
-		}
 	}
 
 	return out, nil

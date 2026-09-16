@@ -85,7 +85,7 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 	return map[string]any{
 		"schemaVersion": config.SchemaVersion, "projectId": config.ProjectID, "projectName": config.ProjectName,
 		"description": config.Description, "gitRemoteUrl": config.GitRemoteURL, "issueTracker": config.IssueTracker,
-		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo, "linearTeam": config.LinearTeam,
+		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo,
 		"jiraProject": config.JiraProject, "specFramework": config.SpecFramework, "prCreationStage": config.PRCreationStage,
 		"defaultSkillMode": config.DefaultSkillMode, "fullChainStopStage": config.FullChainStopStage,
 		"useWorktrees": config.UseWorktrees, "aiProvider": config.AIProvider,

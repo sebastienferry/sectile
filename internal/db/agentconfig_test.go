@@ -18,12 +18,12 @@ func TestAgentConfigRepositoryMetadata(t *testing.T) {
 	if _, err = database.UpdateSettings(models.Settings{GithubRepo: "global/repo", IssueTracker: "github", JiraAPIToken: "secret-token", RepoPath: "/server/private"}); err != nil {
 		t.Fatal(err)
 	}
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Metadata", GithubRepo: "project/repo", IssueTracker: "linear"})
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Metadata", GithubRepo: "project/repo", IssueTracker: "jira"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct{ repo, tracker, wantRepo, wantTracker string }{
-		{"project/repo", "linear", "project/repo", "linear"},
+		{"project/repo", "jira", "project/repo", "jira"},
 		{"", "", "global/repo", "github"},
 	} {
 		if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{GithubRepo: &tc.repo, IssueTracker: &tc.tracker}); err != nil {

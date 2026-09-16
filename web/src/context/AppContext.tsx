@@ -30,7 +30,6 @@ import type {
   MacroMeta,
   MacroHorizon,
   MacroTodo,
-  DailyDigest,
   TrackerTeam,
   TeamMember,
   TeamWorkload,
@@ -181,14 +180,6 @@ interface AppContextType {
   /** Docked workspace terminal on the right side of the app. */
 
 
-  /** True when the selected project is a personal board, the only kind the digest is served for. */
-  isDigestAvailable: boolean
-  /** Daily digest of the active project: task sections plus an optional AI agenda. */
-  dailyDigest: DailyDigest | null
-  isDigestLoading: boolean
-  isDigestEnriching: boolean
-  fetchDailyDigest: (date?: string, assignee?: string) => Promise<DailyDigest | null>
-  generateDailyDigest: (opts?: { date?: string; assignee?: string; enrich?: boolean }) => Promise<DailyDigest | null>
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean | ((prev: boolean) => boolean)) => void
   selectedTask: Task | null
@@ -302,13 +293,12 @@ interface AppContextType {
   launchInteractiveStep: (task: Task, skillId: string, label: string) => Promise<void>
   confirmInteractiveStep: (note?: string) => Promise<void>
   dismissInteractiveStep: () => void
-  convertTask: (id: string, target: 'linear' | 'github') => Promise<Task | null>
+  convertTask: (id: string, target: 'github') => Promise<Task | null>
   moveTask: (id: string, newStatus: Status, newPosition: number) => Promise<void>
   moveTaskWorkflowStage: (taskId: string, targetStage: WorkflowStage) => Promise<Task | null>
   deleteTask: (id: string) => Promise<boolean>
   runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean; mode?: SkillMode }) => Promise<TaskActivity | null>
   syncAll: () => Promise<void>
-  syncLinear: (team?: string) => Promise<void>
   syncGithub: (repo?: string) => Promise<void>
   syncJira: (projectKey?: string) => Promise<void>
   syncCurrentProject: () => Promise<void>
@@ -339,7 +329,7 @@ interface AppContextType {
  * Vues connues. Ce qui sort du stockage local n'est pas fiable : une vue retirée
  * d'une version à l'autre laisserait un écran vide au démarrage.
  */
-const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'digest', 'skills', 'team']
+const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'skills', 'team']
 
 const defaultSettings: UserSettings = {
   id: 1,
@@ -357,7 +347,6 @@ const defaultSettings: UserSettings = {
   aiCommandTemplate: 'agy -p "{prompt}"',
   repoPath: '',
   issueTracker: 'local',
-  linearTeam: '',
   githubRepo: '',
   jiraProject: '',
   jiraUrl: '',
@@ -516,9 +505,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [assigneeFilter, setAssigneeFilterState] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskSource>('all')
   const [parentFilter, setParentFilterState] = useState<string | null>(null)
-  const [dailyDigest, setDailyDigest] = useState<DailyDigest | null>(null)
-  const [isDigestLoading, setIsDigestLoading] = useState(false)
-  const [isDigestEnriching, setIsDigestEnriching] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   // chatTask désigne la tâche dont le PTY est affiché. Il vit dans le panneau
@@ -1449,41 +1435,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const syncLinear = async (team?: string) => {
-    setIsSyncing(true)
-    try {
-      const activeProj = selectedProjectId !== 'all' ? projects.find(p => p.id === selectedProjectId) : (projects.find(p => p.isDefault) || projects[0])
-      const targetTeam = team || activeProj?.linearTeam || settings.linearTeam || ''
-      const res = await fetch(`${API_BASE}/sync/linear`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team: targetTeam, projectId: activeProj?.id }),
-      })
-      if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.error || 'Linear sync failed')
-      }
-      const data = await res.json()
-      if (data.activity) {
-        setActivities(prev => [data.activity, ...prev.filter(a => a.id !== data.activity.id)])
-      }
-      fetchActivityStats()
-      addToast({
-        type: 'info',
-        title: 'Synchronisation Linear lancée',
-        description: targetTeam ? `Équipe ${targetTeam} (${activeProj?.name || ''}) — Suivi en direct dans Activités.` : 'Synchronisation Linear en cours...',
-      })
-    } catch (err: any) {
-      addToast({
-        type: 'error',
-        title: t.toasts.error,
-        description: err.message,
-      })
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
   const syncGithub = async (repo?: string) => {
     setIsSyncing(true)
     try {
@@ -1557,9 +1508,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const syncCurrentProject = async () => {
     const activeProj = currentProject || (projects.find(p => p.isDefault) || projects[0])
     const tracker = activeProj?.issueTracker || 'local'
-    if (tracker === 'linear') {
-      await syncLinear(activeProj?.linearTeam)
-    } else if (tracker === 'github') {
+    if (tracker === 'github') {
       await syncGithub(activeProj?.githubRepo)
     } else if (tracker === 'jira') {
       await syncJira(activeProj?.jiraProject)
@@ -2659,7 +2608,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const convertTask = async (id: string, target: 'linear' | 'github'): Promise<Task | null> => {
+  const convertTask = async (id: string, target: 'github'): Promise<Task | null> => {
     try {
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(id)}/convert`, {
         method: 'POST',
@@ -2676,12 +2625,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setSelectedTask(updated)
       }
       const activeProj = selectedProjectId !== 'all' ? projects.find(p => p.id === selectedProjectId) : projects[0]
-      const teamLabel = activeProj?.linearTeam || settings.linearTeam || 'Linear'
       const repoLabel = activeProj?.githubRepo || settings.githubRepo || 'GitHub'
       addToast({
         type: 'success',
-        title: target === 'linear' ? 'Exporté vers Linear' : 'Exporté vers GitHub',
-        description: `${updated.key} (${target === 'linear' ? teamLabel : repoLabel}) créé avec succès !`,
+        title: 'Exporté vers GitHub',
+        description: `${updated.key} (${repoLabel}) créé avec succès !`,
       })
       return updated
     } catch (err: any) {
@@ -2946,7 +2894,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  // Filter tasks by active source filter (all / linear / github / jira / local)
+  // Filter tasks by active source filter (all / github / jira / local)
   // then by the active parent (epic or parent story), when one is selected.
   const filteredTasks = React.useMemo(() => {
     let out = sourceFilter === 'all'
@@ -2961,87 +2909,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     return out
   }, [tasks, sourceFilter, parentFilter, selectedProjectId])
-
-  // The daily digest reads as a brief for one person, so it is served only for
-  // a selected project of type "personal" — never for a delivery project, and
-  // never for the "all projects" view.
-  const isDigestAvailable = currentProject?.projectType === 'personal'
-
-  const digestProjectId = useCallback((): string | null => {
-    return currentProject?.projectType === 'personal' ? currentProject.id : null
-  }, [currentProject])
-
-  // Switching to a delivery project while the digest is open would leave an
-  // empty view behind: fall back to the board.
-  useEffect(() => {
-    if (activeView === 'digest' && !isDigestAvailable) {
-      setActiveView('board')
-    }
-  }, [activeView, isDigestAvailable, setActiveView])
-
-  const fetchDailyDigest = useCallback(async (date?: string, assignee?: string): Promise<DailyDigest | null> => {
-    const pid = digestProjectId()
-    if (!pid) return null
-    setIsDigestLoading(true)
-    try {
-      const params = new URLSearchParams()
-      if (date) params.set('date', date)
-      if (assignee) params.set('assignee', assignee)
-      const qs = params.toString() ? `?${params.toString()}` : ''
-      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(pid)}/daily-digest${qs}`)
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Digest indisponible')
-      }
-      const data: DailyDigest = await res.json()
-      setDailyDigest(data)
-      return data
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Digest indisponible', description: err.message })
-      return null
-    } finally {
-      setIsDigestLoading(false)
-    }
-  }, [digestProjectId])
-
-  const generateDailyDigest = useCallback(async (
-    opts?: { date?: string; assignee?: string; enrich?: boolean }
-  ): Promise<DailyDigest | null> => {
-    const pid = digestProjectId()
-    if (!pid) return null
-    const enrich = Boolean(opts?.enrich)
-    if (enrich) setIsDigestEnriching(true)
-    else setIsDigestLoading(true)
-    try {
-      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(pid)}/daily-digest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: opts?.date || '', assignee: opts?.assignee || '', enrich }),
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || 'Génération du digest impossible')
-      }
-      const data: DailyDigest = await res.json()
-      setDailyDigest(data)
-      if (enrich) {
-        addToast({
-          type: data.aiStatus === 'completed' ? 'success' : 'error',
-          title: data.aiStatus === 'completed' ? 'Agenda récupéré' : 'Agenda indisponible',
-          description: data.aiStatus === 'completed'
-            ? `Agenda du ${data.date} ajouté au digest.`
-            : (data.aiError || "L'agent n'a rien renvoyé."),
-        })
-      }
-      return data
-    } catch (err: any) {
-      addToast({ type: 'error', title: 'Digest', description: err.message })
-      return null
-    } finally {
-      setIsDigestEnriching(false)
-      setIsDigestLoading(false)
-    }
-  }, [digestProjectId])
 
   // A project can rename any workflow skill through `skillOverrides`
   // (skillId -> custom label). Every place that shows a skill name goes through
@@ -3291,12 +3158,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         skillCommand,
 
 
-        isDigestAvailable,
-        dailyDigest,
-        isDigestLoading,
-        isDigestEnriching,
-        fetchDailyDigest,
-        generateDailyDigest,
         sidebarCollapsed,
         setSidebarCollapsed,
         selectedTask,
@@ -3385,7 +3246,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         deleteTask,
         runSkill,
         syncAll,
-        syncLinear,
         syncGithub,
         syncJira,
         syncCurrentProject,

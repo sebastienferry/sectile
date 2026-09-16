@@ -12,7 +12,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 ## ✨ Fonctionnalités implémentées
 
 - **Server-side tracker integration**:
-  - GitHub REST and Linear GraphQL support synchronization, issue creation, updates and comments without an online agent.
+  - GitHub REST supports synchronization, issue creation, updates and comments without an online agent.
   - Configure explicit server credentials and repository/team identifiers. CLI login state is not used by the server.
   - Local tasks remain in SQLite. Jira metadata remains readable, but this baseline does not implement Jira synchronization or mutations.
   - Tracker queues expose actual API errors in Activities.
@@ -38,12 +38,12 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     3. 💻 **Implement** (`/code-issue`) : Plan de code, modification des fichiers et tests unitaires.
     4. **Adjust** (`/adjust-issue`): Review the full branch, address findings and available PR feedback, run final checks, and update the existing PR before human merge.
     5. ⚡ **Auto-Pilot** (`/pick-issue`) : Routeur intelligent qui enchaîne automatiquement l'étape optimale.
-  - **Panneau de statut des CLI** : Vérification en temps réel de l'installation et de l'authentification de `git`, `gh`, `linear`, `acli`, `agy`, `vibe`, `claude`, `gemini`, `codex`, ainsi que des outils SDD `uv`, `specify` et `openspec`.
+  - **Panneau de statut des CLI** : Vérification en temps réel de l'installation et de l'authentification de `git`, `gh`, `agy`, `claude`, `codex`, ainsi que des outils SDD `uv`, `specify` et `openspec`.
 
 - 🗂 **Sidebar complète & Workflow Stages** :
   - `Backlog` ➔ `À clarifier` ➔ `Spécifié` ➔ `En cours` ➔ `À valider` ➔ `Terminé` avec compteurs en temps réel.
   - Bascule des vues (`Tableau Kanban` / `Vue Liste`).
-  - Filtres rapides (`Mes tâches`, `Priorité Haute`, `Étiquettes/Tags`) et filtre par source (`Linear`, `GitHub`, `Jira`, `Local`).
+  - Filtres rapides (`Mes tâches`, `Priorité Haute`, `Étiquettes/Tags`) et filtre par source (`GitHub`, `Jira`, `Local`).
   - Repli / Dépli fluide de la barre latérale.
 
 - 👤 **Profil & Ergonomie Personnalisée** :
@@ -56,7 +56,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     - *Confortable* (15px, espacements aérés).
 
 - 🔀 **Tableau Kanban & Vue Liste (Drag & Drop)** :
-  - **Vue Tableau Kanban** : Glisser-déposer fluide entre colonnes avec mise à jour automatique Linear/GitHub.
+  - **Vue Tableau Kanban** : Glisser-déposer fluide entre colonnes avec mise à jour automatique du tracker.
   - **Vue Liste** : Regroupement par statut, tri multi-colonnes et édition inline.
 
 - 🔍 **Recherche Rapide (`/`) & Palette d'actions (`Cmd+K`)** :
@@ -86,9 +86,8 @@ Start the server with its persistent database and shared agent credential:
 ```sh
 export SECTILE_SERVER_TOKEN='<shared agent credential>'
 export SECTILE_TRACKER_TOKEN='<tracker API token>'
-# Serving GitHub and Linear at once? Override per provider:
+# Serving several providers at once? Override per provider:
 # export SECTILE_GITHUB_TOKEN='<GitHub API token>'
-# export SECTILE_LINEAR_API_KEY='<Linear API key>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/sectile-server
 ```
 
@@ -117,8 +116,6 @@ For development, use `make dev-server` and `make dev-web` in separate terminals.
 | `SECTILE_TRACKER_TOKEN` | Tracker API credential, used by every provider that has no override below. |
 | `SECTILE_GITHUB_TOKEN` | GitHub-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
 | `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
-| `SECTILE_LINEAR_API_KEY` | Linear-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `LINEAR_API_KEY` is an environment-only fallback. |
-| `SECTILE_LINEAR_API_URL` | GraphQL endpoint; defaults to `https://api.linear.app/graphql`. |
 
 The token is read from the environment of the **server process itself**, at
 startup only. `make serve`, `go run ./cmd/server` and `./bin/sectile-server`
@@ -127,8 +124,8 @@ terminal — or after the server is already running — has no effect: restart t
 server. A `gh` login on the same machine is not picked up either; for GitHub only
 `SECTILE_GITHUB_TOKEN`, then `SECTILE_TRACKER_TOKEN`, then `GH_TOKEN`, then
 `GITHUB_TOKEN` are consulted. The provider-specific variable comes first so a
-server driving both GitHub and Linear cannot send one provider's credential to
-the other.
+server driving several providers cannot send one provider's credential to
+another.
 
 For a GitHub project the token needs, at minimum, read and write access to the
 issues of the configured repositories, plus repository metadata. A fine-grained
@@ -146,7 +143,7 @@ checking that its comments load — that read goes through the tracker API.
 Credentials are read at server startup and are excluded from agent configuration.
 Supply access to the configured repositories/teams and the operations you use
 (issues, comments, milestones and PR reads). Configure `githubRepo` as
-`owner/repository` and `linearTeam` as the team key. The server never discovers
+`owner/repository`. The server never discovers
 these through a local clone or CLI credential store. Missing credentials and
 API failures fail the operation visibly; there is no workstation fallback.
 
@@ -180,7 +177,7 @@ commands; configure the server credentials separately.
 Une suite documentaire complète pour développeurs et LLMs est disponible dans le dossier [`/docs`](./docs) :
 
 - 🏛️ [**Architecture & Conception Générale** (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md) : Modèle de concurrence, persistance SQLite, isolation Git Worktrees, PTY ZSH & WebSockets.
-- ⚡ [**Capacités & Workflows Agentiques** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md) : Multi-projets, pipeline de 5 skills, Auto-Pilot, synchronisation Linear / GitHub.
+- ⚡ [**Capacités & Workflows Agentiques** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md) : Multi-projets, pipeline de 5 skills, Auto-Pilot, synchronisation GitHub / Jira.
 - 🎨 [**Composants UX & Design Frontend** (`docs/UX_COMPONENTS.md`)](./docs/UX_COMPONENTS.md) : Kanban drag-and-drop, vue liste, terminal interactif Xterm.js, inspecteur de Diff Git.
 - 🔌 [**Spécification API & Schéma de Données** (`docs/API_AND_DATA_SPEC.md`)](./docs/API_AND_DATA_SPEC.md) : Schéma SQLite complet, endpoints REST et agent-owned console protocol.
 - 🤖 [**Guide de Ré-implémentation pour LLMs** (`docs/REIMPLEMENTATION_GUIDE.md`)](./docs/REIMPLEMENTATION_GUIDE.md) : Blueprint étape par étape pour reconstruire Sectile de zéro.
@@ -581,9 +578,9 @@ A full chain run is always autonomous. Merging stays manual.
 
 The server project supplies the `useWorktrees` default, which **Inherit worktrees
 from server** restores in the desktop project settings. Parallel executions
-(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
-the desktop app is the only surface that sets one, and a project without a local
-value runs a single execution at a time.
+(1 to 10, set with a slider) are workstation-owned: the server neither stores nor
+supplies a value, the desktop app is the only surface that sets one, and a
+project without a local value runs a single execution at a time.
 Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
@@ -647,7 +644,7 @@ Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette and choose
 **Quick add task**. The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.
 The server creates the task using its project tracker configuration.
-GitHub and Linear creation must succeed remotely; errors do not silently create
+GitHub creation must succeed remotely; errors do not silently create
 a local fallback. Local projects remain local. Jira remote creation is not
 implemented and returns an explicit error. Creation does not start an execution;
 the success screen offers a separate **Launch task** action.

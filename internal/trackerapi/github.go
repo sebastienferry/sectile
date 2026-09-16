@@ -253,9 +253,6 @@ func (c *Client) AddIssueComment(source, repo, repoPath, key, body string) error
 	if strings.TrimSpace(body) == "" {
 		return fmt.Errorf("comment body is required")
 	}
-	if source == "linear" {
-		return c.addLinearComment(key, body)
-	}
 	if source != "github" && !strings.HasPrefix(key, "#") {
 		return fmt.Errorf("unsupported tracker %q", source)
 	}

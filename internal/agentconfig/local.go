@@ -298,7 +298,7 @@ func refresh(fs, work *os.Root, files, manifest map[string]string, backups *[]st
 // MaxParallelism bounds the concurrent executions a workstation may run for one
 // project. Parallelism is workstation-owned: the server neither stores nor
 // supplies it, so every surface that accepts or clamps a value reads this.
-const MaxParallelism = 5
+const MaxParallelism = 10
 
 // ExecutionLimit is workstation-owned and serializes shared checkout execution.
 // Without a local override a project runs a single execution at a time.

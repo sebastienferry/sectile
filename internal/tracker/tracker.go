@@ -3,7 +3,7 @@
 // The application knows how to assign a work item, move it to a sprint, attach
 // it to an epic, transition it, comment it. What differs from one tracker to the
 // next is whether the operation exists at all: Jira has sprints and teams,
-// GitHub has neither, Linear has cycles that are not sprints. Rather than
+// GitHub has neither: it carries no sprint and no team. Rather than
 // scattering `if source == "jira"` across the call sites, a tracker declares
 // what it can do, and the caller asks.
 //

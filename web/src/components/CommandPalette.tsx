@@ -18,9 +18,6 @@ import {
   ShieldCheck,
   Layers,
   Download,
-  Map as MapIcon,
-  SlidersHorizontal,
-  Clock,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { accentTextStyle } from '../lib/accents'
@@ -179,39 +176,6 @@ export const CommandPalette: React.FC = () => {
       },
     },
     {
-      id: 'switch_triage',
-      title: '🎯 Vue Triage (Affectation Sprints & Macros)',
-      icon: <SlidersHorizontal size={16} className="text-violet-400" />,
-      shortcut: 'T',
-      keywords: ['triage', 'curation', 'sprint', 'macro', 'backlog', 'affectation', 'selection'],
-      action: () => {
-        setActiveView('triage')
-        setIsCommandPaletteOpen(false)
-      },
-    },
-    {
-      id: 'switch_roadmap',
-      title: '🗺️ Vue Roadmap (Macros : NOW / NEXT / FUTURE)',
-      icon: <MapIcon size={16} className="text-emerald-400" />,
-      shortcut: 'R',
-      keywords: ['roadmap', 'macros', 'macro', 'horizon', 'now', 'next', 'future', 'vue', 'plan'],
-      action: () => {
-        setActiveView('roadmap')
-        setIsCommandPaletteOpen(false)
-      },
-    },
-    {
-      id: 'switch_timeline',
-      title: '⏱️ Vue Timeline Sprints',
-      icon: <Clock size={16} className="text-blue-400" />,
-      shortcut: 'TL',
-      keywords: ['timeline', 'sprint', 'sprints', 'planning', 'vue', 'horizons', 'duree', 'chronologie'],
-      action: () => {
-        setActiveView('timeline')
-        setIsCommandPaletteOpen(false)
-      },
-    },
-    {
       id: 'switch_activities',
       title: '⚡ Vue Activités (File d\'exécution & IA)',
       icon: <Activity size={16} className="text-cyan-400" />,
@@ -224,10 +188,10 @@ export const CommandPalette: React.FC = () => {
     },
     {
       id: 'switch_sync',
-      title: '🔄 Vue Synchronisation (Linear / GitHub / Jira)',
+      title: '🔄 Vue Synchronisation (GitHub / Jira)',
       icon: <RefreshCw size={16} className="text-indigo-400" />,
       shortcut: 'S',
-      keywords: ['synchronisation', 'synchro', 'sync', 'linear', 'github', 'jira', 'tracker', 'integration'],
+      keywords: ['synchronisation', 'synchro', 'sync', 'github', 'jira', 'tracker', 'integration'],
       action: () => {
         setActiveView('sync')
         setIsCommandPaletteOpen(false)
@@ -239,7 +203,7 @@ export const CommandPalette: React.FC = () => {
       title: '🚀 Lancer la synchronisation du projet actif',
       icon: <RefreshCw size={16} className="text-emerald-400" />,
       shortcut: 'Shift+S',
-      keywords: ['synchroniser', 'sync now', 'refresh', 'actualiser', 'telecharger', 'linear', 'github'],
+      keywords: ['synchroniser', 'sync now', 'refresh', 'actualiser', 'telecharger', 'github', 'jira'],
       action: () => {
         setIsCommandPaletteOpen(false)
         syncCurrentProject()
@@ -294,10 +258,10 @@ export const CommandPalette: React.FC = () => {
     },
     ...projects.map(p => ({
       id: `switch_proj_${p.id}`,
-      title: `Basculer sur le projet: ${p.name}${p.linearTeam ? ` (${p.linearTeam})` : ''}`,
+      title: `Basculer sur le projet: ${p.name}${p.githubRepo ? ` (${p.githubRepo})` : ''}`,
       icon: <Layers size={16} style={accentTextStyle(p.color)} />,
       shortcut: p.slug.substring(0, 3).toUpperCase(),
-      keywords: ['projet', 'project', p.name.toLowerCase(), p.slug.toLowerCase(), p.linearTeam?.toLowerCase() || '', p.githubRepo?.toLowerCase() || ''],
+      keywords: ['projet', 'project', p.name.toLowerCase(), p.slug.toLowerCase(), p.githubRepo?.toLowerCase() || ''],
       action: () => {
         setSelectedProjectId(p.id)
         setIsCommandPaletteOpen(false)
