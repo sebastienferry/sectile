@@ -129,10 +129,24 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 		default:
 		}
 	})
+	// The script answers a line it has already read, so the line has to arrive after the
+	// read, not before: whatever is typed while the shell is still launching the script is
+	// consumed by the terminal and never reaches it. READY is the script saying it is at
+	// its read; waiting for it replaces the launch delay this test used to rely on.
+	var captured strings.Builder
+	ready := time.NewTimer(15 * time.Second)
+	for !strings.Contains(captured.String(), "READY") {
+		select {
+		case chunk := <-output:
+			captured.WriteString(chunk)
+		case <-ready.C:
+			t.Fatalf("fake-agent never signalled READY: %s", captured.String())
+		}
+	}
+	ready.Stop()
 	if err := d.terminal.manager.SendInput("free", "hello console\n"); err != nil {
 		t.Fatal(err)
 	}
-	var captured strings.Builder
 	timer := time.NewTimer(8 * time.Second)
 	defer timer.Stop()
 	for !strings.Contains(captured.String(), "ANSWER:hello console") {

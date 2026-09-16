@@ -44,4 +44,3 @@ func TestEncodedCommandSurvivesAMultiLinePrompt(t *testing.T) {
 		t.Fatalf("round trip lost the prompt: %v %q", err, raw)
 	}
 }
-
