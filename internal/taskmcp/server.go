@@ -87,7 +87,7 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 		"description": config.Description, "gitRemoteUrl": config.GitRemoteURL, "issueTracker": config.IssueTracker,
 		"trackerUrl": config.TrackerURL, "githubRepo": config.GithubRepo, "linearTeam": config.LinearTeam,
 		"jiraProject": config.JiraProject, "specFramework": config.SpecFramework, "prCreationStage": config.PRCreationStage,
-		"useWorktrees": config.UseWorktrees, "parallelism": config.Parallelism, "aiProvider": config.AIProvider,
+		"useWorktrees": config.UseWorktrees, "aiProvider": config.AIProvider,
 		"skills": skills, "skillDirectories": []string{".agents/skills", ".claude/skills", ".gemini/skills", ".agy/skills", ".skills"},
 	}
 }

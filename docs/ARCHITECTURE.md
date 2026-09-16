@@ -65,16 +65,15 @@ Digest generation also delegates LLM execution to an agent.
 The agent downloads fresh project configuration for each operation. Configuration
 contains identity, effective skills and defaults, without server filesystem paths
 or tracker credentials. Local repositories are mapped by project primary key in
-`~/.config/taskflow/settings.json`, with repository overrides supported under
+`~/.config/sectile/settings.json`, with repository overrides supported under
 `.taskflow/agent.json`. Git remote identity can match the current repository.
 Repositories are never cloned implicitly.
 
 Task preparation reuses the assigned branch's existing checkout where possible.
 Otherwise it creates `.tasks/worktrees/<taskKey>` locally. Existing mismatched
 worktrees fail visibly; preparation does not reset a branch to accommodate a
-request. Shared checkouts execute serially. Worktree projects admit up to three
-parallel executions according to effective server defaults and workstation
-preferences. Tasks using the same checkout cannot execute concurrently.
+request. Shared checkouts execute serially. Worktree projects admit up to five
+parallel executions according to the workstation setting, which defaults to one. Tasks using the same checkout cannot execute concurrently.
 
 Only the agent writes repository skills and `.taskflow/config.json` or updates
 the marked section of `AGENTS.md`. It preserves unrelated configuration keys and

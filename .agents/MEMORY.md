@@ -21,7 +21,7 @@
   - Sync routines (`processSyncJob`) dynamically resolve tracker adapters from `d.TrackerRegistry().Get(trackerName)`, allowing any registered tracker with `CapSync` to synchronize without modifying core switch statements.
 
 ### 3. Project Settings Are Runtime State, Not Repository Artifacts
-- **Constraint**: Per-project settings exposed on `models.Project` (`specFramework`, `prCreationStage`, `aiProvider`, `issueTracker`, `parallelism`, ...) live **only** in the Sectile SQLite database. No repository file carries them: not `.taskflow/agent.json` (which stores the agent-side project/path mapping and provider defaults), not `AGENTS.md`, not a committed seed.
+- **Constraint**: Per-project settings exposed on `models.Project` (`specFramework`, `prCreationStage`, `aiProvider`, `issueTracker`, ...) live **only** in the Sectile SQLite database. No repository file carries them: not `.taskflow/agent.json` (which stores the agent-side project/path mapping and provider defaults), not `AGENTS.md`, not a committed seed.
 - **Consequence**: A ticket asking to correct such a setting is a **data fix with no diff and therefore no pull request**. Do not scaffold a specification or invent a code change to satisfy a PR-shaped workflow; report the absence of a deliverable instead. Ticket #117 (`specFramework: speckit -> openspec`) is the reference case.
 - **How to read and mutate**:
   - `GET /api/projects` and `GET /api/projects/{id}` return the stored values.

@@ -49,10 +49,6 @@ import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_
 
 type ProjectTab = 'general' | 'git' | 'agent' | 'tracker' | 'skills'
 
-/** Concurrent execution workers ceiling per project, aligned with models.MaxParallelism. */
-const MAX_PARALLELISM = 5
-const PARALLELISM_CHOICES = Array.from({ length: MAX_PARALLELISM }, (_, i) => i + 1)
-
 const TABS: { id: ProjectTab; label: string; icon: React.FC<{ size?: number; className?: string }> }[] = [
   { id: 'general', label: 'Général', icon: Folder },
   { id: 'git', label: 'Repository', icon: GitBranch },
@@ -178,7 +174,6 @@ export const ProjectModal: React.FC = () => {
   const [useCustomAgent, setUseCustomAgent] = useState(false)
   const [setupProviders, setSetupProviders] = useState<string[]>([])
   const [useWorktrees, setUseWorktrees] = useState(true)
-  const [parallelism, setParallelism] = useState<number>(1)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
 
@@ -270,7 +265,6 @@ export const ProjectModal: React.FC = () => {
       setSetupProviders(editingProject.setupProviders || [])
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setUseWorktrees(editingProject.useWorktrees !== false)
-      setParallelism(editingProject.parallelism && editingProject.parallelism >= 1 && editingProject.parallelism <= MAX_PARALLELISM ? editingProject.parallelism : 1)
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
@@ -317,7 +311,6 @@ export const ProjectModal: React.FC = () => {
       setSetupProviders([])
       setSpecFramework(settings.specFramework || 'speckit')
       setUseWorktrees(true)
-      setParallelism(1)
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
 
@@ -395,7 +388,6 @@ export const ProjectModal: React.FC = () => {
         setupProviders,
         specFramework,
         useWorktrees,
-        parallelism: useWorktrees ? parallelism : 1,
         autoSyncEnabled,
         autoSyncIntervalMin,
         issueTracker,
@@ -936,41 +928,6 @@ export const ProjectModal: React.FC = () => {
                 <h3>Local agent execution defaults</h3>
                 <p className="text-xs text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
                 <label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={useWorktrees} onChange={e=>setUseWorktrees(e.target.checked)} />Use a worktree for each task</label>
-              </div>
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center shrink-0 border border-amber-500/20">
-                      <Layers size={16} />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-[var(--text-primary)] block">
-                        Parallel executions per local agent
-                      </span>
-                      <span className="text-[10px] text-[var(--text-muted)] block">
-                        {useWorktrees ? `Project default: 1 to ${MAX_PARALLELISM} concurrent executions. Additional tasks wait in the local queue.` : 'Without worktrees, executions are limited to one.'}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 bg-[var(--bg-secondary)] p-1 rounded-xl border border-[var(--border-color)] self-start sm:self-auto shrink-0">
-                    {PARALLELISM_CHOICES.map(val => (
-                      <button
-                        key={val}
-                        type="button"
-                        disabled={!useWorktrees}
-                        onClick={() => setParallelism(val)}
-                        className={`px-3 py-1 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer ${
-                          (useWorktrees ? parallelism : 1) === val
-                            ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
-                        }`}
-                      >
-                        {val} {val === 1 ? 'worker' : 'workers'}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               {/* Section Synchronisation en arrière-plan */}

@@ -76,12 +76,28 @@ The product is Sectile. Environment variables use the `SECTILE_` prefix and the
 binaries are `sectile-server` and `sectile-agent`.
 
 Three things deliberately keep the former name, because they address data that
-already exists on disk: the agent data directories (`~/.taskflow`,
-`~/.config/taskflow`, `Application Support/taskflow`), the legacy MCP
-registration names that `agentconfig` migrates away from, and the
+already exists on disk: the agent's local connection file `~/.taskflow/agent-connection.json`
+and the repository-level `.taskflow/` files it writes beside a clone, the legacy
+MCP registration name that `agentconfig` migrates away from, and the
 `<!-- taskflow:project-context -->` markers written into repository files.
 Renaming any of them would strand existing installations rather than rename
 them. Each needs a migration of its own to move.
+
+The workstation and server data directories are not among them: they moved with
+the product. `agentconfig.SettingsPath` returns `~/.config/sectile/settings.json`,
+the agent manifest sits beside it, and the server data directory is
+`<user config dir>/sectile`, whose only legacy fallback is a `taskacao/tasks.db`
+predating the former name.
+
+That move shipped without its migration, and this ADR recorded the intent rather
+than the result. Nothing reads the former `~/.config/taskflow/settings.json`, so
+a workstation that upgrades starts from empty settings: it loses its server URL,
+its device credential and its project mappings, and has to pair again without
+being told why. A read-only fallback would not be enough either, since
+`WriteSettings` preserves unknown keys — `server`, `secret`, `repo` — only from
+the file found at the new path; the first save after such a fallback would drop
+them. The fix is a one-shot copy of the legacy file, and of the manifest beside
+it, on first read. It is an outstanding gap, not a decision.
 
 See [ADR 0006](0006-independent-server-agent-runtimes.md) for the runtime split
 this builds on, and [the interface contract](../contracts/server-agent-v1.md).

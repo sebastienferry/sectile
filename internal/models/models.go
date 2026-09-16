@@ -128,7 +128,6 @@ type Project struct {
 	SetupProviders          []string          `json:"setupProviders"`                    // extra agents to install skills and MCP for
 	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`       // e.g. 'agy -p "{prompt}"'
 	SpecFramework           string            `json:"specFramework,omitempty"`           // "speckit", "openspec"
-	Parallelism             int               `json:"parallelism"`                       // 1 to MaxParallelism concurrent AI background workers
 	AutoSyncEnabled         bool              `json:"autoSyncEnabled"`                   // Enable background sync for non-finished tickets
 	AutoSyncIntervalMin     int               `json:"autoSyncIntervalMin"`               // Period in minutes (1 to 30)
 	TtyMode                 string            `json:"ttyMode,omitempty"`                 // "integrated" or "external"
@@ -296,7 +295,6 @@ type CreateProjectRequest struct {
 	AIProvider              string            `json:"aiProvider,omitempty"`
 	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`
 	SpecFramework           string            `json:"specFramework,omitempty"`
-	Parallelism             int               `json:"parallelism,omitempty"`
 	AutoSyncEnabled         *bool             `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin     *int              `json:"autoSyncIntervalMin,omitempty"`
 	TtyMode                 string            `json:"ttyMode,omitempty"`
@@ -333,7 +331,6 @@ type UpdateProjectRequest struct {
 	AIProvider              *string              `json:"aiProvider,omitempty"`
 	AICommandTemplate       *string              `json:"aiCommandTemplate,omitempty"`
 	SpecFramework           *string              `json:"specFramework,omitempty"`
-	Parallelism             *int                 `json:"parallelism,omitempty"`
 	AutoSyncEnabled         *bool                `json:"autoSyncEnabled,omitempty"`
 	AutoSyncIntervalMin     *int                 `json:"autoSyncIntervalMin,omitempty"`
 	TtyMode                 *string              `json:"ttyMode,omitempty"`
@@ -349,21 +346,6 @@ func NormalizeAutoSyncIntervalMin(min int) int {
 		return 30
 	}
 	return min
-}
-
-// MaxParallelism bounds the concurrent background agent workers a project may
-// run. Every surface that accepts or clamps a parallelism reads this value.
-const MaxParallelism = 5
-
-// NormalizeParallelism keeps the concurrent background agent workers count between 1 and MaxParallelism.
-func NormalizeParallelism(p int) int {
-	if p < 1 {
-		return 1
-	}
-	if p > MaxParallelism {
-		return MaxParallelism
-	}
-	return p
 }
 
 type InstalledSkillInfo struct {

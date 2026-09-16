@@ -229,7 +229,6 @@ export interface Project {
   aiProvider?: AIProvider
   aiCommandTemplate?: string
   specFramework?: SpecFramework
-  parallelism?: number
   /** Synchronisation automatique en arrière-plan activée pour ce projet. */
   autoSyncEnabled?: boolean
   /** Période de la synchronisation en arrière-plan (en minutes, entre 1 et 30 min). */
