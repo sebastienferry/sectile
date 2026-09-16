@@ -978,6 +978,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	//   PUT    /{skillId}            → save the edited content and regenerate the files
 	//   POST   /{skillId}/reset      → back to the built-in template
 	//   POST   /{skillId}/import     → take the file on disk as the new content
+	//   PUT    /{skillId}/mode       → pin the skill's execution mode, or clear it
 	if len(parts) >= 2 && parts[1] == "skill-editor" {
 		skillID := ""
 		if len(parts) >= 3 {
@@ -1021,6 +1022,32 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			writeJSON(w, http.StatusOK, entry)
+			return
+
+		case r.Method == http.MethodPut && skillID != "" && sub == "mode":
+			var payload struct {
+				Mode string `json:"mode"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
+				return
+			}
+			if err := h.db.SetProjectSkillMode(id, skillID, payload.Mode); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			entries, err := h.db.ListProjectSkillEditor(id)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			for _, entry := range entries {
+				if entry.ID == models.NormalizeSkillID(skillID) {
+					writeJSON(w, http.StatusOK, entry)
+					return
+				}
+			}
+			writeError(w, http.StatusNotFound, "skill introuvable après enregistrement")
 			return
 
 		case r.Method == http.MethodPost && skillID != "" && sub == "import":

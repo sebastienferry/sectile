@@ -39,7 +39,7 @@ import {
   Target,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta } from '../types'
+import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode } from '../types'
 import { WORKFLOW_ORDER, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
 import { TaskComments } from './TaskComments'
 import { LookupField, type LookupOption } from './LookupField'
@@ -158,6 +158,9 @@ export const TaskDetailModal: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false)
   const [activeTab, setActiveTab] = useState<'details' | 'comments' | 'skills' | 'git' | 'cadrage' | 'history'>('details')
   const [customPrompt, setCustomPrompt] = useState('')
+  // Surcharge ponctuelle du mode d'exécution. Vide veut dire « mode configuré » :
+  // aucune surcharge n'est envoyée et la précédence s'applique normalement.
+  const [launchMode, setLaunchMode] = useState<SkillMode>('')
 
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
   const [isExpandedSpec, setIsExpandedSpec] = useState(false)
@@ -632,7 +635,7 @@ export const TaskDetailModal: React.FC = () => {
   const handleTriggerSkill = async (skillId: string, overridePrompt?: string) => {
     if (!selectedTask || isSkillRunning) return
     const promptToUse = overridePrompt || customPrompt
-    const activity = await runSkill(selectedTask.id, skillId, promptToUse)
+    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: launchMode })
     if (activity && !overridePrompt) {
       setCustomPrompt('')
     }
@@ -1317,9 +1320,22 @@ export const TaskDetailModal: React.FC = () => {
 
       {/* Optional Prompt Refinement */}
       <div>
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
           <label className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
             Instruction / Contexte additionnel pour l'IA (Optionnel)
+          </label>
+          <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
+            <span>Mode</span>
+            <select
+              value={launchMode}
+              onChange={e => setLaunchMode(e.target.value as SkillMode)}
+              className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
+              title="Mode d'exécution pour ce lancement seulement. Aucun réglage enregistré n'est modifié."
+            >
+              <option value="">Mode configuré</option>
+              <option value="interactive">Interactif</option>
+              <option value="autonomous">Autonome</option>
+            </select>
           </label>
         </div>
         <input

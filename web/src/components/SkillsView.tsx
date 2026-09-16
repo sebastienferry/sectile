@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
+  Bot,
   FileCode2,
   Loader2,
   RotateCcw,
@@ -7,7 +8,18 @@ import {
   Terminal,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { SkillEditorEntry } from '../types'
+import type { SkillEditorEntry, SkillMode } from '../types'
+
+/**
+ * Les trois valeurs du réglage par skill. « Défaut du projet » est le troisième
+ * état dont la précédence a besoin : sans lui, aucune skill ne peut dire « pas
+ * d'avis » et retomber sur le réglage du projet.
+ */
+const SKILL_MODE_OPTIONS: { value: SkillMode; label: string; title: string }[] = [
+  { value: '', label: 'Défaut du projet', title: "La skill ne fixe rien : le défaut du projet décide" },
+  { value: 'interactive', label: 'Interactif', title: 'Ouvre un terminal que tu réponds, et tu confirmes la transition' },
+  { value: 'autonomous', label: 'Autonome', title: "Lance la CLI en headless, sans terminal ; le worker pose la transition" },
+]
 
 /**
  * Éditeur des skills du workflow agentique.
@@ -18,7 +30,7 @@ import type { SkillEditorEntry } from '../types'
  * silence, il est signalé comme divergent et peut être réimporté.
  */
 export const SkillsView: React.FC = () => {
-  const { currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent } = useApp()
+  const { currentProject, fetchSkillEditor, saveSkillContent, resetSkillContent, saveSkillMode } = useApp()
 
   const [entries, setEntries] = useState<SkillEditorEntry[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -138,10 +150,13 @@ export const SkillsView: React.FC = () => {
                         <span>#{entry.toStage}</span>
                       </>
                     ) : <span>Additional skill</span>}
-                    {entry.interactive && (
-                      <span className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)]" title="Session interactive">
-                        <Terminal size={8} />
-                        Interactive
+                    {entry.mode && (
+                      <span
+                        className="ml-1 flex items-center gap-0.5 text-[var(--text-secondary)]"
+                        title={entry.mode === 'autonomous' ? 'Exécution autonome (headless)' : 'Session interactive'}
+                      >
+                        {entry.mode === 'autonomous' ? <Bot size={8} /> : <Terminal size={8} />}
+                        {entry.mode === 'autonomous' ? 'Autonome' : 'Interactif'}
                       </span>
                     )}
                   </div>
@@ -182,6 +197,22 @@ export const SkillsView: React.FC = () => {
               </div>
 
               <div className="ml-auto flex items-center gap-1.5">
+                <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
+                  <span>Mode</span>
+                  <select
+                    value={selected.mode || ''}
+                    disabled={busy !== null}
+                    onChange={e => run('mode', () => saveSkillMode(selected.id, e.target.value as SkillMode))}
+                    className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] disabled:opacity-40 cursor-pointer"
+                    title="Mode d'exécution de cette skill. Une surcharge au lancement le remplace pour ce lancement seulement."
+                  >
+                    {SKILL_MODE_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value} title={option.title}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
                 {selected.isCustom && (
                   <button
