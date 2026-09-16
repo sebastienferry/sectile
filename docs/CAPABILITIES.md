@@ -189,11 +189,21 @@ placeholder, for example `agy {mode:-p|-i} '{prompt}'`.
 
 ### The full chain run
 
-The `>>` action, **Full chain**, runs every step it enqueues in autonomous mode
-whatever those skills would resolve to on their own. It stops at the project's
-`fullChainStopStage`, either `implemented` (before the pull request) or
-`reviewed` (the default, after it), and refuses to start on a task already at or
-past that stage. Merging is never automated.
+The `>>` action, **Full chain**, always runs autonomous, whatever mode those
+skills would resolve to on their own. It forces the mode rather than letting the
+precedence decide, since a chain nobody is watching must not open a terminal.
+
+Two entry points exist and they do not do the same thing:
+
+- The web card's `>>` launches the `pickup` skill, which walks the workflow
+  itself. The stop stage reaches it through `get_project_context`.
+- `POST /api/tasks/{id}/advance` with `{"auto": true}` goes through the server's
+  own chain entry, which reads `fullChainStopStage` directly and refuses to start
+  on a task already at or past that stage, or on a provider with no attested
+  headless invocation, before enqueuing anything.
+
+`fullChainStopStage` is either `implemented` (before the pull request) or
+`reviewed` (the default, after it). Merging is never automated.
 
 ---
 

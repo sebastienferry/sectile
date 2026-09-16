@@ -67,14 +67,19 @@ func (d *DB) projectSkillOverrides(projectID string) map[string]projectSkillOver
 // catalogue entry. An empty result means the skill has no opinion, which lets
 // the precedence fall through to the project default.
 func (d *DB) ProjectSkillMode(projectIDOrPath, skillID string) string {
+	// Resolve the id the way the setter does. StageSkillByID knows the aliases
+	// NormalizeSkillID does not (pickup-issue, pick, rewrite-story), and reading
+	// under a different key than the one written makes a pinned mode silently
+	// do nothing.
+	stage, known := StageSkillByID(skillID)
+	if !known {
+		return models.SkillModeUnset
+	}
 	projectID, _, _ := d.projectSkillContext(projectIDOrPath)
-	if ov, ok := resolvedSkillOverride(d.projectSkillOverrides(projectID), models.NormalizeSkillID(skillID)); ok && ov.mode != models.SkillModeUnset {
+	if ov, ok := resolvedSkillOverride(d.projectSkillOverrides(projectID), stage.ID); ok && ov.mode != models.SkillModeUnset {
 		return ov.mode
 	}
-	if stage, ok := StageSkillByID(skillID); ok {
-		return models.NormalizeSkillMode(stage.Mode)
-	}
-	return models.SkillModeUnset
+	return models.NormalizeSkillMode(stage.Mode)
 }
 
 // SetProjectSkillMode pins the execution mode of one skill for a project. An

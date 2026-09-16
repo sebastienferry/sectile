@@ -32,6 +32,12 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	cmd.Dir = workDir
 	cmd.Stdin = nil
 	cmd.Env = commandEnv(envVars)
+	// Its own session, so it is also its own process group leader. Cancellation
+	// signals the group (stopControlledCommand kills -pid), which reaches nothing
+	// when the child shares the daemon's group: the stop button would look like
+	// it worked and the run would keep going. Detaching also matches what a
+	// headless run is, a process with no controlling terminal at all.
+	cmd.SysProcAttr = detachedSession()
 
 	output, err := cmd.StdoutPipe()
 	if err != nil {
@@ -112,6 +118,7 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 
 	ticker := time.NewTicker(headlessFlushInterval)
 	defer ticker.Stop()
+	signalled := false
 	draining := true
 	for draining {
 		select {
@@ -123,7 +130,11 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 			canceled := run.canceled
 			d.runsMu.Unlock()
 			if canceled && cmd.Process != nil {
-				stopControlledCommand(cmd, false)
+				// Escalate on the second pass, as the interactive supervisor
+				// does: a CLI that traps the interrupt and keeps working must
+				// not turn a stop request into a run that never ends.
+				stopControlledCommand(cmd, signalled)
+				signalled = true
 			}
 		}
 	}

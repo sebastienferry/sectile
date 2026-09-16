@@ -112,3 +112,27 @@ func TestHeadlessRunReportsFailure(t *testing.T) {
 		t.Fatalf("the output preceding the failure was lost: %q", server.captured())
 	}
 }
+
+// The desktop's stop button must actually stop an autonomous run. The supervisor
+// signals the process GROUP, so the child has to be its own group leader.
+func TestHeadlessRunIsStoppable(t *testing.T) {
+	server := newHeadlessServer(t)
+	d := &agentDaemon{serverURL: server.server.URL}
+	payload := agentconfig.Dispatch{RunID: "run-stop", TaskKey: "#7", SkillID: "clarify"}
+	if err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, "sleep 120"); err != nil {
+		t.Fatalf("startHeadlessRun: %v", err)
+	}
+	d.runsMu.Lock()
+	run := d.runs["run-stop"]
+	run.canceled = true
+	d.runsMu.Unlock()
+
+	select {
+	case <-run.exited:
+	case <-time.After(25 * time.Second):
+		t.Fatal("a canceled headless run never stopped: the stop signal did not reach the process")
+	}
+	if run.desktop.Status != "canceled" {
+		t.Fatalf("status = %q, want canceled", run.desktop.Status)
+	}
+}
