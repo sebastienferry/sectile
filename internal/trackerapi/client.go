@@ -18,18 +18,82 @@ import (
 // provider-specific variables remain supported as overrides.
 const genericTokenVar = "SECTILE_TRACKER_TOKEN"
 
+// DefaultGithubURL and DefaultGitlabURL are the public instances, used when
+// neither the stored configuration nor the environment names one.
+const (
+	DefaultGithubURL = "https://api.github.com"
+	DefaultGitlabURL = "https://gitlab.com/api/v4"
+)
+
+// Credentials carries the connection parameters of one tracker, resolved for
+// one project. An empty field means "nothing stored here": the client keeps the
+// value it derived from the server environment.
+type Credentials struct {
+	GithubURL, GithubToken                string
+	GitlabURL, GitlabProject, GitlabToken string
+}
+
 type Client struct {
-	HTTP                   *http.Client
-	GithubURL, GithubToken string
+	HTTP                                  *http.Client
+	GithubURL, GithubToken                string
+	GitlabURL, GitlabProject, GitlabToken string
+	// Resolve returns the credentials stored for one project, by project id, an
+	// empty id meaning "no project". It is injected by the store, which is the
+	// only component able to read both the settings and the project row; the
+	// values above stay as the environment-derived fallback. Without it the
+	// client behaves exactly as it did before the configuration existed.
+	Resolve func(projectID string) Credentials
 }
 
 func NewClient() *Client {
 	gh := os.Getenv("SECTILE_GITHUB_API_URL")
 	if gh == "" {
-		gh = "https://api.github.com"
+		gh = DefaultGithubURL
 	}
-	token := trackerToken("SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN")
-	return &Client{HTTP: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, GithubURL: strings.TrimRight(gh, "/"), GithubToken: token}
+	gl := os.Getenv("SECTILE_GITLAB_API_URL")
+	if gl == "" {
+		gl = DefaultGitlabURL
+	}
+	return &Client{
+		HTTP:          &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		GithubURL:     strings.TrimRight(gh, "/"),
+		GithubToken:   trackerToken("SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"),
+		GitlabURL:     strings.TrimRight(gl, "/"),
+		GitlabProject: os.Getenv("SECTILE_GITLAB_PROJECT"),
+		GitlabToken:   trackerToken("SECTILE_GITLAB_TOKEN", "GITLAB_TOKEN"),
+	}
+}
+
+// For returns the client to use for one project: the same one when nothing is
+// stored, a shallow copy carrying the stored credentials otherwise. Resolving
+// per request rather than at startup is what lets a token typed in the
+// interface take effect without restarting the server, and lets two projects
+// reach two instances with two credentials.
+func (c *Client) For(projectID string) *Client {
+	if c == nil || c.Resolve == nil {
+		return c
+	}
+	cred := c.Resolve(projectID)
+	if cred == (Credentials{}) {
+		return c
+	}
+	resolved := *c
+	if cred.GithubURL != "" {
+		resolved.GithubURL = strings.TrimRight(cred.GithubURL, "/")
+	}
+	if cred.GithubToken != "" {
+		resolved.GithubToken = cred.GithubToken
+	}
+	if cred.GitlabURL != "" {
+		resolved.GitlabURL = strings.TrimRight(cred.GitlabURL, "/")
+	}
+	if cred.GitlabProject != "" {
+		resolved.GitlabProject = cred.GitlabProject
+	}
+	if cred.GitlabToken != "" {
+		resolved.GitlabToken = cred.GitlabToken
+	}
+	return &resolved
 }
 
 // trackerToken resolves one provider's credential. The provider-specific variable
@@ -199,4 +263,40 @@ func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 		return nil, err
 	}
 	return json.Marshal(map[string]any{"data": data})
+}
+
+// CheckGithub and CheckGitlab authenticate the given parameters against the
+// instance and answer with the account they belong to. The setup screen saves
+// nothing until one of them succeeds, so a wrong URL or a stale token is
+// reported while the user is still looking at the field rather than by a
+// synchronisation failing later.
+func (c *Client) CheckGithub(ctx context.Context, apiURL, token string) (string, error) {
+	return c.checkAccount(ctx, defaulted(apiURL, DefaultGithubURL), "/user", "Bearer "+strings.TrimSpace(token), "login")
+}
+
+func (c *Client) CheckGitlab(ctx context.Context, apiURL, token string) (string, error) {
+	return c.checkAccount(ctx, defaulted(apiURL, DefaultGitlabURL), "/user", "Bearer "+strings.TrimSpace(token), "username")
+}
+
+func (c *Client) checkAccount(ctx context.Context, apiURL, path, token, field string) (string, error) {
+	raw, _, err := c.request(ctx, http.MethodGet, strings.TrimRight(apiURL, "/")+path, token, nil)
+	if err != nil {
+		return "", err
+	}
+	var account map[string]any
+	if err := json.Unmarshal(raw, &account); err != nil {
+		return "", fmt.Errorf("tracker returned an unreadable account: %w", err)
+	}
+	name, _ := account[field].(string)
+	if name == "" {
+		return "", fmt.Errorf("tracker returned no account for these credentials")
+	}
+	return name, nil
+}
+
+func defaulted(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return strings.TrimSpace(value)
 }
