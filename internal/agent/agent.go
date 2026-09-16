@@ -83,11 +83,7 @@ type agentDaemon struct {
 	repoRoot         string
 	prepareMu        sync.Mutex
 	done             chan struct{}
-	// contractError is the last contract mismatch seen on any server call, so
-	// the desktop can say the server is incompatible instead of showing a bare
-	// disconnection. Empty once a contract route answers correctly again.
-	contractMu    sync.Mutex
-	contractError string
+	contract         contractState
 }
 
 // detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)

@@ -35,8 +35,8 @@ func TestMissingContractRouteIsReportedAsMismatch(t *testing.T) {
 			t.Errorf("message misses %q: %s", want, err)
 		}
 	}
-	if d.contractMismatch() != err.Error() {
-		t.Errorf("mismatch not exposed to the desktop: %q", d.contractMismatch())
+	if d.contract.current() != err.Error() {
+		t.Errorf("mismatch not exposed to the desktop: %q", d.contract.current())
 	}
 
 	// The same server also fails a launch, and that path must say the same thing
@@ -61,8 +61,8 @@ func TestNonContractNotFoundStaysAPlainFailure(t *testing.T) {
 	if err == nil || agentconfig.IsMismatch(err) {
 		t.Fatalf("plain 404 reported as a contract mismatch: %v", err)
 	}
-	if d.contractMismatch() != "" {
-		t.Errorf("unrelated 404 recorded as a mismatch: %q", d.contractMismatch())
+	if d.contract.current() != "" {
+		t.Errorf("unrelated 404 recorded as a mismatch: %q", d.contract.current())
 	}
 }
 
@@ -144,7 +144,7 @@ func TestUpdatedServerClearsTheMismatch(t *testing.T) {
 	if _, err := d.discoverProjects(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if d.contractMismatch() != "" {
-		t.Errorf("mismatch survived an updated server: %q", d.contractMismatch())
+	if d.contract.current() != "" {
+		t.Errorf("mismatch survived an updated server: %q", d.contract.current())
 	}
 }
