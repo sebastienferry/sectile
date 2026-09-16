@@ -54,22 +54,20 @@ const (
 // agentDaemon runs the local Sectile agent that connects outward to a remote
 // Sectile server and executes workflow steps locally inside Git worktrees.
 type agentDaemon struct {
-	operationMu      sync.Mutex
-	operations       map[string]context.CancelFunc
-	queueSequence    uint64
-	restartRequested bool
-	shuttingDown     bool
-	restartAgent     context.CancelFunc
-	desktopToken     string
-	desktopInfo      string
+	operationMu sync.Mutex
+	operations  map[string]context.CancelFunc
+	// queue owns every live execution and the process lifecycle flags that
+	// gate admission, behind its own mutex. Reach that state only via d.queue.
+	queue        runQueue
+	restartAgent context.CancelFunc
+	desktopToken string
+	desktopInfo  string
 	// loopbackToken proves a process belongs to this agent session. It carries
 	// no identity, is regenerated at every start and never leaves the machine.
 	loopbackToken string
 	// echoConsoles mirrors console output on the agent's own stdout. Off by
 	// default: it is a debugging aid, not a way to read runs.
 	echoConsoles     bool
-	runsMu           sync.Mutex
-	runs             map[string]*controlledRun
 	serverURL        string
 	token            string
 	projectID        string
@@ -240,7 +238,7 @@ func Run(args []string) {
 	daemon.restartAgent = cancel
 	// Run after console and gateway cleanup, preserving the original arguments.
 	defer func() {
-		if !daemon.restartRequested {
+		if !daemon.queue.restartRequested {
 			return
 		}
 		// Under `go test` the executable is the test binary and the arguments
@@ -659,9 +657,9 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 
 // handlePullTasks returns all currently queued or running executions.
 func (d *agentDaemon) handlePullTasks(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message) {
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	tasks := make([]agentprotocol.RunningTask, 0)
-	for key, run := range d.runs {
+	for key, run := range d.queue.runs {
 		entry := run.desktop
 		status := entry.Status
 		select {
@@ -684,7 +682,7 @@ func (d *agentDaemon) handlePullTasks(ctx context.Context, conn *websocket.Conn,
 			})
 		}
 	}
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 
 	raw, err := json.Marshal(tasks)
 	if err != nil {
@@ -816,14 +814,14 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	var launchFailure error
 	defer func() {
 		if !launched {
-			d.runsMu.Lock()
+			d.queue.mu.Lock()
 			status := "failed"
 			if run.canceled {
 				status = "canceled"
 			}
 			run.desktop.Status = status
 			run.once.Do(func() { close(run.exited) })
-			d.runsMu.Unlock()
+			d.queue.mu.Unlock()
 			note := ""
 			if launchFailure != nil {
 				note = "Execution never started: " + launchFailure.Error()
@@ -947,11 +945,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 			return
 		}
-		d.runsMu.Lock()
-		if run := d.runs[payload.RunID]; run != nil {
+		d.queue.read(payload.RunID, func(run *controlledRun) {
 			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Branch: branch, Status: "running"}
-		}
-		d.runsMu.Unlock()
+		})
 	}
 	// The agent owns consoles independently of any attached companion.
 	if err := d.runInPty(sessionID, workDir, envVars, fullLine); err != nil {
@@ -990,11 +986,11 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 		return err
 	}
 	// Controlled executions use their run ID as the session ID.
-	d.runsMu.Lock()
-	if run := d.runs[sessionID]; run != nil && run.desktop.StartedAt.IsZero() {
-		run.desktop.StartedAt = startedAt
-	}
-	d.runsMu.Unlock()
+	d.queue.read(sessionID, func(run *controlledRun) {
+		if run.desktop.StartedAt.IsZero() {
+			run.desktop.StartedAt = startedAt
+		}
+	})
 	return nil
 }
 

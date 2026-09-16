@@ -28,7 +28,7 @@ func TestDesktopGitDiffBoundary(t *testing.T) {
 	git("add", ".")
 	git("commit", "-m", "base")
 	git("checkout", "-b", "feat/test")
-	d := &agentDaemon{desktopToken: "private", runs: map[string]*controlledRun{"run": {root: root, desktop: desktopRun{Directory: root, Branch: "feat/test", TaskID: "task", ProjectID: "project", Status: "running"}}, "unprepared": {}}}
+	d := &agentDaemon{desktopToken: "private", queue: runQueue{runs: map[string]*controlledRun{"run": {root: root, desktop: desktopRun{Directory: root, Branch: "feat/test", TaskID: "task", ProjectID: "project", Status: "running"}}, "unprepared": {}}}}
 	for _, tc := range []struct {
 		name, method, id, token, origin string
 		status                          int
@@ -65,21 +65,21 @@ func TestDesktopGitDiffBoundary(t *testing.T) {
 		d.desktopHandler(w, r)
 		return w.Code
 	}
-	d.runs["run"].desktop.Status = "completed"
+	d.queue.runs["run"].desktop.Status = "completed"
 	if request() != 200 {
 		t.Fatal("stopped run unavailable")
 	}
-	d.runs["run"].root = t.TempDir()
+	d.queue.runs["run"].root = t.TempDir()
 	if request() != 409 {
 		t.Fatal("wrong repository accepted")
 	}
-	d.runs["run"].root = root
+	d.queue.runs["run"].root = root
 	git("checkout", "--detach")
 	if request() != 409 {
 		t.Fatal("detached HEAD accepted")
 	}
 	git("checkout", "feat/test")
-	d.runs["run"].desktop.Directory = filepath.Join(root, "missing")
+	d.queue.runs["run"].desktop.Directory = filepath.Join(root, "missing")
 	if request() != 409 {
 		t.Fatal("missing checkout accepted")
 	}

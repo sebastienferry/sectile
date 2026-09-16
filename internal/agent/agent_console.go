@@ -64,16 +64,16 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	run, err := d.enqueueRunLocked("", agentconfig.Dispatch{RunID: id}, input.ProjectID, root, agentconfig.ExecutionLimit(input.ProjectID, config.UseWorktrees, overrides), false)
 	if err != nil {
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
 	run.desktop.Kind, run.desktop.Provider = consoleRunKind, input.Provider
 	entry := run.desktop
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	// The daemon owns the execution after admission, independently of the request.
 	go d.launchConsole(run, command)
 	w.Header().Set("Content-Type", "application/json")
@@ -99,18 +99,18 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 			}
 			_, err = d.terminalMgr.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {
-				d.runsMu.Lock()
+				d.queue.mu.Lock()
 				run.desktop.SessionID = run.desktop.ID
-				d.runsMu.Unlock()
+				d.queue.mu.Unlock()
 				err = d.runInPty(run.desktop.ID, run.root, env, wrapped)
 			}
 			if err == nil {
-				d.runsMu.Lock()
+				d.queue.mu.Lock()
 				// A fast command may have already reported its exit.
 				if run.desktop.Status == "preparing" {
 					run.desktop.Status = "running"
 				}
-				d.runsMu.Unlock()
+				d.queue.mu.Unlock()
 				return
 			}
 		}
@@ -118,12 +118,12 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 	if d.terminalMgr != nil {
 		_ = d.terminalMgr.CloseSession(run.desktop.ID)
 	}
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	run.desktop.SessionID = ""
 	run.desktop.Status = "failed"
-	if run.canceled || d.shuttingDown {
+	if run.canceled || d.queue.shuttingDown {
 		run.desktop.Status = "canceled"
 	}
 	run.once.Do(func() { close(run.exited) })
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 }

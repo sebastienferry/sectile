@@ -81,7 +81,7 @@ func TestConsoleAdmissionValidation(t *testing.T) {
 	if rec.Code != 401 {
 		t.Fatal(rec.Code)
 	}
-	if len(d.runs) != 0 {
+	if len(d.queue.runs) != 0 {
 		t.Fatal("invalid request registered a console")
 	}
 }
@@ -162,9 +162,9 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 	if remoteRequests.Load() != 0 {
 		t.Fatal("free console contacted task tracker")
 	}
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	status := run.desktop.Status
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	if status != "canceled" {
 		t.Fatal(status)
 	}
@@ -188,9 +188,9 @@ func TestFreeConsoleQueueCancellation(t *testing.T) {
 	if err := d.awaitRunSlot(ctx, run); err == nil {
 		t.Fatal("free console bypassed checkout ownership")
 	}
-	d.runsMu.Lock()
+	d.queue.mu.Lock()
 	run.canceled = true
-	d.runsMu.Unlock()
+	d.queue.mu.Unlock()
 	d.launchConsole(run, "exec codex")
 	select {
 	case <-run.exited:
@@ -231,10 +231,10 @@ func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
 		if entry.Kind != "console" || entry.Provider != provider || entry.TaskID != "" || entry.Prompt != "" || entry.Skill != "" || entry.Directory != d.repoRoot || entry.Status != "queued" {
 			t.Fatalf("unexpected entry: %+v", entry)
 		}
-		d.runsMu.Lock()
-		run := d.runs[entry.ID]
+		d.queue.mu.Lock()
+		run := d.queue.runs[entry.ID]
 		isolated := run.isolated
-		d.runsMu.Unlock()
+		d.queue.mu.Unlock()
 		if isolated {
 			t.Fatal("console must reserve mapped checkout")
 		}
@@ -276,9 +276,9 @@ func TestFreeConsoleExitStatus(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("console exit was not reported")
 			}
-			d.runsMu.Lock()
+			d.queue.mu.Lock()
 			status, session := run.desktop.Status, run.desktop.SessionID
-			d.runsMu.Unlock()
+			d.queue.mu.Unlock()
 			if status != tt.status || session != "console" {
 				t.Fatalf("%s: %s %s", tt.command, status, session)
 			}

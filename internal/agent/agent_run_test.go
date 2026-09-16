@@ -24,18 +24,18 @@ func TestRunControlAuthentication(t *testing.T) {
 		t.Fatal(rec.Code)
 	}
 	select {
-	case <-d.runs["run"].exited:
+	case <-d.queue.runs["run"].exited:
 		t.Fatal("unauthorized exit acknowledged")
 	default:
 	}
-	req.Header.Set("Authorization", "Bearer "+d.runs["run"].token)
+	req.Header.Set("Authorization", "Bearer "+d.queue.runs["run"].token)
 	rec = httptest.NewRecorder()
 	d.handleRunControl(rec, req)
 	if rec.Code != 200 {
 		t.Fatal(rec.Code)
 	}
 	select {
-	case <-d.runs["run"].exited:
+	case <-d.queue.runs["run"].exited:
 	default:
 		t.Fatal("exit not acknowledged")
 	}
@@ -55,7 +55,7 @@ func TestSupervisedRunCancellation(t *testing.T) {
 	command := "touch " + quoteShell(marker) + "; exec sleep 60"
 	done := make(chan error, 1)
 	go func() {
-		done <- agentexec.Run([]string{"--url", server.URL + "/control/runs/run", "--token", d.runs["run"].token, "--command", command})
+		done <- agentexec.Run([]string{"--url", server.URL + "/control/runs/run", "--token", d.queue.runs["run"].token, "--command", command})
 	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -67,9 +67,9 @@ func TestSupervisedRunCancellation(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	d.runsMu.Lock()
-	d.runs["run"].canceled = true
-	d.runsMu.Unlock()
+	d.queue.mu.Lock()
+	d.queue.runs["run"].canceled = true
+	d.queue.mu.Unlock()
 	select {
 	case err := <-done:
 		if err == nil {
@@ -79,7 +79,7 @@ func TestSupervisedRunCancellation(t *testing.T) {
 		t.Fatal("command did not stop")
 	}
 	select {
-	case <-d.runs["run"].exited:
+	case <-d.queue.runs["run"].exited:
 	default:
 		t.Fatal("exit not confirmed")
 	}

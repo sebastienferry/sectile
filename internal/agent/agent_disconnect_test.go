@@ -54,7 +54,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 	d.serverURL = srv.URL
 	exited := make(chan struct{})
 	close(exited)
-	d.runs = map[string]*controlledRun{"history": {desktop: desktopRun{ProjectID: "p", Status: "completed"}, exited: exited}}
+	d.queue.runs = map[string]*controlledRun{"history": {desktop: desktopRun{ProjectID: "p", Status: "completed"}, exited: exited}}
 	for i := 0; i < 2; i++ {
 		if w := disconnectRequest(d, "DELETE", "/desktop/projects?id=p", ""); w.Code != 204 {
 			t.Fatal(w.Code, w.Body.String())
@@ -64,7 +64,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 	if err != nil || !settings.DisconnectedProjects["p"] || settings.Projects["p"] != "" || settings.Projects["other"] != "/other" || len(settings.Commands) != 0 || len(settings.Worktrees) != 0 || len(settings.Parallelism) != 0 {
 		t.Fatalf("settings: %+v %v", settings, err)
 	}
-	if len(d.runs) != 1 {
+	if len(d.queue.runs) != 1 {
 		t.Fatal("history deleted")
 	}
 	if err := d.syncLocalProject(context.Background(), config); err != nil {
@@ -127,7 +127,7 @@ func TestProjectDisconnectionRequiresConfirmedExit(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			d, _ := disconnectFixture(t)
 			run := &controlledRun{desktop: desktopRun{ProjectID: "p", Status: status}, exited: make(chan struct{})}
-			d.runs = map[string]*controlledRun{"target": run, "other": {desktop: desktopRun{ProjectID: "other", Status: "running"}, exited: make(chan struct{})}}
+			d.queue.runs = map[string]*controlledRun{"target": run, "other": {desktop: desktopRun{ProjectID: "other", Status: "running"}, exited: make(chan struct{})}}
 			if w := disconnectRequest(d, "DELETE", "/desktop/projects?id=p", ""); w.Code != 409 {
 				t.Fatal(w.Code)
 			}
@@ -155,20 +155,20 @@ func TestProjectDisconnectionAdmissionOrdering(t *testing.T) {
 			}
 			if admitFirst {
 				// Hold runsMu so admission has resolved the repository but cannot register yet.
-				d.runsMu.Lock()
+				d.queue.mu.Lock()
 				result := make(chan error, 1)
 				go func() { _, err := admit(); result <- err }()
 				deadline := time.Now().Add(5 * time.Second)
 				for d.prepareMu.TryLock() {
 					d.prepareMu.Unlock()
 					if time.Now().After(deadline) {
-						d.runsMu.Unlock()
+						d.queue.mu.Unlock()
 						t.Fatal("admission did not acquire preparation lock")
 					}
 					time.Sleep(time.Millisecond)
 				}
 				w := disconnectRequest(d, "DELETE", "/desktop/projects?id=p", "")
-				d.runsMu.Unlock()
+				d.queue.mu.Unlock()
 				if w.Code != 409 {
 					t.Fatal("removal passed admission before registration", w.Code)
 				}
@@ -185,7 +185,7 @@ func TestProjectDisconnectionAdmissionOrdering(t *testing.T) {
 				if _, err := admit(); err == nil {
 					t.Fatal("admitted disconnected project")
 				}
-				if len(d.runs) != 0 {
+				if len(d.queue.runs) != 0 {
 					t.Fatal("registered rejected execution")
 				}
 			}
