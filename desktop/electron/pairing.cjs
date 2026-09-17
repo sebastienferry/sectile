@@ -30,4 +30,18 @@ async function exchangePairingCode(server, code, label = os.hostname(), fetcher 
  return {token: body.token, deviceId: body.deviceId, userId: body.userId}
 }
 
-module.exports = {exchangePairingCode}
+// The connect form offers two ways in: a pairing code, which is spent once for a
+// device credential, or a token from a workstation that was paired before. The
+// code wins when both are filled, because typing one is a deliberate re-pairing.
+async function resolveConnectCredential(settings, exchange = exchangePairingCode, label = os.hostname()) {
+ const code = String(settings.code || '').trim()
+ if (!code) {
+  const token = String(settings.token || '').trim()
+  if (!token) throw Error('Enter a pairing code, or the token of a workstation you already paired')
+  return {token, paired: false}
+ }
+ const credential = await exchange(settings.server, code, label)
+ return {token: credential.token, deviceId: credential.deviceId, paired: true}
+}
+
+module.exports = {exchangePairingCode, resolveConnectCredential}
