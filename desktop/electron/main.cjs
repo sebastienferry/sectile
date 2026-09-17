@@ -238,7 +238,14 @@ ipcMain.handle('runs',()=>api('/desktop/runs'))
 // destructive on the agent side, so a failure yields an empty list rather than
 // an error the poll would have to handle.
 ipcMain.handle('session-alerts',async()=>{try{return await api('/desktop/session-alert')}catch{return []}})
-ipcMain.handle('run-result',(_,id)=>api('/desktop/run-result?id='+encodeURIComponent(id)))
+// The agent forgets a run once its history is cleared or it restarts, and
+// answers 404 by contract. Report "no result" instead of rejecting the IPC
+// promise: Electron logs every rejected handler with a stack, and this outcome
+// is expected. The renderer decides whether the missing run is an anomaly.
+ipcMain.handle('run-result',async(_,id)=>{
+ try{return await api('/desktop/run-result?id='+encodeURIComponent(id))}
+ catch(failure){if(failure.status===404)return null;throw failure}
+})
 ipcMain.handle('stop',(_,id)=>api('/desktop/stop?id='+encodeURIComponent(id),'POST'))
 ipcMain.handle('detach',()=>{if(socket){socket.removeAllListeners();socket.close();socket=null}})
 ipcMain.handle('attach',(_,id)=>{
