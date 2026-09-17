@@ -49,6 +49,13 @@ const (
 	// declared temporary, discards the pong without a word. Waiting instead of
 	// giving up is safe here because the pong is written off the read loop.
 	agentPongWriteTimeout = 20 * time.Second
+	// agentWriteTimeout bounds every data frame the agent writes to the server.
+	// It is set by the one write helper, serverLink.write, and by nothing else:
+	// gorilla remembers the last SetWriteDeadline and applies it to every later
+	// data frame, so a writer that sets none inherits whatever the previous
+	// writer left. That is how a five-second deadline set by an operation result
+	// failed the next heartbeat with "i/o timeout" on a healthy loopback socket.
+	agentWriteTimeout = 5 * time.Second
 )
 
 // agentDaemon runs the local Sectile agent that connects outward to a remote
@@ -86,6 +93,19 @@ type serverLink struct {
 	deviceID  string
 	mu        sync.Mutex
 	conn      *websocket.Conn
+}
+
+// write sends one message to the server under the link's write mutex with a
+// fresh deadline. Every data frame the agent sends goes through here so no
+// writer can leave a stale deadline for the next one to trip over (see
+// agentWriteTimeout). gorilla records the first write error and refuses every
+// write after it, so a caller that gets an error is holding a dead connection
+// and should hang up rather than wait for the server to notice the silence.
+func (l *serverLink) write(conn *websocket.Conn, msg agentprotocol.Message) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_ = conn.SetWriteDeadline(time.Now().Add(agentWriteTimeout))
+	return conn.WriteJSON(msg)
 }
 
 // terminalChoice is which native terminal application consoles open in, and
@@ -494,7 +514,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	// Start heartbeat sender.
 	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
 	defer heartbeatCancel()
-	go d.heartbeatLoop(heartbeatCtx, conn)
+	go d.heartbeatLoop(heartbeatCtx, conn, agentHeartbeatInterval)
 
 	installKeepalive(heartbeatCtx, conn)
 
@@ -550,9 +570,13 @@ func (d *agentDaemon) buildWSURL() (string, error) {
 }
 
 // heartbeatLoop sends periodic heartbeats to keep the connection alive and
-// detect stale connections.
-func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
-	ticker := time.NewTicker(agentHeartbeatInterval)
+// detect stale connections. A heartbeat that cannot be written closes the
+// connection: gorilla refuses every write after the first failure, so the
+// connection can no longer answer the server anyway, and hanging up at once
+// starts the reconnection instead of waiting for the server to drop the
+// silent agent 45s later.
+func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -560,14 +584,9 @@ func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			msg := agentprotocol.Message{
-				Type: "heartbeat",
-			}
-			d.link.mu.Lock()
-			err := conn.WriteJSON(msg)
-			d.link.mu.Unlock()
-			if err != nil {
-				log.Printf("[Agent] Heartbeat send failed: %v", err)
+			if err := d.link.write(conn, agentprotocol.Message{Type: "heartbeat"}); err != nil {
+				log.Printf("[Agent] Heartbeat send failed: %v. Hanging up to reconnect.", err)
+				_ = conn.Close()
 				return
 			}
 		}
@@ -604,13 +623,17 @@ func pongLoop(ctx context.Context, conn *websocket.Conn, pongs <-chan []byte) {
 		case <-ctx.Done():
 			return
 		case payload := <-pongs:
-			err := conn.WriteControl(websocket.PongMessage, payload, time.Now().Add(agentPongWriteTimeout))
+			started := time.Now()
+			err := conn.WriteControl(websocket.PongMessage, payload, started.Add(agentPongWriteTimeout))
 			if err == nil || errors.Is(err, websocket.ErrCloseSent) {
 				continue
 			}
 			// This is the failure that produced minutes of unexplained
-			// flapping with no trace anywhere: say it out loud.
-			log.Printf("[Agent] Could not answer the server keepalive after %s: %v. The server will drop this connection if it stays unanswered.", agentPongWriteTimeout, err)
+			// flapping with no trace anywhere: say it out loud, with the time
+			// actually spent. An immediate failure means the connection was
+			// already dead when the pong was attempted; a failure after the
+			// whole budget means the socket would not drain.
+			log.Printf("[Agent] Could not answer the server keepalive after %s: %v. The server will drop this connection if it stays unanswered.", time.Since(started).Round(time.Millisecond), err)
 			return
 		}
 	}
@@ -715,9 +738,7 @@ func (d *agentDaemon) handlePullTasks(ctx context.Context, conn *websocket.Conn,
 		Payload: raw,
 	}
 
-	d.link.mu.Lock()
-	_ = conn.WriteJSON(resp)
-	d.link.mu.Unlock()
+	_ = d.link.write(conn, resp)
 }
 
 // findRepoRoot finds the repository root containing .tasks and all worktrees
@@ -1034,9 +1055,7 @@ func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, su
 		Payload: payload,
 	}
 
-	d.link.mu.Lock()
-	_ = conn.WriteJSON(msg)
-	d.link.mu.Unlock()
+	_ = d.link.write(conn, msg)
 }
 
 func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override string) string {
