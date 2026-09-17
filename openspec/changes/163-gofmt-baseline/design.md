@@ -32,3 +32,10 @@ separate decision.
 output itself and print the offending paths before failing — a bare
 `gofmt -l .` in a recipe would silently pass. The message names the fix
 (`gofmt -w`) so the reader does not have to look it up.
+
+The symmetric trap is that `gofmt` does exit non-zero for a real failure, such
+as an unparseable file (exit 2), while listing no path at all. Reading only the
+output would then count that as clean, so the recipe captures the status
+alongside the output and propagates it. `$(shell)`-style capture loses the
+status unless it is saved on the same line, which is why `status=$$?` follows the
+assignment immediately.

@@ -20,5 +20,7 @@
 - [x] 4.1 `make fmt-check` succeeds on the branch.
 - [x] 4.2 Introduce a deliberate formatting defect in a scratch file, confirm
       `make fmt-check` fails and names it, then revert it.
-- [x] 4.3 `make test` passes end to end; record the real output.
-- [x] 4.4 `openspec validate 163-gofmt-baseline --strict`.
+- [x] 4.3 Introduce a deliberate syntax error in a scratch file, confirm
+      `make fmt-check` propagates the non-zero `gofmt` status, then revert it.
+- [x] 4.4 `make test` passes end to end; record the real output.
+- [x] 4.5 `openspec validate 163-gofmt-baseline --strict`.

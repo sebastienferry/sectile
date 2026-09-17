@@ -74,9 +74,16 @@ run: build-agent desktop-deps ## Run the desktop app from source (Vite build + E
 	cd desktop && npm start
 
 # `gofmt -l` exits 0 whether or not it lists files, so the recipe inspects its
-# output itself instead of relying on the exit code.
+# output itself instead of relying on the exit code. It still has to propagate a
+# real gofmt failure (an unparseable file exits 2 and lists nothing), otherwise
+# the check would pass on code that does not even compile.
 fmt-check: ## Fail if any Go source is not gofmt-clean
-	@out=$$(gofmt -l .); \
+	@out=$$(gofmt -l . 2>&1); status=$$?; \
+	if [ $$status -ne 0 ]; then \
+		echo "gofmt failed:"; \
+		echo "$$out" | sed 's/^/  /'; \
+		exit $$status; \
+	fi; \
 	if [ -n "$$out" ]; then \
 		echo "Not gofmt-clean:"; \
 		echo "$$out" | sed 's/^/  /'; \

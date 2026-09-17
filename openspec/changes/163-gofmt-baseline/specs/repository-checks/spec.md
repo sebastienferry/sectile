@@ -1,8 +1,10 @@
 ## ADDED Requirements
 
 ### Requirement: Gofmt-clean Go sources
-Every Go source file tracked in the repository SHALL be formatted as `gofmt`
-produces it. `gofmt -l` run from the repository root SHALL produce no output.
+Every Go source file under the repository root SHALL be formatted as `gofmt`
+produces it. `gofmt -l .` run from the repository root SHALL produce no output.
+The check walks the working tree rather than the index, so a Go file that is
+present but not yet committed is covered too.
 
 #### Scenario: Clean checkout
 - **GIVEN** a checkout of the default branch
@@ -18,7 +20,8 @@ produces it. `gofmt -l` run from the repository root SHALL produce no output.
 The repository SHALL expose a `fmt-check` make target that fails when any Go file
 is unformatted, and the aggregated `test` target SHALL run it. The target SHALL
 name the offending files so the reader does not have to re-run the formatter to
-find them.
+find them, and SHALL fail when `gofmt` itself fails rather than reading an empty
+file list as success.
 
 #### Scenario: Compliant tree
 - **GIVEN** a tree where every Go file is formatted
@@ -34,6 +37,11 @@ find them.
 - **GIVEN** a tree containing an unformatted Go file
 - **WHEN** `make test` is run
 - **THEN** it fails on the formatting check
+
+#### Scenario: Unparseable Go file
+- **GIVEN** a Go file the parser rejects, for which `gofmt` exits non-zero and lists nothing
+- **WHEN** `make fmt-check` is run
+- **THEN** it exits non-zero and reports the gofmt error
 
 #### Scenario: Whole-module scope
 - **GIVEN** an unformatted Go file outside `cmd/` and `internal/`
