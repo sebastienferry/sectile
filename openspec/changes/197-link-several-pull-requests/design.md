@@ -90,15 +90,37 @@ The response already carries `merged_at`; it is parsed into the `PullRequest` va
 something to sort on. `Open` and `Merged` keep their meaning.
 
 ## Where links are recorded
-One helper, `recordTaskPullRequest(taskID, url, branch)`, owns the write. It is called from the
-three places that persist a PR today:
+The set rules are pure functions in `internal/models/pullrequests.go` — `AppendPullRequestLink`,
+`CurrentPullRequest`, `NormalizePullRequestLinks`, `PullRequestBranches` and `AcceptPullRequest`.
+They live in `models` rather than in `db` because the **agent** applies the same guard before it
+dispatches an adjustment (`internal/agent/agent.go`), and that pre-check enforced the old
+single-PR rule: left alone it would have refused the follow-up before the server ever saw it. Two
+copies of the rule is exactly the kind of disagreement this ticket is about.
+
+`internal/db/pullrequests.go` keeps only the storage concern — `decodePullRequestLinks`,
+`encodePullRequestLinks`, `pullRequestURLValue` — and each existing writer persists `pr_url` and
+`pr_links` in its own statement.
+
+A single `recordTaskPullRequest(taskID, ...)` doing its own `UPDATE` was the first shape written
+down, and it was dropped during implementation: `TransitionTaskStage` writes the PR inside a
+transaction that also carries the status, labels and the stage activity, and a helper with its own
+statement would have written the set outside that transaction. The invariant "`pr_url` is the last
+link" is better served by computing both values from the same slice than by a second round trip.
+
+The writers are:
 
 - `stage.go` — inside the existing transaction of `TransitionTaskStage`, replacing the bare
-  `pr_url = ?` assignment.
-- `postback.go` — after `validateStagePR` returns a verified URL.
-- `adjustment.go` — `adjustmentPrerequisite`, where a discovered-but-unlinked PR is recorded.
+  `pr_url = ?` assignment with `pr_url = ?, pr_links = ?`.
+- `postback.go` — the payload's `prURL` is appended to the set before the row is written.
+- `adjustment.go` — `adjustmentPrerequisite`, where a discovered-but-unlinked PR is recorded, and
+  only when the set actually grows.
+- `UpdateTask` — the human editor path below.
+- `internal/agent/agent.go` — the agent's adjustment pre-check, which records a discovered PR
+  through the existing `PATCH /api/tasks/<id>` and now compares against the set.
 
-Nothing else writes `pr_url`, except `UpdateTask`, which is the human editor path below.
+`validateStagePR` loses its `expected` parameter rather than gaining a set-shaped one: both call
+sites passed `""`, so the pin was already dead code, and the recorded set now reaches the
+validator through the task it already receives.
 
 ## The UI editor
 `TaskDetailModal` already holds a `prUrl` state (line 146) that no input renders — the link is

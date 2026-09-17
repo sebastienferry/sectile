@@ -34,31 +34,36 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (trackerapi.P
 	if err != nil {
 		return pr, fmt.Errorf("adjustment prerequisite: %w (creation owner: %s)", err, d.prCreationOwner(task))
 	}
-	if task.PrURL != nil && strings.TrimSpace(*task.PrURL) != "" && *task.PrURL != pr.URL {
-		return pr, fmt.Errorf("recorded PR does not match the task-branch PR")
+	// A task holds several PRs over its life: the one the forge reports for the
+	// branch is a follow-up as long as it shares a branch with a recorded link.
+	if err = models.AcceptPullRequest(task.PrLinks, pr.URL, pr.Branch); err != nil {
+		return pr, err
 	}
 	if ready && pr.Draft {
 		return pr, fmt.Errorf("adjustment requires a ready PR")
 	}
-	if task.PrURL == nil || *task.PrURL == "" {
+	links := models.AppendPullRequestLink(task.PrLinks, pr.URL, pr.Branch)
+	if len(links) != len(task.PrLinks) {
 		d.mu.Lock()
-		_, err = d.conn.Exec("UPDATE tasks SET pr_url = ? WHERE id = ?", pr.URL, task.ID)
+		_, err = d.conn.Exec("UPDATE tasks SET pr_url = ?, pr_links = ? WHERE id = ?",
+			pullRequestURLValue(links), encodePullRequestLinks(links), task.ID)
 		d.mu.Unlock()
 		if err != nil {
 			return pr, err
 		}
-		task.PrURL = &pr.URL
+		task.PrLinks = links
+		task.PrURL = pullRequestURLValue(links)
 	}
 	return pr, nil
 }
 
-func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url, expected string, ready bool) error {
+func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url string, recorded []models.TaskPullRequest, ready bool) error {
 	// A merged PR is accepted: the human merge is the boundary adjustment stops at, not a reason to strand the task.
 	if (!pr.Open && !pr.Merged) || pr.Branch != branch || pr.URL == "" || pr.URL != url {
 		return fmt.Errorf("forge does not confirm the matching open or merged PR")
 	}
-	if expected != "" && pr.URL != expected {
-		return fmt.Errorf("adjustment replaced the original PR")
+	if err := models.AcceptPullRequest(recorded, pr.URL, pr.Branch); err != nil {
+		return err
 	}
 	if ready && pr.Draft {
 		return fmt.Errorf("adjustment PR is still a draft")
@@ -66,7 +71,7 @@ func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url, expecte
 	return nil
 }
 
-func (d *DB) validateStagePR(task *models.Task, skillID, repoPath, branch, url, expected string) (string, error) {
+func (d *DB) validateStagePR(task *models.Task, skillID, repoPath, branch, url string) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	required := skillID == "create_pr" || skillID == "adjust" || skillID == "pickup" || skillID == "implement" || (skillID == "specify" && d.prCreationOwner(task) == "specify")
 	if !required {
@@ -79,10 +84,7 @@ func (d *DB) validateStagePR(task *models.Task, skillID, repoPath, branch, url, 
 	if url == "" {
 		url = pr.URL
 	}
-	if task.PrURL != nil && *task.PrURL != "" && expected == "" {
-		expected = *task.PrURL
-	}
-	if err = validatePullRequestEvidence(pr, branch, url, expected, skillID == "adjust" || skillID == "pickup"); err != nil {
+	if err = validatePullRequestEvidence(pr, branch, url, task.PrLinks, skillID == "adjust" || skillID == "pickup"); err != nil {
 		return "", err
 	}
 	var evidence struct {

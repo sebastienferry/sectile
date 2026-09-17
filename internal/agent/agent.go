@@ -877,11 +877,15 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
 			return
 		}
-		if task.PrURL != nil && *task.PrURL != "" && *task.PrURL != pr.URL {
-			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "recorded PR does not match task branch")
+		// A task holds several PRs over its life. The forge PR is the task's own
+		// as long as it shares a branch with a recorded link, even when that link
+		// is merged; only a PR on an unrelated branch is a substitution. This is
+		// the same rule the server applies, shared through `models`.
+		if acceptErr := models.AcceptPullRequest(task.PrLinks, pr.URL, pr.Branch); acceptErr != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", acceptErr.Error())
 			return
 		}
-		if task.PrURL == nil || *task.PrURL == "" {
+		if models.CurrentPullRequest(task.PrLinks) != pr.URL {
 			raw, _ := json.Marshal(map[string]string{"prUrl": pr.URL})
 			req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.link.serverURL+"/api/tasks/"+url.PathEscape(taskRef), strings.NewReader(string(raw)))
 			if err != nil {

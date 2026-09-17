@@ -193,13 +193,19 @@ func TestBranchPullRequestPrefersOpenThenMerged(t *testing.T) {
 		name   string
 		body   string
 		url    string
+		sha    string
 		merged bool
 	}{
-		{"open wins", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"old"}},{"html_url":"https://forge/pull/3","state":"open","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/3", false},
+		{"open wins", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"old"}},{"html_url":"https://forge/pull/3","state":"open","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/3", "tip", false},
 		// The human merge boundary must not strand the task before reviewed.
-		{"merged accepted", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/2", true},
-		{"closed unmerged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","head":{"ref":"ticket","sha":"tip"}}]`, "", false},
-		{"ambiguous merged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"a"}},{"html_url":"https://forge/pull/4","state":"closed","merged_at":"2026-01-02T00:00:00Z","head":{"ref":"ticket","sha":"b"}}]`, "", false},
+		{"merged accepted", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"tip"}}]`, "https://forge/pull/2", "tip", true},
+		{"closed unmerged rejected", `[{"html_url":"https://forge/pull/2","state":"closed","head":{"ref":"ticket","sha":"tip"}}]`, "", "", false},
+		// A branch that produced several merged PRs is not ambiguous: the branch
+		// moved on and the latest merge is its state.
+		{"latest merge wins", `[{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"a"}},{"html_url":"https://forge/pull/4","state":"closed","merged_at":"2026-01-02T00:00:00Z","head":{"ref":"ticket","sha":"b"}}]`, "https://forge/pull/4", "b", true},
+		{"latest merge wins whatever the forge order", `[{"html_url":"https://forge/pull/4","state":"closed","merged_at":"2026-01-02T00:00:00Z","head":{"ref":"ticket","sha":"b"}},{"html_url":"https://forge/pull/2","state":"closed","merged_at":"2026-01-01T00:00:00Z","head":{"ref":"ticket","sha":"a"}}]`, "https://forge/pull/4", "b", true},
+		// Two open PRs is a real ambiguity: which one is current cannot be guessed.
+		{"ambiguous open rejected", `[{"html_url":"https://forge/pull/2","state":"open","head":{"ref":"ticket","sha":"a"}},{"html_url":"https://forge/pull/4","state":"open","head":{"ref":"ticket","sha":"b"}}]`, "", "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +226,7 @@ func TestBranchPullRequestPrefersOpenThenMerged(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || pr.URL != tc.url || pr.Merged != tc.merged || pr.Open == tc.merged || pr.SHA != "tip" {
+			if err != nil || pr.URL != tc.url || pr.Merged != tc.merged || pr.Open == tc.merged || pr.SHA != tc.sha {
 				t.Fatalf("%+v %v", pr, err)
 			}
 		})

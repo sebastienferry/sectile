@@ -261,9 +261,18 @@ into. Skill and command bodies are not inlined: a caller that needs one opens
 configuration, which is unchanged.
 
 `transition_stage` accepts `prUrl` for either a pull request or a merge
-request. The server persists this link on the task alongside the stage update and
-includes it in the tracker synchronization job. Omitting the argument preserves
-an existing link. For example:
+request. A task holds an ordered set of such links, oldest first, each keeping
+the branch it was opened from; `prUrl` is its last entry, the task's current pull
+request, and it is what the tracker synchronization job carries. A link the task
+already holds is not recorded twice, and omitting the argument preserves the set.
+
+One ticket routinely produces several pull requests: a first one merged, then a
+follow-up pushed on the same branch. A pull request that shares a branch with a
+recorded link is that follow-up and is appended — a merged link never vetoes it.
+A pull request on a branch no recorded link mentions is a substitution and is
+refused, naming the branches the task actually recorded; correcting or detaching
+those links from the task detail view is how that refusal is resolved. For
+example:
 
 ```json
 {"taskKey":"full-task-primary-key","stage":"reviewed","note":"Review complete","branch":"feat/example","prUrl":"https://gitlab.com/example/repo/-/merge_requests/42"}
@@ -528,9 +537,12 @@ customizations until their legacy content has been reviewed and saved under Adju
 or reset in the skill editor. Legacy entries and divergent installed files remain
 available; custom adjustment content also receives the current built-in contract.
 
-Managed adjustment pins the original PR identity before running and verifies the
-same ready PR, branch, pushed commit, clean checkout and reported build/lint/test
-checks at completion. Standalone transitions verify forge identity and readiness;
+Managed adjustment verifies the PR identity against the task's recorded set —
+the same PR, or a newer one on a branch the task already used — together with the
+branch, pushed commit, clean checkout and reported build/lint/test checks at
+completion. A branch carrying several merged pull requests and none open is
+evidenced by its most recent merge; several *open* pull requests on one branch
+remain an unresolvable ambiguity and fail the lookup. Standalone transitions verify forge identity and readiness;
 check output remains agent-reported. Human merge and handoff remain separate.
 
 ## Local Desktop worktree comparison
