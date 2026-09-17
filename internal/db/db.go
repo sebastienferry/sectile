@@ -1864,11 +1864,11 @@ func StaleWorkflowLabels(targetLabel string) []string {
 	return out
 }
 
-// SetWorkflowLabel remplace le label d'étape de existingLabels par targetLabel.
-// L'appelant fournit un nom d'étape, avec ou sans « # » et dans la casse qu'il
-// veut : c'est cette fonction qui décide de la graphie écrite, toujours
-// « #<étape> » en minuscules. Les autres labels gardent leur casse et leur
-// préfixe tels quels.
+// SetWorkflowLabel replaces the stage label in existingLabels with targetLabel.
+// Callers pass a stage name in whatever spelling they have, with or without the
+// "#" prefix and in any case: this function decides the spelling that gets
+// written, always "#<stage>" in lower case. Other labels keep their own case
+// and prefix untouched.
 func SetWorkflowLabel(existingLabels []string, targetLabel string) []string {
 	var result []string
 	cleanTarget := strings.TrimLeft(strings.TrimSpace(targetLabel), "#")
