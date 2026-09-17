@@ -4,6 +4,7 @@ import { createGitDiff } from './gitDiff.js'
 import { skillResult } from './skill-result.mjs'
 import { orderedQueueRuns } from './queue.mjs'
 import { orderedTaskGroups } from './task-order.mjs'
+import { transitions, announce } from './notifications.mjs'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -353,12 +354,18 @@ async function refresh(){
   ready();refreshPRs(next)
   connectionStatus(status)
   const previous=runs.find(run=>run.id===selected)
+  // Compare the two polls before the new list replaces the old: a session that
+  // has just started waiting, or has just finished, is what earns a banner.
+  announce(transitions(runs,next))
   const serialized=JSON.stringify(next),changed=serialized!==last
   runs=next;last=serialized
   await updateDisconnected(status.disconnectedProjects||[],changed,true)
   const current=runs.find(run=>run.id===selected)
   if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
+  // Sessions Sectile did not launch have no run to compare; they report
+  // themselves and are announced as they are drained.
+  try{const alerts=await api.sessionAlerts();if(alerts?.length)announce(alerts.map(alert=>({id:'session:'+alert.session,state:alert.state,name:alert.session})))}catch{}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   refreshVisibleSkillResults()
  }catch{agentUnavailable()}

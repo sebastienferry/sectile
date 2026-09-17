@@ -244,6 +244,51 @@ the default browser using mouse or keyboard activation. Closing the desktop
 leaves active executions running. Legacy server terminal endpoints return 410
 and do not create a shell.
 
+## 4bis. Knowing which session is waiting for you
+
+Several agent sessions run in parallel across worktrees and desktop tabs, and a
+session blocked on a permission prompt looks exactly like one still working.
+
+**The hooks report, they do not alert.** Setting up the Claude provider installs
+two scripts under `~/.claude/hooks` and registers them in
+`~/.claude/settings.json`: `sectile-notification.sh` on the `Notification` event,
+`sectile-stop.sh` on `Stop`. They are POSIX shell, need no `jq`, exit 0 on every
+path and write nothing on standard output — a hook must never interrupt the
+session it reports on.
+
+What they report depends on what the session carries:
+
+| Session | Report | Effect |
+|---|---|---|
+| Launched by Sectile (`SECTILE_RUN_ID` present) | `POST <loopback>/control/runs/{id}/waiting` | the run is marked waiting, everywhere |
+| Any other Claude Code session | `POST <loopback>/desktop/session-alert`, authenticated with `~/.taskflow/agent-connection.json` | a banner, and nothing else |
+| A workstation that was never paired | none | silent no-op |
+
+**The desktop raises the banner.** The notification comes from the desktop
+application, through Electron's notification API — a thin binding over
+`UNUserNotificationCenter` on macOS, toast notifications on Windows and the
+freedesktop specification on Linux. The banner is therefore a real system
+notification, attributed to Sectile and carrying an icon, on the three platforms
+and with no external binary. The desktop already polls `/desktop/runs` every two
+seconds; it is the *transition* that notifies — not waiting to waiting, or
+running to a terminal status — so a repeated poll raises nothing.
+
+A workstation that denies notifications is checked once and then left alone: the
+state is still in the list, which is what answers the question.
+
+**One icon vocabulary.** `shared/runStates.ts` is the single definition of what
+each run state looks like: its label, its colour and its glyph. The web badge
+renders it as an inline SVG; the desktop renders the same definition into the
+notification's icon. The glyph on the banner is therefore the glyph on the task
+row, by construction rather than by convention.
+
+**The state itself.** A waiting report stamps `waitingSince` on the run. The run
+keeps the status `running`: waiting is a phase of a run, not a status of its
+own. Any terminal status clears the stamp, so a session killed while blocked
+cannot leave a run waiting forever. The board indicator shows waiting ahead of
+running, with how long the wait has lasted, and the activities view has a
+matching filter.
+
 ## 5. Live Git Diff & Branch Management
 
 - **Side-by-Side & Inline Git Diff Inspector**: Displays real-time file diffs between the active task branch and `main` using syntax highlighting.

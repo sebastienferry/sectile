@@ -977,6 +977,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"SECTILE_AGENT_URL":     d.link.serverURL,
 		"SECTILE_SERVER_URL":    d.link.serverURL,
 		"SECTILE_AGENT_TOKEN":   d.link.token,
+		// The loopback is the only address a hook running inside this session
+		// can report to without knowing anything about the server deployment.
+		"SECTILE_LOOPBACK_URL": d.loopback.url,
 	}
 	if payload.ProjectID != "" {
 		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID

@@ -109,7 +109,7 @@ func (d *DB) FinishRemoteRun(taskKey, runID, status, note string) (*models.TaskA
 		return nil, fmt.Errorf("task not found")
 	}
 	d.mu.Lock()
-	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary=?, completed_at=? WHERE id=? AND task_id=? AND skill_id='remote_run' AND status='running'", status, note, time.Now(), runID, task.ID)
+	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary=?, completed_at=?, waiting_since=NULL WHERE id=? AND task_id=? AND skill_id='remote_run' AND status='running'", status, note, time.Now(), runID, task.ID)
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -169,7 +169,8 @@ func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillNa
 			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = NULL WHERE id = ?`,
 				status, summary, activityID)
 		} else {
-			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ? WHERE id = ?`,
+			// A terminal status ends the run, and a terminal run is never waiting.
+			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, waiting_since = NULL WHERE id = ?`,
 				status, summary, activityID)
 		}
 		if err != nil {
@@ -209,6 +210,44 @@ func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillNa
 		d.notifyPostBackListeners(task, activity, nil)
 	}
 	return activity, nil
+}
+
+// SetRemoteRunWaiting marks a running remote execution as blocked on the user,
+// or clears that mark when it resumes. Only a run still `running` is touched: a
+// hook reporting late, after the session already ended, must not resurrect a
+// waiting state on a closed run. Like its neighbours it ends on
+// notifyPostBackListeners, which is what carries the change to the UI.
+func (d *DB) SetRemoteRunWaiting(runID string, waiting bool) error {
+	if strings.TrimSpace(runID) == "" {
+		return fmt.Errorf("run id is required")
+	}
+	var waitingSince any
+	if waiting {
+		waitingSince = time.Now()
+	}
+	d.mu.Lock()
+	result, err := d.conn.Exec("UPDATE task_activities SET waiting_since=? WHERE id=? AND skill_id='remote_run' AND status='running'", waitingSince, runID)
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("remote run not found or no longer running")
+	}
+	activity, err := d.GetActivityByID(runID)
+	if err != nil || activity == nil {
+		return err
+	}
+	task, err := d.GetTaskByID(activity.TaskID)
+	if err != nil || task == nil {
+		return nil
+	}
+	d.notifyPostBackListeners(task, activity, nil)
+	return nil
 }
 
 // RemoteRunOutputLimit bounds what one autonomous run can record. A headless CLI

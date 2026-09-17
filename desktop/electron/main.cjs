@@ -234,6 +234,10 @@ ipcMain.handle('git-diff',async(_,id)=>{
  }
 })
 ipcMain.handle('runs',()=>api('/desktop/runs'))
+// Alerts from Claude Code sessions Sectile did not launch. Draining is
+// destructive on the agent side, so a failure yields an empty list rather than
+// an error the poll would have to handle.
+ipcMain.handle('session-alerts',async()=>{try{return await api('/desktop/session-alert')}catch{return []}})
 ipcMain.handle('run-result',(_,id)=>api('/desktop/run-result?id='+encodeURIComponent(id)))
 ipcMain.handle('stop',(_,id)=>api('/desktop/stop?id='+encodeURIComponent(id),'POST'))
 ipcMain.handle('detach',()=>{if(socket){socket.removeAllListeners();socket.close();socket=null}})

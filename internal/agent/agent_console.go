@@ -90,12 +90,16 @@ func (d *agentDaemon) launchConsole(run *controlledRun, command string) {
 		var wrapped string
 		wrapped, err = d.wrapRun("", run.desktop.ID, command)
 		if err == nil {
+			// A free console carries no task, but it does have a run: it is the
+			// one Sectile-launched kind that would otherwise be unable to report
+			// that it is waiting for the user.
 			env := map[string]string{
-				"SECTILE_TASK_KEY": "", "SECTILE_TASK_ID": "", "SECTILE_RUN_ID": "",
+				"SECTILE_TASK_KEY": "", "SECTILE_TASK_ID": "", "SECTILE_RUN_ID": run.desktop.ID,
 				"SECTILE_TASK_BRANCH": "", "SECTILE_TASK_WORKTREE": "", "SECTILE_REMOTE_MODE": "",
 				"SECTILE_PROJECT_ID": run.desktop.ProjectID,
 				"SECTILE_AGENT_URL":  d.link.serverURL, "SECTILE_SERVER_URL": d.link.serverURL,
-				"SECTILE_AGENT_TOKEN": d.link.token,
+				"SECTILE_AGENT_TOKEN":  d.link.token,
+				"SECTILE_LOOPBACK_URL": d.loopback.url,
 			}
 			_, err = d.terminal.manager.GetOrCreateSession(run.desktop.ID, run.root, env)
 			if err == nil {

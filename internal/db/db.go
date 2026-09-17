@@ -395,6 +395,7 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_mode TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN launch_stage TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN chain_stop_stage TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN waiting_since DATETIME;")
 	// Work the server itself was running cannot survive its own restart.
 	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
 	// A remote run dispatched to an agent outlives the server: its supervisor
@@ -403,7 +404,7 @@ func (d *DB) initSchema() error {
 	// destroyed along with every other, so nothing is left that could ever close
 	// it. Canceled rather than failed: the work did not fail here, its outcome
 	// merely became unknowable.
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ? WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
+	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
 		"Interrupted by server restart: the client session that owned this run is gone", time.Now(), RunActionAgent)
 
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN detail_mode TEXT NOT NULL DEFAULT 'panel';")
@@ -2814,9 +2815,9 @@ func insertTaskActivity(conn activityExecutor, act models.TaskActivity) error {
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt)
+		INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince)
 	return err
 }
 
@@ -2828,7 +2829,7 @@ func (d *DB) AddTaskActivity(act models.TaskActivity) error {
 
 func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
-		SELECT id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at
+		SELECT id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since
 		FROM task_activities WHERE task_id = ? ORDER BY created_at DESC
 	`, taskID)
 	if err != nil {
@@ -2841,11 +2842,14 @@ func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, erro
 		var a models.TaskActivity
 		var stepsJSON string
 		var prompt, errStr sql.NullString
-		var startedAt, completedAt sql.NullTime
+		var startedAt, completedAt, waitingSince sql.NullTime
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt)
+		err := rows.Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince)
 		if err != nil {
 			continue
+		}
+		if waitingSince.Valid {
+			a.WaitingSince = &waitingSince.Time
 		}
 		_ = json.Unmarshal([]byte(stepsJSON), &a.Steps)
 		if a.Steps == nil {
@@ -4368,7 +4372,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 	sqlQuery := `
 		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
-		       a.created_at, a.started_at, a.completed_at, a.error
+		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 	`
@@ -4391,7 +4395,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		var a models.TaskActivity
 		var stepsJSON string
 		var prompt, errStr sql.NullString
-		var startedAt, completedAt sql.NullTime
+		var startedAt, completedAt, waitingSince sql.NullTime
 
 		err := rows.Scan(
 			&a.ID,
@@ -4410,9 +4414,13 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 			&startedAt,
 			&completedAt,
 			&errStr,
+			&waitingSince,
 		)
 		if err != nil {
 			continue
+		}
+		if waitingSince.Valid {
+			a.WaitingSince = &waitingSince.Time
 		}
 		_ = json.Unmarshal([]byte(stepsJSON), &a.Steps)
 		if a.Steps == nil {
@@ -4458,12 +4466,12 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 	var a models.TaskActivity
 	var stepsJSON string
 	var prompt, errStr sql.NullString
-	var startedAt, completedAt sql.NullTime
+	var startedAt, completedAt, waitingSince sql.NullTime
 
 	err := d.conn.QueryRow(`
 		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
-		       a.created_at, a.started_at, a.completed_at, a.error
+		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		WHERE a.id = ?
@@ -4484,12 +4492,16 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		&startedAt,
 		&completedAt,
 		&errStr,
+		&waitingSince,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
+	}
+	if waitingSince.Valid {
+		a.WaitingSince = &waitingSince.Time
 	}
 
 	_ = json.Unmarshal([]byte(stepsJSON), &a.Steps)
@@ -4595,7 +4607,7 @@ func (d *DB) CancelActivity(activityID string) error {
 
 	_, err := d.conn.Exec(`
 		UPDATE task_activities
-		SET status = 'canceled', summary = 'Annulée par l''utilisateur', completed_at = CURRENT_TIMESTAMP
+		SET status = 'canceled', summary = 'Annulée par l''utilisateur', completed_at = CURRENT_TIMESTAMP, waiting_since = NULL
 		WHERE id = ? AND status IN ('queued', 'pending', 'running')
 	`, activityID)
 	return err

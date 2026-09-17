@@ -27,8 +27,13 @@ func TestSkillInstallsAsASingleFileCarryingItsArgument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The guard is on command sources: a skill directory is the only place a
+	// /command may come from. Hooks and the settings that register them are not
+	// command sources and are expected here.
 	for _, entry := range entries {
-		if entry.Name() != "skills" {
+		switch entry.Name() {
+		case "skills", "hooks", "settings.json":
+		default:
 			t.Fatalf("second source for the same command: .claude/%s", entry.Name())
 		}
 	}
