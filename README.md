@@ -97,9 +97,12 @@ which is gitignored:
 
 ```sh
 export SECTILE_SERVER_TOKEN='<shared agent credential>'
+# Optional: the tracker credential is usually typed in the interface instead,
+# but a headless deployment can export it here.
 export SECTILE_TRACKER_TOKEN='<tracker API token>'
 # Serving several providers at once? Override per provider:
 # export SECTILE_GITHUB_TOKEN='<GitHub API token>'
+# export SECTILE_GITLAB_TOKEN='<GitLab API token>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/server
 ```
 
@@ -123,23 +126,53 @@ packages it. `make run` opens it. For development, run `make serve` and
 `npm run dev --prefix web` in separate terminals; the Vite server listens on
 port 5173 and proxies `/api` to `http://localhost:8090`.
 
-### Server tracker credentials
+### Tracker connection parameters
+
+**The interface is the primary way to configure them.** *Connecter votre tracker*
+asks for the instance URL, the repository or project slug and the token of the
+selected tracker — Jira, GitHub or GitLab — checks them against the instance, and
+saves them in the user configuration only once the instance has accepted them. No
+file to edit on the server, and no restart. A project can override the instance,
+the slug and the token for itself, which is what lets two GitHub organisations
+with two different tokens live side by side.
+
+Tokens are write-only: the API never returns one. It reports `githubTokenSet` /
+`gitlabTokenSet` / `jiraApiTokenSet` instead, plus `...FromEnv` when no token is
+stored and the server environment supplies one. Saving with an empty token field
+keeps the stored token; sending the sentinel `__clear__` deletes it.
+
+GitLab parameters can be stored, but no GitLab ticketing adapter is registered
+yet: a project whose tracker is GitLab still fails with the tracker registry's
+unconfigured-tracker error. That adapter is a separate piece of work.
+
+The environment variables below stay supported, as the fallback for headless and
+CI deployments where no one opens the interface. **Stored configuration wins**:
+for each parameter the server resolves the project override, then the user
+configuration, then the environment.
 
 | Setting | Meaning |
 | --- | --- |
 | `SECTILE_TRACKER_TOKEN` | Tracker API credential, used by every provider that has no override below. |
 | `SECTILE_GITHUB_TOKEN` | GitHub-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
 | `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
+| `SECTILE_GITLAB_TOKEN` | GitLab-only override; `GITLAB_TOKEN` is an environment-only fallback. |
+| `SECTILE_GITLAB_API_URL` | GitLab REST base URL; defaults to `https://gitlab.com/api/v4`. |
+| `SECTILE_GITLAB_PROJECT` | Default GitLab project slug, e.g. `group/app`. |
 
-The token is read from the environment of the **server process itself**, at
-startup only. `make serve`, `go run ./cmd/server` and `./bin/server`
-inherit the shell they are launched from, so exporting the variable in another
-terminal — or after the server is already running — has no effect: restart the
-server. A `gh` login on the same machine is not picked up either; for GitHub only
-`SECTILE_GITHUB_TOKEN`, then `SECTILE_TRACKER_TOKEN`, then `GH_TOKEN`, then
-`GITHUB_TOKEN` are consulted. The provider-specific variable comes first so a
-server driving several providers cannot send one provider's credential to
-another.
+Environment variables are read from the environment of the **server process
+itself**, at startup only. `make serve`, `go run ./cmd/server` and
+`./bin/server` inherit the shell they are launched from, so exporting a
+variable in another terminal — or after the server is already running — has no
+effect: restart the server, or, better, type the value in the interface, which
+takes effect on the next request. A `gh` login on the same machine is not picked
+up either; for GitHub only `SECTILE_GITHUB_TOKEN`, then `SECTILE_TRACKER_TOKEN`,
+then `GH_TOKEN`, then `GITHUB_TOKEN` are consulted. The provider-specific
+variable comes first so a server driving several providers cannot send one
+provider's credential to another.
+
+The tokens are kept in the server database and in the agent's reach only through
+the server: `~/.config/sectile/settings.json`, the agent's own configuration,
+stays free of credentials.
 
 For a GitHub project the token needs, at minimum, read and write access to the
 issues of the configured repositories, plus repository metadata. A fine-grained

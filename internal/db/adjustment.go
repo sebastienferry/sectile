@@ -117,5 +117,5 @@ func (d *DB) lookupStagePR(repo, branch string) (trackerapi.PullRequest, error) 
 	if d.prEvidenceLookup != nil {
 		return d.prEvidenceLookup(repo, branch)
 	}
-	return d.trackers.BranchPullRequest(repo, branch)
+	return d.tracker("").BranchPullRequest(repo, branch)
 }

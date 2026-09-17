@@ -81,7 +81,7 @@ func (d *DB) GetProjectTrackerStatuses(projectID string) ([]string, error) {
 			if len(parts) == 2 {
 				gqlQuery, _ := trackerapi.GithubStatusQuery(repo)
 
-				if output, err := d.trackers.GithubGraphQL(gqlQuery); err == nil {
+				if output, err := d.tracker(proj.ID).GithubGraphQL(gqlQuery); err == nil {
 					var gqlRes struct {
 						Data struct {
 							Repository struct {

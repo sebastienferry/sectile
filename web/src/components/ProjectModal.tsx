@@ -181,6 +181,11 @@ export const ProjectModal: React.FC = () => {
   const [issueTracker, setIssueTracker] = useState<IssueTracker>('local')
   const [trackerUrl, setTrackerUrl] = useState('')
   const [githubRepo, setGithubRepo] = useState('')
+  // Paramètres de connexion propres au projet. Vides, ce sont ceux de la
+  // configuration utilisateur qui s'appliquent : un projet n'en a besoin que
+  // pour joindre une autre instance, ou une même instance avec un autre compte.
+  const [githubApiUrl, setGithubApiUrl] = useState('')
+  const [githubToken, setGithubToken] = useState('')
   const [jiraProject, setJiraProject] = useState('')
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
@@ -245,6 +250,10 @@ export const ProjectModal: React.FC = () => {
       setIssueTracker(editingProject.issueTracker || 'local')
       setTrackerUrl(editingProject.trackerUrl || '')
       setGithubRepo(editingProject.githubRepo || '')
+      setGithubApiUrl(editingProject.githubApiUrl || '')
+      // Le jeton n'est jamais renvoyé : le champ reste vide et le laisser vide
+      // conserve celui qui est enregistré.
+      setGithubToken('')
       setJiraProject(editingProject.jiraProject || '')
       setIssueTypes(editingProject.issueTypes || [])
       setSkillOverrides(editingProject.skillOverrides || {})
@@ -382,6 +391,8 @@ export const ProjectModal: React.FC = () => {
         issueTracker,
         trackerUrl: trackerUrl.trim(),
         githubRepo: computedGithubRepo,
+        githubApiUrl: githubApiUrl.trim(),
+        githubToken: githubToken.trim(),
         jiraProject: jiraProject.trim().toUpperCase(),
         issueTypes,
         skillOverrides,
@@ -1124,6 +1135,46 @@ export const ProjectModal: React.FC = () => {
                           fetchDetectedStatuses('github', e.target.value)
                         }}
                         placeholder="owner/nom-du-repo"
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+                    </div>
+                  </div>
+                )}
+
+                {issueTracker === 'github' && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Instance GitHub (optionnel)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={githubApiUrl}
+                        onChange={e => setGithubApiUrl(e.target.value)}
+                        placeholder="Celle de la configuration utilisateur"
+                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+                    </div>
+                  </div>
+                )}
+
+                {issueTracker === 'github' && (
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Jeton GitHub (optionnel)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="password"
+                        value={githubToken}
+                        onChange={e => setGithubToken(e.target.value)}
+                        placeholder={
+                          editingProject?.githubTokenSet
+                            ? 'Déjà configuré, laissez vide pour le garder'
+                            : 'Celui de la configuration utilisateur'
+                        }
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />

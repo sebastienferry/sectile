@@ -197,7 +197,11 @@ func (d *DB) UserForDeviceToken(token string) string {
 
 // ListDeviceCredentials returns the user's paired workstations.
 func (d *DB) ListDeviceCredentials(userID string) ([]DeviceCredential, error) {
-	rows, err := d.conn.Query(`SELECT id, user_id, label, created_at, COALESCE(last_seen, created_at)
+	// last_seen is selected as the bare column: the driver reads a DATETIME back
+	// as a time only when it can see the column's declared type, and wrapping it
+	// in COALESCE hid that type and made every listing fail to scan. The fallback
+	// to the pairing date belongs in Go, where it costs nothing.
+	rows, err := d.conn.Query(`SELECT id, user_id, label, created_at, last_seen
 		FROM device_credentials WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at`, userID)
 	if err != nil {
 		return nil, err
@@ -206,8 +210,14 @@ func (d *DB) ListDeviceCredentials(userID string) ([]DeviceCredential, error) {
 	var credentials []DeviceCredential
 	for rows.Next() {
 		var c DeviceCredential
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Label, &c.CreatedAt, &c.LastSeen); err != nil {
+		var lastSeen sql.NullTime
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Label, &c.CreatedAt, &lastSeen); err != nil {
 			return nil, err
+		}
+		// A workstation that has never called in is shown as of its pairing.
+		c.LastSeen = c.CreatedAt
+		if lastSeen.Valid {
+			c.LastSeen = lastSeen.Time
 		}
 		credentials = append(credentials, c)
 	}

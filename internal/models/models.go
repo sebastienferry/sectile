@@ -118,28 +118,39 @@ type Project struct {
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
 	// columns, which is what decides the skill proposed on a card.
-	StageColumns                map[string][]string `json:"stageColumns,omitempty"`
-	GitRemoteUrl                string              `json:"gitRemoteUrl"` // e.g. "git@github.com:owner/repo.git"
-	GithubRepo                  string              `json:"githubRepo"`   // e.g. "owner/repo"
-	JiraProject                 string              `json:"jiraProject"`  // Jira project key, e.g. "PE"
-	IssueTracker                string              `json:"issueTracker"` // "github", "jira", "local"
-	TrackerUrl                  string              `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
-	IsDefault                   bool                `json:"isDefault"`
-	SkillOverrides              map[string]string   `json:"skillOverrides,omitempty"`              // skillId -> custom skill name override
-	AIProvider                  string              `json:"aiProvider,omitempty"`                  // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
-	SetupProviders              []string            `json:"setupProviders"`                        // extra agents to install skills and MCP for
-	AICommandTemplate           string              `json:"aiCommandTemplate,omitempty"`           // interactive launches, e.g. 'claude "{prompt}"'
-	AICommandTemplateAutonomous string              `json:"aiCommandTemplateAutonomous,omitempty"` // headless launches; empty falls back to the interactive one
-	AIModel                     string              `json:"aiModel,omitempty"`                     // e.g. "claude-opus-5"; empty inherits the global setting
-	AISkillModels               map[string]string   `json:"aiSkillModels,omitempty"`               // skillId -> model, for the skills that depart from AIModel
-	SpecFramework               string              `json:"specFramework,omitempty"`               // "speckit", "openspec"
-	AutoSyncEnabled             bool                `json:"autoSyncEnabled"`                       // Enable background sync for non-finished tickets
-	AutoSyncIntervalMin         int                 `json:"autoSyncIntervalMin"`                   // Period in minutes (1 to 30)
-	TtyMode                     string              `json:"ttyMode,omitempty"`                     // "integrated" or "external"
-	ExternalTerminalCommand     string              `json:"externalTerminalCommand,omitempty"`     // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
-	TaskCount                   int                 `json:"taskCount"`
-	CreatedAt                   time.Time           `json:"createdAt"`
-	UpdatedAt                   time.Time           `json:"updatedAt"`
+	StageColumns map[string][]string `json:"stageColumns,omitempty"`
+	GitRemoteUrl string              `json:"gitRemoteUrl"` // e.g. "git@github.com:owner/repo.git"
+	GithubRepo   string              `json:"githubRepo"`   // e.g. "owner/repo"
+	JiraProject  string              `json:"jiraProject"`  // Jira project key, e.g. "PE"
+	// The connection parameters below override the user configuration for this
+	// project only. Empty means "use the user configuration", which is what
+	// every project-level override in this model does. The tokens are
+	// write-only, like the ones on Settings.
+	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
+	GithubToken                 string            `json:"githubToken,omitempty"`
+	GithubTokenSet              bool              `json:"githubTokenSet"`
+	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
+	GitlabProject               string            `json:"gitlabProject,omitempty"`
+	GitlabToken                 string            `json:"gitlabToken,omitempty"`
+	GitlabTokenSet              bool              `json:"gitlabTokenSet"`
+	IssueTracker                string            `json:"issueTracker"` // "github", "jira", "local"
+	TrackerUrl                  string            `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
+	IsDefault                   bool              `json:"isDefault"`
+	SkillOverrides              map[string]string `json:"skillOverrides,omitempty"`              // skillId -> custom skill name override
+	AIProvider                  string            `json:"aiProvider,omitempty"`                  // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
+	SetupProviders              []string          `json:"setupProviders"`                        // extra agents to install skills and MCP for
+	AICommandTemplate           string            `json:"aiCommandTemplate,omitempty"`           // interactive launches, e.g. 'claude "{prompt}"'
+	AICommandTemplateAutonomous string            `json:"aiCommandTemplateAutonomous,omitempty"` // headless launches; empty falls back to the interactive one
+	AIModel                     string            `json:"aiModel,omitempty"`                     // e.g. "claude-opus-5"; empty inherits the global setting
+	AISkillModels               map[string]string `json:"aiSkillModels,omitempty"`               // skillId -> model, for the skills that depart from AIModel
+	SpecFramework               string            `json:"specFramework,omitempty"`               // "speckit", "openspec"
+	AutoSyncEnabled             bool              `json:"autoSyncEnabled"`                       // Enable background sync for non-finished tickets
+	AutoSyncIntervalMin         int               `json:"autoSyncIntervalMin"`                   // Period in minutes (1 to 30)
+	TtyMode                     string            `json:"ttyMode,omitempty"`                     // "integrated" or "external"
+	ExternalTerminalCommand     string            `json:"externalTerminalCommand,omitempty"`     // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
+	TaskCount                   int               `json:"taskCount"`
+	CreatedAt                   time.Time         `json:"createdAt"`
+	UpdatedAt                   time.Time         `json:"updatedAt"`
 }
 
 // TrackerColumn is one column of the tracker's own board, with the tracker
@@ -290,6 +301,11 @@ type CreateProjectRequest struct {
 	BoardID                     string            `json:"boardId,omitempty"`
 	GitRemoteUrl                string            `json:"gitRemoteUrl,omitempty"`
 	GithubRepo                  string            `json:"githubRepo,omitempty"`
+	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
+	GithubToken                 string            `json:"githubToken,omitempty"`
+	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
+	GitlabProject               string            `json:"gitlabProject,omitempty"`
+	GitlabToken                 string            `json:"gitlabToken,omitempty"`
 	JiraProject                 string            `json:"jiraProject,omitempty"`
 	IssueTracker                string            `json:"issueTracker,omitempty"`
 	TrackerUrl                  string            `json:"trackerUrl,omitempty"`
@@ -328,6 +344,11 @@ type UpdateProjectRequest struct {
 	StageColumns                *map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl                *string              `json:"gitRemoteUrl,omitempty"`
 	GithubRepo                  *string              `json:"githubRepo,omitempty"`
+	GithubApiUrl                *string              `json:"githubApiUrl,omitempty"`
+	GithubToken                 *string              `json:"githubToken,omitempty"`
+	GitlabUrl                   *string              `json:"gitlabUrl,omitempty"`
+	GitlabProject               *string              `json:"gitlabProject,omitempty"`
+	GitlabToken                 *string              `json:"gitlabToken,omitempty"`
 	JiraProject                 *string              `json:"jiraProject,omitempty"`
 	IssueTracker                *string              `json:"issueTracker,omitempty"`
 	TrackerUrl                  *string              `json:"trackerUrl,omitempty"`
@@ -701,14 +722,16 @@ type Settings struct {
 	// moves the root font size, which leaves every fixed pixel size untouched;
 	// the scale zooms the whole interface, which is what a large or a small
 	// screen actually needs.
-	UIScale                     int    `json:"uiScale"`
-	DetailMode                  string `json:"detailMode"` // "panel", "modal"
-	UserName                    string `json:"userName"`
-	UserEmail                   string `json:"userEmail"`
-	UserAvatar                  string `json:"userAvatar"`
-	AIProvider                  string `json:"aiProvider"`                            // "agy", "claude", "codex", "custom"
-	AICommandTemplate           string `json:"aiCommandTemplate"`                     // interactive launches
-	AICommandTemplateAutonomous string `json:"aiCommandTemplateAutonomous,omitempty"` // headless launches
+	UIScale           int    `json:"uiScale"`
+	DetailMode        string `json:"detailMode"` // "panel", "modal"
+	UserName          string `json:"userName"`
+	UserEmail         string `json:"userEmail"`
+	UserAvatar        string `json:"userAvatar"`
+	AIProvider        string `json:"aiProvider"`        // "agy", "claude", "codex", "custom"
+	AICommandTemplate string `json:"aiCommandTemplate"` // interactive launches
+	// AICommandTemplateAutonomous is the command a headless launch runs. Empty
+	// falls back to the one above, which then owns its own mode.
+	AICommandTemplateAutonomous string `json:"aiCommandTemplateAutonomous,omitempty"`
 	// AIModel is the model the engine runs against; empty keeps the CLI default.
 	// AISkillModels names the skills that depart from it, keyed by skill ID.
 	AIModel       string            `json:"aiModel"`
@@ -725,9 +748,24 @@ type Settings struct {
 	// JiraAPIToken never leaves the server: the API responses carry the two
 	// flags below instead, so the token cannot be read back by anything that
 	// can reach the settings endpoint.
-	JiraAPIToken            string    `json:"jiraApiToken,omitempty"`
-	JiraAPITokenSet         bool      `json:"jiraApiTokenSet"`
-	JiraAPITokenFromEnv     bool      `json:"jiraApiTokenFromEnv"` // e.g. "https://acme.atlassian.net"
+	JiraAPIToken        string `json:"jiraApiToken,omitempty"`
+	JiraAPITokenSet     bool   `json:"jiraApiTokenSet"`
+	JiraAPITokenFromEnv bool   `json:"jiraApiTokenFromEnv"` // e.g. "https://acme.atlassian.net"
+	// GithubApiUrl / GitlabUrl address the instance, empty meaning the public
+	// one. GitlabProject is the default project slug, the GitLab counterpart of
+	// GithubRepo.
+	GithubApiUrl  string `json:"githubApiUrl"`
+	GitlabUrl     string `json:"gitlabUrl"`
+	GitlabProject string `json:"gitlabProject"`
+	// The two tracker tokens follow JiraAPIToken exactly: never returned by the
+	// API, reported through the Set / FromEnv flags, an empty value on an update
+	// meaning "unchanged" and TrackerTokenClearSentinel meaning "delete".
+	GithubToken             string    `json:"githubToken,omitempty"`
+	GithubTokenSet          bool      `json:"githubTokenSet"`
+	GithubTokenFromEnv      bool      `json:"githubTokenFromEnv"`
+	GitlabToken             string    `json:"gitlabToken,omitempty"`
+	GitlabTokenSet          bool      `json:"gitlabTokenSet"`
+	GitlabTokenFromEnv      bool      `json:"gitlabTokenFromEnv"`
 	PromptClarify           string    `json:"promptClarify"`
 	PromptSpecify           string    `json:"promptSpecify"`
 	PromptImplement         string    `json:"promptImplement"`
