@@ -95,6 +95,9 @@ test('desktop disconnects locally, preserves history, and explicitly reconnects'
   await page.getByRole('textbox',{name:'Local repository',exact:true}).fill('/tmp/repository')
   await page.getByRole('button',{name:'Save local configuration',exact:true}).click()
   await page.getByText('Local configuration saved',{exact:true}).waitFor()
+  // The dialog closes through the shared cross icon, in the theme red rather than a text glyph.
+  assert.equal(await page.locator('#close-dialog svg').count(),1)
+  assert.equal(await page.locator('#close-dialog').evaluate(node=>getComputedStyle(node).color),'rgb(255, 183, 195)')
   await page.getByRole('button',{name:'Close',exact:true}).click()
   assert.equal(await page.locator('.local-task').count(),0,'re-add preserves task archives')
   await page.evaluate(()=>localStorage.removeItem('localTasks'))

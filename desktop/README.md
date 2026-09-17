@@ -397,7 +397,8 @@ after the search must be reopened on the server first.
 ### Next workflow step
 
 The status line beneath the task console shows its current server workflow stage.
-Use **Next: Clarify**, **Next: Specify**, **Next: Implement**, or
+The action itself sits in the console toolbar, beside **Stop execution**: use
+**Next: Clarify**, **Next: Specify**, **Next: Implement**, or
 **Next: Review and create PR** to launch one step with the project's current
 configuration. Historical consoles use the task's current state too. The action
 is disabled while that task has an active execution or a launch is pending.
