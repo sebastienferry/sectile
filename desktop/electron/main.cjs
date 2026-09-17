@@ -4,6 +4,9 @@ const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
 const {exchangePairingCode,resolveConnectCredential}=require('./pairing.cjs')
+const credentials=require('./credential-store.cjs')
+const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
+const storedKey=saved=>credentials.storedKey(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
@@ -42,17 +45,6 @@ async function connectAgent(){
  return false
 }
 ipcMain.handle('connect',connectAgent)
-// The API key goes in the settings file either way: encrypted with the OS
-// store when there is one, in clear under the same 0600 permissions otherwise.
-// A pairing code is single use, so a key that was not saved would be lost.
-function storeKey(saved,token){
- if(safeStorage.isEncryptionAvailable()){saved.secret=safeStorage.encryptString(token).toString('base64');delete saved.apiKey}
- else{saved.apiKey=token;delete saved.secret}
-}
-function storedKey(saved){
- if(saved.secret&&safeStorage.isEncryptionAvailable())return safeStorage.decryptString(Buffer.from(saved.secret,'base64'))
- return saved.apiKey||''
-}
 ipcMain.handle('pair',async(_,{server,code,label})=>{
  const credential=await exchangePairingCode(server,code,label)
  let previous={}
