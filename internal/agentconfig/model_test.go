@@ -94,33 +94,37 @@ func TestExpandModel(t *testing.T) {
 	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, "M"); got != `claude --model M -p "{prompt}"` {
 		t.Fatalf("placeholder not substituted: %q", got)
 	}
-	// A flag with nothing behind it does not vanish, it eats the next word, so
-	// the slot has to take its option with it.
-	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, ""); got != `claude -p "{prompt}"` {
-		t.Fatalf("empty model must remove the option too: %q", got)
-	}
 	template := `claude -p "{prompt}"`
 	if got := ExpandModel(template, "M"); got != template {
 		t.Fatalf("template without the slot must be untouched: %q", got)
 	}
 }
 
-// The slot is removed with the word that carries it, whatever shape that word
-// has, and with the option before it only when there is one to remove.
-func TestDropModelSlotShapes(t *testing.T) {
-	for template, want := range map[string]string{
-		`claude --model {model} '{prompt}'`:   `claude '{prompt}'`,
-		`claude --model '{model}' '{prompt}'`: `claude '{prompt}'`,
-		`claude --model={model} '{prompt}'`:   `claude '{prompt}'`,
-		`claude -m {model} '{prompt}'`:        `claude '{prompt}'`,
-		`mycli {model} '{prompt}'`:            `mycli '{prompt}'`,
-		`claude '{prompt}' --model {model}`:   `claude '{prompt}'`,
-		`claude -a {model} -b {model} '{p}'`:  `claude '{p}'`,
-		`claude '{prompt}'`:                   `claude '{prompt}'`,
+// An unresolved slot leaves with the option it belongs to. Erasing the marker
+// alone left `--model  -p "…"`, where the CLI reads -p as the model name and the
+// prompt degrades to a positional argument.
+func TestExpandModelWithoutModelTakesItsOptionAway(t *testing.T) {
+	for _, c := range []struct{ template, want string }{
+		{`claude --model {model} -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude -m {model} -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude --model={model} -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude --model "{model}" -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude --model '{model}' -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude -p "{prompt}" --model {model}`, `claude -p "{prompt}"`},
+		{`claude --model {model} --fallback {model} -p "{prompt}"`, `claude -p "{prompt}"`},
+		// No option to carry away: the slot is positional and its neighbours stay.
+		{`my-cli {model} run -p "{prompt}"`, `my-cli run -p "{prompt}"`},
+		{`{model} -p "{prompt}"`, `-p "{prompt}"`},
+		// The prompt is what the command line exists to carry, so a token holding
+		// both markers keeps everything but the model marker.
+		{`my-cli -p"{prompt}"{model}`, `my-cli -p"{prompt}"`},
 	} {
-		if got := DropModelSlot(template); got != want {
-			t.Fatalf("%q: got %q, want %q", template, got, want)
+		if got := ExpandModel(c.template, ""); got != c.want {
+			t.Fatalf("%q expanded to %q, want %q", c.template, got, c.want)
 		}
+	}
+	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, "   "); got != `claude -p "{prompt}"` {
+		t.Fatalf("a blank model must behave like no model: %q", got)
 	}
 }
 

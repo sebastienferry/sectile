@@ -473,12 +473,13 @@ func expandConfiguredTemplate(template, model, prompt string, autonomous bool, c
 		launch = contexts[0]
 	}
 	values := launch.values(prompt)
-	values["model"] = strings.TrimSpace(model)
 	resolved := resolveTemplateMode(template, autonomous)
-	// With no model to put in it the slot is removed rather than filled with an
-	// empty argument, which the option before it would not survive.
-	if values["model"] == "" {
-		resolved = agentconfig.DropModelSlot(resolved)
+	if configured := strings.TrimSpace(model); configured != "" {
+		values["model"] = configured
+	} else {
+		// Nothing to quote: the slot leaves with the option it belongs to
+		// rather than reaching the quoting pass and becoming an empty ''.
+		resolved = agentconfig.ExpandModel(resolved, "")
 	}
 	return expandAgentTemplate(resolved, values)
 }

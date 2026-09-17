@@ -66,30 +66,60 @@ function shellQuote(value: string): string {
   return "'" + value.replace(/'/g, "'\\''") + "'"
 }
 
+const isBlank = (ch: string) => ch === ' ' || ch === '\t'
+
+/** Bounds of the blank-delimited token covering `at`, quotes included. */
+function tokenAround(s: string, at: number): [number, number] {
+  let start = at
+  let end = at
+  while (start > 0 && !isBlank(s[start - 1])) start--
+  while (end < s.length && !isBlank(s[end])) end++
+  return [start, end]
+}
+
+/** Bounds of the token before `start`, or none when there is nothing there. */
+function precedingToken(s: string, start: number): [number, number] | null {
+  let end = start
+  while (end > 0 && isBlank(s[end - 1])) end--
+  if (end === 0) return null
+  let begin = end
+  while (begin > 0 && !isBlank(s[begin - 1])) begin--
+  return [begin, end]
+}
+
+/** Removes a run and the blanks that would be left doubled around it. */
+function cutRun(s: string, start: number, end: number): string {
+  while (start > 0 && isBlank(s[start - 1])) start--
+  if (start === 0) {
+    while (end < s.length && isBlank(s[end])) end++
+  }
+  return s.slice(0, start) + s.slice(end)
+}
+
 /**
  * Removes every {model} slot a template has nothing to put in, along with the
  * option the slot is the value of. A flag left with nothing behind it does not
  * disappear, it consumes the next word, so removing the pair is the only way the
- * command line survives an unset model. Mirrors agentconfig.DropModelSlot.
+ * command line survives an unset model. Mirrors agentconfig's dropModelSlots,
+ * down to the token that glues the two markers together: the prompt the command
+ * exists to carry is never taken away with the model.
  */
 export function dropModelSlot(template: string): string {
   for (;;) {
     const at = template.indexOf(MODEL_PLACEHOLDER)
-    if (at < 0) return template
-    let start = at
-    while (start > 0 && !' \t'.includes(template[start - 1])) start--
-    let end = at + MODEL_PLACEHOLDER.length
-    while (end < template.length && !' \t'.includes(template[end])) end++
-    let cut = start
-    const before = template.slice(0, start).replace(/[ \t]+$/, '')
-    if (before !== '') {
-      let option = before.length
-      while (option > 0 && !' \t'.includes(before[option - 1])) option--
-      if (before.slice(option).startsWith('-')) cut = option
+    if (at < 0) return template.trim()
+    let [start, end] = tokenAround(template, at)
+    if (template.slice(start, end).includes('{prompt}')) {
+      template = cutRun(template, at, at + MODEL_PLACEHOLDER.length)
+      continue
     }
-    const head = template.slice(0, cut).replace(/[ \t]+$/, '')
-    const tail = template.slice(end).replace(/^[ \t]+/, '')
-    template = head === '' ? tail : tail === '' ? head : head + ' ' + tail
+    if (!template.slice(start, end).startsWith('-')) {
+      const previous = precedingToken(template, start)
+      if (previous && template[previous[0]] === '-' && !template.slice(previous[0], previous[1]).includes('{prompt}')) {
+        start = previous[0]
+      }
+    }
+    template = cutRun(template, start, end)
   }
 }
 

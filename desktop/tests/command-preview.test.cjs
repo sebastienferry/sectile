@@ -65,3 +65,11 @@ test('a dedicated autonomous command serves headless launches on its own',async(
  assert.equal(commandPreview('claude',interactive,'',true).command,'')
  assert.deepEqual(previewLines('claude',interactive,'',autonomous).map(l=>l.text),[interactive,autonomous])
 })
+
+// The two markers can share one token. The prompt is what the command exists to
+// carry, so the model leaves alone rather than taking it along.
+test('a model glued to the prompt leaves the prompt behind',async()=>{
+ const {dropModelSlot}=await load()
+ assert.equal(dropModelSlot('cli --opt={model}{prompt}'),'cli --opt={prompt}')
+ assert.equal(dropModelSlot('cli {model}{prompt}'),'cli{prompt}')
+})

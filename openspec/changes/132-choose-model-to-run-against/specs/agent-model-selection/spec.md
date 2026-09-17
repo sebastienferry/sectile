@@ -94,7 +94,7 @@ string when no model is resolved.
 #### Scenario: Placeholder with no model configured
 - **GIVEN** a template containing `{model}` and no model resolved at any level
 - **WHEN** the command is built
-- **THEN** `{model}` is replaced by the empty string and the surrounding command still runs
+- **THEN** the `{model}` slot leaves the command line and the surrounding command still runs
 
 ### Requirement: A model identifier is validated on shape, not on membership
 Sectile SHALL accept any model identifier whose shape is safe to place on a command line, and SHALL

@@ -49,28 +49,55 @@ export function modelArgs(provider,model){
 // shellQuote wraps a value so a shell reads it literally, as the agent does.
 function shellQuote(value){return "'"+String(value).replace(/'/g,"'\\''")+"'"}
 
+const isBlank=ch=>ch===' '||ch==='\t'
+
+// tokenAround returns the bounds of the blank-delimited token covering `at`,
+// quotes included.
+function tokenAround(s,at){
+ let start=at,end=at
+ while(start>0&&!isBlank(s[start-1]))start--
+ while(end<s.length&&!isBlank(s[end]))end++
+ return [start,end]
+}
+
+// precedingToken returns the bounds of the token before `start`, or null.
+function precedingToken(s,start){
+ let end=start
+ while(end>0&&isBlank(s[end-1]))end--
+ if(end===0)return null
+ let begin=end
+ while(begin>0&&!isBlank(s[begin-1]))begin--
+ return [begin,end]
+}
+
+// cutRun removes a run and the blanks it would leave doubled around it.
+function cutRun(s,start,end){
+ while(start>0&&isBlank(s[start-1]))start--
+ if(start===0){while(end<s.length&&isBlank(s[end]))end++}
+ return s.slice(0,start)+s.slice(end)
+}
+
 // dropModelSlot removes every {model} slot a template has nothing to put in,
 // along with the option the slot is the value of: a flag left with nothing
 // behind it consumes the next word instead of disappearing. Mirrors
-// agentconfig.DropModelSlot.
+// agentconfig's dropModelSlots, down to the token that glues the two markers
+// together: the prompt the command exists to carry is never taken with it.
 export function dropModelSlot(template){
  for(;;){
   const at=template.indexOf(MODEL_PLACEHOLDER)
-  if(at<0)return template
-  let start=at
-  while(start>0&&!' \t'.includes(template[start-1]))start--
-  let end=at+MODEL_PLACEHOLDER.length
-  while(end<template.length&&!' \t'.includes(template[end]))end++
-  let cut=start
-  const before=template.slice(0,start).replace(/[ \t]+$/,'')
-  if(before!==''){
-   let option=before.length
-   while(option>0&&!' \t'.includes(before[option-1]))option--
-   if(before.slice(option).startsWith('-'))cut=option
+  if(at<0)return template.trim()
+  let [start,end]=tokenAround(template,at)
+  if(template.slice(start,end).includes('{prompt}')){
+   template=cutRun(template,at,at+MODEL_PLACEHOLDER.length)
+   continue
   }
-  const head=template.slice(0,cut).replace(/[ \t]+$/,'')
-  const tail=template.slice(end).replace(/^[ \t]+/,'')
-  template=head===''?tail:tail===''?head:head+' '+tail
+  if(!template.slice(start,end).startsWith('-')){
+   const previous=precedingToken(template,start)
+   if(previous&&template[previous[0]]==='-'&&!template.slice(previous[0],previous[1]).includes('{prompt}')){
+    start=previous[0]
+   }
+  }
+  template=cutRun(template,start,end)
  }
 }
 
