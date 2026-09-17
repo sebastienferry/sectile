@@ -11,7 +11,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   if(req.headers.authorization!=='Bearer test-secret'){res.writeHead(401).end();return}
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project-a',name:'Example project',path:'/tmp/spec-worktree'},{id:'project-b',name:'Other project',path:'/tmp/other-worktree'}]));return}
-  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,aiCommandTemplate:serverCommand,skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
+  if(req.url==='/desktop/project?id=project-a'||req.url==='/desktop/project?id=project-b'){res.end(JSON.stringify({server:{projectName:'Example project',gitRemoteUrl:'https://example.test/repo.git',specFramework:'openspec',useWorktrees:true,aiCommandTemplate:serverCommand,aiCommandTemplateAutonomous:'codex exec {prompt}',skills:[{id:'specify',content:'Specification instructions'}]},monoRepo:true,path:'/tmp/spec-worktree',configured:true,useWorktrees:true}));return}
   if(req.url.startsWith('/desktop/tasks?')){
    if(req.method==='POST'){submitted=true;let raw='';req.on('data',chunk=>raw+=chunk);req.on('end',()=>{launches.push({...JSON.parse(raw),projectID:new URL(req.url,'http://localhost').searchParams.get('projectId')});res.end(JSON.stringify({status:'running'}))});return}
    if(createdInput&&new URL(req.url,'http://localhost').searchParams.get('q')==='#49'){res.end(JSON.stringify([{id:'created',key:'#49',projectId:createdInput.projectID,title:createdInput.title,status:'to_clarify'}]));return}
@@ -88,23 +88,28 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await parallel.inputValue(),'3')
   // Parallelism is workstation-owned: no server default, hence no reset control.
   assert.equal(await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).count(),0)
-  const placeholderHelp=await page.locator('p').filter({hasText:'Required: {prompt}'}).textContent()
-  for(const token of ['{prompt}','{issueKey}','{issueTitle}','{issueDesc}','{branchName}','{repoPath}','{tracker}','{repo}']){
+  const placeholderHelp=await page.locator('p').filter({hasText:'Required in a command: {prompt}'}).textContent()
+  for(const token of ['{prompt}','{issueKey}','{issueTitle}','{issueDesc}','{branchName}','{repoPath}','{tracker}','{repo}','{model}','{mode:AUTONOMOUS|INTERACTIVE}']){
    assert.ok(placeholderHelp.includes(token),`Missing placeholder help: ${token}`)
   }
-  await page.getByRole('textbox',{name:'CLI command',exact:true}).fill('claude {prompt}')
-  await page.getByRole('button',{name:'Reset CLI command to server default',exact:true}).click()
-  assert.equal(await page.getByRole('textbox',{name:'CLI command',exact:true}).inputValue(),'codex {prompt}')
-  await page.getByRole('textbox',{name:'CLI command',exact:true}).fill('local {prompt}')
+  await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).fill('claude {prompt}')
+  await page.getByRole('button',{name:'Reset CLI commands to server defaults',exact:true}).click()
+  assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'codex {prompt}')
+  await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).fill('local {prompt}')
+  // Each mode has its own command; the override and the reset cover both fields.
+  const autonomous=page.getByRole('textbox',{name:'Autonomous CLI command',exact:true})
+  await autonomous.fill('local exec {prompt}')
   serverCommand='updated {prompt}'
   await page.getByRole('button',{name:'Refresh from server',exact:true}).click()
   await page.getByText('Server settings refreshed. Local overrides preserved.',{exact:true}).waitFor()
-  assert.equal(await page.getByRole('textbox',{name:'CLI command',exact:true}).inputValue(),'local {prompt}')
-  await page.getByRole('button',{name:'Reset CLI command to server default',exact:true}).click()
-  assert.equal(await page.getByRole('textbox',{name:'CLI command',exact:true}).inputValue(),'updated {prompt}')
+  assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'local {prompt}')
+  assert.equal(await autonomous.inputValue(),'local exec {prompt}')
+  await page.getByRole('button',{name:'Reset CLI commands to server defaults',exact:true}).click()
+  assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'updated {prompt}')
+  assert.equal(await autonomous.inputValue(),'codex exec {prompt}')
   serverCommand='latest {prompt}'
   await page.getByRole('button',{name:'Refresh from server',exact:true}).click()
-  await page.waitForFunction(()=>document.querySelector('[aria-label="CLI command"]').value==='latest {prompt}')
+  await page.waitForFunction(()=>document.querySelector('[aria-label="Interactive CLI command"]').value==='latest {prompt}')
 
 
   // The workstation parallelism selection survives a server refresh.
