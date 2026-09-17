@@ -36,7 +36,11 @@
 - [x] 4.3 Give each view an empty state that says no task is running, distinct from "no task matches
       the filters".
 
-## 5. Gates
-- [x] 5.1 `make test` (go, web tests, tsc, oxlint).
-- [ ] 5.2 Check the filter live: start a run, see the task appear; let it end, see it leave.
-- [x] 5.3 Re-read the diff as a reviewer.
+## 5. Revue
+- [x] 5.0 Stabiliser l'identité de l'ensemble actif sur ses membres, pour ne pas invalider les mémos
+      des deux vues à chaque sondage des activités (D9), et couvrir la propriété par un test.
+
+## 6. Gates
+- [x] 6.1 `make test` (go, web tests, tsc, oxlint).
+- [ ] 6.2 Check the filter live: start a run, see the task appear; let it end, see it leave.
+- [x] 6.3 Re-read the diff as a reviewer.

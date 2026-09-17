@@ -80,6 +80,15 @@ Counting `pending` here would list tasks showing no mark at all, which reads as 
 *Left as is:* the gap belongs to the badge, not to the filter. Widening `deriveRunIndicator` to
 `pending` would fix both at once and is worth its own change.
 
+### D9. The active set keeps its identity while its members do not change
+The activities poll rebuilds its array every few seconds. A set derived straight from it would be a
+new object each time, invalidating the board's and the list's memos: a full re-sort and a re-render of
+every row on a tick where nothing moved. The context therefore memoises on the sorted members, and
+rebuilds the set only when that signature changes.
+
+*Found in review rather than designed*: the first implementation derived the set directly, and the
+cost is invisible until a board is large and a poll is frequent — both of which this product has.
+
 ## Risks
 - The filter is only as current as the activities poll. It is the same freshness the badge already
   has, so no surface becomes less accurate than the one beside it.

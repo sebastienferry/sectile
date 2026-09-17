@@ -129,3 +129,14 @@ test('two runs on one task yield a single entry', () => {
   ]
   assert.deepEqual([...activeTaskIds(activities)], ['task-1'])
 })
+
+test('the active set does not depend on the order the activities arrive in', () => {
+  const a = run({ id: 'a', taskId: 'task-2', status: 'running' })
+  const b = run({ id: 'b', taskId: 'task-1', status: 'queued' })
+  // The context keys its memo on the sorted members, so a reordered poll must
+  // yield the same signature and leave the board and the list untouched.
+  const one = [...activeTaskIds([a, b])].sort().join(',')
+  const other = [...activeTaskIds([b, a])].sort().join(',')
+  assert.equal(one, other)
+  assert.equal(one, 'task-1,task-2')
+})

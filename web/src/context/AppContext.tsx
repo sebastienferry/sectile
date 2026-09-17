@@ -735,10 +735,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Activities & Queue State
   const [activities, setActivities] = useState<TaskActivity[]>([])
   // Les tickets qu'un agent traite, dérivés des activités comme le badge des
-  // cartes : une seule passe, et le filtre ne peut pas contredire la pastille
-  // affichée à côté de lui. Le jeu suit le rafraîchissement des activités, donc
-  // un run qui démarre ou s'achève déplace son ticket sans geste de l'utilisateur.
-  const activeTasks = useMemo(() => activeTaskIds(activities), [activities])
+  // cartes : le filtre ne peut donc pas contredire la pastille affichée à côté
+  // de lui. Le jeu suit le rafraîchissement des activités, donc un run qui
+  // démarre ou s'achève déplace son ticket sans geste de l'utilisateur.
+  //
+  // L'identité du jeu ne change que si son contenu change. Le sondage des
+  // activités reconstruit leur tableau à chaque tour, et sans cette signature
+  // chaque tour invaliderait les mémos du board et de la liste : un tri complet
+  // et un rendu de toutes les lignes, toutes les quelques secondes, alors que
+  // rien n'a bougé.
+  const activeTasksKey = useMemo(() => [...activeTaskIds(activities)].sort().join(','), [activities])
+  const activeTasks = useMemo(
+    () => new Set(activeTasksKey ? activeTasksKey.split(',') : []),
+    [activeTasksKey],
+  )
   const [activityStats, setActivityStats] = useState<ActivityStats>({
     total: 0,
     queued: 0,
