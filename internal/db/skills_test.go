@@ -50,6 +50,35 @@ func TestGeneratedSkillContracts(t *testing.T) {
 	}
 }
 
+// Every skill and every slash command must ask the agent to name its session
+// after the work item, whichever agent runs it.
+func TestGeneratedSkillsRenameTheSessionAfterTheWorkItem(t *testing.T) {
+	for _, framework := range []string{"openspec", "speckit"} {
+		for _, stage := range db.StageSkills {
+			t.Run(framework+"/"+stage.ID, func(t *testing.T) {
+				item := "ticket"
+				if stage.Scope == "macro" {
+					item = "macro"
+				}
+				for _, document := range []string{
+					db.RenderSkillContent(stage, framework),
+					db.RenderSkillCommand(stage, framework),
+				} {
+					for _, required := range []string{
+						"## Session title",
+						"rename the current session to `<" + item + " ID> - <" + item + " title>`",
+						"not only Claude Code",
+					} {
+						if !strings.Contains(document, required) {
+							t.Fatalf("generated document is missing %q", required)
+						}
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestCreatePRSkillIntegratesRemoteDefaultBranchBeforePublishing(t *testing.T) {
 	skill, ok := db.StageSkillByID("create_pr")
 	if !ok {
