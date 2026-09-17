@@ -89,3 +89,17 @@ test('an empty form is refused before anything is spent', async () => {
    () => { throw Error('the network must not be reached') }),
   /pairing code, or an API key/)
 })
+
+test('a server that answers nothing is reported as unreachable, pointing at the address', async () => {
+ await assert.rejects(
+  exchangePairingCode('http://127.0.0.1:8090', 'code', 'laptop', async () => { throw Error('ECONNREFUSED') }),
+  /Could not reach the server. Check the server address./)
+})
+
+test('an address that answers without JSON is reported as not being the Sectile agent API', async () => {
+ await assert.rejects(
+  exchangePairingCode('http://127.0.0.1:8090', 'code', 'laptop', async () => ({
+   status: 200, ok: true, json: async () => { throw Error('not JSON') }
+  })),
+  /does not expose the Sectile agent API/)
+})
