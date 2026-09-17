@@ -37,7 +37,7 @@ func TestStaleWorkflowLabelsExcludesTargetOnly(t *testing.T) {
 // SetWorkflowLabel, lui, remplace bien en local.
 func TestSetWorkflowLabelReplacesLocally(t *testing.T) {
 	out := SetWorkflowLabel([]string{"ai:tech:autonomous", "clarified"}, "specified")
-	if len(out) != 2 || out[0] != "ai:tech:autonomous" || out[1] != "specified" {
+	if len(out) != 2 || out[0] != "ai:tech:autonomous" || out[1] != "#specified" {
 		t.Fatalf("remplacement attendu, obtenu %v", out)
 	}
 }
@@ -82,7 +82,7 @@ func TestCreateTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTask failed: %v", err)
 		}
-		expectedLabels := []string{"new"}
+		expectedLabels := []string{"#new"}
 		if !equalStringSlices(created.Labels, expectedLabels) {
 			t.Errorf("Returned labels = %v, want %v", created.Labels, expectedLabels)
 		}
@@ -112,7 +112,7 @@ func TestCreateTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateTask failed: %v", err)
 		}
-		expectedLabels := []string{"CustomerCase", "#TeamTag", "new"}
+		expectedLabels := []string{"CustomerCase", "#TeamTag", "#new"}
 		if !equalStringSlices(created.Labels, expectedLabels) {
 			t.Errorf("Returned labels = %v, want %v", created.Labels, expectedLabels)
 		}
@@ -139,7 +139,7 @@ func TestCreateTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 		if created.Status != models.StatusToImplement {
 			t.Errorf("Returned status = %v, want %v", created.Status, models.StatusToImplement)
 		}
-		expectedLabels := []string{"new"}
+		expectedLabels := []string{"#new"}
 		if !equalStringSlices(created.Labels, expectedLabels) {
 			t.Errorf("Returned labels = %v, want %v", created.Labels, expectedLabels)
 		}
@@ -192,7 +192,7 @@ func TestCloneTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 			t.Fatalf("CloneTask failed: %v", err)
 		}
 
-		expectedCloneLabels := []string{"CustomerCase", "#TeamTag", "new"}
+		expectedCloneLabels := []string{"CustomerCase", "#TeamTag", "#new"}
 		if !equalStringSlices(cloned.Labels, expectedCloneLabels) {
 			t.Errorf("Cloned returned labels = %v, want %v", cloned.Labels, expectedCloneLabels)
 		}
@@ -232,7 +232,7 @@ func TestCloneTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 			t.Fatalf("CloneTask failed: %v", err)
 		}
 
-		expectedCloneLabels := []string{"new"}
+		expectedCloneLabels := []string{"#new"}
 		if !equalStringSlices(cloned.Labels, expectedCloneLabels) {
 			t.Errorf("Cloned returned labels = %v, want %v", cloned.Labels, expectedCloneLabels)
 		}
@@ -270,7 +270,7 @@ func TestCloneTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 		if cloned.Status != models.StatusClarified {
 			t.Errorf("Cloned status = %v, want %v", cloned.Status, models.StatusClarified)
 		}
-		expectedCloneLabels := []string{"CustomerCase", "#TeamTag", "new"}
+		expectedCloneLabels := []string{"CustomerCase", "#TeamTag", "#new"}
 		if !equalStringSlices(cloned.Labels, expectedCloneLabels) {
 			t.Errorf("Cloned labels = %v, want %v", cloned.Labels, expectedCloneLabels)
 		}
@@ -301,5 +301,64 @@ func TestReadHistoricalTaskRetainsLegacyLabel(t *testing.T) {
 	expectedLabels := []string{"New", "CustomerCase"}
 	if !equalStringSlices(task.Labels, expectedLabels) {
 		t.Errorf("Historical task labels = %v, want %v", task.Labels, expectedLabels)
+	}
+}
+
+// La graphie du label d'étape est décidée par SetWorkflowLabel, pas par
+// l'appelant : c'est ce qui empêche un futur site d'appel de réintroduire la
+// forme nue « new » à côté de « #new ».
+func TestSetWorkflowLabelNormalisesSpelling(t *testing.T) {
+	cases := []struct {
+		name   string
+		target string
+	}{
+		{"forme nue", "new"},
+		{"forme préfixée", "#new"},
+		{"casse mixte", "#New"},
+		{"casse mixte sans préfixe", "New"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := SetWorkflowLabel([]string{"CustomerCase", "#TeamTag"}, tc.target)
+			want := []string{"CustomerCase", "#TeamTag", "#new"}
+			if !equalStringSlices(out, want) {
+				t.Errorf("SetWorkflowLabel(_, %q) = %v, want %v", tc.target, out, want)
+			}
+		})
+	}
+}
+
+// Les tâches historiques portent encore le label nu. Elles doivent continuer à
+// résoudre leur étape, et la prochaine transition doit les normaliser.
+func TestLegacyBareWorkflowLabelStillResolvesAndIsCleaned(t *testing.T) {
+	database, cleanup := setupTestDB(t)
+	defer cleanup()
+	proj := createTestProject(t, database)
+
+	taskID := "legacy-bare-label"
+	_, err := database.conn.Exec(`
+		INSERT INTO tasks (id, project_id, key, title, status, priority, labels, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, taskID, proj.ID, "#998", "Legacy bare label", models.StatusToClarify, models.PriorityMedium, `["new", "CustomerCase"]`)
+	if err != nil {
+		t.Fatalf("insertion de la tâche héritée impossible: %v", err)
+	}
+
+	task, err := database.GetTaskByID(taskID)
+	if err != nil {
+		t.Fatalf("GetTaskByID failed: %v", err)
+	}
+	if stage := database.StageOfTask(task); stage != "new" {
+		t.Fatalf("StageOfTask = %q, want %q", stage, "new")
+	}
+
+	updated, _, err := database.TransitionTaskStage(taskID, "clarified", "Clarified", "", "")
+	if err != nil {
+		t.Fatalf("TransitionTaskStage failed: %v", err)
+	}
+	want := []string{"CustomerCase", "#clarified"}
+	if !equalStringSlices(updated.Labels, want) {
+		t.Errorf("labels après transition = %v, want %v", updated.Labels, want)
 	}
 }

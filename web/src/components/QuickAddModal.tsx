@@ -74,7 +74,7 @@ export const QuickAddModal: React.FC = () => {
       const proj = projects.find(p => p.id === initialProjId) || projects[0]
       setSource((proj?.issueTracker as TaskSource) || 'local')
       setSprint('')
-      setLabels(['new'])
+      setLabels(['#new'])
       setLabelInput('')
       setTimeout(() => {
         inputRef.current?.focus()
@@ -342,7 +342,7 @@ export const QuickAddModal: React.FC = () => {
             </label>
             <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
               {labels.map(l => {
-                const lower = l.toLowerCase()
+                const lower = l.toLowerCase().replace(/^#+/, '')
                 let badgeStyle = 'bg-[var(--accent-light)] accent-text'
                 if (lower === 'new') badgeStyle = 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
                 else if (lower === 'clarified') badgeStyle = 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'

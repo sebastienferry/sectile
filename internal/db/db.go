@@ -1802,10 +1802,6 @@ func (d *DB) getNextGithubTaskKey(projectID string) string {
 	return fmt.Sprintf("#%d", maxNum+1)
 }
 
-// Workflow labels following the AI lifecycle:
-// new -> clarified -> specified -> implemented -> reviewed -> finished
-var WorkflowLabels = []string{"new", "clarified", "specified", "implemented", "reviewed", "finished", "untouched", "New", "Clarified", "Specified", "Implemented", "Reviewed", "Finished", "Untouched"}
-
 func GetStageLabelForStatus(status models.Status) string {
 	clean := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(string(status), "-", "_")))
 	switch clean {
@@ -1868,6 +1864,11 @@ func StaleWorkflowLabels(targetLabel string) []string {
 	return out
 }
 
+// SetWorkflowLabel remplace le label d'étape de existingLabels par targetLabel.
+// L'appelant fournit un nom d'étape, avec ou sans « # » et dans la casse qu'il
+// veut : c'est cette fonction qui décide de la graphie écrite, toujours
+// « #<étape> » en minuscules. Les autres labels gardent leur casse et leur
+// préfixe tels quels.
 func SetWorkflowLabel(existingLabels []string, targetLabel string) []string {
 	var result []string
 	cleanTarget := strings.TrimLeft(strings.TrimSpace(targetLabel), "#")
@@ -1893,11 +1894,7 @@ func SetWorkflowLabel(existingLabels []string, targetLabel string) []string {
 		}
 	}
 	if cleanTarget != "" {
-		if strings.HasPrefix(targetLabel, "#") {
-			result = append(result, "#"+cleanTarget)
-		} else {
-			result = append(result, cleanTarget)
-		}
+		result = append(result, "#"+strings.ToLower(cleanTarget))
 	}
 	return result
 }
@@ -1978,7 +1975,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 	if req.Status == "" {
 		req.Status = models.StatusToClarify
 	}
-	req.Labels = SetWorkflowLabel(req.Labels, "new")
+	req.Labels = SetWorkflowLabel(req.Labels, "#new")
 
 	var key string
 	var extURL *string
@@ -2137,7 +2134,7 @@ func (d *DB) CloneTask(taskID string, req models.CloneTaskRequest) (*models.Task
 			labels = append(labels, l)
 		}
 	}
-	labels = SetWorkflowLabel(labels, "new")
+	labels = SetWorkflowLabel(labels, "#new")
 
 	sprint := ""
 	if req.Sprint != "" {
@@ -2226,7 +2223,7 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 			if oldStage != newStage {
 				removedLabels = append(removedLabels, oldStage)
 			}
-			existing.Labels = SetWorkflowLabel(existing.Labels, newStage)
+			existing.Labels = SetWorkflowLabel(existing.Labels, "#"+newStage)
 		}
 	}
 	if req.Priority != nil {
@@ -4685,7 +4682,7 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	now := time.Now()
 
 	// Ensure stage label is properly set based on current status
-	task.Labels = SetWorkflowLabel(task.Labels, GetStageLabelForStatus(task.Status))
+	task.Labels = SetWorkflowLabel(task.Labels, "#"+GetStageLabelForStatus(task.Status))
 
 	ts, ok := d.TrackerRegistry().Get(target)
 	if !ok || !ts.Supports(tracker.CapCreate) {
