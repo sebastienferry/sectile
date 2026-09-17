@@ -69,3 +69,9 @@
 - [x] 7.3 The set rules moved to `internal/models/pullrequests.go`: the agent's own adjustment
       pre-check (`internal/agent/agent.go`) enforced the same single-PR rule and would have refused
       the follow-up before the server saw it. Server and agent now share one implementation.
+- [x] 7.4 Adjustment review finding, fixed: the modal's unsaved-changes comparison read
+      `selectedTask.prLinks || []` while the state was seeded from `prUrl` as a fallback, so a
+      task carrying only the legacy single URL counted as edited on every open and was rewritten
+      on close. The seed moved to `web/src/lib/pullRequests.ts` (`taskPullRequestLinks`,
+      `addPullRequestLink`, `currentPullRequest`), used on both sides, and covered by
+      `web/tests/pullRequestLinks.test.mjs`.

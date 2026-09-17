@@ -44,6 +44,7 @@ import {
 import { useApp } from '../context/AppContext'
 import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode, PullRequestLink } from '../types'
 import { WORKFLOW_ORDER, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
+import { addPullRequestLink, taskPullRequestLinks } from '../lib/pullRequests'
 import { TaskComments } from './TaskComments'
 import { LookupField, type LookupOption } from './LookupField'
 import { MarkdownEditor } from './Markdown'
@@ -264,7 +265,7 @@ export const TaskDetailModal: React.FC = () => {
       setPriority(selectedTask.priority)
       setTaskProjectId(selectedTask.projectId || projects[0]?.id || '')
       setBranchName(selectedTask.branchName || '')
-      setPrLinks(selectedTask.prLinks || (selectedTask.prUrl ? [{ url: selectedTask.prUrl, branch: selectedTask.branchName }] : []))
+      setPrLinks(taskPullRequestLinks(selectedTask))
       setNewPrUrl('')
       setRepoPath(selectedTask.repoPath || '')
       setTrackerStatus(selectedTask.trackerStatus || '')
@@ -374,9 +375,9 @@ export const TaskDetailModal: React.FC = () => {
   // Un lien ajouté prend la branche du ticket : c'est elle que les validateurs
   // comparent pour distinguer une PR de suite d'une PR sans rapport.
   const addPrLink = () => {
-    const url = newPrUrl.trim()
-    if (!url || prLinks.some(l => l.url === url)) return
-    setPrLinks([...prLinks, { url, branch: branchName.trim() || selectedTask?.branchName || undefined }])
+    const next = addPullRequestLink(prLinks, newPrUrl, branchName || selectedTask?.branchName)
+    if (next === prLinks) return
+    setPrLinks(next)
     setNewPrUrl('')
   }
 
@@ -389,7 +390,7 @@ export const TaskDetailModal: React.FC = () => {
         priority !== selectedTask.priority ||
         taskProjectId !== (selectedTask.projectId || '') ||
         branchName.trim() !== (selectedTask.branchName || '').trim() ||
-        JSON.stringify(prLinks) !== JSON.stringify(selectedTask.prLinks || []) ||
+        JSON.stringify(prLinks) !== JSON.stringify(taskPullRequestLinks(selectedTask)) ||
         repoPath.trim() !== (selectedTask.repoPath || '').trim() ||
         trackerStatus.trim() !== (selectedTask.trackerStatus || '').trim() ||
         sprint.trim() !== (selectedTask.sprint || '').trim() ||
