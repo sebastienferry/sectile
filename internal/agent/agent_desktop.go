@@ -822,7 +822,9 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 	var activity any
 	for _, item := range activities {
 		if item.ID == id && item.TaskID == taskID {
-			activity = map[string]string{"id": item.ID, "taskId": item.TaskID, "skillId": item.SkillID, "status": item.Status}
+			// A remote run stores the record kind in SkillID ("remote_run") and the
+			// launched skill in SkillName. The desktop matches the launched skill.
+			activity = map[string]string{"id": item.ID, "taskId": item.TaskID, "skillId": item.SkillName, "status": item.Status}
 			break
 		}
 	}
