@@ -26,9 +26,17 @@ test('a waiting session raises one native notification carrying the shared glyph
  const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
  let app
  try{
-  app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  // SECTILE_PACKAGED_APP runs the same checks against a packaged build, where
+  // the banner carries the application's own identity rather than Electron's.
+  // Without it the test drives the sources, which is what CI has.
+  const packaged=process.env.SECTILE_PACKAGED_APP
+  app=packaged
+   ? await electron.launch({executablePath:packaged,args:[],env})
+   : await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(15000)
   await page.waitForFunction(()=>document.querySelector('#setup')?.hidden===true)
+  // A denied permission would make every assertion below vacuous.
+  assert.equal(await page.evaluate(()=>Notification.permission),'granted')
 
   // Record what reaches the platform without replacing it: the real constructor
   // still runs, so this asserts a banner was genuinely raised.

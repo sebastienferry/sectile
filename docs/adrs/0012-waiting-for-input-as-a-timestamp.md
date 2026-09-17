@@ -98,6 +98,16 @@ state's label, colour and glyph. The web badge and the desktop notification both
 read it, so their icons cannot drift apart; adding a state is one entry, and
 neither surface can show a state the other does not know.
 
+Attribution was measured rather than assumed. On a packaged build Launch
+Services reports `CFBundleIdentifier=com.electron.sectile` and
+`LSDisplayName=Sectile` — the identity macOS attributes a notification to —
+where a build run from source reports `com.github.Electron`. So the banner is
+Sectile's once packaged, and only once packaged; a development run still shows
+Electron, which is a property of the build and not of this code. The bundle is
+ad-hoc signed and its code-signature identifier is still `Electron`; that does
+not affect attribution, which keys off the bundle, and `Notification.permission`
+comes back `granted` with no prompt.
+
 Two consequences follow, both accepted:
 
 - No desktop application running means no banner. The waiting state is still
