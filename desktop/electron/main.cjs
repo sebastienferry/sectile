@@ -3,7 +3,7 @@ const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypt
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
-const {exchangePairingCode}=require('./pairing.cjs')
+const {exchangePairingCode,resolveConnectCredential}=require('./pairing.cjs')
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
@@ -77,8 +77,11 @@ ipcMain.handle('start',async(_,settings)=>{
   if(await connectAgent())return true
   const url=new URL(settings.server)
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Use an HTTP or HTTPS server URL')
-  if(!settings.token)throw Error('Authentication token is required')
-  await checkServer(url,settings.token)
+  // A pairing code is spent here, once the server address is known to be usable:
+  // burning a single-use code on a malformed URL would cost the user a new one.
+  const credential=await resolveConnectCredential(settings)
+  const token=credential.token
+  await checkServer(url,token)
   // Preserve existing mappings when upgrading; new installations use private app data.
   let previous={}
   try{previous=readSettings()}catch{}
@@ -90,9 +93,10 @@ ipcMain.handle('start',async(_,settings)=>{
   let legacy={}
   try{legacy=JSON.parse(fs.readFileSync(path.join(repo,'.taskflow','agent.json'),'utf8'))}catch{}
   const saved={...legacy,...previous,server:settings.server,repo}
+  if(credential.deviceId)saved.deviceId=credential.deviceId
   delete saved.binary
   fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
-  if(safeStorage.isEncryptionAvailable())saved.secret=safeStorage.encryptString(settings.token).toString('base64')
+  if(safeStorage.isEncryptionAvailable())saved.secret=safeStorage.encryptString(token).toString('base64')
   fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
   fs.renameSync(settingsPath()+'.tmp',settingsPath())
   const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
@@ -100,7 +104,7 @@ ipcMain.handle('start',async(_,settings)=>{
   if(fs.existsSync(info))fs.unlinkSync(info)
   const child=spawn(binary,['--desktop-info',info,'--url',settings.server,'--repo',repo],{
    detached:true,stdio:['ignore',output,output],
-   env:{...process.env,TOKEN:settings.token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
+   env:{...process.env,TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
   })
   let spawnError
   child.on('error',error=>{spawnError=error})

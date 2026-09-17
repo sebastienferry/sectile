@@ -1,6 +1,6 @@
 const test = require('node:test')
 const assert = require('node:assert')
-const {exchangePairingCode} = require('../electron/pairing.cjs')
+const {exchangePairingCode, resolveConnectCredential} = require('../electron/pairing.cjs')
 
 function responder(status, body) {
  return async () => ({
@@ -51,4 +51,41 @@ test('a response without a token is an error, not a silent success', async () =>
  await assert.rejects(
   exchangePairingCode('http://127.0.0.1:8090', 'code', 'laptop', responder(201, {deviceId: 'dev_1'})),
   /no device credential/)
+})
+
+test('a pairing code from the connect form is exchanged for a token', async () => {
+ let seen
+ const credential = await resolveConnectCredential(
+  {server: 'http://127.0.0.1:8090', code: 'code-3', token: ''},
+  async (server, code, label) => { seen = {server, code, label}; return {token: 'device-token', deviceId: 'dev_9'} },
+  'laptop')
+ assert.strictEqual(credential.token, 'device-token')
+ assert.strictEqual(credential.deviceId, 'dev_9')
+ assert.strictEqual(credential.paired, true)
+ assert.deepStrictEqual(seen, {server: 'http://127.0.0.1:8090', code: 'code-3', label: 'laptop'})
+})
+
+test('a workstation that is already paired connects on its token alone', async () => {
+ const credential = await resolveConnectCredential(
+  {server: 'http://127.0.0.1:8090', code: '', token: '  kept-token  '},
+  () => { throw Error('an exchange must not be attempted without a code') })
+ assert.strictEqual(credential.token, 'kept-token')
+ assert.strictEqual(credential.paired, false)
+})
+
+// Typing a code is a deliberate act of re-pairing, so it outranks a token the
+// form kept from an earlier connection.
+test('a pairing code outranks a token left in the form', async () => {
+ const credential = await resolveConnectCredential(
+  {server: 'http://127.0.0.1:8090', code: 'code-4', token: 'stale-token'},
+  async () => ({token: 'fresh-token', deviceId: 'dev_10'}))
+ assert.strictEqual(credential.token, 'fresh-token')
+ assert.strictEqual(credential.paired, true)
+})
+
+test('an empty form is refused before anything is spent', async () => {
+ await assert.rejects(
+  resolveConnectCredential({server: 'http://127.0.0.1:8090', code: '  ', token: '  '},
+   () => { throw Error('the network must not be reached') }),
+  /pairing code, or the token/)
 })
