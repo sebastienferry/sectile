@@ -247,40 +247,47 @@ and do not create a shell.
 ## 4bis. Knowing which session is waiting for you
 
 Several agent sessions run in parallel across worktrees and desktop tabs, and a
-session blocked on a permission prompt looks exactly like one still working. Two
-mechanisms answer the question.
+session blocked on a permission prompt looks exactly like one still working.
 
-**Desktop alerts.** Setting up the Claude provider installs two hook scripts
-under `~/.claude/hooks` and registers them in `~/.claude/settings.json`:
+**The hooks report, they do not alert.** Setting up the Claude provider installs
+two scripts under `~/.claude/hooks` and registers them in
+`~/.claude/settings.json`: `sectile-notification.sh` on the `Notification` event,
+`sectile-stop.sh` on `Stop`. They are POSIX shell, need no `jq`, exit 0 on every
+path and write nothing on standard output — a hook must never interrupt the
+session it reports on.
 
-| Hook           | Script                    | Fires when            | Sound   |
-|----------------|---------------------------|-----------------------|---------|
-| `Notification` | `sectile-notification.sh` | the agent needs input | `Funk`  |
-| `Stop`         | `sectile-stop.sh`         | the turn ends         | `Glass` |
+What they report depends on what the session carries:
 
-The alert names the session by the basename of the hook payload's `cwd`, which
-for a Sectile execution is the worktree directory. The two sounds differ so the
-events are told apart without looking at a screen. The scripts are POSIX shell,
-need no `jq`, exit 0 on every path and write nothing on standard output: a hook
-must never interrupt the session it reports on. On a workstation without
-`osascript` they are a silent no-op.
+| Session | Report | Effect |
+|---|---|---|
+| Launched by Sectile (`SECTILE_RUN_ID` present) | `POST <loopback>/control/runs/{id}/waiting` | the run is marked waiting, everywhere |
+| Any other Claude Code session | `POST <loopback>/desktop/session-alert`, authenticated with `~/.taskflow/agent-connection.json` | a banner, and nothing else |
+| A workstation that was never paired | none | silent no-op |
 
-The registration merges into the settings file rather than replacing it:
-unrelated keys and third-party hooks survive, a second setup changes nothing,
-and a settings file that cannot be parsed is left untouched with the failure
-reported.
+**The desktop raises the banner.** The notification comes from the desktop
+application, through Electron's notification API — a thin binding over
+`UNUserNotificationCenter` on macOS, toast notifications on Windows and the
+freedesktop specification on Linux. The banner is therefore a real system
+notification, attributed to Sectile and carrying an icon, on the three platforms
+and with no external binary. The desktop already polls `/desktop/runs` every two
+seconds; it is the *transition* that notifies — not waiting to waiting, or
+running to a terminal status — so a repeated poll raises nothing.
 
-**The waiting state on a run.** A hook launched by Sectile inherits
-`SECTILE_RUN_ID`, `SECTILE_LOOPBACK_URL` and `SECTILE_AGENT_TOKEN` from its
-session, and posts to `POST <loopback>/control/runs/{id}/waiting`. The agent
-relays it to `POST /api/activities/{id}/waiting`, which stamps `waitingSince` on
-the run. The run keeps the status `running`: waiting is a phase of a run, not a
-status of its own. Any terminal status clears the stamp, so a session killed
-while blocked cannot leave a run waiting forever.
+A workstation that denies notifications is checked once and then left alone: the
+state is still in the list, which is what answers the question.
 
-The board indicator shows waiting ahead of running, with how long the wait has
-lasted, and the activities view has a matching filter. Nothing in that path is
-macOS-specific: only the desktop alert is.
+**One icon vocabulary.** `shared/runStates.ts` is the single definition of what
+each run state looks like: its label, its colour and its glyph. The web badge
+renders it as an inline SVG; the desktop renders the same definition into the
+notification's icon. The glyph on the banner is therefore the glyph on the task
+row, by construction rather than by convention.
+
+**The state itself.** A waiting report stamps `waitingSince` on the run. The run
+keeps the status `running`: waiting is a phase of a run, not a status of its
+own. Any terminal status clears the stamp, so a session killed while blocked
+cannot leave a run waiting forever. The board indicator shows waiting ahead of
+running, with how long the wait has lasted, and the activities view has a
+matching filter.
 
 ## 5. Live Git Diff & Branch Management
 

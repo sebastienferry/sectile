@@ -34,6 +34,10 @@ type runQueue struct {
 	// restart from a plain stop once the process is on its way out.
 	shuttingDown     bool
 	restartRequested bool
+	// sessionAlerts holds notification reports from Claude Code sessions this
+	// agent did not launch. They have no run to hang on, so they wait here for
+	// the desktop to drain them on its next poll.
+	sessionAlerts []sessionAlert
 }
 
 // read runs fn against the execution registered under id, holding the queue
@@ -187,10 +191,20 @@ func (d *agentDaemon) handleRunWaiting(w http.ResponseWriter, r *http.Request, r
 		http.Error(w, "Body must be {\"waiting\": true|false}", http.StatusBadRequest)
 		return
 	}
+	// The desktop reads the waiting mark off its own run list, which it polls
+	// every two seconds, so the state is recorded here as well as relayed. That
+	// is what lets the notification be raised without waiting on the server.
 	d.queue.mu.Lock()
-	known := d.queue.runs[runID] != nil
+	run := d.queue.runs[runID]
+	if run != nil {
+		if *body.Waiting {
+			run.desktop.WaitingSince = time.Now().UTC()
+		} else {
+			run.desktop.WaitingSince = time.Time{}
+		}
+	}
 	d.queue.mu.Unlock()
-	if !known {
+	if run == nil {
 		http.Error(w, "Unknown run", http.StatusNotFound)
 		return
 	}

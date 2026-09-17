@@ -74,6 +74,41 @@ the setup aborted.
   exported an empty value. It is a local run the server does not record, so its
   report is dropped at the relay; the desktop alert still fires.
 
+## Revision: the banner moved out of the hook
+
+The first implementation raised the alert from the hook itself, with
+`osascript -e 'display notification …'`. It was withdrawn.
+
+`display notification` is a real Notification Center banner, but macOS
+attributes it to **Script Editor**, not to Sectile, and the command accepts no
+icon at all. So the banner could not be recognised as Sectile's, and — more
+importantly — it could not carry the glyph that marks the same state in the task
+list, which is half of what this change exists for. It was also macOS-only,
+which the change's own degradation rule forbids.
+
+The banner is therefore raised by the desktop application. Electron's
+notification API is a thin binding over each platform's own facility, so the
+result is a real system notification, attributed to the packaged application,
+carrying an icon we choose, on macOS, Windows and Linux alike, with no
+`terminal-notifier`, no Homebrew and no external binary. The desktop already
+polls the run list, so the transition — not the state — is what notifies.
+
+Alongside it, `shared/runStates.ts` became the single definition of a run
+state's label, colour and glyph. The web badge and the desktop notification both
+read it, so their icons cannot drift apart; adding a state is one entry, and
+neither surface can show a state the other does not know.
+
+Two consequences follow, both accepted:
+
+- No desktop application running means no banner. The waiting state is still
+  recorded and still rendered, so the list answers the question either way.
+- A session Sectile did not launch has no run to hang a report on. Rather than
+  dropping the coverage that `osascript` gave for free — and that the ticket
+  explicitly asks for, naming "several Claude Code desktop tabs" — such a
+  session reports itself by the basename of its working directory, through the
+  connection file the agent already publishes for its companions. Those reports
+  are held in a bounded list and drained by the desktop's existing poll.
+
 ## Alternatives rejected
 
 - **Polling `ccd_session_mgmt`**: undocumented, unversioned, and it cannot tell
@@ -85,3 +120,9 @@ the setup aborted.
   fixed.
 - **The `PreToolUse` workaround** circulated in the upstream issue: it fires on
   every single tool call.
+- **`terminal-notifier` / `notify-send` from the hook**: they do carry an icon,
+  but they are external binaries the workstation may not have, one per platform,
+  and they would put the icon vocabulary in a second place where it would drift
+  from the interface's.
+- **The browser Notification API from the web UI**: a permission prompt per
+  browser, the tab has to be open, and a background tab is throttled.

@@ -2,9 +2,10 @@
 # Managed by Sectile — Claude Code `Stop` hook.
 #
 # Fires when the agent finishes its turn.
-# It raises a desktop alert naming the session, and, when the session was
-# launched by Sectile, clears the waiting mark the `Notification` hook set, so a
-# resumed run stops showing as waiting.
+# It raises no alert of its own: it reports the state to the local agent, and
+# the desktop application turns that into a real system notification. A banner
+# raised from here would be attributed to a scripting host, could carry no
+# icon, and would work on one platform only.
 #
 # Two rules govern everything below: never write on stdout, which the agent
 # reads back, and always exit 0, which is the difference between a notification
@@ -24,21 +25,37 @@ if [ -n "$cwd" ]; then
     session=$(basename "$cwd" 2>/dev/null)
 fi
 [ -n "$session" ] || session="Claude Code"
-# The name reaches osascript inside a quoted string: strip what would end it.
-session=$(printf '%s' "$session" | tr -d '"\\')
 
-if command -v osascript >/dev/null 2>&1; then
-    osascript -e "display notification \"$session finished its turn\" with title \"Agent done\" sound name \"Glass\"" >/dev/null 2>&1 || true
-fi
+command -v curl >/dev/null 2>&1 || exit 0
 
-# A session Sectile did not launch carries none of these, and reports nothing.
+# A session Sectile launched carries its run, and reports against it: the run is
+# marked as waiting and the whole UI follows.
 loopback="${SECTILE_LOOPBACK_URL:-$SECTILE_AGENT_URL}"
-if [ -n "$SECTILE_RUN_ID" ] && [ -n "$loopback" ] && [ -n "$SECTILE_AGENT_TOKEN" ] && command -v curl >/dev/null 2>&1; then
+if [ -n "$SECTILE_RUN_ID" ] && [ -n "$loopback" ] && [ -n "$SECTILE_AGENT_TOKEN" ]; then
     curl -sS -m 3 -o /dev/null -X POST \
         "$loopback/control/runs/$SECTILE_RUN_ID/waiting" \
         -H "Authorization: Bearer $SECTILE_AGENT_TOKEN" \
         -H "Content-Type: application/json" \
         -d '{"waiting":false}' >/dev/null 2>&1 || true
+    exit 0
 fi
+
+# Any other Claude Code session still deserves the banner — the whole point is
+# telling several sessions apart. It has no run, so it reports itself by name,
+# using the connection the agent publishes for its companions.
+info="$HOME/.taskflow/agent-connection.json"
+[ -f "$info" ] || exit 0
+raw=$(tr -d '\n' < "$info" 2>/dev/null)
+url=$(printf '%s' "$raw" | sed -n 's/.*"url"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+token=$(printf '%s' "$raw" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+[ -n "$url" ] && [ -n "$token" ] || exit 0
+
+# The name reaches a JSON string: strip what would end it.
+session=$(printf '%s' "$session" | tr -d '"\\')
+curl -sS -m 3 -o /dev/null -X POST \
+    "$url/desktop/session-alert" \
+    -H "Authorization: Bearer $token" \
+    -H "Content-Type: application/json" \
+    -d "{\"session\":\"$session\",\"state\":\"completed\"}" >/dev/null 2>&1 || true
 
 exit 0
