@@ -165,14 +165,17 @@ is watching.
 
 | Surface | Control |
 | --- | --- |
-| Web task card `...` menu | *Advance interactively* / *Advance autonomously*, next to the plain *Advance* |
+| Web task card `...` menu | *Advance interactively* / *Advance autonomously*, next to the plain *Advance*, in both board display modes |
 | Web task detail modal | A **Mode** selector next to the additional-instructions field |
 | Desktop **Launch** dialog | An **Execution mode** selector per task |
 | Desktop **Relaunch** dialog | An **Execution mode** selector |
 | Desktop next-step button | None: one click, on the resolved mode |
 
 A control left on its default sends no override at all, so the precedence
-applies unchanged.
+applies unchanged. The card menu offers the override whether the board is
+condensed or expanded: the expanded card's inline chevrons launch on the
+resolved mode and carry no override, so the menu is the only place the choice
+is made in either shape.
 
 ### Providers supporting an autonomous run
 
