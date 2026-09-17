@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { readFile } from 'node:fs/promises'
-import ts from 'typescript'
-const source = await readFile(new URL('../src/lib/commandTemplate.ts', import.meta.url), 'utf8')
-const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { commandPreview, resolveTemplateMode, templateCarriesMode, modelArgs, dropModelSlot } =
-  await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+import { commandPreview, resolveTemplateMode, templateCarriesMode, modelArgs, dropModelSlot } from '../src/lib/commandTemplate.ts'
 
 test('claude without a template yields the two attested command lines', () => {
   const model = 'claude-opus-5'
