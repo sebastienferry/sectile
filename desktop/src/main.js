@@ -800,10 +800,10 @@ async function openProject(id){
 }
 
 const iconPaths={
- stop:'<rect x="6" y="6" width="12" height="12" rx="1" fill="currentColor" stroke="none"/>',
+ stop:'<path d="M7 7 17 17M17 7 7 17"/>',
  configure:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
  'start-agent':'<path d="m8 5 11 7-11 7Z"/>',
- shutdown:'<rect x="6" y="6" width="12" height="12" rx="1"/>',
+ shutdown:'<path d="M12 4v8"/><path d="M7.4 7.4a6.5 6.5 0 1 0 9.2 0"/>',
  restart:'<path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5M20 7v5"/>',
  profile:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'
 }
