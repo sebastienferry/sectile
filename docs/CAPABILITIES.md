@@ -253,19 +253,41 @@ Several agent sessions run in parallel across worktrees and desktop tabs, and a
 session blocked on a permission prompt looks exactly like one still working.
 
 **The hooks report, they do not alert.** Setting up the Claude provider installs
-two scripts under `~/.claude/hooks` and registers them in
-`~/.claude/settings.json`: `sectile-notification.sh` on the `Notification` event,
-`sectile-stop.sh` on `Stop`. They are POSIX shell, need no `jq`, exit 0 on every
-path and write nothing on standard output — a hook must never interrupt the
-session it reports on.
+one script, `~/.claude/hooks/sectile-hook.sh`, and registers it in
+`~/.claude/settings.json` on five Claude Code events. It is POSIX shell, needs no
+`jq`, exits 0 on every path and writes nothing on standard output — a hook must
+never interrupt the session it reports on. The script reads the event from its
+payload and turns it into a state, so the wait is bracketed from both sides:
 
-What they report depends on what the session carries:
+| Event | Meaning | State reported |
+|---|---|---|
+| `Notification` (`permission_prompt`, `idle_prompt`, an elicitation) | the agent asks the user for something | waiting |
+| `Stop` | the turn ended; the agent awaits the next prompt | waiting |
+| `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | the agent is working | working |
+
+The other `Notification` types — a sign-in, a quota notice, a finished
+sub-agent — are not prompts and report nothing. A payload with no
+`notification_type` comes from an older Claude Code and is read as a prompt.
+The three "working" events matter as much as the two "waiting" ones: without
+them, a permission granted or a question answered left the session marked as
+waiting for the whole turn that followed.
+
+What the report does depends on what the session carries:
 
 | Session | Report | Effect |
 |---|---|---|
-| Launched by Sectile (`SECTILE_RUN_ID` present) | `POST <loopback>/control/runs/{id}/waiting` | the run is marked waiting, everywhere |
-| Any other Claude Code session | `POST <loopback>/desktop/session-alert`, authenticated with `~/.taskflow/agent-connection.json` | a banner, and nothing else |
+| Launched by Sectile (`SECTILE_RUN_ID` present) | `POST <loopback>/control/runs/{id}/waiting` | the run is marked waiting, or working again, everywhere |
+| Any other Claude Code session | `POST <loopback>/desktop/session-alert`, authenticated with `~/.taskflow/agent-connection.json`, on `Notification` and `Stop` only | a banner, and nothing else |
 | A workstation that was never paired | none | silent no-op |
+
+The agent applies two rules to a run report. An autonomous run never waits: its
+`Stop` hook fires as the process ends, and a waiting mark there would raise a
+false banner in the poll before the exit is observed, so only the exit reports
+on such a run. And only a transition is relayed to the server: every tool call
+reports "working" again, and a row update plus a `task_updated` event per tool
+call is not a price worth paying. Relays are serialised per run and each sends
+the state current when it is sent, so two reports a few milliseconds apart
+cannot cross on the wire.
 
 **The desktop raises the banner.** The notification comes from the desktop
 application, through Electron's notification API — a thin binding over

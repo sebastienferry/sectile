@@ -72,3 +72,10 @@ from the hook to the desktop application (design D7 to D9).
 - [x] 10.2 End-to-end check in `desktop/tests/waiting-notification.ui.cjs`: the real application against a stub agent raises one real notification when a session starts waiting, stays silent on repeated polls of the same state, announces a session Sectile did not launch, and raises the other glyph when the turn ends. `SECTILE_PACKAGED_APP` runs the same checks against a packaged build.
 - [x] 10.4 Attribution on a packaged build: Launch Services reports `CFBundleIdentifier=com.electron.sectile` and `LSDisplayName=Sectile`, which is what macOS attributes a notification to, against `com.github.Electron` for a build run from source. `Notification.permission` is `granted` without a prompt.
 - [x] 10.3 Covered by `internal/agentconfig/hookscripts_test.go`: exit 0 and empty stdout with an unparseable payload, an empty payload, no connection file and a dead loopback.
+
+## 11. Bracketing the wait from both sides (revision, D11)
+- [x] 11.1 Replace the two per-event scripts by one `sectile-hook.sh` that reads `hook_event_name` and `notification_type` from its payload: `Notification` (prompt types only) and `Stop` report waiting, `UserPromptSubmit`, `PreToolUse` and `PostToolUse` report working; other events and other notification types report nothing.
+- [x] 11.2 Register the script on the five events; recognise the retired `sectile-notification.sh` and `sectile-stop.sh` so the manifest retires the files and the settings merge drops their registrations.
+- [x] 11.3 Loopback: accept and ignore a waiting report on a headless run; keep the first waiting stamp on a repeated report; relay only a transition; serialise relays per run and send the state current at send time.
+- [x] 11.4 Tests: the script's state per event and per notification type, the foreign-session banner on `Notification` and `Stop` only, the upgrade from the per-event scripts, the loopback rules above.
+- [x] 11.5 Documentation: `docs/CAPABILITIES.md`, ADR 0012 revision, `.agents/MEMORY.md`, the desktop README sentence that said no waiting state existed.

@@ -140,6 +140,33 @@ managed-file whitelist in `internal/agentconfig/validation.go` so an uninstall r
 Sectile wrote and nothing else. They are chmod 0700 after the write: `Scaffold` writes 0600, which is
 right for a skill and useless for a script Claude Code has to execute.
 
+### D11 — The wait is bracketed from both sides (revision)
+The first implementation set the wait on `Notification` and cleared it on `Stop`, and nothing else.
+That left the indicator wrong in both directions: a permission granted or a prompt typed after an idle
+notification never cleared the wait, so a hand stayed up for a whole working turn; and `Stop` cleared
+it at the exact moment the agent started awaiting the next prompt, so a spinner showed until the
+`idle_prompt` notification arrived sixty seconds later. `Notification` also fires for sign-ins, quota
+notices and finished sub-agents, each of which raised a hand.
+
+The reading is now: `Notification` (prompt types only) and `Stop` open the wait, `UserPromptSubmit`,
+`PreToolUse` and `PostToolUse` close it, because each of those only fires while the agent works.
+`PreToolUse` fires before the permission prompt for the same tool and `PostToolUse` after it ran, so a
+granted permission clears the wait as soon as the tool finishes. One script answers the five events
+and reads the event from its payload; the per-event split is how the first version came to clear the
+wait in one place only. The retired names stay recognised so an upgrade retires the files and drops
+their registrations.
+
+Two rules on the agent side follow. An autonomous run never waits: its `Stop` fires as the process
+ends, and a wait there would raise a false banner in the poll before the exit is observed. And only a
+transition is relayed to the server: every tool call reports working again, and a relay is a row update
+plus a `task_updated` event on every client. The first waiting stamp is kept so the duration stays
+honest, and relays are serialised per run, each sending the state current when it is sent, so two
+reports a few milliseconds apart cannot cross on the wire.
+
+Rejected: an `async` registration for the working events, which would let a working report land after
+the waiting one it is meant to precede; a marker file kept by the script, which would duplicate the
+state the agent already holds.
+
 ## Risks
 - The Claude Code hook payload is an external contract with no version we control, and both upstream
   issues closed unresolved. Mitigation: the hook uses only `cwd`, treats its absence as a fallback

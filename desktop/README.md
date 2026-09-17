@@ -127,8 +127,9 @@ represents its current execution; selecting older history does not replace that
 row's result. Updates preserve selection and keyboard focus without reattaching
 or resetting the terminal. It requires
 an updated local agent for server-result lookup; unavailable results never produce
-a success checkmark. The server does not yet expose a reliable waiting-for-answer
-state, so inactivity is not interpreted as a request for input.
+a success checkmark. Whether a session is waiting for you comes from the Claude
+Code hooks Sectile installs, never from inactivity: a long build is not a
+request for input.
 
 ### Execution queue
 
