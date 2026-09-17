@@ -49,10 +49,32 @@ The activities view SHALL let the user reach the runs that are waiting for input
 - **THEN** only the waiting runs are listed
 - **AND** each names its task
 
-### Requirement: Nothing macOS-specific in the application
-The waiting state SHALL be produced and rendered without any dependency on a macOS-only facility.
+### Requirement: One vocabulary of run states
+The glyph and colour of a run state SHALL be defined once and read by every surface that shows that
+state, so no surface can drift from another.
+
+#### Scenario: The badge and the notification agree
+- **GIVEN** a run in a given state
+- **WHEN** the task list badge and the desktop notification are produced
+- **THEN** both take the glyph of that state from the shared definition
+
+#### Scenario: A state changes appearance
+- **GIVEN** the shared definition of run states
+- **WHEN** a state's glyph or colour is changed in it
+- **THEN** every surface showing that state changes with it
+- **AND** no surface keeps the former appearance
+
+### Requirement: Nothing platform-specific in the application
+The waiting state SHALL be produced and rendered without any dependency on a facility specific to
+one operating system, and without any external binary.
 
 #### Scenario: The application runs on another platform
-- **GIVEN** Sectile runs on a platform without the macOS notification command
+- **GIVEN** Sectile runs on a platform other than macOS
 - **WHEN** a run is reported as waiting
 - **THEN** the waiting state is stored and rendered normally
+- **AND** the notification is raised through that platform's own facility
+
+#### Scenario: No external notifier is required
+- **GIVEN** a workstation with no notification binary installed by the user
+- **WHEN** a run is reported as waiting
+- **THEN** the notification is still raised
