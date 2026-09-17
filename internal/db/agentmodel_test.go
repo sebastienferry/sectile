@@ -9,7 +9,7 @@ import (
 )
 
 // The contract the agent downloads must already carry the model the project
-// resolves, level by level: a bare project model outranks a global skill entry.
+// resolves, level by level, a global skill entry surviving a bare project model.
 func TestAgentConfigResolvesModelAcrossLevels(t *testing.T) {
 	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
@@ -45,8 +45,11 @@ func TestAgentConfigResolvesModelAcrossLevels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := agentconfig.ResolveModel(*config, "implement"); got != "project" {
-		t.Fatalf("project model must outrank the global skill entry: %q", got)
+	if got := agentconfig.ResolveModel(*config, "implement"); got != "global-implement" {
+		t.Fatalf("a bare project model must not silence the global skill entry: %q", got)
+	}
+	if got := agentconfig.ResolveModel(*config, "clarify"); got != "project" {
+		t.Fatalf("project model must govern the skills no level singles out: %q", got)
 	}
 
 	perSkill, err := database.CreateProject(models.CreateProjectRequest{

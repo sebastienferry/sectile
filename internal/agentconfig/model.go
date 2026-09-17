@@ -6,8 +6,8 @@ import (
 	"strings"
 )
 
-// model accepts the identifiers the CLIs actually publish — `claude-opus-5`,
-// `gpt-5-codex`, `gemini-2.5-pro`, `anthropic/claude-sonnet-5` — and nothing that
+// model accepts the identifiers the CLIs actually publish (`claude-opus-5`,
+// `gpt-5-codex`, `gemini-2.5-pro`, `anthropic/claude-sonnet-5`) and nothing that
 // could change the meaning of a command line. This is a security boundary, not a
 // convenience check: the value is interpolated into a line run through `sh -c`
 // when a command template is in play, the same reason escapeForDoubleQuotes exists.
@@ -47,10 +47,11 @@ func ValidModelConfig(c ModelConfig) error {
 	return nil
 }
 
-// MergeModels folds a more specific level onto a less specific one. Precedence
-// inside a level is the skill entry first, then the level's own model, which is
-// why a bare model on the high level has to be materialised for every skill the
-// low level names: it wins over the low level's skill entry.
+// MergeModels folds a more specific level onto a less specific one. The most
+// specific statement wins: a per-skill entry names one skill, so it outranks a
+// bare model whatever level that bare model sits on. A bare model on the high
+// level therefore governs only the skills no level singles out, and the merged
+// skill map keeps the entry from the most specific level that carries one.
 func MergeModels(high, low ModelConfig) ModelConfig {
 	merged := ModelConfig{Model: strings.TrimSpace(high.Model)}
 	if merged.Model == "" {
@@ -66,10 +67,8 @@ func MergeModels(high, low ModelConfig) ModelConfig {
 	for skill := range skills {
 		value := strings.TrimSpace(high.SkillModels[skill])
 		if value == "" {
-			if strings.TrimSpace(high.Model) != "" {
-				// The high level speaks for every skill it does not single out.
-				continue
-			}
+			// A bare model on the high level does not silence a per-skill entry
+			// below it: naming the skill is the more specific statement.
 			value = strings.TrimSpace(low.SkillModels[skill])
 		}
 		if value == "" {

@@ -31,3 +31,10 @@
 - [x] 6.2 Regression test: with every model field empty, the built command lines are byte-identical to the current ones for each provider.
 - [x] 6.3 Run the repository gates (`make` targets for build, vet, test and the web build).
 - [x] 6.4 `openspec validate 132-choose-model-to-run-against --strict`.
+
+## 7. Second clarification pass corrections
+- [x] 7.1 Make `MergeModels` follow "the most specific statement wins": a bare model on a level no longer silences a per-skill entry set below it, it governs only the skills no level singles out.
+- [x] 7.2 Invert the tests that locked the previous precedence (`TestMergeModelsLevelByLevel`, `TestApplyOverridesModel`, `TestAgentConfigResolvesModelAcrossLevels`) and add a case where two levels name the same skill.
+- [x] 7.3 Make `ExpandModel` remove an unresolved `{model}` slot together with the flag that introduces it, covering `--model {model}`, `--model={model}`, a quoted slot and a flagless slot, and never treating a dash inside a plain word such as `my-cli` as that flag.
+- [x] 7.4 Invert the `TestExpandModel` case that locked `--model  -p` as the expected output.
+- [x] 7.5 Update the stale precedence comment in `internal/db/agentconfig.go`.
