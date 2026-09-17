@@ -85,9 +85,9 @@ func TestRunCommandInSessionPropagatesEnvVars(t *testing.T) {
 	defer func() { _ = m.CloseSession("test-env") }()
 
 	env := map[string]string{
-		"SECTILE_TASK_ID":   "test-uuid-123",
-		"SECTILE_TASK_KEY":  "#47",
-		"TASKACAO_COMPAT":    "legacy-val",
+		"SECTILE_TASK_ID":  "test-uuid-123",
+		"SECTILE_TASK_KEY": "#47",
+		"TASKACAO_COMPAT":  "legacy-val",
 	}
 
 	cmd := `printf "ID=%s KEY=%s LEGACY=%s\n" "$SECTILE_TASK_ID" "$SECTILE_TASK_KEY" "$TASKACAO_COMPAT"`
