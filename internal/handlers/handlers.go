@@ -2600,6 +2600,25 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/activities/{id}/waiting
+	// Reported by a Claude Code hook through the local agent loopback when the
+	// session blocks on the user, and again when it resumes.
+	if len(parts) >= 2 && parts[1] == "waiting" && r.Method == http.MethodPost {
+		var body struct {
+			Waiting *bool `json:"waiting"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Waiting == nil {
+			writeError(w, http.StatusBadRequest, "Body must be {\"waiting\": true|false}")
+			return
+		}
+		if err := h.db.SetRemoteRunWaiting(id, *body.Waiting); err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"waiting": *body.Waiting})
+		return
+	}
+
 	switch r.Method {
 	case http.MethodGet:
 		act, err := h.db.GetActivityByID(id)

@@ -249,12 +249,12 @@ func (d *DB) getActivityByIDUnsafe(activityID string) *models.TaskActivity {
 	var a models.TaskActivity
 	var stepsJSON string
 	var prompt, errStr sql.NullString
-	var startedAt, completedAt sql.NullTime
+	var startedAt, completedAt, waitingSince sql.NullTime
 
 	err := d.conn.QueryRow(`
-		SELECT id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at
+		SELECT id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since
 		FROM task_activities WHERE id = ?
-	`, activityID).Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt)
+	`, activityID).Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince)
 
 	if err != nil {
 		return nil
@@ -275,6 +275,9 @@ func (d *DB) getActivityByIDUnsafe(activityID string) *models.TaskActivity {
 	}
 	if completedAt.Valid {
 		a.CompletedAt = &completedAt.Time
+	}
+	if waitingSince.Valid {
+		a.WaitingSince = &waitingSince.Time
 	}
 
 	return &a

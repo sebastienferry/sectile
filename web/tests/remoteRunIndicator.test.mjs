@@ -60,3 +60,42 @@ test('an active run hides a recent cancellation', () => {
   const indicator = deriveRunIndicator(activities, 'task-1', NOW)
   assert.equal(indicator.state, 'queued')
 })
+
+const WAITED = new Date(NOW - 4 * 60_000).toISOString()
+
+test('a waiting run outranks a running one and still counts both', () => {
+  const activities = [run({ id: 'a' }), run({ id: 'b', waitingSince: WAITED })]
+  const indicator = deriveRunIndicator(activities, 'task-1', NOW)
+  assert.equal(indicator.state, 'waiting')
+  // The task has two live runs; the label must not claim it has one.
+  assert.equal(indicator.count, 2)
+  assert.deepEqual(indicator.cancelableRunIds, ['a', 'b'])
+  assert.equal(indicator.waitingSince, WAITED)
+})
+
+test('the longest wait is the one reported', () => {
+  const later = new Date(NOW - 60_000).toISOString()
+  const activities = [run({ id: 'a', waitingSince: later }), run({ id: 'b', waitingSince: WAITED })]
+  assert.equal(deriveRunIndicator(activities, 'task-1', NOW).waitingSince, WAITED)
+})
+
+test('resuming returns the indicator to running', () => {
+  const indicator = deriveRunIndicator([run({ id: 'a', waitingSince: undefined })], 'task-1', NOW)
+  assert.equal(indicator.state, 'running')
+  assert.equal(indicator.waitingSince, undefined)
+})
+
+test('a waiting mark left on a run that is no longer running is ignored', () => {
+  // The state is read off the run, not off the timestamp: a stale mark on a
+  // finished run must never make it look alive.
+  const finished = run({ status: 'completed', waitingSince: WAITED })
+  assert.equal(deriveRunIndicator([finished], 'task-1', NOW), null)
+  const queued = run({ status: 'queued', waitingSince: WAITED })
+  assert.equal(deriveRunIndicator([queued], 'task-1', NOW).state, 'queued')
+})
+
+test('a waiting run without a usable timestamp still shows as waiting', () => {
+  const indicator = deriveRunIndicator([run({ waitingSince: 'not-a-date' })], 'task-1', NOW)
+  assert.equal(indicator.state, 'waiting')
+  assert.equal(indicator.waitingSince, undefined)
+})

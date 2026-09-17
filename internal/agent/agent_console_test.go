@@ -107,7 +107,7 @@ func TestFreeConsolePTYLifecycle(t *testing.T) {
 	d.loopback.url = local.URL
 	root := t.TempDir()
 	script := filepath.Join(root, "fake-agent")
-	if err := os.WriteFile(script, []byte("#!/bin/sh\n[ -t 0 ] || exit 20\n[ \"$#\" -eq 0 ] || exit 21\n[ -z \"$SECTILE_TASK_ID$SECTILE_RUN_ID\" ] || exit 22\nprintf 'READY\\n'\nread answer\nprintf 'ANSWER:%s\\n' \"$answer\"\nsleep 60\n"), 0700); err != nil {
+	if err := os.WriteFile(script, []byte("#!/bin/sh\n[ -t 0 ] || exit 20\n[ \"$#\" -eq 0 ] || exit 21\n[ -z \"$SECTILE_TASK_ID\" ] || exit 22\n[ \"$SECTILE_RUN_ID\" = free ] || exit 23\nprintf 'READY\\n'\nread answer\nprintf 'ANSWER:%s\\n' \"$answer\"\nsleep 60\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	run, err := d.enqueueRun("", agentconfig.Dispatch{RunID: "free"}, "project", root, 2, false)

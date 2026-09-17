@@ -96,6 +96,27 @@ The scripts themselves are written by the same mechanism as the skills: `Scaffol
 managed-file whitelist in `internal/agentconfig/validation.go` so an uninstall removes exactly what
 Sectile wrote and nothing else.
 
+## Amendments made during implementation
+
+### A1 — The session environment did not carry the loopback address
+D2 reads the run identity from `SECTILE_RUN_ID`, `SECTILE_AGENT_URL` and
+`SECTILE_AGENT_TOKEN`, on the assumption that `SECTILE_AGENT_URL` names the
+local agent. It does not: `internal/agent/agent.go` sets it, and
+`SECTILE_SERVER_URL`, to `d.link.serverURL`. Nothing in a launched session knew
+the loopback address. `SECTILE_LOOPBACK_URL` was added to both the dispatched
+and the console environment rather than overloading the existing name, which
+other call sites already rely on. The hooks read it and fall back to
+`SECTILE_AGENT_URL`.
+
+### A2 — The waiting route authenticates with the workstation API key
+D4 says the loopback token, meaning the per-run token `handleRunControl`
+checks. That token is created by `wrapRun`, for a wrapped dispatched run only; a
+free console has a run identifier and no token, and D2 makes supporting console
+runs the point of task 3.3. The route therefore uses `validLoopbackRequest`, the
+workstation API key every launched session is given — the same credential the
+neighbouring `/api/` and `/mcp` loopback routes require, with the same `Origin`
+rejection and host validation.
+
 ## Risks
 - The Claude Code hook payload is an external contract with no version we control, and both upstream
   issues closed unresolved. Mitigation: the hook uses only `cwd`, treats its absence as a fallback

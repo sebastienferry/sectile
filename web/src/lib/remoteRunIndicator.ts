@@ -7,13 +7,24 @@ const AGENT_OWNED_ACTION = 'Agent-owned remote execution'
 /** A cancellation stays visible long enough for the user to see its effect. */
 export const CANCELED_VISIBILITY_MS = 30_000
 
-export type RunIndicatorState = 'running' | 'queued' | 'canceled'
+export type RunIndicatorState = 'waiting' | 'running' | 'queued' | 'canceled'
 
 export interface RunIndicator {
   state: RunIndicatorState
   runs: TaskActivity[]
   cancelableRunIds: string[]
   count: number
+  /** When the displayed wait started, for the state 'waiting' alone. */
+  waitingSince?: string
+}
+
+/**
+ * A waiting run is a running run that reported it is blocked on the user, so
+ * the mark is only ever read off a run still executing: a stale timestamp on a
+ * finished run can never make it look alive.
+ */
+function isWaiting(activity: TaskActivity): boolean {
+  return activity.status === 'running' && !!activity.waitingSince
 }
 
 function isVisibleCancellation(activity: TaskActivity, now: number): boolean {
@@ -27,7 +38,10 @@ function isVisibleCancellation(activity: TaskActivity, now: number): boolean {
 
 /**
  * Reduces a task's remote runs to a single displayable state:
- * running, then queued, then recently canceled.
+ * waiting, then running, then queued, then recently canceled.
+ *
+ * Waiting outranks running because it is the only state that asks something of
+ * the user: a task with one blocked run and one working run is a task to open.
  */
 export function deriveRunIndicator(
   activities: TaskActivity[],
@@ -35,22 +49,34 @@ export function deriveRunIndicator(
   now: number = Date.now(),
 ): RunIndicator | null {
   const runs = activities.filter(activity => activity.taskId === taskId && activity.skillId === REMOTE_RUN_SKILL)
+  const waiting = runs.filter(isWaiting)
+  // Running keeps every executing run, waiting ones included: the count and the
+  // accessible label report the whole picture, not only the blocked part.
   const running = runs.filter(run => run.status === 'running')
   const queued = runs.filter(run => run.status === 'queued')
   const canceled = runs.filter(run => isVisibleCancellation(run, now))
 
   const selected: [RunIndicatorState, TaskActivity[]] | null =
-    running.length > 0 ? ['running', running]
-      : queued.length > 0 ? ['queued', queued]
-        : canceled.length > 0 ? ['canceled', canceled]
-          : null
+    waiting.length > 0 ? ['waiting', running]
+      : running.length > 0 ? ['running', running]
+        : queued.length > 0 ? ['queued', queued]
+          : canceled.length > 0 ? ['canceled', canceled]
+            : null
   if (!selected) return null
 
   const [state, selectedRuns] = selected
-  // An already canceled run offers no action.
+  // An already canceled run offers no action. Waiting changes nothing here: a
+  // blocked run is still a live run, and stopping it is still its owner's call.
   const cancelableRunIds = state === 'canceled'
     ? []
     : selectedRuns.filter(run => run.action === AGENT_OWNED_ACTION).map(run => run.id)
 
-  return { state, runs: selectedRuns, cancelableRunIds, count: selectedRuns.length }
+  // The earliest wait is the one reported: it is the longest, and the one the
+  // user has been keeping waiting.
+  const waitingSince = waiting
+    .map(run => run.waitingSince as string)
+    .filter(value => !Number.isNaN(Date.parse(value)))
+    .sort()[0]
+
+  return { state, runs: selectedRuns, cancelableRunIds, count: selectedRuns.length, waitingSince }
 }

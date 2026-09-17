@@ -273,6 +273,7 @@ export interface TranslationSchema {
     stats: {
       total: string
       running: string
+      waiting: string
       queued: string
       completed: string
       failed: string
@@ -281,6 +282,7 @@ export interface TranslationSchema {
     filters: {
       all: string
       running: string
+      waiting: string
       queued: string
       completed: string
       failed: string
@@ -658,6 +660,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       stats: {
         total: 'Total exécutions',
         running: 'En cours',
+        waiting: 'En attente de vous',
         queued: 'En attente',
         completed: 'Terminées',
         failed: 'Échouées',
@@ -666,6 +669,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       filters: {
         all: 'Toutes les activités',
         running: 'En cours',
+        waiting: 'Attend une réponse',
         queued: 'En file d\'attente',
         completed: 'Terminées',
         failed: 'Échecs',
@@ -1041,6 +1045,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       stats: {
         total: 'Total Runs',
         running: 'Running',
+        waiting: 'Waiting for you',
         queued: 'Queued',
         completed: 'Completed',
         failed: 'Failed',
@@ -1049,6 +1054,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       filters: {
         all: 'All Activities',
         running: 'Running',
+        waiting: 'Waiting for input',
         queued: 'In Queue',
         completed: 'Completed',
         failed: 'Failed',

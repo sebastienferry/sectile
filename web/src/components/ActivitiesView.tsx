@@ -21,7 +21,8 @@ import {
   Sparkles,
   RefreshCw,
   ChevronRight,
-  Bot
+  Bot,
+  Hand,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { MarkdownView } from './Markdown'
@@ -46,7 +47,9 @@ export const ActivitiesView: React.FC = () => {
     t,
   } = useApp()
 
-  const [statusFilter, setStatusFilter] = useState<'all' | ActivityStatus>('all')
+  // 'waiting' is not an activity status: a blocked run is still running. It is
+  // a filter of its own because it answers the question the status cannot.
+  const [statusFilter, setStatusFilter] = useState<'all' | ActivityStatus | 'waiting'>('all')
   const [skillFilter, setSkillFilter] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState<string>('')
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -136,7 +139,9 @@ export const ActivitiesView: React.FC = () => {
 
   const filteredActivities = useMemo(() => {
     return activities.filter(act => {
-      if (statusFilter !== 'all') {
+      if (statusFilter === 'waiting') {
+        if (act.status !== 'running' || !act.waitingSince) return false
+      } else if (statusFilter !== 'all') {
         if (statusFilter === 'queued' || statusFilter === 'pending') {
           if (act.status !== 'queued' && act.status !== 'pending') return false
         } else if (act.status !== statusFilter) {
@@ -370,6 +375,16 @@ export const ActivitiesView: React.FC = () => {
               {t.activities.filters.running}
             </button>
             <button
+              onClick={() => setStatusFilter('waiting')}
+              className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                statusFilter === 'waiting'
+                  ? 'bg-[var(--bg-secondary)] text-amber-400 shadow-xs font-semibold'
+                  : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {t.activities.filters.waiting}
+            </button>
+            <button
               onClick={() => setStatusFilter('queued')}
               className={`px-2.5 py-1 rounded-md font-medium transition-all ${
                 statusFilter === 'queued'
@@ -481,6 +496,15 @@ export const ActivitiesView: React.FC = () => {
                             {act.skillName || act.skillId}
                           </span>
                           {getStatusBadge(act.status)}
+                          {act.status === 'running' && act.waitingSince && (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                              title={t.activities.filters.waiting}
+                            >
+                              <Hand size={12} />
+                              <span>{t.activities.stats.waiting}</span>
+                            </span>
+                          )}
                         </div>
                         {/* Task Key & Title Link */}
                         <div className="flex items-center gap-2 mt-0.5 text-xs text-[var(--text-muted)]">

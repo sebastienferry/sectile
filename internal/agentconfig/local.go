@@ -153,6 +153,13 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 		for path, content := range installed {
 			files[path] = content
 		}
+		hooks, err := hookFiles(provider)
+		if err != nil {
+			return nil, err
+		}
+		for path, content := range hooks {
+			files[path] = content
+		}
 		if loc.InstallsSkills() && !hasCreatePR(config.Skills) {
 			for _, skill := range config.Skills {
 				if skill.ID != "adjust" {
@@ -205,6 +212,24 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 	if err != nil {
 		return backups, err
 	}
+	if err := executableHooks(fs, files); err != nil {
+		return backups, err
+	}
+	// Registering the hooks makes Sectile a writer of ~/.claude/settings.json,
+	// which it only ever read before. A file it cannot parse is left alone and
+	// reported: the rest of the setup is still valid without the registration.
+	for _, provider := range providers {
+		if provider != "claude" {
+			continue
+		}
+		report, err := registerClaudeHooks(fs, home)
+		if err != nil {
+			return backups, err
+		}
+		if report != "" {
+			backups = append(backups, report)
+		}
+	}
 	raw, err := json.MarshalIndent(install, "", "  ")
 	if err != nil {
 		return backups, err
@@ -229,7 +254,7 @@ func anyManagedPath(p string) bool {
 			return true
 		}
 	}
-	return managedRetiredPath(p)
+	return managedRetiredPath(p) || managedHookPath(p)
 }
 
 func digest(raw []byte) string { return fmt.Sprintf("%x", sha256.Sum256(raw)) }

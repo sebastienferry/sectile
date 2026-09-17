@@ -38,6 +38,8 @@ export interface TaskActivity {
   completedAt?: string
   error?: string
   duration?: string
+  /** Set while a running session is blocked on the user. Cleared when it resumes or ends. */
+  waitingSince?: string
 }
 
 export interface ActivityStats {

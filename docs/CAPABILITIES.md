@@ -244,6 +244,44 @@ the default browser using mouse or keyboard activation. Closing the desktop
 leaves active executions running. Legacy server terminal endpoints return 410
 and do not create a shell.
 
+## 4bis. Knowing which session is waiting for you
+
+Several agent sessions run in parallel across worktrees and desktop tabs, and a
+session blocked on a permission prompt looks exactly like one still working. Two
+mechanisms answer the question.
+
+**Desktop alerts.** Setting up the Claude provider installs two hook scripts
+under `~/.claude/hooks` and registers them in `~/.claude/settings.json`:
+
+| Hook           | Script                    | Fires when            | Sound   |
+|----------------|---------------------------|-----------------------|---------|
+| `Notification` | `sectile-notification.sh` | the agent needs input | `Funk`  |
+| `Stop`         | `sectile-stop.sh`         | the turn ends         | `Glass` |
+
+The alert names the session by the basename of the hook payload's `cwd`, which
+for a Sectile execution is the worktree directory. The two sounds differ so the
+events are told apart without looking at a screen. The scripts are POSIX shell,
+need no `jq`, exit 0 on every path and write nothing on standard output: a hook
+must never interrupt the session it reports on. On a workstation without
+`osascript` they are a silent no-op.
+
+The registration merges into the settings file rather than replacing it:
+unrelated keys and third-party hooks survive, a second setup changes nothing,
+and a settings file that cannot be parsed is left untouched with the failure
+reported.
+
+**The waiting state on a run.** A hook launched by Sectile inherits
+`SECTILE_RUN_ID`, `SECTILE_LOOPBACK_URL` and `SECTILE_AGENT_TOKEN` from its
+session, and posts to `POST <loopback>/control/runs/{id}/waiting`. The agent
+relays it to `POST /api/activities/{id}/waiting`, which stamps `waitingSince` on
+the run. The run keeps the status `running`: waiting is a phase of a run, not a
+status of its own. Any terminal status clears the stamp, so a session killed
+while blocked cannot leave a run waiting forever.
+
+The board indicator shows waiting ahead of running, with how long the wait has
+lasted, and the activities view has a matching filter. Nothing in that path is
+macOS-specific: only the desktop alert is.
+
 ## 5. Live Git Diff & Branch Management
 
 - **Side-by-Side & Inline Git Diff Inspector**: Displays real-time file diffs between the active task branch and `main` using syntax highlighting.

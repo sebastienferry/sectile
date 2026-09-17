@@ -62,6 +62,12 @@ type TaskActivity struct {
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 	Error       string     `json:"error,omitempty"`
 	Duration    string     `json:"duration,omitempty"`
+	// WaitingSince is set while a running session is blocked on the user: a
+	// permission prompt, a question, an idle turn. It is a timestamp rather than
+	// a status because waiting is a phase of a running run, not a state of its
+	// own, and because the UI wants to say how long the wait has lasted. Any
+	// terminal status clears it.
+	WaitingSince *time.Time `json:"waitingSince,omitempty"`
 }
 
 type ActivityStats struct {

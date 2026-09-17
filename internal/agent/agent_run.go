@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"tasks/internal/agentconfig"
+	"tasks/internal/agenthttp"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/runner"
 )
@@ -116,6 +118,10 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/control/runs/")
+	if suffix := strings.TrimSuffix(id, "/waiting"); suffix != id {
+		d.handleRunWaiting(w, r, suffix)
+		return
+	}
 	d.queue.mu.Lock()
 	run := d.queue.runs[id]
 	if run == nil || subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")), []byte(run.token)) != 1 {
@@ -146,6 +152,73 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"canceled": canceled})
+}
+
+// handleRunWaiting takes the report a Claude Code hook makes when its session
+// blocks on the user, and the symmetric one when it resumes. The hook is a
+// child of the launched session, so it carries the run identity and the
+// workstation credential in its environment; nothing here is inferred from a
+// working directory.
+//
+// It authenticates with the workstation API key rather than the per-run token
+// of handleRunControl: that token exists only for a wrapped dispatched run, and
+// a free console has a run identifier but no such token. The key is what every
+// launched session is given, console included.
+//
+// The report is acknowledged before the relay is attempted. A hook must never
+// wait on the network: whatever the server answers, the session has to carry on.
+func (d *agentDaemon) handleRunWaiting(w http.ResponseWriter, r *http.Request, runID string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !d.validLoopbackRequest(r) {
+		http.Error(w, "Valid API key required", http.StatusUnauthorized)
+		return
+	}
+	if r.Host != fmt.Sprintf("127.0.0.1:%d", d.loopback.port) && r.Host != fmt.Sprintf("localhost:%d", d.loopback.port) {
+		http.Error(w, "Invalid gateway host", http.StatusForbidden)
+		return
+	}
+	var body struct {
+		Waiting *bool `json:"waiting"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Waiting == nil {
+		http.Error(w, "Body must be {\"waiting\": true|false}", http.StatusBadRequest)
+		return
+	}
+	d.queue.mu.Lock()
+	known := d.queue.runs[runID] != nil
+	d.queue.mu.Unlock()
+	if !known {
+		http.Error(w, "Unknown run", http.StatusNotFound)
+		return
+	}
+	go d.postRunWaiting(runID, *body.Waiting)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write([]byte(`{"accepted":true}`))
+}
+
+// postRunWaiting relays the waiting report to the server over the same
+// authenticated REST surface the agent already uses for run output. It is
+// best-effort: a report that cannot be delivered is dropped rather than
+// retried, because the next hook event supersedes it anyway.
+func (d *agentDaemon) postRunWaiting(runID string, waiting bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	body := mustJSON(map[string]bool{"waiting": waiting})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		d.link.serverURL+"/api/activities/"+url.PathEscape(runID)+"/waiting", strings.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := agenthttp.Client(d.link.token).Do(req)
+	if err != nil {
+		return
+	}
+	_ = resp.Body.Close()
 }
 
 func (d *agentDaemon) cancelRun(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message, payload agentconfig.Dispatch) {

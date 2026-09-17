@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Loader2, Clock, CircleSlash, CircleStop } from 'lucide-react'
+import { Loader2, Clock, CircleSlash, CircleStop, Hand } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { deriveRunIndicator, type RunIndicatorState } from '../lib/remoteRunIndicator'
 
@@ -7,9 +7,27 @@ import { deriveRunIndicator, type RunIndicatorState } from '../lib/remoteRunIndi
 // competing with the card's own controls, and the state already carries in the
 // colour. Theme variables keep that colour in step with the rest of the UI.
 const PRESENTATION: Record<RunIndicatorState, { label: string; color: string }> = {
+  waiting: { label: 'Remote execution waiting for you', color: 'var(--status-warn)' },
   running: { label: 'Remote execution running', color: 'var(--run-active)' },
   queued: { label: 'Remote execution queued', color: 'var(--status-warn)' },
   canceled: { label: 'Remote execution canceled', color: 'var(--text-muted)' },
+}
+
+/**
+ * Renders how long the run has been waiting, in the coarsest unit that still
+ * says something. An absent or unparseable timestamp reports nothing at all
+ * rather than a wait of zero, which would read as a fresh prompt.
+ */
+function formatWaited(since?: string): string {
+  if (!since) return ''
+  const started = Date.parse(since)
+  if (Number.isNaN(started)) return ''
+  const seconds = Math.max(0, Math.round((Date.now() - started) / 1000))
+  if (seconds < 60) return seconds + 's'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return minutes + ' min'
+  const hours = Math.floor(minutes / 60)
+  return hours + ' h ' + (minutes % 60) + ' min'
 }
 
 export function RemoteRunBadge({ taskId }: { taskId: string }) {
@@ -21,10 +39,12 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const indicator = deriveRunIndicator(activities, taskId)
   if (!indicator) return null
 
-  const { state, runs, cancelableRunIds, count } = indicator
+  const { state, runs, cancelableRunIds, count, waitingSince } = indicator
   const presentation = PRESENTATION[state]
   const skills = runs.map(run => run.skillName).join(', ')
-  const stateLabel = presentation.label + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
+  const waited = state === 'waiting' ? formatWaited(waitingSince) : ''
+  const stateLabel = presentation.label + (waited ? ` for ${waited}` : '')
+    + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
 
   async function cancelRuns(runIds: string[], force = false) {
     setCanceling(true)
@@ -53,12 +73,12 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const tint = { color: presentation.color }
   // The stop glyph replaces the state glyph only while the control is targeted.
   const showStop = cancelableRunIds.length > 0 && hovered && !canceling
-  const StateIcon = state === 'running' ? Loader2 : state === 'queued' ? Clock : CircleSlash
+  const StateIcon = state === 'waiting' ? Hand : state === 'running' ? Loader2 : state === 'queued' ? Clock : CircleSlash
   const glyph = canceling
     ? <Loader2 size={12} className="animate-spin" aria-hidden="true" />
     : showStop
       ? <CircleStop size={12} aria-hidden="true" />
-      : <StateIcon size={12} className={state === 'running' ? 'animate-spin' : undefined} aria-hidden="true" />
+      : <StateIcon size={12} className={state === 'running' ? 'animate-spin' : state === 'waiting' ? 'animate-pulse' : undefined} aria-hidden="true" />
 
   if (cancelableRunIds.length === 0) {
     return <span role="status" title={stateLabel} aria-label={stateLabel} className={shape} style={tint}>{glyph}</span>
