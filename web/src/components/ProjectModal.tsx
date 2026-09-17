@@ -19,9 +19,7 @@ import {
   ShieldCheck,
   HelpCircle,
   GitBranch,
-  ArrowRight,
   Sliders,
-  RefreshCw,
   Globe,
   Key,
   RotateCcw,
@@ -30,11 +28,11 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { BoardColumnsEditor } from './BoardColumnsEditor'
+import { CommandModePreview } from './CommandModePreview'
 import type {
   AccentColor,
   IssueTracker,
   ProjectSkillsStatus,
-  WorkflowStage,
   DetectedStatus,
   AIProvider,
   TrackerColumn,
@@ -57,11 +55,26 @@ const TABS: { id: ProjectTab; label: string; icon: React.FC<{ size?: number; cla
   { id: 'skills', label: 'Compétences IA & SDD', icon: Sparkles },
 ]
 
+// An empty template is the right default: the agent then runs the command line
+// it attests for each execution mode. Only a custom CLI must spell one out.
 const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: string; icon: string }[] = [
-  { id: 'agy', label: 'AGY CLI (Google Antigravity)', sub: 'Agent autonome DeepMind & outils natifs', defaultCmd: 'agy --dangerously-skip-permissions -p "{prompt}"', icon: '🤖' },
-  { id: 'claude', label: 'Claude Code CLI (Anthropic)', sub: 'Agent Terminal Claude 3.7 Sonnet', defaultCmd: 'claude --dangerously-skip-permissions -p "{prompt}"', icon: '🧠' },
-  { id: 'codex', label: 'Codex', sub: 'Codex CLI', defaultCmd: "codex --approve-for-me '{prompt}'", icon: '💻' },
-  { id: 'custom', label: 'Commande Personnalisée', sub: 'Modèle de commande arbitraire', defaultCmd: '{prompt}', icon: '⚙️' },
+  { id: 'agy', label: 'AGY CLI (Google Antigravity)', sub: 'Agent autonome DeepMind & outils natifs', defaultCmd: '', icon: '🤖' },
+  { id: 'claude', label: 'Claude Code CLI (Anthropic)', sub: 'Agent Terminal Claude Code', defaultCmd: '', icon: '🧠' },
+  { id: 'codex', label: 'Codex', sub: 'Codex CLI', defaultCmd: '', icon: '💻' },
+  { id: 'custom', label: 'Commande Personnalisée', sub: 'Modèle de commande arbitraire', defaultCmd: `/path/to/custom-cli {mode:-p|-i} '{prompt}'`, icon: '⚙️' },
+]
+
+// A preset fills both fields at once, since the two commands of one CLI are
+// written together. An empty pair hands both modes back to the provider.
+const COMMAND_PRESETS: { label: string; cmd: string; autonomous: string }[] = [
+  { label: 'Défaut du fournisseur', cmd: '', autonomous: '' },
+  {
+    label: 'Claude',
+    cmd: `claude --model {model} '{prompt}'`,
+    autonomous: `claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`,
+  },
+  { label: 'AGY', cmd: `agy -i '{prompt}'`, autonomous: `agy -p --dangerously-skip-permissions '{prompt}'` },
+  { label: 'Codex', cmd: `codex --model {model} '{prompt}'`, autonomous: `codex exec --model {model} '{prompt}'` },
 ]
 
 // The agents Sectile can install its skills and MCP registration for, beyond the
@@ -83,33 +96,6 @@ const AVAILABLE_ICONS = [
   { name: 'Cpu', Icon: Cpu, label: 'Core / CPU' },
   { name: 'Sparkles', Icon: Sparkles, label: 'IA / Magic' },
   { name: 'Workflow', Icon: Workflow, label: 'Workflow' },
-]
-
-const DEFAULT_STAGE_MAPPING: Record<WorkflowStage, string> = {
-  new: 'to_clarify',
-  clarified: 'clarified',
-  specified: 'to_implement',
-  implemented: 'to_test',
-  reviewed: 'to_close',
-  finished: 'finished',
-}
-
-const STAGE_CONFIGS: { id: WorkflowStage; label: string; sub: string; color: string; Icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
-  { id: 'new', label: '#new', sub: 'Nouveau ticket brut', color: 'cyan', Icon: Sparkles },
-  { id: 'clarified', label: '#clarified', sub: 'Questions & cadrage validés', color: 'amber', Icon: HelpCircle },
-  { id: 'specified', label: '#specified', sub: 'Spécification technique prête', color: 'blue', Icon: FileCode },
-  { id: 'implemented', label: '#implemented', sub: 'Développement terminé sur branche', color: 'indigo', Icon: Flame },
-  { id: 'reviewed', label: '#reviewed', sub: 'Revue de code & PR prête', color: 'purple', Icon: ShieldCheck },
-  { id: 'finished', label: '#finished', sub: 'Ticket validé & fusionné', color: 'emerald', Icon: CheckCircle2 },
-]
-
-const STATUS_OPTIONS: { id: string; label: string; stageCategory: string }[] = [
-  { id: 'to_clarify', label: 'À clarifier / Todo (Backlog) [#new]', stageCategory: 'Todo' },
-  { id: 'clarified', label: 'Cadré [#clarified]', stageCategory: 'In Progress' },
-  { id: 'to_implement', label: 'À implémenter (En dev) [#specified]', stageCategory: 'In Progress' },
-  { id: 'to_test', label: 'À tester (En revue / QA) [#implemented]', stageCategory: 'Review' },
-  { id: 'to_close', label: 'En revue / PR prête [#reviewed]', stageCategory: 'Review' },
-  { id: 'finished', label: 'Terminé / Mergé [#finished]', stageCategory: 'Done' },
 ]
 
 const WORKFLOW_SKILLS: { id: string; defaultName: string; code: string; desc: string; icon: React.ComponentType<{ size?: number; className?: string }>; color: string }[] = [
@@ -141,7 +127,6 @@ export const ProjectModal: React.FC = () => {
     fetchProjectIssueTypes,
     setIsTrackerSetupOpen,
     settings,
-    addToast,
     t,
   } = useApp()
 
@@ -169,6 +154,7 @@ export const ProjectModal: React.FC = () => {
   // Section 3: Agent IA & CLI
   const [aiProvider, setAiProvider] = useState<AIProvider | ''>('')
   const [aiCommandTemplate, setAiCommandTemplate] = useState('')
+  const [aiCommandAutonomous, setAiCommandAutonomous] = useState('')
   const [aiModel, setAiModel] = useState('')
   const [aiSkillModels, setAiSkillModels] = useState<Record<string, string>>({})
   const [useCustomAgent, setUseCustomAgent] = useState(false)
@@ -206,24 +192,13 @@ export const ProjectModal: React.FC = () => {
   const [issueTypes, setIssueTypes] = useState<string[]>([])
   const [availableIssueTypes, setAvailableIssueTypes] = useState<string[]>([])
   const [isLoadingIssueTypes, setIsLoadingIssueTypes] = useState(false)
-  const [stageMapping, setStageMapping] = useState<Record<WorkflowStage, string>>(DEFAULT_STAGE_MAPPING)
-  const [customInputMode, setCustomInputMode] = useState<Record<WorkflowStage, boolean>>({
-    new: false,
-    clarified: false,
-    specified: false,
-    implemented: false,
-    reviewed: false,
-    finished: false,
-  })
   const [detectedStatuses, setDetectedStatuses] = useState<DetectedStatus[]>([])
-  const [isDetectingStatuses, setIsDetectingStatuses] = useState(false)
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
 
 
   const fetchDetectedStatuses = async (tracker?: IssueTracker, ghRepo?: string) => {
-    setIsDetectingStatuses(true)
     try {
       const targetTracker = tracker !== undefined ? tracker : issueTracker
       const targetRepo = ghRepo !== undefined ? ghRepo : (githubRepo || extractGithubRepoFromGitUrl(gitRemoteUrl))
@@ -239,8 +214,6 @@ export const ProjectModal: React.FC = () => {
       }
     } catch {
       // ignore
-    } finally {
-      setIsDetectingStatuses(false)
     }
   }
 
@@ -265,6 +238,7 @@ export const ProjectModal: React.FC = () => {
       setUseCustomAgent(hasCustomAgent)
       setAiProvider(editingProject.aiProvider || '')
       setAiCommandTemplate(editingProject.aiCommandTemplate || '')
+      setAiCommandAutonomous(editingProject.aiCommandTemplateAutonomous || '')
       setAiModel(editingProject.aiModel || '')
       setAiSkillModels(editingProject.aiSkillModels || {})
       setSetupProviders(editingProject.setupProviders || [])
@@ -282,11 +256,6 @@ export const ProjectModal: React.FC = () => {
       setGithubToken('')
       setJiraProject(editingProject.jiraProject || '')
       setIssueTypes(editingProject.issueTypes || [])
-      setStageMapping(
-        editingProject.stageMapping && Object.keys(editingProject.stageMapping).length > 0
-          ? { ...DEFAULT_STAGE_MAPPING, ...editingProject.stageMapping }
-          : DEFAULT_STAGE_MAPPING
-      )
       setSkillOverrides(editingProject.skillOverrides || {})
 
 
@@ -326,7 +295,6 @@ export const ProjectModal: React.FC = () => {
       setTrackerUrl('')
       setGithubRepo('')
       setJiraProject('')
-      setStageMapping(DEFAULT_STAGE_MAPPING)
       setSkillOverrides({})
       setSkillsStatus(null)
       setSddStatuses([])
@@ -410,6 +378,7 @@ export const ProjectModal: React.FC = () => {
         gitRemoteUrl: gitRemoteUrl.trim(),
         aiProvider: useCustomAgent && aiProvider ? (aiProvider as AIProvider) : undefined,
         aiCommandTemplate: useCustomAgent && aiCommandTemplate.trim() ? aiCommandTemplate.trim() : undefined,
+        aiCommandTemplateAutonomous: useCustomAgent && aiCommandAutonomous.trim() ? aiCommandAutonomous.trim() : undefined,
         // Toujours transmis, y compris vide : c'est ainsi qu'on efface une valeur
         // au lieu de conserver silencieusement celle qui est enregistrée.
         aiModel: useCustomAgent ? aiModel.trim() : '',
@@ -426,7 +395,6 @@ export const ProjectModal: React.FC = () => {
         githubToken: githubToken.trim(),
         jiraProject: jiraProject.trim().toUpperCase(),
         issueTypes,
-        stageMapping,
         skillOverrides,
       }
 
@@ -728,7 +696,7 @@ export const ProjectModal: React.FC = () => {
                       onClick={() => {
                         setUseCustomAgent(true)
                         if (!aiProvider) setAiProvider(settings.aiProvider || 'agy')
-                        if (!aiCommandTemplate) setAiCommandTemplate(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+                        if (!aiCommandTemplate) setAiCommandTemplate(settings.aiCommandTemplate || '')
                       }}
                       className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all cursor-pointer ${
                         useCustomAgent
@@ -749,8 +717,14 @@ export const ProjectModal: React.FC = () => {
                     <span className="font-semibold text-[var(--text-primary)]">Configuration Globale Active : </span>
                     <span className="font-mono text-[var(--accent-color)] font-bold">{settings.aiProvider.toUpperCase()}</span>
                     <span className="text-[var(--text-muted)] block mt-0.5 font-mono text-[11px]">
-                      Modèle de commande : {settings.aiCommandTemplate || 'agy -p "{prompt}"'}
+                      Modèle de commande : {settings.aiCommandTemplate || 'défaut du fournisseur'}
                     </span>
+                    <CommandModePreview
+                      provider={settings.aiProvider}
+                      template={settings.aiCommandTemplate || ''}
+                      model={settings.aiModel || ''}
+                      autonomousTemplate={settings.aiCommandTemplateAutonomous || ''}
+                    />
                   </div>
                 </div>
               ) : (
@@ -769,8 +743,11 @@ export const ProjectModal: React.FC = () => {
                             type="button"
                             onClick={() => {
                               setAiProvider(p.id)
-                              if (!aiCommandTemplate || aiCommandTemplate.startsWith('agy') || aiCommandTemplate.startsWith('claude') || aiCommandTemplate.startsWith('codex')) {
+                              // A template written for another CLI cannot serve
+                              // this one; a hand-written one is left alone.
+                              if (aiCommandTemplate.trim() === '' || COMMAND_PRESETS.some(preset => preset.cmd !== '' && preset.cmd === aiCommandTemplate)) {
                                 setAiCommandTemplate(p.defaultCmd)
+                                setAiCommandAutonomous('')
                               }
                             }}
                             className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
@@ -808,7 +785,7 @@ export const ProjectModal: React.FC = () => {
                   <div>
                     <div className="flex items-center justify-between mb-1">
                       <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                        Modèle de Commande Ligne de Commande (CLI Template)
+                        Commande interactive
                       </label>
                       <span className="text-[10px] text-[var(--text-muted)] font-mono">
                         Token requis : <code className="text-amber-400 font-bold">{'{prompt}'}</code>
@@ -819,7 +796,21 @@ export const ProjectModal: React.FC = () => {
                         type="text"
                         value={aiCommandTemplate}
                         onChange={e => setAiCommandTemplate(e.target.value)}
-                        placeholder='agy -p "{prompt}" --options...'
+                        placeholder={`claude --model {model} '{prompt}'`}
+                        className="w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <Terminal size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+                    </div>
+
+                    <label className="block mt-2 mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                      Commande autonome (headless)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={aiCommandAutonomous}
+                        onChange={e => setAiCommandAutonomous(e.target.value)}
+                        placeholder={`claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`}
                         className="w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Terminal size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -828,16 +819,11 @@ export const ProjectModal: React.FC = () => {
                     {/* Presets */}
                     <div className="flex items-center flex-wrap gap-1.5 mt-2">
                       <span className="text-[10px] text-[var(--text-muted)] mr-1 font-semibold">Presets :</span>
-                      {[
-                        { label: 'agy --dangerously-skip-permissions -p "{prompt}"', cmd: 'agy --dangerously-skip-permissions -p "{prompt}"' },
-                        { label: 'agy -i "{prompt}"', cmd: 'agy -i "{prompt}"' },
-                        { label: 'claude --dangerously-skip-permissions -p "{prompt}"', cmd: 'claude --dangerously-skip-permissions -p "{prompt}"' },
-                        { label: 'codex --approve-for-me \'{prompt}\'', cmd: "codex --approve-for-me '{prompt}'" },
-                      ].map(pr => (
+                      {COMMAND_PRESETS.map(pr => (
                         <button
                           key={pr.cmd}
                           type="button"
-                          onClick={() => setAiCommandTemplate(pr.cmd)}
+                          onClick={() => { setAiCommandTemplate(pr.cmd); setAiCommandAutonomous(pr.autonomous) }}
                           className="px-2 py-0.5 rounded-lg text-[10px] font-mono bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)] transition-colors cursor-pointer"
                         >
                           {pr.label}
@@ -848,12 +834,24 @@ export const ProjectModal: React.FC = () => {
                     {/* Variable tokens guide */}
                     <div className="p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] mt-2 flex items-center flex-wrap gap-2 text-[10px] text-[var(--text-muted)]">
                       <span className="font-bold text-[var(--text-secondary)]">Variables disponibles :</span>
-                      {['{prompt}', '{issueKey}', '{issueTitle}', '{repoPath}', '{branchName}'].map(tag => (
+                      {['{prompt}', '{issueKey}', '{issueTitle}', '{repoPath}', '{branchName}', '{model}', '{mode:AUTONOMOUS|INTERACTIVE}'].map(tag => (
                         <span key={tag} className="font-mono bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded text-[var(--text-primary)] border border-[var(--border-color)]">
                           {tag}
                         </span>
                       ))}
                     </div>
+                    <p className="mt-2 text-[10.5px] text-[var(--text-muted)] leading-relaxed">
+                      Champs vides : le fournisseur fournit les deux commandes. La commande
+                      autonome laissée vide renvoie les lancements headless sur la commande
+                      interactive, qui doit alors porter le
+                      marqueur <code className="font-mono">{'{mode:…|…}'}</code>.
+                    </p>
+                    <CommandModePreview
+                      provider={aiProvider || settings.aiProvider}
+                      template={aiCommandTemplate}
+                      model={aiModel || settings.aiModel || ''}
+                      autonomousTemplate={aiCommandAutonomous}
+                    />
                   </div>
                 </div>
               )}
@@ -982,199 +980,6 @@ export const ProjectModal: React.FC = () => {
                 <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
                   La fusion reste manuelle dans les deux cas.
                 </p>
-              </div>
-
-              {/* Stage Mapping Table Card */}
-              <div className="p-3.5 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-2.5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Sliders size={14} className="text-[var(--accent-color)]" />
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                      Mapping des statuts IA ➔ Tracker
-                    </span>
-                    {detectedStatuses.length > 0 && (
-                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--accent-light)] accent-text font-bold">
-                        {detectedStatuses.length} détectés
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Action Toolbar */}
-                  <div className="flex items-center flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      disabled={isDetectingStatuses}
-                      onClick={() => fetchDetectedStatuses()}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] hover:border-[var(--accent-color)] hover:bg-[var(--accent-light)] transition-all cursor-pointer disabled:opacity-50"
-                      title="Scanner GitHub / Jira / Base pour détecter les statuts réels"
-                    >
-                      <RefreshCw size={10} className={isDetectingStatuses ? 'animate-spin text-[var(--accent-color)]' : 'text-cyan-400'} />
-                      <span>{isDetectingStatuses ? 'Scan...' : 'Auto-détecter'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (detectedStatuses.length === 0) {
-                          addToast({
-                            type: 'info',
-                            title: 'Aucun statut détecté',
-                            description: 'Cliquez d\'abord sur "Auto-détecter" pour scanner votre tracker.',
-                          })
-                          return
-                        }
-                        const findStatus = (keywords: string[], fallback: string): string => {
-                          for (const kw of keywords) {
-                            const found = detectedStatuses.find(
-                              s => s.name.toLowerCase().includes(kw) || (s.type && s.type.toLowerCase().includes(kw))
-                            )
-                            if (found) return found.name
-                          }
-                          return fallback
-                        }
-                        setStageMapping({
-                          new: findStatus(['triage', 'backlog', 'unstarted', 'to_clarify', 'todo', 'open'], 'to_clarify'),
-                          clarified: findStatus(['cadré', 'clarified', 'specify', 'triage', 'todo', 'unstarted'], 'clarified'),
-                          specified: findStatus(['ready', 'specified', 'spec', 'plan', 'to_implement', 'todo'], 'to_implement'),
-                          implemented: findStatus(['in progress', 'progress', 'dev', 'started', 'implemented', 'doing', 'to_test'], 'to_test'),
-                          reviewed: findStatus(['review', 'pr', 'qa', 'test', 'reviewed', 'to_close'], 'to_close'),
-                          finished: findStatus(['done', 'closed', 'completed', 'finished', 'termine'], 'finished'),
-                        })
-                        addToast({
-                          type: 'success',
-                          title: 'Mapping auto-assigné !',
-                          description: 'Les statuts ont été mappés intelligemment sur vos 6 étapes IA.',
-                        })
-                      }}
-                      className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-[var(--accent-light)] accent-text border border-[var(--accent-color)]/30 hover:opacity-90 transition-all cursor-pointer"
-                      title="Associer automatiquement les statuts détectés aux 6 étapes IA"
-                    >
-                      <Sparkles size={10} className="text-amber-400" />
-                      <span>Auto-assigner</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setStageMapping(DEFAULT_STAGE_MAPPING)}
-                      className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)]/40 transition-colors cursor-pointer"
-                      title="Réinitialiser avec le flux standard"
-                    >
-                      Défaut
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {STAGE_CONFIGS.map(stage => {
-                    const currentStatus = stageMapping[stage.id] || DEFAULT_STAGE_MAPPING[stage.id]
-                    const isCustom = customInputMode[stage.id]
-                    const StageIcon = stage.Icon
-
-                    return (
-                      <div
-                        key={stage.id}
-                        className="p-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] flex items-center justify-between gap-2"
-                      >
-                        {/* Stage Label Left */}
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md border font-mono shrink-0 flex items-center gap-1 ${
-                            stage.id === 'new' ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' :
-                            stage.id === 'clarified' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' :
-                            stage.id === 'specified' ? 'bg-blue-500/15 text-blue-400 border-blue-500/30' :
-                            stage.id === 'implemented' ? 'bg-indigo-500/15 text-indigo-400 border-indigo-500/30' :
-                            stage.id === 'reviewed' ? 'bg-purple-500/15 text-purple-400 border-purple-500/30' :
-                            'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
-                          }`}>
-                            <StageIcon size={11} />
-                            <span>{stage.label}</span>
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <ArrowRight size={11} className="text-[var(--text-muted)] shrink-0" />
-
-                          {isCustom ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="text"
-                                value={currentStatus}
-                                onChange={e =>
-                                  setStageMapping(prev => ({
-                                    ...prev,
-                                    [stage.id]: e.target.value,
-                                  }))
-                                }
-                                placeholder="Nom du statut"
-                                className="w-32 px-2 py-0.5 text-xs rounded-lg bg-[var(--bg-secondary)] border border-[var(--accent-color)] text-[var(--text-primary)] font-medium focus:outline-none"
-                                autoFocus
-                              />
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setCustomInputMode(prev => ({ ...prev, [stage.id]: false }))
-                                }
-                                className="px-1.5 py-0.5 rounded-lg text-[9px] font-medium bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)] cursor-pointer"
-                                title="Revenir à la liste"
-                              >
-                                Liste
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1">
-                              <select
-                                value={currentStatus}
-                                onChange={e => {
-                                  if (e.target.value === '__custom__') {
-                                    setCustomInputMode(prev => ({ ...prev, [stage.id]: true }))
-                                  } else {
-                                    setStageMapping(prev => ({
-                                      ...prev,
-                                      [stage.id]: e.target.value,
-                                    }))
-                                  }
-                                }}
-                                className="w-36 px-2 py-0.5 text-xs rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
-                              >
-                                {detectedStatuses.length > 0 && (
-                                  <optgroup label="✨ Statuts détectés">
-                                    {detectedStatuses.map(st => (
-                                      <option key={`det-${st.id}`} value={st.name}>
-                                        {st.name} {st.source ? `(${st.source})` : ''}
-                                      </option>
-                                    ))}
-                                  </optgroup>
-                                )}
-
-                                <optgroup label="📋 Statuts Sectile">
-                                  {STATUS_OPTIONS.map(opt => (
-                                    <option key={opt.id} value={opt.id}>
-                                      {opt.label}
-                                    </option>
-                                  ))}
-                                </optgroup>
-
-                                <optgroup label="✏️ Personnalisé">
-                                  <option value="__custom__">➕ Saisir libre...</option>
-                                </optgroup>
-                              </select>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setCustomInputMode(prev => ({ ...prev, [stage.id]: true }))
-                                }
-                                className="p-0.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
-                                title="Saisir un statut libre en texte"
-                              >
-                                ✏️
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
               </div>
             </div>
           )}

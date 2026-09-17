@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -2456,8 +2457,13 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, settings)
 
 	case http.MethodPost, http.MethodPut:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
+			return
+		}
 		var req models.Settings
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
 			return
 		}
@@ -2465,7 +2471,18 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		saved, err := h.db.UpdateSettings(req)
+		// An empty command template is a value, not an omission: it hands both
+		// execution modes back to the provider. Only the raw payload tells the
+		// two apart, so presence of the key is what carries the intent.
+		var sent map[string]json.RawMessage
+		_ = json.Unmarshal(body, &sent)
+		var clear []string
+		for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
+			if _, ok := sent[name]; ok {
+				clear = append(clear, name)
+			}
+		}
+		saved, err := h.db.UpdateSettings(req, clear...)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

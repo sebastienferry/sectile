@@ -150,3 +150,29 @@ func TestHeadlessCommandLineUnchangedWithoutModel(t *testing.T) {
 		}
 	}
 }
+
+// A template carrying a {model} slot with no model to fill it must not emit an
+// empty argument: `--model ” '<prompt>'` reaches the CLI as a blank model, and
+// on the CLIs that accept a bare value it eats the prompt instead.
+func TestTemplateModelSlotVanishesWithItsOption(t *testing.T) {
+	tpl := `claude {mode:-p --permission-mode bypassPermissions|} --model {model} '{prompt}'`
+	for mode, want := range map[string]string{
+		models.SkillModeInteractive: `claude '{prompt}'`,
+		models.SkillModeAutonomous:  `claude -p --permission-mode bypassPermissions '{prompt}'`,
+	} {
+		got, err := modeCommandLine("claude", tpl, "", "{prompt}", mode)
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if strings.Join(strings.Fields(got), " ") != want {
+			t.Fatalf("%s: got %q, want %q", mode, got, want)
+		}
+	}
+	got, err := modeCommandLine("claude", tpl, "claude-opus-5", "{prompt}", models.SkillModeAutonomous)
+	if err != nil {
+		t.Fatalf("configured model: %v", err)
+	}
+	if !strings.Contains(got, `--model 'claude-opus-5'`) {
+		t.Fatalf("a configured model must still reach the slot: %q", got)
+	}
+}

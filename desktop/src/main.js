@@ -11,6 +11,7 @@ import './style.css'
 import { taskStage, nextTaskStep, closingStep } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
+import { previewLines } from './command-preview.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -671,20 +672,39 @@ async function openProject(id){
   }
   update()
   let inheritCommand=!info.commandOverride
-  const commandLabel=document.createElement('label');commandLabel.textContent='CLI command'
-  const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','CLI command')
+  // The two execution modes run different command lines, so they get one field
+  // each. Overriding only the interactive one would leave the server's headless
+  // command running beside it, which is not what an override means.
+  const commandLabel=document.createElement('label');commandLabel.textContent='Interactive CLI command'
+  const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
   command.value=info.aiCommandTemplate??config.aiCommandTemplate??''
   command.placeholder='Server provider default command'
+  const autonomousLabel=document.createElement('label');autonomousLabel.textContent='Autonomous CLI command (headless)'
+  const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
+  autonomousCommand.value=info.aiCommandTemplateAutonomous??config.aiCommandTemplateAutonomous??''
+  autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
   const commandHint=document.createElement('p')
-  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Required: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}.'}
+  const commandPreviewBox=document.createElement('dl');commandPreviewBox.className='command-preview'
+  function renderCommandPreview(){
+   commandPreviewBox.replaceChildren()
+   for(const line of previewLines(config.aiProvider,command.value,config.aiModel,autonomousCommand.value)){
+    const term=document.createElement('dt');term.textContent=line.label
+    const detail=document.createElement('dd');detail.textContent=line.text
+    if(!line.ok)detail.className='command-preview-error'
+    commandPreviewBox.append(term,detail)
+   }
+  }
+  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Both empty runs the provider default for each mode. Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.';renderCommandPreview()}
   command.oninput=()=>{inheritCommand=false;commandState()}
+  autonomousCommand.oninput=()=>{inheritCommand=false;commandState()}
   const commandReset=document.createElement('button');commandReset.type='button';commandReset.className='reset-setting'
-  commandReset.setAttribute('aria-label','Reset CLI command to server default');commandReset.title='Reset CLI command to server default';commandReset.innerHTML=controls.worktrees.reset.innerHTML
-  commandReset.onclick=()=>{command.value=config.aiCommandTemplate||'';inheritCommand=true;commandState()}
+  commandReset.setAttribute('aria-label','Reset CLI commands to server defaults');commandReset.title='Reset CLI commands to server defaults';commandReset.innerHTML=controls.worktrees.reset.innerHTML
+  commandReset.onclick=()=>{command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}
   commandState();commandLabel.append(commandReset,command,commandHint)
+  autonomousLabel.append(autonomousCommand,commandPreviewBox)
   const save=document.createElement('button');save.textContent='Save local configuration'
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  form.append(label,controls.worktrees.section,controls.parallel.section,commandLabel,save)
+  form.append(label,controls.worktrees.section,controls.parallel.section,commandLabel,autonomousLabel,save)
   panels.Local.append(form)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
@@ -694,7 +714,7 @@ async function openProject(id){
   form.onsubmit=async event=>{
    event.preventDefault();save.disabled=true
    try{
-    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiCommandTemplate:command.value,inheritCommand})
+    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand})
     projectStateVersion++;disconnectedProjects.delete(id)
     notice.textContent='Local configuration saved';await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
@@ -735,7 +755,7 @@ async function openProject(id){
     config=fresh.server
     dialogBody.querySelector('h2').textContent=config.projectName
     if(inheritWorktrees)useWorktrees=!!config.useWorktrees
-    if(inheritCommand)command.value=config.aiCommandTemplate||''
+    if(inheritCommand){command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||''}
     update();commandState();renderServer(fresh.monoRepo)
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}

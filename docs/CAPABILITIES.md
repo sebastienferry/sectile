@@ -22,7 +22,7 @@ Sectile supports multiple concurrent software repositories and projects from a s
   - `repo_path`: Local filesystem path to the project repository.
   - `git_remote_url`: Remote Git repository URL.
   - `issue_tracker`: Tracker provider (`github`, `jira`, or `local`).
-  - `stage_mapping`: Custom mapping between Sectile workflow stages and external tracker states.
+  - `tracker_columns` / `stage_columns`: Board columns, the tracker statuses they group, and the workflow stage each column carries. This is what maps a Sectile stage onto an external tracker state.
   - `skill_overrides`: Project-specific prompt template overrides.
 
 - **Dynamic Workspace Switcher**:
@@ -191,10 +191,25 @@ answers. A discussion and a bare terminal are always interactive, whatever the
 project default says: they open a live session with no prompt of their own, so
 headless they would be a CLI with no input at all.
 
-An autonomous launch is **refused**, never silently downgraded to interactive.
-A project configured with a custom `aiCommandTemplate` owns its own mode: it is
-refused too, unless the template carries a `{mode:AUTONOMOUS|INTERACTIVE}`
-placeholder, for example `agy {mode:-p|-i} '{prompt}'`.
+Each mode has its own configured command, at both the global and the project
+level: `aiCommandTemplate` for interactive launches and
+`aiCommandTemplateAutonomous` for headless ones. A command written for headless
+use answers for itself and needs no marker, because its author wrote it for that
+mode. The two are inherited independently, so a project may spell out one and
+keep the other from the global settings. Both empty means the provider's own
+attested command lines, for example:
+
+```bash
+# interactive
+claude --model <model> '<prompt>'
+# autonomous
+claude -p --permission-mode bypassPermissions --model <model> '<prompt>'
+```
+
+An autonomous launch is **refused**, never silently downgraded to interactive. A
+configuration with no headless command falls back to `aiCommandTemplate`, which
+then owns its own mode: it is refused unless it carries a
+`{mode:AUTONOMOUS|INTERACTIVE}` marker, for example `agy {mode:-p|-i} '{prompt}'`.
 
 ### The full chain run
 

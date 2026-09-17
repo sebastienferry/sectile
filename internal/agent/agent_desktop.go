@@ -331,13 +331,14 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		ProjectID         string  `json:"projectId"`
-		Path              string  `json:"path"`
-		AICommandTemplate *string `json:"aiCommandTemplate"`
-		InheritCommand    bool    `json:"inheritCommand"`
-		InheritWorktrees  bool    `json:"inheritWorktrees"`
-		Parallelism       *int    `json:"parallelism"`
-		UseWorktrees      *bool   `json:"useWorktrees"`
+		ProjectID                   string  `json:"projectId"`
+		Path                        string  `json:"path"`
+		AICommandTemplate           *string `json:"aiCommandTemplate"`
+		AICommandTemplateAutonomous *string `json:"aiCommandTemplateAutonomous"`
+		InheritCommand              bool    `json:"inheritCommand"`
+		InheritWorktrees            bool    `json:"inheritWorktrees"`
+		Parallelism                 *int    `json:"parallelism"`
+		UseWorktrees                *bool   `json:"useWorktrees"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
@@ -366,22 +367,32 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if overrides.Projects == nil {
 		overrides.Projects = map[string]string{}
 	}
-	if input.AICommandTemplate != nil || input.InheritCommand {
+	// The two commands are overridden together: a workstation that pins only the
+	// interactive one would keep running the server's headless command beside it,
+	// which is the opposite of what an override is for.
+	if input.AICommandTemplate != nil || input.AICommandTemplateAutonomous != nil || input.InheritCommand {
 		if overrides.Commands == nil {
 			overrides.Commands = map[string]string{}
 		}
-		command := ""
+		if overrides.CommandsAutonomous == nil {
+			overrides.CommandsAutonomous = map[string]string{}
+		}
+		command, autonomous := "", ""
 		if input.AICommandTemplate != nil {
 			command = strings.TrimSpace(*input.AICommandTemplate)
 		}
-		if len(command) > 4096 {
+		if input.AICommandTemplateAutonomous != nil {
+			autonomous = strings.TrimSpace(*input.AICommandTemplateAutonomous)
+		}
+		if len(command) > 4096 || len(autonomous) > 4096 {
 			http.Error(w, "CLI command is too long", 400)
 			return
 		}
 		if input.InheritCommand {
-			command = ""
+			command, autonomous = "", ""
 		}
 		overrides.Commands[input.ProjectID] = command
+		overrides.CommandsAutonomous[input.ProjectID] = autonomous
 	}
 	if input.Parallelism != nil {
 		if *input.Parallelism < 1 || *input.Parallelism > agentconfig.MaxParallelism {
@@ -523,7 +534,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		effective := agentconfig.ApplyOverrides(config, overrides)
 		_, worktreeOverride := overrides.Worktrees[id]
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"server": config, "monoRepo": project.MonoRepo, "path": root, "useWorktrees": effective.UseWorktrees, "configured": mappingErr == nil, "aiCommandTemplate": effective.AICommandTemplate, "commandOverride": overrides.Commands[id] != "", "worktreeOverride": worktreeOverride, "parallelism": agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides)})
+		_ = json.NewEncoder(w).Encode(map[string]any{"server": config, "monoRepo": project.MonoRepo, "path": root, "useWorktrees": effective.UseWorktrees, "configured": mappingErr == nil, "aiCommandTemplate": effective.AICommandTemplate, "aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous, "commandOverride": overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "", "worktreeOverride": worktreeOverride, "parallelism": agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides)})
 		return
 	}
 	if mappingErr != nil {

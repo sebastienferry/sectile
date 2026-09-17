@@ -72,19 +72,11 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	}
 	proj, _ := d.GetProjectByID(task.ProjectID)
 
-	// Determine internal status for the stage
-	var newStatus models.Status
-	if proj != nil && len(proj.StageMapping) > 0 {
-		if mapped, ok := proj.StageMapping[cleanStage]; ok && mapped != "" {
-			newStatus = models.Status(mapped)
-		}
-	}
-	if newStatus == "" {
-		if st, ok := InternalStatusForStage(cleanStage); ok {
-			newStatus = st
-		} else {
-			newStatus = task.Status
-		}
+	// The six stages are the six internal statuses, so the fold is fixed and
+	// needs no per-project configuration.
+	newStatus := task.Status
+	if st, ok := InternalStatusForStage(cleanStage); ok {
+		newStatus = st
 	}
 
 	// Determine tracker status target from project column mapping

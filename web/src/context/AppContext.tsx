@@ -2693,19 +2693,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     )
     cleanLabels.push(targetLabel)
 
-    // Determine mapped status using project stageMapping if configured
-    let mappedStatus: Status = task.status
+    // Stage and internal status are the same six-way split, so the fold needs no
+    // per-project configuration; the server holds the same table.
     const proj = projects.find(p => p.id === task.projectId) || currentProject
-    if (proj?.stageMapping && proj.stageMapping[targetStage]) {
-      mappedStatus = proj.stageMapping[targetStage] as Status
-    } else {
-      if (targetStage === 'new' || (targetStage as any) === 'untouched') mappedStatus = 'to_clarify'
-      else if (targetStage === 'clarified') mappedStatus = 'clarified'
-      else if (targetStage === 'specified') mappedStatus = 'to_implement'
-      else if (targetStage === 'implemented') mappedStatus = 'to_test'
-      else if (targetStage === 'reviewed') mappedStatus = 'to_close'
-      else if (targetStage === 'finished') mappedStatus = 'finished'
-    }
+    const mappedStatus: Status = INTERNAL_STATUS_BY_STAGE[targetStage] ?? task.status
 
     // Determine target tracker status if project has stageColumns mapping
     let mappedTrackerStatus = task.trackerStatus

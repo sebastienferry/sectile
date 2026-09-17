@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 )
 
@@ -186,5 +187,45 @@ func TestLiveSessionsNeverRunHeadless(t *testing.T) {
 		if got := liveSessionMode(skill, skill, models.SkillModeAutonomous); got != models.SkillModeAutonomous {
 			t.Fatalf("skill %q resolved to %q, want autonomous", skill, got)
 		}
+	}
+}
+
+// A command written for headless use is the one a headless launch runs, and it
+// answers for itself: its author wrote it for that mode, so it needs no
+// {mode:...} marker. The interactive command is left to interactive launches.
+func TestDedicatedAutonomousCommandServesHeadlessLaunches(t *testing.T) {
+	config := agentconfig.Config{
+		AIProvider:                  "claude",
+		AICommandTemplate:           `claude '{prompt}'`,
+		AICommandTemplateAutonomous: `claude -p --permission-mode bypassPermissions '{prompt}'`,
+	}
+	for mode, want := range map[string]string{
+		models.SkillModeInteractive: `claude 'do the thing'`,
+		models.SkillModeAutonomous:  `claude -p --permission-mode bypassPermissions 'do the thing'`,
+	} {
+		got, err := launchCommandLine(config, "", "do the thing", mode)
+		if err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if got != want {
+			t.Fatalf("%s: got %q, want %q", mode, got, want)
+		}
+	}
+}
+
+// Without a dedicated command nothing moves: the general one still owns the
+// mode, and still has to declare that it can serve a headless launch.
+func TestWithoutDedicatedCommandTheMarkerStillDecides(t *testing.T) {
+	config := agentconfig.Config{AIProvider: "claude", AICommandTemplate: `claude '{prompt}'`}
+	if _, err := launchCommandLine(config, "", "do the thing", models.SkillModeAutonomous); err == nil {
+		t.Fatal("expected a refusal without the mode marker")
+	}
+	config.AICommandTemplate = `claude {mode:-p|} '{prompt}'`
+	got, err := launchCommandLine(config, "", "do the thing", models.SkillModeAutonomous)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(strings.Fields(got), " ") != `claude -p 'do the thing'` {
+		t.Fatalf("got %q", got)
 	}
 }

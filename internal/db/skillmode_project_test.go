@@ -27,23 +27,27 @@ func modeTestDB(t *testing.T) (*DB, *models.Project) {
 
 func TestSupportsAutonomousRun(t *testing.T) {
 	cases := []struct {
-		provider, template string
-		want               bool
+		provider, template, autonomous string
+		want                           bool
 	}{
-		{"claude", "", true},
-		{"codex", "", true},
-		{"vibe", "", true},
-		{"agy", "", false},
-		{"gemini", "", false},
-		{"cursor", "", false},
-		{"", "", false},
+		{"claude", "", "", true},
+		{"codex", "", "", true},
+		{"vibe", "", "", true},
+		{"agy", "", "", false},
+		{"gemini", "", "", false},
+		{"cursor", "", "", false},
+		{"", "", "", false},
 		// A configured template wins over the provider, in both directions.
-		{"claude", "agy -i '{prompt}'", false},
-		{"agy", "agy {mode:-p|-i} '{prompt}'", true},
+		{"claude", "agy -i '{prompt}'", "", false},
+		{"agy", "agy {mode:-p|-i} '{prompt}'", "", true},
+		// A command written for headless use answers for itself: it needs no
+		// marker, and it rescues a provider that has no attested mode.
+		{"agy", "agy -i '{prompt}'", "agy -p '{prompt}'", true},
+		{"gemini", "", "gemini -p '{prompt}'", true},
 	}
 	for _, tc := range cases {
-		if got := models.SupportsAutonomousRun(tc.provider, tc.template); got != tc.want {
-			t.Fatalf("SupportsAutonomousRun(%q,%q) = %v, want %v", tc.provider, tc.template, got, tc.want)
+		if got := models.SupportsAutonomousRun(tc.provider, tc.template, tc.autonomous); got != tc.want {
+			t.Fatalf("SupportsAutonomousRun(%q,%q,%q) = %v, want %v", tc.provider, tc.template, tc.autonomous, got, tc.want)
 		}
 	}
 }

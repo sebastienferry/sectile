@@ -9,49 +9,460 @@
       "url": "https://github.com/sebastienferry/sectile",
       "provider": "github",
       "link_mode": "web",
-      "revision": "2203fa4cfb57c046ce1f1b55b98c5dbf69a0356c"
+      "revision": "172638f3c7b2454b520dd1cc355fdc96c39d99a9"
     },
     "views": [
-      { "id": "control-plane", "label": "Control plane", "focus": ["browser", "server", "db", "trackers"], "note": "Headless server: REST surface, SQLite state and tracker jobs that run without any agent." },
-      { "id": "agent-link", "label": "Workstation execution", "focus": ["server", "agent", "worktrees", "pty"], "note": "Named workspace capabilities travel over the authenticated agent connection." },
-      { "id": "mcp-path", "label": "MCP path", "focus": ["claudecode", "bridge", "mcpsvc", "server"], "note": "Claude Code reaches the server's typed tools through the agent stdio bridge." }
+      {
+        "id": "control-plane",
+        "label": "Control plane",
+        "focus": [
+          "browser",
+          "server",
+          "db",
+          "trackers"
+        ],
+        "note": "Headless server: REST surface, SQLite state and tracker jobs that run without any agent."
+      },
+      {
+        "id": "agent-link",
+        "label": "Workstation execution",
+        "focus": [
+          "server",
+          "agent",
+          "worktrees",
+          "pty"
+        ],
+        "note": "Named workspace capabilities travel over the authenticated agent connection."
+      },
+      {
+        "id": "mcp-path",
+        "label": "MCP path",
+        "focus": [
+          "claudecode",
+          "bridge",
+          "mcpsvc",
+          "server"
+        ],
+        "note": "Claude Code reaches the server's typed tools through the agent stdio bridge."
+      }
     ]
   },
   "components": [
-    { "id": "trackers", "type": "external", "label": "GitHub / Linear", "sublabel": "issue trackers", "tag": "server credentials", "pos": [40, 90], "size": [160, 66], "sources": [{ "path": "internal/trackerapi/client.go", "label": "trackerapi" }] },
-    { "id": "browser", "type": "frontend", "label": "React web UI", "sublabel": "embedded SPA assets", "pos": [40, 250], "size": [160, 66], "sources": [{ "path": "web/src/App.tsx", "label": "web SPA" }] },
-    { "id": "mcpsvc", "type": "backend", "label": "MCP service /mcp", "sublabel": "Streamable HTTP", "tag": "identity: sectile", "pos": [390, 90], "size": [160, 66], "sources": [{ "path": "internal/taskmcp/server.go", "label": "taskmcp" }] },
-    { "id": "server", "type": "backend", "label": "sectile-server", "sublabel": "cmd/server", "pos": [390, 250], "size": [160, 66], "sources": [{ "path": "cmd/server/main.go", "label": "server entrypoint" }, { "path": "internal/handlers/handlers.go", "label": "API and agent relay" }] },
-    { "id": "db", "type": "database", "label": "SQLite", "sublabel": "tasks, projects, queues", "pos": [390, 410], "size": [160, 66], "sources": [{ "path": "internal/db/db.go", "label": "persistence" }] },
-    { "id": "bridge", "type": "backend", "label": "stdio MCP bridge", "sublabel": "sectile-agent mcp", "tag": "never opens SQLite", "pos": [740, 90], "size": [160, 66], "sources": [{ "path": "internal/agentmcp/mcp.go", "label": "bridge" }] },
-    { "id": "agent", "type": "backend", "label": "sectile-agent", "sublabel": "internal/agent", "pos": [740, 250], "size": [160, 66], "sources": [{ "path": "internal/agent/agent.go", "label": "agent daemon" }, { "path": "internal/agentprotocol/message.go", "label": "message envelope" }] },
-    { "id": "desktop", "type": "frontend", "label": "Electron companion", "sublabel": "optional consoles UI", "pos": [740, 410], "size": [160, 66], "sources": [{ "path": "desktop/electron/main.cjs", "label": "companion" }] },
-    { "id": "claudecode", "type": "external", "label": "Claude Code", "sublabel": "provider: claude", "tag": "codex / gemini too", "brand": "claude", "pos": [1090, 90], "size": [160, 66], "sources": [{ "path": "internal/runner/runner.go", "line": 1258, "label": "provider dispatch" }, { "path": "internal/agentconfig/locations.go", "line": 54, "label": "skills and MCP files" }] },
-    { "id": "pty", "type": "backend", "label": "Native CLI consoles", "sublabel": "PTY sessions", "pos": [1090, 250], "size": [160, 66], "sources": [{ "path": "internal/terminal/terminal.go", "label": "terminal" }, { "path": "internal/runner/runner.go", "label": "tool execution" }] },
-    { "id": "worktrees", "type": "database", "label": "Local Git worktrees", "sublabel": ".tasks/worktrees", "pos": [1090, 410], "size": [160, 66], "sources": [{ "path": "internal/workspace/git.go", "label": "workspace" }] }
+    {
+      "id": "trackers",
+      "type": "external",
+      "label": "GitHub / Linear",
+      "sublabel": "issue trackers",
+      "tag": "server credentials",
+      "pos": [
+        40,
+        90
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "internal/trackerapi/client.go",
+          "label": "trackerapi"
+        }
+      ]
+    },
+    {
+      "id": "browser",
+      "type": "frontend",
+      "label": "React web UI",
+      "sublabel": "embedded SPA assets",
+      "pos": [
+        40,
+        250
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "web/src/App.tsx",
+          "label": "web SPA"
+        }
+      ]
+    },
+    {
+      "id": "mcpsvc",
+      "type": "backend",
+      "label": "MCP service /mcp",
+      "sublabel": "Streamable HTTP",
+      "tag": "identity: sectile",
+      "pos": [
+        390,
+        90
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "internal/taskmcp/server.go",
+          "label": "taskmcp"
+        }
+      ]
+    },
+    {
+      "id": "server",
+      "type": "backend",
+      "label": "sectile-server",
+      "sublabel": "cmd/server",
+      "pos": [
+        390,
+        250
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "cmd/server/main.go",
+          "label": "server entrypoint"
+        },
+        {
+          "path": "internal/handlers/handlers.go",
+          "label": "API and agent relay"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "tasks, projects, queues",
+      "pos": [
+        390,
+        410
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "internal/db/db.go",
+          "label": "persistence"
+        }
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "backend",
+      "label": "stdio MCP bridge",
+      "sublabel": "sectile-agent mcp",
+      "tag": "never opens SQLite",
+      "pos": [
+        740,
+        90
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "internal/agentmcp/mcp.go",
+          "label": "bridge"
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "sectile-agent",
+      "sublabel": "internal/agent",
+      "pos": [
+        740,
+        250
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "internal/agent/agent.go",
+          "label": "agent daemon"
+        },
+        {
+          "path": "internal/agentprotocol/message.go",
+          "label": "message envelope"
+        }
+      ]
+    },
+    {
+      "id": "desktop",
+      "type": "frontend",
+      "label": "Electron companion",
+      "sublabel": "optional consoles UI",
+      "pos": [
+        740,
+        410
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "desktop/electron/main.cjs",
+          "label": "companion"
+        }
+      ]
+    },
+    {
+      "id": "claudecode",
+      "type": "external",
+      "label": "Claude Code",
+      "sublabel": "provider: claude",
+      "tag": "codex / gemini too",
+      "brand": "claude",
+      "pos": [
+        1090,
+        90
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "internal/runner/runner.go",
+          "line": 1258,
+          "label": "provider dispatch"
+        },
+        {
+          "path": "internal/agentconfig/locations.go",
+          "line": 54,
+          "label": "skills and MCP files"
+        }
+      ]
+    },
+    {
+      "id": "pty",
+      "type": "backend",
+      "label": "Native CLI consoles",
+      "sublabel": "PTY sessions",
+      "pos": [
+        1090,
+        250
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "internal/terminal/terminal.go",
+          "label": "terminal"
+        },
+        {
+          "path": "internal/runner/runner.go",
+          "label": "tool execution"
+        }
+      ]
+    },
+    {
+      "id": "worktrees",
+      "type": "database",
+      "label": "Local Git worktrees",
+      "sublabel": ".tasks/worktrees",
+      "pos": [
+        1090,
+        410
+      ],
+      "size": [
+        160,
+        66
+      ],
+      "sources": [
+        {
+          "path": "internal/workspace/git.go",
+          "label": "workspace"
+        }
+      ]
+    }
   ],
   "boundaries": [
-    { "kind": "region", "label": "Control plane (headless server)", "wraps": ["mcpsvc", "server", "db"] },
-    { "kind": "region", "label": "Workstation (local execution)", "wraps": ["bridge", "agent", "desktop", "claudecode", "pty", "worktrees"] },
-    { "kind": "security-group", "label": "Paired device credential", "wraps": ["bridge", "agent"] }
+    {
+      "kind": "region",
+      "label": "Control plane (headless server)",
+      "wraps": [
+        "mcpsvc",
+        "server",
+        "db"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "Workstation (local execution)",
+      "wraps": [
+        "bridge",
+        "agent",
+        "desktop",
+        "claudecode",
+        "pty",
+        "worktrees"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Paired device credential",
+      "wraps": [
+        "bridge",
+        "agent"
+      ]
+    }
   ],
   "connections": [
-    { "id": "ui-rest", "from": "browser", "to": "server", "label": "REST /api", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
-    { "id": "tracker-sync", "from": "server", "to": "trackers", "label": "REST / GraphQL jobs", "fromSide": "left", "toSide": "bottom" },
-    { "id": "sqlite-state", "from": "server", "to": "db", "label": "projects, tasks, activities", "fromSide": "bottom", "toSide": "top", "labelDy": 60 },
-    { "id": "mcp-hosting", "from": "server", "to": "mcpsvc", "label": "nine typed tools", "fromSide": "top", "toSide": "bottom" },
-    { "id": "agent-relay", "from": "server", "to": "agent", "label": "authenticated WebSocket", "variant": "emphasis", "fromSide": "right", "toSide": "left" },
-    { "id": "spawn-console", "from": "agent", "to": "pty", "label": "spawn and supervise", "fromSide": "right", "toSide": "left" },
-    { "id": "run-provider", "from": "pty", "to": "claudecode", "label": "runs the selected provider", "fromSide": "top", "toSide": "bottom" },
-    { "id": "prepare-checkout", "from": "agent", "to": "worktrees", "label": "prepare branch or worktree", "fromSide": "right", "toSide": "left" },
-    { "id": "loopback-console", "from": "desktop", "to": "agent", "label": "private loopback API", "variant": "security", "fromSide": "top", "toSide": "bottom" },
-    { "id": "cli-stdio", "from": "claudecode", "to": "bridge", "label": "MCP stdio", "variant": "dashed", "fromSide": "left", "toSide": "right" },
-    { "id": "bridge-upstream", "from": "bridge", "to": "mcpsvc", "label": "loopback secret exchanged upstream", "variant": "security", "fromSide": "left", "toSide": "right" }
+    {
+      "id": "ui-rest",
+      "from": "browser",
+      "to": "server",
+      "label": "REST + SSE",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "tracker-sync",
+      "from": "server",
+      "to": "trackers",
+      "label": "REST / GraphQL jobs",
+      "fromSide": "left",
+      "toSide": "bottom"
+    },
+    {
+      "id": "sqlite-state",
+      "from": "server",
+      "to": "db",
+      "label": "projects, tasks, activities",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 60
+    },
+    {
+      "id": "mcp-hosting",
+      "from": "server",
+      "to": "mcpsvc",
+      "label": "nine typed tools",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "agent-relay",
+      "from": "server",
+      "to": "agent",
+      "label": "authenticated WebSocket",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": 30
+    },
+    {
+      "id": "spawn-console",
+      "from": "agent",
+      "to": "pty",
+      "label": "spawn and supervise",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "run-provider",
+      "from": "pty",
+      "to": "claudecode",
+      "label": "runs the selected provider",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "prepare-checkout",
+      "from": "agent",
+      "to": "worktrees",
+      "label": "prepare branch or worktree",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "loopback-console",
+      "from": "desktop",
+      "to": "agent",
+      "label": "private loopback API",
+      "variant": "security",
+      "fromSide": "top",
+      "toSide": "bottom"
+    },
+    {
+      "id": "cli-stdio",
+      "from": "claudecode",
+      "to": "bridge",
+      "label": "MCP stdio",
+      "variant": "dashed",
+      "fromSide": "left",
+      "toSide": "right"
+    },
+    {
+      "id": "bridge-upstream",
+      "from": "bridge",
+      "to": "agent",
+      "label": "loopback gateway, per-session secret",
+      "variant": "security",
+      "labelDy": 24
+    },
+    {
+      "id": "agent-upstream",
+      "from": "agent",
+      "to": "mcpsvc",
+      "label": "device credential upstream",
+      "variant": "security",
+      "labelDy": 22
+    }
   ],
   "cards": [
-    { "dot": "cyan", "title": "Control plane", "items": ["HTTP routes, embedded assets, SQLite startup", "Tracker jobs run with no agent connected", "Excludes runner, workspace and terminal"] },
-    { "dot": "emerald", "title": "Workstation", "items": ["Owns PTYs, queue admission, supervision", "Repositories are never cloned implicitly", "Closing Electron keeps executions running"] },
-    { "dot": "violet", "title": "MCP surface", "items": ["Nine typed tools under the sectile identity", "Claude Code reaches them via sectile-agent mcp", "The bridge never opens SQLite"] },
-    { "dot": "rose", "title": "Trust boundaries", "items": ["Pairing uses a single-use, short-lived code", "Loopback APIs reject cross-origin access", "The server never reads a local checkout"] }
+    {
+      "dot": "cyan",
+      "title": "Control plane",
+      "items": [
+        "HTTP routes, embedded assets, SQLite startup",
+        "Tracker jobs run with no agent connected",
+        "Excludes runner, workspace and terminal"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Workstation",
+      "items": [
+        "Owns PTYs, queue admission, supervision",
+        "Repositories are never cloned implicitly",
+        "Closing Electron keeps executions running"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "MCP surface",
+      "items": [
+        "Nine typed tools under the sectile identity",
+        "Claude Code reaches them via sectile-agent mcp",
+        "The bridge never opens SQLite"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Trust boundaries",
+      "items": [
+        "Pairing uses a single-use, short-lived code",
+        "Loopback APIs reject cross-origin access",
+        "The server never reads a local checkout"
+      ]
+    }
   ]
 }
