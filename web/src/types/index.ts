@@ -311,6 +311,16 @@ export interface DetectedStatus {
   source?: string
 }
 
+/**
+ * Un lien de pull request porté par un ticket. La branche est conservée avec
+ * l'URL : c'est elle qui distingue une PR de suite sur la même branche d'une PR
+ * substituée à une autre, sans rapport.
+ */
+export interface PullRequestLink {
+  url: string
+  branch?: string
+}
+
 export interface Task {
   id: string
   projectId?: string
@@ -325,7 +335,10 @@ export interface Task {
   position: number
   dueDate?: string | null
   branchName?: string
+  /** Pull request courante du ticket : toujours le dernier lien de `prLinks`. */
   prUrl?: string
+  /** Ensemble ordonné des pull requests du ticket, de la plus ancienne à la courante. */
+  prLinks?: PullRequestLink[]
   /** Répertoire de travail propre au ticket. Vide = hérite du projet, puis du réglage global. */
   repoPath?: string
   /** Statut brut du tracker, tel qu'il l'écrit (« Dev Test », « To Merge »…). */

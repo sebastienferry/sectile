@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     external_id TEXT DEFAULT '',
     external_url TEXT DEFAULT '',
     branch_name TEXT,
-    pr_url TEXT,
+    pr_url TEXT,                          -- the task's current pull request: always the last entry of pr_links
+    pr_links TEXT NOT NULL DEFAULT '[]',  -- ordered set of [{url, branch}], oldest first; one ticket routinely produces several PRs
     repo_path TEXT NOT NULL DEFAULT '',  -- per-ticket CWD override; empty means inherit the project, then the global setting
     worktree_path TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

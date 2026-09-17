@@ -253,6 +253,7 @@ func (d *DB) initSchema() error {
 			due_date TEXT,
 			branch_name TEXT,
 			pr_url TEXT,
+			pr_links TEXT NOT NULL DEFAULT '[]',
 			repo_path TEXT NOT NULL DEFAULT '',
 			sprint TEXT NOT NULL DEFAULT '',
 			team TEXT NOT NULL DEFAULT '',
@@ -369,6 +370,18 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_pinned ON tasks(pinned);")
 	d.migrateTasksKeyUnique()
 	d.migratePinnedTasks()
+	// pr_links : l'ensemble ordonné des pull requests d'un ticket. Un ticket
+	// produit couramment plusieurs PR — une première fusionnée, puis une suite
+	// poussée sur la même branche — et pr_url seule ne peut en tenir qu'une.
+	// Déclarée après la reconstruction historique de `tasks`, qui ne la connaît
+	// pas et l'effacerait.
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pr_links TEXT NOT NULL DEFAULT '[]';")
+	// Reprise des lignes existantes : la PR déjà enregistrée devient le seul
+	// lien de l'ensemble. Le garde-fou `pr_links = '[]'` rend l'ordre idempotent,
+	// et n'exhume pas un lien qu'un humain a détaché depuis l'interface.
+	_, _ = d.conn.Exec(`UPDATE tasks
+		SET pr_links = json_array(json_object('url', TRIM(pr_url), 'branch', COALESCE(branch_name, '')))
+		WHERE pr_links = '[]' AND pr_url IS NOT NULL AND TRIM(pr_url) != '';`)
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN prompt TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN started_at DATETIME;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN completed_at DATETIME;")
@@ -1235,7 +1248,7 @@ func (d *DB) GetTasks(query, status, priority, label, projectID, sprint, team, a
 		}
 	}
 
-	sqlQuery := "SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"
+	sqlQuery := "SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"
 	if len(conditions) > 0 {
 		sqlQuery += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -1252,6 +1265,7 @@ func (d *DB) GetTasks(query, status, priority, label, projectID, sprint, team, a
 		var t models.Task
 		var labelsJSON string
 		var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
+		var prLinksJSON sql.NullString
 		var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 		var statusStr, priorityStr string
 
@@ -1270,6 +1284,7 @@ func (d *DB) GetTasks(query, status, priority, label, projectID, sprint, team, a
 			&dueDate,
 			&branchName,
 			&prURL,
+			&prLinksJSON,
 			&repoPath,
 			&sprint,
 			&team,
@@ -1302,6 +1317,7 @@ func (d *DB) GetTasks(query, status, priority, label, projectID, sprint, team, a
 		if prURL.Valid {
 			t.PrURL = &prURL.String
 		}
+		t.PrLinks = decodePullRequestLinks(prLinksJSON.String)
 		if repoPath.Valid && repoPath.String != "" {
 			p := repoPath.String
 			t.RepoPath = &p
@@ -1370,11 +1386,12 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	var t models.Task
 	var labelsJSON string
 	var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
+	var prLinksJSON sql.NullString
 	var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 	var statusStr, priorityStr string
 
 	err := d.conn.QueryRow(`
-		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
+		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
 		FROM tasks WHERE id = ?
 	`, id).Scan(
 		&t.ID,
@@ -1391,6 +1408,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 		&dueDate,
 		&branchName,
 		&prURL,
+		&prLinksJSON,
 		&repoPath,
 		&sprint,
 		&team,
@@ -1410,7 +1428,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	)
 	if err == sql.ErrNoRows {
 		err = d.conn.QueryRow(`
-			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
+			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
 			FROM tasks WHERE key = ? LIMIT 1
 		`, id).Scan(
 			&t.ID,
@@ -1427,6 +1445,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 			&dueDate,
 			&branchName,
 			&prURL,
+			&prLinksJSON,
 			&repoPath,
 			&sprint,
 			&team,
@@ -1463,6 +1482,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	if prURL.Valid {
 		t.PrURL = &prURL.String
 	}
+	t.PrLinks = decodePullRequestLinks(prLinksJSON.String)
 	if repoPath.Valid && repoPath.String != "" {
 		p := repoPath.String
 		t.RepoPath = &p
@@ -2239,8 +2259,21 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 	if req.BranchName != nil {
 		existing.BranchName = req.BranchName
 	}
+	// PrLinks is the authority; PrURL is the last of the set. A caller that sends
+	// only the legacy single URL still records it as a link, and one that sends
+	// an empty set detaches every link, which is how a human corrects a task
+	// whose recorded PR was wrong.
+	if req.PrLinks != nil {
+		existing.PrLinks = models.NormalizePullRequestLinks(*req.PrLinks)
+		existing.PrURL = pullRequestURLValue(existing.PrLinks)
+	}
 	if req.PrURL != nil {
-		existing.PrURL = req.PrURL
+		branch := ""
+		if existing.BranchName != nil {
+			branch = *existing.BranchName
+		}
+		existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, *req.PrURL, branch)
+		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 
 	// Détection d'une étape agentique explicite dans les labels
@@ -2352,9 +2385,9 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 
 	_, err = d.conn.Exec(`
 		UPDATE tasks
-		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, repo_path = ?, tracker_status = ?, source = ?, external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
+		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = ?, external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
 		WHERE id = ?
-	`, existing.ProjectID, existing.Title, existing.Description, string(existing.Status), string(existing.Priority), string(labelsJSON), pinnedVal, existing.Assignee, existing.AssigneeAvatar, existing.Position, existing.DueDate, existing.BranchName, existing.PrURL, repoPathValue(existing.RepoPath), existing.TrackerStatus, existing.Source, existing.ExternalURL, existing.IssueType, existing.Sprint, existing.UpdatedAt, existing.ID)
+	`, existing.ProjectID, existing.Title, existing.Description, string(existing.Status), string(existing.Priority), string(labelsJSON), pinnedVal, existing.Assignee, existing.AssigneeAvatar, existing.Position, existing.DueDate, existing.BranchName, existing.PrURL, encodePullRequestLinks(existing.PrLinks), repoPathValue(existing.RepoPath), existing.TrackerStatus, existing.Source, existing.ExternalURL, existing.IssueType, existing.Sprint, existing.UpdatedAt, existing.ID)
 
 	if err != nil {
 		return nil, err
@@ -2617,11 +2650,12 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 	var t models.Task
 	var labelsJSON string
 	var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
+	var prLinksJSON sql.NullString
 	var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 	var statusStr, priorityStr string
 
 	err := d.conn.QueryRow(`
-		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
+		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
 		FROM tasks WHERE id = ?
 	`, id).Scan(
 		&t.ID,
@@ -2638,6 +2672,7 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 		&dueDate,
 		&branchName,
 		&prURL,
+		&prLinksJSON,
 		&repoPath,
 		&sprint,
 		&team,
@@ -2657,7 +2692,7 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 	)
 	if err == sql.ErrNoRows {
 		err = d.conn.QueryRow(`
-			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
+			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
 			FROM tasks WHERE key = ? LIMIT 1
 		`, id).Scan(
 			&t.ID,
@@ -2674,6 +2709,7 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 			&dueDate,
 			&branchName,
 			&prURL,
+			&prLinksJSON,
 			&repoPath,
 			&sprint,
 			&team,
@@ -2710,6 +2746,7 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 	if prURL.Valid {
 		t.PrURL = &prURL.String
 	}
+	t.PrLinks = decodePullRequestLinks(prLinksJSON.String)
 	if repoPath.Valid && repoPath.String != "" {
 		p := repoPath.String
 		t.RepoPath = &p

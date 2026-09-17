@@ -657,8 +657,13 @@ type Task struct {
 	Position       int      `json:"position"`
 	DueDate        *string  `json:"dueDate"`
 	BranchName     *string  `json:"branchName,omitempty"`
-	PrURL          *string  `json:"prUrl,omitempty"`
-	WorktreePath   *string  `json:"worktreePath,omitempty"`
+	// PrURL is the task's current pull request: always the last entry of
+	// PrLinks. One ticket routinely produces several PRs, so the set is the
+	// authority and this field is the one link the tracker comment, the
+	// transition contract and the cards carry.
+	PrURL        *string           `json:"prUrl,omitempty"`
+	PrLinks      []TaskPullRequest `json:"prLinks,omitempty"`
+	WorktreePath *string           `json:"worktreePath,omitempty"`
 	// RepoPath pins the repository this single ticket works in. It overrides the
 	// project's repoPath, for trackers where one epic spans several codebases.
 	// Empty means "inherit the project, then the global setting".
@@ -880,12 +885,15 @@ type UpdateTaskRequest struct {
 	DueDate           *string   `json:"dueDate,omitempty"`
 	BranchName        *string   `json:"branchName,omitempty"`
 	PrURL             *string   `json:"prUrl,omitempty"`
-	RepoPath          *string   `json:"repoPath,omitempty"`
-	TrackerStatus     *string   `json:"trackerStatus,omitempty"`
-	Sprint            *string   `json:"sprint,omitempty"`
-	Source            *string   `json:"source,omitempty"`
-	ExternalURL       *string   `json:"externalUrl,omitempty"`
-	IssueType         *string   `json:"issueType,omitempty"`
+	// PrLinks replaces the whole set. An empty slice detaches every link, which
+	// is how a human corrects a task that recorded the wrong pull request.
+	PrLinks       *[]TaskPullRequest `json:"prLinks,omitempty"`
+	RepoPath      *string            `json:"repoPath,omitempty"`
+	TrackerStatus *string            `json:"trackerStatus,omitempty"`
+	Sprint        *string            `json:"sprint,omitempty"`
+	Source        *string            `json:"source,omitempty"`
+	ExternalURL   *string            `json:"externalUrl,omitempty"`
+	IssueType     *string            `json:"issueType,omitempty"`
 }
 
 type Skill struct {
@@ -922,6 +930,14 @@ type CliStatus struct {
 	Path       string `json:"path"`
 	AuthStatus string `json:"authStatus"`
 	Details    string `json:"details"`
+}
+
+// TaskPullRequest is one pull request linked to a task. The branch is kept
+// alongside the URL: it is what tells a follow-up PR on the same branch from a
+// PR silently swapped for an unrelated one.
+type TaskPullRequest struct {
+	URL    string `json:"url"`
+	Branch string `json:"branch,omitempty"`
 }
 
 type ConvertTaskRequest struct {

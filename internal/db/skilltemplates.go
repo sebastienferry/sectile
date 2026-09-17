@@ -567,6 +567,9 @@ func renderTicketTransitionContract(s StageSkill) string {
 			b.WriteString("Include prUrl with the verified pull request URL.\n")
 		}
 	}
+	// Un ticket porte plusieurs PR : l'agent doit savoir qu'une PR de suite sur la
+	// même branche est légitime, sinon il croit la transition définitivement close.
+	b.WriteString("A task holds an ordered set of pull requests, `prUrl` being its current one. A pull request on a branch the task already used is a legitimate follow-up and is appended, even when the recorded one is merged; a pull request on an unrelated branch is refused, and its links are corrected from the task detail view rather than by forging evidence.\n")
 	b.WriteString("Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by Sectile. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.\n")
 	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
 	return b.String()
