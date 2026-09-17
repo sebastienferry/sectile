@@ -130,3 +130,71 @@ func TestUpsertUserIsIdempotentOnSubject(t *testing.T) {
 		t.Fatalf("same subject produced %q then %q", first, second)
 	}
 }
+
+// Listing is what the settings page calls before anything else, and a freshly
+// paired workstation has no last_seen yet. Reading that NULL back is what used
+// to fail the whole listing, so the never-seen case is the one to hold.
+func TestListDeviceCredentialsReadsANeverSeenWorkstation(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("okta|erin", "", "")
+	code, _, _ := database.CreatePairingCode(userID)
+	if _, _, err := database.RedeemPairingCode(code, "laptop"); err != nil {
+		t.Fatalf("redeem: %v", err)
+	}
+
+	devices, err := database.ListDeviceCredentials(userID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("listed %d workstations, want 1", len(devices))
+	}
+	if devices[0].Label != "laptop" {
+		t.Fatalf("label %q, want laptop", devices[0].Label)
+	}
+	// Never seen: the pairing date stands in, rather than a zero time.
+	if !devices[0].LastSeen.Equal(devices[0].CreatedAt) {
+		t.Fatalf("never-seen workstation reported %v, want its pairing date %v",
+			devices[0].LastSeen, devices[0].CreatedAt)
+	}
+}
+
+func TestListDeviceCredentialsReportsTheLastCall(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("okta|frank", "", "")
+	code, _, _ := database.CreatePairingCode(userID)
+	token, _, _ := database.RedeemPairingCode(code, "desktop")
+
+	if got := database.UserForDeviceToken(token); got != userID {
+		t.Fatalf("token resolved to %q, want %q", got, userID)
+	}
+	devices, err := database.ListDeviceCredentials(userID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(devices) != 1 {
+		t.Fatalf("listed %d workstations, want 1", len(devices))
+	}
+	if devices[0].LastSeen.Before(devices[0].CreatedAt) {
+		t.Fatalf("last call %v predates the pairing %v", devices[0].LastSeen, devices[0].CreatedAt)
+	}
+}
+
+// A revoked workstation leaves the list rather than lingering as a dead row.
+func TestListDeviceCredentialsOmitsRevoked(t *testing.T) {
+	database := identityDB(t)
+	userID, _ := database.UpsertUser("okta|grace", "", "")
+	code, _, _ := database.CreatePairingCode(userID)
+	_, credential, _ := database.RedeemPairingCode(code, "laptop")
+	if err := database.RevokeDeviceCredential(userID, credential.ID); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+
+	devices, err := database.ListDeviceCredentials(userID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(devices) != 0 {
+		t.Fatalf("listed %d workstations, want none", len(devices))
+	}
+}
