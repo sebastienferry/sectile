@@ -14,7 +14,6 @@ import (
 	"tasks/internal/models"
 	"tasks/internal/runner"
 	"tasks/internal/workspace"
-	"time"
 )
 
 // operationRegistry tracks the in-flight workspace operations that the server
@@ -85,10 +84,7 @@ func (d *agentDaemon) handleOperation(ctx context.Context, conn *websocket.Conn,
 		}
 	}
 	raw, _ := json.Marshal(res)
-	d.link.mu.Lock()
-	defer d.link.mu.Unlock()
-	_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	_ = conn.WriteJSON(agentprotocol.Message{MsgID: msg.MsgID, TaskID: msg.TaskID, Type: "workspace_result", Payload: raw})
+	_ = d.link.write(conn, agentprotocol.Message{MsgID: msg.MsgID, TaskID: msg.TaskID, Type: "workspace_result", Payload: raw})
 }
 func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Operation) (any, error) {
 	if op.ProjectID == "" {

@@ -2,11 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"tasks/internal/agentprotocol"
 
 	"github.com/gorilla/websocket"
 )
@@ -21,11 +24,17 @@ type keepaliveFixture struct {
 	client *websocket.Conn
 	pongs  <-chan string
 	resume chan struct{}
+	// messages receives every data frame the server reads once resumed.
+	messages <-chan []byte
+	// clientDone is closed when the client read loop returns, which is how
+	// the agent's message loop learns that its connection is gone.
+	clientDone chan struct{}
 }
 
 func newKeepaliveFixture(t *testing.T) *keepaliveFixture {
 	t.Helper()
 	pongs := make(chan string, 16)
+	messages := make(chan []byte, 16)
 	resume := make(chan struct{})
 	serverConns := make(chan *websocket.Conn, 1)
 
@@ -42,8 +51,13 @@ func newKeepaliveFixture(t *testing.T) *keepaliveFixture {
 		// Read nothing until released: the client's writes back up.
 		<-resume
 		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
+			_, raw, err := conn.ReadMessage()
+			if err != nil {
 				return
+			}
+			select {
+			case messages <- raw:
+			default:
 			}
 		}
 	}))
@@ -59,10 +73,11 @@ func newKeepaliveFixture(t *testing.T) *keepaliveFixture {
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
-	f := &keepaliveFixture{server: <-serverConns, client: client, pongs: pongs, resume: resume}
+	f := &keepaliveFixture{server: <-serverConns, client: client, pongs: pongs, resume: resume, messages: messages, clientDone: make(chan struct{})}
 	// The client keeps processing control frames, as the agent's message loop
 	// does.
 	go func() {
+		defer close(f.clientDone)
 		for {
 			if _, _, err := client.ReadMessage(); err != nil {
 				return
@@ -176,5 +191,57 @@ func TestHeartbeatKeepsAMarginBelowTheServerReadTimeout(t *testing.T) {
 	}
 	if serverReadTimeout/agentHeartbeatInterval < 4 {
 		t.Fatalf("heartbeat %s leaves fewer than four attempts before the %s timeout", agentHeartbeatInterval, serverReadTimeout)
+	}
+}
+
+// The regression of 2026-09-17. gorilla applies the last SetWriteDeadline to
+// every later data frame. An operation result set one five seconds ahead and
+// the heartbeat, which set none, inherited it once it had passed: on a healthy
+// loopback socket every heartbeat failed with "i/o timeout", the failure
+// poisoned the connection, and the server dropped the agent for silence 45s
+// later. A writer must never depend on the deadline another writer left.
+func TestHeartbeatDoesNotInheritAStaleWriteDeadline(t *testing.T) {
+	f := newKeepaliveFixture(t)
+	close(f.resume)
+	// What an earlier writer leaves behind once its own budget has passed.
+	_ = f.client.SetWriteDeadline(time.Now().Add(-time.Second))
+
+	d := &agentDaemon{}
+	if err := d.link.write(f.client, agentprotocol.Message{Type: "heartbeat"}); err != nil {
+		t.Fatalf("heartbeat failed on a healthy connection: %v", err)
+	}
+	select {
+	case raw := <-f.messages:
+		var msg agentprotocol.Message
+		if err := json.Unmarshal(raw, &msg); err != nil || msg.Type != "heartbeat" {
+			t.Fatalf("server read %q instead of a heartbeat", raw)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the heartbeat never reached the server")
+	}
+}
+
+// Once a write has failed gorilla refuses every later write, so the connection
+// cannot answer the server any more and would only be dropped for silence 45s
+// later. The heartbeat loop must hang up itself, so the read loop returns and
+// the reconnection starts at once.
+func TestFailedHeartbeatHangsUpInsteadOfWaitingForTheServer(t *testing.T) {
+	f := newKeepaliveFixture(t)
+	close(f.resume)
+	// Poison the connection the way the stale deadline did.
+	_ = f.client.SetWriteDeadline(time.Now().Add(-time.Second))
+	if err := f.client.WriteJSON(agentprotocol.Message{Type: "step_status"}); err == nil {
+		t.Fatal("the poisoning write succeeded: the test proves nothing")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	d := &agentDaemon{}
+	go d.heartbeatLoop(ctx, f.client, 10*time.Millisecond)
+
+	select {
+	case <-f.clientDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read loop is still blocked on a connection that can no longer write")
 	}
 }
