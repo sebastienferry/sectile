@@ -625,6 +625,13 @@ content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 The profile is a placeholder for future account management.
 
+### Formatting and checks
+
+Go sources are `gofmt`-clean: `gofmt -l .` must report nothing at the repository
+root. `make test` enforces it through its `fmt-check` dependency, so an
+unformatted file fails the suite before any test runs. Run `gofmt -w .` to fix
+it, or `make fmt-check` to see the offending files on their own.
+
 ### Execution modes
 
 A skill run is either **interactive** (a terminal window you answer, and the

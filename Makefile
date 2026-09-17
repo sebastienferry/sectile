@@ -4,7 +4,7 @@ EXE := $(if $(filter windows,$(shell go env GOOS)),.exe,)
 DESKTOP_AGENT := desktop/bin/sectile-agent$(EXE)
 .PHONY: help build-all build-server build-agent build-app build-app-package build-release \
         all build server server-build agent agent-build binary-build desktop desktop-build desktop-package build-desktop build-desktop-package release \
-        web-deps desktop-deps start serve run test clean reset-db
+        web-deps desktop-deps start serve run fmt-check test clean reset-db
 
 # Node dependencies are reinstalled as soon as a lockfile moves, so a build never
 # starts with a package missing from node_modules. The stamp keeps repeat builds
@@ -73,7 +73,18 @@ run: build-agent desktop-deps ## Run the desktop app from source (Vite build + E
 	cd desktop && npm run build
 	cd desktop && npm start
 
-test: web-deps ## Run Go and web test suites
+# `gofmt -l` exits 0 whether or not it lists files, so the recipe inspects its
+# output itself instead of relying on the exit code.
+fmt-check: ## Fail if any Go source is not gofmt-clean
+	@out=$$(gofmt -l .); \
+	if [ -n "$$out" ]; then \
+		echo "Not gofmt-clean:"; \
+		echo "$$out" | sed 's/^/  /'; \
+		echo "Fix with: gofmt -w ."; \
+		exit 1; \
+	fi
+
+test: fmt-check web-deps ## Run Go and web test suites
 	go test ./...
 	cd web && npm test && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
 
