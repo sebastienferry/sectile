@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { readFile } from 'node:fs/promises'
-import ts from 'typescript'
-const source = await readFile(new URL('../src/lib/remoteRunIndicator.ts', import.meta.url), 'utf8')
-const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { deriveRunIndicator, activeTaskIds, CANCELED_VISIBILITY_MS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+import { deriveRunIndicator, activeTaskIds, CANCELED_VISIBILITY_MS } from '../src/lib/remoteRunIndicator.ts'
 
 const NOW = Date.parse('2026-01-01T12:00:00Z')
 const AGENT_OWNED = 'Agent-owned remote execution'
