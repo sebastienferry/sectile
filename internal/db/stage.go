@@ -61,7 +61,7 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	}
 	skillForStage := map[string]string{"specified": "specify", "implemented": "implement", "reviewed": "adjust"}[cleanStage]
 	if skillForStage != "" {
-		verified, err := d.validateStagePR(task, skillForStage, d.adjustmentCheckout(task), branchForPR, strings.TrimSpace(prURL), "")
+		verified, err := d.validateStagePR(task, skillForStage, d.adjustmentCheckout(task), branchForPR, strings.TrimSpace(prURL))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -72,19 +72,11 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	}
 	proj, _ := d.GetProjectByID(task.ProjectID)
 
-	// Determine internal status for the stage
-	var newStatus models.Status
-	if proj != nil && len(proj.StageMapping) > 0 {
-		if mapped, ok := proj.StageMapping[cleanStage]; ok && mapped != "" {
-			newStatus = models.Status(mapped)
-		}
-	}
-	if newStatus == "" {
-		if st, ok := InternalStatusForStage(cleanStage); ok {
-			newStatus = st
-		} else {
-			newStatus = task.Status
-		}
+	// The six stages are the six internal statuses, so the fold is fixed and
+	// needs no per-project configuration.
+	newStatus := task.Status
+	if st, ok := InternalStatusForStage(cleanStage); ok {
+		newStatus = st
 	}
 
 	// Determine tracker status target from project column mapping
@@ -140,14 +132,22 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 			return err
 		}
 		defer tx.Rollback()
-		pr := task.PrURL
+		// The set is the authority and pr_url is its last link, so both are
+		// written by the same statement: a follow-up PR on the task branch is
+		// appended rather than replacing the PR the task already carries.
+		links := task.PrLinks
 		if mrURL != "" {
-			pr = &mrURL
+			linkBranch := branchForPR
+			if branchName != nil {
+				linkBranch = *branchName
+			}
+			links = models.AppendPullRequestLink(links, mrURL, linkBranch)
 		}
-		if _, err := tx.Exec(`UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, branch_name = ?, updated_at = ? WHERE id = ?`,
-			string(newStatus), string(labelsJSON), trackerStatus, pr, branchName, now, task.ID); err != nil {
+		if _, err := tx.Exec(`UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, pr_links = ?, branch_name = ?, updated_at = ? WHERE id = ?`,
+			string(newStatus), string(labelsJSON), trackerStatus, pullRequestURLValue(links), encodePullRequestLinks(links), branchName, now, task.ID); err != nil {
 			return err
 		}
+		task.PrLinks = links
 		if err := insertTaskActivity(tx, *activity); err != nil {
 			return err
 		}
@@ -162,7 +162,7 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	task.Labels = newLabels
 	task.TrackerStatus = trackerStatus
 	if mrURL != "" {
-		task.PrURL = &mrURL
+		task.PrURL = pullRequestURLValue(task.PrLinks)
 	}
 	if branchName != nil {
 		task.BranchName = branchName

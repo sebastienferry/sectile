@@ -23,10 +23,19 @@ func NewRunner() *Runner {
 }
 
 func GetDynamicCustomPath() string {
+	return dynamicCustomPathFor(runtime.GOOS)
+}
+
+// dynamicCustomPathFor builds the PATH prefix for a named platform. The Unix system directories
+// are meaningless on Windows, where prepending them would only push the real toolchain down.
+func dynamicCustomPathFor(goos string) string {
 	homeDir, _ := os.UserHomeDir()
 	var parts []string
 	if homeDir != "" {
 		parts = append(parts, filepath.Join(homeDir, ".local", "bin"))
+	}
+	if goos == "windows" {
+		return strings.Join(parts, ";")
 	}
 	parts = append(parts, "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
 	return strings.Join(parts, ":")
@@ -63,7 +72,7 @@ func (r *Runner) runCommand(ctx context.Context, dir string, name string, args .
 	foundPath := false
 	for i, e := range env {
 		if strings.HasPrefix(e, "PATH=") {
-			env[i] = "PATH=" + customPath + ":" + strings.TrimPrefix(e, "PATH=")
+			env[i] = "PATH=" + joinPath(customPath, strings.TrimPrefix(e, "PATH="))
 			foundPath = true
 			break
 		}
@@ -462,8 +471,9 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	steps = append(steps, engineStep)
 
 	// The custom-template branch substitutes the task placeholders first, then
-	// hands the resolved template to the shared dispatcher.
-	resolvedTemplate := settings.AICommandTemplate
+	// hands the resolved template to the shared dispatcher. Every run built here
+	// is headless, so the dedicated autonomous command wins when one is set.
+	resolvedTemplate := models.CommandTemplateForMode(settings.AICommandTemplate, settings.AICommandTemplateAutonomous, models.SkillModeAutonomous)
 	if resolvedTemplate != "" {
 		resolvedTemplate = strings.ReplaceAll(resolvedTemplate, "{issueKey}", task.Key)
 		resolvedTemplate = strings.ReplaceAll(resolvedTemplate, "{issueTitle}", task.Title)
@@ -590,7 +600,7 @@ func (r *Runner) RunAgentPrompt(ctx context.Context, settings *models.Settings, 
 		repoDir = cwd
 	}
 
-	out, steps, err := r.execAgentCommand(ctx, repoDir, provider, settings.AICommandTemplate, settings.AIModel, prompt)
+	out, steps, err := r.execAgentCommand(ctx, repoDir, provider, models.CommandTemplateForMode(settings.AICommandTemplate, settings.AICommandTemplateAutonomous, models.SkillModeAutonomous), settings.AIModel, prompt)
 	if err != nil {
 		return out, steps, fmt.Errorf("exécution de l'agent %s impossible: %w", provider, err)
 	}
@@ -1030,160 +1040,10 @@ func (r *Runner) OpenInEditor(editorCmd string, targetPath string) error {
 	}
 
 	cmd := exec.Command(bin, args...)
-	cmd.Env = append(os.Environ(), "PATH="+GetDynamicCustomPath()+":"+os.Getenv("PATH"))
+	cmd.Env = append(os.Environ(), "PATH="+prefixedPath())
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to open in '%s': %w", editorCmd, err)
-	}
-	return nil
-}
-
-// OpenExternalTerminal opens a native host terminal window in the given directory,
-// with contextual environment variables and an optional initial command line.
-func (r *Runner) OpenExternalTerminal(customTermCmd string, targetPath string, initialCommand string, envVars map[string]string) error {
-	if targetPath == "" {
-		targetPath = "."
-	}
-	targetPath = filepath.Clean(targetPath)
-	if abs, err := filepath.Abs(targetPath); err == nil {
-		targetPath = abs
-	}
-
-	customTermCmd = strings.TrimSpace(customTermCmd)
-
-	// Create a temporary launcher script
-	tmpFile, err := os.CreateTemp("", "sectile-term-*.command")
-	if err != nil {
-		return fmt.Errorf("failed to create temporary terminal script: %w", err)
-	}
-	scriptPath := tmpFile.Name()
-
-	script, err := externalTerminalScript(targetPath, initialCommand, envVars)
-	if err != nil {
-		_ = tmpFile.Close()
-		_ = os.Remove(scriptPath)
-		return err
-	}
-
-	if _, err := tmpFile.WriteString(script); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("failed to write terminal script: %w", err)
-	}
-	tmpFile.Close()
-
-	if err := os.Chmod(scriptPath, 0700); err != nil {
-		return fmt.Errorf("failed to make terminal script executable: %w", err)
-	}
-
-	var cmd *exec.Cmd
-	termTrimmed := strings.TrimSpace(customTermCmd)
-	termLower := strings.ToLower(termTrimmed)
-
-	switch runtime.GOOS {
-	case "darwin":
-		if strings.Contains(termTrimmed, "{script}") || strings.Contains(termTrimmed, "{cmd}") {
-			rendered := strings.ReplaceAll(termTrimmed, "{script}", shellQuote(scriptPath))
-			rendered = strings.ReplaceAll(rendered, "{cmd}", shellQuote(scriptPath))
-			cmd = exec.Command("sh", "-c", rendered)
-		} else if strings.Contains(termLower, "ghostty") {
-			// Ghostty on macOS runs specific commands via `open -na Ghostty.app --args -e <script>`
-			if _, statErr := os.Stat("/Applications/Ghostty.app"); statErr == nil {
-				cmd = exec.Command("open", "-na", "/Applications/Ghostty.app", "--args", "-e", scriptPath)
-			} else {
-				cmd = exec.Command("open", "-na", "Ghostty", "--args", "-e", scriptPath)
-			}
-		} else if strings.Contains(termLower, "alacritty") {
-			if bin, err := exec.LookPath("alacritty"); err == nil {
-				cmd = exec.Command(bin, "-e", scriptPath)
-			} else {
-				cmd = exec.Command("open", "-a", "Alacritty", scriptPath)
-			}
-		} else if strings.Contains(termLower, "kitty") {
-			if bin, err := exec.LookPath("kitty"); err == nil {
-				cmd = exec.Command(bin, scriptPath)
-			} else {
-				cmd = exec.Command("open", "-a", "kitty", scriptPath)
-			}
-		} else if strings.Contains(termLower, "wezterm") {
-			if bin, err := exec.LookPath("wezterm"); err == nil {
-				cmd = exec.Command(bin, "start", "--", scriptPath)
-			} else {
-				cmd = exec.Command("open", "-a", "WezTerm", scriptPath)
-			}
-		} else if termTrimmed != "" {
-			parts := strings.Fields(termTrimmed)
-			if len(parts) == 1 && !strings.Contains(parts[0], "/") {
-				cmd = exec.Command("open", "-a", parts[0], scriptPath)
-			} else {
-				args := append(parts[1:], scriptPath)
-				cmd = exec.Command(parts[0], args...)
-			}
-		} else {
-			cmd = exec.Command("open", scriptPath)
-		}
-	case "windows":
-		if strings.Contains(termTrimmed, "{script}") || strings.Contains(termTrimmed, "{cmd}") {
-			rendered := strings.ReplaceAll(termTrimmed, "{script}", scriptPath)
-			rendered = strings.ReplaceAll(rendered, "{cmd}", scriptPath)
-			cmd = exec.Command("cmd.exe", "/c", rendered)
-		} else if strings.Contains(termLower, "wt") || strings.Contains(termLower, "windowsterminal") {
-			cmd = exec.Command("wt.exe", "new-tab", "cmd.exe", "/k", scriptPath)
-		} else {
-			cmd = exec.Command("cmd.exe", "/c", "start", scriptPath)
-		}
-	default: // linux / unix
-		if strings.Contains(termTrimmed, "{script}") || strings.Contains(termTrimmed, "{cmd}") {
-			rendered := strings.ReplaceAll(termTrimmed, "{script}", shellQuote(scriptPath))
-			rendered = strings.ReplaceAll(rendered, "{cmd}", shellQuote(scriptPath))
-			cmd = exec.Command("sh", "-c", rendered)
-		} else if strings.Contains(termLower, "ghostty") {
-			cmd = exec.Command("ghostty", "-e", scriptPath)
-		} else if strings.Contains(termLower, "alacritty") {
-			cmd = exec.Command("alacritty", "-e", scriptPath)
-		} else if strings.Contains(termLower, "kitty") {
-			cmd = exec.Command("kitty", scriptPath)
-		} else if strings.Contains(termLower, "wezterm") {
-			cmd = exec.Command("wezterm", "start", "--", scriptPath)
-		} else if termTrimmed != "" {
-			parts := strings.Fields(termTrimmed)
-			args := append(parts[1:], scriptPath)
-			cmd = exec.Command(parts[0], args...)
-		} else if _, err := exec.LookPath("x-terminal-emulator"); err == nil {
-			cmd = exec.Command("x-terminal-emulator", "-e", scriptPath)
-		} else if _, err := exec.LookPath("gnome-terminal"); err == nil {
-			cmd = exec.Command("gnome-terminal", "--", scriptPath)
-		} else if _, err := exec.LookPath("konsole"); err == nil {
-			cmd = exec.Command("konsole", "-e", scriptPath)
-		} else if _, err := exec.LookPath("xterm"); err == nil {
-			cmd = exec.Command("xterm", "-e", scriptPath)
-		} else {
-			_ = os.Remove(scriptPath)
-			return fmt.Errorf("no external terminal emulator found; configure externalTerminalCommand")
-		}
-	}
-
-	if cmd == nil {
-		return fmt.Errorf("unable to determine terminal launcher for OS %s", runtime.GOOS)
-	}
-
-	cmd.Env = append(os.Environ(), "PATH="+GetDynamicCustomPath()+":"+os.Getenv("PATH"))
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		_ = os.Remove(scriptPath)
-		return fmt.Errorf("failed to start external terminal: %w", err)
-	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
-	select {
-	case err := <-done:
-		if err != nil {
-			_ = os.Remove(scriptPath)
-			return fmt.Errorf("external terminal launcher failed: %w: %s", err, strings.TrimSpace(stderr.String()))
-		}
-	case <-time.After(250 * time.Millisecond):
-		// Terminal emulators may remain alive until their window closes. The
-		// waiter reaps them without blocking the HTTP request for that lifetime.
 	}
 	return nil
 }

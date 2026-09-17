@@ -41,7 +41,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		TrackerURL: p.TrackerUrl, JiraProject: p.JiraProject, GitRemoteURL: p.GitRemoteUrl, GithubRepo: p.GithubRepo, IssueTracker: p.IssueTracker,
 		SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage,
 		DefaultSkillMode: models.NormalizeSkillMode(p.DefaultSkillMode), FullChainStopStage: models.NormalizeFullChainStopStage(p.FullChainStopStage),
-		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, ExternalTerminalCommand: p.ExternalTerminalCommand,
+		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, AICommandTemplateAutonomous: p.AICommandTemplateAutonomous, ExternalTerminalCommand: p.ExternalTerminalCommand,
 		SetupProviders: models.NormalizeSetupProviders(p.SetupProviders),
 	}
 	if c.GithubRepo == "" {
@@ -59,10 +59,17 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	if c.AICommandTemplate == "" {
 		c.AICommandTemplate = s.AICommandTemplate
 	}
+	// The two commands are inherited independently: a project that spells out only
+	// one of them keeps the other from the global settings.
+	if c.AICommandTemplateAutonomous == "" {
+		c.AICommandTemplateAutonomous = s.AICommandTemplateAutonomous
+	}
 	// Legacy rows store a bare CLI name here; the runner never used it, so the agent must not see it.
 	c.AICommandTemplate = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplate)
-	// The project speaks over the global settings, level by level: a bare project
-	// model outranks a global per-skill entry, which is what MergeModels encodes.
+	c.AICommandTemplateAutonomous = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplateAutonomous)
+	// The project speaks over the global settings, level by level, but the most
+	// specific statement wins: a global per-skill entry survives a bare project
+	// model, which is what MergeModels encodes.
 	aiModels := agentconfig.MergeModels(
 		agentconfig.ModelConfig{Model: p.AIModel, SkillModels: p.AISkillModels},
 		agentconfig.ModelConfig{Model: s.AIModel, SkillModels: s.AISkillModels},

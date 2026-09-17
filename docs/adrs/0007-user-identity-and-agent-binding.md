@@ -1,6 +1,6 @@
 # ADR 0007: User identity and agent binding
 
-Status: Accepted
+Status: Accepted; superseded in part by [ADR 0011](0011-one-api-key-for-agent-and-mcp.md), which replaces the loopback session secret with the workstation API key and keeps the identity binding.
 
 ## Context
 

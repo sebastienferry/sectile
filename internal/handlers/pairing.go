@@ -7,9 +7,28 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"tasks/internal/db"
 )
+
+// apiKeyRequest is the body of a key creation or renewal. TTLDays absent means
+// the default period; zero means a key without expiry.
+type apiKeyRequest struct {
+	Label   string `json:"label"`
+	TTLDays *int   `json:"ttlDays"`
+}
+
+// ttl turns the requested period into a duration.
+func (r apiKeyRequest) ttl() time.Duration {
+	if r.TTLDays == nil {
+		return db.DefaultAPIKeyTTL
+	}
+	if *r.TTLDays <= 0 {
+		return 0
+	}
+	return time.Duration(*r.TTLDays) * 24 * time.Hour
+}
 
 // ImplicitUser is the single user a deployment has before an identity provider
 // is configured. Paths that run without an HTTP request name it explicitly,
@@ -119,7 +138,9 @@ func (h *Handler) HandleAgentPair(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleDeviceCredentials lists and revokes the signed-in user's workstations.
+// HandleDeviceCredentials manages the signed-in user's API keys: GET lists
+// them, POST creates one and returns its plaintext exactly once, PUT renews or
+// clears the expiry of one, DELETE revokes one.
 func (h *Handler) HandleDeviceCredentials(w http.ResponseWriter, r *http.Request) {
 	userID := h.webSessionUser(r)
 	if userID == "" {
@@ -127,6 +148,42 @@ func (h *Handler) HandleDeviceCredentials(w http.ResponseWriter, r *http.Request
 		return
 	}
 	switch r.Method {
+	case http.MethodPost:
+		if _, err := h.db.UpsertUser(userID, "", ""); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		var payload apiKeyRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&payload); err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid API key request")
+			return
+		}
+		token, credential, err := h.db.CreateAPIKey(userID, payload.Label, payload.ttl())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]interface{}{
+			"token":  token,
+			"device": credential,
+		})
+	case http.MethodPut:
+		id := strings.TrimSpace(r.URL.Query().Get("id"))
+		if id == "" {
+			writeError(w, http.StatusBadRequest, "A device id is required")
+			return
+		}
+		var payload apiKeyRequest
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&payload); err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid API key request")
+			return
+		}
+		expires, err := h.db.RenewDeviceCredential(userID, id, payload.ttl())
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"renewed": id, "expiresAt": expires})
 	case http.MethodGet:
 		credentials, err := h.db.ListDeviceCredentials(userID)
 		if err != nil {

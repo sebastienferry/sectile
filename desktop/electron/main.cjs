@@ -1,9 +1,9 @@
-const {app,BrowserWindow,ipcMain,dialog,safeStorage,shell}=require('electron')
+const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell}=require('electron')
 const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
 const {checkServer}=require('./server-check.cjs')
-const {exchangePairingCode}=require('./pairing.cjs')
+const {exchangePairingCode,resolveConnectCredential}=require('./pairing.cjs')
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
@@ -42,14 +42,25 @@ async function connectAgent(){
  return false
 }
 ipcMain.handle('connect',connectAgent)
+// The API key goes in the settings file either way: encrypted with the OS
+// store when there is one, in clear under the same 0600 permissions otherwise.
+// A pairing code is single use, so a key that was not saved would be lost.
+function storeKey(saved,token){
+ if(safeStorage.isEncryptionAvailable()){saved.secret=safeStorage.encryptString(token).toString('base64');delete saved.apiKey}
+ else{saved.apiKey=token;delete saved.secret}
+}
+function storedKey(saved){
+ if(saved.secret&&safeStorage.isEncryptionAvailable())return safeStorage.decryptString(Buffer.from(saved.secret,'base64'))
+ return saved.apiKey||''
+}
 ipcMain.handle('pair',async(_,{server,code,label})=>{
  const credential=await exchangePairingCode(server,code,label)
  let previous={}
  try{previous=readSettings()}catch{}
  const saved={...previous,server,deviceId:credential.deviceId}
  delete saved.binary
+ storeKey(saved,credential.token)
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
- if(safeStorage.isEncryptionAvailable())saved.secret=safeStorage.encryptString(credential.token).toString('base64')
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
  return {deviceId:credential.deviceId,token:credential.token}
@@ -67,7 +78,7 @@ function readSettings(){
 ipcMain.handle('settings',()=>{
  try{
   const saved=readSettings()
-  return {...saved,token:saved.secret&&safeStorage.isEncryptionAvailable()?safeStorage.decryptString(Buffer.from(saved.secret,'base64')):'',secret:undefined}
+  return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
  }catch{return {}}
 })
 ipcMain.handle('start',async(_,settings)=>{
@@ -77,8 +88,11 @@ ipcMain.handle('start',async(_,settings)=>{
   if(await connectAgent())return true
   const url=new URL(settings.server)
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Use an HTTP or HTTPS server URL')
-  if(!settings.token)throw Error('Authentication token is required')
-  await checkServer(url,settings.token)
+  // A pairing code is spent here, once the server address is known to be usable:
+  // burning a single-use code on a malformed URL would cost the user a new one.
+  const credential=await resolveConnectCredential(settings)
+  const token=credential.token
+  await checkServer(url,token)
   // Preserve existing mappings when upgrading; new installations use private app data.
   let previous={}
   try{previous=readSettings()}catch{}
@@ -90,9 +104,10 @@ ipcMain.handle('start',async(_,settings)=>{
   let legacy={}
   try{legacy=JSON.parse(fs.readFileSync(path.join(repo,'.taskflow','agent.json'),'utf8'))}catch{}
   const saved={...legacy,...previous,server:settings.server,repo}
+  if(credential.deviceId)saved.deviceId=credential.deviceId
   delete saved.binary
   fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
-  if(safeStorage.isEncryptionAvailable())saved.secret=safeStorage.encryptString(settings.token).toString('base64')
+  storeKey(saved,token)
   fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
   fs.renameSync(settingsPath()+'.tmp',settingsPath())
   const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
@@ -100,7 +115,7 @@ ipcMain.handle('start',async(_,settings)=>{
   if(fs.existsSync(info))fs.unlinkSync(info)
   const child=spawn(binary,['--desktop-info',info,'--url',settings.server,'--repo',repo],{
    detached:true,stdio:['ignore',output,output],
-   env:{...process.env,TOKEN:settings.token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
+   env:{...process.env,TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
   })
   let spawnError
   child.on('error',error=>{spawnError=error})
@@ -232,9 +247,14 @@ ipcMain.handle('attach',(_,id)=>{
 })
 ipcMain.on('terminal-input',(_,data)=>{if(socket?.readyState===WebSocket.OPEN&&typeof data==='string')socket.send(JSON.stringify({type:'input',data}))})
 ipcMain.on('terminal-resize',(_,size)=>{if(socket?.readyState===WebSocket.OPEN&&size.cols>0&&size.rows>0)socket.send(JSON.stringify({type:'resize',...size}))})
+Menu.setApplicationMenu(process.platform==='darwin'?Menu.buildFromTemplate([{role:'appMenu'},{role:'editMenu'},{role:'windowMenu'}]):null)
 function openWindow(){
  if(window&&!window.isDestroyed()){window.show();return}
- window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
+ // The window draws its own title bar: the app header is the title bar, and the system buttons are
+ // painted over it in the app's colours. macOS keeps its traffic lights, positioned to sit centred
+ // in that 68px header. The renderer asks the overlay itself where the buttons ended up, so the
+ // header can keep their strip clear whatever the platform draws.
+ window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',titleBarStyle:'hidden',titleBarOverlay:{color:'#11151c',symbolColor:'#d8e0ec',height:68},trafficLightPosition:{x:18,y:25},webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))

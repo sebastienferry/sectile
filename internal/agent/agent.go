@@ -49,6 +49,13 @@ const (
 	// declared temporary, discards the pong without a word. Waiting instead of
 	// giving up is safe here because the pong is written off the read loop.
 	agentPongWriteTimeout = 20 * time.Second
+	// agentWriteTimeout bounds every data frame the agent writes to the server.
+	// It is set by the one write helper, serverLink.write, and by nothing else:
+	// gorilla remembers the last SetWriteDeadline and applies it to every later
+	// data frame, so a writer that sets none inherits whatever the previous
+	// writer left. That is how a five-second deadline set by an operation result
+	// failed the next heartbeat with "i/o timeout" on a healthy loopback socket.
+	agentWriteTimeout = 5 * time.Second
 )
 
 // agentDaemon runs the local Sectile agent that connects outward to a remote
@@ -88,6 +95,19 @@ type serverLink struct {
 	conn      *websocket.Conn
 }
 
+// write sends one message to the server under the link's write mutex with a
+// fresh deadline. Every data frame the agent sends goes through here so no
+// writer can leave a stale deadline for the next one to trip over (see
+// agentWriteTimeout). gorilla records the first write error and refuses every
+// write after it, so a caller that gets an error is holding a dead connection
+// and should hang up rather than wait for the server to notice the silence.
+func (l *serverLink) write(conn *websocket.Conn, msg agentprotocol.Message) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	_ = conn.SetWriteDeadline(time.Now().Add(agentWriteTimeout))
+	return conn.WriteJSON(msg)
+}
+
 // terminalChoice is which native terminal application consoles open in, and
 // the PTY manager that runs them. explicit records that the user named the
 // application, so a detected default is never mistaken for a deliberate choice.
@@ -97,9 +117,12 @@ type terminalChoice struct {
 	manager  *terminal.Manager
 }
 
-// detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app)
+// detectDefaultTerminal detects installed terminal apps on macOS (Ghostty, iTerm, Terminal.app).
+// Windows has no usable pseudo-terminal, so it names the host console instead: claiming "pty"
+// there only produced an unsupported-PTY failure on every dispatch.
 func detectDefaultTerminal() string {
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		if _, err := os.Stat("/Applications/Ghostty.app"); err == nil {
 			return "ghostty"
 		}
@@ -107,6 +130,11 @@ func detectDefaultTerminal() string {
 			return "iterm"
 		}
 		return "terminal"
+	case "windows":
+		if _, err := exec.LookPath("wt.exe"); err == nil {
+			return "wt"
+		}
+		return "cmd"
 	}
 	return "pty"
 }
@@ -121,11 +149,12 @@ func resolveServerURL(flagURL string) string {
 	return ""
 }
 
-// validLoopbackRequest accepts a local caller that presents this session's
-// secret. Comparison is constant time: the gateway answers unauthenticated
-// callers, so a timing oracle would be reachable by any local process.
+// validLoopbackRequest accepts a local caller that presents the workstation's
+// own API key, the same credential the server would take from it directly.
+// Comparison is constant time: the gateway answers unauthenticated callers, so
+// a timing oracle would be reachable by any local process.
 func (d *agentDaemon) validLoopbackRequest(r *http.Request) bool {
-	if d.loopback.token == "" {
+	if d.link.token == "" {
 		return false
 	}
 	header := r.Header.Get("Authorization")
@@ -133,7 +162,7 @@ func (d *agentDaemon) validLoopbackRequest(r *http.Request) bool {
 		return false
 	}
 	presented := strings.TrimPrefix(header, "Bearer ")
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(d.loopback.token)) == 1
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(d.link.token)) == 1
 }
 
 // runningUnderTest reports whether this process is a test binary. Only the
@@ -147,8 +176,8 @@ func runningUnderTest() bool {
 // Run starts the workstation daemon and blocks until it stops.
 func Run(args []string) {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
-	serverURL := fs.String("url", "", "Remote Sectile server URL (e.g. https://sectile.example.com)")
-	token := fs.String("token", "", "Authentication token for the remote server")
+	serverURL := fs.String("url", "", "Remote Sectile server URL (e.g. https://sectile.example.com); defaults to the server paired with")
+	token := fs.String("token", "", "Workstation API key (defaults to TOKEN, then to the key stored by `sectile-agent pair`)")
 	projectID := fs.String("project", "all", "Project primary key, or all for multi-project operation")
 	deviceID := fs.String("device", "", "Device identifier (defaults to hostname)")
 	terminalApp := fs.String("terminal", "", "Deprecated compatibility option; executions use agent-owned consoles")
@@ -160,22 +189,25 @@ func Run(args []string) {
 	echoConsoles := fs.Bool("echo-consoles", false, "Mirror console output on this terminal (debugging; consoles are readable from the desktop)")
 	_ = fs.Parse(args)
 
+	// A paired workstation remembers its server and its key, so neither flag
+	// nor variable is needed after `sectile-agent pair`.
+	stored, _ := agentconfig.ReadConnection()
 	resolvedURL := resolveServerURL(*serverURL)
 	if resolvedURL == "" {
-		fmt.Fprintln(os.Stderr, "Error: --url is required (or set REMOTE_URL)")
+		resolvedURL = stored.Server
+	}
+	if resolvedURL == "" {
+		fmt.Fprintln(os.Stderr, "Error: --url is required (or set REMOTE_URL, or pair this workstation with `sectile-agent pair`)")
 		fs.Usage()
 		os.Exit(1)
 	}
 	*serverURL = resolvedURL
 
+	*token = resolveCredential(*token, os.Getenv("TOKEN"), resolvedURL, stored)
 	if *token == "" {
-		if envToken := os.Getenv("TOKEN"); envToken != "" {
-			*token = envToken
-		} else {
-			fmt.Fprintln(os.Stderr, "Error: --token is required (or set TOKEN)")
-			fs.Usage()
-			os.Exit(1)
-		}
+		fmt.Fprintln(os.Stderr, "Error: no API key for this server. Create one from the web profile and pass it with --token or TOKEN, or run `sectile-agent pair --url <server> --code <pairing code>` once.")
+		fs.Usage()
+		os.Exit(1)
 	}
 
 	if *deviceID == "" {
@@ -233,7 +265,6 @@ func Run(args []string) {
 	if daemon.loopback.desktopToken == "" {
 		daemon.loopback.desktopToken = rand.Text()
 	}
-	daemon.loopback.token = rand.Text()
 	if daemon.loopback.desktopInfo == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -333,6 +364,12 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 				// spelled out the cause, so the retry line only has to say the
 				// server has not been updated yet.
 				log.Printf("[Agent] Server still does not serve agent contract v%d (attempt %d). Retrying in %s...", agentconfig.Version, attempt, backoff)
+			} else if errors.Is(err, errAPIKeyExpired) {
+				// Nothing on the network will fix this; the owner has to renew
+				// the key. Say so in both languages the log already speaks,
+				// then keep retrying so a renewal is picked up without a restart.
+				log.Printf("[Agent] %v (attempt %d). Renew the key from the web profile; retrying in %s...", err, attempt, backoff)
+				fmt.Printf("\n⚠️  [Agent] Clé d'API expirée : renouvelez-la depuis votre profil sur %s\n\n", d.link.serverURL)
 			} else {
 				log.Printf("[Agent] Connection lost (attempt %d): %v. Reconnecting in %s...", attempt, err, backoff)
 			}
@@ -386,10 +423,10 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 			return
 		}
 		// Loopback alone is not an authorization: every local process can
-		// reach this port. Require the session secret before lending the
-		// user's identity to the caller.
+		// reach this port. Require the workstation's API key, the same
+		// credential the server itself would ask for.
 		if !d.validLoopbackRequest(r) {
-			http.Error(w, "Valid agent session token required", http.StatusUnauthorized)
+			http.Error(w, "Valid API key required", http.StatusUnauthorized)
 			return
 		}
 		if r.Host != fmt.Sprintf("127.0.0.1:%d", d.loopback.port) && r.Host != fmt.Sprintf("localhost:%d", d.loopback.port) {
@@ -427,6 +464,9 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 // connect establishes a single WebSocket connection and runs the message loop
 // until the connection is lost or the context is cancelled.
 func (d *agentDaemon) connect(ctx context.Context) error {
+	if err := d.checkIdentity(ctx); err != nil {
+		return err
+	}
 	if d.link.projectID == "all" {
 		projects, err := d.discoverProjects(ctx)
 		if err != nil {
@@ -486,7 +526,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	// Start heartbeat sender.
 	heartbeatCtx, heartbeatCancel := context.WithCancel(ctx)
 	defer heartbeatCancel()
-	go d.heartbeatLoop(heartbeatCtx, conn)
+	go d.heartbeatLoop(heartbeatCtx, conn, agentHeartbeatInterval)
 
 	installKeepalive(heartbeatCtx, conn)
 
@@ -542,9 +582,13 @@ func (d *agentDaemon) buildWSURL() (string, error) {
 }
 
 // heartbeatLoop sends periodic heartbeats to keep the connection alive and
-// detect stale connections.
-func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
-	ticker := time.NewTicker(agentHeartbeatInterval)
+// detect stale connections. A heartbeat that cannot be written closes the
+// connection: gorilla refuses every write after the first failure, so the
+// connection can no longer answer the server anyway, and hanging up at once
+// starts the reconnection instead of waiting for the server to drop the
+// silent agent 45s later.
+func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -552,14 +596,9 @@ func (d *agentDaemon) heartbeatLoop(ctx context.Context, conn *websocket.Conn) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			msg := agentprotocol.Message{
-				Type: "heartbeat",
-			}
-			d.link.mu.Lock()
-			err := conn.WriteJSON(msg)
-			d.link.mu.Unlock()
-			if err != nil {
-				log.Printf("[Agent] Heartbeat send failed: %v", err)
+			if err := d.link.write(conn, agentprotocol.Message{Type: "heartbeat"}); err != nil {
+				log.Printf("[Agent] Heartbeat send failed: %v. Hanging up to reconnect.", err)
+				_ = conn.Close()
 				return
 			}
 		}
@@ -596,13 +635,17 @@ func pongLoop(ctx context.Context, conn *websocket.Conn, pongs <-chan []byte) {
 		case <-ctx.Done():
 			return
 		case payload := <-pongs:
-			err := conn.WriteControl(websocket.PongMessage, payload, time.Now().Add(agentPongWriteTimeout))
+			started := time.Now()
+			err := conn.WriteControl(websocket.PongMessage, payload, started.Add(agentPongWriteTimeout))
 			if err == nil || errors.Is(err, websocket.ErrCloseSent) {
 				continue
 			}
 			// This is the failure that produced minutes of unexplained
-			// flapping with no trace anywhere: say it out loud.
-			log.Printf("[Agent] Could not answer the server keepalive after %s: %v. The server will drop this connection if it stays unanswered.", agentPongWriteTimeout, err)
+			// flapping with no trace anywhere: say it out loud, with the time
+			// actually spent. An immediate failure means the connection was
+			// already dead when the pong was attempted; a failure after the
+			// whole budget means the socket would not drain.
+			log.Printf("[Agent] Could not answer the server keepalive after %s: %v. The server will drop this connection if it stays unanswered.", time.Since(started).Round(time.Millisecond), err)
 			return
 		}
 	}
@@ -707,9 +750,7 @@ func (d *agentDaemon) handlePullTasks(ctx context.Context, conn *websocket.Conn,
 		Payload: raw,
 	}
 
-	d.link.mu.Lock()
-	_ = conn.WriteJSON(resp)
-	d.link.mu.Unlock()
+	_ = d.link.write(conn, resp)
 }
 
 // findRepoRoot finds the repository root containing .tasks and all worktrees
@@ -869,11 +910,15 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
 			return
 		}
-		if task.PrURL != nil && *task.PrURL != "" && *task.PrURL != pr.URL {
-			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "recorded PR does not match task branch")
+		// A task holds several PRs over its life. The forge PR is the task's own
+		// as long as it shares a branch with a recorded link, even when that link
+		// is merged; only a PR on an unrelated branch is a substitution. This is
+		// the same rule the server applies, shared through `models`.
+		if acceptErr := models.AcceptPullRequest(task.PrLinks, pr.URL, pr.Branch); acceptErr != nil {
+			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", acceptErr.Error())
 			return
 		}
-		if task.PrURL == nil || *task.PrURL == "" {
+		if models.CurrentPullRequest(task.PrLinks) != pr.URL {
 			raw, _ := json.Marshal(map[string]string{"prUrl": pr.URL})
 			req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.link.serverURL+"/api/tasks/"+url.PathEscape(taskRef), strings.NewReader(string(raw)))
 			if err != nil {
@@ -929,9 +974,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"SECTILE_TASK_ID":       taskRef,
 		"SECTILE_RUN_ID":        payload.RunID,
 		"SECTILE_REMOTE_MODE":   "true",
-		"SECTILE_AGENT_URL":     d.loopback.url,
+		"SECTILE_AGENT_URL":     d.link.serverURL,
 		"SECTILE_SERVER_URL":    d.link.serverURL,
-		"SECTILE_AGENT_TOKEN":   d.loopback.token,
+		"SECTILE_AGENT_TOKEN":   d.link.token,
 	}
 	if payload.ProjectID != "" {
 		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID
@@ -1022,9 +1067,7 @@ func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, su
 		Payload: payload,
 	}
 
-	d.link.mu.Lock()
-	_ = conn.WriteJSON(msg)
-	d.link.mu.Unlock()
+	_ = d.link.write(conn, msg)
 }
 
 func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override string) string {

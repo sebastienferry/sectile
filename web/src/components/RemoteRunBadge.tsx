@@ -3,10 +3,13 @@ import { Loader2, Clock, CircleSlash, CircleStop } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { deriveRunIndicator, type RunIndicatorState } from '../lib/remoteRunIndicator'
 
-const PRESENTATION: Record<RunIndicatorState, { label: string; className: string }> = {
-  running: { label: 'Remote execution running', className: 'border-cyan-500/30 bg-cyan-500/10 text-cyan-400' },
-  queued: { label: 'Remote execution queued', className: 'border-amber-500/30 bg-amber-500/10 text-amber-400' },
-  canceled: { label: 'Remote execution canceled', className: 'border-slate-500/30 bg-slate-500/10 text-slate-400' },
+// The indicator is a bare glyph: a filled box would read as an action button
+// competing with the card's own controls, and the state already carries in the
+// colour. Theme variables keep that colour in step with the rest of the UI.
+const PRESENTATION: Record<RunIndicatorState, { label: string; color: string }> = {
+  running: { label: 'Remote execution running', color: 'var(--run-active)' },
+  queued: { label: 'Remote execution queued', color: 'var(--status-warn)' },
+  canceled: { label: 'Remote execution canceled', color: 'var(--text-muted)' },
 }
 
 export function RemoteRunBadge({ taskId }: { taskId: string }) {
@@ -21,7 +24,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const { state, runs, cancelableRunIds, count } = indicator
   const presentation = PRESENTATION[state]
   const skills = runs.map(run => run.skillName).join(', ')
-  const stateLabel = presentation.label + (count > 1 ? ` (${count})` : '') + (skills ? ` — ${skills}` : '')
+  const stateLabel = presentation.label + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
 
   async function cancelRuns(runIds: string[], force = false) {
     setCanceling(true)
@@ -45,7 +48,9 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
     } finally { setCanceling(false) }
   }
 
-  const shape = 'inline-flex shrink-0 items-center justify-center rounded border p-1 ' + presentation.className
+  const shape = 'inline-flex shrink-0 items-center justify-center rounded p-0.5 bg-transparent border-0'
+  const interactive = ' cursor-pointer hover:brightness-125 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]'
+  const tint = { color: presentation.color }
   // The stop glyph replaces the state glyph only while the control is targeted.
   const showStop = cancelableRunIds.length > 0 && hovered && !canceling
   const StateIcon = state === 'running' ? Loader2 : state === 'queued' ? Clock : CircleSlash
@@ -56,7 +61,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
       : <StateIcon size={12} className={state === 'running' ? 'animate-spin' : undefined} aria-hidden="true" />
 
   if (cancelableRunIds.length === 0) {
-    return <span role="status" title={stateLabel} aria-label={stateLabel} className={shape}>{glyph}</span>
+    return <span role="status" title={stateLabel} aria-label={stateLabel} className={shape} style={tint}>{glyph}</span>
   }
 
   const actionLabel = canceling ? 'Stopping ' + skills : 'Stop ' + skills
@@ -66,7 +71,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
         title="The agent could not be reached. Close this run without stopping any local process."
         aria-label={'Force close ' + skills}
         onClick={event => { event.stopPropagation(); void cancelRuns(cancelableRunIds, true) }}
-        className={shape + ' hover:brightness-125 disabled:opacity-50'}>
+        className={shape + interactive} style={tint}>
         <CircleSlash size={12} aria-hidden="true" />
       </button>
     )
@@ -76,7 +81,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       onFocus={() => setHovered(true)} onBlur={() => setHovered(false)}
       onClick={event => { event.stopPropagation(); void cancelRuns(cancelableRunIds) }}
-      className={shape + ' hover:brightness-125 disabled:opacity-50'}>
+      className={shape + interactive} style={tint}>
       {glyph}
     </button>
   )

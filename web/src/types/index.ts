@@ -217,6 +217,18 @@ export interface Project {
   stageColumns?: Record<string, string[]>
   gitRemoteUrl?: string
   githubRepo: string
+  /**
+   * Paramètres de connexion propres au projet. Vide veut dire « ceux de la
+   * configuration utilisateur ». Les jetons ne sont jamais renvoyés : seul le
+   * drapeau `...TokenSet` dit qu'il y en a un.
+   */
+  githubApiUrl?: string
+  githubToken?: string
+  githubTokenSet?: boolean
+  gitlabUrl?: string
+  gitlabProject?: string
+  gitlabToken?: string
+  gitlabTokenSet?: boolean
   /** Jira project key used as `acli --project`, e.g. "PE". */
   jiraProject?: string
   issueTracker: IssueTracker
@@ -224,11 +236,11 @@ export interface Project {
   trackerUrl?: string
   isDefault: boolean
   taskCount?: number
-  stageMapping?: Record<WorkflowStage, string>
   skillOverrides?: Record<string, string>
   setupProviders?: string[]
   aiProvider?: AIProvider
   aiCommandTemplate?: string
+  aiCommandTemplateAutonomous?: string
   /** Modèle du moteur pour ce projet. Vide : le réglage global s'applique. */
   aiModel?: string
   /** Modèle par compétence (skillId -> modèle) pour celles qui s'écartent d'aiModel. */
@@ -299,6 +311,16 @@ export interface DetectedStatus {
   source?: string
 }
 
+/**
+ * Un lien de pull request porté par un ticket. La branche est conservée avec
+ * l'URL : c'est elle qui distingue une PR de suite sur la même branche d'une PR
+ * substituée à une autre, sans rapport.
+ */
+export interface PullRequestLink {
+  url: string
+  branch?: string
+}
+
 export interface Task {
   id: string
   projectId?: string
@@ -313,7 +335,10 @@ export interface Task {
   position: number
   dueDate?: string | null
   branchName?: string
+  /** Pull request courante du ticket : toujours le dernier lien de `prLinks`. */
   prUrl?: string
+  /** Ensemble ordonné des pull requests du ticket, de la plus ancienne à la courante. */
+  prLinks?: PullRequestLink[]
   /** Répertoire de travail propre au ticket. Vide = hérite du projet, puis du réglage global. */
   repoPath?: string
   /** Statut brut du tracker, tel qu'il l'écrit (« Dev Test », « To Merge »…). */
@@ -527,6 +552,7 @@ export interface UserSettings {
   userAvatar: string
   aiProvider: AIProvider
   aiCommandTemplate: string
+  aiCommandTemplateAutonomous?: string
   /** Modèle du moteur. Vide : le CLI garde son défaut. */
   aiModel?: string
   /** Modèle par compétence (skillId -> modèle). */
@@ -547,6 +573,22 @@ export interface UserSettings {
   jiraApiTokenSet?: boolean
   /** Le jeton vient de SECTILE_JIRA_API_TOKEN et prime sur la base. */
   jiraApiTokenFromEnv?: boolean
+  /** Instance GitHub, vide pour api.github.com. */
+  githubApiUrl?: string
+  /** Instance GitLab et projet par défaut, l'équivalent de githubRepo. */
+  gitlabUrl?: string
+  gitlabProject?: string
+  /**
+   * Jetons GitHub et GitLab : mêmes règles que jiraApiToken, jamais renvoyés,
+   * vide conserve, `__clear__` efface.
+   */
+  githubToken?: string
+  githubTokenSet?: boolean
+  /** Aucun jeton en base, mais l'environnement du serveur en fournit un. */
+  githubTokenFromEnv?: boolean
+  gitlabToken?: string
+  gitlabTokenSet?: boolean
+  gitlabTokenFromEnv?: boolean
   promptClarify: string
   promptSpecify: string
   promptImplement: string
@@ -564,9 +606,31 @@ export interface TaskFacetValue {
   count: number
 }
 
+/**
+ * Ce que l'écran de connexion envoie au serveur. `tracker` décide des champs qui
+ * comptent : site et e-mail pour Jira, instance et jeton pour GitHub, instance,
+ * projet et jeton pour GitLab.
+ */
+export interface TrackerCredentials {
+  /**
+   * GitLab n'est pas dans `IssueTracker` : ses paramètres se configurent, mais
+   * aucun adaptateur GitLab n'est enregistré, donc un projet ne peut pas encore
+   * le choisir comme tracker.
+   */
+  tracker: IssueTracker | 'gitlab'
+  siteUrl: string
+  /** Dépôt GitHub (`owner/repo`) ou projet GitLab (`groupe/projet`). */
+  project?: string
+  email?: string
+  token?: string
+  storeTokenInFile?: boolean
+}
+
 export interface TrackerCheck {
   ok: boolean
   error?: string
+  /** Compte auquel les accès GitHub ou GitLab appartiennent. */
+  account?: string
   identity?: { accountId: string; displayName: string; email?: string; siteUrl: string }
   /** Projets que ces accès peuvent lire, ce qui rend une erreur de site évidente. */
   projects?: { id: string; name: string }[]

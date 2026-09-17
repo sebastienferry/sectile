@@ -59,3 +59,10 @@ test('the other console notices are unchanged',async()=>{
  assert.match(consoleNotice({status:'failed'}),/No console is available/)
  assert.equal(needsConsoleNotice({status:'running',sessionId:'s1'}),false)
 })
+
+test('the project default offers three options and delegates on the empty one',async()=>{
+ const {PROJECT_MODE_OPTIONS}=await load()
+ assert.deepEqual(PROJECT_MODE_OPTIONS.map(o=>o.value),['interactive','autonomous',''])
+ // The delegating option comes last: it is the fallback, not a mode.
+ assert.equal(PROJECT_MODE_OPTIONS.at(-1).label,'Per-skill choice')
+})

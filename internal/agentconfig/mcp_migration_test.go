@@ -2,6 +2,7 @@ package agentconfig
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,7 +17,7 @@ func TestMCPRegistrationMigration(t *testing.T) {
 		for _, state := range []string{"fresh", "legacy", "canonical", "both"} {
 			t.Run(provider+"/"+state, func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
-				path, err := BootstrapMCP(provider, "/opt/sectile", "http://127.0.0.1:8091")
+				path, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -71,7 +72,7 @@ func TestMCPRegistrationMigration(t *testing.T) {
 				}
 				writeMCPFixture(t, path, data)
 				for i := 0; i < 2; i++ {
-					if _, err := BootstrapMCP(provider, "/opt/new sectile", "http://127.0.0.1:45123"); err != nil {
+					if _, err := BootstrapMCP(provider, "/opt/new sectile", "https://moved.example.test", "sectile_rotated"); err != nil {
 						t.Fatal(err)
 					}
 					result := readMCPFixture(t, path)
@@ -98,7 +99,14 @@ func TestMCPRegistrationMigration(t *testing.T) {
 						}
 						managed = entries["sectile"].(map[string]any)
 					}
-					if managed["command"] != "/opt/new sectile" {
+					// The transport is replaced whole: an HTTP provider keeps no
+					// command from a stdio-era entry, a stdio provider runs the
+					// new binary.
+					if UsesHTTPMCP(provider) {
+						if managed["command"] != nil || !strings.Contains(fmt.Sprint(managed["url"], managed["httpUrl"]), "https://moved.example.test/mcp") {
+							t.Fatalf("transport not refreshed: %v", managed)
+						}
+					} else if managed["command"] != "/opt/new sectile" {
 						t.Fatal("transport not refreshed")
 					}
 					if state != "fresh" {
@@ -111,11 +119,10 @@ func TestMCPRegistrationMigration(t *testing.T) {
 						}
 					}
 					raw, _ := os.ReadFile(path)
-					if strings.Contains(string(raw), "secret") || strings.Contains(string(raw), "8091") {
-						t.Fatal("stale transport or credential persisted")
-					}
-					if provider == "agy" && strings.Contains(string(raw), "45123") {
-						t.Fatal("shared registry contains process gateway")
+					// The old entry's TOKEN=secret is a transport field of the
+					// previous release and must not survive beside the key.
+					if strings.Contains(string(raw), "secret") || strings.Contains(string(raw), "8091") || strings.Contains(string(raw), testServer) {
+						t.Fatalf("stale transport or credential persisted: %s", raw)
 					}
 				}
 			})
@@ -131,7 +138,7 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 			}
 			t.Run(provider+"/"+issue, func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
-				path, err := BootstrapMCP(provider, "/opt/sectile", "http://127.0.0.1:8091")
+				path, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -170,7 +177,7 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 				}
 				writeMCPFixture(t, path, data)
 				before, _ := os.ReadFile(path)
-				if _, err := BootstrapMCP(provider, "/opt/sectile", "http://127.0.0.1:45123"); err == nil {
+				if _, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey); err == nil {
 					t.Fatal("unsafe configuration accepted")
 				}
 				after, _ := os.ReadFile(path)
@@ -185,7 +192,7 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 func TestMCPMigrationPreservesExternalPolicyFile(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("HOME", root)
-	path, err := BootstrapMCP("claude", "/opt/sectile", "http://127.0.0.1:8091")
+	path, err := BootstrapMCP("claude", "/opt/sectile", testServer, testKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +205,7 @@ func TestMCPMigrationPreservesExternalPolicyFile(t *testing.T) {
 	if err := os.WriteFile(policyPath, policy, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := BootstrapMCP("claude", "/opt/sectile", "http://127.0.0.1:45123"); err == nil || !strings.Contains(err.Error(), policyPath) {
+	if _, err := BootstrapMCP("claude", "/opt/sectile", "https://moved.example.test", testKey); err == nil || !strings.Contains(err.Error(), policyPath) {
 		t.Fatalf("missing actionable error: %v", err)
 	}
 	after, _ := os.ReadFile(path)
@@ -273,7 +280,7 @@ func TestMCPBootstrapRejectsMalformedRegistrationFile(t *testing.T) {
 			if err := os.WriteFile(path, []byte(existing), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := BootstrapMCP("codex", "/opt/sectile", "http://127.0.0.1:8091"); err == nil {
+			if _, err := BootstrapMCP("codex", "/opt/sectile", testServer, testKey); err == nil {
 				t.Fatal("malformed registration file accepted")
 			}
 			raw, _ := os.ReadFile(path)

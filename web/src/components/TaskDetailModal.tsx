@@ -38,10 +38,13 @@ import {
   Minimize2,
   RefreshCw,
   Target,
+  GitPullRequest,
+  Plus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode } from '../types'
+import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode, PullRequestLink } from '../types'
 import { WORKFLOW_ORDER, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
+import { addPullRequestLink, taskPullRequestLinks } from '../lib/pullRequests'
 import { TaskComments } from './TaskComments'
 import { LookupField, type LookupOption } from './LookupField'
 import { MarkdownEditor } from './Markdown'
@@ -143,7 +146,10 @@ export const TaskDetailModal: React.FC = () => {
   const [priority, setPriority] = useState<Priority>('medium')
   const [taskProjectId, setTaskProjectId] = useState<string>(projects[0]?.id || '')
   const [branchName, setBranchName] = useState('')
-  const [prUrl, setPrUrl] = useState('')
+  // L'ensemble ordonné des pull requests du ticket. `prUrl` en est le dernier
+  // lien : le serveur le recalcule, la fiche n'édite que l'ensemble.
+  const [prLinks, setPrLinks] = useState<PullRequestLink[]>([])
+  const [newPrUrl, setNewPrUrl] = useState('')
   const [repoPath, setRepoPath] = useState('')
   const [trackerStatus, setTrackerStatus] = useState('')
   const [sprint, setSprint] = useState('')
@@ -259,7 +265,8 @@ export const TaskDetailModal: React.FC = () => {
       setPriority(selectedTask.priority)
       setTaskProjectId(selectedTask.projectId || projects[0]?.id || '')
       setBranchName(selectedTask.branchName || '')
-      setPrUrl(selectedTask.prUrl || '')
+      setPrLinks(taskPullRequestLinks(selectedTask))
+      setNewPrUrl('')
       setRepoPath(selectedTask.repoPath || '')
       setTrackerStatus(selectedTask.trackerStatus || '')
       setSprint(selectedTask.sprint || '')
@@ -365,6 +372,15 @@ export const TaskDetailModal: React.FC = () => {
       : undefined
   )
 
+  // Un lien ajouté prend la branche du ticket : c'est elle que les validateurs
+  // comparent pour distinguer une PR de suite d'une PR sans rapport.
+  const addPrLink = () => {
+    const next = addPullRequestLink(prLinks, newPrUrl, branchName || selectedTask?.branchName)
+    if (next === prLinks) return
+    setPrLinks(next)
+    setNewPrUrl('')
+  }
+
   const handleClose = async () => {
     if (selectedTask && title.trim()) {
       const isModified =
@@ -374,7 +390,7 @@ export const TaskDetailModal: React.FC = () => {
         priority !== selectedTask.priority ||
         taskProjectId !== (selectedTask.projectId || '') ||
         branchName.trim() !== (selectedTask.branchName || '').trim() ||
-        prUrl.trim() !== (selectedTask.prUrl || '').trim() ||
+        JSON.stringify(prLinks) !== JSON.stringify(taskPullRequestLinks(selectedTask)) ||
         repoPath.trim() !== (selectedTask.repoPath || '').trim() ||
         trackerStatus.trim() !== (selectedTask.trackerStatus || '').trim() ||
         sprint.trim() !== (selectedTask.sprint || '').trim() ||
@@ -395,7 +411,7 @@ export const TaskDetailModal: React.FC = () => {
           sprint: sprint.trim(),
           dueDate: dueDate || null,
           branchName: branchName.trim() || undefined,
-          prUrl: prUrl.trim() || undefined,
+          prLinks,
           repoPath: repoPath.trim(),
           trackerStatus: trackerStatus.trim(),
         })
@@ -419,7 +435,7 @@ export const TaskDetailModal: React.FC = () => {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedTask, isTtyExpanded, isExpandedSpec, title, description, status, priority, taskProjectId, branchName, prUrl, repoPath, assignee, dueDate, labels])
+  }, [selectedTask, isTtyExpanded, isExpandedSpec, title, description, status, priority, taskProjectId, branchName, prLinks, repoPath, assignee, dueDate, labels])
 
   if (!selectedTask) return null
 
@@ -549,7 +565,7 @@ export const TaskDetailModal: React.FC = () => {
       sprint: sprint.trim(),
       dueDate: dueDate || null,
       branchName: branchName.trim() || undefined,
-      prUrl: prUrl.trim() || undefined,
+      prLinks,
       repoPath: repoPath.trim(),
       trackerStatus: trackerStatus.trim(),
     })
@@ -1061,6 +1077,77 @@ export const TaskDetailModal: React.FC = () => {
             />
             <Calendar size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)] pointer-events-none" />
           </div>
+        </div>
+      </div>
+
+      {/* Pull Requests : l'ensemble ordonné des PR du ticket. Un ticket en produit
+          couramment plusieurs — une première fusionnée, puis une suite poussée sur
+          la même branche. La dernière est la PR courante. Corriger ou détacher un
+          lien ici est la seule issue quand une PR a été enregistrée à tort. */}
+      <div className="space-y-1.5">
+        <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+          Pull Requests
+        </label>
+        {prLinks.length === 0 && (
+          <p className="text-xs text-[var(--text-muted)]">Aucune pull request liée à ce ticket.</p>
+        )}
+        {prLinks.map((link, index) => (
+          <div key={index} className="flex items-center gap-1.5">
+            <a
+              href={link.url}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 transition-colors"
+              title={t.skills.viewPr}
+            >
+              <GitPullRequest size={13} />
+            </a>
+            <input
+              type="url"
+              value={link.url}
+              onChange={e => setPrLinks(prLinks.map((l, i) => (i === index ? { ...l, url: e.target.value } : l)))}
+              className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+            />
+            <span className="shrink-0 text-[10px] text-[var(--text-muted)] max-w-[10rem] truncate" title={link.branch || ''}>
+              {link.branch || '—'}
+            </span>
+            {index === prLinks.length - 1 && (
+              <span className="shrink-0 text-[10px] font-semibold text-purple-400">courante</span>
+            )}
+            <button
+              type="button"
+              onClick={() => setPrLinks(prLinks.filter((_, i) => i !== index))}
+              className="shrink-0 p-1.5 rounded-lg text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10 transition-colors cursor-pointer"
+              title="Détacher cette pull request du ticket"
+            >
+              <Trash2 size={13} />
+            </button>
+          </div>
+        ))}
+        <div className="flex items-center gap-1.5">
+          <input
+            type="url"
+            value={newPrUrl}
+            onChange={e => setNewPrUrl(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                addPrLink()
+              }
+            }}
+            placeholder="https://github.com/owner/repo/pull/42"
+            className="flex-1 min-w-0 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+          />
+          <button
+            type="button"
+            onClick={addPrLink}
+            disabled={!newPrUrl.trim() || prLinks.some(l => l.url === newPrUrl.trim())}
+            className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Lier cette pull request au ticket"
+          >
+            <Plus size={13} />
+            <span>Lier</span>
+          </button>
         </div>
       </div>
 

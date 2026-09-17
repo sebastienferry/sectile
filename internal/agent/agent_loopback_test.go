@@ -17,21 +17,22 @@ func loopbackRequest(t *testing.T, header string) *http.Request {
 	return request
 }
 
-func TestGatewayRequiresTheSessionSecret(t *testing.T) {
-	daemon := &agentDaemon{loopback: loopbackServer{token: "session-secret"}, link: serverLink{token: "device-credential"}}
+// The gateway takes the workstation's own API key, the credential the server
+// itself would ask for, so a console configured by the agent and a client
+// configured by hand present the same thing.
+func TestGatewayRequiresTheAPIKey(t *testing.T) {
+	daemon := &agentDaemon{link: serverLink{token: "sectile_workstation_key"}}
 
 	cases := []struct {
 		name   string
 		header string
 		want   bool
 	}{
-		{"session secret", "Bearer session-secret", true},
+		{"api key", "Bearer sectile_workstation_key", true},
 		{"no header", "", false},
-		{"wrong secret", "Bearer other-secret", false},
-		{"missing scheme", "session-secret", false},
-		// The credential that carries the identity must not open the gateway:
-		// it never reaches local processes, so presenting it means it leaked.
-		{"device credential", "Bearer device-credential", false},
+		{"other key", "Bearer sectile_other_key", false},
+		{"missing scheme", "sectile_workstation_key", false},
+		{"empty bearer", "Bearer ", false},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -42,11 +43,11 @@ func TestGatewayRequiresTheSessionSecret(t *testing.T) {
 	}
 }
 
-// An agent that never generated a secret must not accept an empty bearer.
-func TestGatewayRejectsEveryCallerBeforeTheSecretExists(t *testing.T) {
+// An agent without a key must not accept an empty bearer.
+func TestGatewayRejectsEveryCallerWithoutAKey(t *testing.T) {
 	daemon := &agentDaemon{}
 	if daemon.validLoopbackRequest(loopbackRequest(t, "Bearer ")) {
-		t.Fatal("gateway accepted an empty secret")
+		t.Fatal("gateway accepted an empty key")
 	}
 	if daemon.validLoopbackRequest(loopbackRequest(t, "")) {
 		t.Fatal("gateway accepted a missing header")

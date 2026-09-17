@@ -21,19 +21,37 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { LocalAgentSetup } from './LocalAgentSetup'
-import { WorkstationPairing } from './WorkstationPairing'
+import { ApiKeysPanel } from './ApiKeys'
 import { SignInStatus } from './SignInStatus'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
 import { AIModelField } from './AIModelField'
+import { CommandModePreview } from './CommandModePreview'
+import { commandPreview } from '../lib/commandTemplate'
 import { isValidModel } from '../lib/aiModels'
 
 type SettingsTab = 'appearance' | 'agentic' | 'prompts'
 
+// A provider with no template runs the command lines the agent attests for each
+// execution mode, so selecting one clears the field rather than pinning a single
+// mode. Only a custom CLI has nothing to fall back to and needs a template.
 const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: string; icon: string }[] = [
-  { id: 'agy', label: 'Antigravity (agy)', sub: 'Google Deepmind AGY CLI', defaultCmd: 'agy --dangerously-skip-permissions -p "{prompt}"', icon: '🚀' },
-  { id: 'claude', label: 'Claude Code (claude)', sub: 'Anthropic Claude Code CLI', defaultCmd: 'claude --dangerously-skip-permissions -p "{prompt}"', icon: '🟣' },
-  { id: 'codex', label: 'Codex CLI', sub: 'OpenAI Codex CLI', defaultCmd: "codex --approve-for-me '{prompt}'", icon: '🤖' },
-  { id: 'custom', label: 'CLI Personnalisé', sub: 'Binaire ou script custom', defaultCmd: '/path/to/custom-cli -p "{prompt}"', icon: '⚙️' },
+  { id: 'agy', label: 'Antigravity (agy)', sub: 'Google Deepmind AGY CLI', defaultCmd: '', icon: '🚀' },
+  { id: 'claude', label: 'Claude Code (claude)', sub: 'Anthropic Claude Code CLI', defaultCmd: '', icon: '🟣' },
+  { id: 'codex', label: 'Codex CLI', sub: 'OpenAI Codex CLI', defaultCmd: '', icon: '🤖' },
+  { id: 'custom', label: 'CLI Personnalisé', sub: 'Binaire ou script custom', defaultCmd: `/path/to/custom-cli {mode:-p|-i} '{prompt}'`, icon: '⚙️' },
+]
+
+// A preset fills both fields at once, since the two commands of one CLI are
+// written together. An empty pair hands both modes back to the provider.
+const COMMAND_PRESETS: { label: string; cmd: string; autonomous: string }[] = [
+  { label: 'Défaut du fournisseur', cmd: '', autonomous: '' },
+  {
+    label: 'Claude',
+    cmd: `claude --model {model} '{prompt}'`,
+    autonomous: `claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`,
+  },
+  { label: 'AGY', cmd: `agy -i '{prompt}'`, autonomous: `agy -p --dangerously-skip-permissions '{prompt}'` },
+  { label: 'Codex', cmd: `codex --model {model} '{prompt}'`, autonomous: `codex exec --model {model} '{prompt}'` },
 ]
 
 export const ProfileModal: React.FC = () => {
@@ -58,7 +76,8 @@ export const ProfileModal: React.FC = () => {
 
   // Agentic AI & CLI Configuration
   const [aiProvider, setAiProvider] = useState<AIProvider>(settings.aiProvider || 'agy')
-  const [aiCommandTemplate, setAiCommandTemplate] = useState(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+  const [aiCommandTemplate, setAiCommandTemplate] = useState(settings.aiCommandTemplate || '')
+  const [aiCommandAutonomous, setAiCommandAutonomous] = useState(settings.aiCommandTemplateAutonomous || '')
   const [aiModel, setAiModel] = useState(settings.aiModel || '')
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
 
@@ -78,7 +97,8 @@ export const ProfileModal: React.FC = () => {
       setDefaultView(settings.defaultView)
       setDetailMode(settings.detailMode || 'panel')
       setAiProvider(settings.aiProvider || 'agy')
-      setAiCommandTemplate(settings.aiCommandTemplate || 'agy -p "{prompt}"')
+      setAiCommandTemplate(settings.aiCommandTemplate || '')
+      setAiCommandAutonomous(settings.aiCommandTemplateAutonomous || '')
       setAiModel(settings.aiModel || '')
       setSpecFramework(settings.specFramework || 'speckit')
       setPromptClarify(settings.promptClarify || '')
@@ -110,8 +130,11 @@ export const ProfileModal: React.FC = () => {
 
   const handleProviderSelect = (provider: typeof AI_PROVIDERS[0]) => {
     setAiProvider(provider.id)
-    if (!aiCommandTemplate || aiCommandTemplate.trim() === '' || AI_PROVIDERS.some(p => p.defaultCmd === aiCommandTemplate)) {
+    // A template written for another CLI cannot serve this one, and the empty
+    // value is the right default: it hands both modes back to the provider.
+    if (aiCommandTemplate.trim() === '' || AI_PROVIDERS.some(p => p.defaultCmd !== '' && p.defaultCmd === aiCommandTemplate)) {
       setAiCommandTemplate(provider.defaultCmd)
+      setAiCommandAutonomous('')
     }
   }
 
@@ -130,7 +153,8 @@ export const ProfileModal: React.FC = () => {
       defaultView,
       detailMode,
       aiProvider,
-      aiCommandTemplate: aiCommandTemplate.trim() || `${aiProvider} -p "{prompt}"`,
+      aiCommandTemplate: aiCommandTemplate.trim(),
+      aiCommandTemplateAutonomous: aiCommandAutonomous.trim(),
       aiModel: aiModel.trim(),
       specFramework,
       promptClarify: promptClarify.trim(),
@@ -406,7 +430,7 @@ export const ProfileModal: React.FC = () => {
           {/* TAB 2: AGENT SETTINGS (workstations, local agent, CLI) */}
           {activeTab === 'agentic' && (
             <div className="space-y-6 animate-in fade-in duration-150">
-              <WorkstationPairing />
+              <ApiKeysPanel />
               <LocalAgentSetup />
               {/* Agentic CLI Provider Selection */}
               <div className="space-y-2">
@@ -442,7 +466,7 @@ export const ProfileModal: React.FC = () => {
                           </div>
                           <div className="text-[10px] text-[var(--text-muted)] mt-0.5">{p.sub}</div>
                           <div className="text-[9px] font-mono text-indigo-300/80 truncate mt-1">
-                            {p.defaultCmd}
+                            {p.defaultCmd || commandPreview(p.id, '', aiModel, false).command}
                           </div>
                         </div>
                       </button>
@@ -471,11 +495,24 @@ export const ProfileModal: React.FC = () => {
                 </div>
 
                 <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    Commande interactive
+                  </label>
                   <input
                     type="text"
                     value={aiCommandTemplate}
                     onChange={e => setAiCommandTemplate(e.target.value)}
-                    placeholder='Ex: agy -p "{prompt}" ou claude -p "{prompt}"'
+                    placeholder={`Ex : claude --model {model} '{prompt}'`}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
+                  />
+                  <label className="block pt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    Commande autonome (headless)
+                  </label>
+                  <input
+                    type="text"
+                    value={aiCommandAutonomous}
+                    onChange={e => setAiCommandAutonomous(e.target.value)}
+                    placeholder={`Ex : claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`}
                     className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
                   />
                   <div className="flex flex-wrap items-center gap-1 text-[10.5px] text-[var(--text-muted)] leading-relaxed pt-1">
@@ -487,7 +524,21 @@ export const ProfileModal: React.FC = () => {
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{branchName}'}</code>
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{repoPath}'}</code>
                     <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{model}'}</code>
+                    <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{mode:AUTONOMOUS|INTERACTIVE}'}</code>
                   </div>
+                  <p className="text-[10.5px] text-[var(--text-muted)] leading-relaxed">
+                    Deux champs vides donnent les commandes attestées du fournisseur pour les
+                    deux modes. La commande autonome sert les lancements headless ; laissée
+                    vide, c'est la commande interactive qui les sert, et elle doit alors
+                    porter le marqueur <code className="font-mono">{'{mode:…|…}'}</code> pour
+                    dire quels mots appartiennent à quel mode.
+                  </p>
+                  <CommandModePreview
+                    provider={aiProvider}
+                    template={aiCommandTemplate}
+                    model={aiModel}
+                    autonomousTemplate={aiCommandAutonomous}
+                  />
                 </div>
 
                 {/* Fast Preset buttons */}
@@ -496,16 +547,11 @@ export const ProfileModal: React.FC = () => {
                     Modèles de commande rapides :
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { label: 'AGY sans confirmation', cmd: 'agy --dangerously-skip-permissions -p "{prompt}"' },
-                      { label: 'AGY interactif', cmd: 'agy -i "{prompt}"' },
-                      { label: 'Claude sans confirmation', cmd: 'claude --dangerously-skip-permissions -p "{prompt}"' },
-                      { label: 'Codex', cmd: "codex --approve-for-me '{prompt}'" },
-                    ].map(preset => (
+                    {COMMAND_PRESETS.map(preset => (
                       <button
                         key={preset.label}
                         type="button"
-                        onClick={() => setAiCommandTemplate(preset.cmd)}
+                        onClick={() => { setAiCommandTemplate(preset.cmd); setAiCommandAutonomous(preset.autonomous) }}
                         className="px-2 py-1 bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)] text-[10.5px] rounded-lg font-mono transition-colors cursor-pointer"
                       >
                         {preset.label}

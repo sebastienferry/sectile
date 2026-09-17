@@ -18,17 +18,29 @@ func TestResolveSkillModelPrecedence(t *testing.T) {
 	}
 }
 
-// A level speaks for every skill it does not single out, so a bare model on the
-// more specific level outranks a per-skill entry on the less specific one.
+// The most specific statement wins: naming a skill outranks a bare model, even a
+// bare model sitting on a more specific level.
 func TestMergeModelsLevelByLevel(t *testing.T) {
 	high := ModelConfig{Model: "project"}
 	low := ModelConfig{Model: "global", SkillModels: map[string]string{"implement": "global-implement"}}
 	merged := MergeModels(high, low)
-	if got := ResolveSkillModel(merged, "implement"); got != "project" {
-		t.Fatalf("bare project model must outrank a global skill entry: %q", got)
+	if got := ResolveSkillModel(merged, "implement"); got != "global-implement" {
+		t.Fatalf("a global skill entry must survive a bare project model: %q", got)
 	}
 	if got := ResolveSkillModel(merged, "clarify"); got != "project" {
-		t.Fatalf("project model must apply to every other skill: %q", got)
+		t.Fatalf("project model must apply to every skill no level singles out: %q", got)
+	}
+}
+
+// A skill entry on the more specific level still beats one below it.
+func TestMergeModelsSkillEntryFollowsTheLevels(t *testing.T) {
+	high := ModelConfig{Model: "project", SkillModels: map[string]string{"implement": "project-implement"}}
+	low := ModelConfig{Model: "global", SkillModels: map[string]string{"implement": "global-implement", "clarify": "global-clarify"}}
+	merged := MergeModels(high, low)
+	for skill, want := range map[string]string{"implement": "project-implement", "clarify": "global-clarify", "specify": "project"} {
+		if got := ResolveSkillModel(merged, skill); got != want {
+			t.Fatalf("skill %s resolved %q, want %q", skill, got, want)
+		}
 	}
 }
 
@@ -94,12 +106,37 @@ func TestExpandModel(t *testing.T) {
 	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, "M"); got != `claude --model M -p "{prompt}"` {
 		t.Fatalf("placeholder not substituted: %q", got)
 	}
-	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, ""); got != `claude --model  -p "{prompt}"` {
-		t.Fatalf("empty model must erase the placeholder: %q", got)
-	}
 	template := `claude -p "{prompt}"`
 	if got := ExpandModel(template, "M"); got != template {
 		t.Fatalf("template without the slot must be untouched: %q", got)
+	}
+}
+
+// An unresolved slot leaves with the option it belongs to. Erasing the marker
+// alone left `--model  -p "…"`, where the CLI reads -p as the model name and the
+// prompt degrades to a positional argument.
+func TestExpandModelWithoutModelTakesItsOptionAway(t *testing.T) {
+	for _, c := range []struct{ template, want string }{
+		{`claude --model {model} -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude -m {model} -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude --model={model} -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude --model "{model}" -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude --model '{model}' -p "{prompt}"`, `claude -p "{prompt}"`},
+		{`claude -p "{prompt}" --model {model}`, `claude -p "{prompt}"`},
+		{`claude --model {model} --fallback {model} -p "{prompt}"`, `claude -p "{prompt}"`},
+		// No option to carry away: the slot is positional and its neighbours stay.
+		{`my-cli {model} run -p "{prompt}"`, `my-cli run -p "{prompt}"`},
+		{`{model} -p "{prompt}"`, `-p "{prompt}"`},
+		// The prompt is what the command line exists to carry, so a token holding
+		// both markers keeps everything but the model marker.
+		{`my-cli -p"{prompt}"{model}`, `my-cli -p"{prompt}"`},
+	} {
+		if got := ExpandModel(c.template, ""); got != c.want {
+			t.Fatalf("%q expanded to %q, want %q", c.template, got, c.want)
+		}
+	}
+	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, "   "); got != `claude -p "{prompt}"` {
+		t.Fatalf("a blank model must behave like no model: %q", got)
 	}
 }
 
@@ -132,8 +169,11 @@ func TestApplyOverridesModel(t *testing.T) {
 	}
 
 	overridden := ApplyOverrides(c, Overrides{AIModel: "workstation"})
-	if got := ResolveModel(overridden, "implement"); got != "workstation" {
-		t.Fatalf("workstation model must outrank the project skill entry: %q", got)
+	if got := ResolveModel(overridden, "implement"); got != "project-implement" {
+		t.Fatalf("a bare workstation model must not silence the project skill entry: %q", got)
+	}
+	if got := ResolveModel(overridden, "clarify"); got != "workstation" {
+		t.Fatalf("workstation model must govern the skills no level singles out: %q", got)
 	}
 
 	perSkill := ApplyOverrides(c, Overrides{AISkillModels: map[string]string{"clarify": "workstation-clarify"}})

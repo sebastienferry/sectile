@@ -27,9 +27,13 @@ func TestAdjustmentAliasesAndHumanBoundary(t *testing.T) {
 }
 func TestAdjustmentEvidenceRejectsInvalidPR(t *testing.T) {
 	good := trackerapi.PullRequest{URL: "https://forge/pull/1", Branch: "ticket", Open: true}
-	for _, kind := range []string{"valid", "draft", "closed", "branch", "replacement", "merged", "merged-branch"} {
+	recorded := []models.TaskPullRequest{{URL: good.URL, Branch: "ticket"}}
+	// A follow-up PR on the branch the task already used is the task's own work,
+	// so "follow-up" passes; only a PR on an unrelated branch is a substitution.
+	accepted := map[string]bool{"valid": true, "merged": true, "follow-up": true, "first-pr": true}
+	for _, kind := range []string{"valid", "draft", "closed", "branch", "follow-up", "merged", "merged-branch", "unrelated-branch", "first-pr"} {
 		t.Run(kind, func(t *testing.T) {
-			p := good
+			p, links := good, recorded
 			switch kind {
 			case "draft":
 				p.Draft = true
@@ -37,15 +41,19 @@ func TestAdjustmentEvidenceRejectsInvalidPR(t *testing.T) {
 				p.Open = false
 			case "branch":
 				p.Branch = "other"
-			case "replacement":
+			case "follow-up":
 				p.URL = "https://forge/pull/2"
 			case "merged":
 				p.Open, p.Merged = false, true
 			case "merged-branch":
 				p.Open, p.Merged, p.Branch = false, true, "other"
+			case "unrelated-branch":
+				p.URL, links = "https://forge/pull/2", []models.TaskPullRequest{{URL: good.URL, Branch: "another-ticket"}}
+			case "first-pr":
+				links = nil
 			}
-			err := validatePullRequestEvidence(p, "ticket", p.URL, good.URL, true)
-			if (err == nil) != (kind == "valid" || kind == "merged") {
+			err := validatePullRequestEvidence(p, "ticket", p.URL, links, true)
+			if (err == nil) != accepted[kind] {
 				t.Fatalf("%s: %v", kind, err)
 			}
 		})

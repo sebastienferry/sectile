@@ -15,17 +15,42 @@ import (
 // between the web interface showing one and the desktop app exchanging it.
 const pairingCodeTTL = 10 * time.Minute
 
+// DefaultAPIKeyTTL is how long a workstation API key stays valid unless its
+// owner chose otherwise at creation. Ninety days is long enough that a key is
+// not a recurring chore and short enough that a forgotten one dies on its own.
+const DefaultAPIKeyTTL = 90 * 24 * time.Hour
+
+// APIKeyPrefix marks every workstation API key. A pasted value can then be told
+// from a pairing code, and a leaked one is recognisable to a secret scanner.
+const APIKeyPrefix = "sectile_"
+
 // ErrPairingCode reports a code that is unknown, already used or expired. The
 // three cases are deliberately indistinguishable to a caller.
 var ErrPairingCode = errors.New("invalid or expired pairing code")
 
-// DeviceCredential is one workstation bound to one user.
+// ErrAPIKeyExpired reports a key that was valid and has run out. Unlike an
+// unknown key it is worth naming: the owner can renew it from the profile
+// instead of hunting for a typo.
+var ErrAPIKeyExpired = errors.New("API key expired")
+
+// ErrAPIKeyUnknown reports a key that never existed or was revoked.
+var ErrAPIKeyUnknown = errors.New("unknown API key")
+
+// DeviceCredential is one workstation API key bound to one user. ExpiresAt is
+// nil for a key without expiry.
 type DeviceCredential struct {
 	ID        string
 	UserID    string
 	Label     string
 	CreatedAt time.Time
 	LastSeen  time.Time
+	ExpiresAt *time.Time
+}
+
+// ExpiresWithin reports whether the key runs out before the window elapses. A
+// key without expiry never does.
+func (c DeviceCredential) ExpiresWithin(window time.Duration) bool {
+	return c.ExpiresAt != nil && c.ExpiresAt.Before(time.Now().Add(window))
 }
 
 func (d *DB) initIdentitySchema() error {
@@ -64,6 +89,9 @@ func (d *DB) initIdentitySchema() error {
 			return fmt.Errorf("identity schema: %w", err)
 		}
 	}
+	// Credentials issued before keys expired keep NULL here, which means no
+	// expiry: an upgrade must not cut off every paired workstation at once.
+	_, _ = d.conn.Exec(`ALTER TABLE device_credentials ADD COLUMN expires_at DATETIME;`)
 	return nil
 }
 
@@ -81,6 +109,59 @@ func newSecret() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buffer), nil
+}
+
+// expiry turns a validity period into the stored deadline; zero means none.
+func expiry(ttl time.Duration) *time.Time {
+	if ttl <= 0 {
+		return nil
+	}
+	at := time.Now().Add(ttl).UTC()
+	return &at
+}
+
+// nullableTime is the column value for an optional deadline.
+func nullableTime(at *time.Time) any {
+	if at == nil {
+		return nil
+	}
+	return *at
+}
+
+// execer is the part of *sql.DB and *sql.Tx a credential insert needs.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+// insertCredential mints a key for the user and stores its hash through exec,
+// which is either the connection or a transaction in progress.
+func insertCredential(exec execer, userID, label string, ttl time.Duration) (string, *DeviceCredential, error) {
+	secret, err := newSecret()
+	if err != nil {
+		return "", nil, err
+	}
+	secret = APIKeyPrefix + secret
+	id, err := newSecret()
+	if err != nil {
+		return "", nil, err
+	}
+	id = "dev_" + id[:16]
+	expires := expiry(ttl)
+	if _, err = exec.Exec(`INSERT INTO device_credentials (id, user_id, token_hash, label, expires_at) VALUES (?, ?, ?, ?, ?)`,
+		id, userID, hashSecret(secret), label, nullableTime(expires)); err != nil {
+		return "", nil, err
+	}
+	now := time.Now().UTC()
+	return secret, &DeviceCredential{ID: id, UserID: userID, Label: label, CreatedAt: now, LastSeen: now, ExpiresAt: expires}, nil
+}
+
+// CreateAPIKey issues a key for the signed-in user. The plaintext is returned
+// once and never stored; ttl of zero makes a key that never expires.
+func (d *DB) CreateAPIKey(userID, label string, ttl time.Duration) (string, *DeviceCredential, error) {
+	if strings.TrimSpace(userID) == "" {
+		return "", nil, errors.New("userID is required")
+	}
+	return insertCredential(d.conn, userID, strings.TrimSpace(label), ttl)
 }
 
 // UpsertUser records the identity the provider authenticated and returns its
@@ -154,17 +235,8 @@ func (d *DB) RedeemPairingCode(code, label string) (string, *DeviceCredential, e
 		return "", nil, ErrPairingCode
 	}
 
-	secret, err := newSecret()
+	secret, credential, err := insertCredential(tx, userID, label, DefaultAPIKeyTTL)
 	if err != nil {
-		return "", nil, err
-	}
-	id, err := newSecret()
-	if err != nil {
-		return "", nil, err
-	}
-	id = "dev_" + id[:16]
-	if _, err = tx.Exec(`INSERT INTO device_credentials (id, user_id, token_hash, label) VALUES (?, ?, ?, ?)`,
-		id, userID, hashSecret(secret), label); err != nil {
 		return "", nil, err
 	}
 	if _, err = tx.Exec(`UPDATE pairing_codes SET consumed_at = ? WHERE code_hash = ?`,
@@ -174,30 +246,94 @@ func (d *DB) RedeemPairingCode(code, label string) (string, *DeviceCredential, e
 	if err = tx.Commit(); err != nil {
 		return "", nil, err
 	}
-	return secret, &DeviceCredential{ID: id, UserID: userID, Label: label, CreatedAt: time.Now().UTC()}, nil
+	return secret, credential, nil
 }
 
-// UserForDeviceToken resolves a device credential to its user, or returns an
-// empty string. Revoked credentials resolve to nothing.
-func (d *DB) UserForDeviceToken(token string) string {
+// LookupDeviceToken resolves an API key to the credential it names. A revoked
+// or unknown key returns ErrAPIKeyUnknown; a key past its expiry returns
+// ErrAPIKeyExpired, so the caller can tell the owner what to do about it.
+func (d *DB) LookupDeviceToken(token string) (*DeviceCredential, error) {
 	if strings.TrimSpace(token) == "" {
-		return ""
+		return nil, ErrAPIKeyUnknown
 	}
-	var userID string
-	err := d.conn.QueryRow(`SELECT user_id FROM device_credentials WHERE token_hash = ? AND revoked_at IS NULL`,
-		hashSecret(token)).Scan(&userID)
+	var c DeviceCredential
+	var lastSeen, expires sql.NullTime
+	err := d.conn.QueryRow(`SELECT id, user_id, label, created_at, last_seen, expires_at
+		FROM device_credentials WHERE token_hash = ? AND revoked_at IS NULL`,
+		hashSecret(token)).Scan(&c.ID, &c.UserID, &c.Label, &c.CreatedAt, &lastSeen, &expires)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrAPIKeyUnknown
+	}
 	if err != nil {
-		return ""
+		return nil, err
+	}
+	if expires.Valid {
+		at := expires.Time
+		c.ExpiresAt = &at
+		if time.Now().After(at) {
+			return nil, ErrAPIKeyExpired
+		}
+	}
+	c.LastSeen = c.CreatedAt
+	if lastSeen.Valid {
+		c.LastSeen = lastSeen.Time
 	}
 	// Best effort: a failed timestamp update must not deny a valid credential.
 	_, _ = d.conn.Exec(`UPDATE device_credentials SET last_seen = ? WHERE token_hash = ?`,
 		time.Now().UTC(), hashSecret(token))
-	return userID
+	return &c, nil
+}
+
+// UserForDeviceToken resolves an API key to its user, or returns an empty
+// string. Revoked, unknown and expired keys all resolve to nothing; callers that
+// need to tell expiry apart use LookupDeviceToken.
+func (d *DB) UserForDeviceToken(token string) string {
+	credential, err := d.LookupDeviceToken(token)
+	if err != nil {
+		return ""
+	}
+	return credential.UserID
+}
+
+// HasDeviceCredentials reports whether any API key was ever issued on this
+// deployment, revoked ones included. It is what closes the legacy open mode:
+// once someone has a key, presenting no key must not keep working, and revoking
+// the only key must not reopen the door.
+func (d *DB) HasDeviceCredentials() bool {
+	var count int
+	if err := d.conn.QueryRow(`SELECT COUNT(*) FROM device_credentials`).Scan(&count); err != nil {
+		return false
+	}
+	return count > 0
+}
+
+// RenewDeviceCredential sets a key's expiry to ttl from now without touching
+// the secret, so every configuration holding the key keeps working. Zero
+// removes the expiry; a migrated key without one can be given one the same way.
+func (d *DB) RenewDeviceCredential(userID, id string, ttl time.Duration) (*time.Time, error) {
+	expires := expiry(ttl)
+	result, err := d.conn.Exec(`UPDATE device_credentials SET expires_at = ?
+		WHERE id = ? AND user_id = ? AND revoked_at IS NULL`, nullableTime(expires), id, userID)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, errors.New("unknown device credential")
+	}
+	return expires, nil
 }
 
 // ListDeviceCredentials returns the user's paired workstations.
 func (d *DB) ListDeviceCredentials(userID string) ([]DeviceCredential, error) {
-	rows, err := d.conn.Query(`SELECT id, user_id, label, created_at, COALESCE(last_seen, created_at)
+	// last_seen is selected as the bare column: the driver reads a DATETIME back
+	// as a time only when it can see the column's declared type, and wrapping it
+	// in COALESCE hid that type and made every listing fail to scan. The fallback
+	// to the pairing date belongs in Go, where it costs nothing.
+	rows, err := d.conn.Query(`SELECT id, user_id, label, created_at, last_seen, expires_at
 		FROM device_credentials WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at`, userID)
 	if err != nil {
 		return nil, err
@@ -206,8 +342,18 @@ func (d *DB) ListDeviceCredentials(userID string) ([]DeviceCredential, error) {
 	var credentials []DeviceCredential
 	for rows.Next() {
 		var c DeviceCredential
-		if err := rows.Scan(&c.ID, &c.UserID, &c.Label, &c.CreatedAt, &c.LastSeen); err != nil {
+		var lastSeen, expires sql.NullTime
+		if err := rows.Scan(&c.ID, &c.UserID, &c.Label, &c.CreatedAt, &lastSeen, &expires); err != nil {
 			return nil, err
+		}
+		// A workstation that has never called in is shown as of its pairing.
+		c.LastSeen = c.CreatedAt
+		if lastSeen.Valid {
+			c.LastSeen = lastSeen.Time
+		}
+		if expires.Valid {
+			at := expires.Time
+			c.ExpiresAt = &at
 		}
 		credentials = append(credentials, c)
 	}

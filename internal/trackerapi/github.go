@@ -324,7 +324,8 @@ func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
 	if err != nil {
 		return PullRequest{}, err
 	}
-	var open, merged []PullRequest
+	var open []PullRequest
+	var merged []mergedPullRequest
 	for _, raw := range pages {
 		var pr struct {
 			URL      string     `json:"html_url"`
@@ -344,17 +345,34 @@ func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
 		case found.Open:
 			open = append(open, found)
 		case found.Merged:
-			merged = append(merged, found)
+			merged = append(merged, mergedPullRequest{found, *pr.MergedAt})
 		}
 		// A closed-unmerged PR is abandoned work, never evidence.
 	}
 	if len(open) == 1 {
 		return open[0], nil
 	}
-	if len(open) == 0 && len(merged) == 1 {
-		return merged[0], nil
+	// A branch that produced several merged pull requests is not ambiguous: the
+	// branch moved on and the latest merge is its state. Several *open* ones are
+	// ambiguous — which is current cannot be guessed without letting the caller's
+	// swap guard be decided by the order the forge happened to list them in.
+	if len(open) == 0 && len(merged) > 0 {
+		latest := merged[0]
+		for _, candidate := range merged[1:] {
+			if candidate.mergedAt.After(latest.mergedAt) {
+				latest = candidate
+			}
+		}
+		return latest.PullRequest, nil
 	}
 	return PullRequest{}, fmt.Errorf("expected one matching open or merged pull request, got %d open and %d merged", len(open), len(merged))
+}
+
+// mergedPullRequest keeps the merge date out of PullRequest: the callers reason
+// about identity and state, and only this selection needs the ordering.
+type mergedPullRequest struct {
+	PullRequest
+	mergedAt time.Time
 }
 
 // GithubStatusQuery supports both user-owned and organization-owned Projects.

@@ -362,7 +362,7 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 		return err
 	}
 	for _, provider := range providers {
-		path, err := agentconfig.BootstrapMCP(provider, executable, d.loopback.url)
+		path, err := agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
 		if err != nil {
 			return fmt.Errorf("register the Sectile MCP server for provider %q: %w", provider, err)
 		}
@@ -444,15 +444,7 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		if autonomous && !templateCarriesMode(template) {
 			return "", fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively")
 		}
-		var launch agentCommandContext
-		if len(contexts) > 0 {
-			launch = contexts[0]
-		}
-		// A template owns its command line: the model reaches it through its own
-		// {model} slot, never as a flag spliced in beside the template's words.
-		values := launch.values(prompt)
-		values["model"] = strings.TrimSpace(model)
-		return expandAgentTemplate(resolveTemplateMode(template, autonomous), values)
+		return expandConfiguredTemplate(template, model, prompt, autonomous, contexts...)
 	}
 	if autonomous {
 		return headlessCommandLine(provider, model, prompt)
@@ -470,6 +462,42 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 	default:
 		return "", fmt.Errorf("unsupported AI provider %q; configure an AI command template", provider)
 	}
+}
+
+// expandConfiguredTemplate builds the command line a configured template asks
+// for. A template owns its command line: the model reaches it through its own
+// {model} slot, never as a flag spliced in beside the template's words.
+func expandConfiguredTemplate(template, model, prompt string, autonomous bool, contexts ...agentCommandContext) (string, error) {
+	var launch agentCommandContext
+	if len(contexts) > 0 {
+		launch = contexts[0]
+	}
+	values := launch.values(prompt)
+	resolved := resolveTemplateMode(template, autonomous)
+	if configured := strings.TrimSpace(model); configured != "" {
+		values["model"] = configured
+	} else {
+		// Nothing to quote: the slot leaves with the option it belongs to
+		// rather than reaching the quoting pass and becoming an empty ''.
+		resolved = agentconfig.ExpandModel(resolved, "")
+	}
+	return expandAgentTemplate(resolved, values)
+}
+
+// launchCommandLine builds the command line for one launch, from whichever of
+// the two configured commands serves its mode.
+//
+// A command written for headless use answers for itself: it needs no
+// {mode:...} marker, because its author wrote it for that mode and nothing has
+// to be reinterpreted. Only the general command, asked to serve a mode it may
+// not have been written for, has to declare that it can.
+func launchCommandLine(config agentconfig.Config, model, prompt, mode string, contexts ...agentCommandContext) (string, error) {
+	if models.NormalizeSkillMode(mode) == models.SkillModeAutonomous {
+		if dedicated := strings.TrimSpace(config.AICommandTemplateAutonomous); dedicated != "" {
+			return expandConfiguredTemplate(dedicated, model, prompt, true, contexts...)
+		}
+	}
+	return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, prompt, mode, contexts...)
 }
 
 func sameDirectory(a, b string) bool {
@@ -513,7 +541,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 		if strings.TrimSpace(prompt) == "" {
 			return "", fmt.Errorf("custom instructions required")
 		}
-		return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
+		return launchCommandLine(config, model, "Sectile task: "+taskKey+"\n\n"+prompt, mode, contexts...)
 	}
 	skillCmd := ""
 	for _, skill := range config.Skills {
@@ -540,7 +568,7 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 	if skillID == "adjust" {
 		promptArg += "\n\n" + runner.AdjustmentContract
 	}
-	return modeCommandLine(config.AIProvider, config.AICommandTemplate, model, promptArg, mode, contexts...)
+	return launchCommandLine(config, model, promptArg, mode, contexts...)
 }
 
 func (d *agentDaemon) discoverProjects(ctx context.Context) (agentconfig.Projects, error) {

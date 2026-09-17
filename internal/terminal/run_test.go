@@ -10,6 +10,7 @@ import (
 // Un pas du workflow doit vraiment tourner dans la session, et son code de
 // sortie doit remonter : c'est lui qui décide si l'étape a réussi.
 func TestRunCommandInSessionCapturesOutputAndExitCode(t *testing.T) {
+	requirePosixShell(t)
 	m := NewManager()
 	defer func() { _ = m.CloseSession("test-run") }()
 
@@ -32,6 +33,7 @@ func TestRunCommandInSessionCapturesOutputAndExitCode(t *testing.T) {
 // Le plafond est un plafond de silence : une commande longue mais bavarde ne
 // doit pas être coupée, contrairement à l'ancien plafond de cinq minutes.
 func TestRunCommandInSessionKeepsTalkativeCommandAlive(t *testing.T) {
+	requirePosixShell(t)
 	m := NewManager()
 	defer func() { _ = m.CloseSession("test-talkative") }()
 
@@ -54,6 +56,7 @@ func TestRunCommandInSessionKeepsTalkativeCommandAlive(t *testing.T) {
 // Un agent bloqué sans rien écrire est arrêté sur le plafond de silence, et
 // l'appelant doit pouvoir le distinguer d'une fin normale.
 func TestRunCommandInSessionStopsOnSilence(t *testing.T) {
+	requirePosixShell(t)
 	m := NewManager()
 	defer func() { _ = m.CloseSession("test-silent") }()
 
@@ -77,6 +80,7 @@ func TestStripTerminalNoise(t *testing.T) {
 }
 
 func TestRunCommandInSessionPropagatesEnvVars(t *testing.T) {
+	requirePosixShell(t)
 	m := NewManager()
 	defer func() { _ = m.CloseSession("test-env") }()
 

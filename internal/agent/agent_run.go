@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
+	"tasks/internal/runner"
 )
 
 // runQueue owns every execution the agent supervises, from admission to exit,
@@ -91,7 +93,21 @@ func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
 		run = existing
 	}
 	d.queue.runs[runID] = run
-	return quoteShell(binary) + " agent-exec --url " + quoteShell(d.loopback.url+"/control/runs/"+runID) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
+	endpoint := d.loopback.url + "/control/runs/" + runID
+	if shell := runner.HostShell(); shell != runner.ShellPosix {
+		// The line is read by the user's own shell, so it is quoted for that shell. The command
+		// itself is encoded because no Windows shell line can carry a multi-line prompt.
+		quote := func(value string) string { return runner.QuoteArg(shell, value) }
+		prefix := ""
+		if shell == runner.ShellPowerShell {
+			// PowerShell treats a quoted first token as a string unless it is invoked.
+			prefix = "& "
+		}
+		return prefix + quote(binary) + " agent-exec --url " + quote(endpoint) +
+			" --token " + quote(run.token) +
+			" --command-base64 " + base64.StdEncoding.EncodeToString([]byte(command)), nil
+	}
+	return quoteShell(binary) + " agent-exec --url " + quoteShell(endpoint) + " --token " + quoteShell(run.token) + " --command " + quoteShell(command), nil
 }
 
 func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {

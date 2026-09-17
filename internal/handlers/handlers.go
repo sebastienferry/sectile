@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -1387,12 +1388,14 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 // HandleTrackerSetup checks tracker credentials, and saves them once they are
 // known good.
 //
-//	POST /api/setup/tracker/check  {siteUrl, email, token}
-//	POST /api/setup/tracker        {siteUrl, email, token, storeTokenInFile}
+//	POST /api/setup/tracker/check  {tracker, siteUrl, project, email, token}
+//	POST /api/setup/tracker        {tracker, siteUrl, project, email, token, storeTokenInFile}
 //
 // Checking before saving is the point: a wrong site or a stale token never
 // reaches the settings, and the answer names what is wrong instead of leaving a
-// sync to fail later with nothing to show.
+// sync to fail later with nothing to show. `tracker` selects the fields that
+// matter: GitHub and GitLab are checked against the instance and persisted here;
+// the Jira path keeps the behaviour it had, which persists nothing.
 func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1400,7 +1403,9 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
+		Tracker          string `json:"tracker"`
 		SiteURL          string `json:"siteUrl"`
+		Project          string `json:"project"`
 		Email            string `json:"email"`
 		Token            string `json:"token"`
 		StoreTokenInFile bool   `json:"storeTokenInFile"`
@@ -1410,8 +1415,32 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check") {
-		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true})
+	tracker := strings.ToLower(strings.TrimSpace(req.Tracker))
+	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
+	verified := ""
+	if tracker == "github" || tracker == "gitlab" {
+		account, err := h.db.CheckTrackerCredentials(r.Context(), tracker, req.SiteURL, req.Token)
+		if err != nil {
+			// Nothing is persisted on a failed check: the user configuration
+			// keeps the parameters that were working.
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		verified = account
+	}
+
+	if checkOnly {
+		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "account": verified})
+		return
+	}
+
+	if tracker == "github" || tracker == "gitlab" {
+		settings, err := h.db.SaveTrackerCredentials(tracker, req.SiteURL, req.Project, req.Token)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, settings)
 		return
 	}
 
@@ -2428,8 +2457,13 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, settings)
 
 	case http.MethodPost, http.MethodPut:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
+			return
+		}
 		var req models.Settings
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.Unmarshal(body, &req); err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid settings payload: "+err.Error())
 			return
 		}
@@ -2437,7 +2471,18 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		saved, err := h.db.UpdateSettings(req)
+		// An empty command template is a value, not an omission: it hands both
+		// execution modes back to the provider. Only the raw payload tells the
+		// two apart, so presence of the key is what carries the intent.
+		var sent map[string]json.RawMessage
+		_ = json.Unmarshal(body, &sent)
+		var clear []string
+		for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
+			if _, ok := sent[name]; ok {
+				clear = append(clear, name)
+			}
+		}
+		saved, err := h.db.UpdateSettings(req, clear...)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2611,14 +2656,18 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the user from the token. In the current single-user local mode,
-	// any non-empty token is accepted and the user is mapped to "default". A
-	// future multi-user deployment will validate tokens against a user store.
-	userID := h.resolveAgentUser(token)
-	if userID == "" {
+	// Resolve the user from the API key. An expired key is refused by name so
+	// the agent log tells its owner to renew rather than to check for a typo.
+	credential, err := h.resolveAgentCredential(token)
+	if errors.Is(err, db.ErrAPIKeyExpired) {
+		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusForbidden, "Invalid agent token")
 		return
 	}
+	userID := credential.UserID
 
 	projectID := r.URL.Query().Get("projectId")
 	if projectID == "" {
@@ -2734,20 +2783,14 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveAgentUser maps an agent device credential to the user it is bound to.
-// A deployment that has not paired any workstation keeps working through the
-// shared server token, which resolves to the single implicit user.
+// resolveAgentUser maps a machine bearer credential to the user it is bound
+// to, or to an empty string when it is refused for any reason.
 func (h *Handler) resolveAgentUser(token string) string {
-	if strings.TrimSpace(token) == "" {
+	credential, err := h.resolveAgentCredential(token)
+	if err != nil {
 		return ""
 	}
-	if userID := h.db.UserForDeviceToken(token); userID != "" {
-		return userID
-	}
-	if !validAgentToken(token) {
-		return ""
-	}
-	return "default"
+	return credential.UserID
 }
 
 // HandleAgentStatus returns the list of currently connected local agents.

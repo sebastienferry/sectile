@@ -35,7 +35,7 @@ func TestKilledBridgeClosesItsRun(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	daemon := &agentDaemon{loopback: loopbackServer{token: "session-secret"}, link: serverLink{serverURL: upstream.URL, token: "test-token"}}
+	daemon := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: "test-token"}}
 	if err := daemon.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestKilledBridgeClosesItsRun(t *testing.T) {
 	}
 
 	command := exec.Command(os.Args[0], "-test.run=^TestMCPStdioHelper$")
-	command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+daemon.loopback.url, "SECTILE_AGENT_TOKEN="+daemon.loopback.token)
+	command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+daemon.loopback.url, "SECTILE_AGENT_TOKEN="+daemon.link.token)
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
 	if err != nil {
 		t.Fatal(err)

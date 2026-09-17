@@ -24,14 +24,22 @@ CREATE TABLE IF NOT EXISTS projects (
     repo_paths TEXT NOT NULL DEFAULT '[]',  -- known working directories, auto-fed when a ticket pins a new CWD
     git_remote_url TEXT DEFAULT '',
     github_repo TEXT DEFAULT '',
+    -- Per-project connection overrides. Empty falls back to the settings row,
+    -- then to the server environment. Tokens are never returned by the API.
+    github_api_url TEXT NOT NULL DEFAULT '',
+    github_token TEXT NOT NULL DEFAULT '',
+    gitlab_url TEXT NOT NULL DEFAULT '',
+    gitlab_project TEXT NOT NULL DEFAULT '',
+    gitlab_token TEXT NOT NULL DEFAULT '',
     jira_project TEXT DEFAULT '',      -- Legacy Jira project identifier
     issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'github' | 'jira' | 'local'
     tracker_url TEXT DEFAULT '',       -- tracker project URL, or the Jira base URL
     is_default INTEGER DEFAULT 0,
-    stage_mapping TEXT DEFAULT '{}',
+    stage_mapping TEXT DEFAULT '{}',  -- unused: kept so older binaries still open the base
     skill_overrides TEXT DEFAULT '{}',
     ai_provider TEXT DEFAULT '',
-    ai_command_template TEXT DEFAULT '',
+    ai_command_template TEXT DEFAULT '',            -- interactive launches
+    ai_command_template_autonomous TEXT DEFAULT '', -- headless launches; empty falls back to the line above
     spec_framework TEXT DEFAULT '',    -- 'speckit' | 'openspec'
     default_skill_mode TEXT NOT NULL DEFAULT '',            -- '' (interactive) | 'interactive' | 'autonomous'
     full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed', -- 'implemented' | 'reviewed'
@@ -56,7 +64,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     external_id TEXT DEFAULT '',
     external_url TEXT DEFAULT '',
     branch_name TEXT,
-    pr_url TEXT,
+    pr_url TEXT,                          -- the task's current pull request: always the last entry of pr_links
+    pr_links TEXT NOT NULL DEFAULT '[]',  -- ordered set of [{url, branch}], oldest first; one ticket routinely produces several PRs
     repo_path TEXT NOT NULL DEFAULT '',  -- per-ticket CWD override; empty means inherit the project, then the global setting
     worktree_path TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -95,10 +104,17 @@ CREATE INDEX IF NOT EXISTS idx_activities_status ON task_activities(status);
 CREATE TABLE IF NOT EXISTS settings (
     id TEXT PRIMARY KEY,
     ai_provider TEXT DEFAULT 'antigravity',
-    github_token TEXT DEFAULT '',
+    -- Tracker connection parameters. They are typed in the interface and win
+    -- over the server environment variables, which stay as a headless fallback.
+    github_api_url TEXT NOT NULL DEFAULT '',
+    github_token TEXT NOT NULL DEFAULT '',
     github_repo TEXT DEFAULT '',
+    gitlab_url TEXT NOT NULL DEFAULT '',
+    gitlab_project TEXT NOT NULL DEFAULT '',
+    gitlab_token TEXT NOT NULL DEFAULT '',
     jira_project TEXT DEFAULT '',      -- default Jira project key
     jira_url TEXT DEFAULT '',          -- default Jira base URL
+    jira_api_token TEXT NOT NULL DEFAULT '',
     spec_framework TEXT DEFAULT 'speckit',  -- 'speckit' | 'openspec'
     repo_path TEXT DEFAULT '.',
     auto_create_branch INTEGER DEFAULT 1,
@@ -183,7 +199,7 @@ and the tracker's own refusal when it fails.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/sync/all` | — | Queues a sync of every configured project across all trackers. |
+| `POST` | `/api/sync/all` | (none) | Queues a sync of every configured project across all trackers. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
 | `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Reports unsupported Jira synchronization. |
 
@@ -228,7 +244,7 @@ and its progress is readable through the Activities API.
 }
 ```
 
-Response — note that `installed: false` still returns HTTP 200, because the
+Response: note that `installed: false` still returns HTTP 200, because the
 request was valid and `steps[]` carries the diagnosis:
 
 ```json

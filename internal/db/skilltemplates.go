@@ -523,6 +523,26 @@ func renderTaskAccessContract() string {
 `
 }
 
+// renderSessionTitleContract names the agent session after the work item it runs
+// on, so a board of parallel sessions stays readable. The instruction states the
+// outcome and not a Claude Code specific tool: every agent applies it with
+// whatever renaming capability it has.
+func renderSessionTitleContract(s StageSkill) string {
+	item := "ticket"
+	if s.Scope == "macro" {
+		item = "macro"
+	}
+	var b strings.Builder
+	b.WriteString("## Session title\n")
+	fmt.Fprintf(&b, "- As soon as the %s is identified, and before doing the work, rename the current session to `<%s ID> - <%s title>`, for example `#47 - Remove the parallelism setting`. Keep that title for the whole run.\n", item, item, item)
+	if s.ID == "pickup_issues" {
+		b.WriteString("- For a batch, name the session after the first ticket followed by the remaining count, for example `#47 (+2) - Remove the parallelism setting`.\n")
+	}
+	b.WriteString("- This applies to every agent, not only Claude Code: use whatever session renaming capability the running agent exposes, be it a session title tool, a rename command or the host session API. Discover it from the session context instead of assuming a name.\n")
+	b.WriteString("- If no renaming capability is available, skip the rename silently and continue. It never blocks, delays or replaces the work of the skill.\n\n")
+	return b.String()
+}
+
 // renderTicketTransitionContract generates the autonomous ticket transition instructions
 // for the skill based on its from/to stages in the sequence:
 // new -> clarified -> specified -> implemented -> reviewed -> finished
@@ -547,6 +567,9 @@ func renderTicketTransitionContract(s StageSkill) string {
 			b.WriteString("Include prUrl with the verified pull request URL.\n")
 		}
 	}
+	// Un ticket porte plusieurs PR : l'agent doit savoir qu'une PR de suite sur la
+	// même branche est légitime, sinon il croit la transition définitivement close.
+	b.WriteString("A task holds an ordered set of pull requests, `prUrl` being its current one. A pull request on a branch the task already used is a legitimate follow-up and is appended, even when the recorded one is merged; a pull request on an unrelated branch is refused, and its links are corrected from the task detail view rather than by forging evidence.\n")
 	b.WriteString("Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by Sectile. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.\n")
 	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
 	return b.String()
@@ -608,6 +631,7 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	}
 	b.WriteString("\n\n")
 	b.WriteString(renderTaskAccessContract())
+	b.WriteString(renderSessionTitleContract(s))
 	fmt.Fprintf(&b, "## Goal\n%s\n\n", s.goal)
 	if readFirst != "" {
 		fmt.Fprintf(&b, "## Read first\n%s\n\n", readFirst)

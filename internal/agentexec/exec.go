@@ -5,6 +5,7 @@
 package agentexec
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -23,8 +24,18 @@ func Run(args []string) error {
 	endpoint := flags.String("url", "", "Local run control endpoint")
 	token := flags.String("token", "", "Run control token")
 	command := flags.String("command", "", "Command")
+	// A batch line carries no newline, and skill prompts are multi-line; Windows passes the
+	// command encoded rather than trying to escape it for cmd.exe.
+	encoded := flags.String("command-base64", "", "Command, base64 encoded")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if *encoded != "" {
+		raw, err := base64.StdEncoding.DecodeString(*encoded)
+		if err != nil {
+			return fmt.Errorf("invalid --command-base64: %w", err)
+		}
+		*command = string(raw)
 	}
 	client := &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	exitStatus := "failed"

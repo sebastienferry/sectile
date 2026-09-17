@@ -66,7 +66,9 @@ export const AIModelField: React.FC<AIModelFieldProps> = ({
           <Info size={12} className="text-indigo-400 shrink-0 mt-0.5" />
           <span>
             Le modèle de ligne de commande pilote l'exécution : le modèle n'est appliqué que via le
-            marqueur <code className="text-indigo-400 font-mono">{'{model}'}</code>.
+            marqueur <code className="text-indigo-400 font-mono">{'{model}'}</code>. Sans modèle
+            configuré, le marqueur emporte l'option qui le précède plutôt que de la laisser sans
+            valeur.
           </span>
         </p>
       )}

@@ -30,6 +30,10 @@ type Config struct {
 	AIProvider         string   `json:"aiProvider"`
 	SetupProviders     []string `json:"setupProviders,omitempty"`
 	AICommandTemplate  string   `json:"aiCommandTemplate"`
+	// AICommandTemplateAutonomous is additive: an agent that predates it resolves
+	// nothing and keeps building the headless line it built before, from the
+	// interactive template's {mode:...} marker or the provider's own command.
+	AICommandTemplateAutonomous string `json:"aiCommandTemplateAutonomous,omitempty"`
 	// AIModel and AISkillModels are additive: an agent that predates them resolves
 	// no model and builds exactly the command lines it built before.
 	AIModel                 string            `json:"aiModel,omitempty"`

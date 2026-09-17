@@ -38,6 +38,7 @@ import type {
   RefineMacroResult,
   AutoSyncState,
   TrackerCheck,
+  TrackerCredentials,
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
@@ -111,14 +112,9 @@ interface AppContextType {
   isTrackerSetupOpen: boolean
   setIsTrackerSetupOpen: (open: boolean) => void
   /** Vérifie des accès tracker sans rien enregistrer. */
-  checkTrackerCredentials: (siteUrl: string, email: string, token: string) => Promise<TrackerCheck>
+  checkTrackerCredentials: (params: TrackerCredentials) => Promise<TrackerCheck>
   /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
-  saveTrackerCredentials: (
-    siteUrl: string,
-    email: string,
-    token: string,
-    storeTokenInFile: boolean
-  ) => Promise<boolean>
+  saveTrackerCredentials: (params: TrackerCredentials) => Promise<boolean>
   /**
    * Statuts du tracker affichés. Vide veut dire « tous » : c'est le choix
    * explicite de ce qu'on regarde, board comme liste, et il remplace le
@@ -1037,12 +1033,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [fetchTaskFacets, tasks.length])
 
   const checkTrackerCredentials = useCallback(
-    async (siteUrl: string, email: string, token: string): Promise<TrackerCheck> => {
+    async (params: TrackerCredentials): Promise<TrackerCheck> => {
       try {
         const res = await fetch(`${API_BASE}/setup/tracker/check`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ siteUrl, email, token }),
+          body: JSON.stringify(params),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) return { ok: false, error: data.error || 'Vérification impossible' }
@@ -1055,12 +1051,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   )
 
   const saveTrackerCredentials = useCallback(
-    async (siteUrl: string, email: string, token: string, storeTokenInFile: boolean): Promise<boolean> => {
+    async (params: TrackerCredentials): Promise<boolean> => {
       try {
         const res = await fetch(`${API_BASE}/setup/tracker`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ siteUrl, email, token, storeTokenInFile }),
+          body: JSON.stringify(params),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.error || 'Enregistrement refusé')
@@ -2697,19 +2693,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     )
     cleanLabels.push(targetLabel)
 
-    // Determine mapped status using project stageMapping if configured
-    let mappedStatus: Status = task.status
+    // Stage and internal status are the same six-way split, so the fold needs no
+    // per-project configuration; the server holds the same table.
     const proj = projects.find(p => p.id === task.projectId) || currentProject
-    if (proj?.stageMapping && proj.stageMapping[targetStage]) {
-      mappedStatus = proj.stageMapping[targetStage] as Status
-    } else {
-      if (targetStage === 'new' || (targetStage as any) === 'untouched') mappedStatus = 'to_clarify'
-      else if (targetStage === 'clarified') mappedStatus = 'clarified'
-      else if (targetStage === 'specified') mappedStatus = 'to_implement'
-      else if (targetStage === 'implemented') mappedStatus = 'to_test'
-      else if (targetStage === 'reviewed') mappedStatus = 'to_close'
-      else if (targetStage === 'finished') mappedStatus = 'finished'
-    }
+    const mappedStatus: Status = INTERNAL_STATUS_BY_STAGE[targetStage] ?? task.status
 
     // Determine target tracker status if project has stageColumns mapping
     let mappedTrackerStatus = task.trackerStatus
