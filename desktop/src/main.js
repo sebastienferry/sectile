@@ -5,6 +5,7 @@ import { skillResult } from './skill-result.mjs'
 import { orderedQueueRuns } from './queue.mjs'
 import { orderedTaskGroups } from './task-order.mjs'
 import { transitions, announce } from './notifications.mjs'
+import { runStateOf, runStateLabel, runStateSvg } from '../../shared/runStates.ts'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -158,6 +159,16 @@ function select(run,background=false,options){
  api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen)terminal.focus()}).catch(error)
  render(options)
 }
+// The state the user reads, drawn from the shared definition so the row, the
+// execution queue and the banner the desktop raises cannot say three things.
+// The glyph is decorative: the label carries the state for anyone who cannot
+// resolve an amber hand, and the row tooltip repeats it.
+function renderRunState(element,run){
+ const state=runStateOf(run),label=runStateLabel(state)
+ if(element.dataset.runState!==state){element.dataset.runState=state;element.innerHTML=runStateSvg(state,14)}
+ element.title=label;element.setAttribute('aria-label',label)
+ return label
+}
 function renderQueue(project,group){
  const runsForProject=runs.filter(run=>run.projectId===project.id)
  const panel=document.createElement('section');panel.className='execution-queue';panel.setAttribute('aria-label','Execution queue for '+project.name)
@@ -186,7 +197,7 @@ function renderQueue(project,group){
    button.className='queue-execution';button.dataset.runId=run.id
    button.setAttribute('aria-pressed',String(run.id===selected))
    const title=document.createElement('strong');title.textContent=[run.taskKey||run.taskId,taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)].filter(Boolean).join(' · ')
-   const context=document.createElement('small');context.textContent=(projects.find(project=>project.id===run.projectId)?.name||run.projectId)+' · '+runLabel(run)+' · '+(run.cancelRequested?(run.status==='queued'?'Canceling':'Stopping; waiting for exit'):run.status)
+   const context=document.createElement('small');context.textContent=(projects.find(project=>project.id===run.projectId)?.name||run.projectId)+' · '+runLabel(run)+' · '+(run.cancelRequested?(run.status==='queued'?'Canceling':'Stopping; waiting for exit'):runStateLabel(runStateOf(run)))
    button.append(title,context);button.onclick=()=>select(run);item.append(button);entries.append(item)
   }
  }
@@ -215,6 +226,10 @@ function renderTaskRowStates(){
  for(const button of document.querySelectorAll('.local-task .run')){
   const run=runs.find(item=>item.id===button.dataset.runId)
   if(run)button.dataset.status=run.status
+ }
+ for(const element of document.querySelectorAll('.local-task .run-state')){
+  const run=runs.find(item=>item.id===element.dataset.runId)
+  if(run)renderRunState(element,run)
  }
  renderTaskSkillStatuses()
 }
@@ -295,8 +310,11 @@ function render(options){
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
     const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
-    button.title=title.textContent+' · '+runLabel(run)+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
-    button.append(title,status);button.onclick=()=>select(run)
+    const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
+    const stateLabel=renderRunState(state,run)
+    // data-status stays the status the server reported: the UI tests select on it.
+    button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
+    button.append(title,state,status);button.onclick=()=>select(run)
     const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.onclick=()=>taskMenu(run)
     const archive=document.createElement('button');archive.className='task-archive'
     const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))

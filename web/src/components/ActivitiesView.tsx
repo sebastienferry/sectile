@@ -22,11 +22,26 @@ import {
   RefreshCw,
   ChevronRight,
   Bot,
-  Hand,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { MarkdownView } from './Markdown'
-import type { ActivityStatus } from '../types'
+import { RunStateGlyph } from './RunStateGlyph'
+import { runStateOf, runStateLabel } from '../../../shared/runStates'
+import type { ActivityStatus, TaskActivity } from '../types'
+
+// The badge's colour stays a Tailwind class rather than the hex value the shared
+// definition carries: replacing the palette is its own change, tracked apart to
+// keep this one reviewable. Looking the class up by state id with a neutral
+// fallback is what lets an added state render without an edit here.
+const STATE_CLASSES: Record<string, string> = {
+  waiting: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  running: 'bg-blue-500/15 text-blue-400 border-blue-500/30 animate-pulse',
+  queued: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+  completed: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  failed: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+  canceled: 'bg-slate-500/15 text-slate-400 border-slate-500/30',
+}
+const NEUTRAL_CLASSES = 'bg-slate-500/15 text-slate-400 border-slate-500/30'
 
 export const ActivitiesView: React.FC = () => {
   const {
@@ -94,47 +109,21 @@ export const ActivitiesView: React.FC = () => {
     }
   }
 
-  const getStatusBadge = (status: ActivityStatus) => {
-    switch (status) {
-      case 'running':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30 animate-pulse">
-            <Loader2 size={12} className="animate-spin" />
-            <span>{t.activities.stats.running}</span>
-          </span>
-        )
-      case 'queued':
-      case 'pending':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-            <Clock size={12} />
-            <span>{t.activities.stats.queued}</span>
-          </span>
-        )
-      case 'completed':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-            <CheckCircle2 size={12} />
-            <span>{t.activities.stats.completed}</span>
-          </span>
-        )
-      case 'failed':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-500/15 text-rose-400 border border-rose-500/30">
-            <AlertTriangle size={12} />
-            <span>{t.activities.stats.failed}</span>
-          </span>
-        )
-      case 'canceled':
-        return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-500/15 text-slate-400 border border-slate-500/30">
-            <XCircle size={12} />
-            <span>{t.activities.stats.canceled}</span>
-          </span>
-        )
-      default:
-        return null
-    }
+  // The badge reads the state off the shared definition rather than off the raw
+  // status: 'waiting' is not a status the server stores, it is a running run
+  // that reported itself blocked, and the filter beside this badge already knows
+  // that. The wording comes from the localised table when it has an entry for
+  // the state, and from the shared definition when it does not.
+  const getStatusBadge = (activity: Pick<TaskActivity, 'status' | 'waitingSince'>) => {
+    const state = runStateOf(activity)
+    const wording = (t.activities.stats as Record<string, string>)[state] || runStateLabel(state)
+    return (
+      <span className={'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border '
+        + (STATE_CLASSES[state] || NEUTRAL_CLASSES)}>
+        <RunStateGlyph state={state} className={state === 'running' ? 'animate-spin' : undefined} />
+        <span>{wording}</span>
+      </span>
+    )
   }
 
   const filteredActivities = useMemo(() => {
@@ -495,16 +484,7 @@ export const ActivitiesView: React.FC = () => {
                           <span className="font-bold text-xs text-[var(--text-primary)] truncate">
                             {act.skillName || act.skillId}
                           </span>
-                          {getStatusBadge(act.status)}
-                          {act.status === 'running' && act.waitingSince && (
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                              title={t.activities.filters.waiting}
-                            >
-                              <Hand size={12} />
-                              <span>{t.activities.stats.waiting}</span>
-                            </span>
-                          )}
+                          {getStatusBadge(act)}
                         </div>
                         {/* Task Key & Title Link */}
                         <div className="flex items-center gap-2 mt-0.5 text-xs text-[var(--text-muted)]">
@@ -627,7 +607,7 @@ export const ActivitiesView: React.FC = () => {
                     <h2 className="text-base font-bold text-[var(--text-primary)] truncate">
                       {selectedActivity.skillName}
                     </h2>
-                    {getStatusBadge(selectedActivity.status)}
+                    {getStatusBadge(selectedActivity)}
                   </div>
                   <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5">
                     ID: {selectedActivity.id.slice(0, 8)}... | {formatFullDate(selectedActivity.createdAt)}

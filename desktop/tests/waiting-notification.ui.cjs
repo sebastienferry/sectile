@@ -59,6 +59,14 @@ test('a waiting session raises one native notification carrying the shared glyph
   const {runStateIconDataUrl}=await import('../../shared/runStates.ts')
   assert.equal(raised[0].icon,runStateIconDataUrl('waiting'))
 
+  // The list must say what the banner says: a blocked session that still reads
+  // 'running' in the sidebar is the defect the shared definition exists to
+  // prevent. The label carries it, so it survives without the glyph.
+  const state=page.locator('.local-task .run .run-state')
+  await state.waitFor()
+  assert.equal(await state.getAttribute('data-run-state'),'waiting')
+  assert.equal(await state.getAttribute('aria-label'),'Waiting for you')
+
   // Several more polls of the same state must stay silent.
   await page.waitForTimeout(5000)
   assert.equal((await page.evaluate(()=>window.__raised.length)),1,'a repeated poll raised the banner again')
@@ -76,6 +84,9 @@ test('a waiting session raises one native notification carrying the shared glyph
   const third=(await page.evaluate(()=>window.__raised))[2]
   assert.match(third.body,/finished its turn/)
   assert.equal(third.icon,runStateIconDataUrl('completed'))
+  // And the row follows the banner rather than keeping the wait it left behind.
+  await page.waitForFunction(()=>document.querySelector('.local-task .run .run-state')?.dataset.runState==='completed')
+  assert.equal(await state.getAttribute('aria-label'),'Finished')
  } finally {
   await app?.close().catch(()=>{})
   server.close()

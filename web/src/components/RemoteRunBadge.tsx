@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { CircleStop } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { deriveRunIndicator, type RunIndicatorState } from '../lib/remoteRunIndicator'
-import { runState, type IconNode } from '../../../shared/runStates'
+import { RunStateGlyph } from './RunStateGlyph'
+import { runState } from '../../../shared/runStates'
 
 // The indicator is a bare glyph: a filled box would read as an action button
 // competing with the card's own controls, and the state already carries in the
@@ -16,19 +17,11 @@ const LABELS: Record<RunIndicatorState, string> = {
   canceled: 'Remote execution canceled',
 }
 
-/** Renders a shared glyph definition as an inline SVG, at badge size. */
+/** The state glyph, at badge size, spinning or pulsing while the state lasts. */
 function StateGlyph({ state, spin }: { state: RunIndicatorState; spin: boolean }) {
-  const definition = runState(state)
-  if (!definition) return null
   return (
-    <svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-      className={spin ? 'animate-spin' : state === 'waiting' ? 'animate-pulse' : undefined}>
-      {definition.icon.map(([tag, attributes]: IconNode, index: number) =>
-        tag === 'circle' ? <circle key={index} {...attributes} />
-          : tag === 'line' ? <line key={index} {...attributes} />
-            : <path key={index} {...attributes} />)}
-    </svg>
+    <RunStateGlyph state={state} size={12}
+      className={spin ? 'animate-spin' : state === 'waiting' ? 'animate-pulse' : undefined} />
   )
 }
 
