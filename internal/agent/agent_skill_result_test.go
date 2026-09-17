@@ -21,8 +21,8 @@ func TestDesktopSkillResultMatchesOwnedExecution(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(models.Task{ID: "task", ProjectID: projectID, Status: "to_specify"})
 		case "/api/tasks/task/activities":
 			_ = json.NewEncoder(w).Encode([]models.TaskActivity{
-				{ID: "old", TaskID: "task", SkillID: "clarify", Status: "completed"},
-				{ID: "run", TaskID: "task", SkillID: "clarify", Status: "running"},
+				{ID: "old", TaskID: "task", SkillID: "remote_run", SkillName: "clarify", Status: "completed"},
+				{ID: "run", TaskID: "task", SkillID: "remote_run", SkillName: "clarify", Status: "running"},
 			})
 		default:
 			http.NotFound(w, r)
@@ -45,7 +45,7 @@ func TestDesktopSkillResultMatchesOwnedExecution(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if response.Code != 200 || result.Activity.ID != "run" || result.Activity.Status != "running" {
+	if response.Code != 200 || result.Activity.ID != "run" || result.Activity.Status != "running" || result.Activity.SkillID != "clarify" {
 		t.Fatalf("wrong result: %s", response.Body.String())
 	}
 	if response = disconnectRequest(d, "GET", "/desktop/run-result?id=unknown", ""); response.Code != 404 {

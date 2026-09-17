@@ -8,7 +8,7 @@ test('TTY header follows metadata and selection without disturbing the console',
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-task-header-'))
  const run=(id,taskId,skill,status='completed')=>({id,taskId,taskKey:taskId==='a'?'#82':'',projectId:'project',skill,status,sessionId:id,directory:'/tmp/example/worktree',createdAt:id==='old'?'2026-09-12T10:00:00Z':'2026-09-13T10:00:00Z'})
  let runs=[run('current','a','implement'),run('old','a','clarify'),run('other','full-task-id','specify','running')]
- let reported=null,resultUnavailable=false
+ let reported=null,resultUnavailable=false,resultRequests=0
  let tasks=[],pending=[],hold=true,fail=false,requests=0,attachments=0,disconnections=0
  const respond=res=>{if(fail)res.writeHead(503).end();else res.end(JSON.stringify(tasks))}
  const server=http.createServer((req,res)=>{
@@ -16,7 +16,7 @@ test('TTY header follows metadata and selection without disturbing the console',
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'project',name:'Example project',path:'/tmp/example'}]));return}
   if(req.url==='/desktop/project?id=project'){res.end(JSON.stringify({server:{skills:[{id:'implement',name:'Implement'}]}}));return}
-  if(req.url.startsWith('/desktop/run-result?')){if(resultUnavailable)res.writeHead(503).end();else res.end(JSON.stringify(reported||{activity:null}));return}
+  if(req.url.startsWith('/desktop/run-result?')){resultRequests++;if(resultUnavailable)res.writeHead(503).end();else res.end(JSON.stringify(reported||{activity:null}));return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify(runs));return}
   if(req.url.startsWith('/desktop/tasks?')){requests++;if(hold)pending.push(res);else respond(res);return}
   res.writeHead(404).end()
@@ -54,6 +54,17 @@ test('TTY header follows metadata and selection without disturbing the console',
   await expect(header()).toHaveText('#82 · implement')
   await expect(page.locator('#save-log')).toBeFocused()
   assert.deepEqual([attachments,disconnections],beforeStatus)
+  // An exited process alone never confirms the skill; the server must report the launched skill.
+  const currentBadge=page.locator('.task-skill-status[data-run-id="current"]')
+  await expect(currentBadge).toHaveAttribute('title','implement · Execution ended · skill completion unconfirmed')
+  const settled=async()=>{const before=resultRequests;await expect.poll(()=>resultRequests).toBeGreaterThanOrEqual(before+3)}
+  // The activity record kind is not the launched skill and must not be accepted as a match.
+  reported={activity:{id:'current',taskId:'a',skillId:'remote_run',status:'completed'},task:{labels:['implemented']}}
+  await settled()
+  await expect(currentBadge).toHaveAttribute('title','implement · Execution ended · skill completion unconfirmed')
+  reported={activity:{id:'current',taskId:'a',skillId:'implement',status:'completed'},task:{labels:['implemented']}}
+  await expect(currentBadge).toHaveText('✓')
+  await expect(currentBadge).toHaveAttribute('title','implement · Skill completed')
   reported=null
   await expect(otherBadge).toHaveText('◷')
   await select('full-task-id')
