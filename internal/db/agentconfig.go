@@ -67,8 +67,9 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 	// Legacy rows store a bare CLI name here; the runner never used it, so the agent must not see it.
 	c.AICommandTemplate = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplate)
 	c.AICommandTemplateAutonomous = agentconfig.EffectiveCommandTemplate(c.AIProvider, c.AICommandTemplateAutonomous)
-	// The project speaks over the global settings, level by level: a bare project
-	// model outranks a global per-skill entry, which is what MergeModels encodes.
+	// The project speaks over the global settings, level by level, but the most
+	// specific statement wins: a global per-skill entry survives a bare project
+	// model, which is what MergeModels encodes.
 	aiModels := agentconfig.MergeModels(
 		agentconfig.ModelConfig{Model: p.AIModel, SkillModels: p.AISkillModels},
 		agentconfig.ModelConfig{Model: s.AIModel, SkillModels: s.AISkillModels},

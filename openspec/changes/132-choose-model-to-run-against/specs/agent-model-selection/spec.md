@@ -29,8 +29,10 @@ model".
 
 ### Requirement: A skill can run against its own model
 Sectile SHALL accept a per-skill model map at each of the three levels, keyed by skill identifier.
-Resolution for a given skill SHALL take the first non-empty value among: workstation skill map,
-workstation model, project skill map, project model, global skill map, global model.
+The most specific statement SHALL win: naming a skill outranks a bare model, whatever level that
+bare model sits on. Resolution for a given skill SHALL therefore take the first non-empty value
+among: workstation skill map, project skill map, global skill map, workstation model, project
+model, global model. A bare model SHALL govern only the skills that no level singles out.
 
 #### Scenario: One skill differs from the rest
 - **GIVEN** a project model and a project skill map binding `implement` to another model
@@ -41,6 +43,23 @@ workstation model, project skill map, project model, global skill map, global mo
 - **GIVEN** a project model and a skill map that does not mention `clarify`
 - **WHEN** the `clarify` skill is dispatched
 - **THEN** the effective model is the project model
+
+#### Scenario: A per-skill entry survives a bare model set above it
+- **GIVEN** a global skill map binding `implement` to one model and a bare project model
+- **WHEN** the `implement` skill is dispatched
+- **THEN** the effective model is the one the global skill map binds to `implement`
+- **AND** every other skill of that project resolves the bare project model
+
+#### Scenario: A per-skill entry survives a bare workstation model
+- **GIVEN** a project skill map binding `implement` to one model and a bare model in the
+  workstation override file
+- **WHEN** the local agent applies its overrides and the `implement` skill is dispatched
+- **THEN** the effective model is the one the project skill map binds to `implement`
+
+#### Scenario: Two levels name the same skill
+- **GIVEN** a global skill map and a project skill map both binding `implement`
+- **WHEN** the `implement` skill is dispatched
+- **THEN** the effective model is the one bound by the more specific level, the project
 
 #### Scenario: Unknown skill key
 - **GIVEN** a skill map containing a key matching no configured skill
@@ -78,8 +97,9 @@ ignored without error.
 
 ### Requirement: A command template keeps control of the command line
 When the launch uses a command template, Sectile SHALL NOT inject a model flag. The template SHALL
-instead expose a `{model}` placeholder substituted with the resolved model, replaced by the empty
-string when no model is resolved.
+instead expose a `{model}` placeholder substituted with the resolved model. When no model is
+resolved, the placeholder SHALL be removed together with the option that introduces it, so the
+template never runs with a flag whose value is missing.
 
 #### Scenario: Template without the placeholder
 - **GIVEN** a template that carries `{prompt}` but no `{model}` and a resolved model
@@ -92,9 +112,17 @@ string when no model is resolved.
 - **THEN** `{model}` is replaced by `M`
 
 #### Scenario: Placeholder with no model configured
-- **GIVEN** a template containing `{model}` and no model resolved at any level
+- **GIVEN** a template `my-cli --model {model} -p "{prompt}"` and no model resolved at any level
 - **WHEN** the command is built
-- **THEN** the `{model}` slot leaves the command line and the surrounding command still runs
+- **THEN** the command is `my-cli -p "{prompt}"`, carrying neither the placeholder nor its flag
+- **AND** the prompt remains the value of `-p` rather than being read as the model
+
+#### Scenario: Placeholder with no model, other flag spellings
+- **GIVEN** no model resolved and a template writing the slot as `--model={model}`,
+  as `--model "{model}"` or as a bare `{model}` with no flag
+- **WHEN** the command is built
+- **THEN** the slot is removed whole in each case, along with its flag when it has one
+- **AND** a dash inside a plain word such as `my-cli` is never mistaken for that flag
 
 ### Requirement: A model identifier is validated on shape, not on membership
 Sectile SHALL accept any model identifier whose shape is safe to place on a command line, and SHALL

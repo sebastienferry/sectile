@@ -25,7 +25,7 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `useWorktrees` | Create/reuse task worktrees when true; validate the existing checkout when false. |
 | `aiProvider` | `codex`, `claude`, `agy`, `gemini`, `cursor`, `vibe`, or `custom`; empty uses the legacy `agy` default. |
 | `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; argument placeholders are shell-safe: `{prompt}`, `{issueKey}`, `{issueTitle}`, `{issueDesc}`, `{branchName}`, `{repoPath}`, `{tracker}`, `{repo}`. Task values are fetched for each launch; branch/path identify local execution. See [desktop usage](../../desktop/README.md). Custom providers still require supported native MCP bootstrap. A template without `{prompt}` on a named provider is legacy data: the server serves it as empty and the provider default runs. |
-| `aiModel` | Optional model the engine runs against. Passed as `--model <value>` to `claude`, `codex`, `gemini` and `cursor`; ignored by `agy` and `vibe`. Empty keeps the CLI default. A command template supersedes it: no flag is injected, and the value reaches the template only through its optional `{model}` placeholder. Validated on shape (`^[A-Za-z0-9][A-Za-z0-9._:@/-]*$`), never against a list of known models. |
+| `aiModel` | Optional model the engine runs against. Passed as `--model <value>` to `claude`, `codex`, `gemini` and `cursor`; ignored by `agy` and `vibe`. Empty keeps the CLI default. A command template supersedes it: no flag is injected, and the value reaches the template only through its optional `{model}` placeholder, and an unresolved placeholder is removed together with the option that introduces it. Validated on shape (`^[A-Za-z0-9][A-Za-z0-9._:@/-]*$`), never against a list of known models. |
 | `aiSkillModels` | Optional `skillId -> model` map for the skills that depart from `aiModel`. An absent or empty entry inherits; it never means "no model". Entries naming no configured skill are ignored. |
 | `externalTerminalCommand` | Terminal application/launcher selection. No silent fallback to a hidden PTY after launch failure. |
 | `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. |
@@ -51,10 +51,10 @@ These values are never uploaded. Changing the provider locally without a local
 command template clears the inherited provider's command template.
 
 Model selection resolves level by level, most specific first: workstation, then
-project, then global. Inside a level the per-skill entry wins over the level's own
-model, so a bare model on a more specific level outranks a per-skill entry on a
-less specific one. Every level empty reproduces the command lines that predate
-model selection.
+project, then global. The most specific statement wins: naming a skill outranks a
+bare model, whatever level that bare model sits on, so a bare model governs only
+the skills no level singles out. Every level empty reproduces the command lines
+that predate model selection.
 
 Execution parallelism has no server-side counterpart: the configuration payload
 carries no `parallelism` field, and the workstation value in

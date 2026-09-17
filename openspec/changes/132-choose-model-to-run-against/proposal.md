@@ -17,7 +17,10 @@ and a stronger one for an implementation has no way to say so short of writing a
 - Inject the model as `--model <value>` only for the providers that accept the flag (claude, codex,
   gemini, cursor). agy and vibe ignore a configured model rather than failing.
 - Leave a command template in charge: when `UsesCommandTemplate` is true, no flag is injected and a
-  `{model}` placeholder carries the resolved value instead.
+  `{model}` placeholder carries the resolved value instead. An unresolved slot is removed together
+  with the option that introduces it, so the template never runs with a flag missing its value.
+- Resolve the levels by the most specific statement: a per-skill entry outranks a bare model, even
+  a bare model set on a more specific level.
 - Offer suggested models per provider in the UI while accepting any free-text identifier, so a newly
   released model needs no Sectile release. Validation checks shape, not membership.
 - Report the resolved model on the launch step line next to the engine, and reuse it for the
@@ -29,7 +32,8 @@ and a stronger one for an implementation has no way to say so short of writing a
 - Code: `internal/models/models.go`, `internal/db/agentconfig.go`, `internal/db/db.go`,
   `internal/agentconfig/{config,local,validation}.go`, `internal/runner/runner.go`,
   `cmd/agent/{agent_config,agent_console,agent_operations}.go`, `internal/taskmcp/server.go`,
-  `web/src/components/{AIModelField,ProfileModal,ProjectModal}.tsx`, `web/src/lib/aiModels.ts`.
+  `web/src/components/{AIModelField,ProfileModal,ProjectModal}.tsx`, `web/src/lib/aiModels.ts`,
+  `internal/agentconfig/{model,template}.go`.
 - Backward compatible: every field empty reproduces today's exact command lines.
 
 ## Non-goals
