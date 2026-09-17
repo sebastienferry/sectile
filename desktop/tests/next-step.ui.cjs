@@ -51,9 +51,16 @@ test('console next step rechecks task state, guards active history and handles f
   await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('Execution in progress'))
   assert.equal(launches.length,1)
   assert.deepEqual(launches[0],{taskID:'task-a',skillID:'implement',prompt:''})
+  // Ending the execution and launching the next step never apply at the same time.
+  assert.equal(await page.locator('#stop').isEnabled(),true,'A running execution can be ended')
+  assert.equal(await button.isDisabled(),true,'The next step waits for the execution to end')
   await page.locator('#execution-history').selectOption('old')
   assert.equal(await button.isDisabled(),true,'An older console cannot bypass an active run')
-  active=false;stage='reviewed';await selectB();await selectA()
+  active=false
+  await page.waitForFunction(()=>document.querySelector('#stop').disabled)
+  // Ending the execution is what makes the next step available again.
+  await page.waitForFunction(()=>!document.querySelector('#next-step').disabled)
+  stage='reviewed';await selectB();await selectA()
   await page.waitForFunction(()=>document.querySelector('#next-step-status').textContent.includes('Awaiting human merge'))
   assert.equal(await button.isHidden(),true)
   stage='finished';await selectA()
@@ -77,7 +84,10 @@ test('console next step rechecks task state, guards active history and handles f
   assert.equal(await page.locator('#toolbar #next-step').count(),1,'The next action sits in the execution toolbar')
   assert.equal(await page.locator('#task-status button').count(),0,'The footer keeps the status text alone')
   assert.equal(await page.evaluate(()=>document.querySelector('#next-step').nextElementSibling.id),'retry-next-step')
-  assert.equal(await page.evaluate(()=>document.querySelector('#retry-next-step').nextElementSibling.id),'stop','The action stays beside the stop control')
+  // Closing the current step comes before launching the next one, in the order the user acts.
+  assert.equal(await page.evaluate(()=>document.querySelector('#stop').nextElementSibling.id),'next-step','The closing control precedes the next action')
+  assert.equal(await page.evaluate(()=>document.querySelector('#stop').previousElementSibling.id),'save-log')
+  assert.equal(await page.evaluate(()=>!!document.querySelector('#stop').querySelector('path[d*="M7 7 17 17"]')),false,'The closing control drops the cross glyph')
   await page.screenshot({path:path.join(root,'next-step.png')})
   console.log('Next-step screenshot: '+path.join(root,'next-step.png'))
  }finally{
