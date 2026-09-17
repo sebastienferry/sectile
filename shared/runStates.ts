@@ -122,3 +122,40 @@ export function runStateIconDataUrl(id: string, size = 64): string {
   if (!svg) return ''
   return 'data:image/svg+xml;base64,' + btoa(svg)
 }
+
+/**
+ * What a surface knows about a run before resolving its state: the status the
+ * server stores, and the mark a blocked session leaves behind. A desktop run
+ * and a web activity both satisfy this.
+ */
+export interface RunStateInput {
+  status?: string
+  waitingSince?: string | null
+}
+
+/** Statuses that end a run, and therefore report an outcome rather than progress. */
+const TERMINAL = new Set(['completed', 'failed', 'canceled'])
+
+/**
+ * The state a run is in, in the vocabulary every surface shares.
+ *
+ * The order is the one that matters: an ended run reports its outcome, and a
+ * start of wait left behind on it can never make it read as still asking for
+ * something. `pending` is the activity spelling of `queued`, and `preparing`
+ * the desktop's; neither is a state of its own to the user.
+ */
+export function runStateOf(run: RunStateInput): RunStateId {
+  const status = run.status ?? ''
+  if (TERMINAL.has(status)) return status as RunStateId
+  if (run.waitingSince) return 'waiting'
+  return status === 'queued' || status === 'preparing' || status === 'pending' ? 'queued' : 'running'
+}
+
+/**
+ * The state's own label, for a surface with no localised table to read from.
+ * An unknown id reports itself rather than nothing: a raw state id is poor
+ * wording, but it still says which state this is.
+ */
+export function runStateLabel(id: string): string {
+  return runState(id)?.label ?? id
+}

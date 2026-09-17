@@ -38,6 +38,15 @@ test('the state vocabulary is the shared one', () => {
   assert.equal(stateOf(run({ waitingSince: 'x' })), 'waiting')
   assert.equal(stateOf(run({ status: 'failed' })), 'failed')
   assert.equal(stateOf(run({ status: 'queued' })), 'queued')
+  // The desktop reads the shared mapping now, so the statuses it never saw are
+  // answered too: 'pending' is the activity spelling of 'queued'.
+  assert.equal(stateOf(run({ status: 'preparing' })), 'queued')
+  assert.equal(stateOf(run({ status: 'pending' })), 'queued')
+  assert.equal(stateOf(run({ status: 'completed' })), 'completed')
+  assert.equal(stateOf(run({ status: 'canceled' })), 'canceled')
+  // An outcome is final: a start of wait left on an ended run changes nothing.
+  assert.equal(stateOf(run({ status: 'completed', waitingSince: 'x' })), 'completed')
+  assert.equal(stateOf(run({ status: 'running' })), 'running')
 })
 
 test('a session is named by its task, or by its directory', () => {

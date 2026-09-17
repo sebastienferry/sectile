@@ -1,14 +1,12 @@
-import { runState, runStateIconDataUrl } from '../../shared/runStates.ts'
+import { runState, runStateIconDataUrl, runStateOf } from '../../shared/runStates.ts'
 
-/** Statuses that end a run, and therefore announce a finished turn. */
-const TERMINAL = new Set(['completed', 'failed', 'canceled'])
+// The mapping from a run to its state lives in the shared definition, so the
+// banner, the sidebar and the web badge cannot answer differently. It keeps its
+// name here: to this module a run has a state, and that is what stateOf reads.
+export { runStateOf as stateOf }
 
-/** The state a run is in, in the vocabulary both surfaces share. */
-export function stateOf(run) {
-  if (TERMINAL.has(run.status)) return run.status
-  if (run.waitingSince) return 'waiting'
-  return run.status === 'queued' || run.status === 'preparing' ? 'queued' : 'running'
-}
+/** A terminal state is the one that announces a finished turn. */
+const TERMINAL_STATES = new Set(['completed', 'failed', 'canceled'])
 
 /** What the notification calls this session: its task if it has one, else its directory. */
 export function nameOf(run) {
@@ -27,13 +25,13 @@ export function nameOf(run) {
  * should not replay every session's history.
  */
 export function transitions(previous, next) {
-  const before = new Map(previous.map(run => [run.id, stateOf(run)]))
+  const before = new Map(previous.map(run => [run.id, runStateOf(run)]))
   const raised = []
   for (const run of next) {
-    const now = stateOf(run)
+    const now = runStateOf(run)
     if (!before.has(run.id)) continue
     if (before.get(run.id) === now) continue
-    if (now !== 'waiting' && !TERMINAL.has(run.status)) continue
+    if (now !== 'waiting' && !TERMINAL_STATES.has(now)) continue
     raised.push({ id: run.id, state: now, name: nameOf(run) })
   }
   return raised
