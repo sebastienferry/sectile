@@ -12,7 +12,7 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .project-row:hover>button,.project-row:focus-within>button,.local-task:hover .task-menu,.local-task:focus-within .task-menu,.section:hover #add-project,.section:focus-within #add-project{opacity:1}
 #toggle-sidebar{display:flex;align-items:center;border:0;background:transparent}#toggle-sidebar svg{width:20px;height:20px}#toggle-sidebar:hover{background:#283546;border-radius:7px}
 @media(hover:none){.project-row>button:not(.project-heading),.task-menu,#add-project{opacity:1}}
-#close-dialog{position:sticky;top:0;z-index:3;background:#202a38;font-size:20px;width:36px;height:36px;padding:0}
+#close-dialog{position:sticky;top:0;z-index:3;background:transparent;color:#ffb7c3;width:36px;height:36px;padding:0}
 .dialog-footer{position:sticky;bottom:-28px;background:#171f2b;padding:14px 0;display:flex;justify-content:flex-end;border-top:1px solid #39465a;margin-top:20px}
 
 .task-archive{border:0;background:transparent;opacity:0;padding:4px;display:flex;align-items:center;color:#91a1b7;transition:opacity .12s}
@@ -23,8 +23,8 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 
 #task-status{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;flex-shrink:0}
 #next-step-status{flex:1;min-width:160px;overflow-wrap:anywhere}
-#next-step{color:#80e6ce;border-color:#49796e}
-#task-status button:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
+#next-step{color:#80e6ce;border-color:#49796e}#next-step,#retry-next-step{flex-shrink:0}
+#next-step:focus-visible,#retry-next-step:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
 #workspace{overflow:hidden}
 #toolbar{flex-shrink:0;overflow-x:auto;gap:8px}
 

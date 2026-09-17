@@ -73,6 +73,11 @@ test('console next step rechecks task state, guards active history and handles f
   assert.ok(bounds.y>=terminal.y+terminal.height-1)
   const action=await button.boundingBox()
   assert.ok(action.x>=0&&action.x+action.width<=720&&action.y+action.height<=600,'Next action stays inside the narrow viewport')
+  // The action belongs to the execution controls, not to the status line it describes.
+  assert.equal(await page.locator('#toolbar #next-step').count(),1,'The next action sits in the execution toolbar')
+  assert.equal(await page.locator('#task-status button').count(),0,'The footer keeps the status text alone')
+  assert.equal(await page.evaluate(()=>document.querySelector('#next-step').nextElementSibling.id),'retry-next-step')
+  assert.equal(await page.evaluate(()=>document.querySelector('#retry-next-step').nextElementSibling.id),'stop','The action stays beside the stop control')
   await page.screenshot({path:path.join(root,'next-step.png')})
   console.log('Next-step screenshot: '+path.join(root,'next-step.png'))
  }finally{
