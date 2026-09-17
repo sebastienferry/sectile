@@ -23,6 +23,11 @@
 - [x] 2.4 Confirm `web/package.json` still declares `typescript` as a devDependency, since
       `npm run build` (`tsc -b`) needs it.
 
+## 2bis. Review follow-up
+- [x] 2bis.1 Declare `engines.node: ">=22.18.0"` in `web/package.json`: the conversion removes the
+      last in-repo mention of the Node floor that unflagged type stripping requires, and no `.nvmrc`
+      or CI workflow states it.
+
 ## 3. Close out
 - [x] 3.1 Update `CHANGELOG.md` if the repository keeps one for this kind of change.
 - [x] 3.2 Report the test count and exit status in the implementation note.

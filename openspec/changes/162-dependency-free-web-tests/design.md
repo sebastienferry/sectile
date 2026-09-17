@@ -48,3 +48,11 @@ Node's type stripping rejects non-erasable TypeScript syntax (`enum`, `namespace
 parameter properties). None of the five subjects uses any, and the seven files already importing
 `.ts` directly prove the path. If a subject later gains such syntax, it breaks at import with a
 precise error — the same failure mode the rest of the suite already carries.
+
+The other risk is the runtime floor. Unflagged type stripping lands in Node 22.18 and 23.6; before
+that, importing a `.ts` file fails with `ERR_UNKNOWN_FILE_EXTENSION`. The seven pre-existing files
+already made the suite depend on it, but nothing in the repository said so, and the only mention
+anywhere — a comment in `terminalSkillCommand.test.mjs` about older Node versions — disappears with
+this change. `web/package.json` therefore declares `engines.node: ">=22.18.0"`, so the requirement is
+stated once, where a reader and `npm` both look for it, instead of being inferred from an import
+failure.
