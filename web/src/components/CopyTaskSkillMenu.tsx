@@ -1,56 +1,82 @@
 import { useState } from 'react'
+import { Copy } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { resolveTaskStage, skillForStage } from '../lib/workflow'
 import type { Task } from '../types'
 
-const actions = [
-  { id: 'pickup', command: '/pickup-issue', label: 'Pick up task' },
-  { id: 'clarify', command: '/clarify-issue', label: 'Clarify' },
-  { id: 'specify', command: '/specify-issue', label: 'Specify' },
-  { id: 'implement', command: '/code-issue', label: 'Implement' },
-  { id: 'adjust', command: '/adjust-issue', label: 'Adjust existing PR/MR' },
-  { id: 'handoff', command: '/handoff-issue', label: 'Handoff' },
-]
+/** Default command of each workflow skill, before any project override. */
+const SKILL_COMMANDS: Record<string, string> = {
+  clarify: '/clarify-issue',
+  specify: '/specify-issue',
+  implement: '/code-issue',
+  adjust: '/adjust-issue',
+  handoff: '/handoff-issue',
+}
+
+const PICKUP_SKILL = 'pickup'
+const PICKUP_COMMAND = '/pickup-issue'
 
 export function CopyTaskSkillMenu({ task }: { task: Task }) {
-  const { skillCommand } = useApp()
-  const [provider, setProvider] = useState('codex')
-  const [actionId, setActionId] = useState('pickup')
-  const [message, setMessage] = useState('')
-  const action = actions.find(item => item.id === actionId) || actions[0]
-  const skill = skillCommand(action.id, action.command, task.projectId)
-  const prompt = `${skill} ${task.id}. Use Sectile MCP to read the task and comments and record workflow transitions. First call start_run and save its returned ID. Call finish_run with that runId when this entire skill ends, including failure or stopping for user input. Task primary key: ${task.id}.${task.projectId ? ` Project primary key: ${task.projectId}.` : ''}`
-  const command = provider + " '" + prompt.replace(/'/g, "'\\''") + "'"
-  const fieldClass = 'w-full rounded border border-[var(--border-color)] bg-[var(--bg-primary)] p-2 text-[var(--text-primary)]'
+  const { skillCommand, projects, currentProject } = useApp()
+  const [copied, setCopied] = useState('')
+  // What the clipboard refused, so it can still be selected by hand.
+  const [fallback, setFallback] = useState('')
 
-  async function copy() {
+  const project = projects.find(item => item.id === task.projectId) || currentProject
+  // The column the task sits in names the step still to do, so it names the
+  // command to offer next to the autonomous one.
+  const stage = resolveTaskStage(task, project)
+  const stageSkill = skillForStage(stage)
+
+  // The clipboard receives the prompt itself: it is pasted into whichever
+  // assistant the user works in, not run through a shell.
+  function promptFor(skillId: string, command: string): string {
+    const skill = skillCommand(skillId, command, task.projectId)
+    return `${skill} ${task.id}. Use Sectile MCP to read the task and comments and record workflow transitions. First call start_run and save its returned ID. Call finish_run with that runId when this entire skill ends, including failure or stopping for user input. Task primary key: ${task.id}.${task.projectId ? ` Project primary key: ${task.projectId}.` : ''}`
+  }
+
+  async function copy(label: string, skillId: string, command: string) {
+    const prompt = promptFor(skillId, command)
     try {
-      await navigator.clipboard.writeText(command)
-      setMessage('Command copied.')
+      await navigator.clipboard.writeText(prompt)
+      setFallback('')
+      setCopied(label)
     } catch {
-      setMessage('Copy unavailable. Select and copy the command manually.')
+      setCopied('')
+      setFallback(prompt)
     }
   }
 
+  const itemClass = 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer'
+
   return (
-    <details className="rounded-lg border border-[var(--border-color)] p-2 text-xs" onClick={event => event.stopPropagation()}>
-      <summary className="cursor-pointer font-semibold">Copy skill command</summary>
-      <div className="mt-3 space-y-2">
-        <label className="block">Client
-          <select className={fieldClass} value={provider} onChange={event => { setProvider(event.target.value); setMessage('') }}>
-            <option value="codex">Codex</option>
-            <option value="claude">Claude</option>
-          </select>
-        </label>
-        <label className="block">Action
-          <select className={fieldClass} value={actionId} onChange={event => { setActionId(event.target.value); setMessage('') }}>
-            {actions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
-        </label>
-        <p className="text-[var(--text-muted)]">Run in the local repository with the project skills and Sectile MCP configured.</p>
-        <pre className="max-h-36 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--bg-primary)] p-2 select-text"><code>{command}</code></pre>
-        <button type="button" className={fieldClass + ' cursor-pointer'} onClick={copy}>Copy command</button>
-        <p role="status">{message}</p>
-      </div>
-    </details>
+    <div onClick={event => event.stopPropagation()}>
+      {stageSkill && (
+        <button
+          type="button"
+          className={itemClass}
+          title={`Copy ${skillCommand(stageSkill, SKILL_COMMANDS[stageSkill], task.projectId)} for this task`}
+          onClick={() => copy('column', stageSkill, SKILL_COMMANDS[stageSkill])}
+        >
+          <Copy size={12} />
+          <span>Copy {skillCommand(stageSkill, SKILL_COMMANDS[stageSkill], task.projectId)}</span>
+        </button>
+      )}
+      <button
+        type="button"
+        className={itemClass}
+        title="Copy the autonomous chain command for this task"
+        onClick={() => copy('pickup', PICKUP_SKILL, PICKUP_COMMAND)}
+      >
+        <Copy size={12} />
+        <span>Copy {skillCommand(PICKUP_SKILL, PICKUP_COMMAND, task.projectId)}</span>
+      </button>
+      <p role="status" className="px-2.5 text-[10px] text-[var(--text-muted)]">
+        {fallback ? 'Clipboard blocked. Select the command below.' : copied ? 'Copied. Paste it into your assistant.' : ''}
+      </p>
+      {fallback && (
+        <pre className="mx-2.5 max-h-32 overflow-auto whitespace-pre-wrap break-all rounded bg-[var(--bg-primary)] p-2 text-[10px] select-text"><code>{fallback}</code></pre>
+      )}
+    </div>
   )
 }

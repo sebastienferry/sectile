@@ -63,6 +63,10 @@
     --text-secondary: #a3b0b8;
     --text-muted: #74838d;
 
+    /* Run indicator: a bare glyph on a card, so it carries its own contrast.
+       The theme blue is too dark on the ink background and gets its own tone. */
+    --run-active: #6aa9ff;
+
     --header-bg: #162833;
     --header-border: #2b3d48;
     --header-input-bg: #0e1c28;
@@ -79,6 +83,8 @@
     --text-primary: #0e1c28;
     --text-secondary: #43454c;
     --text-muted: #666666;
+
+    --run-active: var(--status-info);
 
     --header-bg: #ffffff;
     --header-border: #dcdee0;

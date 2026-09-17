@@ -471,8 +471,9 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 	steps = append(steps, engineStep)
 
 	// The custom-template branch substitutes the task placeholders first, then
-	// hands the resolved template to the shared dispatcher.
-	resolvedTemplate := settings.AICommandTemplate
+	// hands the resolved template to the shared dispatcher. Every run built here
+	// is headless, so the dedicated autonomous command wins when one is set.
+	resolvedTemplate := models.CommandTemplateForMode(settings.AICommandTemplate, settings.AICommandTemplateAutonomous, models.SkillModeAutonomous)
 	if resolvedTemplate != "" {
 		resolvedTemplate = strings.ReplaceAll(resolvedTemplate, "{issueKey}", task.Key)
 		resolvedTemplate = strings.ReplaceAll(resolvedTemplate, "{issueTitle}", task.Title)
@@ -599,7 +600,7 @@ func (r *Runner) RunAgentPrompt(ctx context.Context, settings *models.Settings, 
 		repoDir = cwd
 	}
 
-	out, steps, err := r.execAgentCommand(ctx, repoDir, provider, settings.AICommandTemplate, settings.AIModel, prompt)
+	out, steps, err := r.execAgentCommand(ctx, repoDir, provider, models.CommandTemplateForMode(settings.AICommandTemplate, settings.AICommandTemplateAutonomous, models.SkillModeAutonomous), settings.AIModel, prompt)
 	if err != nil {
 		return out, steps, fmt.Errorf("exécution de l'agent %s impossible: %w", provider, err)
 	}

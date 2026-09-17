@@ -94,12 +94,33 @@ func TestExpandModel(t *testing.T) {
 	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, "M"); got != `claude --model M -p "{prompt}"` {
 		t.Fatalf("placeholder not substituted: %q", got)
 	}
-	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, ""); got != `claude --model  -p "{prompt}"` {
-		t.Fatalf("empty model must erase the placeholder: %q", got)
+	// A flag with nothing behind it does not vanish, it eats the next word, so
+	// the slot has to take its option with it.
+	if got := ExpandModel(`claude --model {model} -p "{prompt}"`, ""); got != `claude -p "{prompt}"` {
+		t.Fatalf("empty model must remove the option too: %q", got)
 	}
 	template := `claude -p "{prompt}"`
 	if got := ExpandModel(template, "M"); got != template {
 		t.Fatalf("template without the slot must be untouched: %q", got)
+	}
+}
+
+// The slot is removed with the word that carries it, whatever shape that word
+// has, and with the option before it only when there is one to remove.
+func TestDropModelSlotShapes(t *testing.T) {
+	for template, want := range map[string]string{
+		`claude --model {model} '{prompt}'`:   `claude '{prompt}'`,
+		`claude --model '{model}' '{prompt}'`: `claude '{prompt}'`,
+		`claude --model={model} '{prompt}'`:   `claude '{prompt}'`,
+		`claude -m {model} '{prompt}'`:        `claude '{prompt}'`,
+		`mycli {model} '{prompt}'`:            `mycli '{prompt}'`,
+		`claude '{prompt}' --model {model}`:   `claude '{prompt}'`,
+		`claude -a {model} -b {model} '{p}'`:  `claude '{p}'`,
+		`claude '{prompt}'`:                   `claude '{prompt}'`,
+	} {
+		if got := DropModelSlot(template); got != want {
+			t.Fatalf("%q: got %q, want %q", template, got, want)
+		}
 	}
 }
 

@@ -224,11 +224,11 @@ export interface Project {
   trackerUrl?: string
   isDefault: boolean
   taskCount?: number
-  stageMapping?: Record<WorkflowStage, string>
   skillOverrides?: Record<string, string>
   setupProviders?: string[]
   aiProvider?: AIProvider
   aiCommandTemplate?: string
+  aiCommandTemplateAutonomous?: string
   /** Modèle du moteur pour ce projet. Vide : le réglage global s'applique. */
   aiModel?: string
   /** Modèle par compétence (skillId -> modèle) pour celles qui s'écartent d'aiModel. */
@@ -527,6 +527,7 @@ export interface UserSettings {
   userAvatar: string
   aiProvider: AIProvider
   aiCommandTemplate: string
+  aiCommandTemplateAutonomous?: string
   /** Modèle du moteur. Vide : le CLI garde son défaut. */
   aiModel?: string
   /** Modèle par compétence (skillId -> modèle). */

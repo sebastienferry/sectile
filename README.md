@@ -27,11 +27,20 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
   - Le framework choisi pilote le contenu de la skill `/specify-issue` scaffoldée dans le projet et le prompt envoyé à l'agent IA.
 
 - 🤖 **Agent Copilot & Moteur IA Configurable (`agy`, `vibe`, `claude`)** :
-  - **Choix du moteur d'IA** :
-    - `agy` : Antigravity CLI (`agy -p "{prompt}" --dangerously-skip-permissions`).
-    - `vibe` : Mistral Vibe CLI (`vibe -p "{prompt}" --auto-approve`).
-    - `claude` : Claude Code CLI (`claude -p "{prompt}"`).
-    - `custom` : Template de commande shell entièrement personnalisable avec variables d'injection.
+  - **Choix du moteur d'IA** : sans modèle de commande, chaque fournisseur est lancé
+    avec la ligne que Sectile atteste pour le mode d'exécution demandé. Pour `claude` :
+    - interactif : `claude --model <modèle> '<prompt>'`
+    - autonome : `claude -p --permission-mode bypassPermissions --model <modèle> '<prompt>'`
+
+    Les autres fournisseurs : `agy -i` en interactif, `vibe -p --auto-approve` et
+    `codex exec` en autonome. `agy`, `gemini` et `cursor` n'ont pas de mode autonome
+    attesté et refusent un lancement headless plutôt que d'en deviner un.
+  - **Commandes personnalisées** : chaque mode a son champ, au global comme par projet,
+    et les deux s'héritent indépendamment. La commande autonome sert les lancements
+    headless ; laissée vide, ce sont les lancements headless qui retombent sur la
+    commande interactive, laquelle doit alors porter le
+    marqueur `{mode:AUTONOMOUS|INTERACTIVE}` pour dire quels mots appartiennent à
+    quel mode. Les écrans de réglages affichent les deux lignes résultantes.
   - **Personnalisation des Prompts par Skill** :
     1. 🔍 **Clarify** (`/clarify-issue`) : Analyse les ambiguïtés et génère les questions de cadrage.
     2. 📝 **Specify** (`/specify-issue`) : Rédige la spec (Spec Kit ou OpenSpec, selon le framework du projet) et initialise la branche Git.

@@ -3,21 +3,51 @@
 Sectile separates a headless control plane from workstation execution. The two
 Go executables are independently buildable; Electron is an optional companion.
 
+## Deployment topology
+
+Three boundaries decide what may talk to what: the browser, the server host and
+the workstation. The server never reaches into a workstation, and the agent is
+the only process on the workstation that holds an upstream credential.
+
 ```mermaid
-flowchart LR
-    Browser[React web UI] <-->|REST| Server[sectile-server]
-    Server <--> SQLite[(SQLite)]
-    Server <-->|HTTP APIs| Trackers[GitHub / Jira]
-    Server <-->|Authenticated WebSocket| Agent[sectile-agent]
-    Desktop[Electron companion] <-->|Private loopback API| Agent
-    Agent --> Git[Local Git and worktrees]
-    Agent --> PTY[Native coding CLI consoles]
-    PTY --> MCP[Agent stdio MCP bridge]
-    MCP -->|Loopback proxy| Server
+flowchart TB
+    subgraph browser["Browser (anywhere)"]
+        UI["React web UI<br/>embedded in the server binary"]
+    end
+
+    subgraph host["Server host"]
+        Server["sectile-server<br/>REST · SSE · /mcp · agent relay"]
+        Store[("SQLite<br/>tasks · projects · activities · settings")]
+        Server --- Store
+    end
+
+    subgraph workstation["Workstation"]
+        Desktop["Sectile Desktop<br/>Electron companion"]
+        Agent["sectile-agent<br/>daemon · loopback gateway"]
+        CLI["Coding CLI<br/>claude · codex · agy · …"]
+        Bridge["sectile-agent mcp<br/>stdio bridge"]
+        Repos[("Local Git<br/>checkouts and .tasks/worktrees")]
+        Desktop -->|"private loopback control API"| Agent
+        Agent -->|"PTY"| CLI
+        CLI -->|"stdio"| Bridge
+        Bridge -->|"loopback gateway"| Agent
+        Agent --> Repos
+    end
+
+    Forges["GitHub · Jira"]
+
+    UI -->|"REST + SSE"| Server
+    Agent <-->|"authenticated WebSocket<br/>(dispatch, workspace operations)"| Server
+    Agent -->|"REST + /mcp, device credential"| Server
+    Server -->|"tracker HTTP APIs"| Forges
 ```
 
-An interactive, revision-pinned version of the same topology — with per-component
-source links, guided views, light/dark themes and PNG/SVG export — is checked in at
+Electron packages only the agent executable, so a workstation runs the companion
+and the daemon and nothing else; the server host runs the server and its database.
+Closing the companion leaves the agent and its executions running.
+
+An interactive, revision-pinned version of this topology (per-component source
+links, guided views, light/dark themes, PNG/SVG export) is checked in at
 [`diagrams/sectile-architecture.html`](diagrams/sectile-architecture.html). Its
 [specification](diagrams/sectile-architecture.json) is the editable source; regenerate
 the page from the repository root with the [Archify](https://github.com/tt-a1i/archify)
@@ -27,6 +57,87 @@ should point at:
 ```bash
 node <archify-checkout>/bin/archify.mjs deliver architecture docs/diagrams/sectile-architecture.json docs/diagrams/sectile-architecture.html --quality showcase --repo-root .
 ```
+
+## Communication flow of a launch
+
+One skill launch crosses every boundary above. The board moves because the coding
+CLI reports through MCP, not because the launch was acknowledged: an
+acknowledgement does not advance a stage.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Web UI
+    participant S as sectile-server
+    participant A as sectile-agent
+    participant C as Coding CLI
+    participant M as MCP bridge
+    participant F as GitHub / Jira
+
+    UI->>S: launch a skill on a task (mode: interactive or autonomous)
+    S->>S: record the launch activity
+    S-->>A: dispatch over the authenticated WebSocket
+    A->>A: reuse the assigned checkout, else create a task worktree
+    A->>A: build the command line for the mode<br/>(the autonomous command, else the interactive one)
+    A->>C: spawn in a PTY
+    C->>M: start_run
+    M->>A: loopback gateway, per-session secret
+    A->>S: /mcp, device credential
+    S->>S: persist the run
+    C->>M: get_task · add_comment · transition_stage
+    M->>A: loopback gateway
+    A->>S: /mcp
+    S->>F: queued tracker write (labels, status, comment)
+    C->>M: finish_run
+    M->>A: loopback gateway
+    A->>S: /mcp
+    S-->>UI: server-sent event, the board reflects the new stage
+```
+
+A launch acknowledgement is not a transition. For PR-bearing stages the forge
+must confirm the branch, URL and pushed commit before the stage moves; review also
+requires a ready PR and a clean checkout reported by the agent.
+
+## Pairing and authentication
+
+A workstation earns its credential once, from a code the user carries by hand.
+The code is worth nothing on its own: it buys a device credential exactly once,
+and is short lived.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant UI as Web UI
+    participant S as sectile-server
+    participant D as Sectile Desktop
+    participant A as sectile-agent
+    participant L as Local caller<br/>(CLI via the MCP bridge)
+
+    Note over UI,S: Web session: an OIDC cookie, or the single implicit user<br/>when no identity provider is configured
+    U->>UI: pair a workstation
+    UI->>S: POST /api/pairing-codes
+    S-->>UI: single-use code + expiry
+    U->>D: paste the code and the server address
+    D->>S: POST /api/v1/agent/pair {code, label}
+    Note right of S: the only unauthenticated agent endpoint<br/>browser Origin refused<br/>unknown, spent and expired codes answer alike
+    S-->>D: device credential + deviceId + userId
+    D->>A: start the agent with TOKEN and a private desktop secret
+    Note over A,S: every later call carries the device credential
+    A->>S: authenticated WebSocket + REST + /mcp
+    L->>A: loopback request + per-session secret
+    A->>S: exchanged for the device credential upstream
+    U->>UI: revoke the workstation (/api/devices)
+    S--xA: the credential stops resolving to a user
+```
+
+Loopback alone authorizes nothing: every local process can reach the gateway
+port, so the session secret is required before the agent lends the user's
+identity to a caller, and the comparison is constant time. The server resolves a
+device credential to the user it was paired with, so actions are attributed per
+user while the task board stays shared. The endpoint contract behind this flow is
+in [MCP and authentication](#mcp-and-authentication) and
+[ADR 0007](adrs/0007-user-identity-and-agent-binding.md).
 
 ## Ownership and packages
 

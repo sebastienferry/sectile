@@ -28,10 +28,11 @@ CREATE TABLE IF NOT EXISTS projects (
     issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'github' | 'jira' | 'local'
     tracker_url TEXT DEFAULT '',       -- tracker project URL, or the Jira base URL
     is_default INTEGER DEFAULT 0,
-    stage_mapping TEXT DEFAULT '{}',
+    stage_mapping TEXT DEFAULT '{}',  -- unused: kept so older binaries still open the base
     skill_overrides TEXT DEFAULT '{}',
     ai_provider TEXT DEFAULT '',
-    ai_command_template TEXT DEFAULT '',
+    ai_command_template TEXT DEFAULT '',            -- interactive launches
+    ai_command_template_autonomous TEXT DEFAULT '', -- headless launches; empty falls back to the line above
     spec_framework TEXT DEFAULT '',    -- 'speckit' | 'openspec'
     default_skill_mode TEXT NOT NULL DEFAULT '',            -- '' (interactive) | 'interactive' | 'autonomous'
     full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed', -- 'implemented' | 'reviewed'

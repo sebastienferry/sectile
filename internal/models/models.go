@@ -118,28 +118,28 @@ type Project struct {
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
 	// columns, which is what decides the skill proposed on a card.
-	StageColumns            map[string][]string `json:"stageColumns,omitempty"`
-	GitRemoteUrl            string              `json:"gitRemoteUrl"` // e.g. "git@github.com:owner/repo.git"
-	GithubRepo              string              `json:"githubRepo"`   // e.g. "owner/repo"
-	JiraProject             string              `json:"jiraProject"`  // Jira project key, e.g. "PE"
-	IssueTracker            string              `json:"issueTracker"` // "github", "jira", "local"
-	TrackerUrl              string              `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
-	IsDefault               bool                `json:"isDefault"`
-	StageMapping            map[string]string   `json:"stageMapping,omitempty"`            // mapping AI workflow labels to tracker statuses
-	SkillOverrides          map[string]string   `json:"skillOverrides,omitempty"`          // skillId -> custom skill name override
-	AIProvider              string              `json:"aiProvider,omitempty"`              // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
-	SetupProviders          []string            `json:"setupProviders"`                    // extra agents to install skills and MCP for
-	AICommandTemplate       string              `json:"aiCommandTemplate,omitempty"`       // e.g. 'agy -p "{prompt}"'
-	AIModel                 string              `json:"aiModel,omitempty"`                 // e.g. "claude-opus-5"; empty inherits the global setting
-	AISkillModels           map[string]string   `json:"aiSkillModels,omitempty"`           // skillId -> model, for the skills that depart from AIModel
-	SpecFramework           string              `json:"specFramework,omitempty"`           // "speckit", "openspec"
-	AutoSyncEnabled         bool                `json:"autoSyncEnabled"`                   // Enable background sync for non-finished tickets
-	AutoSyncIntervalMin     int                 `json:"autoSyncIntervalMin"`               // Period in minutes (1 to 30)
-	TtyMode                 string              `json:"ttyMode,omitempty"`                 // "integrated" or "external"
-	ExternalTerminalCommand string              `json:"externalTerminalCommand,omitempty"` // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
-	TaskCount               int                 `json:"taskCount"`
-	CreatedAt               time.Time           `json:"createdAt"`
-	UpdatedAt               time.Time           `json:"updatedAt"`
+	StageColumns                map[string][]string `json:"stageColumns,omitempty"`
+	GitRemoteUrl                string              `json:"gitRemoteUrl"` // e.g. "git@github.com:owner/repo.git"
+	GithubRepo                  string              `json:"githubRepo"`   // e.g. "owner/repo"
+	JiraProject                 string              `json:"jiraProject"`  // Jira project key, e.g. "PE"
+	IssueTracker                string              `json:"issueTracker"` // "github", "jira", "local"
+	TrackerUrl                  string              `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
+	IsDefault                   bool                `json:"isDefault"`
+	SkillOverrides              map[string]string   `json:"skillOverrides,omitempty"`              // skillId -> custom skill name override
+	AIProvider                  string              `json:"aiProvider,omitempty"`                  // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
+	SetupProviders              []string            `json:"setupProviders"`                        // extra agents to install skills and MCP for
+	AICommandTemplate           string              `json:"aiCommandTemplate,omitempty"`           // interactive launches, e.g. 'claude "{prompt}"'
+	AICommandTemplateAutonomous string              `json:"aiCommandTemplateAutonomous,omitempty"` // headless launches; empty falls back to the interactive one
+	AIModel                     string              `json:"aiModel,omitempty"`                     // e.g. "claude-opus-5"; empty inherits the global setting
+	AISkillModels               map[string]string   `json:"aiSkillModels,omitempty"`               // skillId -> model, for the skills that depart from AIModel
+	SpecFramework               string              `json:"specFramework,omitempty"`               // "speckit", "openspec"
+	AutoSyncEnabled             bool                `json:"autoSyncEnabled"`                       // Enable background sync for non-finished tickets
+	AutoSyncIntervalMin         int                 `json:"autoSyncIntervalMin"`                   // Period in minutes (1 to 30)
+	TtyMode                     string              `json:"ttyMode,omitempty"`                     // "integrated" or "external"
+	ExternalTerminalCommand     string              `json:"externalTerminalCommand,omitempty"`     // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
+	TaskCount                   int                 `json:"taskCount"`
+	CreatedAt                   time.Time           `json:"createdAt"`
+	UpdatedAt                   time.Time           `json:"updatedAt"`
 }
 
 // TrackerColumn is one column of the tracker's own board, with the tracker
@@ -275,75 +275,75 @@ type CreateProjectRequest struct {
 	IssueTypes []string `json:"issueTypes,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
-	MonoRepo                *bool             `json:"monoRepo,omitempty"`
-	Name                    string            `json:"name"`
-	Slug                    string            `json:"slug,omitempty"`
-	Description             string            `json:"description,omitempty"`
-	Icon                    string            `json:"icon,omitempty"`
-	Color                   string            `json:"color,omitempty"`
-	RepoPath                string            `json:"repoPath,omitempty"`
-	RepoPaths               []string          `json:"repoPaths,omitempty"`
-	PRCreationStage         string            `json:"prCreationStage,omitempty"`
-	DefaultSkillMode        string            `json:"defaultSkillMode,omitempty"`
-	FullChainStopStage      string            `json:"fullChainStopStage,omitempty"`
-	UseWorktrees            *bool             `json:"useWorktrees,omitempty"`
-	BoardID                 string            `json:"boardId,omitempty"`
-	GitRemoteUrl            string            `json:"gitRemoteUrl,omitempty"`
-	GithubRepo              string            `json:"githubRepo,omitempty"`
-	JiraProject             string            `json:"jiraProject,omitempty"`
-	IssueTracker            string            `json:"issueTracker,omitempty"`
-	TrackerUrl              string            `json:"trackerUrl,omitempty"`
-	IsDefault               bool              `json:"isDefault,omitempty"`
-	StageMapping            map[string]string `json:"stageMapping,omitempty"`
-	SkillOverrides          map[string]string `json:"skillOverrides,omitempty"`
-	SetupProviders          []string          `json:"setupProviders,omitempty"`
-	AIProvider              string            `json:"aiProvider,omitempty"`
-	AICommandTemplate       string            `json:"aiCommandTemplate,omitempty"`
-	AIModel                 string            `json:"aiModel,omitempty"`
-	AISkillModels           map[string]string `json:"aiSkillModels,omitempty"`
-	SpecFramework           string            `json:"specFramework,omitempty"`
-	AutoSyncEnabled         *bool             `json:"autoSyncEnabled,omitempty"`
-	AutoSyncIntervalMin     *int              `json:"autoSyncIntervalMin,omitempty"`
-	TtyMode                 string            `json:"ttyMode,omitempty"`
-	ExternalTerminalCommand string            `json:"externalTerminalCommand,omitempty"`
+	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
+	Name                        string            `json:"name"`
+	Slug                        string            `json:"slug,omitempty"`
+	Description                 string            `json:"description,omitempty"`
+	Icon                        string            `json:"icon,omitempty"`
+	Color                       string            `json:"color,omitempty"`
+	RepoPath                    string            `json:"repoPath,omitempty"`
+	RepoPaths                   []string          `json:"repoPaths,omitempty"`
+	PRCreationStage             string            `json:"prCreationStage,omitempty"`
+	DefaultSkillMode            string            `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage          string            `json:"fullChainStopStage,omitempty"`
+	UseWorktrees                *bool             `json:"useWorktrees,omitempty"`
+	BoardID                     string            `json:"boardId,omitempty"`
+	GitRemoteUrl                string            `json:"gitRemoteUrl,omitempty"`
+	GithubRepo                  string            `json:"githubRepo,omitempty"`
+	JiraProject                 string            `json:"jiraProject,omitempty"`
+	IssueTracker                string            `json:"issueTracker,omitempty"`
+	TrackerUrl                  string            `json:"trackerUrl,omitempty"`
+	IsDefault                   bool              `json:"isDefault,omitempty"`
+	SkillOverrides              map[string]string `json:"skillOverrides,omitempty"`
+	SetupProviders              []string          `json:"setupProviders,omitempty"`
+	AIProvider                  string            `json:"aiProvider,omitempty"`
+	AICommandTemplate           string            `json:"aiCommandTemplate,omitempty"`
+	AICommandTemplateAutonomous string            `json:"aiCommandTemplateAutonomous,omitempty"`
+	AIModel                     string            `json:"aiModel,omitempty"`
+	AISkillModels               map[string]string `json:"aiSkillModels,omitempty"`
+	SpecFramework               string            `json:"specFramework,omitempty"`
+	AutoSyncEnabled             *bool             `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin         *int              `json:"autoSyncIntervalMin,omitempty"`
+	TtyMode                     string            `json:"ttyMode,omitempty"`
+	ExternalTerminalCommand     string            `json:"externalTerminalCommand,omitempty"`
 }
 
 type UpdateProjectRequest struct {
-	Name                    *string              `json:"name,omitempty"`
-	Slug                    *string              `json:"slug,omitempty"`
-	Description             *string              `json:"description,omitempty"`
-	Icon                    *string              `json:"icon,omitempty"`
-	Color                   *string              `json:"color,omitempty"`
-	RepoPath                *string              `json:"repoPath,omitempty"`
-	RepoPaths               *[]string            `json:"repoPaths,omitempty"`
-	PRCreationStage         *string              `json:"prCreationStage,omitempty"`
-	DefaultSkillMode        *string              `json:"defaultSkillMode,omitempty"`
-	FullChainStopStage      *string              `json:"fullChainStopStage,omitempty"`
-	UseWorktrees            *bool                `json:"useWorktrees,omitempty"`
-	BoardID                 *string              `json:"boardId,omitempty"`
-	TrackerColumns          *[]TrackerColumn     `json:"trackerColumns,omitempty"`
-	Sprints                 *[]TrackerSprint     `json:"sprints,omitempty"`
-	IssueTypes              *[]string            `json:"issueTypes,omitempty"`
-	MonoRepo                *bool                `json:"monoRepo,omitempty"`
-	StageColumns            *map[string][]string `json:"stageColumns,omitempty"`
-	GitRemoteUrl            *string              `json:"gitRemoteUrl,omitempty"`
-	GithubRepo              *string              `json:"githubRepo,omitempty"`
-	JiraProject             *string              `json:"jiraProject,omitempty"`
-	IssueTracker            *string              `json:"issueTracker,omitempty"`
-	TrackerUrl              *string              `json:"trackerUrl,omitempty"`
-	IsDefault               *bool                `json:"isDefault,omitempty"`
-	StageMapping            *map[string]string   `json:"stageMapping,omitempty"`
-	SkillOverrides          *map[string]string   `json:"skillOverrides,omitempty"`
-	SetupProviders          *[]string            `json:"setupProviders,omitempty"`
-	AIProvider              *string              `json:"aiProvider,omitempty"`
-	AICommandTemplate       *string              `json:"aiCommandTemplate,omitempty"`
-	AIModel                 *string              `json:"aiModel,omitempty"`
-	AISkillModels           *map[string]string   `json:"aiSkillModels,omitempty"`
-	SpecFramework           *string              `json:"specFramework,omitempty"`
-	AutoSyncEnabled         *bool                `json:"autoSyncEnabled,omitempty"`
-	AutoSyncIntervalMin     *int                 `json:"autoSyncIntervalMin,omitempty"`
-	TtyMode                 *string              `json:"ttyMode,omitempty"`
-	ExternalTerminalCommand *string              `json:"externalTerminalCommand,omitempty"`
+	Name                        *string              `json:"name,omitempty"`
+	Slug                        *string              `json:"slug,omitempty"`
+	Description                 *string              `json:"description,omitempty"`
+	Icon                        *string              `json:"icon,omitempty"`
+	Color                       *string              `json:"color,omitempty"`
+	RepoPath                    *string              `json:"repoPath,omitempty"`
+	RepoPaths                   *[]string            `json:"repoPaths,omitempty"`
+	PRCreationStage             *string              `json:"prCreationStage,omitempty"`
+	DefaultSkillMode            *string              `json:"defaultSkillMode,omitempty"`
+	FullChainStopStage          *string              `json:"fullChainStopStage,omitempty"`
+	UseWorktrees                *bool                `json:"useWorktrees,omitempty"`
+	BoardID                     *string              `json:"boardId,omitempty"`
+	TrackerColumns              *[]TrackerColumn     `json:"trackerColumns,omitempty"`
+	Sprints                     *[]TrackerSprint     `json:"sprints,omitempty"`
+	IssueTypes                  *[]string            `json:"issueTypes,omitempty"`
+	MonoRepo                    *bool                `json:"monoRepo,omitempty"`
+	StageColumns                *map[string][]string `json:"stageColumns,omitempty"`
+	GitRemoteUrl                *string              `json:"gitRemoteUrl,omitempty"`
+	GithubRepo                  *string              `json:"githubRepo,omitempty"`
+	JiraProject                 *string              `json:"jiraProject,omitempty"`
+	IssueTracker                *string              `json:"issueTracker,omitempty"`
+	TrackerUrl                  *string              `json:"trackerUrl,omitempty"`
+	IsDefault                   *bool                `json:"isDefault,omitempty"`
+	SkillOverrides              *map[string]string   `json:"skillOverrides,omitempty"`
+	SetupProviders              *[]string            `json:"setupProviders,omitempty"`
+	AIProvider                  *string              `json:"aiProvider,omitempty"`
+	AICommandTemplate           *string              `json:"aiCommandTemplate,omitempty"`
+	AICommandTemplateAutonomous *string              `json:"aiCommandTemplateAutonomous,omitempty"`
+	AIModel                     *string              `json:"aiModel,omitempty"`
+	AISkillModels               *map[string]string   `json:"aiSkillModels,omitempty"`
+	SpecFramework               *string              `json:"specFramework,omitempty"`
+	AutoSyncEnabled             *bool                `json:"autoSyncEnabled,omitempty"`
+	AutoSyncIntervalMin         *int                 `json:"autoSyncIntervalMin,omitempty"`
+	TtyMode                     *string              `json:"ttyMode,omitempty"`
+	ExternalTerminalCommand     *string              `json:"externalTerminalCommand,omitempty"`
 }
 
 // NormalizeAutoSyncIntervalMin clamps the project background sync interval between 1 and 30 minutes (default 5).
@@ -399,12 +399,29 @@ func ValidSkillMode(mode string) bool {
 // autonomous launch.
 const TemplateModePlaceholder = "{mode:"
 
+// CommandTemplateForMode picks which of the two configured commands a launch
+// runs. A command written for headless use needs no {mode:...} marker: it was
+// written for that mode. Without one the general command serves both, and then
+// it is the marker that says which words belong to which mode.
+func CommandTemplateForMode(interactive, autonomous, mode string) string {
+	if NormalizeSkillMode(mode) == SkillModeAutonomous {
+		if dedicated := strings.TrimSpace(autonomous); dedicated != "" {
+			return dedicated
+		}
+	}
+	return interactive
+}
+
 // SupportsAutonomousRun says whether a project configuration can run headless.
 // The provider list is what this repository attests, nothing guessed: an
 // unsupported flag either fails opaquely or is swallowed as prompt text, which
-// is worse than refusing. A configured template wins over the provider, as it
-// does at launch, and only carries a mode when it declares the placeholder.
-func SupportsAutonomousRun(provider, commandTemplate string) bool {
+// is worse than refusing. A configured command wins over the provider, as it
+// does at launch: a dedicated headless command is enough on its own, and the
+// general one only carries a mode when it declares the placeholder.
+func SupportsAutonomousRun(provider, commandTemplate, autonomousTemplate string) bool {
+	if strings.TrimSpace(autonomousTemplate) != "" {
+		return true
+	}
 	if strings.TrimSpace(commandTemplate) != "" {
 		return strings.Contains(commandTemplate, TemplateModePlaceholder)
 	}
@@ -684,13 +701,14 @@ type Settings struct {
 	// moves the root font size, which leaves every fixed pixel size untouched;
 	// the scale zooms the whole interface, which is what a large or a small
 	// screen actually needs.
-	UIScale           int    `json:"uiScale"`
-	DetailMode        string `json:"detailMode"` // "panel", "modal"
-	UserName          string `json:"userName"`
-	UserEmail         string `json:"userEmail"`
-	UserAvatar        string `json:"userAvatar"`
-	AIProvider        string `json:"aiProvider"`        // "agy", "claude", "codex", "custom"
-	AICommandTemplate string `json:"aiCommandTemplate"` // e.g. 'agy -p "{prompt}"'
+	UIScale                     int    `json:"uiScale"`
+	DetailMode                  string `json:"detailMode"` // "panel", "modal"
+	UserName                    string `json:"userName"`
+	UserEmail                   string `json:"userEmail"`
+	UserAvatar                  string `json:"userAvatar"`
+	AIProvider                  string `json:"aiProvider"`                            // "agy", "claude", "codex", "custom"
+	AICommandTemplate           string `json:"aiCommandTemplate"`                     // interactive launches
+	AICommandTemplateAutonomous string `json:"aiCommandTemplateAutonomous,omitempty"` // headless launches
 	// AIModel is the model the engine runs against; empty keeps the CLI default.
 	// AISkillModels names the skills that depart from it, keyed by skill ID.
 	AIModel       string            `json:"aiModel"`

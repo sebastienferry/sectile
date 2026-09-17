@@ -15,15 +15,18 @@ import (
 type Overrides struct {
 	DisconnectedProjects map[string]bool   `json:"disconnectedProjects,omitempty"`
 	Commands             map[string]string `json:"commands,omitempty"`
-	Parallelism          map[string]int    `json:"parallelism,omitempty"`
-	Worktrees            map[string]bool   `json:"worktrees,omitempty"`
-	Projects             map[string]string `json:"projects"`
-	AIProvider           string            `json:"aiProvider"`
-	AICommandTemplate    string            `json:"aiCommandTemplate"`
-	AIModel              string            `json:"aiModel,omitempty"`
-	AISkillModels        map[string]string `json:"aiSkillModels,omitempty"`
-	Terminal             string            `json:"terminal"`
-	Skills               map[string]string `json:"skills"`
+	// CommandsAutonomous is the headless counterpart of Commands, per project.
+	CommandsAutonomous          map[string]string `json:"commandsAutonomous,omitempty"`
+	Parallelism                 map[string]int    `json:"parallelism,omitempty"`
+	Worktrees                   map[string]bool   `json:"worktrees,omitempty"`
+	Projects                    map[string]string `json:"projects"`
+	AIProvider                  string            `json:"aiProvider"`
+	AICommandTemplate           string            `json:"aiCommandTemplate"`
+	AICommandTemplateAutonomous string            `json:"aiCommandTemplateAutonomous,omitempty"`
+	AIModel                     string            `json:"aiModel,omitempty"`
+	AISkillModels               map[string]string `json:"aiSkillModels,omitempty"`
+	Terminal                    string            `json:"terminal"`
+	Skills                      map[string]string `json:"skills"`
 }
 
 func ReadOverrides(root string) (Overrides, error) {
@@ -46,15 +49,22 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 		c.UseWorktrees = value
 	}
 	serverCommand := c.AICommandTemplate
+	serverAutonomous := c.AICommandTemplateAutonomous
 	c.Skills = append([]Skill{}, c.Skills...)
 	if overrides.AIProvider != "" {
+		// A command written for another CLI cannot serve this one, so switching
+		// provider without bringing a command drops both.
 		if overrides.AIProvider != c.AIProvider && overrides.AICommandTemplate == "" {
 			c.AICommandTemplate = ""
+			c.AICommandTemplateAutonomous = ""
 		}
 		c.AIProvider = overrides.AIProvider
 	}
 	if overrides.AICommandTemplate != "" {
 		c.AICommandTemplate = overrides.AICommandTemplate
+	}
+	if overrides.AICommandTemplateAutonomous != "" {
+		c.AICommandTemplateAutonomous = overrides.AICommandTemplateAutonomous
 	}
 	if overrides.Terminal != "" {
 		c.ExternalTerminalCommand = overrides.Terminal
@@ -82,6 +92,12 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 		c.AICommandTemplate = command
 		if command == "" {
 			c.AICommandTemplate = serverCommand
+		}
+	}
+	if command, ok := overrides.CommandsAutonomous[c.ProjectID]; ok {
+		c.AICommandTemplateAutonomous = command
+		if command == "" {
+			c.AICommandTemplateAutonomous = serverAutonomous
 		}
 	}
 	return c
