@@ -1,0 +1,41 @@
+# Tasks
+
+## 1. The shared mapping
+- [ ] 1.1 Add `runStateOf(run)` to `shared/runStates.ts`: terminal statuses pass through, a wait mark
+      on a still-running run yields `waiting`, `queued`/`preparing`/`pending` yield `queued`, the rest
+      yields `running`. Accept a `{ status, waitingSince }` shape so an activity and a desktop run
+      both fit (D3).
+- [ ] 1.2 Replace `stateOf()` in `desktop/src/notifications.mjs` with a re-export of `runStateOf`
+      under its former name, leaving `transitions()` and its callers untouched (D1).
+- [ ] 1.3 Extend `desktop/tests/notifications.test.mjs` for `pending`, for a terminal status carrying
+      a stale wait mark, and for `preparing`.
+
+## 2. The web badge
+- [ ] 2.1 Extract `StateGlyph` from `RemoteRunBadge.tsx` into `web/src/components/RunStateGlyph.tsx`,
+      taking a state id, a size and a spin flag; import it back in `RemoteRunBadge` (D5).
+- [ ] 2.2 Rewrite `ActivitiesView.getStatusBadge` to take the activity, derive its state through
+      `runStateOf`, and render the shared glyph plus a label looked up by state id in
+      `t.activities.stats`, falling back to the shared definition's label (D6).
+- [ ] 2.3 Key the existing Tailwind class strings by state id with a neutral slate fallback, and drop
+      the `switch` (D7).
+- [ ] 2.4 Remove the duplicate amber waiting pill at the call site and the now unused `Hand`,
+      `Loader2`, `Clock`, `CheckCircle2`, `AlertTriangle` and `XCircle` imports that the rewrite
+      leaves behind (D8).
+- [ ] 2.5 Add a web test covering the badge for waiting, pending, a terminal status carrying a stale
+      wait mark, and an unknown state.
+
+## 3. The desktop sidebar
+- [ ] 3.1 Add a helper in `desktop/src/main.js` that builds the derived-state indicator for a run:
+      the shared glyph as inline SVG, `data-run-state`, and the label on `aria-label`/`title`.
+- [ ] 3.2 Show it on the task row (`~:298`), keeping `data-status` on the raw status (D4).
+- [ ] 3.3 Show it in the execution queue entry (`~:189`), replacing the raw status in the context
+      line while keeping the cancel-requested wording.
+- [ ] 3.4 Style `.run-state` in `desktop/src/style.css`, colouring it from the shared definition and
+      keeping the waiting glyph legible against the row background.
+- [ ] 3.5 Extend a desktop UI test to assert a waiting run reads as waiting on its row, and that the
+      existing `[data-status=running]` selectors still match.
+
+## 4. Gates
+- [ ] 4.1 `make test` (go, web tests, tsc, oxlint).
+- [ ] 4.2 `npm test` in `desktop/`.
+- [ ] 4.3 Re-read the diff as a reviewer.
