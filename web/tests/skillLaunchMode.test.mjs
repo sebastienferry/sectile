@@ -50,6 +50,32 @@ test('the card ... menu offers both modes for a single launch', () => {
   assert.match(card, /handleAdvance\(true\)/)
 })
 
+test('both card shapes share one definition of the mode entries', () => {
+  // The two entries used to sit inside the condensed-only block, which left the
+  // override unreachable on an expanded card: its inline chevrons carry no mode.
+  // They are now one fragment rendered from both branches. The assertions above
+  // match whether that fragment is rendered once or twice, so they cannot catch
+  // the expanded branch going missing again — these can.
+  const definitions = card.match(/const modeActions = \(/g) ?? []
+  assert.equal(definitions.length, 1, 'the mode entries are defined once, not duplicated per shape')
+
+  const condensed = card.match(/\{isCondensed && \([\s\S]*?\n {10}\)\}/)
+  assert.ok(condensed, 'the condensed branch is still there')
+  assert.match(condensed[0], /\{modeActions\}/)
+  // The condensed order is unchanged: advance, then the modes, then the chain.
+  assert.match(
+    condensed[0],
+    /handleAdvance\(false\)[\s\S]*\{modeActions\}[\s\S]*handleAdvance\(true\)/,
+  )
+
+  const expanded = card.match(/\{!isCondensed && \([\s\S]*?\n {10}\)\}/)
+  assert.ok(expanded, 'the expanded card has its own menu branch')
+  assert.match(expanded[0], /\{modeActions\}/)
+  // It gains the modes and a separator only: pin, parent filter and pull request
+  // are already inline on an expanded card.
+  assert.doesNotMatch(expanded[0], /togglePin|setParentFilter|task\.prUrl/)
+})
+
 test('the project modal edits both execution settings', () => {
   assert.match(project, /defaultSkillMode/)
   assert.match(project, /fullChainStopStage/)
