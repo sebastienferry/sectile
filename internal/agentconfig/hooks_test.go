@@ -51,20 +51,91 @@ func TestHooksAreInstalledExecutableAndRegistered(t *testing.T) {
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
 	}
-	for _, hook := range claudeHooks {
-		path := filepath.Join(home, claudeHookDir, hook.File)
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatalf("hook %s was not installed: %v", hook.File, err)
-		}
-		// Claude Code runs the file; a hook it cannot execute is a hook that
-		// silently never fires.
-		if info.Mode().Perm()&0100 == 0 {
-			t.Fatalf("hook %s is not executable: %v", hook.File, info.Mode())
-		}
-		commands := hookCommands(t, readSettings(t, home), hook.Event)
+	path := filepath.Join(home, claudeHookDir, claudeHookFile)
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("the hook was not installed: %v", err)
+	}
+	// Claude Code runs the file; a hook it cannot execute is a hook that
+	// silently never fires.
+	if info.Mode().Perm()&0100 == 0 {
+		t.Fatalf("the hook is not executable: %v", info.Mode())
+	}
+	settings := readSettings(t, home)
+	for _, event := range claudeHookEvents {
+		commands := hookCommands(t, settings, event)
 		if len(commands) != 1 || commands[0] != path {
-			t.Fatalf("%s is registered as %v, expected %s", hook.Event, commands, path)
+			t.Fatalf("%s is registered as %v, expected %s", event, commands, path)
+		}
+	}
+}
+
+// The first release installed one script per event, on Notification and Stop.
+// Upgrading must leave neither the files nor their registrations behind: a
+// registration pointing at a removed script is a hook error on every turn.
+func TestLegacyHookScriptsAreRetiredWithTheirRegistrations(t *testing.T) {
+	root, home := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, claudeHookDir), 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]string{}
+	for _, legacy := range retiredClaudeHookFiles {
+		content := []byte("#!/bin/sh\n# legacy " + legacy + "\n")
+		if err := os.WriteFile(filepath.Join(home, claudeHookDir, legacy), content, 0700); err != nil {
+			t.Fatal(err)
+		}
+		manifest[filepath.Join(claudeHookDir, legacy)] = digest(content)
+	}
+	manifestPath, err := ManifestPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(manifest)
+	if err := os.WriteFile(manifestPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// The registrations point at a former home directory: ownership is read
+	// from the file name, so they are still recognised as Sectile's.
+	existing := `{
+	  "hooks": {
+	    "Notification": [
+	      {"matcher": "", "hooks": [{"type": "command", "command": "/opt/mine/ping.sh"}]},
+	      {"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-notification.sh"}]}
+	    ],
+	    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-stop.sh"}]}]
+	  }
+	}`
+	if err := os.WriteFile(filepath.Join(home, ".claude/settings.json"), []byte(existing), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Scaffold(root, claudeConfig()); err != nil {
+		t.Fatal(err)
+	}
+	for _, legacy := range retiredClaudeHookFiles {
+		if _, err := os.Stat(filepath.Join(home, claudeHookDir, legacy)); !os.IsNotExist(err) {
+			t.Fatalf("the legacy script %s survived the upgrade: %v", legacy, err)
+		}
+	}
+	settings := readSettings(t, home)
+	current := filepath.Join(home, claudeHookDir, claudeHookFile)
+	if got := hookCommands(t, settings, "Notification"); len(got) != 2 || got[0] != "/opt/mine/ping.sh" || got[1] != current {
+		t.Fatalf("Notification after the upgrade: %v", got)
+	}
+	for _, event := range claudeHookEvents {
+		if got := hookCommands(t, settings, event); len(got) == 0 || got[len(got)-1] != current {
+			t.Fatalf("%s after the upgrade: %v", event, got)
+		}
+		for _, command := range hookCommands(t, settings, event) {
+			for _, legacy := range retiredClaudeHookFiles {
+				if strings.HasSuffix(command, legacy) {
+					t.Fatalf("%s still registers the retired %s", event, legacy)
+				}
+			}
 		}
 	}
 }
@@ -96,14 +167,18 @@ func TestHookRegistrationPreservesEverythingElse(t *testing.T) {
 	if _, ok := settings["permissions"]; !ok {
 		t.Fatalf("the permissions the user configured were lost: %+v", settings)
 	}
-	if got := hookCommands(t, settings, "PreToolUse"); len(got) != 1 || got[0] != "/opt/mine/audit.sh" {
-		t.Fatalf("a third-party hook on another event was touched: %v", got)
+	// The user's own hooks share their events with Sectile's: both must still
+	// be there, the third-party one first, with its matcher intact.
+	for event, own := range map[string]string{"Notification": "/opt/mine/ping.sh", "PreToolUse": "/opt/mine/audit.sh"} {
+		got := hookCommands(t, settings, event)
+		if len(got) != 2 || got[0] != own || !strings.HasSuffix(got[1], "/"+claudeHookFile) {
+			t.Fatalf("%s hooks after the merge: %v", event, got)
+		}
 	}
-	// The user's own Notification hook shares the event with Sectile's: both must
-	// still be there, the third-party one first.
-	got := hookCommands(t, settings, "Notification")
-	if len(got) != 2 || got[0] != "/opt/mine/ping.sh" || !strings.HasSuffix(got[1], "sectile-notification.sh") {
-		t.Fatalf("Notification hooks after the merge: %v", got)
+	hooks, _ := settings["hooks"].(map[string]any)
+	groups, _ := hooks["PreToolUse"].([]any)
+	if first, _ := groups[0].(map[string]any); first["matcher"] != "Bash" {
+		t.Fatalf("the third-party matcher was rewritten: %+v", first)
 	}
 }
 

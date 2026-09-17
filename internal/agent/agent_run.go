@@ -74,6 +74,9 @@ type controlledRun struct {
 	canceled bool
 	exited   chan struct{}
 	once     sync.Once
+	// relay serialises the waiting reports sent to the server for this run, so
+	// two reports in quick succession cannot cross on the wire.
+	relay sync.Mutex
 }
 
 func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
@@ -196,28 +199,58 @@ func (d *agentDaemon) handleRunWaiting(w http.ResponseWriter, r *http.Request, r
 	// is what lets the notification be raised without waiting on the server.
 	d.queue.mu.Lock()
 	run := d.queue.runs[runID]
+	changed := false
 	if run != nil {
-		if *body.Waiting {
+		// An autonomous run has nobody to wait for. Its Stop hook fires as the
+		// process ends, and a waiting mark there would raise a false "waiting
+		// for you" banner in the poll before the exit is observed. The exit is
+		// the only thing that reports on such a run.
+		waiting := *body.Waiting && !run.desktop.Headless
+		was := !run.desktop.WaitingSince.IsZero()
+		switch {
+		case waiting && !was:
 			run.desktop.WaitingSince = time.Now().UTC()
-		} else {
+		case !waiting && was:
 			run.desktop.WaitingSince = time.Time{}
 		}
+		// A repeated report keeps the original stamp: the wait started when it
+		// was first reported, not when it was last confirmed.
+		changed = waiting != was
 	}
 	d.queue.mu.Unlock()
 	if run == nil {
 		http.Error(w, "Unknown run", http.StatusNotFound)
 		return
 	}
-	go d.postRunWaiting(runID, *body.Waiting)
+	// Every tool call reports "working" again, so only a transition goes to the
+	// server: the relay is a row update and a task_updated event on every
+	// client, which is not a price to pay per tool call.
+	if changed {
+		go d.relayRunWaiting(runID, run)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte(`{"accepted":true}`))
 }
 
-// postRunWaiting relays the waiting report to the server over the same
+// relayRunWaiting sends the run's waiting state to the server. Relays are
+// serialised per run and each one sends the state current at the moment it is
+// sent, not the one that triggered it: a permission asked and granted within a
+// few milliseconds would otherwise reach the server as two requests that can
+// arrive in either order, and leave it showing a wait that has ended.
+func (d *agentDaemon) relayRunWaiting(runID string, run *controlledRun) {
+	run.relay.Lock()
+	defer run.relay.Unlock()
+	d.queue.mu.Lock()
+	waiting := !run.desktop.WaitingSince.IsZero()
+	d.queue.mu.Unlock()
+	d.postRunWaiting(runID, waiting)
+}
+
+// postRunWaiting relays one waiting state to the server over the same
 // authenticated REST surface the agent already uses for run output. It is
 // best-effort: a report that cannot be delivered is dropped rather than
-// retried, because the next hook event supersedes it anyway.
+// retried, because the next transition supersedes it anyway.
 func (d *agentDaemon) postRunWaiting(runID string, waiting bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -136,3 +136,56 @@ Two consequences follow, both accepted:
   from the interface's.
 - **The browser Notification API from the web UI**: a permission prompt per
   browser, the tab has to be open, and a background tab is throttled.
+
+## Revision: the wait is bracketed from both sides
+
+The first implementation set the wait on `Notification` and cleared it on
+`Stop`, and nothing else. In use, the indicator was wrong about as often as it
+was right, in both directions:
+
+- **A hand while the agent worked.** A permission granted, a question answered
+  or a prompt typed after an idle notification resumes the agent, and no hook
+  fired on any of those. The wait stayed set for the whole turn that followed,
+  sometimes many minutes of tool calls under a raised hand.
+- **A spinner while the agent waited.** `Stop` was read as "resumed", so the
+  end of a turn showed the session as running while it sat at the prompt. The
+  `idle_prompt` notification corrected that, but Claude Code sends it sixty
+  seconds after the turn ends.
+- **Spurious hands.** `Notification` fires for more than prompts: a sign-in, a
+  quota notice, a finished sub-agent. Each set the wait.
+
+The fix is a change of reading, not of transport. **A wait opens on
+`Notification` and on `Stop`**, because both leave the agent awaiting the user,
+and **closes on `UserPromptSubmit`, `PreToolUse` and `PostToolUse`**, because
+each of those only fires while the agent works. `PreToolUse` fires before the
+permission prompt for the same tool and `PostToolUse` after it ran, so a granted
+permission clears the wait as soon as the tool has done its work, and a denied
+one clears it on the agent's next tool call or at the end of its turn.
+`Notification` is filtered on its `notification_type`: only a prompt, an idle
+prompt or an elicitation is a wait; an absent type is an older payload and is
+read as a prompt, which is what every payload was before the field existed.
+
+Two consequences on the agent side:
+
+- **An autonomous run never waits.** Its `Stop` hook fires as the process ends,
+  and a wait set there would raise a false "waiting for you" banner in the poll
+  before the exit is observed. The loopback accepts the report and changes
+  nothing for a headless run; the exit is the only thing that reports on it.
+- **Only a transition is relayed.** Every tool call now reports "working" again,
+  and each relay is a row update plus a `task_updated` event on every client.
+  The agent keeps the state, relays it when it changes, keeps the stamp of the
+  first waiting report so the duration stays honest, and serialises relays per
+  run so that a prompt asked and granted within a few milliseconds cannot reach
+  the server as two requests in the wrong order.
+
+The two per-event scripts became one, `sectile-hook.sh`, registered on the five
+events and reading the event from its payload. One script is the point: the
+split is how the first version came to clear the wait in one place only. The
+retired names stay recognised so an upgrade retires the files through the
+manifest and drops their registrations from `~/.claude/settings.json` rather
+than leaving two dead entries that would fail on every turn.
+
+The cost is one `sh` plus one `curl` to the loopback per tool call, measured
+under 50 ms on a 200 KB payload. It was preferred to an `async` registration, which would let a
+"working" report land after the "waiting" one it is meant to precede, and to a
+marker file that the script would have to keep in step with the agent.

@@ -109,9 +109,17 @@ Claude settings, never as a per-project copy.
 #### Scenario: Registering the hooks
 - **GIVEN** a workstation whose Claude provider is being set up
 - **WHEN** Sectile installs the agent configuration
-- **THEN** the two scripts are written under the user Claude directory
-- **AND** `~/.claude/settings.json` registers them for the `Notification` and `Stop` events
-- **AND** the scripts are executable
+- **THEN** one script is written under the user Claude directory
+- **AND** `~/.claude/settings.json` registers it for the `Notification`, `Stop`, `UserPromptSubmit`,
+  `PreToolUse` and `PostToolUse` events
+- **AND** the script is executable
+
+#### Scenario: Upgrading from the per-event scripts
+- **GIVEN** a workstation where the earlier per-event scripts are installed and registered
+- **WHEN** the installation runs again
+- **THEN** the earlier scripts are retired through the manifest
+- **AND** their registrations are removed from `~/.claude/settings.json`
+- **AND** no registration points at a script that no longer exists
 
 #### Scenario: Existing settings are preserved
 - **GIVEN** `~/.claude/settings.json` already holds unrelated keys and other hooks
@@ -136,15 +144,46 @@ loopback, and that report SHALL identify the run without inspecting the working 
 
 #### Scenario: A Sectile-launched session starts waiting
 - **GIVEN** the session environment carries a run identifier, the loopback URL and the loopback token
-- **WHEN** the `Notification` hook runs
+- **WHEN** the `Notification` hook runs for a permission prompt, an idle prompt or an elicitation
 - **THEN** it posts a waiting report for that run to the loopback
 - **AND** the run is marked as waiting from the moment of the report
 
+#### Scenario: A notification that is not a prompt
+- **GIVEN** a Sectile-launched session
+- **WHEN** the `Notification` hook runs for a type that asks the user nothing, such as a sign-in or a
+  quota notice
+- **THEN** no report is posted
+- **AND** the run does not change state
+
+#### Scenario: The turn ends in an interactive session
+- **GIVEN** a Sectile-launched interactive session
+- **WHEN** the `Stop` hook runs for that session
+- **THEN** it posts a waiting report
+- **AND** the run is marked as waiting, since the agent awaits the next prompt
+
 #### Scenario: The waiting session resumes
 - **GIVEN** a run currently marked as waiting
-- **WHEN** the `Stop` hook runs for that session
-- **THEN** it posts a resumed report
+- **WHEN** the `UserPromptSubmit`, `PreToolUse` or `PostToolUse` hook runs for that session
+- **THEN** it posts a working report
 - **AND** the run is no longer marked as waiting
+
+#### Scenario: An autonomous run never waits
+- **GIVEN** a run launched headless, with no terminal to answer from
+- **WHEN** a waiting report reaches the loopback for it
+- **THEN** the report is accepted
+- **AND** the run is not marked as waiting
+
+#### Scenario: A repeated report keeps the start of wait
+- **GIVEN** a run already marked as waiting
+- **WHEN** a further waiting report reaches the loopback for it
+- **THEN** the start of wait is unchanged
+- **AND** nothing is relayed to the server
+
+#### Scenario: Only a transition reaches the server
+- **GIVEN** a run whose session reports working on every tool call
+- **WHEN** the reports reach the loopback
+- **THEN** the server receives one relay when the run starts waiting and one when it resumes
+- **AND** the last relay carries the run's current state
 
 #### Scenario: A report without the loopback credential
 - **GIVEN** a report presented without the workstation credential
