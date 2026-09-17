@@ -38,7 +38,7 @@ flowchart TB
 
     UI -->|"REST + SSE"| Server
     Agent <-->|"authenticated WebSocket<br/>(dispatch, workspace operations)"| Server
-    Agent -->|"REST + /mcp, device credential"| Server
+    Agent -->|"REST + /mcp, workstation API key"| Server
     Server -->|"tracker HTTP APIs"| Forges
 ```
 
@@ -81,12 +81,10 @@ sequenceDiagram
     A->>A: build the command line for the mode<br/>(the autonomous command, else the interactive one)
     A->>C: spawn in a PTY
     C->>M: start_run
-    M->>A: loopback gateway, per-session secret
-    A->>S: /mcp, device credential
+    M->>S: /mcp, workstation API key<br/>(directly; the agent gateway also accepts it)
     S->>S: persist the run
     C->>M: get_task · add_comment · transition_stage
-    M->>A: loopback gateway
-    A->>S: /mcp
+    M->>S: /mcp
     S->>F: queued tracker write (labels, status, comment)
     C->>M: finish_run
     M->>A: loopback gateway
@@ -98,11 +96,14 @@ A launch acknowledgement is not a transition. For PR-bearing stages the forge
 must confirm the branch, URL and pushed commit before the stage moves; review also
 requires a ready PR and a clean checkout reported by the agent.
 
-## Pairing and authentication
+## API keys and authentication
 
-A workstation earns its credential once, from a code the user carries by hand.
-The code is worth nothing on its own: it buys a device credential exactly once,
-and is short lived.
+One API key per workstation is the credential every machine surface takes: the
+agent, the desktop app, `/mcp` on the server and the agent gateway. The user
+creates it from the profile, where it is shown once, or earns it by spending a
+pairing code, which is worth nothing on its own and short lived. Keys expire
+after 90 days by default, can be renewed without changing the secret, and are
+revocable one workstation at a time ([ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md)).
 
 ```mermaid
 sequenceDiagram
@@ -112,32 +113,38 @@ sequenceDiagram
     participant S as sectile-server
     participant D as Sectile Desktop
     participant A as sectile-agent
-    participant L as Local caller<br/>(CLI via the MCP bridge)
+    participant L as MCP client<br/>(Claude Code, or a CLI via the bridge)
 
     Note over UI,S: Web session: an OIDC cookie, or the single implicit user<br/>when no identity provider is configured
-    U->>UI: pair a workstation
-    UI->>S: POST /api/pairing-codes
-    S-->>UI: single-use code + expiry
-    U->>D: paste the code and the server address
-    D->>S: POST /api/v1/agent/pair {code, label}
-    Note right of S: the only unauthenticated agent endpoint<br/>browser Origin refused<br/>unknown, spent and expired codes answer alike
-    S-->>D: device credential + deviceId + userId
-    D->>A: start the agent with TOKEN and a private desktop secret
-    Note over A,S: every later call carries the device credential
+    U->>UI: create an API key (or a pairing code)
+    UI->>S: POST /api/devices {label, ttlDays}
+    S-->>UI: the key, shown once, and its expiry
+    alt pairing code instead
+        UI->>S: POST /api/pairing-codes
+        S-->>UI: single-use code + expiry
+        U->>D: paste the code (or run sectile-agent pair)
+        D->>S: POST /api/v1/agent/pair {code, label}
+        Note right of S: the only unauthenticated agent endpoint<br/>browser Origin refused<br/>unknown, spent and expired codes answer alike
+        S-->>D: API key + deviceId + userId
+    end
+    D->>A: start the agent with the key and a private desktop secret
+    A->>S: GET /api/v1/agent/identity (expiry warning under ten days)
+    Note over A,S: every later call carries the key
     A->>S: authenticated WebSocket + REST + /mcp
-    L->>A: loopback request + per-session secret
-    A->>S: exchanged for the device credential upstream
-    U->>UI: revoke the workstation (/api/devices)
-    S--xA: the credential stops resolving to a user
+    L->>S: /mcp with the key, no agent required
+    L->>A: or the loopback gateway with the same key
+    U->>UI: renew or revoke the key (/api/devices)
+    S--xA: an expired or revoked key answers 401, expiry by name
 ```
 
 Loopback alone authorizes nothing: every local process can reach the gateway
-port, so the session secret is required before the agent lends the user's
-identity to a caller, and the comparison is constant time. The server resolves a
-device credential to the user it was paired with, so actions are attributed per
-user while the task board stays shared. The endpoint contract behind this flow is
-in [MCP and authentication](#mcp-and-authentication) and
-[ADR 0007](adrs/0007-user-identity-and-agent-binding.md).
+port, so the API key is required before the agent proxies a call, and the
+comparison is constant time. The server resolves a key to the user it was
+issued to, so actions are attributed per user while the task board stays shared.
+The endpoint contract behind this flow is in
+[MCP and authentication](#mcp-and-authentication),
+[ADR 0007](adrs/0007-user-identity-and-agent-binding.md) for the identity
+binding and [ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md) for the key.
 
 ## Ownership and packages
 
@@ -151,7 +158,7 @@ in [MCP and authentication](#mcp-and-authentication) and
 | `internal/agent` | Workstation daemon, loopback/control APIs, launch queue and execution supervision |
 | `internal/agentmcp` | Stdio MCP bridge a coding CLI spawns; never opens SQLite |
 | `internal/agentexec` | Terminal-side supervisor of one agent-owned command, and process-group control |
-| `internal/agenthttp` | Agent-side HTTP client that carries the device credential on its transport |
+| `internal/agenthttp` | Agent-side HTTP client that carries the workstation API key on its transport |
 | `internal/agentprotocol` | Shared message envelope and workspace operation DTOs |
 | `internal/agentconfig` | Secret-free configuration contract and agent-owned installation helpers |
 | `internal/workspace`, `internal/runner`, `internal/terminal` | Local Git, tool execution and PTYs |
@@ -239,20 +246,23 @@ The server's Streamable HTTP `/mcp` service exposes nine typed tools:
 stdio bridge. It never opens SQLite and uses the agent's upstream credential.
 
 The agent refreshes native provider MCP registration before launch. Generated
-entries contain the executable and active gateway address, without bearer tokens.
-Existing unrelated provider settings are preserved; malformed settings prevent
-launch rather than being overwritten. Native client trust prompts remain native.
+entries address the server, never a local gateway: a Streamable HTTP entry with
+the workstation API key as bearer for the CLIs that support it, the stdio bridge
+with the key in its environment for the others, written owner-only. Existing
+unrelated provider settings are preserved; malformed settings prevent launch
+rather than being overwritten. Native client trust prompts remain native.
 
-Server machine endpoints validate `SECTILE_SERVER_TOKEN` when configured. The
-agent reads its device credential from `--token` or `TOKEN` and keeps it in
-process: local callers reach its gateway with a per-session loopback secret,
-which the gateway exchanges for that credential upstream. The server resolves a
-device credential to the user it was paired with, so actions are attributed per
-user while the task board stays shared. Loopback control APIs have their own
-private token and reject cross-origin access. Workstations are paired
-through a single-use, short-lived code issued by the web interface; see
-[ADR 0007](adrs/0007-user-identity-and-agent-binding.md). Deploy the browser
-REST interface behind the appropriate access-control boundary.
+Server machine endpoints validate the workstation API key. The agent reads it
+from `--token`, `TOKEN` or the settings file written by `sectile-agent pair`, and
+local callers reach its gateway with that same key. The server resolves a key to
+the user it was issued to, so actions are attributed per user while the task
+board stays shared. Loopback control APIs have their own private desktop token
+and reject cross-origin access. Keys are created from the web profile, shown
+once, and can be earned by spending a single-use, short-lived pairing code; see
+[ADR 0007](adrs/0007-user-identity-and-agent-binding.md) for the identity
+binding and [ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md) for the key.
+`SECTILE_SERVER_TOKEN` is deprecated for one release. Deploy the browser REST
+interface behind the appropriate access-control boundary.
 
 See [the complete interface contract](contracts/server-agent-v1.md),
 [the runtime ADR](adrs/0006-independent-server-agent-runtimes.md) and

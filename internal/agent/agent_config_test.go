@@ -103,15 +103,15 @@ func TestGatewayForwardsMCPAndOwnCredential(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer upstream.Close()
-	d := &agentDaemon{loopback: loopbackServer{token: "session-secret"}, link: serverLink{serverURL: upstream.URL, token: "daemon-token"}}
+	d := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: "daemon-token"}}
 	if err := d.startLocalProxy(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	defer d.loopback.server.Close()
-	// Local callers present the session secret; the gateway swaps it for the
-	// device credential on the way out, so the identity never leaves here.
+	// Local callers present the workstation API key, the same credential the
+	// gateway forwards upstream; anything else is refused before proxying.
 	req, _ := http.NewRequest("POST", d.loopback.url+"/mcp", strings.NewReader(`{}`))
-	req.Header.Set("Authorization", "Bearer session-secret")
+	req.Header.Set("Authorization", "Bearer daemon-token")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer upstream.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	d := &agentDaemon{loopback: loopbackServer{token: "session-secret"}, link: serverLink{serverURL: upstream.URL, token: "test-token"}}
+	d := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: "test-token"}}
 	if err := d.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	connect := func() *mcp.ClientSession {
 		t.Helper()
 		command := exec.Command(os.Args[0], "-test.run=^TestMCPStdioHelper$")
-		command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+d.loopback.url, "SECTILE_AGENT_TOKEN="+d.loopback.token)
+		command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+d.loopback.url, "SECTILE_AGENT_TOKEN="+d.link.token)
 		session, err := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -311,7 +311,7 @@ func TestNativePickupBootstrapAndLaunch(t *testing.T) {
 		t.Run(provider, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
-			d := &agentDaemon{loopback: loopbackServer{url: "http://127.0.0.1:8091"}}
+			d := &agentDaemon{link: serverLink{serverURL: "http://sectile.example.test:8090", token: "sectile_test_key"}}
 			config := agentconfig.Config{AIProvider: provider, Skills: []agentconfig.Skill{{ID: "pickup-issue", Directory: "pickup-issue", Command: "/pickup-issue"}}}
 			if err := d.bootstrapLocalMCP(&config); err != nil {
 				t.Fatal(err)
@@ -320,8 +320,10 @@ func TestNativePickupBootstrapAndLaunch(t *testing.T) {
 			if provider == "claude" {
 				file = ".claude.json"
 			}
+			// The registration addresses the server with the key, never a
+			// local gateway, so it outlives this agent process.
 			raw, err := os.ReadFile(filepath.Join(home, file))
-			if err != nil || !strings.Contains(string(raw), d.loopback.url) {
+			if err != nil || !strings.Contains(string(raw), d.link.serverURL) || !strings.Contains(string(raw), d.link.token) || strings.Contains(string(raw), "8091") {
 				t.Fatalf("native MCP bootstrap: %s %v", raw, err)
 			}
 			command, err := dispatchCommand(config, "#48", "pickup-issue", "pickup-issue", "", "", models.SkillModeInteractive)

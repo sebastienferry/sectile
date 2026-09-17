@@ -82,6 +82,12 @@ profile shows those as "no expiry" and offers to set one. `SECTILE_SERVER_TOKEN`
 resolved to the implicit user for one release, with a warning at startup and a line in the
 profile inviting the user to create a key; the next release drops `validAgentToken`.
 
+A server without `SECTILE_SERVER_TOKEN` used to accept any nonempty token as the implicit
+user. That open mode stays until the deployment issues its first key and ends there,
+revoked keys counted: otherwise revoking a key would change nothing, since the revoked
+value would still pass as "any nonempty token". A personal deployment that never creates a
+key is therefore untouched by the upgrade, and one that does gets real revocation.
+
 ### Telling the user before it expires
 The agent logs the remaining validity at connect when under ten days, and the web profile
 flags such keys. A rejected key returns `401 {"error":"API key expired"}` distinct from an

@@ -50,8 +50,8 @@ export function LocalAgentSetup() {
         </div>
       ) : <p role="alert">Enter an HTTP or HTTPS server URL without credentials, query parameters or a fragment.</p>}
       <p className="text-[var(--text-muted)]">
-        Requires the Sectile binary in your PATH and TOKEN set in your terminal.
-        Use the token provided by your server administrator; in local mode without a configured server token, any non-empty value is accepted.
+        Requires the Sectile binary in your PATH. Authenticate with an API key from the panel above:
+        either run <code>sectile-agent pair</code> once with a pairing code, or set <code>TOKEN</code> to the key in your terminal.
         The agent connects to all projects by default.
       </p>
       <p role="status" className="text-[var(--text-muted)]">{copyStatus}</p>

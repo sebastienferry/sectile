@@ -149,11 +149,12 @@ func resolveServerURL(flagURL string) string {
 	return ""
 }
 
-// validLoopbackRequest accepts a local caller that presents this session's
-// secret. Comparison is constant time: the gateway answers unauthenticated
-// callers, so a timing oracle would be reachable by any local process.
+// validLoopbackRequest accepts a local caller that presents the workstation's
+// own API key, the same credential the server would take from it directly.
+// Comparison is constant time: the gateway answers unauthenticated callers, so
+// a timing oracle would be reachable by any local process.
 func (d *agentDaemon) validLoopbackRequest(r *http.Request) bool {
-	if d.loopback.token == "" {
+	if d.link.token == "" {
 		return false
 	}
 	header := r.Header.Get("Authorization")
@@ -161,7 +162,7 @@ func (d *agentDaemon) validLoopbackRequest(r *http.Request) bool {
 		return false
 	}
 	presented := strings.TrimPrefix(header, "Bearer ")
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(d.loopback.token)) == 1
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(d.link.token)) == 1
 }
 
 // runningUnderTest reports whether this process is a test binary. Only the
@@ -175,8 +176,8 @@ func runningUnderTest() bool {
 // Run starts the workstation daemon and blocks until it stops.
 func Run(args []string) {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
-	serverURL := fs.String("url", "", "Remote Sectile server URL (e.g. https://sectile.example.com)")
-	token := fs.String("token", "", "Authentication token for the remote server")
+	serverURL := fs.String("url", "", "Remote Sectile server URL (e.g. https://sectile.example.com); defaults to the server paired with")
+	token := fs.String("token", "", "Workstation API key (defaults to TOKEN, then to the key stored by `sectile-agent pair`)")
 	projectID := fs.String("project", "all", "Project primary key, or all for multi-project operation")
 	deviceID := fs.String("device", "", "Device identifier (defaults to hostname)")
 	terminalApp := fs.String("terminal", "", "Deprecated compatibility option; executions use agent-owned consoles")
@@ -188,22 +189,25 @@ func Run(args []string) {
 	echoConsoles := fs.Bool("echo-consoles", false, "Mirror console output on this terminal (debugging; consoles are readable from the desktop)")
 	_ = fs.Parse(args)
 
+	// A paired workstation remembers its server and its key, so neither flag
+	// nor variable is needed after `sectile-agent pair`.
+	stored, _ := agentconfig.ReadConnection()
 	resolvedURL := resolveServerURL(*serverURL)
 	if resolvedURL == "" {
-		fmt.Fprintln(os.Stderr, "Error: --url is required (or set REMOTE_URL)")
+		resolvedURL = stored.Server
+	}
+	if resolvedURL == "" {
+		fmt.Fprintln(os.Stderr, "Error: --url is required (or set REMOTE_URL, or pair this workstation with `sectile-agent pair`)")
 		fs.Usage()
 		os.Exit(1)
 	}
 	*serverURL = resolvedURL
 
+	*token = resolveCredential(*token, os.Getenv("TOKEN"), resolvedURL, stored)
 	if *token == "" {
-		if envToken := os.Getenv("TOKEN"); envToken != "" {
-			*token = envToken
-		} else {
-			fmt.Fprintln(os.Stderr, "Error: --token is required (or set TOKEN)")
-			fs.Usage()
-			os.Exit(1)
-		}
+		fmt.Fprintln(os.Stderr, "Error: no API key for this server. Create one from the web profile and pass it with --token or TOKEN, or run `sectile-agent pair --url <server> --code <pairing code>` once.")
+		fs.Usage()
+		os.Exit(1)
 	}
 
 	if *deviceID == "" {
@@ -261,7 +265,6 @@ func Run(args []string) {
 	if daemon.loopback.desktopToken == "" {
 		daemon.loopback.desktopToken = rand.Text()
 	}
-	daemon.loopback.token = rand.Text()
 	if daemon.loopback.desktopInfo == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -361,6 +364,12 @@ func (d *agentDaemon) connectLoop(ctx context.Context) {
 				// spelled out the cause, so the retry line only has to say the
 				// server has not been updated yet.
 				log.Printf("[Agent] Server still does not serve agent contract v%d (attempt %d). Retrying in %s...", agentconfig.Version, attempt, backoff)
+			} else if errors.Is(err, errAPIKeyExpired) {
+				// Nothing on the network will fix this; the owner has to renew
+				// the key. Say so in both languages the log already speaks,
+				// then keep retrying so a renewal is picked up without a restart.
+				log.Printf("[Agent] %v (attempt %d). Renew the key from the web profile; retrying in %s...", err, attempt, backoff)
+				fmt.Printf("\n⚠️  [Agent] Clé d'API expirée : renouvelez-la depuis votre profil sur %s\n\n", d.link.serverURL)
 			} else {
 				log.Printf("[Agent] Connection lost (attempt %d): %v. Reconnecting in %s...", attempt, err, backoff)
 			}
@@ -414,10 +423,10 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 			return
 		}
 		// Loopback alone is not an authorization: every local process can
-		// reach this port. Require the session secret before lending the
-		// user's identity to the caller.
+		// reach this port. Require the workstation's API key, the same
+		// credential the server itself would ask for.
 		if !d.validLoopbackRequest(r) {
-			http.Error(w, "Valid agent session token required", http.StatusUnauthorized)
+			http.Error(w, "Valid API key required", http.StatusUnauthorized)
 			return
 		}
 		if r.Host != fmt.Sprintf("127.0.0.1:%d", d.loopback.port) && r.Host != fmt.Sprintf("localhost:%d", d.loopback.port) {
@@ -455,6 +464,9 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 // connect establishes a single WebSocket connection and runs the message loop
 // until the connection is lost or the context is cancelled.
 func (d *agentDaemon) connect(ctx context.Context) error {
+	if err := d.checkIdentity(ctx); err != nil {
+		return err
+	}
 	if d.link.projectID == "all" {
 		projects, err := d.discoverProjects(ctx)
 		if err != nil {
@@ -962,9 +974,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		"SECTILE_TASK_ID":       taskRef,
 		"SECTILE_RUN_ID":        payload.RunID,
 		"SECTILE_REMOTE_MODE":   "true",
-		"SECTILE_AGENT_URL":     d.loopback.url,
+		"SECTILE_AGENT_URL":     d.link.serverURL,
 		"SECTILE_SERVER_URL":    d.link.serverURL,
-		"SECTILE_AGENT_TOKEN":   d.loopback.token,
+		"SECTILE_AGENT_TOKEN":   d.link.token,
 	}
 	if payload.ProjectID != "" {
 		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID

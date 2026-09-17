@@ -65,6 +65,12 @@ for one release with a startup warning, then removed.
 - **THEN** the desktop reconnects unchanged
 - **AND** the profile lists it with no expiry
 
+#### Scenario: Open mode ends with the first key
+- **GIVEN** a server without `SECTILE_SERVER_TOKEN` that has issued no key
+- **WHEN** an agent connects with an arbitrary nonempty token
+- **THEN** it is accepted as the implicit user
+- **AND** once a key has been created, the same token is refused while the key is accepted
+
 ### Requirement: Expiry is announced ahead
 The agent SHALL log the remaining validity at connect when it is under ten days, and the
 profile SHALL flag such keys.

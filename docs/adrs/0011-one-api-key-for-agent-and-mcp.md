@@ -39,8 +39,10 @@ only for providers that cannot register an HTTP transport, and receives the key.
 
 Existing device credentials become keys without expiry on upgrade, with no action
 required. `SECTILE_SERVER_TOKEN` is accepted for one more release with a warning,
-then removed. One universal key is chosen; scopes are deferred until a second scope
-exists.
+then removed. The open mode of a server without it, which accepted any nonempty
+token, lasts until the first key is issued and ends there, so that revocation
+means something. One universal key is chosen; scopes are deferred until a second
+scope exists.
 
 ## Consequences
 

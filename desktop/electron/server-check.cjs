@@ -7,7 +7,13 @@ async function checkServer(server,token,fetcher=fetch){
    signal:AbortSignal.timeout(3000),redirect:'error'
   })
  }catch{return false}
- if(response.status===401||response.status===403)throw Error('Authentication rejected by the server. Check your token.')
+ if(response.status===401||response.status===403){
+  // An expired key is the one refusal with a remedy other than retyping.
+  let detail=''
+  try{detail=(await response.json()).error||''}catch{}
+  if(/expired/i.test(detail))throw Error('This API key has expired. Renew it from your profile in the web interface, or create a new one.')
+  throw Error('Authentication rejected by the server. Check your API key.')
+ }
  if(!response.ok)return false
  let catalog
  try{catalog=await response.json()}catch{throw Error('This URL does not return the Sectile agent API. Check the server address.')}

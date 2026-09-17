@@ -143,6 +143,9 @@ func (h *Handler) HandleCurrentUser(w http.ResponseWriter, r *http.Request) {
 		"userId":           userID,
 		"signedIn":         userID != "",
 		"identityProvider": h.identityProvider != nil,
+		// The profile shows a deprecation notice while the shared credential
+		// is configured, so the operator moves to API keys before it goes.
+		"sharedServerToken": sharedServerTokenConfigured(),
 	}
 	if user, err := h.db.GetUser(userID); err == nil && user != nil {
 		body["email"] = user.Email

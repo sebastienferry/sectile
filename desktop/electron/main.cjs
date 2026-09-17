@@ -42,14 +42,25 @@ async function connectAgent(){
  return false
 }
 ipcMain.handle('connect',connectAgent)
+// The API key goes in the settings file either way: encrypted with the OS
+// store when there is one, in clear under the same 0600 permissions otherwise.
+// A pairing code is single use, so a key that was not saved would be lost.
+function storeKey(saved,token){
+ if(safeStorage.isEncryptionAvailable()){saved.secret=safeStorage.encryptString(token).toString('base64');delete saved.apiKey}
+ else{saved.apiKey=token;delete saved.secret}
+}
+function storedKey(saved){
+ if(saved.secret&&safeStorage.isEncryptionAvailable())return safeStorage.decryptString(Buffer.from(saved.secret,'base64'))
+ return saved.apiKey||''
+}
 ipcMain.handle('pair',async(_,{server,code,label})=>{
  const credential=await exchangePairingCode(server,code,label)
  let previous={}
  try{previous=readSettings()}catch{}
  const saved={...previous,server,deviceId:credential.deviceId}
  delete saved.binary
+ storeKey(saved,credential.token)
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
- if(safeStorage.isEncryptionAvailable())saved.secret=safeStorage.encryptString(credential.token).toString('base64')
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
  return {deviceId:credential.deviceId,token:credential.token}
@@ -67,7 +78,7 @@ function readSettings(){
 ipcMain.handle('settings',()=>{
  try{
   const saved=readSettings()
-  return {...saved,token:saved.secret&&safeStorage.isEncryptionAvailable()?safeStorage.decryptString(Buffer.from(saved.secret,'base64')):'',secret:undefined}
+  return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
  }catch{return {}}
 })
 ipcMain.handle('start',async(_,settings)=>{
@@ -96,7 +107,7 @@ ipcMain.handle('start',async(_,settings)=>{
   if(credential.deviceId)saved.deviceId=credential.deviceId
   delete saved.binary
   fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
-  if(safeStorage.isEncryptionAvailable())saved.secret=safeStorage.encryptString(token).toString('base64')
+  storeKey(saved,token)
   fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
   fs.renameSync(settingsPath()+'.tmp',settingsPath())
   const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
