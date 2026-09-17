@@ -80,3 +80,27 @@ export function deriveRunIndicator(
 
   return { state, runs: selectedRuns, cancelableRunIds, count: selectedRuns.length, waitingSince }
 }
+
+/**
+ * The tasks a remote run is currently working on, as a set of task ids.
+ *
+ * It answers about many tasks what `deriveRunIndicator` answers about one, and
+ * reads the same runs, so a filter built on it and the badge drawn from the
+ * other cannot disagree. It is a pass of its own rather than a loop over the
+ * indicator because a filter asks about every task at once: one scan of the
+ * activities, then a constant-time membership test per rendered card.
+ *
+ * A waiting run needs no case: it is a running run carrying a mark, and a
+ * blocked run is still a live one. A recently canceled run is the difference
+ * with the indicator, which keeps it visible so the user sees the cancellation
+ * land on the card being looked at. Here the work has stopped, so the task is
+ * not active any more — and that is why this takes no `now`.
+ */
+export function activeTaskIds(activities: TaskActivity[]): Set<string> {
+  const active = new Set<string>()
+  for (const activity of activities) {
+    if (activity.skillId !== REMOTE_RUN_SKILL) continue
+    if (activity.status === 'running' || activity.status === 'queued') active.add(activity.taskId)
+  }
+  return active
+}

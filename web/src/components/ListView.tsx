@@ -37,6 +37,9 @@ import type { Task, Status, Priority, WorkflowStage } from "../types"
 export const ListView: React.FC = () => {
   const {
     tasks,
+    activeOnly,
+    setActiveOnly,
+    activeTasks,
     isPinned,
     togglePin,
     setSelectedTask,
@@ -95,8 +98,12 @@ export const ListView: React.FC = () => {
     }
   }
 
+  // Le filtre « en cours » se pose ici, sur la liste triée, et non sur les
+  // `tasks` du contexte : ceux-ci servent aussi à résoudre un ticket par son id
+  // (sélection, modale), et les amputer casserait ces résolutions en silence.
   const sortedTasks = useMemo(() => {
-    return [...tasks].sort((a, b) => {
+    const listed = activeOnly ? tasks.filter(t => activeTasks.has(t.id)) : tasks
+    return [...listed].sort((a, b) => {
       let result = 0
       if (sortField === "key") {
         result = a.key.localeCompare(b.key, undefined, { numeric: true })
@@ -114,7 +121,7 @@ export const ListView: React.FC = () => {
       }
       return sortAsc ? result : -result
     })
-  }, [tasks, sortField, sortAsc])
+  }, [tasks, activeOnly, activeTasks, sortField, sortAsc])
 
   const doneTasksCount = tasks.filter(t => t.status === "finished" || t.status === "done").length
 
@@ -776,7 +783,15 @@ export const ListView: React.FC = () => {
         {visibleTasks.length === 0 ? (
           <div className="py-16 text-center text-[var(--text-muted)] space-y-3">
             <Clock size={32} className="mx-auto opacity-40" />
-            <p className="text-sm font-medium">{t.list.empty}</p>
+            <p className="text-sm font-medium">{activeOnly ? "Aucun ticket en cours d'exécution" : t.list.empty}</p>
+            {activeOnly && (
+              <button
+                onClick={() => setActiveOnly(false)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold accent-text bg-[var(--accent-light)] border border-[var(--accent-color)]/40 hover:opacity-80 transition-opacity cursor-pointer"
+              >
+                <span>Afficher tous les tickets</span>
+              </button>
+            )}
             {hideDone && doneTasksCount > 0 && (
               <button
                 onClick={toggleHideDone}

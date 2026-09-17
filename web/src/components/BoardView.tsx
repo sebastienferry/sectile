@@ -50,6 +50,9 @@ export const getTaskWorkflowStage = stageFromLabels
 export const BoardView: React.FC = () => {
   const {
     tasks,
+    activeOnly,
+    setActiveOnly,
+    activeTasks,
     moveTask,
     moveTaskWorkflowStage,
     boardGrouping,
@@ -334,13 +337,21 @@ export const BoardView: React.FC = () => {
     return inColumn.length > 0 && inColumn.every(t => t.status === 'finished' || t.status === 'done')
   }
 
+  // Les tickets que les colonnes affichent. Le filtre « en cours » s'arrête ici :
+  // `tasks` continue de servir aux résolutions par id du glisser-déposer, et la
+  // structure du board — ses colonnes — ne bouge pas parce qu'un filtre la vide.
+  const displayedTasks = React.useMemo(
+    () => (activeOnly ? tasks.filter(t => activeTasks.has(t.id)) : tasks),
+    [tasks, activeOnly, activeTasks],
+  )
+
   const tasksForColumn = (col: StatusColumnConfig): Task[] => {
     const statuses = columnStatuses(col.title).map(st => st.toLowerCase())
     if (statuses.length === 0) {
       statuses.push(col.title.toLowerCase())
     }
     return byPriorityDesc(
-      tasks.filter(t => {
+      displayedTasks.filter(t => {
         const st = (t.trackerStatus || '').toLowerCase()
         if (statuses.includes(st)) return true
         if (st === '' && col.title.toLowerCase() === 'todo') return true
@@ -354,7 +365,7 @@ export const BoardView: React.FC = () => {
   // elle contient quelque chose.
   const unassignedTasks = useTrackerBoard
     ? byPriorityDesc(
-        tasks.filter(t => {
+        displayedTasks.filter(t => {
           const st = (t.trackerStatus || '').toLowerCase()
           if (!st) return true
           // Une colonne masquée réclame toujours ses statuts : ses tickets sont
@@ -495,6 +506,22 @@ export const BoardView: React.FC = () => {
         </div>
       </div>
 
+      {/* Le board garde ses colonnes quand le filtre les vide : leur disparition
+          ferait croire à une perte de structure. Reste à dire pourquoi elles sont
+          toutes vides, ce qu'une colonne vide seule n'explique pas. */}
+      {activeOnly && displayedTasks.length === 0 && (
+        <div className="mx-4 mt-4 flex items-center justify-between gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-secondary)] px-3 py-2 text-[11px] text-[var(--text-secondary)]">
+          <span>Aucun ticket en cours d'exécution.</span>
+          <button
+            type="button"
+            onClick={() => setActiveOnly(false)}
+            className="font-semibold accent-text hover:opacity-80 transition-opacity cursor-pointer"
+          >
+            Afficher tous les tickets
+          </button>
+        </div>
+      )}
+
       {/* Board Scrollable Columns Container */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden p-4">
         <div className="flex gap-4 h-full min-w-max pb-2">
@@ -503,7 +530,7 @@ export const BoardView: React.FC = () => {
           {/* ========================================================= */}
           {boardGrouping === 'workflow' &&
             workflowColumns.map(col => {
-              const colTasks = byPriorityDesc(tasks.filter(t => resolveTaskStage(t, currentProject) === col.id))
+              const colTasks = byPriorityDesc(displayedTasks.filter(t => resolveTaskStage(t, currentProject) === col.id))
               const isOver = dragOverColumn === col.id
 
               // Collapsed Finished Column when hideDone is enabled
