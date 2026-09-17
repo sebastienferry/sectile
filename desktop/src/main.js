@@ -207,7 +207,14 @@ async function refreshSkillResult(id=selected){
  const run=runs.find(item=>item.id===id)
  if(!run||freeConsole(run)||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
  loadingSkillResults.add(run.id)
- try{skillResults.set(run.id,await api.runResult(run.id))}catch{skillResults.delete(run.id)}
+ try{
+  const result=await api.runResult(run.id)
+  // A null result means the agent no longer holds the run. That is expected once
+  // the history is cleared or the agent restarted, and the next poll drops the
+  // run; a run the latest poll still lists as live is the anomaly worth noting.
+  if(result===null&&runs.includes(run)&&!['completed','failed','canceled'].includes(run.status))console.warn('The local agent reports no run '+run.id+' while the desktop still lists it as '+run.status)
+  skillResults.set(run.id,result)
+ }catch{skillResults.delete(run.id)}
  finally{loadingSkillResults.delete(run.id);renderHeader();renderTaskSkillStatuses()}
 }
 let refreshingVisibleSkillResults=false
@@ -493,6 +500,10 @@ document.querySelector('#clear-history').onclick=async()=>{
  const button=document.querySelector('#clear-history');button.disabled=true
  try{
   const {removed}=await api.clearHistory()
+  // Drop the removed runs locally right away: until the next poll the desktop
+  // would otherwise keep asking for results the agent no longer holds.
+  runs=runs.filter(run=>!removed.includes(run.id))
+  for(const id of removed)skillResults.delete(id)
   if(removed.includes(selected)){
    selected=null;terminal.reset()
    renderHeader()

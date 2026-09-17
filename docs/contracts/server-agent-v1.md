@@ -623,6 +623,11 @@ and unavailable server data 502. No logs or prompts are included.
 This read-only result is independent of the console process status. The desktop
 uses an exact execution match and completed workflow stage to display completion;
 process exit, a prior execution's success, or an idle console are insufficient.
+The run registry lives in agent memory, so a run disappears once the history is
+cleared or the agent restarts. The desktop treats the resulting 404 as "no
+result" rather than an error: the main process returns null to the renderer
+instead of rejecting the IPC call, and clearing the history drops the removed
+runs locally before the next poll.
 
 ### Free desktop agent consoles
 
