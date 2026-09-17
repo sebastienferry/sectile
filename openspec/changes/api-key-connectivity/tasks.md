@@ -14,9 +14,10 @@
 - [x] 2.4 Have `POST /api/v1/agent/pair` mint a key with the default expiry.
 
 ## 3. Web profile
-- [x] 3.1 Replace the workstation pairing panel with an API keys panel: create, show once,
-      copy, list, renew, revoke, expiry badge, "no expiry" for migrated rows.
-- [x] 3.2 Keep the pairing code generator inside that panel as the one-time alternative.
+- [x] 3.1 Lead the workstations panel with "Pair a workstation": the code, the two commands,
+      and the list with renew, revoke, expiry badge and "no expiry" for migrated rows.
+- [x] 3.2 Fold key creation and its one-time display under an advanced case for an MCP client
+      without a local agent.
 
 ## 4. Agent
 - [x] 4.1 Add `sectile-agent pair --url --code`, storing the key in `~/.config/sectile/settings.json`

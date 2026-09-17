@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Copy, KeyRound, RefreshCw, Trash2 } from 'lucide-react'
+import { Copy, Laptop, RefreshCw, Trash2 } from 'lucide-react'
 import { DEFAULT_KEY_TTL_DAYS, describeExpiry, expiryState, type ApiKey } from '../lib/apiKeys'
 
 type PairingCode = {
@@ -17,17 +17,18 @@ function codeExpiry(expiresAt: string): string {
   return Number.isNaN(date.getTime()) ? 'expiry unknown' : `Valid until ${date.toLocaleTimeString()}`
 }
 
-// The one place a workstation credential is created, shown, renewed and
-// revoked. The same key authenticates the agent, the desktop app and any MCP
-// client, directly on the server or through the agent gateway.
+// Workstations are paired, not configured: the user carries a short-lived code,
+// the machine receives and keeps its API key, and the key itself stays out of
+// sight. Showing a key in clear is the advanced case of an MCP client that has
+// no agent to pair for it, and it is folded away as such.
 export function ApiKeysPanel() {
   // The address every client must be pointed at is the one serving this page.
   const serverOrigin = window.location.origin
   const [keys, setKeys] = useState<ApiKey[]>([])
+  const [code, setCode] = useState<PairingCode | null>(null)
   const [label, setLabel] = useState('')
   const [ttlDays, setTtlDays] = useState<number>(DEFAULT_KEY_TTL_DAYS)
   const [issued, setIssued] = useState<IssuedKey | null>(null)
-  const [code, setCode] = useState<PairingCode | null>(null)
   const [sharedServerToken, setSharedServerToken] = useState(false)
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
@@ -39,7 +40,7 @@ export function ApiKeysPanel() {
       const body = await res.json()
       setKeys(body.devices ?? [])
     } catch {
-      setStatus('Could not load API keys.')
+      setStatus('Could not load workstations.')
     }
   }, [])
 
@@ -57,6 +58,21 @@ export function ApiKeysPanel() {
       setStatus(done)
     } catch {
       setStatus('Copy unavailable. Select the value and copy it manually.')
+    }
+  }
+
+  async function requestCode() {
+    setBusy(true)
+    setStatus('')
+    setIssued(null)
+    try {
+      const res = await fetch('/api/pairing-codes', { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      setCode(await res.json())
+    } catch {
+      setStatus('Could not issue a pairing code.')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -81,21 +97,6 @@ export function ApiKeysPanel() {
     }
   }
 
-  async function requestCode() {
-    setBusy(true)
-    setStatus('')
-    setIssued(null)
-    try {
-      const res = await fetch('/api/pairing-codes', { method: 'POST' })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      setCode(await res.json())
-    } catch {
-      setStatus('Could not issue a pairing code.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
   async function renew(key: ApiKey, days: number) {
     setStatus('')
     try {
@@ -108,7 +109,7 @@ export function ApiKeysPanel() {
       setStatus(days > 0 ? `${key.Label || key.ID} renewed for ${days} days.` : `${key.Label || key.ID} no longer expires.`)
       await loadKeys()
     } catch {
-      setStatus('Could not renew that key.')
+      setStatus('Could not renew that workstation.')
     }
   }
 
@@ -120,81 +121,35 @@ export function ApiKeysPanel() {
       setStatus(`${key.Label || key.ID} revoked.`)
       await loadKeys()
     } catch {
-      setStatus('Could not revoke that key.')
+      setStatus('Could not revoke that workstation.')
     }
   }
 
   const inputClass = 'rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)]'
   const buttonClass = 'rounded-lg border border-[var(--border-color)] px-3 py-2 hover:bg-[var(--bg-hover)] disabled:opacity-50'
+  const pairCommand = `sectile-agent pair --url ${serverOrigin} --code <code>`
 
   return (
-    <section className="space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4" aria-labelledby="api-keys-title">
-      <h3 id="api-keys-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
-        <KeyRound size={16} /> API keys
+    <section className="space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4" aria-labelledby="workstations-title">
+      <h3 id="workstations-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
+        <Laptop size={16} /> Workstations
       </h3>
       <p className="text-[var(--text-muted)]">
-        One key per workstation authenticates the local agent, the desktop app and any MCP client,
-        against <code className="rounded bg-[var(--bg-primary)] px-1 py-0.5 select-text">{serverOrigin}</code>.
-        A key is shown once when created. Revoking one leaves your other machines connected.
+        Pair each machine once with a code. The workstation receives its own credential and keeps it;
+        you never handle it. It expires after {DEFAULT_KEY_TTL_DAYS} days unless renewed here, and
+        revoking a workstation leaves your other machines connected.
       </p>
 
       {sharedServerToken ? (
         <p role="alert" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-[var(--text-primary)]">
           This server still runs with <code>SECTILE_SERVER_TOKEN</code>, which is deprecated and will be
-          removed in the next release. Create a key below and start your agents with it instead.
+          removed in the next release. Pair your workstations and drop the variable.
         </p>
       ) : null}
 
-      <form
-        className="flex flex-wrap items-end gap-2"
-        onSubmit={event => { event.preventDefault(); void createKey() }}
-      >
-        <label className="flex min-w-0 flex-1 flex-col gap-1 text-[var(--text-muted)]">
-          Label
-          <input
-            value={label}
-            onChange={event => setLabel(event.target.value)}
-            placeholder="laptop, build server…"
-            className={inputClass}
-            autoComplete="off"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-[var(--text-muted)]">
-          Expires
-          <select value={ttlDays} onChange={event => setTtlDays(Number(event.target.value))} className={inputClass}>
-            <option value={DEFAULT_KEY_TTL_DAYS}>in {DEFAULT_KEY_TTL_DAYS} days</option>
-            <option value={30}>in 30 days</option>
-            <option value={365}>in a year</option>
-            <option value={0}>never</option>
-          </select>
-        </label>
-        <button type="submit" disabled={busy} className={buttonClass}>
-          {busy ? 'Working…' : 'Create an API key'}
-        </button>
-        <button type="button" onClick={requestCode} disabled={busy} className={buttonClass}>
-          Generate a pairing code
-        </button>
-      </form>
-
-      {issued ? (
-        <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3">
-          <p className="font-semibold text-[var(--text-primary)]">
-            Key for {issued.device.Label || 'unnamed workstation'}. Copy it now: it is not shown again.
-          </p>
-          <div className="flex items-start gap-2">
-            <pre className="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg bg-[var(--bg-secondary)] p-3 select-text"><code>{issued.token}</code></pre>
-            <button type="button" onClick={() => copy(issued.token, 'API key copied.')} className={`flex shrink-0 items-center gap-1 ${buttonClass}`}>
-              <Copy size={14} /> Copy
-            </button>
-          </div>
-          <p className="text-[var(--text-muted)]">{describeExpiry(issued.device.ExpiresAt)}.</p>
-          <p className="text-[var(--text-muted)]">
-            Use it as <code>TOKEN</code> for <code>sectile-agent --url {serverOrigin}</code>, in the desktop connect
-            screen, or as a bearer header on <code>{serverOrigin}/mcp</code> for an MCP client. The local agent is not
-            required for MCP.
-          </p>
-        </div>
-      ) : null}
+      <button type="button" onClick={requestCode} disabled={busy} className={buttonClass}>
+        {busy ? 'Working…' : 'Pair a workstation'}
+      </button>
 
       {code ? (
         <div className="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3">
@@ -204,11 +159,17 @@ export function ApiKeysPanel() {
               <Copy size={14} /> Copy
             </button>
           </div>
-          <p className="text-[var(--text-muted)]">{codeExpiry(code.expiresAt)}. Single use; it is exchanged once for a key with the default expiry.</p>
+          <p className="text-[var(--text-muted)]">{codeExpiry(code.expiresAt)}. Single use.</p>
+          <h4 className="font-semibold text-[var(--text-primary)]">On the workstation</h4>
           <ol className="list-decimal space-y-1 pl-5 text-[var(--text-muted)]">
-            <li>On the workstation, run <code>sectile-agent pair --url {serverOrigin} --code &lt;code&gt;</code>, or paste the code in the desktop connect screen.</li>
-            <li>The key is stored on that machine and the workstation appears below.</li>
+            <li>
+              In a terminal: <code className="rounded bg-[var(--bg-secondary)] px-1 py-0.5 select-text">{pairCommand}</code>,
+              then start the agent with <code className="rounded bg-[var(--bg-secondary)] px-1 py-0.5 select-text">sectile-agent --url {serverOrigin}</code>.
+            </li>
+            <li>Or, in Sectile Desktop, enter this server address and paste the code in the connect screen.</li>
+            <li>The workstation appears in the list below once paired. The code is never needed again.</li>
           </ol>
+          <p className="text-[var(--text-muted)]">A code that expired before it was used is not reusable: generate a new one.</p>
         </div>
       ) : null}
 
@@ -246,7 +207,63 @@ export function ApiKeysPanel() {
             )
           })}
         </ul>
-      ) : <p className="text-[var(--text-muted)]">No API key yet.</p>}
+      ) : <p className="text-[var(--text-muted)]">No workstation is paired yet.</p>}
+
+      {/* The advanced case: a client that cannot pair because no agent runs
+          beside it. Only here is a credential ever shown in clear. */}
+      <details className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] p-3">
+        <summary className="cursor-pointer font-semibold text-[var(--text-primary)]">
+          Advanced: an MCP client without a local agent
+        </summary>
+        <div className="mt-2 space-y-2">
+          <p className="text-[var(--text-muted)]">
+            A paired agent registers Sectile in your coding CLI by itself. Use this only for a client you
+            configure by hand on a machine with no agent: create a key, copy it once, and set it as the
+            bearer header on <code>{serverOrigin}/mcp</code>. It is listed above like any workstation.
+          </p>
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={event => { event.preventDefault(); void createKey() }}
+          >
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-[var(--text-muted)]">
+              Label
+              <input
+                value={label}
+                onChange={event => setLabel(event.target.value)}
+                placeholder="claude on the build server…"
+                className={inputClass}
+                autoComplete="off"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-[var(--text-muted)]">
+              Expires
+              <select value={ttlDays} onChange={event => setTtlDays(Number(event.target.value))} className={inputClass}>
+                <option value={DEFAULT_KEY_TTL_DAYS}>in {DEFAULT_KEY_TTL_DAYS} days</option>
+                <option value={30}>in 30 days</option>
+                <option value={365}>in a year</option>
+                <option value={0}>never</option>
+              </select>
+            </label>
+            <button type="submit" disabled={busy} className={buttonClass}>
+              {busy ? 'Working…' : 'Create a key'}
+            </button>
+          </form>
+          {issued ? (
+            <div className="space-y-2">
+              <p className="font-semibold text-[var(--text-primary)]">
+                Key for {issued.device.Label || 'unnamed client'}. Copy it now: it is not shown again.
+              </p>
+              <div className="flex items-start gap-2">
+                <pre className="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg bg-[var(--bg-secondary)] p-3 select-text"><code>{issued.token}</code></pre>
+                <button type="button" onClick={() => copy(issued.token, 'API key copied.')} className={`flex shrink-0 items-center gap-1 ${buttonClass}`}>
+                  <Copy size={14} /> Copy
+                </button>
+              </div>
+              <p className="text-[var(--text-muted)]">{describeExpiry(issued.device.ExpiresAt)}.</p>
+            </div>
+          ) : null}
+        </div>
+      </details>
 
       <p role="status" className="text-[var(--text-muted)]">{status}</p>
     </section>

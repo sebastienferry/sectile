@@ -469,7 +469,7 @@ Legacy repository mappings remain readable and are migrated on the next save.
 Server and agent are built as `bin/sectile-server` and `bin/sectile-agent` by the `build-*` targets.
 The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
 arguments with, for example, `make start ARGS="--url http://localhost:8090"`;
-authenticate with a paired workstation or `TOKEN` set to an API key.
+the workstation must be paired first with `sectile-agent pair`.
 
 ## Workstation API keys and identity
 
@@ -479,7 +479,9 @@ copy of the database yields no usable key.
 
 - `POST /api/devices` with `{"label", "ttlDays"}` creates a key for the signed-in
   user and returns `{"token", "device"}`; the plaintext is returned once. `ttlDays`
-  absent means 90 days, `0` means no expiry.
+  absent means 90 days, `0` means no expiry. The interface offers this only as the
+  advanced case of an MCP client with no agent to pair for it; pairing is the
+  normal path and never shows a key.
 - `GET /api/devices` lists the user's keys with `ExpiresAt` (`null` for none);
   `PUT /api/devices?id=` with `{"ttlDays"}` moves or clears the expiry without
   changing the secret; `DELETE /api/devices?id=` revokes one.

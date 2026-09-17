@@ -110,15 +110,13 @@ only its binary, writable database/configuration storage and network access to
 its trackers. Put it behind your deployment's access-control boundary; the
 existing browser REST API is still a single-user interface.
 
-On the workstation, authenticate once with an **API key** from the profile
-dialog. Either paste the key, or generate a pairing code there and spend it:
+On the workstation, pair once with a code from **Pair a workstation** in the
+profile dialog, then start the agent:
 
 ```sh
 ./bin/agent pair --url http://localhost:8090 --code '<pairing code>'
 ./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
-
-`TOKEN` (or `--token`) set to a key overrides the stored one.
 
 Install and authenticate the coding CLI and Git tools on that workstation.
 `make agent` requires only Go; it does not build the web UI. `make desktop`
@@ -296,15 +294,18 @@ A provider that cannot be reached stops the server rather than serving the
 interface unauthenticated. Without these variables the interface keeps a single
 implicit user, which is how a personal deployment runs.
 
-Each person then creates an **API key** for their workstation from the profile
-dialog. The key is shown once, expires after 90 days by default (renewable, or
-created without expiry), and is revocable per workstation without disturbing the
-others. It is the one credential every machine surface takes: the agent, the
-desktop app, `/mcp` on the server and the agent gateway. A **pairing code** from
-the same panel is the one-time alternative: single use, valid ten minutes, it is
-exchanged for a key by `sectile-agent pair` or by the desktop connect screen.
-The agent warns in its log ten days before its key expires, and a refused key
-says `API key expired` rather than asking you to check for a typo.
+Each person then **pairs their workstation** from the profile dialog: generate a
+pairing code, single use and valid ten minutes, and spend it once with
+`sectile-agent pair` or in the desktop connect screen. The workstation receives
+its own API key and keeps it; nobody handles the key. It is the one credential
+every machine surface takes: the agent, the desktop app, `/mcp` on the server
+and the agent gateway. Keys expire after 90 days by default and are renewed or
+revoked per workstation from the same list, without disturbing the others. The
+agent warns in its log ten days before its key expires, and a refused key says
+`API key expired` rather than asking you to check for a typo.
+
+A key is shown in clear only in the panel's advanced case: an MCP client
+configured by hand on a machine with no agent to pair for it.
 
 `SECTILE_DEV_IDENTITY=1` allows naming a user through an `X-Sectile-User`
 header, to exercise several accounts before a provider exists. It is an
@@ -380,8 +381,9 @@ reports nothing to the tracker. It is listed, stoppable and replayable like any
 other execution.
 
 For clients started outside Sectile, manual registration is still available,
-and the local agent is not required. A client that speaks Streamable HTTP
-addresses the server directly with the API key as bearer:
+and the local agent is not required: create a key under the profile's advanced
+case. A client that speaks Streamable HTTP addresses the server directly with
+that key as bearer:
 
 ```json
 {
@@ -467,7 +469,7 @@ Start the local launcher in another terminal, using the project ID shown in
 Sectile and an existing local clone:
 
 ```sh
-export TOKEN='<API key from the profile dialog>'   # or pair once with ./bin/agent pair
+./bin/agent pair --url http://localhost:8090 --code '<pairing code>'   # once
 ./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
 ```
 
@@ -504,8 +506,7 @@ launch downloads fresh configuration; there is no offline execution fallback.
 
 ### One local agent for multiple projects
 
-Once the workstation is paired, or with `TOKEN` set to an API key, discover
-projects and start the agent:
+Once the workstation is paired, discover projects and start the agent:
 
 ```sh
 sectile-agent --url http://localhost:8090 --list-projects
@@ -528,8 +529,7 @@ skill settings are downloaded from the server before each launch; no
 
 The profile dialog includes a **Local agent** section with an editable server URL
 and a copyable launch command. Pair the workstation once with
-`sectile-agent pair`, or set `TOKEN` to an API key from the panel above; a key
-is displayed only at the moment it is created.
+`sectile-agent pair` and a code from the panel above.
 
 Task cards and the task clarification panel provide **Copy skill command**.
 Choose Codex or Claude and a workflow skill, then copy the interactive terminal
@@ -595,7 +595,7 @@ The server, local agent and desktop app are independent components. Start the
 agent without the app:
 
 ```sh
-export TOKEN='<API key>'   # not needed once paired with sectile-agent pair
+sectile-agent pair --url http://localhost:8090 --code '<pairing code>'   # once
 sectile-agent --url http://localhost:8090 --repo /path/to/repository
 ```
 
@@ -703,7 +703,7 @@ Legacy repository mappings remain readable and are migrated on the next save.
 Server and agent are built as `bin/server` and `bin/agent` by the `build-*` targets.
 The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
 arguments with, for example, `make start ARGS="--url http://localhost:8090"`;
-authenticate with a paired workstation or `TOKEN` set to an API key.
+the workstation must be paired first with `sectile-agent pair`.
 
 ### Browse desktop project tasks
 

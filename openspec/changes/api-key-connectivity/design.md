@@ -37,6 +37,17 @@ label, creation, last use, expiry, and the three actions.
 **Rejected:** a separate `api_keys` table beside `device_credentials`. Two tables for one
 concept, and the migration would have had to copy rows the agent is presenting right now.
 
+### Pairing is the path; the key stays out of sight
+The code and the key are two halves of one mechanism, not two ways in. The code is what a
+person carries, so it must be worthless once spent: ten minutes, single use. The key is what
+the machine keeps: strong, hashed at rest, revocable, expiring. Making the code durable would
+turn it into the key under another name. What must not be duplicated is the user's view: the
+profile offers one action, "Pair a workstation", and the list with renewal and revocation.
+Creating a key and reading it in clear is folded under an advanced case, the MCP client
+configured by hand on a machine with no agent to pair for it, because an HTTP client cannot
+exchange a code. The desktop connect screen likewise leads with the code and folds the key
+field away. `TOKEN` and `--token` remain as overrides and leave the documented path.
+
 ### One key on every machine surface
 `resolveAgentUser` is already the single resolver for the WebSocket handshake, the agent
 API and `/mcp`. The gateway stops checking `loopback.token` and runs the same bearer check,

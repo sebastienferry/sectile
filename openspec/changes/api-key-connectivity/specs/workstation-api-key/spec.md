@@ -1,13 +1,21 @@
 ## ADDED Requirements
 
-### Requirement: A user creates an API key from the profile and sees it once
-The web profile SHALL let a signed-in user create an API key with a label and an expiry of
-90 days by default or none, SHALL display the key exactly once at creation, and SHALL store
-only its hash. Keys SHALL carry the `sectile_` prefix.
+### Requirement: Pairing is the profile's path and a key is shown only in the advanced case
+The web profile SHALL lead with pairing a workstation through a code and SHALL list the
+paired workstations with expiry, renewal and revocation. Creating an API key and reading it
+in clear SHALL be offered only as an advanced case for an MCP client with no local agent,
+with a label and an expiry of 90 days by default or none, displayed exactly once at creation.
+Only the key's hash SHALL be stored. Keys SHALL carry the `sectile_` prefix.
 
-#### Scenario: Create a key
+#### Scenario: Pair a workstation without ever seeing the key
 - **GIVEN** a signed-in user on the profile
-- **WHEN** they create a key labelled "laptop"
+- **WHEN** they pair a workstation with the code shown
+- **THEN** the workstation appears in the list with its expiry
+- **AND** no key is displayed at any point
+
+#### Scenario: Create a key for a client without an agent
+- **GIVEN** a signed-in user in the profile's advanced case
+- **WHEN** they create a key labelled "claude on the build server"
 - **THEN** the key is shown once with its expiry date
 - **AND** later listings show label, creation, last use and expiry but never the key
 

@@ -23,10 +23,17 @@ setup no one can hold in their head.
 ## Decision
 
 A workstation is authenticated by one API key, and that key is the device
-credential of ADR 0007 with three additions: an expiry, a `sectile_` prefix, and a
-visible creation path in the web profile where it is shown once, listed, renewed
-and revoked. The default expiry is 90 days; the user may choose none. Renewal
-extends the date without changing the secret.
+credential of ADR 0007 with three additions: an expiry, a `sectile_` prefix, and
+a place in the web profile where workstations are listed, renewed and revoked.
+The default expiry is 90 days; the user may choose none. Renewal extends the
+date without changing the secret.
+
+The user does not handle the key. Pairing stays the path: a short-lived,
+single-use code is spent once by `sectile-agent pair` or the desktop connect
+screen, and the workstation keeps the key it receives. The code and the key are
+two halves of one mechanism, not two ways in; a durable code would simply be the
+key under another name. Showing a key in clear is the profile's advanced case,
+for an MCP client configured by hand on a machine with no agent to pair for it.
 
 The same key is the bearer credential on every machine surface: the agent
 WebSocket, `/api/v1/agent/*`, `/mcp` on the server, and the agent gateway. The
