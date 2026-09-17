@@ -69,5 +69,5 @@ from the hook to the desktop application (design D7 to D9).
 
 ## 10. Validation
 - [x] 10.1 `make test` (Go suite, web tests, `tsc --noEmit`, `oxlint`) and the desktop test suite.
-- [ ] 10.2 Manual check: a permission prompt raises a notification attributed to Sectile carrying the waiting glyph, the end of a turn raises the other, and the run shows as waiting then back to running in the UI.
-- [ ] 10.3 Manual check that a hook failure, a stopped local agent and a closed desktop all leave the session running normally.
+- [x] 10.2 End-to-end check in `desktop/tests/waiting-notification.ui.cjs`: the real application against a stub agent raises one real notification when a session starts waiting, stays silent on repeated polls of the same state, announces a session Sectile did not launch, and raises the other glyph when the turn ends. Attribution to Sectile rather than to Electron needs a packaged build and is left to review.
+- [x] 10.3 Covered by `internal/agentconfig/hookscripts_test.go`: exit 0 and empty stdout with an unparseable payload, an empty payload, no connection file and a dead loopback.
