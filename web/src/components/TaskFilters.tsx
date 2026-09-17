@@ -1,5 +1,5 @@
 import React from 'react'
-import { Flame, Calendar, Layers, Pin, User, SlidersHorizontal, Check, Shapes, Settings2, Target } from 'lucide-react'
+import { Flame, Calendar, Layers, Pin, User, SlidersHorizontal, Check, Shapes, Settings2, Target, Loader2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { LookupField, type LookupOption } from './LookupField'
 import { valueLookup } from '../lib/lookups'
@@ -45,6 +45,9 @@ export const TaskFilters: React.FC = () => {
     pinnedOnly,
     setPinnedOnly,
     pinnedTasks,
+    activeOnly,
+    setActiveOnly,
+    activeTasks,
     t,
   } = useApp()
 
@@ -182,6 +185,36 @@ export const TaskFilters: React.FC = () => {
         <span>Épinglés</span>
         {pinnedTasks.length > 0 && (
           <span className="font-mono text-[10px] opacity-70">{pinnedTasks.length}</span>
+        )}
+      </button>
+
+      {/* En cours : la réponse à la question que pose la pastille des cartes —
+          qu'est-ce qui tourne en ce moment — sans parcourir trois cents tickets
+          à la recherche d'une marque colorée. Le filtre est tenu par le client,
+          sur les activités déjà chargées pour cette pastille : l'état d'un run
+          n'est pas une colonne de ticket, et un run qui s'achève retire donc son
+          ticket au rafraîchissement des activités, pas à celui des tickets. */}
+      <button
+        type="button"
+        onClick={() => setActiveOnly(!activeOnly)}
+        disabled={!activeOnly && activeTasks.size === 0}
+        className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+          activeOnly
+            ? 'accent-text bg-[var(--accent-light)] border-[var(--accent-color)]/50 font-bold'
+            : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
+        }`}
+        title={
+          activeTasks.size === 0
+            ? "Aucun ticket en cours d'exécution"
+            : activeOnly
+              ? 'Afficher tous les tickets'
+              : `N'afficher que les ${activeTasks.size} ticket(s) en cours d'exécution`
+        }
+      >
+        <Loader2 size={12} className={activeOnly ? 'animate-spin' : undefined} />
+        <span>En cours</span>
+        {activeTasks.size > 0 && (
+          <span className="font-mono text-[10px] opacity-70">{activeTasks.size}</span>
         )}
       </button>
 

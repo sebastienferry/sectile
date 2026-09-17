@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import ts from 'typescript'
 const source = await readFile(new URL('../src/lib/remoteRunIndicator.ts', import.meta.url), 'utf8')
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } })
-const { deriveRunIndicator, CANCELED_VISIBILITY_MS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
+const { deriveRunIndicator, activeTaskIds, CANCELED_VISIBILITY_MS } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`)
 
 const NOW = Date.parse('2026-01-01T12:00:00Z')
 const AGENT_OWNED = 'Agent-owned remote execution'
@@ -98,4 +98,34 @@ test('a waiting run without a usable timestamp still shows as waiting', () => {
   const indicator = deriveRunIndicator([run({ waitingSince: 'not-a-date' })], 'task-1', NOW)
   assert.equal(indicator.state, 'waiting')
   assert.equal(indicator.waitingSince, undefined)
+})
+
+test('the active set holds the tasks a run is working on', () => {
+  const activities = [
+    run({ id: 'a', taskId: 'task-1', status: 'running' }),
+    run({ id: 'b', taskId: 'task-2', status: 'queued' }),
+    run({ id: 'c', taskId: 'task-3', status: 'running', waitingSince: '2026-01-01T11:00:00Z' }),
+  ]
+  assert.deepEqual([...activeTaskIds(activities)].sort(), ['task-1', 'task-2', 'task-3'])
+})
+
+test('a finished or just-canceled run leaves its task out of the active set', () => {
+  const ended = ['completed', 'failed', 'canceled'].map((status, index) =>
+    run({ id: `end-${index}`, taskId: `task-${index}`, status, completedAt: new Date(NOW).toISOString() }))
+  assert.equal(activeTaskIds(ended).size, 0)
+  // The indicator still shows the cancellation; the filter does not keep the task.
+  assert.equal(deriveRunIndicator([ended[2]], 'task-2', NOW).state, 'canceled')
+})
+
+test('the active set ignores what is not a remote run, and has no entry without one', () => {
+  assert.equal(activeTaskIds([]).size, 0)
+  assert.equal(activeTaskIds([run({ skillId: 'tracker_op', status: 'running' })]).size, 0)
+})
+
+test('two runs on one task yield a single entry', () => {
+  const activities = [
+    run({ id: 'a', taskId: 'task-1', status: 'running' }),
+    run({ id: 'b', taskId: 'task-1', status: 'queued' }),
+  ]
+  assert.deepEqual([...activeTaskIds(activities)], ['task-1'])
 })

@@ -42,6 +42,7 @@ import type {
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
+import { activeTaskIds } from '../lib/remoteRunIndicator'
 import {
   INTERNAL_STATUS_BY_STAGE,
   resolveTaskStage, skillForStage,
@@ -145,6 +146,11 @@ interface AppContextType {
   /** N'afficher que les tickets épinglés : le retour rapide aux chantiers en cours. */
   pinnedOnly: boolean
   setPinnedOnly: (value: boolean) => void
+  /** N'afficher que les tickets qu'un agent est en train de traiter. */
+  activeOnly: boolean
+  setActiveOnly: (value: boolean) => void
+  /** Les tickets portant une exécution distante vivante, pour le filtre et son compteur. */
+  activeTasks: Set<string>
   sprintFilter: string | null
   setSprintFilter: (sprint: string | null) => void
   teamFilter: string | null
@@ -498,6 +504,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [teams, setTeams] = useState<TrackerTeam[]>([])
   const [sprintFilter, setSprintFilterState] = useState<string | null>(null)
   const [pinnedOnly, setPinnedOnlyState] = useState<boolean>(false)
+  const [activeOnly, setActiveOnlyState] = useState<boolean>(false)
   const [teamFilter, setTeamFilterState] = useState<string | null>(null)
   const [assigneeFilter, setAssigneeFilterState] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskSource>('all')
@@ -636,6 +643,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     persistFilter({ pinnedOnly: value ? '1' : null })
   }, [persistFilter])
 
+  const setActiveOnly = useCallback((value: boolean) => {
+    setActiveOnlyState(value)
+    persistFilter({ activeOnly: value ? '1' : null })
+  }, [persistFilter])
+
   const setTrackerStatusFilters = useCallback((values: string[]) => {
     setTrackerStatusFiltersState(values)
     // Mémorisé comme les autres filtres, en JSON puisque c'est une liste.
@@ -722,6 +734,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Activities & Queue State
   const [activities, setActivities] = useState<TaskActivity[]>([])
+  // Les tickets qu'un agent traite, dérivés des activités comme le badge des
+  // cartes : une seule passe, et le filtre ne peut pas contredire la pastille
+  // affichée à côté de lui. Le jeu suit le rafraîchissement des activités, donc
+  // un run qui démarre ou s'achève déplace son ticket sans geste de l'utilisateur.
+  const activeTasks = useMemo(() => activeTaskIds(activities), [activities])
   const [activityStats, setActivityStats] = useState<ActivityStats>({
     total: 0,
     queued: 0,
@@ -998,6 +1015,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setIssueTypeFiltersState([])
     }
     setPinnedOnlyState(stored.pinnedOnly === '1')
+    setActiveOnlyState(stored.activeOnly === '1')
   }, [selectedProjectId])
 
   const fetchTaskFacets = useCallback(async () => {
@@ -3119,6 +3137,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         taskFacets,
         pinnedOnly,
         setPinnedOnly,
+        activeOnly,
+        setActiveOnly,
+        activeTasks,
         sprintFilter,
         setSprintFilter,
         teamFilter,

@@ -71,6 +71,15 @@ not remove them. An empty column under the filter is information: nothing is run
 when it would yield nothing, always escapable once on. The same guard applies, and because the set is
 live the toggle enables itself as soon as a run starts.
 
+### D8. The predicate matches the badge's statuses, `pending` included in neither
+`deriveRunIndicator` counts the statuses `running` and `queued`, and not `pending`, although
+`runStateOf` in `shared/runStates.ts` folds `pending` in with `queued`. The filter follows the
+indicator rather than the shared mapping, so that a filtered-in task always carries a visible badge.
+Counting `pending` here would list tasks showing no mark at all, which reads as a bug.
+
+*Left as is:* the gap belongs to the badge, not to the filter. Widening `deriveRunIndicator` to
+`pending` would fix both at once and is worth its own change.
+
 ## Risks
 - The filter is only as current as the activities poll. It is the same freshness the badge already
   has, so no surface becomes less accurate than the one beside it.
