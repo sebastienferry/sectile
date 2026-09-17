@@ -18,11 +18,12 @@
       `t.activities.stats`, falling back to the shared definition's label (D6).
 - [x] 2.3 Key the existing Tailwind class strings by state id with a neutral slate fallback, and drop
       the `switch` (D7).
-- [x] 2.4 Remove the duplicate amber waiting pill at the call site and the now unused `Hand`,
-      `Loader2`, `Clock`, `CheckCircle2`, `AlertTriangle` and `XCircle` imports that the rewrite
-      leaves behind (D8).
-- [x] 2.5 Add a web test covering the badge for waiting, pending, a terminal status carrying a stale
-      wait mark, and an unknown state.
+- [x] 2.4 Remove the duplicate amber waiting pill at the call site, and the `Hand` import it leaves
+      behind (D8). `Loader2`, `Clock`, `CheckCircle2`, `AlertTriangle` and `XCircle` stay: the stats
+      tiles and the detail panel still use them.
+- [x] 2.5 Add a web test over `runStateOf`, the mapping the badge derives from: waiting, pending and
+      preparing, a terminal status carrying a stale wait mark, an absent or unknown status, and the
+      label fallback for a state the definition does not know.
 
 ## 3. The desktop sidebar
 - [x] 3.1 Add a helper in `desktop/src/main.js` that builds the derived-state indicator for a run:
@@ -32,8 +33,10 @@
       line while keeping the cancel-requested wording.
 - [x] 3.4 Style `.run-state` in `desktop/src/style.css`, colouring it from the shared definition and
       keeping the waiting glyph legible against the row background.
-- [x] 3.5 Extend a desktop UI test to assert a waiting run reads as waiting on its row, and that the
-      existing `[data-status=running]` selectors still match.
+- [x] 3.5 Extend `desktop/tests/waiting-notification.ui.cjs` to assert that the row of the session
+      the banner was raised for reads as waiting, then follows it to its outcome. The existing
+      `[data-status=...]` selectors are covered by `console.ui.cjs` and `task-order-hold.ui.cjs`,
+      both re-run unchanged.
 
 ## 4. Gates
 - [x] 4.1 `make test` (go, web tests, tsc, oxlint).
