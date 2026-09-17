@@ -37,6 +37,17 @@ label, creation, last use, expiry, and the three actions.
 **Rejected:** a separate `api_keys` table beside `device_credentials`. Two tables for one
 concept, and the migration would have had to copy rows the agent is presenting right now.
 
+### Pairing is the path; the key stays out of sight
+The code and the key are two halves of one mechanism, not two ways in. The code is what a
+person carries, so it must be worthless once spent: ten minutes, single use. The key is what
+the machine keeps: strong, hashed at rest, revocable, expiring. Making the code durable would
+turn it into the key under another name. What must not be duplicated is the user's view: the
+profile offers one action, "Pair a workstation", and the list with renewal and revocation.
+Creating a key and reading it in clear is folded under an advanced case, the MCP client
+configured by hand on a machine with no agent to pair for it, because an HTTP client cannot
+exchange a code. The desktop connect screen likewise leads with the code and folds the key
+field away. `TOKEN` and `--token` remain as overrides and leave the documented path.
+
 ### One key on every machine surface
 `resolveAgentUser` is already the single resolver for the WebSocket handshake, the agent
 API and `/mcp`. The gateway stops checking `loopback.token` and runs the same bearer check,
@@ -81,6 +92,12 @@ existing row: every paired workstation becomes a key without expiry and nothing 
 profile shows those as "no expiry" and offers to set one. `SECTILE_SERVER_TOKEN` is still
 resolved to the implicit user for one release, with a warning at startup and a line in the
 profile inviting the user to create a key; the next release drops `validAgentToken`.
+
+A server without `SECTILE_SERVER_TOKEN` used to accept any nonempty token as the implicit
+user. That open mode stays until the deployment issues its first key and ends there,
+revoked keys counted: otherwise revoking a key would change nothing, since the revoked
+value would still pass as "any nonempty token". A personal deployment that never creates a
+key is therefore untouched by the upgrade, and one that does gets real revocation.
 
 ### Telling the user before it expires
 The agent logs the remaining validity at connect when under ten days, and the web profile

@@ -87,5 +87,5 @@ test('an empty form is refused before anything is spent', async () => {
  await assert.rejects(
   resolveConnectCredential({server: 'http://127.0.0.1:8090', code: '  ', token: '  '},
    () => { throw Error('the network must not be reached') }),
-  /pairing code, or the token/)
+  /pairing code, or an API key/)
 })

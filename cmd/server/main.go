@@ -161,6 +161,9 @@ func main() {
 	h := handlers.NewHandler(database)
 	h.SetDataDir(appDataDir())
 	h.SetPullOnConnect(true)
+	if os.Getenv("SECTILE_SERVER_TOKEN") != "" {
+		log.Printf("⚠️  %s", handlers.SharedServerTokenWarning)
+	}
 
 	// A declared provider that cannot be reached is a configuration error:
 	// starting without it would silently serve the interface to everyone.
@@ -245,6 +248,7 @@ func main() {
 	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)
 	mux.HandleFunc("/api/devices", h.HandleDeviceCredentials)
 	mux.HandleFunc("/api/v1/agent/pair", h.HandleAgentPair)
+	mux.Handle("/api/v1/agent/identity", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentIdentity)))
 	mux.Handle("/api/v1/agent/config", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentConfig)))
 	mux.Handle("/api/v1/agent/projects", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentProjects)))
 	mux.Handle("/api/v1/agent/run-output", h.AgentAPIAuth(http.HandlerFunc(h.HandleAgentRunOutput)))

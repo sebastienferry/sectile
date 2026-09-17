@@ -90,13 +90,11 @@ npm ci --prefix web
 make server agent
 ```
 
-Start the server with its persistent database and shared agent credential.
-[`.env.sample`](./.env.sample) documents every variable the server, the agent and
-the MCP bridge read; copy it to `.env`, which the server loads at startup and
-which is gitignored:
+Start the server with its persistent database. [`.env.sample`](./.env.sample)
+documents every variable the server, the agent and the MCP bridge read; copy it
+to `.env`, which the server loads at startup and which is gitignored:
 
 ```sh
-export SECTILE_SERVER_TOKEN='<shared agent credential>'
 # Optional: the tracker credential is usually typed in the interface instead,
 # but a headless deployment can export it here.
 export SECTILE_TRACKER_TOKEN='<tracker API token>'
@@ -112,10 +110,11 @@ only its binary, writable database/configuration storage and network access to
 its trackers. Put it behind your deployment's access-control boundary; the
 existing browser REST API is still a single-user interface.
 
-On the workstation:
+On the workstation, pair once with a code from **Pair a workstation** in the
+profile dialog, then start the agent:
 
 ```sh
-export TOKEN='<same shared agent credential>'
+./bin/agent pair --url http://localhost:8090 --code '<pairing code>'
 ./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone
 ```
 
@@ -295,23 +294,36 @@ A provider that cannot be reached stops the server rather than serving the
 interface unauthenticated. Without these variables the interface keeps a single
 implicit user, which is how a personal deployment runs.
 
-Each person then pairs their workstation from the profile dialog: generate a
-pairing code, and enter it once in the desktop app. The code is single use and
-expires in ten minutes; it is exchanged for a credential stored on that
-machine, revocable per workstation without disturbing the others.
+Each person then **pairs their workstation** from the profile dialog: generate a
+pairing code, single use and valid ten minutes, and spend it once with
+`sectile-agent pair` or in the desktop connect screen. The workstation receives
+its own API key and keeps it; nobody handles the key. It is the one credential
+every machine surface takes: the agent, the desktop app, `/mcp` on the server
+and the agent gateway. Keys expire after 90 days by default and are renewed or
+revoked per workstation from the same list, without disturbing the others. The
+agent warns in its log ten days before its key expires, and a refused key says
+`API key expired` rather than asking you to check for a typo.
+
+A key is shown in clear only in the panel's advanced case: an MCP client
+configured by hand on a machine with no agent to pair for it.
 
 `SECTILE_DEV_IDENTITY=1` allows naming a user through an `X-Sectile-User`
 header, to exercise several accounts before a provider exists. It is an
 impersonation switch: it is ignored once a provider is configured, and it must
 stay off elsewhere.
 
-Run the central server with `SECTILE_SERVER_TOKEN` set to a shared agent
-credential, then start the workstation agent in an existing clone:
+Then start the workstation agent in an existing clone, with its key:
 
 ```sh
-export TOKEN='<same credential as SECTILE_SERVER_TOKEN>'
+sectile-agent pair --url https://sectile.example.com --code '<pairing code>'
 sectile-agent --url https://sectile.example.com --project '<project-id>' --repo /path/to/clone
 ```
+
+`SECTILE_SERVER_TOKEN`, the former shared agent credential, is still accepted
+for one release with a startup warning; a server without it that has issued no
+key yet also keeps accepting any nonempty token, and closes that door with the
+first key. Workstations paired before keys expired keep working as keys without
+expiry, and the profile offers to set one.
 
 The agent fetches `GET /api/v1/agent/config`, creates or validates local Git
 worktrees, installs effective project skills, and launches the configured AI CLI.
@@ -321,13 +333,15 @@ It does not open a database. Server filesystem paths and tracker credentials are
 excluded from the configuration contract. The old agent `--db` option is removed.
 A disconnected or incompatible configuration API prevents execution.
 
-Before launching an LLM CLI, the local agent automatically registers its own
-`sectile-agent mcp --url <active-gateway>` bridge in that CLI's **user-level**
-configuration, and installs the managed skills there too. It refreshes both on each
-dispatch, including dynamic gateway ports. Existing settings and other MCP servers
-are preserved; bearer tokens are not written. Native workspace/MCP trust prompts
-still apply. Malformed configuration causes a visible launch error rather than
-being overwritten.
+Before launching an LLM CLI, the local agent automatically registers Sectile in
+that CLI's **user-level** configuration, and installs the managed skills there
+too. Claude Code, Cursor and Gemini get a Streamable HTTP entry addressing the
+server's `/mcp` with the workstation key as bearer, so their Sectile tools keep
+working while the agent is stopped; the other CLIs get the
+`sectile-agent mcp --url <server>` stdio bridge with the key in its environment.
+The file is written owner-only. Existing settings and other MCP servers are
+preserved. Native workspace/MCP trust prompts still apply. Malformed
+configuration causes a visible launch error rather than being overwritten.
 
 Repositories and worktrees receive no Sectile-managed skill, command, MCP or
 project-context file. Copies written by earlier releases are retired from the
@@ -366,30 +380,42 @@ when asked, but the discussion transitions no stage, records no skill result and
 reports nothing to the tracker. It is listed, stoppable and replayable like any
 other execution.
 
-For clients started outside Sectile, manual registration is still available.
-A typical JSON client configuration is:
+For clients started outside Sectile, manual registration is still available,
+and the local agent is not required: create a key under the profile's advanced
+case. A client that speaks Streamable HTTP addresses the server directly with
+that key as bearer:
 
 ```json
 {
   "mcpServers": {
     "sectile": {
-      "command": "/absolute/path/to/sectile",
-      "args": ["mcp"],
-      "env": {"SECTILE_AGENT_URL": "http://127.0.0.1:8091"}
+      "type": "http",
+      "url": "https://sectile.example.com/mcp",
+      "headers": {"Authorization": "Bearer sectile_…"}
     }
   }
 }
 ```
 
-The gateway attaches the daemon's authentication token. If port 8091 is occupied,
-use the gateway URL printed by the agent. Terminals launched by the agent inherit
-the actual `SECTILE_AGENT_URL`, including a dynamically allocated port.
-For direct server access, use `sectile-agent mcp --url https://sectile.example.com`
-and set `SECTILE_AGENT_TOKEN` in that client's environment. Against a local
-agent gateway, that variable holds the agent session secret, not a server
-credential: the gateway attaches the workstation's own credential upstream. Set
-`SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in the session
-list; the bridge otherwise reports its host and process id.
+A client limited to stdio runs the bridge with the same key:
+
+```json
+{
+  "mcpServers": {
+    "sectile": {
+      "command": "/absolute/path/to/sectile-agent",
+      "args": ["mcp", "--url", "https://sectile.example.com"],
+      "env": {"SECTILE_AGENT_TOKEN": "sectile_…"}
+    }
+  }
+}
+```
+
+The bridge also reads `SECTILE_AGENT_URL`. Terminals launched by the agent
+inherit it, set to the server, together with `SECTILE_AGENT_TOKEN`. The agent
+gateway on `http://127.0.0.1:8091` still proxies `/mcp` and `/api/` and takes the
+same key. Set `SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in
+the session list; the bridge otherwise reports its host and process id.
 Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
@@ -421,8 +447,9 @@ paths are untouched. Put persistent skill overrides in `~/.config/sectile/settin
 The effective `.taskflow/remote-config.json` snapshot is diagnostic only: it is
 never used as an offline fallback. These generated files are ignored by Git.
 
-The new machine endpoints and agent handshake validate `SECTILE_SERVER_TOKEN`
-when configured. Without it, legacy single-user mode accepts any nonempty token.
+The machine endpoints and the agent handshake validate the workstation API key.
+`SECTILE_SERVER_TOKEN`, when configured, is still accepted for one release; a
+server without it accepts any nonempty token only until its first key is issued.
 This does not add multi-user login or authentication to the existing web/REST UI;
 remote deployments still need their existing access-control boundary.
 
@@ -435,7 +462,6 @@ application, see the desktop setup section below. Start the server in one termin
 ```sh
 npm ci --prefix web
 make server agent
-export SECTILE_SERVER_TOKEN='<your shared token>'
 ./bin/server
 ```
 
@@ -443,7 +469,7 @@ Start the local launcher in another terminal, using the project ID shown in
 Sectile and an existing local clone:
 
 ```sh
-export TOKEN='<the same shared token>'
+./bin/agent pair --url http://localhost:8090 --code '<pairing code>'   # once
 ./bin/agent --url http://localhost:8090 --project '<project-id>' --repo /path/to/clone --terminal terminal
 ```
 
@@ -480,7 +506,7 @@ launch downloads fresh configuration; there is no offline execution fallback.
 
 ### One local agent for multiple projects
 
-With `TOKEN` set, discover projects and start the agent:
+Once the workstation is paired, discover projects and start the agent:
 
 ```sh
 sectile-agent --url http://localhost:8090 --list-projects
@@ -502,8 +528,8 @@ skill settings are downloaded from the server before each launch; no
 [server/agent contract](docs/contracts/server-agent-v1.md) for identity and mapping rules.
 
 The profile dialog includes a **Local agent** section with an editable server URL
-and a copyable launch command. Set `TOKEN` in your terminal before
-running it; the UI does not store or display the server credential.
+and a copyable launch command. Pair the workstation once with
+`sectile-agent pair` and a code from the panel above.
 
 Task cards and the task clarification panel provide **Copy skill command**.
 Choose Codex or Claude and a workflow skill, then copy the interactive terminal
@@ -569,7 +595,7 @@ The server, local agent and desktop app are independent components. Start the
 agent without the app:
 
 ```sh
-export TOKEN='your-server-token'
+sectile-agent pair --url http://localhost:8090 --code '<pairing code>'   # once
 sectile-agent --url http://localhost:8090 --repo /path/to/repository
 ```
 
@@ -676,8 +702,8 @@ Legacy repository mappings remain readable and are migrated on the next save.
 
 Server and agent are built as `bin/server` and `bin/agent` by the `build-*` targets.
 The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
-arguments with, for example, `make start ARGS="--url http://localhost:8090"`; provide
-authentication through `TOKEN`.
+arguments with, for example, `make start ARGS="--url http://localhost:8090"`;
+the workstation must be paired first with `sectile-agent pair`.
 
 ### Browse desktop project tasks
 
@@ -710,12 +736,9 @@ Task IDs in the desktop sidebar open the task directly on the configured Sectile
 For `agy`, the local agent registers the Sectile stdio bridge in
 `~/.gemini/config/mcp_config.json`; this CLI does not read the workspace
 `.agents/mcp_config.json`. Other MCP registrations and explicit tool policies are
-preserved. The shared entry contains no token or gateway URL: agent-launched
-sessions inherit `SECTILE_AGENT_URL` and `SECTILE_AGENT_TOKEN`, the gateway
-address and its session secret. The credential that identifies the user stays
-inside the agent process and is never exported. Standalone agy
-sessions must supply those variables themselves. Restart agy after registration
-so it loads the updated MCP tools.
+preserved. The entry runs `sectile-agent mcp --url <server>` with the workstation
+API key in its environment, so standalone agy sessions work without the agent.
+Restart agy after registration so it loads the updated MCP tools.
 
 ## MCP naming upgrade
 

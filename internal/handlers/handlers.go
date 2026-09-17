@@ -2656,14 +2656,18 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the user from the token. In the current single-user local mode,
-	// any non-empty token is accepted and the user is mapped to "default". A
-	// future multi-user deployment will validate tokens against a user store.
-	userID := h.resolveAgentUser(token)
-	if userID == "" {
+	// Resolve the user from the API key. An expired key is refused by name so
+	// the agent log tells its owner to renew rather than to check for a typo.
+	credential, err := h.resolveAgentCredential(token)
+	if errors.Is(err, db.ErrAPIKeyExpired) {
+		writeError(w, http.StatusUnauthorized, agentAuthMessage(err))
+		return
+	}
+	if err != nil {
 		writeError(w, http.StatusForbidden, "Invalid agent token")
 		return
 	}
+	userID := credential.UserID
 
 	projectID := r.URL.Query().Get("projectId")
 	if projectID == "" {
@@ -2779,20 +2783,14 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// resolveAgentUser maps an agent device credential to the user it is bound to.
-// A deployment that has not paired any workstation keeps working through the
-// shared server token, which resolves to the single implicit user.
+// resolveAgentUser maps a machine bearer credential to the user it is bound
+// to, or to an empty string when it is refused for any reason.
 func (h *Handler) resolveAgentUser(token string) string {
-	if strings.TrimSpace(token) == "" {
+	credential, err := h.resolveAgentCredential(token)
+	if err != nil {
 		return ""
 	}
-	if userID := h.db.UserForDeviceToken(token); userID != "" {
-		return userID
-	}
-	if !validAgentToken(token) {
-		return ""
-	}
-	return "default"
+	return credential.UserID
 }
 
 // HandleAgentStatus returns the list of currently connected local agents.

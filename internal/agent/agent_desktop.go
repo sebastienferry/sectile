@@ -28,9 +28,8 @@ type loopbackServer struct {
 	server *http.Server
 	port   int
 	url    string
-	// token proves a process belongs to this agent session. It carries no
-	// identity, is regenerated at every start and never leaves the machine.
-	token string
+	// The proxied surfaces (/api/, /mcp) take the workstation API key held in
+	// serverLink.token; only the companion's own contract has a token here.
 	// desktopToken authenticates the companion; desktopInfo is the handshake
 	// file it reads to find this session.
 	desktopToken string

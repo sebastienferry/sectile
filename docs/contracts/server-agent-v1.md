@@ -133,9 +133,9 @@ code does not import the server handlers, database or embedded UI.
 
 | Interface | Address and authentication | Ownership |
 | --- | --- | --- |
-| Server API | `http(s)://<server>:8090`; machine endpoints use the `SECTILE_SERVER_TOKEN` bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, upstream `/mcp` |
-| Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; desktop/control calls use the private discovered agent token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
-| MCP | Agent `mcp --url <loopback>` stdio bridge forwards to server `/mcp`, a stateful Streamable HTTP endpoint | Eight typed tools with server-owned state; no local SQLite; one server session per connected client |
+| Server API | `http(s)://<server>:8090`; machine endpoints take the workstation API key as bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, `/mcp` |
+| Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; the `/mcp` and `/api/` proxies take the same API key, desktop/control calls use the private discovered desktop token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
+| MCP | Server `/mcp`, a stateful Streamable HTTP endpoint, addressed directly with the API key; the `mcp --url <server>` stdio bridge relays for clients without HTTP transport | Typed tools with server-owned state; no local SQLite; one server session per connected client; no agent required |
 
 The existing web REST API relies on the deployment's access-control boundary.
 Machine bearer authentication does not add multi-user authorization to that API.
@@ -393,9 +393,9 @@ in-memory console history is cleared.
 The **Local agent** panel exposes launch configuration. Stop the daemon before
 changing settings, then use **Start local agent**. **Stop agent** uses authenticated
 `POST /desktop/shutdown` with the same confirmed-exit guard as restart.
-Desktop launch settings are saved locally; the server token is encrypted using
-Electron safeStorage when OS encryption is available, otherwise it must be
-entered again. Existing agents launched outside the desktop do not expose their
+Desktop launch settings are saved locally; the API key is encrypted with
+Electron safeStorage when OS encryption is available, and kept in the same
+owner-only settings file otherwise, so a single-use pairing code is never lost. Existing agents launched outside the desktop do not expose their
 server credentials to this panel.
 
 **Clear finished consoles** removes completed, failed and canceled consoles from
@@ -409,7 +409,7 @@ The server, local agent and desktop app are independent components. Start the
 agent without the app:
 
 ```sh
-export TOKEN='your-server-token'
+sectile-agent pair --url http://localhost:8090 --code '<pairing code>'   # once
 sectile-agent --url http://localhost:8090 --repo /path/to/repository
 ```
 
@@ -468,34 +468,43 @@ Legacy repository mappings remain readable and are migrated on the next save.
 
 Server and agent are built as `bin/sectile-server` and `bin/sectile-agent` by the `build-*` targets.
 The `serve`, `start` and `run` targets run from source and need no prior build. Pass agent
-arguments with, for example, `make start ARGS="--url http://localhost:8090"`; provide
-authentication through `TOKEN`.
+arguments with, for example, `make start ARGS="--url http://localhost:8090"`;
+the workstation must be paired first with `sectile-agent pair`.
 
-## Workstation pairing and identity
+## Workstation API keys and identity
 
-The agent authenticates with a device credential that binds one workstation to
-one user. It is obtained once, not configured by hand:
+Every machine surface authenticates with one workstation API key, prefixed
+`sectile_`, that binds one workstation to one user. Only its hash is stored, so a
+copy of the database yields no usable key.
 
-1. The signed-in web interface issues a single-use code, `POST /api/pairing-codes`,
-   valid for ten minutes.
-2. The desktop app exchanges it, `POST /api/v1/agent/pair` with `{"code", "label"}`,
-   and receives `{"token", "deviceId", "userId"}`. This is the only agent endpoint
-   that is not itself authenticated: the code is the proof, and it is consumed
-   atomically, so a replay returns 401.
-3. The agent presents that token on every request. The server resolves it to the
-   user and attributes actions to them.
+- `POST /api/devices` with `{"label", "ttlDays"}` creates a key for the signed-in
+  user and returns `{"token", "device"}`; the plaintext is returned once. `ttlDays`
+  absent means 90 days, `0` means no expiry. The interface offers this only as the
+  advanced case of an MCP client with no agent to pair for it; pairing is the
+  normal path and never shows a key.
+- `GET /api/devices` lists the user's keys with `ExpiresAt` (`null` for none);
+  `PUT /api/devices?id=` with `{"ttlDays"}` moves or clears the expiry without
+  changing the secret; `DELETE /api/devices?id=` revokes one.
+- `POST /api/pairing-codes` issues a single-use code valid ten minutes;
+  `POST /api/v1/agent/pair` with `{"code", "label"}` exchanges it for a key with
+  the default expiry and answers `{"token", "deviceId", "userId"}`. This is the
+  only unauthenticated agent endpoint: the code is the proof, consumed
+  atomically, so a replay returns 401. Unknown, consumed and expired codes all
+  answer `401 Invalid or expired pairing code`.
+- `GET /api/v1/agent/identity` tells a key holder `{"userId", "deviceId",
+  "label", "expiresAt", "sharedToken"}`; the agent calls it before connecting and
+  logs a warning when fewer than ten days remain.
 
-Unknown, consumed and expired codes all answer `401 Invalid or expired pairing
-code`: distinguishing them would reveal whether a code ever existed. Only the
-hash of a credential is stored, so a copy of the database yields no usable token.
+A key past its expiry is refused on every surface with `401 {"error":"API key
+expired"}`, distinct from the generic refusal, so the owner renews it rather
+than retyping it. Revocation cuts every surface at once.
 
-`GET /api/devices` lists a user's workstations and `DELETE /api/devices?id=` revokes
-one, without affecting the others.
-
-Local processes never receive the device credential. They address the agent
-gateway with a loopback secret regenerated at each agent start, and the gateway
-exchanges it for the credential upstream. A caller presenting anything else,
-including the device credential itself, gets 401.
+The agent gateway takes the same key on `/mcp` and `/api/`, and consoles it
+launches receive it as `SECTILE_AGENT_TOKEN` with `SECTILE_AGENT_URL` set to the
+server. Deprecated for one release: `SECTILE_SERVER_TOKEN`, accepted with a
+startup warning, and the open mode of a server without it, which accepts any
+nonempty token only until the first key is issued. Credentials issued before
+keys expired keep working as keys without expiry.
 
 ## Local project disconnection
 
