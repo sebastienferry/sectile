@@ -1,9 +1,9 @@
 import type { IssueTracker, TrackerCredentials, UserSettings } from '../types'
 
 /**
- * Ce que chaque tracker demande pour se connecter. Un seul écran, trois jeux de
- * champs : demander un site Jira et un e-mail Atlassian pour configurer GitHub
- * n'a jamais eu de sens.
+ * Ce que chaque tracker demande pour se connecter. Un seul écran, un jeu de
+ * champs par tracker : demander un site Jira et un e-mail Atlassian pour
+ * configurer GitHub n'a jamais eu de sens.
  */
 export type TrackerKind = TrackerCredentials['tracker']
 
@@ -29,6 +29,12 @@ export interface TrackerFields {
    * à un site, donc la personne, son instance et son jeton voyagent ensemble.
    */
   siteIsPersonal?: boolean
+  /**
+   * Faux tant qu'aucun adaptateur n'est enregistré côté serveur pour ce
+   * tracker : ses paramètres restent enregistrables, mais un accès personnel
+   * n'y mènerait nulle part.
+   */
+  hasAdapter?: boolean
 }
 
 export const TRACKERS: TrackerFields[] = [
@@ -63,8 +69,17 @@ export const TRACKERS: TrackerFields[] = [
     projectLabel: 'Projet par défaut',
     projectPlaceholder: 'groupe/projet',
     tokenHint: 'Personal Access Token avec la portée api.',
+    hasAdapter: false,
   },
 ]
+
+/**
+ * Les trackers dont un accès personnel sert à quelque chose : ceux que le
+ * serveur sait piloter. GitLab n'a pas d'adaptateur enregistré, donc un jeton
+ * personnel GitLab n'a aucun chemin d'exécution — l'écran le proposait, le
+ * stockait et l'affichait comme actif pendant que rien ne s'en servait.
+ */
+export const PERSONAL_TRACKERS: TrackerFields[] = TRACKERS.filter(t => t.hasAdapter !== false)
 
 export function trackerFields(tracker: TrackerKind): TrackerFields {
   return TRACKERS.find(t => t.id === tracker) ?? TRACKERS[0]

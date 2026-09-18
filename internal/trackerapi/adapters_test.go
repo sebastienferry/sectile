@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+
 	"tasks/internal/models"
 	"tasks/internal/tracker"
 	"testing"
@@ -117,5 +120,49 @@ func TestFormatTaskID(t *testing.T) {
 	}
 	if id := loc.FormatTaskID("default", "TASK-1", ""); id == "" {
 		t.Errorf("expected local generated UUID, got empty")
+	}
+}
+
+// A personal GitHub token was stored, listed as active in the profile, and
+// never used: the adapter resolved the server's client and every issue the
+// person created went out under the service account. GitHub attributes a
+// comment to the account behind the token exactly as Jira does.
+func TestGithubWritesUseTheActingPersonsToken(t *testing.T) {
+	var seen []string
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"number":7,"title":"T","state":"open","labels":[],"html_url":"https://github.com/acme/app/issues/7"}`)
+	}))
+	defer site.Close()
+
+	client := NewClient()
+	client.HTTP = site.Client()
+	client.GithubURL = site.URL
+	client.GithubToken = "server-token"
+	client.ResolveUser = func(userID, trackerName string) (string, string, string, error) {
+		if userID == "u-ada" && trackerName == "github" {
+			return "", "", "ada-token", nil
+		}
+		return "", "", "", nil
+	}
+	adapter := NewGithubAdapter(client)
+	project := &models.Project{ID: "p1", GithubRepo: "acme/app"}
+
+	if _, err := adapter.CreateIssue(tracker.WithActingUser(context.Background(), "u-ada"),
+		tracker.CreateIssueRequest{Project: project, Title: "T"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) == 0 || !strings.Contains(seen[0], "ada-token") {
+		t.Fatalf("the write must carry the acting person's token, got %v", seen)
+	}
+
+	// Work nobody asked for keeps the server's token rather than failing.
+	seen = nil
+	if _, err := adapter.CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: project, Title: "T"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) == 0 || !strings.Contains(seen[0], "server-token") {
+		t.Fatalf("unattended work keeps the server token, got %v", seen)
 	}
 }

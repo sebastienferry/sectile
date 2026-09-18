@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  PERSONAL_TRACKERS,
   PROJECT_TRACKERS,
   prefillFromCredential,
   TRACKERS,
@@ -130,4 +131,16 @@ test('a stored credential puts its site and e-mail back in the form', () => {
     email: 'bob@example.com',
   })
   assert.deepEqual(prefillFromCredential(undefined, {}), { siteUrl: '', email: '' })
+})
+
+test('only a tracker the server can drive offers a personal credential', () => {
+  // A personal GitLab token was storable and shown as active while no adapter
+  // was registered for GitLab at all: nothing could ever have used it.
+  assert.deepEqual(PERSONAL_TRACKERS.map(t => t.id), ['jira', 'github'])
+  assert.equal(TRACKERS.some(t => t.id === 'gitlab'), true)
+  // And every tracker a project can be put on can hold a personal credential.
+  for (const t of PROJECT_TRACKERS) {
+    if (t.id === 'local') continue
+    assert.equal(PERSONAL_TRACKERS.some(p => p.id === t.id), true, `${t.id} has an adapter but no personal credential`)
+  }
 })

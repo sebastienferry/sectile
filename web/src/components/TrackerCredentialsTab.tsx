@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight, Lock, LockOpen, ShieldCheck, Circle } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { TRACKERS, credentialState, type TrackerKind } from '../lib/trackers'
+import { PERSONAL_TRACKERS, credentialState, type TrackerKind } from '../lib/trackers'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
 
 /**
- * Les trois trackers, chacun dans sa propre zone dépliable.
+ * Les trackers que le serveur sait piloter, chacun dans sa propre zone
+ * dépliable.
  *
  * Une personne n'en configure qu'un la plupart du temps, et la liste dit d'un
  * coup d'œil lequel est en place, lequel est verrouillé et lequel n'a rien.
@@ -29,7 +30,7 @@ export const TrackerCredentialsTab: React.FC = () => {
       </p>
 
       <div className="space-y-2">
-        {TRACKERS.map(kind => {
+        {PERSONAL_TRACKERS.map(kind => {
           const mine = userCredentials.find(c => c.tracker === kind.id)
           const isOpen = open === kind.id
           const locked = Boolean(mine?.sealed && !mine.unlocked)
