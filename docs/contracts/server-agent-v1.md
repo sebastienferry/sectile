@@ -525,6 +525,9 @@ reports `{"mode", "role", "signedIn", ...}`, where `mode` is `oidc`, `local` or
   not. A run without recorded owner predates ownership and is admin-only.
 - `POST /api/agent/dispatch` routes to the caller's own agent whatever `userId`
   the body names; only an admin may address another user's agent.
+- The MCP `finish_run` tool refuses a run owned by another user, for the same
+  reason: reporting a run finished hands the workflow back and leaves the real
+  process running on its owner's machine. An ownerless run stays closable.
 - The agent gateway's `/api/` forwarding authenticates with the workstation key,
   which stands in for a session and carries its user's role. The deprecated
   shared token and the legacy open mode do not: they name no key and are refused

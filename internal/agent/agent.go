@@ -947,10 +947,19 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
 	payload.Mode = liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
+	}
+
+	// The engine this launch really uses, reported once the line is built. A
+	// discussion or a bare terminal is not a skill run: it resolves the project
+	// model and takes no override, so it reports nothing.
+	runProvider, runModel := "", ""
+	if payload.RunID != "" && payload.SkillID != "discuss" && models.NormalizeSkillID(payload.Action) != "open_terminal" {
+		runProvider, runModel = launchEngine(config, payload.SkillID, payload.Model, payload.Mode)
+		go d.postRunEngine(payload.RunID, runProvider, runModel)
 	}
 
 	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
@@ -990,7 +999,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	// shows what the CLI printed, but read-only: the output is captured from the
 	// process pipes and posted onto the run activity.
 	if autonomous {
-		if err := d.startHeadlessRun(taskRef, payload, config, workDir, branch, envVars, fullLine); err != nil {
+		if err := d.startHeadlessRun(taskRef, payload, config, workDir, branch, envVars, fullLine, runProvider, runModel); err != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 			return
 		}
@@ -1005,7 +1014,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			return
 		}
 		d.queue.read(payload.RunID, func(run *controlledRun) {
-			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Branch: branch, Status: "running"}
+			run.desktop = desktopRun{CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt, ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID, Skill: payload.SkillID, SessionID: sessionID, Directory: workDir, Branch: branch, Status: "running", Provider: runProvider, Model: runModel}
 		})
 	}
 	// The agent owns consoles independently of any attached companion.

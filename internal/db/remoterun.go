@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -31,6 +32,11 @@ type RunLaunch struct {
 	// Mode is the resolved execution mode, autonomous or interactive. Empty when
 	// the launcher did not resolve one, as for a run a standalone CLI declares.
 	Mode string
+	// Provider and Model are the engine the launcher resolved for this run. The
+	// agent corrects them later through SetRemoteRunEngine, since it alone sees
+	// the workstation override.
+	Provider string
+	Model    string
 	// Stage is the workflow stage of the task at launch.
 	Stage string
 	// ChainStop is set only on a step of a full chain run, to the stage that
@@ -89,7 +95,10 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, ProjectID: task.ProjectID,
 		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
 		Status: "running", Summary: "Execution reported by a local agent or native client",
-		CreatedAt: now, StartedAt: &now, Steps: []string{}, UserID: strings.TrimSpace(launch.UserID)}
+		CreatedAt: now, StartedAt: &now, Steps: []string{}, UserID: strings.TrimSpace(launch.UserID),
+		// What the launcher resolved. The agent corrects it through
+		// SetRemoteRunEngine once it has built the real command line.
+		Provider: strings.TrimSpace(launch.Provider), Model: strings.TrimSpace(launch.Model)}
 	if agentOwned {
 		activity.Action = RunActionAgent
 	}
@@ -107,10 +116,46 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	return activity, nil
 }
 
+// ErrRunNotYours refuses closing an execution that belongs to somebody else.
+// Reporting a run's outcome is the run's own business: a third party closing it
+// looks exactly like the run ending, hands the workflow back, and leaves the
+// real process running on its owner's machine. The name differs from the
+// dispatcher's ErrRunNotOwned, which says an agent does not have a run at all.
+var ErrRunNotYours = errors.New("this execution belongs to another user")
+
 // FinishRemoteRun completes only the specified execution, preserving concurrent runs.
+// It checks no identity; callers that have one use FinishRemoteRunAs.
 func (d *DB) FinishRemoteRun(taskKey, runID, status, note string) (*models.TaskActivity, error) {
+	return d.finishRemoteRun(taskKey, runID, status, note, nil)
+}
+
+// FinishRemoteRunAs is FinishRemoteRun for a caller whose identity is known.
+// The owner closes their own run; an admin closes anyone's; a run with no
+// recorded owner predates ownership and stays closable by anyone, as before.
+func (d *DB) FinishRemoteRunAs(caller Actor, admin bool, taskKey, runID, status, note string) (*models.TaskActivity, error) {
+	check := func(owner string) error {
+		if admin || owner == "" || owner == caller.ID {
+			return nil
+		}
+		return ErrRunNotYours
+	}
+	return d.finishRemoteRun(taskKey, runID, status, note, check)
+}
+
+func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func(ownerID string) error) (*models.TaskActivity, error) {
 	if status != "completed" && status != "failed" && status != "canceled" {
 		return nil, fmt.Errorf("status must be completed, failed or canceled")
+	}
+	if authorize != nil {
+		existing, err := d.GetActivityByID(runID)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			if err := authorize(existing.UserID); err != nil {
+				return nil, err
+			}
+		}
 	}
 	task, err := d.GetTaskByID(taskKey)
 	if err != nil {
@@ -280,6 +325,44 @@ func (d *DB) SetRemoteRunWaiting(runID string, waiting bool) error {
 const RemoteRunOutputLimit = 256 * 1024
 
 const remoteRunOutputTruncated = "\n\n[output truncated: the run printed more than the recorded limit]"
+
+// SetRemoteRunEngine records the engine a run is really running against, as the
+// agent reports it once the command line is built. The launcher wrote its own
+// resolution at launch, but only the agent sees the workstation override, so
+// this is the value that ends up displayed.
+//
+// A run that is no longer running is left alone: a late report must not rewrite
+// a finished record, which is the same rule SetRemoteRunWaiting follows.
+func (d *DB) SetRemoteRunEngine(runID, provider, model string) error {
+	if strings.TrimSpace(runID) == "" {
+		return fmt.Errorf("run id is required")
+	}
+	provider, model = strings.TrimSpace(provider), strings.TrimSpace(model)
+	d.mu.Lock()
+	result, err := d.conn.Exec("UPDATE task_activities SET run_provider=?, run_model=? WHERE id=? AND skill_id='remote_run' AND status='running'",
+		provider, model, runID)
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("remote run not found or no longer running")
+	}
+	activity, err := d.GetActivityByID(runID)
+	if err != nil || activity == nil {
+		return err
+	}
+	task, err := d.GetTaskByID(activity.TaskID)
+	if err != nil || task == nil {
+		return nil
+	}
+	d.notifyPostBackListeners(task, activity, nil)
+	return nil
+}
 
 // AppendRemoteRunOutput adds captured CLI output to a running remote activity.
 // It is the only channel an autonomous run has: nobody is watching a terminal,

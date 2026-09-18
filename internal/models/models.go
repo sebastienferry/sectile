@@ -62,6 +62,13 @@ type TaskActivity struct {
 	CompletedAt *time.Time `json:"completedAt,omitempty"`
 	Error       string     `json:"error,omitempty"`
 	Duration    string     `json:"duration,omitempty"`
+	// Provider and Model name the engine this run actually ran against. They are
+	// written at launch from what the server resolves, then corrected by the
+	// agent once it has built the command line: the agent is the only side that
+	// sees the workstation override. Empty on every run recorded before they
+	// existed, which reads as unknown rather than as a particular engine.
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 	// WaitingSince is set while a running session is blocked on the user: a
 	// permission prompt, a question, an idle turn. It is a timestamp rather than
 	// a status because waiting is a phase of a running run, not a state of its
@@ -758,11 +765,16 @@ type Settings struct {
 	// AISkillModels names the skills that depart from it, keyed by skill ID.
 	AIModel       string            `json:"aiModel"`
 	AISkillModels map[string]string `json:"aiSkillModels,omitempty"`
-	RepoPath      string            `json:"repoPath"`     // e.g. '/path/to/project'
-	IssueTracker  string            `json:"issueTracker"` // "github", "jira", "local"
-	GithubRepo    string            `json:"githubRepo"`   // e.g. "owner/repo"
-	JiraProject   string            `json:"jiraProject"`  // e.g. "PE"
-	JiraUrl       string            `json:"jiraUrl"`
+	// AIProviderModels lists, per provider, the models that provider may run.
+	// It is what the launch surfaces offer, so a model absent from it cannot be
+	// picked when starting a skill. A provider with no list here falls back to
+	// the list Sectile ships for it.
+	AIProviderModels map[string][]string `json:"aiProviderModels,omitempty"`
+	RepoPath         string              `json:"repoPath"`     // e.g. '/path/to/project'
+	IssueTracker     string              `json:"issueTracker"` // "github", "jira", "local"
+	GithubRepo       string              `json:"githubRepo"`   // e.g. "owner/repo"
+	JiraProject      string              `json:"jiraProject"`  // e.g. "PE"
+	JiraUrl          string              `json:"jiraUrl"`
 	// JiraEmail / JiraAPIToken authenticate the Jira REST calls that fetch the
 	// fields acli cannot return (Sprint and Team are custom fields, and acli's
 	// --fields only accepts a fixed allow-list). Basic auth over HTTPS.
@@ -931,7 +943,10 @@ type RunSkillRequest struct {
 	// Mode is the one-off execution mode override for this launch only. Empty
 	// means no override, which is not the same as "interactive": the precedence
 	// still falls through to the skill and then to the project.
-	Mode         string `json:"mode,omitempty"`
+	Mode string `json:"mode,omitempty"`
+	// Model is the one-off model override for this launch only. Empty means no
+	// override, so the configured levels resolve the model as they always did.
+	Model        string `json:"model,omitempty"`
 	WithComments bool   `json:"withComments,omitempty"`
 }
 

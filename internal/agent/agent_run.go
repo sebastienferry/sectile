@@ -268,6 +268,29 @@ func (d *agentDaemon) postRunWaiting(runID string, waiting bool) {
 	_ = resp.Body.Close()
 }
 
+// postRunEngine tells the server which engine this run was actually launched
+// with. The launcher recorded its own resolution, but the workstation override
+// lives here, so this is the report that makes the run record true.
+func (d *agentDaemon) postRunEngine(runID, provider, model string) {
+	if strings.TrimSpace(runID) == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	body := mustJSON(map[string]string{"provider": provider, "model": model})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		d.link.serverURL+"/api/activities/"+url.PathEscape(runID)+"/engine", strings.NewReader(body))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := agenthttp.Client(d.link.token).Do(req)
+	if err != nil {
+		return
+	}
+	_ = resp.Body.Close()
+}
+
 func (d *agentDaemon) cancelRun(ctx context.Context, conn *websocket.Conn, msg agentprotocol.Message, payload agentconfig.Dispatch) {
 	d.queue.mu.Lock()
 	run := d.queue.runs[payload.RunID]

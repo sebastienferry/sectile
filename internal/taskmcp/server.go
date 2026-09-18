@@ -219,7 +219,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "finish_run", Description: "Finish the specified remote execution with completed, failed or canceled status. Call when the entire invoked skill ends, including when stopping for user input. This is how a run reports its own outcome; a run left open when the session ends is closed as canceled instead. Does not transition the task."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in finishRunInput) (*mcp.CallToolResult, any, error) {
-			activity, err := database.FinishRemoteRun(in.TaskKey, in.RunID, in.Status, in.Note)
+			caller := callerOf(resolve, req)
+			activity, err := database.FinishRemoteRunAs(db.Actor{ID: caller.UserID, Name: caller.Name},
+				caller.Role == db.RoleAdmin, in.TaskKey, in.RunID, in.Status, in.Note)
 			if err != nil {
 				return nil, nil, err
 			}

@@ -49,6 +49,12 @@ not have it. An execution without a recorded owner SHALL be stoppable by admins 
 - **WHEN** an admin asks to stop it
 - **THEN** the stop reaches the member's agent and the execution ends as canceled
 
+#### Scenario: A client reports the end of a run it does not own
+- **GIVEN** a running execution owned by one user
+- **WHEN** another user's client reports that run finished
+- **THEN** the report is refused and the execution stays running
+- **AND** the workflow is not handed back
+
 #### Scenario: Admin stops a run whose owner's agent is gone
 - **GIVEN** a running execution whose owner has no connected agent
 - **WHEN** an admin asks to stop it without forcing

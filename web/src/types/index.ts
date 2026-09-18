@@ -44,6 +44,9 @@ export interface TaskActivity {
   userId?: string
   /** That person's display name or e-mail, resolved server side. */
   userName?: string
+  /** Moteur et modèle réellement utilisés par ce run, vides si inconnus. */
+  provider?: string
+  model?: string
 }
 
 export interface ActivityStats {
@@ -565,6 +568,12 @@ export interface UserSettings {
   aiModel?: string
   /** Modèle par compétence (skillId -> modèle). */
   aiSkillModels?: Record<string, string>
+  /**
+   * Modèles proposés par moteur (provider -> liste ordonnée). C'est ce que les
+   * surfaces de lancement offrent : un modèle absent d'ici ne peut pas être
+   * choisi au lancement. Un moteur sans liste retombe sur celle livrée.
+   */
+  aiProviderModels?: Record<string, string[]>
   repoPath: string
   issueTracker: IssueTracker
   githubRepo: string

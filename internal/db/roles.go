@@ -20,6 +20,11 @@ const (
 // temporary mode a deployment runs in until an identity provider is connected.
 const LocalSubjectPrefix = "local|"
 
+// ImplicitUserID is the single user a deployment has before anyone signs in.
+// It is spelled here as well as in the handlers because the storage layer has
+// to know which row may be created without a sign-in.
+const ImplicitUserID = "default"
+
 // ErrLastAdmin refuses the change that would leave the board with nobody able
 // to administer it.
 var ErrLastAdmin = errors.New("the board would have no admin left")
@@ -146,15 +151,36 @@ func (d *DB) setUserRole(id, role string) error {
 // ensureFirstAdmin gives the user the admin role when no admin exists yet.
 // Without it the roles could never be assigned: every account arrives through
 // sign-in as an equal.
+//
+// The test and the write are one statement on purpose: two people signing in at
+// the same instant on an empty board would otherwise both read "no admin" and
+// both take the role.
 func (d *DB) ensureFirstAdmin(userID string) error {
-	admins, err := d.AdminCount()
-	if err != nil {
-		return err
+	_, err := d.conn.Exec(`UPDATE users SET role = ? WHERE id = ?
+		AND NOT EXISTS (SELECT 1 FROM users WHERE role = ?)`, RoleAdmin, userID, RoleAdmin)
+	return err
+}
+
+// EnsureUser makes sure a row exists for a user id that no sign-in created: the
+// implicit user of a deployment without accounts, which still has to satisfy
+// the foreign keys carried by API keys and pairing codes.
+//
+// It keys on the id, never on the subject. UpsertUser takes a provider subject,
+// so handing it a user id mints a second account whose subject is the first
+// one's id, an inert row that then shows up in the users view.
+func (d *DB) EnsureUser(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("user id is required")
 	}
-	if admins > 0 {
-		return nil
-	}
-	return d.setUserRole(userID, RoleAdmin)
+	// The row is written as a member even for the implicit user, whose powers
+	// come from being the implicit user and not from a stored role. Writing it
+	// as an admin would spend the bootstrap: the first person to sign in would
+	// then be a member, and nobody could reach the admin role again, since the
+	// implicit user stops resolving as soon as an account exists.
+	_, err := d.conn.Exec(`INSERT INTO users (id, subject, email, display_name, role)
+		SELECT ?, ?, '', '', ? WHERE NOT EXISTS (SELECT 1 FROM users WHERE id = ?)`, id, id, RoleMember, id)
+	return err
 }
 
 // SignInLocal is the local e-mail sign-in: an unknown address creates the

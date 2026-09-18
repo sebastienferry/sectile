@@ -40,6 +40,7 @@ func guardedServer(t *testing.T, h *Handler) *httptest.Server {
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)
 	mux.HandleFunc("/api/devices", h.HandleDeviceCredentials)
+	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
 	mux.HandleFunc("/auth/local", h.HandleLocalSignIn)
 	mux.HandleFunc("/auth/login", h.HandleLogin)
@@ -451,6 +452,38 @@ func TestWorkstationKeyAuthenticatesInterfaceCalls(t *testing.T) {
 	// way around sign-in.
 	if status, _ := withBearer("not-a-real-key", "/api/tasks"); status != http.StatusUnauthorized {
 		t.Fatalf("invented bearer: %d, want 401", status)
+	}
+}
+
+// Creating a workstation key must not mint an account. UpsertUser takes a
+// provider subject, so passing it a user id used to add a second, inert row
+// that then appeared in the users view with no name and no way to sign in.
+func TestCreatingAKeyDoesNotMintAnAccount(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := guardedServer(t, h)
+	_, alice := account(t, database, "alice@example.com")
+
+	before, err := database.ListUsers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status, body := call(t, server, alice, http.MethodPost, "/api/devices", `{"label":"laptop"}`); status != http.StatusCreated {
+		t.Fatalf("create key: %d %s", status, body)
+	}
+	if status, body := call(t, server, alice, http.MethodPost, "/api/pairing-codes", ""); status != http.StatusCreated {
+		t.Fatalf("create pairing code: %d %s", status, body)
+	}
+	after, err := database.ListUsers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		rows := make([]string, 0, len(after))
+		for _, user := range after {
+			rows = append(rows, user.ID+" subject="+user.Subject)
+		}
+		t.Fatalf("users went from %d to %d: %s", len(before), len(after), strings.Join(rows, " | "))
 	}
 }
 

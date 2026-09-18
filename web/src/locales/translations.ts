@@ -330,6 +330,8 @@ export interface TranslationSchema {
     advance: string
     advanceAuto: string
     advanceInteractive: string
+    advanceWithModel: string
+    currentModel: string
     advanceAutonomous: string
     filterParent: string
     clearParent: string
@@ -717,6 +719,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advance: 'Avancer une étape',
       advanceAuto: 'Chaîne complète',
       advanceInteractive: 'Avancer en interactif',
+      advanceWithModel: 'Modèle des lancements',
+      currentModel: '(modèle configuré)',
       advanceAutonomous: 'Avancer en autonome',
       filterParent: 'Filtrer par parent',
       clearParent: 'Retirer le filtre parent',
@@ -1102,6 +1106,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       advance: 'Advance one step',
       advanceAuto: 'Full chain',
       advanceInteractive: 'Advance interactively',
+      advanceWithModel: 'Model used by launches',
+      currentModel: '(configured model)',
       advanceAutonomous: 'Advance autonomously',
       filterParent: 'Filter by parent',
       clearParent: 'Clear parent filter',

@@ -82,7 +82,9 @@ func (h *Handler) HandlePairingCode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "Sign in before pairing a workstation")
 		return
 	}
-	if _, err := h.db.UpsertUser(userID, "", ""); err != nil {
+	// The row exists for anyone who signed in; the implicit user has none, and
+	// the pairing code's foreign key needs one.
+	if err := h.db.EnsureUser(userID); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -166,7 +168,7 @@ func (h *Handler) HandleDeviceCredentials(w http.ResponseWriter, r *http.Request
 	}
 	switch r.Method {
 	case http.MethodPost:
-		if _, err := h.db.UpsertUser(userID, "", ""); err != nil {
+		if err := h.db.EnsureUser(userID); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

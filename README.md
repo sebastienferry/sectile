@@ -35,6 +35,13 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     Les autres fournisseurs : `agy -i` en interactif, `vibe -p --auto-approve` et
     `codex exec` en autonome. `agy`, `gemini` et `cursor` n'ont pas de mode autonome
     attesté et refusent un lancement headless plutôt que d'en deviner un.
+  - **Modèle par lancement** : la liste des modèles de chaque moteur se règle globalement
+    (section *Moteur IA* du profil) et c'est elle que proposent le lanceur de la vue détail
+    et le menu `...` d'une carte. Le modèle résolu par la configuration y est le choix par
+    défaut : le garder ne change rien à la commande, en choisir un autre n'écrit aucun
+    réglage. Sur une carte, le choix est une sélection que la carte conserve, affichée en
+    quatre caractères devant ses boutons d'action ; tous ses lancements l'utilisent, chaîne
+    complète comprise.
   - **Commandes personnalisées** : chaque mode a son champ, au global comme par projet,
     et les deux s'héritent indépendamment. La commande autonome sert les lancements
     headless ; laissée vide, ce sont les lancements headless qui retombent sur la
@@ -752,22 +759,30 @@ the workstation must be paired first with `sectile-agent pair`.
 ### Browse desktop project tasks
 
 Hover or keyboard-focus a desktop project row and activate its **Open tasks**
-list icon to browse that project's unfinished server tickets immediately.
-Search by title or key, or submit an empty search to restore the full open list.
-Choose a skill and **Launch** to pick up a ticket; pickup is the default when
-available. Loading the list never starts an execution. Failed requests can be
-retried with Search, and launching requires a configured local repository.
+list icon to browse that project's unfinished server tickets immediately, in the
+**Tickets** pane that takes the console's place. Search by title or key, or
+submit an empty search to restore the full open list. Rows are ordered by
+priority descending then task identity ascending, and the **Key**, **Title**,
+**Stage** and **Priority** headers sort the list. A row's key opens that task in
+Sectile. **Run** launches the task's next workflow step, and the **…** menu
+offers pickup, the other skills, a discussion console and custom instructions.
+**Run** is disabled while an execution is active on that task. Loading the list
+never starts an execution. Failed requests can be retried with Search, and
+launching requires a configured local repository.
 
 ### Desktop Quick add
 
 Click **New task (+)** beside a desktop project to choose **Run an existing
 ticket** or **Quick add task**. Both paths target the clicked project, even
-when another project's execution is selected. Existing tickets open the search
-and skill launcher; Quick add preselects the project and offers **Launch task**
-after successful creation.
+when another project's execution is selected. Existing tickets open the Tickets
+pane; Quick add preselects the project and offers **Launch task** after
+successful creation, which opens that pane on the new ticket.
 
-Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette and choose
-**Quick add task**. The selected project's identity is prefilled; without a
+Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
+actions, and choose **Quick add task** or **Tasks list**. Enter runs the first
+matching action. **Tasks list** opens the Tickets pane for the selected project,
+for the only configured project, or for a project you pick when several apply.
+For **Quick add task**: The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.
 The server creates the task using its project tracker configuration.
 GitHub creation must succeed remotely; errors do not silently create
@@ -775,7 +790,7 @@ a local fallback. Local projects remain local. Jira remote creation is not
 implemented and returns an explicit error. Creation does not start an execution;
 the success screen offers a separate **Launch task** action.
 
-Task IDs in the desktop sidebar open the task directly on the configured Sectile server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.
+Task IDs in the desktop sidebar and in the Tickets pane open the task directly on the configured Sectile server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.
 
 For `agy`, the local agent registers the Sectile stdio bridge in
 `~/.gemini/config/mcp_config.json`; this CLI does not read the workspace

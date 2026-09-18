@@ -98,14 +98,14 @@ func TestDispatchCommandResolvesPerSkillModel(t *testing.T) {
 			{ID: "clarify", Directory: "clarify-issue", Command: "/clarify-issue"},
 		},
 	}
-	line, err := dispatchCommand(config, "TASK-1", "implement", "execute_skill", "", "", models.SkillModeInteractive)
+	line, err := dispatchCommand(config, "TASK-1", "implement", "execute_skill", "", "", models.SkillModeInteractive, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(line, "--model strong") {
 		t.Fatalf("implement must run against its own model: %q", line)
 	}
-	line, err = dispatchCommand(config, "TASK-1", "clarify", "execute_skill", "", "", models.SkillModeInteractive)
+	line, err = dispatchCommand(config, "TASK-1", "clarify", "execute_skill", "", "", models.SkillModeInteractive, "")
 	if err != nil {
 		t.Fatal(err)
 	}

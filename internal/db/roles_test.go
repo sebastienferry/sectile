@@ -59,6 +59,77 @@ func TestFirstLocalAccountIsAdminAndLaterOnesAreMembers(t *testing.T) {
 	}
 }
 
+// Two people signing in at the same instant on an empty board must not both
+// take the admin role: the test and the write are one statement.
+func TestFirstAdminIsGrantedOnlyOnce(t *testing.T) {
+	d := openRolesDB(t)
+	alice, err := d.SignInLocal("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := d.SignInLocal("bob@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Re-running the bootstrap rule on a board that already has one must be a
+	// no-op, whoever asks.
+	if err := d.ensureFirstAdmin(bob.ID); err != nil {
+		t.Fatal(err)
+	}
+	admins, err := d.AdminCount()
+	if err != nil || admins != 1 {
+		t.Fatalf("AdminCount = %d, %v; want exactly one admin", admins, err)
+	}
+	if role := d.UserRole(alice.ID); role != RoleAdmin {
+		t.Fatalf("the first account lost the role: %q", role)
+	}
+}
+
+// EnsureUser creates the implicit user's row and is idempotent; it must never
+// create a second row for an id that already exists.
+func TestEnsureUserKeysOnTheIdNotTheSubject(t *testing.T) {
+	d := openRolesDB(t)
+	if err := d.EnsureUser(ImplicitUserID); err != nil {
+		t.Fatal(err)
+	}
+	implicit, err := d.GetUser(ImplicitUserID)
+	if err != nil || implicit == nil {
+		t.Fatalf("implicit user = %+v, %v; want a row", implicit, err)
+	}
+	// The row must not hold the admin role: the implicit user's powers come
+	// from its identity, and spending the bootstrap here would leave the first
+	// real account a member with no admin anyone can reach.
+	if implicit.Role != RoleMember {
+		t.Fatalf("the implicit row holds %q and stole the bootstrap", implicit.Role)
+	}
+	// The implicit row is not a local account, so it does not end the mode.
+	if d.HasLocalAccounts() {
+		t.Fatal("the implicit row counted as a local account")
+	}
+	alice, _ := d.SignInLocal("alice@example.com")
+	if alice.Role != RoleAdmin {
+		t.Fatalf("the first real account is %q; a workstation key created before sign-in must not cost the board its admin", alice.Role)
+	}
+	for i := 0; i < 3; i++ {
+		if err := d.EnsureUser(alice.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.EnsureUser(ImplicitUserID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	users, _ := d.ListUsers()
+	if len(users) != 2 {
+		t.Fatalf("EnsureUser created rows: %d users, want 2", len(users))
+	}
+	if again, _ := d.GetUser(alice.ID); again == nil || again.Email != "alice@example.com" || again.Role != RoleAdmin {
+		t.Fatalf("EnsureUser overwrote an existing account: %+v", again)
+	}
+	if err := d.EnsureUser("  "); err == nil {
+		t.Fatal("an empty id was accepted")
+	}
+}
+
 func TestLastAdminCannotBeDemoted(t *testing.T) {
 	d := openRolesDB(t)
 	alice, _ := d.SignInLocal("alice@example.com")
@@ -164,6 +235,43 @@ func TestActivityOwnerRoundTrips(t *testing.T) {
 	inserted, err := d.SyncRemoteRunStatusFor(owner.ID, "run-new", task.ID, "default", task.Key, "clarify", "queued", "", nil)
 	if err != nil || inserted.UserID != owner.ID {
 		t.Fatalf("inserted run owner = %q, %v", inserted.UserID, err)
+	}
+}
+
+// Closing a run is reporting its outcome, which is the run's own business: a
+// colleague doing it hands the workflow back and leaves the real process
+// running on the owner's machine.
+func TestFinishRunRefusesAColleaguesExecution(t *testing.T) {
+	d := openRolesDB(t)
+	owner, _ := d.SignInLocal("alice@example.com")
+	other, _ := d.SignInLocal("bob@example.com")
+	task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "Owned", Status: models.StatusToClarify})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := d.StartRemoteRunBy(owner.ID, task.ID, "implement", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.FinishRemoteRunAs(Actor{ID: other.ID}, false, task.ID, run.ID, "completed", "not mine"); !errors.Is(err, ErrRunNotYours) {
+		t.Fatalf("a member closed another user's run: %v", err)
+	}
+	if still, _ := d.GetActivityByID(run.ID); still.Status != "running" {
+		t.Fatalf("the refused close changed the run to %q", still.Status)
+	}
+	// The owner closes their own run, and an admin closes anyone's.
+	if _, err := d.FinishRemoteRunAs(Actor{ID: owner.ID}, false, task.ID, run.ID, "completed", "done"); err != nil {
+		t.Fatalf("the owner could not close their run: %v", err)
+	}
+	second, _ := d.StartRemoteRunBy(owner.ID, task.ID, "review", "")
+	if _, err := d.FinishRemoteRunAs(Actor{ID: other.ID}, true, task.ID, second.ID, "canceled", "admin"); err != nil {
+		t.Fatalf("an admin could not close a run: %v", err)
+	}
+	// A run written before ownership existed belongs to nobody and stays
+	// closable, which is what keeps an upgrade from stranding live runs.
+	legacy, _ := d.StartRemoteRun(task.ID, "clarify", "")
+	if _, err := d.FinishRemoteRunAs(Actor{ID: other.ID}, false, task.ID, legacy.ID, "completed", "legacy"); err != nil {
+		t.Fatalf("an ownerless run was refused: %v", err)
 	}
 }
 

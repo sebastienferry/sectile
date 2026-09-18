@@ -15,7 +15,8 @@ const project = await readFile(new URL('../src/components/ProjectModal.tsx', imp
 
 test('the launch request carries the one-off mode override', () => {
   assert.match(context, /mode: opts\?\.mode/)
-  assert.match(context, /runSkill: \(taskId: string, skillId: string, prompt\?: string, opts\?: \{ withComments\?: boolean; mode\?: SkillMode \}\)/)
+  // The launch model rides beside the mode on the same options object (#203).
+  assert.match(context, /runSkill: \(taskId: string, skillId: string, prompt\?: string, opts\?: \{ withComments\?: boolean; mode\?: SkillMode; model\?: string \}\)/)
 })
 
 test('a full chain run forces the autonomous mode instead of resolving it', () => {
@@ -38,7 +39,7 @@ test('each skill card can be started in either mode', () => {
 
 test('a card choice overrides the panel selector for that launch only', () => {
   assert.match(modal, /const handleTriggerSkill = async \(skillId: string, overridePrompt\?: string, modeOverride\?: SkillMode\)/)
-  assert.match(modal, /\{ mode: modeOverride \?\? launchMode \}/)
+  assert.match(modal, /\{ mode: modeOverride \?\? launchMode, model: effectiveLaunchModel \}/)
   // The panel selector's empty value stays "no override", not "interactive".
   assert.match(modal, /<option value="">Mode configuré<\/option>/)
 })
