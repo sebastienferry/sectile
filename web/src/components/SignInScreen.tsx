@@ -20,6 +20,10 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
   const [passphrase, setPassphrase] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  // A refused passphrase holds the screen instead of handing over to the
+  // application: the session is open, but the notice has to be read, and
+  // signalling the sign-in would unmount this screen along with the message.
+  const [notice, setNotice] = useState('')
   const returnTo = redirectFromSearch(window.location.search)
 
   async function signInLocally(event: React.FormEvent) {
@@ -34,20 +38,24 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `HTTP ${res.status}`)
       }
-      onSignedIn()
       // A refused passphrase is reported and nothing else: the session is open
       // and the tokens simply stay locked.
-      const notice = await unlockSealedCredentials(passphrase)
-      if (notice) {
-        setError(notice)
+      const refusal = await unlockSealedCredentials(passphrase)
+      if (refusal) {
+        setNotice(refusal)
         return
       }
-      window.location.assign(returnTo)
+      enterApplication()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in.')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  function enterApplication() {
+    onSignedIn()
+    window.location.assign(returnTo)
   }
 
   const card = 'w-full max-w-sm space-y-5 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-6 shadow-2xl'
@@ -66,7 +74,17 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
           </p>
         </div>
 
-        {user.mode === 'oidc' ? (
+        {notice ? (
+          <div className="space-y-4">
+            <p role="alert" className="flex gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+              <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
+              <span>{notice}</span>
+            </p>
+            <button type="button" onClick={enterApplication} className={button}>
+              <LogIn size={16} /> Continue
+            </button>
+          </div>
+        ) : user.mode === 'oidc' ? (
           <a href={`/auth/login?redirect=${encodeURIComponent(returnTo)}`} className={button}>
             <LogIn size={16} /> Continue with the identity provider
           </a>

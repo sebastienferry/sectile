@@ -41,7 +41,6 @@ test('only a 401 on the interface API sends to sign-in, and never from the sign-
 test('the sign-in screen is needed for anyone not signed in, with no escape hatch', () => {
   assert.equal(needsSignIn(null), false)
   assert.equal(needsSignIn({ userId: '', signedIn: false, identityProvider: false, mode: 'local', role: '' }), true)
-  assert.equal(needsSignIn({ userId: '', signedIn: false, identityProvider: false, mode: 'local', role: '' }), true)
   assert.equal(needsSignIn({ userId: '', signedIn: false, identityProvider: true, mode: 'oidc', role: '' }), true)
   assert.equal(needsSignIn({ userId: 'usr_1', signedIn: true, identityProvider: false, mode: 'local', role: 'member' }), false)
 })
@@ -49,7 +48,6 @@ test('the sign-in screen is needed for anyone not signed in, with no escape hatc
 test('modes and roles have a label', () => {
   assert.equal(describeSignInMode('oidc'), 'Identity provider')
   assert.match(describeSignInMode('local'), /temporary/)
-  assert.equal(describeRole('member'), 'Member')
   assert.equal(describeRole('admin'), 'Admin')
   assert.equal(describeRole('member'), 'Member')
   assert.equal(describeRole(''), '')
