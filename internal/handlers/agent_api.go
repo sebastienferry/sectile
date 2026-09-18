@@ -152,6 +152,8 @@ func (h *Handler) HandleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 	}
 	body := map[string]interface{}{
 		"userId":      credential.UserID,
+		"role":        h.principalFor(credential.UserID).Role,
+		"mode":        h.signInMode(),
 		"sharedToken": credential.Device == nil,
 		"expiresAt":   nil,
 	}
@@ -170,11 +172,26 @@ func (h *Handler) HandleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 // builds a throwaway session per request, so it can neither tell two clients
 // apart nor notice that one went away.
 func (h *Handler) MCPHandler() http.Handler {
-	server := taskmcp.NewServer(h.db, h.mcpSessions)
+	server := taskmcp.NewServerWithCallers(h.db, h.mcpSessions, h.mcpCaller)
 	return h.AgentAPIAuth(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: mcpSessionTimeout()},
 	))
+}
+
+// mcpCaller names the user behind an MCP call from the bearer key of the HTTP
+// request that carried it, so a run a client starts has an owner. The header is
+// the one AgentAPIAuth already accepted; a call without it names nobody.
+func (h *Handler) mcpCaller(header http.Header) (taskmcp.Caller, bool) {
+	if header == nil {
+		return taskmcp.Caller{}, false
+	}
+	credential, err := h.resolveAgentCredential(bearerToken(&http.Request{Header: header}))
+	if err != nil {
+		return taskmcp.Caller{}, false
+	}
+	p := h.principalFor(credential.UserID)
+	return taskmcp.Caller{UserID: p.UserID, Name: p.Name, Role: p.Role}, true
 }
 
 // HandleMCPSessions reports the clients currently connected to the MCP

@@ -54,8 +54,13 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const { state, runs, cancelableRunIds, count, waitingSince } = indicator
   const skills = runs.map(run => run.skillName).join(', ')
   const waited = state === 'waiting' ? formatWaited(waitingSince) : ''
+  // The board is shared, so a run is often somebody else's. Naming its owner is
+  // what tells the difference between a button that will work and one that
+  // answers that the execution is not yours.
+  const owners = [...new Set(runs.map(run => run.userName).filter(Boolean))].join(', ')
   const stateLabel = LABELS[state] + (waited ? ` for ${waited}` : '')
     + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
+    + (owners ? ` started by ${owners}` : '')
 
   async function cancelRuns(runIds: string[], force = false) {
     setCanceling(true)
@@ -66,7 +71,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
         })
         if (!response.ok) {
           const error = await response.json()
-          throw new Error(error.error || 'Could not confirm execution stopped')
+          throw Object.assign(new Error(error.error || 'Could not confirm execution stopped'), { status: response.status })
         }
       }
       await fetchActivities()
@@ -74,7 +79,10 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
     } catch (error) {
       // An unreachable agent leaves the run open for good unless it can be
       // closed on purpose, so offer that rather than repeating the failure.
-      if (!force) setUnreachable(true)
+      // A refusal is different: forcing would not make the execution any more
+      // ours, so the server's answer is simply shown.
+      const refused = typeof error === 'object' && error !== null && (error as { status?: number }).status === 403
+      if (!force && !refused) setUnreachable(true)
       addToast({ type: 'error', title: 'Cancellation failed', description: error instanceof Error ? error.message : String(error) })
     } finally { setCanceling(false) }
   }

@@ -30,6 +30,11 @@ type Identity struct {
 	Subject     string
 	Email       string
 	DisplayName string
+	// Role is the Sectile role the provider's claim resolves to, meaningful
+	// only when RoleFromClaim is set: without a configured claim the provider
+	// says nothing about roles and the stored role stands.
+	Role          string
+	RoleFromClaim bool
 }
 
 // Provider is a configured OpenID Connect provider.
@@ -39,6 +44,11 @@ type Provider struct {
 	issuer       string
 	httpClient   *http.Client
 	discoveredAt time.Time
+	// roleClaim names the claim carrying the user's groups or roles, and
+	// adminGroup the value that grants admin. Both empty means the provider
+	// does not supply roles.
+	roleClaim  string
+	adminGroup string
 }
 
 type discovery struct {
@@ -99,12 +109,23 @@ func Discover(ctx context.Context) (*Provider, error) {
 		return nil, errors.New("provider metadata is missing an endpoint")
 	}
 
+	roleClaim, adminGroup, err := RoleClaimConfig()
+	if err != nil {
+		return nil, err
+	}
+	scopes := []string{"openid", "profile", "email"}
+	if roleClaim == "groups" {
+		// Okta serves its groups claim only when the scope of the same name is
+		// requested; asking for it elsewhere is harmless.
+		scopes = append(scopes, "groups")
+	}
+
 	return &Provider{
 		config: oauth2.Config{
 			ClientID:     clientID,
 			ClientSecret: clientSecret,
 			RedirectURL:  redirect,
-			Scopes:       []string{"openid", "profile", "email"},
+			Scopes:       scopes,
 			Endpoint: oauth2.Endpoint{
 				AuthURL:  document.AuthorizationEndpoint,
 				TokenURL: document.TokenEndpoint,
@@ -114,8 +135,13 @@ func Discover(ctx context.Context) (*Provider, error) {
 		issuer:       issuer,
 		httpClient:   client,
 		discoveredAt: time.Now(),
+		roleClaim:    roleClaim,
+		adminGroup:   adminGroup,
 	}, nil
 }
+
+// SuppliesRoles reports whether sign-ins carry a role from the provider.
+func (p *Provider) SuppliesRoles() bool { return p.roleClaim != "" }
 
 // Issuer is the provider this server signs people in against.
 func (p *Provider) Issuer() string { return p.issuer }
@@ -171,13 +197,19 @@ func (p *Provider) Exchange(ctx context.Context, code, verifier string) (*Identi
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("user info returned HTTP %d", response.StatusCode)
 	}
+	// UserInfo is decoded twice: once into the fields every sign-in needs, once
+	// as a map so a role claim of any name can be read from it.
+	var raw json.RawMessage
+	if err := json.NewDecoder(response.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decode user info: %w", err)
+	}
 	var claims struct {
 		Subject           string `json:"sub"`
 		Email             string `json:"email"`
 		Name              string `json:"name"`
 		PreferredUsername string `json:"preferred_username"`
 	}
-	if err := json.NewDecoder(response.Body).Decode(&claims); err != nil {
+	if err := json.Unmarshal(raw, &claims); err != nil {
 		return nil, fmt.Errorf("decode user info: %w", err)
 	}
 	if strings.TrimSpace(claims.Subject) == "" {
@@ -192,5 +224,13 @@ func (p *Provider) Exchange(ctx context.Context, code, verifier string) (*Identi
 	}
 	// The subject is the stable identifier. Email addresses get reassigned
 	// between people; subjects do not.
-	return &Identity{Subject: p.issuer + "|" + claims.Subject, Email: claims.Email, DisplayName: name}, nil
+	identity := &Identity{Subject: p.issuer + "|" + claims.Subject, Email: claims.Email, DisplayName: name}
+	if p.roleClaim != "" {
+		var userInfo map[string]any
+		_ = json.Unmarshal(raw, &userInfo)
+		idToken, _ := token.Extra("id_token").(string)
+		identity.Role = RoleFromClaims(userInfo, IDTokenClaims(idToken), p.roleClaim, p.adminGroup)
+		identity.RoleFromClaim = true
+	}
+	return identity, nil
 }

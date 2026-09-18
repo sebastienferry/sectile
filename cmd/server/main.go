@@ -239,7 +239,13 @@ func main() {
 	mux.HandleFunc("/auth/login", h.HandleLogin)
 	mux.HandleFunc("/auth/callback", h.HandleAuthCallback)
 	mux.HandleFunc("/auth/logout", h.HandleLogout)
+	// Local sign-in exists only without a provider: an e-mail, no password, the
+	// temporary mode of a team that has not connected its identity provider yet.
+	mux.HandleFunc("/auth/local", h.HandleLocalSignIn)
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
+	// The admin's users view: list accounts and change roles.
+	mux.HandleFunc("/api/users", h.HandleUsers)
+	mux.HandleFunc("/api/users/", h.HandleUsers)
 
 	mux.Handle("/mcp", h.MCPHandler())
 	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)

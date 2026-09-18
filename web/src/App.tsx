@@ -21,6 +21,9 @@ import { ProfileModal } from './components/ProfileModal'
 import { ProjectModal } from './components/ProjectModal'
 import { StatusBar } from './components/StatusBar'
 import { ToastContainer } from './components/ToastContainer'
+import { SignInScreen } from './components/SignInScreen'
+import { useCurrentUser } from './hooks/useCurrentUser'
+import { needsSignIn, SIGN_IN_PATH } from './lib/session'
 import { Loader2 } from 'lucide-react'
 
 const MainContent: React.FC = () => {
@@ -116,6 +119,21 @@ const MainContent: React.FC = () => {
 }
 
 export function App() {
+  const { user, loading, reload } = useCurrentUser()
+
+  // Nothing of the board is mounted while somebody has to sign in: its first
+  // render would fire a dozen calls that can only answer 401.
+  if (loading) {
+    return (
+      <div className="flex h-[var(--app-h)] w-[var(--app-w)] items-center justify-center bg-[var(--bg-primary)]">
+        <Loader2 size={28} className="animate-spin text-[var(--accent-color)]" />
+      </div>
+    )
+  }
+  if (user && (needsSignIn(user) || window.location.pathname === SIGN_IN_PATH)) {
+    return <SignInScreen user={user} onSignedIn={() => void reload()} />
+  }
+
   return (
     <AppProvider>
       <MainContent />

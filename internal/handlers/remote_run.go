@@ -47,13 +47,19 @@ func (h *Handler) handleCancelRemoteRun(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// The agent registers under the user its credential resolves to, so the
-	// caller's own identity is what finds it. Without an identity provider
-	// this is the single implicit user, as before.
-	userID := h.webSessionUser(r)
-	if userID == "" {
-		writeError(w, http.StatusUnauthorized, "Sign in to stop an execution")
+	// Only the owner or an admin stops an execution. The stop goes to the
+	// owner's agent, which is the one that has the process: routing it to the
+	// caller's own agent would make that agent answer "not mine", and the run
+	// would be closed as orphaned while it keeps running on another machine.
+	// A run without recorded owner predates ownership; it is an admin's to
+	// close, through the caller's agent as before.
+	caller, ok := h.requireOwnerOrAdmin(w, r, run.UserID)
+	if !ok {
 		return
+	}
+	userID := run.UserID
+	if userID == "" {
+		userID = caller.UserID
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)

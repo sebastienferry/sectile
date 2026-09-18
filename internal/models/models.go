@@ -68,6 +68,14 @@ type TaskActivity struct {
 	// own, and because the UI wants to say how long the wait has lasted. Any
 	// terminal status clears it.
 	WaitingSince *time.Time `json:"waitingSince,omitempty"`
+	// UserID is the user who created the activity: the signed-in person for a
+	// launch from the interface, the key holder for a run reported over MCP, the
+	// agent's user for a run the agent owns. Empty on rows written before
+	// ownership existed, which belong to no one and are an admin's to close.
+	UserID string `json:"userId,omitempty"`
+	// UserName is the owner's display name or e-mail, resolved when the row is
+	// read. It is never stored: a rename must show everywhere at once.
+	UserName string `json:"userName,omitempty"`
 }
 
 type ActivityStats struct {
@@ -166,9 +174,12 @@ type Project struct {
 // read from and written to the tracker, which is the source of truth; a local
 // task keeps them in the local table instead.
 type TaskComment struct {
-	ID        string     `json:"id"`
-	TaskID    string     `json:"taskId,omitempty"`
-	Author    string     `json:"author"`
+	ID     string `json:"id"`
+	TaskID string `json:"taskId,omitempty"`
+	Author string `json:"author"`
+	// UserID is the Sectile user who wrote a local comment. Tracker comments
+	// carry the tracker's author instead and leave it empty.
+	UserID    string     `json:"userId,omitempty"`
 	Body      string     `json:"body"`
 	CreatedAt *time.Time `json:"createdAt,omitempty"`
 	Source    string     `json:"source"` // "jira", "github", "local"

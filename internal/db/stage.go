@@ -13,7 +13,15 @@ import (
 // It updates the local SQLite state immediately (workflow label replaced with #<stage>,
 // status set to the mapped internal status, tracker status set to the mapped column)
 // and enqueues tracker synchronization (labels, status, comments) in the activity queue.
+// The transition is recorded without an actor; callers that know who asked for
+// it use TransitionTaskStageBy.
 func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note string, prURL string, branch string) (*models.Task, *models.TaskActivity, error) {
+	return d.TransitionTaskStageBy("", taskIDOrKey, targetStage, note, prURL, branch)
+}
+
+// TransitionTaskStageBy is TransitionTaskStage attributed to a user, recorded
+// on the transition's activity.
+func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetStage string, note string, prURL string, branch string) (*models.Task, *models.TaskActivity, error) {
 	taskIDOrKey = strings.TrimSpace(taskIDOrKey)
 	if taskIDOrKey == "" {
 		return nil, nil, fmt.Errorf("identifiant ou clé de tâche manquant")
@@ -110,7 +118,7 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 	activity, job, err := buildTrackerOpJob(TrackerOp{
 		Kind: TrackerOpStage, ProjectID: task.ProjectID, TaskID: task.ID,
 		TaskKey: task.Key, Stage: cleanStage, TargetStatus: trackerStatusTarget,
-		Note: note, PrURL: mrURL, BranchName: branch,
+		Note: note, PrURL: mrURL, BranchName: branch, UserID: actorID,
 	})
 	if err != nil {
 		return nil, nil, err

@@ -396,6 +396,8 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN launch_stage TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN chain_stop_stage TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN waiting_since DATETIME;")
+	// The owner of an activity; empty on rows written before ownership existed.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN user_id TEXT NOT NULL DEFAULT '';")
 	// Work the server itself was running cannot survive its own restart.
 	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
 	// A remote run dispatched to an agent outlives the server: its supervisor
@@ -2812,9 +2814,9 @@ func insertTaskActivity(conn activityExecutor, act models.TaskActivity) error {
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince)
+		INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID)
 	return err
 }
 
@@ -2824,10 +2826,21 @@ func (d *DB) AddTaskActivity(act models.TaskActivity) error {
 	return d.addTaskActivityDirect(act)
 }
 
+// ownerDisplayName is what an activity shows for its owner: the display name,
+// then the e-mail, nothing for a row without owner or for the implicit user,
+// who has no identity to show.
+func ownerDisplayName(displayName, email string) string {
+	if strings.TrimSpace(displayName) != "" {
+		return displayName
+	}
+	return email
+}
+
 func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
-		SELECT id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since
-		FROM task_activities WHERE task_id = ? ORDER BY created_at DESC
+		SELECT a.id, a.task_id, a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
+		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, '')
+		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE a.task_id = ? ORDER BY a.created_at DESC
 	`, taskID)
 	if err != nil {
 		return []models.TaskActivity{}, nil
@@ -2840,11 +2853,13 @@ func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, erro
 		var stepsJSON string
 		var prompt, errStr sql.NullString
 		var startedAt, completedAt, waitingSince sql.NullTime
+		var ownerName, ownerEmail string
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince)
+		err := rows.Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail)
 		if err != nil {
 			continue
 		}
+		a.UserName = ownerDisplayName(ownerName, ownerEmail)
 		if waitingSince.Valid {
 			a.WaitingSince = &waitingSince.Time
 		}
@@ -4369,9 +4384,11 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 	sqlQuery := `
 		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
-		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since
+		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
+		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, '')
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
+		LEFT JOIN users u ON u.id = a.user_id
 	`
 	if len(conditions) > 0 {
 		sqlQuery += " WHERE " + strings.Join(conditions, " AND ")
@@ -4393,6 +4410,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		var stepsJSON string
 		var prompt, errStr sql.NullString
 		var startedAt, completedAt, waitingSince sql.NullTime
+		var ownerName, ownerEmail string
 
 		err := rows.Scan(
 			&a.ID,
@@ -4412,10 +4430,14 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 			&completedAt,
 			&errStr,
 			&waitingSince,
+			&a.UserID,
+			&ownerName,
+			&ownerEmail,
 		)
 		if err != nil {
 			continue
 		}
+		a.UserName = ownerDisplayName(ownerName, ownerEmail)
 		if waitingSince.Valid {
 			a.WaitingSince = &waitingSince.Time
 		}
@@ -4464,13 +4486,16 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 	var stepsJSON string
 	var prompt, errStr sql.NullString
 	var startedAt, completedAt, waitingSince sql.NullTime
+	var ownerName, ownerEmail string
 
 	err := d.conn.QueryRow(`
 		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
-		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since
+		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
+		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, '')
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
+		LEFT JOIN users u ON u.id = a.user_id
 		WHERE a.id = ?
 	`, id).Scan(
 		&a.ID,
@@ -4490,6 +4515,9 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		&completedAt,
 		&errStr,
 		&waitingSince,
+		&a.UserID,
+		&ownerName,
+		&ownerEmail,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -4497,6 +4525,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		}
 		return nil, err
 	}
+	a.UserName = ownerDisplayName(ownerName, ownerEmail)
 	if waitingSince.Valid {
 		a.WaitingSince = &waitingSince.Time
 	}

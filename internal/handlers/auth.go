@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"tasks/internal/auth"
@@ -44,10 +46,12 @@ func (h *Handler) sessionCookieFor(r *http.Request, value string, maxAge int) *h
 	}
 }
 
-// HandleLogin starts a sign-in and sends the browser to the provider.
+// HandleLogin starts a sign-in and sends the browser to the provider, or, on
+// a deployment without one, to the interface's local sign-in screen, so the one
+// URL the interface links to works in both modes.
 func (h *Handler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if h.identityProvider == nil {
-		writeError(w, http.StatusNotFound, "No identity provider is configured")
+		http.Redirect(w, r, "/signin?redirect="+url.QueryEscape(safeRedirect(r.URL.Query().Get("redirect"))), http.StatusFound)
 		return
 	}
 	verifier, challenge, err := auth.NewVerifier()
@@ -101,18 +105,65 @@ func (h *Handler) HandleAuthCallback(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "The sign-in could not be completed")
 		return
 	}
-	userID, err := h.db.UpsertUser(identity.Subject, identity.Email, identity.DisplayName)
+	// The provider's claim, when configured, is the authority on the role and
+	// overwrites any manual change; without a claim the stored role stands and
+	// the first person to sign in while no admin exists becomes one.
+	user, err := h.db.SignInProvider(identity.Subject, identity.Email, identity.DisplayName, identity.Role, identity.RoleFromClaim)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	token, _, err := h.db.CreateWebSession(userID)
+	token, _, err := h.db.CreateWebSession(user.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	http.SetCookie(w, h.sessionCookieFor(r, token, int(db.WebSessionTTL.Seconds())))
 	http.Redirect(w, r, safeRedirect(flow.Redirect), http.StatusFound)
+}
+
+// HandleLocalSignIn is the temporary local sign-in of a deployment without a
+// provider: an e-mail address and nothing else. It identifies without
+// authenticating, which is why it does not exist once a provider is configured
+// and why the interface says what it is. The first account created is admin.
+func (h *Handler) HandleLocalSignIn(w http.ResponseWriter, r *http.Request) {
+	if h.identityProvider != nil {
+		writeError(w, http.StatusNotFound, "Sign-in goes through the identity provider on this deployment")
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	var payload struct {
+		Email string `json:"email"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid sign-in request")
+		return
+	}
+	user, err := h.db.SignInLocal(payload.Email)
+	if errors.Is(err, db.ErrInvalidEmail) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	token, _, err := h.db.CreateWebSession(user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	http.SetCookie(w, h.sessionCookieFor(r, token, int(db.WebSessionTTL.Seconds())))
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"userId":      user.ID,
+		"email":       user.Email,
+		"displayName": user.DisplayName,
+		"role":        user.Role,
+		"mode":        h.signInMode(),
+	})
 }
 
 // HandleLogout ends the browser session on the server, not only in the browser.
@@ -138,16 +189,20 @@ func (h *Handler) HandleCurrentUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	userID := h.webSessionUser(r)
+	caller := h.webPrincipal(r)
 	body := map[string]interface{}{
-		"userId":           userID,
-		"signedIn":         userID != "",
+		"userId":           caller.UserID,
+		"signedIn":         !caller.Anonymous(),
 		"identityProvider": h.identityProvider != nil,
+		// mode says how people sign in here: oidc, local, or implicit while
+		// nobody has an account yet. role is empty for an anonymous caller.
+		"mode": caller.Mode,
+		"role": caller.Role,
 		// The profile shows a deprecation notice while the shared credential
 		// is configured, so the operator moves to API keys before it goes.
 		"sharedServerToken": sharedServerTokenConfigured(),
 	}
-	if user, err := h.db.GetUser(userID); err == nil && user != nil {
+	if user, err := h.db.GetUser(caller.UserID); err == nil && user != nil {
 		body["email"] = user.Email
 		body["displayName"] = user.DisplayName
 	}
@@ -174,16 +229,23 @@ func publicPath(path string) bool {
 	return !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/ws/")
 }
 
-// RequireSession guards the interface API once a provider is configured.
-// Without one, every request keeps resolving to the single implicit user.
+// RequireSession guards the interface API once people can sign in, through a
+// provider or through the first local account. Before that every request keeps
+// resolving to the single implicit user, who is an admin. Past the sign-in
+// check it also refuses members on the routes adminOnlyRoute names.
 func (h *Handler) RequireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h.identityProvider == nil || publicPath(r.URL.Path) {
+		if publicPath(r.URL.Path) || h.signInMode() == modeImplicit {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if h.webSessionUser(r) == "" {
-			writeError(w, http.StatusUnauthorized, "Sign in to use this interface")
+		caller := h.webPrincipal(r)
+		if caller.Anonymous() {
+			writeError(w, http.StatusUnauthorized, msgSignIn)
+			return
+		}
+		if adminOnlyRoute(r.Method, r.URL.Path) && !caller.IsAdmin() {
+			writeError(w, http.StatusForbidden, msgAdminOnly)
 			return
 		}
 		next.ServeHTTP(w, r)

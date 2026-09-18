@@ -90,6 +90,9 @@ type TrackerOp struct {
 	// SprintID sends the work items back to the backlog.
 	SprintID   string
 	SprintName string
+	// UserID is who asked for the operation, recorded on its activity. Empty
+	// when the caller has no identity, as for a job the server queues itself.
+	UserID string
 }
 
 // EnqueueTrackerOp records the activity and hands the write to the worker. The
@@ -265,6 +268,7 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 		Summary:   summary,
 		Steps:     steps,
 		CreatedAt: now,
+		UserID:    strings.TrimSpace(op.UserID),
 	}
 
 	opCopy := op

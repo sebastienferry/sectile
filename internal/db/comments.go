@@ -29,6 +29,8 @@ func (d *DB) ensureCommentsTable() {
 		FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 	);`)
 	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id, created_at ASC);")
+	// The Sectile user behind a local comment; empty on rows written before.
+	_, _ = d.conn.Exec("ALTER TABLE task_comments ADD COLUMN user_id TEXT NOT NULL DEFAULT '';")
 }
 
 func (d *DB) taskTrackerSource(task *models.Task) string {
@@ -83,7 +85,7 @@ func (d *DB) getLocalComments(taskID string) ([]models.TaskComment, error) {
 
 	d.mu.RLock()
 	rows, err := d.conn.Query(`
-		SELECT id, task_id, author, body, created_at
+		SELECT id, task_id, author, body, created_at, user_id
 		FROM task_comments WHERE task_id = ? ORDER BY created_at ASC
 	`, taskID)
 	d.mu.RUnlock()
@@ -96,7 +98,7 @@ func (d *DB) getLocalComments(taskID string) ([]models.TaskComment, error) {
 	for rows.Next() {
 		var c models.TaskComment
 		var created time.Time
-		if err := rows.Scan(&c.ID, &c.TaskID, &c.Author, &c.Body, &created); err != nil {
+		if err := rows.Scan(&c.ID, &c.TaskID, &c.Author, &c.Body, &created, &c.UserID); err != nil {
 			continue
 		}
 		c.CreatedAt = &created
@@ -108,8 +110,16 @@ func (d *DB) getLocalComments(taskID string) ([]models.TaskComment, error) {
 
 // PostTaskComment records a comment: on the tracker when the task has one, in
 // the local table otherwise. Returns the refreshed list so the caller does not
-// have to guess how the tracker rendered it.
+// have to guess how the tracker rendered it. The comment carries no Sectile
+// author; callers that know who is writing use PostTaskCommentBy.
 func (d *DB) PostTaskComment(taskIDOrKey string, body string) ([]models.TaskComment, error) {
+	return d.PostTaskCommentBy(Actor{}, taskIDOrKey, body)
+}
+
+// PostTaskCommentBy is PostTaskComment attributed to a user. A local comment is
+// signed with the actor's name and keeps their id; a tracker comment is posted
+// under the tracker credential, which is the only author the tracker knows.
+func (d *DB) PostTaskCommentBy(actor Actor, taskIDOrKey string, body string) ([]models.TaskComment, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return nil, fmt.Errorf("commentaire vide")
@@ -121,15 +131,20 @@ func (d *DB) PostTaskComment(taskIDOrKey string, body string) ([]models.TaskComm
 	}
 
 	if d.taskTrackerSource(task) == "local" {
-		author := "Moi"
-		if settings, _ := d.GetSettings(); settings != nil && strings.TrimSpace(settings.UserName) != "" {
-			author = settings.UserName
+		author := strings.TrimSpace(actor.Name)
+		if author == "" {
+			// A caller without an identity falls back to the legacy profile
+			// name, as before roles existed.
+			author = "Moi"
+			if settings, _ := d.GetSettings(); settings != nil && strings.TrimSpace(settings.UserName) != "" {
+				author = settings.UserName
+			}
 		}
 		d.mu.Lock()
 		d.ensureCommentsTable()
 		_, execErr := d.conn.Exec(
-			"INSERT INTO task_comments (id, task_id, author, body, created_at) VALUES (?, ?, ?, ?, ?)",
-			uuid.New().String(), task.ID, author, body, time.Now(),
+			"INSERT INTO task_comments (id, task_id, author, body, created_at, user_id) VALUES (?, ?, ?, ?, ?, ?)",
+			uuid.New().String(), task.ID, author, body, time.Now(), strings.TrimSpace(actor.ID),
 		)
 		d.mu.Unlock()
 		if execErr != nil {

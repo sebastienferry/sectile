@@ -307,10 +307,47 @@ agent warns in its log ten days before its key expires, and a refused key says
 A key is shown in clear only in the panel's advanced case: an MCP client
 configured by hand on a machine with no agent to pair for it.
 
-`SECTILE_DEV_IDENTITY=1` allows naming a user through an `X-Sectile-User`
-header, to exercise several accounts before a provider exists. It is an
-impersonation switch: it is ignored once a provider is configured, and it must
-stay off elsewhere.
+Roles can come from the provider. Name the claim carrying a person's groups or
+roles and the value that grants admin, and each sign-in sets the role from it:
+
+```sh
+export SECTILE_OIDC_ROLE_CLAIM='groups'              # Okta: a groups claim on the authorization server
+export SECTILE_OIDC_ADMIN_GROUP='sectile-admins'     # Auth0: a namespaced claim set by a post-login Action
+```
+
+The two are set together or not at all. The claim is read from UserInfo, then
+from the ID token, and it may be a single string or a list. It is the authority:
+it overwrites a role an admin changed by hand at that person's next sign-in.
+Without it, the first person to sign in while no admin exists becomes the admin.
+
+### Before an identity provider: the local sign-in
+
+Without `SECTILE_OIDC_ISSUER` the interface offers a local sign-in: an e-mail
+address and nothing else. An unknown address creates the account, the first
+account created is the admin, and everyone after that is a member.
+
+It identifies people; it does not authenticate them. Anyone who types a
+colleague's address is that colleague, so keep it to a trusted network and treat
+it as the step before connecting Okta or Auth0, which disables it. A deployment
+with no provider and no account yet keeps the single implicit user, who may do
+everything; creating the first account ends that mode.
+
+### Roles
+
+| | Admin | Member |
+|---|---|---|
+| Board, tasks, transitions, comments | yes | yes |
+| Launch and stop **their own** executions | yes | yes |
+| See everyone's running executions | yes | yes |
+| Stop **someone else's** execution, dispatch to their agent | yes | no |
+| Global settings, tracker credentials | yes | no, beyond their own preferences |
+| Create, edit and delete projects | yes | no |
+| List users, change roles, other people's workstations | yes | no |
+
+Executions record who started them. A stop is delivered to the owner's agent,
+which is what keeps a colleague's run from being closed while its process is
+still running. The profile's **Users** section, visible to admins, lists the
+accounts and changes roles; the last admin cannot be demoted.
 
 Then start the workstation agent in an existing clone, with its key:
 

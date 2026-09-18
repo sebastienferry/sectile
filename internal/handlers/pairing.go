@@ -3,9 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
-	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -36,35 +34,37 @@ func (r apiKeyRequest) ttl() time.Duration {
 // spread through the code as a bare string.
 const ImplicitUser = "default"
 
-// webSessionUser identifies the person driving the web interface.
+// webSessionUser identifies the caller of an interface request: whoever holds
+// a valid session cookie, opened by the identity provider's callback or by the
+// local e-mail sign-in.
 //
-// With an OpenID Connect provider configured, that is whoever holds a valid
-// session cookie. Without one the interface has a single implicit user, which
-// is how a personal deployment runs.
+// A workstation API key answers for the machine surfaces that reach the same
+// routes: the agent gateway forwards the consoles' `/api/` calls with the key
+// rather than with a cookie, and that key names a user just as a session does.
+// Only a real key counts here, never the deprecated shared token nor the legacy
+// open mode where any value named the implicit user: those would hand anyone a
+// way past sign-in by setting one header.
 //
-// SECTILE_DEV_IDENTITY=1 lets a caller name itself through the X-Sectile-User
-// header, so several users can be exercised before any provider exists. It is
-// an impersonation switch, off unless the deployment sets it: leaving it on
-// once real sign-in exists would let anyone claim any identity.
+// Without either, the answer depends on the deployment. With a provider, or
+// once a local account exists, an anonymous request is a stranger. Before the
+// first local account the interface keeps its single implicit user, which is
+// how a personal deployment runs and how a fresh one opens its board.
 func (h *Handler) webSessionUser(r *http.Request) string {
-	// A configured provider is the only authority: the development switch is
-	// ignored rather than left as a way around real sign-in.
-	if h.identityProvider != nil {
-		cookie, err := r.Cookie(sessionCookie)
-		if err != nil {
-			return ""
-		}
-		return h.db.UserForWebSession(cookie.Value)
-	}
-	if os.Getenv("SECTILE_DEV_IDENTITY") == "1" {
-		if claimed := strings.TrimSpace(r.Header.Get("X-Sectile-User")); claimed != "" {
-			userID, err := h.db.UpsertUser("dev|"+claimed, "", claimed)
-			if err != nil {
-				log.Printf("[Identity] Development identity %q refused: %v", claimed, err)
-				return ""
-			}
+	if cookie, err := r.Cookie(sessionCookie); err == nil && h.db != nil {
+		if userID := h.db.UserForWebSession(cookie.Value); userID != "" {
 			return userID
 		}
+	}
+	if token := bearerToken(r); token != "" && h.db != nil {
+		if credential, err := h.resolveAgentCredential(token); err == nil && credential.Device != nil {
+			return credential.UserID
+		}
+	}
+	if h.identityProvider != nil {
+		return ""
+	}
+	if h.db != nil && h.db.HasLocalAccounts() {
+		return ""
 	}
 	return ImplicitUser
 }
@@ -140,12 +140,29 @@ func (h *Handler) HandleAgentPair(w http.ResponseWriter, r *http.Request) {
 
 // HandleDeviceCredentials manages the signed-in user's API keys: GET lists
 // them, POST creates one and returns its plaintext exactly once, PUT renews or
-// clears the expiry of one, DELETE revokes one.
+// clears the expiry of one, DELETE revokes one. An admin may name another user
+// with ?userId= to list or revoke that user's workstations.
 func (h *Handler) HandleDeviceCredentials(w http.ResponseWriter, r *http.Request) {
-	userID := h.webSessionUser(r)
-	if userID == "" {
+	caller := h.webPrincipal(r)
+	if caller.Anonymous() {
 		writeError(w, http.StatusUnauthorized, "Sign in to manage workstations")
 		return
+	}
+	userID := caller.UserID
+	if other := strings.TrimSpace(r.URL.Query().Get("userId")); other != "" && other != caller.UserID {
+		if !caller.IsAdmin() {
+			writeError(w, http.StatusForbidden, msgAdminOnly)
+			return
+		}
+		// An admin sees and revokes someone else's workstations. Minting or
+		// renewing a key in their name is another thing entirely: it would hand
+		// the admin a durable credential that acts as that person, which no
+		// part of this feature asks for.
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
+			writeError(w, http.StatusForbidden, "A workstation key can only be created or renewed by its own owner")
+			return
+		}
+		userID = other
 	}
 	switch r.Method {
 	case http.MethodPost:

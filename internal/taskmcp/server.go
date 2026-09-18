@@ -4,6 +4,7 @@ package taskmcp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -93,9 +94,39 @@ func sessionContext(config *agentconfig.Config) map[string]any {
 	}
 }
 
+// Caller is the user behind an MCP call, resolved by the host from the bearer
+// credential of the HTTP request that carried it.
+type Caller struct {
+	UserID string
+	Name   string
+	Role   string
+}
+
+// CallerResolver maps the headers of an MCP request to its caller. It returns
+// false when the request names nobody, as over a transport without headers.
+type CallerResolver func(header http.Header) (Caller, bool)
+
+// callerOf resolves the caller of one tool call, or nobody when the host gave
+// no resolver or the transport carried no headers.
+func callerOf(resolve CallerResolver, req *mcp.CallToolRequest) Caller {
+	if resolve == nil || req == nil || req.Extra == nil {
+		return Caller{}
+	}
+	caller, _ := resolve(req.Extra.Header)
+	return caller
+}
+
 // NewServer builds the tool catalog. The registry may be nil: session
 // ownership is an addition to the catalog, never a precondition for serving it.
+// Calls served this way name no caller; a host that can resolve one uses
+// NewServerWithCallers.
 func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
+	return NewServerWithCallers(database, sessions, nil)
+}
+
+// NewServerWithCallers is NewServer with the host's caller resolver, so a run,
+// a transition or a comment records the user whose key made the call.
+func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve CallerResolver) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, &mcp.ServerOptions{
 		// A session begins when its client finishes initializing, which is the
 		// first moment the server knows who connected.
@@ -138,7 +169,7 @@ func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
 		if strings.TrimSpace(in.Note) == "" {
 			return nil, nil, fmt.Errorf("note is required")
 		}
-		task, activity, err := database.TransitionTaskStage(in.TaskKey, in.Stage, in.Note, in.PRURL, in.Branch)
+		task, activity, err := database.TransitionTaskStageBy(callerOf(resolve, req).UserID, in.TaskKey, in.Stage, in.Note, in.PRURL, in.Branch)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -149,7 +180,8 @@ func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
 			if strings.TrimSpace(in.TaskKey) == "" || strings.TrimSpace(in.Body) == "" {
 				return nil, nil, fmt.Errorf("taskKey and body are required")
 			}
-			comments, err := database.PostTaskComment(in.TaskKey, in.Body)
+			caller := callerOf(resolve, req)
+			comments, err := database.PostTaskCommentBy(db.Actor{ID: caller.UserID, Name: caller.Name}, in.TaskKey, in.Body)
 			return nil, map[string]any{"comments": comments}, err
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "list_tasks", Description: "List board tasks, optionally filtered by project, status and sprint."},
@@ -172,7 +204,7 @@ func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs. A run this session creates is owned by it: if this client disconnects without finishing it, the server closes the run as canceled. A run reused from a launcher keeps the ownership of that launcher."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in startRunInput) (*mcp.CallToolResult, any, error) {
-			activity, err := database.StartRemoteRun(in.TaskKey, in.Skill, in.RunID)
+			activity, err := database.StartRemoteRunBy(callerOf(resolve, req).UserID, in.TaskKey, in.Skill, in.RunID)
 			if err != nil {
 				return nil, nil, err
 			}
