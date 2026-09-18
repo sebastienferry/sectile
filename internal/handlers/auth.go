@@ -15,7 +15,7 @@ import (
 const sessionCookie = "sectile_session"
 
 // SetIdentityProvider installs the provider the server signs people in
-// against. Without one the interface keeps its single implicit user.
+// against. Without one the local e-mail sign-in identifies people.
 func (h *Handler) SetIdentityProvider(provider *auth.Provider) {
 	h.identityProvider = provider
 }
@@ -194,8 +194,8 @@ func (h *Handler) HandleCurrentUser(w http.ResponseWriter, r *http.Request) {
 		"userId":           caller.UserID,
 		"signedIn":         !caller.Anonymous(),
 		"identityProvider": h.identityProvider != nil,
-		// mode says how people sign in here: oidc, local, or implicit while
-		// nobody has an account yet. role is empty for an anonymous caller.
+		// mode says how people sign in here: oidc or local. role is empty for
+		// an anonymous caller.
 		"mode": caller.Mode,
 		"role": caller.Role,
 		// The profile shows a deprecation notice while the shared credential
@@ -235,13 +235,12 @@ func publicPath(path string) bool {
 	return !strings.HasPrefix(path, "/api/") && !strings.HasPrefix(path, "/ws/")
 }
 
-// RequireSession guards the interface API once people can sign in, through a
-// provider or through the first local account. Before that every request keeps
-// resolving to the single implicit user, who is an admin. Past the sign-in
-// check it also refuses members on the routes adminOnlyRoute names.
+// RequireSession guards the interface API: everything but publicPath needs a
+// session, on every deployment and from the first visit (ADR 0015). Past the
+// sign-in check it also refuses members on the routes adminOnlyRoute names.
 func (h *Handler) RequireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if publicPath(r.URL.Path) || h.signInMode() == modeImplicit {
+		if publicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}

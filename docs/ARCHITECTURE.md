@@ -115,7 +115,7 @@ sequenceDiagram
     participant A as sectile-agent
     participant L as MCP client<br/>(Claude Code, or a CLI via the bridge)
 
-    Note over UI,S: Web session: an OIDC cookie, or the single implicit user<br/>when no identity provider is configured
+    Note over UI,S: Web session: an OIDC cookie, or the local e-mail sign-in<br/>when no identity provider is configured. Signing in is mandatory.
     U->>UI: create an API key (or a pairing code)
     UI->>S: POST /api/devices {label, ttlDays}
     S-->>UI: the key, shown once, and its expiry

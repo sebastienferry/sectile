@@ -70,11 +70,10 @@ export const ProfileModal: React.FC = () => {
   } = useApp()
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
-  // The signed-in identity is what the account section shows; the free-text
-  // name and e-mail below it are the single-user leftovers, kept only while
-  // nobody has an account.
+  // The signed-in identity is what the account section shows. Signing in is
+  // mandatory (ADR 0015), so there is always an account behind the profile.
   const { user: currentUser } = useCurrentUser()
-  const hasAccount = !!currentUser?.signedIn && currentUser.mode !== 'implicit'
+  const hasAccount = !!currentUser?.signedIn
 
   // Appearance & User
   const [userName, setUserName] = useState(settings.userName)

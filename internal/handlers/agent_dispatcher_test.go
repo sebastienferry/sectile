@@ -156,6 +156,21 @@ func TestHandleAgentStatus(t *testing.T) {
 	}
 }
 
+// defaultSession opens a browser session for the "default" account, the one the
+// agent registers under. Signing in is mandatory (ADR 0015), so a dispatch that
+// used to be anonymous now carries a cookie.
+func defaultSession(t *testing.T, database *db.DB) *http.Cookie {
+	t.Helper()
+	if err := database.EnsureUser(db.ImplicitUserID); err != nil {
+		t.Fatalf("ensure user: %v", err)
+	}
+	token, _, err := database.CreateWebSession(db.ImplicitUserID)
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	return &http.Cookie{Name: "sectile_session", Value: token}
+}
+
 func TestHandleAgentDispatch_DisconnectedGuard(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
@@ -170,6 +185,7 @@ func TestHandleAgentDispatch_DisconnectedGuard(t *testing.T) {
 	// Attempt dispatch when no agent is connected -> expect 428 Precondition Required
 	body := `{"userId":"default","projectId":"default","taskId":"#46","action":"clarify"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/agent/dispatch", strings.NewReader(body))
+	req.AddCookie(defaultSession(t, database))
 	rr := httptest.NewRecorder()
 	h.HandleAgentDispatch(rr, req)
 
@@ -237,6 +253,7 @@ func TestHandleAgentConnect_WebSocketHandshake(t *testing.T) {
 	// 3. Dispatch command to connected agent -> should succeed and receive message over WS
 	dispatchBody := `{"userId":"default","projectId":"default","taskId":"#46","action":"dispatch_step","payload":{"taskKey":"#46","action":"clarify"}}`
 	dispatchReq := httptest.NewRequest(http.MethodPost, "/api/agent/dispatch", strings.NewReader(dispatchBody))
+	dispatchReq.AddCookie(defaultSession(t, database))
 	dispatchRR := httptest.NewRecorder()
 	h.HandleAgentDispatch(dispatchRR, dispatchReq)
 
@@ -307,6 +324,7 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	runSkillBody := `{"skillId":"clarify"}`
 	runSkillReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/tasks/"+task.ID+"/run-skill", strings.NewReader(runSkillBody))
 	runSkillReq.Header.Set("Content-Type", "application/json")
+	runSkillReq.AddCookie(defaultSession(t, database))
 	responses := make(chan *http.Response, 1)
 	requestErrors := make(chan error, 1)
 	go func() {
@@ -366,6 +384,7 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	cancelBody := strings.NewReader(`{"runId":"` + dispatch.RunID + `"}`)
 	cancelRequest, _ := http.NewRequest(http.MethodPost, server.URL+"/api/tasks/"+task.ID+"/cancel-run", cancelBody)
 	cancelRequest.Header.Set("Content-Type", "application/json")
+	cancelRequest.AddCookie(defaultSession(t, database))
 	go func() {
 		resp, err := http.DefaultClient.Do(cancelRequest)
 		if err != nil {

@@ -1,16 +1,23 @@
 import { useState } from 'react'
-import { LogIn, Mail, ShieldAlert } from 'lucide-react'
+import { KeyRound, LogIn, Mail, ShieldAlert } from 'lucide-react'
 import type { CurrentUser } from '../lib/session'
-import { redirectFromSearch } from '../lib/session'
+import { redirectFromSearch, unlockSealedCredentials } from '../lib/session'
 
 /**
- * The sign-in screen. With an identity provider it is one link; without one
- * it is the temporary local sign-in: an e-mail address and nothing else, which
- * identifies people without authenticating them. The screen says so, because a
- * mode that looks like a login and is not one would mislead.
+ * The sign-in screen. Signing in is mandatory (ADR 0015): a signed-out visitor
+ * sees this and nothing else. With an identity provider it is one link; without
+ * one it is the temporary local sign-in, an e-mail address which identifies
+ * people without authenticating them. The screen says so, because a mode that
+ * looks like a login and is not one would mislead.
+ *
+ * The only secret the form ever asks for is the sealing passphrase of ADR 0014,
+ * and only for whoever chose to seal their tracker tokens. It is optional, and
+ * a wrong one never refuses the sign-in: that would turn it into a password.
  */
+
 export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSignedIn: () => void }) {
   const [email, setEmail] = useState('')
+  const [passphrase, setPassphrase] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const returnTo = redirectFromSearch(window.location.search)
@@ -28,6 +35,13 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
         throw new Error(body.error || `HTTP ${res.status}`)
       }
       onSignedIn()
+      // A refused passphrase is reported and nothing else: the session is open
+      // and the tokens simply stay locked.
+      const notice = await unlockSealedCredentials(passphrase)
+      if (notice) {
+        setError(notice)
+        return
+      }
       window.location.assign(returnTo)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in.')
@@ -69,15 +83,27 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
                 <Mail size={15} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
               </div>
             </label>
+            <label className="block text-xs font-medium text-[var(--text-secondary)]">
+              Sealing passphrase <span className="text-[var(--text-muted)]">(optional)</span>
+              <div className="relative mt-1">
+                <input
+                  type="password" autoComplete="off" value={passphrase}
+                  onChange={event => setPassphrase(event.target.value)}
+                  placeholder="Only if you sealed your tracker tokens" className={field}
+                />
+                <KeyRound size={15} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
+              </div>
+            </label>
             <button type="submit" disabled={submitting || !email.trim()} className={button}>
               <LogIn size={16} /> {submitting ? 'Signing in' : 'Sign in'}
             </button>
             <p role="note" className="flex gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
               <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
               <span>
-                No password is asked: this mode identifies people without authenticating them and is
-                meant for a trusted network until an identity provider is connected. The first account
-                created becomes the admin.
+                No login password is asked: this mode identifies people without authenticating them
+                and is meant for a trusted network until an identity provider is connected. The first
+                account created becomes the admin. The passphrase above is only the one sealing your
+                own tracker tokens; leaving it empty signs you in with those tokens locked.
               </span>
             </p>
           </form>

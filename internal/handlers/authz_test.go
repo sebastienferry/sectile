@@ -135,9 +135,10 @@ func TestGuardTellsAnonymousFromMember(t *testing.T) {
 	defer cleanup()
 	server := guardedServer(t, h)
 
-	// Before any account: the implicit user, an admin, and nothing is guarded.
-	if status, _ := call(t, server, nil, http.MethodPost, "/api/setup/tracker", `{}`); status != http.StatusOK {
-		t.Fatalf("implicit mode refused an admin action: %d", status)
+	// Nothing is reachable before a sign-in, on a deployment without accounts
+	// as on any other (ADR 0015).
+	if status, body := call(t, server, nil, http.MethodPost, "/api/setup/tracker", `{}`); status != http.StatusUnauthorized || !strings.Contains(body, msgSignIn) {
+		t.Fatalf("an empty deployment served an anonymous admin action: %d %s", status, body)
 	}
 
 	_, alice := account(t, database, "alice@example.com")
@@ -193,14 +194,15 @@ func TestLocalSignInBootstrapsTheFirstAdmin(t *testing.T) {
 	}
 }
 
-// The shared settings row mixes preferences with configuration: a member may
-// change the former, and touching the latter names the offending keys.
+// The settings row is split in two (ADR 0015): the preferences are personal
+// and each account keeps its own, the deployment's configuration is shared and
+// a member touching it is refused by name.
 func TestMembersOnlyChangeTheirPreferencesInSettings(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
 	server := guardedServer(t, h)
-	_, alice := account(t, database, "alice@example.com")
-	_, bob := account(t, database, "bob@example.com")
+	aliceID, alice := account(t, database, "alice@example.com")
+	bobID, bob := account(t, database, "bob@example.com")
 
 	current, _ := database.GetSettings()
 	current.Theme = "light"
@@ -219,23 +221,52 @@ func TestMembersOnlyChangeTheirPreferencesInSettings(t *testing.T) {
 		t.Fatalf("admin changing the provider: %d %s", status, body)
 	}
 	saved, _ := database.GetSettings()
-	if saved.AIProvider != "codex" || saved.Theme != "light" {
-		t.Fatalf("saved settings = provider %q theme %q", saved.AIProvider, saved.Theme)
+	if saved.AIProvider != "codex" {
+		t.Fatalf("the deployment provider = %q, want codex", saved.AIProvider)
+	}
+
+	// The theme each of them saved is their own, and the deployment row is not
+	// where it landed.
+	bobSettings, _ := database.UserSettings(bobID)
+	aliceSettings, _ := database.UserSettings(aliceID)
+	if bobSettings.Theme != "light" {
+		t.Fatalf("bob's theme = %q, want light", bobSettings.Theme)
+	}
+	if status, body = call(t, server, alice, http.MethodPost, "/api/settings", `{"theme":"dark","density":"compact"}`); status != http.StatusOK {
+		t.Fatalf("admin changing her theme: %d %s", status, body)
+	}
+	aliceSettings, _ = database.UserSettings(aliceID)
+	bobSettings, _ = database.UserSettings(bobID)
+	if aliceSettings.Theme != "dark" || aliceSettings.Density != "compact" {
+		t.Fatalf("alice's preferences = %+v", aliceSettings)
+	}
+	if bobSettings.Theme != "light" {
+		t.Fatalf("alice's save reached bob: theme %q", bobSettings.Theme)
 	}
 
 	// Omitting a key is not a way around the rule: a partial payload from a
 	// member leaves every admin-only value as it was, booleans included.
 	before, _ := database.GetSettings()
-	if status, body = call(t, server, bob, http.MethodPost, "/api/settings", `{"theme":"dark"}`); status != http.StatusOK {
+	if status, body = call(t, server, bob, http.MethodPost, "/api/settings", `{"theme":"system"}`); status != http.StatusOK {
 		t.Fatalf("member posting a partial payload: %d %s", status, body)
 	}
 	after, _ := database.GetSettings()
-	if after.Theme != "dark" {
-		t.Fatalf("member's own preference was dropped: theme %q", after.Theme)
+	bobSettings, _ = database.UserSettings(bobID)
+	if bobSettings.Theme != "system" {
+		t.Fatalf("member's own preference was dropped: theme %q", bobSettings.Theme)
 	}
 	if after.AIProvider != before.AIProvider || after.AutoSyncEnabled != before.AutoSyncEnabled || after.AutoSyncIntervalSec != before.AutoSyncIntervalSec {
 		t.Fatalf("an omitted admin setting changed: provider %q->%q, autoSync %v->%v every %d->%d",
 			before.AIProvider, after.AIProvider, before.AutoSyncEnabled, after.AutoSyncEnabled, before.AutoSyncIntervalSec, after.AutoSyncIntervalSec)
+	}
+
+	// userEmail is the account's address and is not writable.
+	if status, body = call(t, server, bob, http.MethodPost, "/api/settings", `{"userEmail":"someone@else.test"}`); status != http.StatusOK {
+		t.Fatalf("member posting an e-mail: %d %s", status, body)
+	}
+	status, body = call(t, server, bob, http.MethodGet, "/api/settings", "")
+	if status != http.StatusOK || !strings.Contains(body, `"userEmail":"bob@example.com"`) {
+		t.Fatalf("settings read back = %d %s, want bob's own address", status, body)
 	}
 }
 

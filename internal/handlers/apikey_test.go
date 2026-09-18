@@ -106,8 +106,18 @@ func TestAgentHandshakeRefusesAnExpiredKeyByName(t *testing.T) {
 }
 
 func TestProfileCreatesRenewsAndRevokesKeys(t *testing.T) {
-	h, _, cleanup := setupTestHandler(t)
+	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
+	// The workstation routes act on the signed-in account, and signing in is
+	// mandatory, so the calls carry a session.
+	user, err := database.SignInLocal("ada@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, _, err := database.CreateWebSession(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	call := func(method, target, body string) *httptest.ResponseRecorder {
 		var reader *strings.Reader
 		if body != "" {
@@ -116,6 +126,7 @@ func TestProfileCreatesRenewsAndRevokesKeys(t *testing.T) {
 			reader = strings.NewReader("")
 		}
 		req := httptest.NewRequest(method, target, reader)
+		req.AddCookie(&http.Cookie{Name: sessionCookie, Value: token})
 		rr := httptest.NewRecorder()
 		h.HandleDeviceCredentials(rr, req)
 		return rr
@@ -139,7 +150,7 @@ func TestProfileCreatesRenewsAndRevokesKeys(t *testing.T) {
 	if !strings.HasPrefix(created.Token, db.APIKeyPrefix) || created.Device.ExpiresAt == nil {
 		t.Fatalf("created = %+v", created)
 	}
-	if h.resolveAgentUser(created.Token) != ImplicitUser {
+	if h.resolveAgentUser(created.Token) != user.ID {
 		t.Fatal("the created key does not authenticate")
 	}
 
@@ -167,7 +178,7 @@ func TestProfileCreatesRenewsAndRevokesKeys(t *testing.T) {
 	if renewed.ExpiresAt == nil || time.Until(*renewed.ExpiresAt) > 31*24*time.Hour || time.Until(*renewed.ExpiresAt) < 29*24*time.Hour {
 		t.Fatalf("renewed expiry = %v", renewed.ExpiresAt)
 	}
-	if h.resolveAgentUser(created.Token) != ImplicitUser {
+	if h.resolveAgentUser(created.Token) != user.ID {
 		t.Fatal("renewal broke the key")
 	}
 	if rr = call(http.MethodPut, "/api/devices?id=dev_missing", `{}`); rr.Code != http.StatusNotFound {

@@ -65,15 +65,13 @@ export function SignInStatus({ projects }: { projects?: { id: string; name: stri
               </span>
             </p>
           )}
-          {user.mode !== 'implicit' && (
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              className="flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-3 py-2 hover:bg-[var(--bg-hover)]"
-            >
-              <LogOut size={14} /> Sign out
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => void signOut()}
+            className="flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-3 py-2 hover:bg-[var(--bg-hover)]"
+          >
+            <LogOut size={14} /> Sign out
+          </button>
         </>
       ) : (
         <>
