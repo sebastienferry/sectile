@@ -13,7 +13,7 @@ import './style.css'
 import { taskStage, nextTaskStep, closingStep } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
-import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
+import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
 import { runEngine } from './run-engine.mjs'
 const api=window.localAgent
@@ -163,7 +163,7 @@ function select(run,background=false,options){
   terminal.writeln(consoleNotice(run))
   render(options);return
  }
- api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen&&!ticketsOpen)terminal.focus()}).catch(error)
+ api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen&&!ticketsOpen&&!readOnlyConsole(run))terminal.focus()}).catch(error)
  render(options)
 }
 // The state the user reads, drawn from the shared definition so the row, the
