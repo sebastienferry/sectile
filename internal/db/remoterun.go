@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -41,11 +42,22 @@ type RunLaunch struct {
 	// ChainStop is set only on a step of a full chain run, to the stage that
 	// chain stops at. Empty means this run chains nothing.
 	ChainStop string
+	// UserID is the owner of the run: the person who launched it, or the user
+	// the launching agent's key is bound to. Only the owner or an admin may
+	// stop it.
+	UserID string
 }
 
-// StartRemoteRun creates an independent execution record. It never locks stages.
+// StartRemoteRun creates an independent execution record with no owner. It
+// never locks stages. Callers that know who is reporting use StartRemoteRunBy.
 func (d *DB) StartRemoteRun(taskKey, skill, runID string) (*models.TaskActivity, error) {
-	return d.startRemoteRun(taskKey, skill, runID, false, RunLaunch{})
+	return d.StartRemoteRunBy("", taskKey, skill, runID)
+}
+
+// StartRemoteRunBy is StartRemoteRun for a caller whose identity is known: the
+// user the MCP client's key resolves to becomes the owner of the run.
+func (d *DB) StartRemoteRunBy(userID, taskKey, skill, runID string) (*models.TaskActivity, error) {
+	return d.startRemoteRun(taskKey, skill, runID, false, RunLaunch{UserID: userID})
 }
 func (d *DB) StartAgentRemoteRun(taskKey, skill string) (*models.TaskActivity, error) {
 	return d.startRemoteRun(taskKey, skill, "", true, RunLaunch{})
@@ -83,7 +95,7 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, ProjectID: task.ProjectID,
 		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
 		Status: "running", Summary: "Execution reported by a local agent or native client",
-		CreatedAt: now, StartedAt: &now, Steps: []string{},
+		CreatedAt: now, StartedAt: &now, Steps: []string{}, UserID: strings.TrimSpace(launch.UserID),
 		// What the launcher resolved. The agent corrects it through
 		// SetRemoteRunEngine once it has built the real command line.
 		Provider: strings.TrimSpace(launch.Provider), Model: strings.TrimSpace(launch.Model)}
@@ -104,10 +116,46 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	return activity, nil
 }
 
+// ErrRunNotYours refuses closing an execution that belongs to somebody else.
+// Reporting a run's outcome is the run's own business: a third party closing it
+// looks exactly like the run ending, hands the workflow back, and leaves the
+// real process running on its owner's machine. The name differs from the
+// dispatcher's ErrRunNotOwned, which says an agent does not have a run at all.
+var ErrRunNotYours = errors.New("this execution belongs to another user")
+
 // FinishRemoteRun completes only the specified execution, preserving concurrent runs.
+// It checks no identity; callers that have one use FinishRemoteRunAs.
 func (d *DB) FinishRemoteRun(taskKey, runID, status, note string) (*models.TaskActivity, error) {
+	return d.finishRemoteRun(taskKey, runID, status, note, nil)
+}
+
+// FinishRemoteRunAs is FinishRemoteRun for a caller whose identity is known.
+// The owner closes their own run; an admin closes anyone's; a run with no
+// recorded owner predates ownership and stays closable by anyone, as before.
+func (d *DB) FinishRemoteRunAs(caller Actor, admin bool, taskKey, runID, status, note string) (*models.TaskActivity, error) {
+	check := func(owner string) error {
+		if admin || owner == "" || owner == caller.ID {
+			return nil
+		}
+		return ErrRunNotYours
+	}
+	return d.finishRemoteRun(taskKey, runID, status, note, check)
+}
+
+func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func(ownerID string) error) (*models.TaskActivity, error) {
 	if status != "completed" && status != "failed" && status != "canceled" {
 		return nil, fmt.Errorf("status must be completed, failed or canceled")
+	}
+	if authorize != nil {
+		existing, err := d.GetActivityByID(runID)
+		if err != nil {
+			return nil, err
+		}
+		if existing != nil {
+			if err := authorize(existing.UserID); err != nil {
+				return nil, err
+			}
+		}
 	}
 	task, err := d.GetTaskByID(taskKey)
 	if err != nil {
@@ -145,6 +193,15 @@ func (d *DB) FinishRemoteRun(taskKey, runID, status, note string) (*models.TaskA
 // SyncRemoteRunStatus reconciles a remote run's execution status reported by an agent.
 // It updates existing records (clearing previous restart/failure errors) or inserts a new record.
 func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillName, status, summary string, startedAt *time.Time) (*models.TaskActivity, error) {
+	return d.SyncRemoteRunStatusFor("", activityID, taskID, projectID, taskKey, skillName, status, summary, startedAt)
+}
+
+// SyncRemoteRunStatusFor is SyncRemoteRunStatus with the reporting agent's
+// user. A run the agent reports is the agent's user's: a record inserted here
+// takes that owner, and a record that has none yet adopts it, so a run started
+// before ownership existed becomes stoppable by the person actually running it.
+func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, taskKey, skillName, status, summary string, startedAt *time.Time) (*models.TaskActivity, error) {
+	ownerID = strings.TrimSpace(ownerID)
 	if status != "queued" && status != "running" && status != "completed" && status != "failed" && status != "canceled" {
 		return nil, fmt.Errorf("invalid status: %s", status)
 	}
@@ -181,6 +238,9 @@ func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillNa
 			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, waiting_since = NULL WHERE id = ?`,
 				status, summary, activityID)
 		}
+		if err == nil && ownerID != "" {
+			_, err = d.conn.Exec(`UPDATE task_activities SET user_id = ? WHERE id = ? AND user_id = ''`, ownerID, activityID)
+		}
 		if err != nil {
 			d.mu.Unlock()
 			return nil, err
@@ -200,9 +260,9 @@ func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillNa
 		} else if status == "running" {
 			sAt = now
 		}
-		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at)
-			VALUES (?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?)`,
-			activityID, realTaskID, skillName, action, status, summary, sAt, now)
+		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, user_id)
+			VALUES (?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?, ?)`,
+			activityID, realTaskID, skillName, action, status, summary, sAt, now, ownerID)
 		if err != nil {
 			d.mu.Unlock()
 			return nil, err

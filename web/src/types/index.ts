@@ -40,6 +40,10 @@ export interface TaskActivity {
   duration?: string
   /** Set while a running session is blocked on the user. Cleared when it resumes or ends. */
   waitingSince?: string
+  /** Who started the execution. Empty on records written before ownership existed. */
+  userId?: string
+  /** That person's display name or e-mail, resolved server side. */
+  userName?: string
   /** Moteur et modèle réellement utilisés par ce run, vides si inconnus. */
   provider?: string
   model?: string
@@ -87,6 +91,8 @@ export interface TaskComment {
   id: string
   taskId?: string
   author: string
+  /** The Sectile user behind a local comment; absent on tracker comments. */
+  userId?: string
   body: string
   createdAt?: string
   source: string

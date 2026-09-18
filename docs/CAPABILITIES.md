@@ -31,6 +31,31 @@ Sectile supports multiple concurrent software repositories and projects from a s
 
 ---
 
+## 1bis. Users, roles and owned executions
+
+A server shared by several people signs them in, gives each a role, and records
+who started what.
+
+- **Sign-in.** Through an OpenID Connect provider when one is configured, and
+  otherwise through the local sign-in, an e-mail address and nothing else, which
+  identifies people without authenticating them and is meant to be replaced by a
+  provider. A deployment with no provider and no account keeps its single
+  implicit user; the first account created ends that mode and becomes the admin.
+- **Two roles.** An admin manages users and roles, projects, global settings,
+  tracker credentials, anyone's workstations and anyone's execution. A member
+  does everything else, including the board, its tasks, its transitions, its
+  comments and executions on their own agent. When the provider supplies a role
+  claim, that claim is the authority at every sign-in.
+- **The board stays shared.** Everyone sees every project, task and running
+  execution. The user-to-project binding is the agent registration that routes a
+  run to the right machine, not a visibility rule.
+- **Executions are owned.** A run records who started it, and only that person
+  or an admin can stop it. The stop is dispatched to the owner's agent, so a run
+  is closed as orphaned only when the agent that should hold it says it does
+  not. A member's dispatch reaches their own agent whatever the request names.
+
+See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md).
+
 ## 2. Issue Tracker Abstraction Layer
 
 The server owns native GitHub REST/GraphQL adapters. It

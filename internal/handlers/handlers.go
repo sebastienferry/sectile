@@ -1278,7 +1278,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		if note == "" {
 			note = req.Comment
 		}
-		task, act, err := h.db.TransitionTaskStage(targetID, stage, note, req.PrURL, req.Branch)
+		task, act, err := h.db.TransitionTaskStageBy(h.webSessionUser(r), targetID, stage, note, req.PrURL, req.Branch)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1796,6 +1796,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				Prompt:    req.Prompt,
 				CreatedAt: now,
 				StartedAt: &now,
+				UserID:    userID,
 			}
 			_ = h.db.AddTaskActivity(act)
 
@@ -1806,7 +1807,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			// The engine the server resolves is what the run shows until the
 			// agent reports the one it really built its command line with.
 			provider, model := h.db.ResolveTaskEngine(projectID, req.SkillID, req.Model)
-			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model})
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID})
 			if runErr != nil {
 				act.Status = "failed"
 				act.Error = runErr.Error()
@@ -2139,7 +2140,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if note == "" {
 			note = req.Comment
 		}
-		task, act, err := h.db.TransitionTaskStage(targetID, stage, note, req.PrURL, req.Branch)
+		task, act, err := h.db.TransitionTaskStageBy(h.webSessionUser(r), targetID, stage, note, req.PrURL, req.Branch)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2305,7 +2306,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "Invalid comment payload: "+err.Error())
 				return
 			}
-			comments, err := h.db.PostTaskComment(id, req.Body)
+			comments, err := h.db.PostTaskCommentBy(h.webPrincipal(r).Actor(), id, req.Body)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -2496,6 +2497,24 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 		// two apart, so presence of the key is what carries the intent.
 		var sent map[string]json.RawMessage
 		_ = json.Unmarshal(body, &sent)
+		// The row mixes personal preferences with the deployment's
+		// configuration. A member may change the former; touching the latter
+		// is refused by naming the keys, so the interface can say which.
+		if caller := h.webPrincipal(r); !caller.IsAdmin() {
+			current, err := h.db.GetSettings()
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if offending := memberSettingsViolations(*current, sent); len(offending) > 0 {
+				writeError(w, http.StatusForbidden, msgAdminOnly+": "+strings.Join(offending, ", "))
+				return
+			}
+			if req, err = memberSettingsPayload(*current, sent); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
 		var clear []string
 		for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
 			if _, ok := sent[name]; ok {
@@ -2896,14 +2915,20 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.UserID == "" {
-		req.UserID = h.webSessionUser(r)
+	// A member's dispatch reaches their own agent, whatever user the body
+	// names; only an admin may address another user's agent.
+	caller := h.webPrincipal(r)
+	if caller.Anonymous() {
+		writeError(w, http.StatusUnauthorized, msgSignIn)
+		return
+	}
+	if req.UserID == "" || (req.UserID != caller.UserID && !caller.IsAdmin()) {
+		req.UserID = caller.UserID
 	}
 	if req.ProjectID == "" {
 		req.ProjectID = "default"
 	}
 
-	// Session guard: verify the requesting user matches the agent owner.
 	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
 	if ac == nil {
 		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'sectile-agent' on your workstation.")
@@ -2927,11 +2952,19 @@ func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
 		return
 	}
 	log.Printf("[AgentConnect] Pulled %d running/queued tasks from agent %s", len(tasks), ac.DeviceID)
-	h.ApplyAgentRunningTasks(tasks)
+	h.ApplyAgentRunningTasksFor(ac.UserID, tasks)
 }
 
 // ApplyAgentRunningTasks syncs a set of agent tasks to the database and broadcasts updates.
+// ApplyAgentRunningTasks records runs an agent reports, without an owner: for
+// the startup pull from the connection file, whose user is not known here.
 func (h *Handler) ApplyAgentRunningTasks(tasks []agentprotocol.RunningTask) {
+	h.ApplyAgentRunningTasksFor("", tasks)
+}
+
+// ApplyAgentRunningTasksFor records the runs a connected agent reports as its
+// user's: a run the agent has is a run that user started.
+func (h *Handler) ApplyAgentRunningTasksFor(ownerID string, tasks []agentprotocol.RunningTask) {
 	for _, t := range tasks {
 		if t.Status != "queued" && t.Status != "running" {
 			continue
@@ -2941,7 +2974,7 @@ func (h *Handler) ApplyAgentRunningTasks(tasks []agentprotocol.RunningTask) {
 		if !t.StartedAt.IsZero() {
 			startedAt = &t.StartedAt
 		}
-		act, err := h.db.SyncRemoteRunStatus(t.ID, t.TaskID, t.ProjectID, t.TaskKey, t.Skill, t.Status, summary, startedAt)
+		act, err := h.db.SyncRemoteRunStatusFor(ownerID, t.ID, t.TaskID, t.ProjectID, t.TaskKey, t.Skill, t.Status, summary, startedAt)
 		if err != nil {
 			log.Printf("[AgentTasks] Failed to sync run %s (%s): %v", t.ID, t.TaskKey, err)
 			continue
