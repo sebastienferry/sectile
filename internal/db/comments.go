@@ -47,7 +47,15 @@ func (d *DB) taskTrackerSource(task *models.Task) string {
 }
 
 // GetTaskComments returns a task's comments, from the tracker when it has one.
+// GetTaskComments runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) GetTaskComments(taskIDOrKey string) ([]models.TaskComment, error) {
+	return d.GetTaskCommentsAs(context.Background(), taskIDOrKey)
+}
+
+// GetTaskCommentsAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) GetTaskCommentsAs(ctx context.Context, taskIDOrKey string) ([]models.TaskComment, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("tâche non trouvée")
@@ -59,7 +67,7 @@ func (d *DB) GetTaskComments(taskIDOrKey string) ([]models.TaskComment, error) {
 	}
 	ts, tsErr := d.TrackerForTask(task)
 	if tsErr == nil && ts != nil && ts.Name() != "local" && ts.Supports(tracker.CapComment) {
-		comments, err := ts.GetComments(context.Background(), tracker.GetCommentsRequest{
+		comments, err := ts.GetComments(ctx, tracker.GetCommentsRequest{
 			Project: proj,
 			Key:     task.Key,
 		})

@@ -289,6 +289,10 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		return
 	}
 	op := *job.Op
+	// The operation carries who asked for it, so a tracker whose credential is
+	// personal can resolve theirs instead of the server's. An operation the
+	// server queued itself names nobody and keeps the server credential.
+	ctx = tracker.WithActingUser(ctx, op.UserID)
 	steps := []string{}
 
 	var output string

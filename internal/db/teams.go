@@ -176,7 +176,15 @@ func (d *DB) RefreshProjectTeamMembers(projectID string, tasks []models.Task) (s
 
 // RefreshTeamMembersNow re-reads one team on demand, for the refresh button of
 // the team view.
+// RefreshTeamMembersNow runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) RefreshTeamMembersNow(projectID string, teamID string) (*models.TrackerTeam, error) {
+	return d.RefreshTeamMembersNowAs(context.Background(), projectID, teamID)
+}
+
+// RefreshTeamMembersNowAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) RefreshTeamMembersNowAs(ctx context.Context, projectID string, teamID string) (*models.TrackerTeam, error) {
 	teamID = strings.TrimSpace(teamID)
 	if teamID == "" {
 		return nil, fmt.Errorf("identifiant d'équipe manquant")
@@ -196,7 +204,7 @@ func (d *DB) RefreshTeamMembersNow(projectID string, teamID string) (*models.Tra
 	_ = d.conn.QueryRow("SELECT name FROM teams WHERE id = ?", teamID).Scan(&name)
 	d.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), teamsAPITimeout)
+	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
 	defer cancel()
 
 	members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: teamID})
@@ -510,7 +518,15 @@ func (d *DB) GetTeamWorkload(projectID string, teamName string) (*models.TeamWor
 // of the ticket's own team come first with no query at all, because that is the
 // answer in the overwhelming majority of cases; typing then searches the whole
 // instance, which is what makes assigning outside the team possible.
+// SearchAssignableUsers runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) SearchAssignableUsers(taskIDOrKey string, query string) ([]models.TeamMember, error) {
+	return d.SearchAssignableUsersAs(context.Background(), taskIDOrKey, query)
+}
+
+// SearchAssignableUsersAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) SearchAssignableUsersAs(ctx context.Context, taskIDOrKey string, query string) ([]models.TeamMember, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("tâche non trouvée")
@@ -529,7 +545,7 @@ func (d *DB) SearchAssignableUsers(taskIDOrKey string, query string) ([]models.T
 	if err != nil || ts == nil || !ts.Supports(tracker.CapAssign) {
 		return []models.TeamMember{}, nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), teamsAPITimeout)
+	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
 	defer cancel()
 	people, err := ts.SearchAssignable(ctx, task.Key, query, 20)
 	if err != nil {
@@ -546,7 +562,15 @@ func (d *DB) SearchAssignableUsers(taskIDOrKey string, query string) ([]models.T
 }
 
 // SearchTrackerTeams looks up the teams of the instance by name.
+// SearchTrackerTeams runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) SearchTrackerTeams(projectID string, query string) ([]models.TrackerTeam, error) {
+	return d.SearchTrackerTeamsAs(context.Background(), projectID, query)
+}
+
+// SearchTrackerTeamsAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) SearchTrackerTeamsAs(ctx context.Context, projectID string, query string) ([]models.TrackerTeam, error) {
 	ts, proj, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return nil, err

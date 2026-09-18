@@ -24,9 +24,10 @@ type fakeTracker struct {
 	// memberErr makes the members endpoint fail, which must not fail a sync.
 	memberErr error
 	calls     []string
-	// syncedAs records who the sync ran as, which is what decides whether a
-	// personal tracker credential can be resolved at all.
+	// syncedAs and readAs record who the work ran as, which is what decides
+	// whether a personal tracker credential can be resolved at all.
 	syncedAs string
+	readAs   string
 }
 
 func newFakeTracker() *fakeTracker {
@@ -65,6 +66,7 @@ func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 
 func (f *fakeTracker) ListBoards(ctx context.Context, req tracker.BoardsRequest) ([]models.TrackerBoard, error) {
 	f.record("boards")
+	f.readAs = tracker.ActingUser(ctx)
 	return f.boards, nil
 }
 
@@ -283,5 +285,31 @@ func TestASyncRunsAsWhoeverAskedForIt(t *testing.T) {
 	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
 	if fake.syncedAs != "" {
 		t.Fatalf("an unattended sync must name nobody, got %q", fake.syncedAs)
+	}
+}
+
+// A read is a request, and the person making it has their own credential. The
+// handler puts them in the context; every direct tracker call has to carry it
+// down, or the read resolves the server credential and fails on a deployment
+// holding only personal tokens.
+func TestADirectReadCarriesTheActingUser(t *testing.T) {
+	fake := newFakeTracker()
+	fake.boards = []models.TrackerBoard{{ID: "5", Name: "PE board", Type: "scrum"}}
+	database, project := jiraTestDB(t, fake)
+
+	if _, err := database.ListProjectTrackerBoardsAs(tracker.WithActingUser(context.Background(), "u-ada"), project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if fake.readAs != "u-ada" {
+		t.Fatalf("the read must run as the person who asked, got %q", fake.readAs)
+	}
+
+	// The plain name stays available for callers with nobody to name.
+	fake.readAs = "sentinel"
+	if _, err := database.ListProjectTrackerBoards(project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if fake.readAs != "" {
+		t.Fatalf("an unattended read must name nobody, got %q", fake.readAs)
 	}
 }

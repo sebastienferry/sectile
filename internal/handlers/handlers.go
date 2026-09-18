@@ -678,7 +678,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/projects/{id}/issue-types: the work item types the
 	// project's tracker exposes, for the picker in the project settings.
 	if len(parts) >= 2 && parts[1] == "issue-types" && r.Method == http.MethodGet {
-		types, err := h.db.ListProjectIssueTypes(id)
+		types, err := h.db.ListProjectIssueTypesAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), id)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -945,7 +945,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/projects/{id}/boards: the tracker's boards, for the picker
 	if len(parts) >= 2 && parts[1] == "boards" && r.Method == http.MethodGet {
-		boards, err := h.db.ListProjectTrackerBoards(id)
+		boards, err := h.db.ListProjectTrackerBoardsAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), id)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1537,7 +1537,7 @@ func (h *Handler) HandleTeams(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
-		teams, err := h.db.SearchTrackerTeams(r.URL.Query().Get("projectId"), r.URL.Query().Get("q"))
+		teams, err := h.db.SearchTrackerTeamsAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), r.URL.Query().Get("projectId"), r.URL.Query().Get("q"))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1590,7 +1590,7 @@ func (h *Handler) HandleTeams(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "L'identifiant de l'équipe est requis : il n'arrive qu'avec une synchronisation Jira")
 			return
 		}
-		team, err := h.db.RefreshTeamMembersNow(req.ProjectID, req.TeamID)
+		team, err := h.db.RefreshTeamMembersNowAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), req.ProjectID, req.TeamID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1777,7 +1777,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.WithComments || strings.Contains(req.Prompt, "--with-comments") {
-			comments, err := h.db.GetTaskComments(id)
+			comments, err := h.db.GetTaskCommentsAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), id)
 			if err == nil && len(comments) > 0 {
 				var commentStr strings.Builder
 				commentStr.WriteString("\n\n---\nTask Comments Context:\n")
@@ -2305,7 +2305,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// With no query it answers the ticket's team; typing searches the instance,
 	// which is what allows assigning someone outside the team.
 	if subAction == "assignable" && r.Method == http.MethodGet {
-		people, err := h.db.SearchAssignableUsers(id, r.URL.Query().Get("q"))
+		people, err := h.db.SearchAssignableUsersAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), id, r.URL.Query().Get("q"))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2318,7 +2318,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if subAction == "comments" {
 		switch r.Method {
 		case http.MethodGet:
-			comments, err := h.db.GetTaskComments(id)
+			comments, err := h.db.GetTaskCommentsAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), id)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return

@@ -36,7 +36,15 @@ func (d *DB) trackerReaderFor(projectID string) (tracker.TicketingSystem, *model
 }
 
 // ListProjectTrackerBoards returns the tracker boards attached to a project.
+// ListProjectTrackerBoards runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) ListProjectTrackerBoards(projectID string) ([]models.TrackerBoard, error) {
+	return d.ListProjectTrackerBoardsAs(context.Background(), projectID)
+}
+
+// ListProjectTrackerBoardsAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) ListProjectTrackerBoardsAs(ctx context.Context, projectID string) ([]models.TrackerBoard, error) {
 	ts, proj, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return nil, err
@@ -44,14 +52,22 @@ func (d *DB) ListProjectTrackerBoards(projectID string) ([]models.TrackerBoard, 
 	if !ts.Supports(tracker.CapBoard) {
 		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), boardAPITimeout)
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
 	return ts.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
 }
 
 // ListProjectIssueTypes returns the work item types the project's tracker
 // exposes, for the settings that pick which ones are imported.
+// ListProjectIssueTypes runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) ListProjectIssueTypes(projectID string) ([]string, error) {
+	return d.ListProjectIssueTypesAs(context.Background(), projectID)
+}
+
+// ListProjectIssueTypesAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) ListProjectIssueTypesAs(ctx context.Context, projectID string) ([]string, error) {
 	ts, proj, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return nil, err
@@ -59,7 +75,7 @@ func (d *DB) ListProjectIssueTypes(projectID string) ([]string, error) {
 	if !ts.Supports(tracker.CapBoard) {
 		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), boardAPITimeout)
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
 	return ts.ListIssueTypes(ctx, tracker.ProjectRequest{Project: proj})
 }
