@@ -114,7 +114,7 @@ func (d *DB) ImportProjectBoardColumns(ctx context.Context, projectID string, bo
 // project's tickets, plus those already assigned to a column. The point is to
 // offer real values in the assignment UI rather than the instance's full status
 // list, most of which never appears on this project.
-func (d *DB) GetProjectTrackerStatuses(projectID string) ([]string, error) {
+func (d *DB) GetProjectTrackerStatuses(ctx context.Context, projectID string) ([]string, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
 		return nil, fmt.Errorf("projet non trouvé")
@@ -132,7 +132,7 @@ func (d *DB) GetProjectTrackerStatuses(projectID string) ([]string, error) {
 			if len(parts) == 2 {
 				gqlQuery, _ := trackerapi.GithubStatusQuery(repo)
 
-				if output, err := d.tracker(proj.ID).GithubGraphQL(gqlQuery); err == nil {
+				if output, err := d.trackerAs(tracker.ActingUser(ctx), "github", proj.ID).GithubGraphQL(gqlQuery); err == nil {
 					var gqlRes struct {
 						Data struct {
 							Repository struct {
