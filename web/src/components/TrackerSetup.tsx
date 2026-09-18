@@ -242,6 +242,8 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             <div className="relative">
               <input
                 type="password"
+                autoComplete="new-password"
+                name="tracker-token"
                 value={token}
                 onChange={e => setToken(e.target.value)}
                 placeholder={
@@ -304,6 +306,8 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 <div className="relative">
                   <input
                     type="password"
+                    autoComplete="new-password"
+                    name="tracker-sealing-passphrase"
                     value={passphrase}
                     onChange={e => setPassphrase(e.target.value)}
                     placeholder="Laissez vide pour laisser le serveur l'ouvrir"
@@ -324,6 +328,8 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                   <div className="flex items-center gap-1.5">
                     <input
                       type="password"
+                      autoComplete="new-password"
+                      name="tracker-unlock-passphrase"
                       value={unlockPhrase}
                       onChange={e => setUnlockPhrase(e.target.value)}
                       placeholder="Phrase de scellement"

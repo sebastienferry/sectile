@@ -77,7 +77,7 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 		case errors.Is(err, secrets.ErrWrongKey):
 			// The same answer whatever is wrong: an attacker learns nothing
 			// from the difference between a bad phrase and a missing record.
-			writeError(w, http.StatusForbidden, "Phrase de scellement refusée")
+			writeError(w, http.StatusForbidden, "Phrase de scellement refusée. Si vous l'avez perdue, enregistrez de nouveau votre jeton : cela remplace la phrase.")
 			return
 		case errors.Is(err, db.ErrNoUserCredential):
 			writeError(w, http.StatusNotFound, "Aucun accès personnel enregistré pour ce tracker")

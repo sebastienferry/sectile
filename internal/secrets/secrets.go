@@ -136,9 +136,14 @@ func NewSalt() ([]byte, error) {
 // DeriveKey stretches a sealing passphrase into a key. The passphrase itself is
 // never stored, in any form: a hash of it would let an attacker confirm a guess
 // offline, and we have nothing to gain from being able to check it.
+//
+// Surrounding spaces are dropped on both sides of the exchange. A phrase typed
+// once with a trailing space and once without would otherwise derive two
+// different keys, and the person would be told their phrase is wrong while
+// looking at what they believe they typed.
 func DeriveKey(passphrase string, salt []byte) Key {
 	var key Key
-	copy(key[:], argon2.IDKey([]byte(passphrase), salt, argonTime, argonMemory, argonThreads, keyLength))
+	copy(key[:], argon2.IDKey([]byte(strings.TrimSpace(passphrase)), salt, argonTime, argonMemory, argonThreads, keyLength))
 	return key
 }
 

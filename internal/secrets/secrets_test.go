@@ -179,3 +179,23 @@ func TestAnUnusableServerKeyIsReported(t *testing.T) {
 		t.Error("with nowhere to put a key and none in the environment, say so")
 	}
 }
+
+// A phrase typed with a stray space around it is the same phrase. Telling
+// somebody their passphrase is wrong while they look at what they typed is the
+// failure this avoids.
+func TestSurroundingSpacesDoNotChangeThePassphrase(t *testing.T) {
+	salt, err := NewSalt()
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := Fingerprint(DeriveKey("ma phrase", salt))
+	for _, typed := range []string{" ma phrase", "ma phrase ", "  ma phrase  ", "\tma phrase\n"} {
+		if Fingerprint(DeriveKey(typed, salt)) != reference {
+			t.Errorf("%q must derive the same key", typed)
+		}
+	}
+	// An inner space is part of the phrase, and still matters.
+	if Fingerprint(DeriveKey("maphrase", salt)) == reference {
+		t.Error("removing an inner space must change the key")
+	}
+}
