@@ -128,7 +128,7 @@ func (d *DB) storeTeamMembers(teamID string, members []models.TeamMember) error 
 //
 // A failure on one team is not fatal for the others, and no team at all is not
 // an error either: a project may simply not use the field.
-func (d *DB) RefreshProjectTeamMembers(projectID string, tasks []models.Task) (string, error) {
+func (d *DB) RefreshProjectTeamMembers(ctx context.Context, projectID string, tasks []models.Task) (string, error) {
 	teams := d.registerTeamsFromTasks(projectID, tasks)
 	if len(teams) == 0 {
 		return "aucune équipe portée par les tickets, rien à rafraîchir", nil
@@ -142,7 +142,7 @@ func (d *DB) RefreshProjectTeamMembers(projectID string, tasks []models.Task) (s
 		return "", tracker.Unsupported(ts.Name(), tracker.CapTeam)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), teamsAPITimeout)
+	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
 	defer cancel()
 
 	people := 0
@@ -578,7 +578,9 @@ func (d *DB) SearchTrackerTeamsAs(ctx context.Context, projectID string, query s
 	if !ts.Supports(tracker.CapTeam) {
 		return nil, tracker.Unsupported(ts.Name(), tracker.CapTeam)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), teamsAPITimeout)
+	// The caller's context, not a blank one: it names who is searching, and
+	// shadowing it here sent the search out under the server's credential.
+	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
 	defer cancel()
 	return ts.SearchTeams(ctx, tracker.TeamSearchRequest{Project: proj, Query: query})
 }
@@ -587,7 +589,7 @@ func (d *DB) SearchTrackerTeamsAs(ctx context.Context, projectID string, query s
 // tracker write. The team is optional, so an empty teamID is a valid instruction:
 // it clears the field. One activity carries the whole batch, which is what makes
 // triage usable on fifty tickets.
-func (d *DB) SetTasksTeam(projectID string, taskIDs []string, teamID string, teamName string) (*models.TaskActivity, error) {
+func (d *DB) SetTasksTeam(ctx context.Context, projectID string, taskIDs []string, teamID string, teamName string) (*models.TaskActivity, error) {
 	if len(taskIDs) == 0 {
 		return nil, fmt.Errorf("aucun ticket sélectionné")
 	}
@@ -632,7 +634,7 @@ func (d *DB) SetTasksTeam(projectID string, taskIDs []string, teamID string, tea
 		singleID = resolved[0]
 	}
 
-	return d.EnqueueTrackerOp(TrackerOp{
+	return d.EnqueueTrackerOp(ctx, TrackerOp{
 		Kind:      TrackerOpSetTeam,
 		ProjectID: projectID,
 		TaskID:    singleID,
@@ -644,13 +646,13 @@ func (d *DB) SetTasksTeam(projectID string, taskIDs []string, teamID string, tea
 }
 
 // SetTaskTeam is the single work item case, which is what the ticket panel uses.
-func (d *DB) SetTaskTeam(taskIDOrKey string, teamID string, teamName string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) SetTaskTeam(ctx context.Context, taskIDOrKey string, teamID string, teamName string) (*models.Task, *models.TaskActivity, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche non trouvée")
 	}
 
-	activity, err := d.SetTasksTeam(task.ProjectID, []string{task.ID}, teamID, teamName)
+	activity, err := d.SetTasksTeam(ctx, task.ProjectID, []string{task.ID}, teamID, teamName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -665,7 +667,7 @@ func (d *DB) SetTaskTeam(taskIDOrKey string, teamID string, teamName string) (*m
 // SetTasksSprint records the sprint locally and queues the tracker write, for one
 // work item or for a batch. Sprint membership belongs to the tracker's Agile API,
 // so the same rule as everywhere applies: local first, tracker in the queue.
-func (d *DB) SetTasksSprint(projectID string, taskIDs []string, sprintID string, sprintName string) (*models.TaskActivity, error) {
+func (d *DB) SetTasksSprint(ctx context.Context, projectID string, taskIDs []string, sprintID string, sprintName string) (*models.TaskActivity, error) {
 	if len(taskIDs) == 0 {
 		return nil, fmt.Errorf("aucun ticket sélectionné")
 	}
@@ -712,7 +714,7 @@ func (d *DB) SetTasksSprint(projectID string, taskIDs []string, sprintID string,
 		singleID = resolved[0]
 	}
 
-	return d.EnqueueTrackerOp(TrackerOp{
+	return d.EnqueueTrackerOp(ctx, TrackerOp{
 		Kind:       TrackerOpSetSprint,
 		ProjectID:  projectID,
 		TaskID:     singleID,
@@ -724,13 +726,13 @@ func (d *DB) SetTasksSprint(projectID string, taskIDs []string, sprintID string,
 }
 
 // SetTaskSprint is the single work item case, which is what the ticket panel uses.
-func (d *DB) SetTaskSprint(taskIDOrKey string, sprintID string, sprintName string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) SetTaskSprint(ctx context.Context, taskIDOrKey string, sprintID string, sprintName string) (*models.Task, *models.TaskActivity, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche non trouvée")
 	}
 
-	activity, err := d.SetTasksSprint(task.ProjectID, []string{task.ID}, sprintID, sprintName)
+	activity, err := d.SetTasksSprint(ctx, task.ProjectID, []string{task.ID}, sprintID, sprintName)
 	if err != nil {
 		return nil, nil, err
 	}

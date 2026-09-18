@@ -1,10 +1,13 @@
 package handlers
 
 import (
+	"context"
+
 	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
+	"tasks/internal/tracker"
 	"time"
 
 	"tasks/internal/db"
@@ -49,6 +52,13 @@ const ImplicitUser = "default"
 // once a local account exists, an anonymous request is a stranger. Before the
 // first local account the interface keeps its single implicit user, which is
 // how a personal deployment runs and how a fresh one opens its board.
+// actingContext is the request's context marked with whoever is making it, for
+// the store calls that reach a tracker: on a tracker that attributes its writes
+// to the account behind the token, this is what puts the right name on them.
+func (h *Handler) actingContext(r *http.Request) context.Context {
+	return tracker.WithActingUser(r.Context(), h.webSessionUser(r))
+}
+
 func (h *Handler) webSessionUser(r *http.Request) string {
 	if cookie, err := r.Cookie(sessionCookie); err == nil && h.db != nil {
 		if userID := h.db.UserForWebSession(cookie.Value); userID != "" {

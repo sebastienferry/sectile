@@ -84,7 +84,7 @@ func (d *DB) ListProjectIssueTypesAs(ctx context.Context, projectID string) ([]s
 // it. Le bouton « Détecter » et la synchro doivent donner le même résultat, donc
 // les deux passent par la même fusion : elle préserve les statuts affectés à la
 // main et les colonnes masquées, et ramène les sprints avec leur état.
-func (d *DB) ImportProjectBoardColumns(projectID string, boardID string) (*models.Project, error) {
+func (d *DB) ImportProjectBoardColumns(ctx context.Context, projectID string, boardID string) (*models.Project, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
 		return nil, fmt.Errorf("projet non trouvé")
@@ -104,7 +104,7 @@ func (d *DB) ImportProjectBoardColumns(projectID string, boardID string) (*model
 		}
 	}
 
-	if _, err := d.SyncProjectBoardColumns(proj.ID); err != nil {
+	if _, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
 		return nil, err
 	}
 	return d.GetProjectByID(proj.ID)
@@ -204,7 +204,7 @@ func (d *DB) GetProjectTrackerStatuses(projectID string) ([]string, error) {
 // dropped in; the tracker call runs in the activity queue, where a refusal stays
 // readable instead of being lost in an expired request. The returned task is the
 // local state, the returned activity is the transition to follow.
-func (d *DB) MoveTaskToTrackerStatus(taskIDOrKey string, statusName string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, statusName string) (*models.Task, *models.TaskActivity, error) {
 	statusName = strings.TrimSpace(statusName)
 	if statusName == "" {
 		return nil, nil, fmt.Errorf("statut cible manquant")
@@ -244,7 +244,7 @@ func (d *DB) MoveTaskToTrackerStatus(taskIDOrKey string, statusName string) (*mo
 		return nil, nil, execErr
 	}
 
-	activity, opErr := d.EnqueueTrackerOp(TrackerOp{
+	activity, opErr := d.EnqueueTrackerOp(ctx, TrackerOp{
 		Kind:         TrackerOpTransition,
 		ProjectID:    task.ProjectID,
 		TaskID:       task.ID,
@@ -271,7 +271,7 @@ func (d *DB) MoveTaskToTrackerStatus(taskIDOrKey string, statusName string) (*mo
 //
 // Called at the end of a sync on a tracker with boards, so the board follows
 // the tracker without a manual import.
-func (d *DB) SyncProjectBoardColumns(projectID string) (string, error) {
+func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (string, error) {
 	ts, proj, err := d.trackerReaderFor(projectID)
 	if err != nil {
 		return "", err
@@ -280,7 +280,7 @@ func (d *DB) SyncProjectBoardColumns(projectID string) (string, error) {
 		return "", tracker.Unsupported(ts.Name(), tracker.CapBoard)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), boardAPITimeout)
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
 
 	boardID := strings.TrimSpace(proj.BoardID)

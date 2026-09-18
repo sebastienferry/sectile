@@ -205,3 +205,28 @@ func ActingUser(ctx context.Context) string {
 	user, _ := ctx.Value(actingUserKey{}).(string)
 	return user
 }
+
+// The project travels the same way, and for the same reason: half of the write
+// side of TicketingSystem takes a work item key and nothing else, so an adapter
+// asked to move a card to a sprint has no way to learn which project it belongs
+// to. Without it, a project overriding its tracker site had its reads on one
+// instance and its writes on another.
+
+type projectKey struct{}
+
+// WithProject marks the context with the project the operation concerns.
+func WithProject(ctx context.Context, projectID string) context.Context {
+	if strings.TrimSpace(projectID) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, projectKey{}, strings.TrimSpace(projectID))
+}
+
+// Project reports which project the operation concerns, or an empty string.
+func Project(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(projectKey{}).(string)
+	return id
+}

@@ -47,6 +47,13 @@ func (j *JiraAdapter) forProject(ctx context.Context, p *models.Project) (*Clien
 	if p != nil {
 		projectID = p.ID
 	}
+	// Half the write side takes a key and nothing else, so those calls pass no
+	// project and read it from the context instead. Resolving with no project at
+	// all ignored the project's own site: the sync reached one instance and
+	// every sprint move, team write and assignment reached another.
+	if projectID == "" {
+		projectID = tracker.Project(ctx)
+	}
 	user := tracker.ActingUser(ctx)
 	client, personal, err := j.client.ForActingUser(user, "jira", projectID)
 	if err != nil {

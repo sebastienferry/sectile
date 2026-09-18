@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -414,7 +415,7 @@ func (d *DB) PushPendingHorizons(projectID string) (int, []string, error) {
 }
 
 // SetTaskMacro queues the attachment of a ticket to a macro.
-func (d *DB) SetTaskMacro(taskIDOrKey string, macroKey string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) SetTaskMacro(ctx context.Context, taskIDOrKey string, macroKey string) (*models.Task, *models.TaskActivity, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche introuvable")
@@ -423,7 +424,7 @@ func (d *DB) SetTaskMacro(taskIDOrKey string, macroKey string) (*models.Task, *m
 	if err := d.writeTaskParentLocally(task, cleanMacroKey); err != nil {
 		return nil, nil, err
 	}
-	act, err := d.EnqueueTrackerOp(TrackerOp{
+	act, err := d.EnqueueTrackerOp(ctx, TrackerOp{
 		Kind:      TrackerOpSetParent,
 		ProjectID: task.ProjectID,
 		TaskID:    task.ID,
@@ -433,8 +434,8 @@ func (d *DB) SetTaskMacro(taskIDOrKey string, macroKey string) (*models.Task, *m
 	return task, act, err
 }
 
-func (d *DB) SetTaskEpic(taskIDOrKey string, epicKey string) (*models.Task, *models.TaskActivity, error) {
-	return d.SetTaskMacro(taskIDOrKey, epicKey)
+func (d *DB) SetTaskEpic(ctx context.Context, taskIDOrKey string, epicKey string) (*models.Task, *models.TaskActivity, error) {
+	return d.SetTaskMacro(ctx, taskIDOrKey, epicKey)
 }
 
 // applyTaskMacro performs the attachment of a task to a macro (milestone).
@@ -626,7 +627,7 @@ func (d *DB) DeleteEpic(projectID string, key string) error {
 }
 
 // MoveTasksToMacro queues moving a batch of tickets to a macro.
-func (d *DB) MoveTasksToMacro(projectID string, taskIDs []string, targetMacroKey string, newMacroTitle string, fields map[string]string) (*models.TaskActivity, error) {
+func (d *DB) MoveTasksToMacro(ctx context.Context, projectID string, taskIDs []string, targetMacroKey string, newMacroTitle string, fields map[string]string) (*models.TaskActivity, error) {
 	if len(taskIDs) == 0 {
 		return nil, fmt.Errorf("aucun ticket sélectionné")
 	}
@@ -644,7 +645,7 @@ func (d *DB) MoveTasksToMacro(projectID string, taskIDs []string, targetMacroKey
 		}
 	}
 
-	return d.EnqueueTrackerOp(TrackerOp{
+	return d.EnqueueTrackerOp(ctx, TrackerOp{
 		Kind:         TrackerOpMoveToEpic,
 		ProjectID:    projectID,
 		TaskIDs:      taskIDs,
@@ -654,8 +655,8 @@ func (d *DB) MoveTasksToMacro(projectID string, taskIDs []string, targetMacroKey
 	})
 }
 
-func (d *DB) MoveTasksToEpic(projectID string, taskIDs []string, targetEpicKey string, newEpicTitle string, fields map[string]string) (*models.TaskActivity, error) {
-	return d.MoveTasksToMacro(projectID, taskIDs, targetEpicKey, newEpicTitle, fields)
+func (d *DB) MoveTasksToEpic(ctx context.Context, projectID string, taskIDs []string, targetEpicKey string, newEpicTitle string, fields map[string]string) (*models.TaskActivity, error) {
+	return d.MoveTasksToMacro(ctx, projectID, taskIDs, targetEpicKey, newEpicTitle, fields)
 }
 
 // appendActivityStep adds a line to an activity's step list.

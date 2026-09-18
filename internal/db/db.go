@@ -2523,7 +2523,7 @@ func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 				}
 			}
 		}
-		if _, opErr := d.enqueueTrackerOpUnsafe(TrackerOp{
+		if _, opErr := d.enqueueTrackerOpUnsafe(tracker.WithActingUser(context.Background(), actor.ID), TrackerOp{
 			Kind:       TrackerOpSetSprint,
 			ProjectID:  existing.ProjectID,
 			TaskID:     existing.ID,
@@ -2544,7 +2544,7 @@ func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if req.AssigneeAccountID != nil {
 			accountID = strings.TrimSpace(*req.AssigneeAccountID)
 		}
-		if _, opErr := d.enqueueTrackerOpUnsafe(TrackerOp{
+		if _, opErr := d.enqueueTrackerOpUnsafe(tracker.WithActingUser(context.Background(), actor.ID), TrackerOp{
 			Kind:         TrackerOpAssign,
 			ProjectID:    existing.ProjectID,
 			TaskID:       existing.ID,
@@ -3655,20 +3655,20 @@ func trackerDisplayName(name string) string {
 // afterTrackerSync follows an import with what the tracker can tell about the
 // project's structure: the teams met on the work items and the board columns
 // and sprints, when the tracker has them. Neither failure undoes the import.
-func (d *DB) afterTrackerSync(proj *models.Project, ts tracker.TicketingSystem, tasks []models.Task) []string {
+func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, tasks []models.Task) []string {
 	if proj == nil || ts == nil {
 		return nil
 	}
 	var steps []string
 	if ts.Supports(tracker.CapTeam) {
-		if note, err := d.RefreshProjectTeamMembers(proj.ID, tasks); err != nil {
+		if note, err := d.RefreshProjectTeamMembers(ctx, proj.ID, tasks); err != nil {
 			steps = append(steps, fmt.Sprintf("⚠️ Équipes : %v", err))
 		} else {
 			steps = append(steps, "4. Équipes : "+note)
 		}
 	}
 	if ts.Supports(tracker.CapBoard) && strings.TrimSpace(proj.BoardID) != "" {
-		if note, err := d.SyncProjectBoardColumns(proj.ID); err != nil {
+		if note, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
 			steps = append(steps, fmt.Sprintf("⚠️ Board : %v", err))
 		} else {
 			steps = append(steps, "5. Board : "+note)
@@ -3737,7 +3737,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 					hasError = true
 					steps = append(steps, fmt.Sprintf("⚠️ %s: écriture locale échouée: %v", tName, impErr))
 				} else {
-					steps = append(steps, d.afterTrackerSync(&p, ts, syncTasks)...)
+					steps = append(steps, d.afterTrackerSync(ctx, &p, ts, syncTasks)...)
 				}
 				steps = append(steps, fmt.Sprintf("✅ %s (%s): %d issues imported", tName, p.Name, len(syncTasks)))
 				outputLines = append(outputLines, fmt.Sprintf("✅ %s (%s): %d issues synced", tName, p.Name, len(syncTasks)))
@@ -3825,7 +3825,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 				outputLines = append(outputLines, "**Error:** "+impErr.Error())
 			} else {
 				steps = append(steps, "3. Local database updated successfully")
-				steps = append(steps, d.afterTrackerSync(proj, ts, tasks)...)
+				steps = append(steps, d.afterTrackerSync(ctx, proj, ts, tasks)...)
 			}
 			totalImported = len(tasks)
 			summary = fmt.Sprintf("%d %s issues synchronized successfully", len(tasks), trackerTitle)
@@ -5848,7 +5848,7 @@ func (d *DB) InitProjectGit(projectID string) (*models.ProjectGitInitResult, err
 // lock on purpose: this is an HTTP call, and holding the lock across it would
 // stall every writer for as long as the instance takes to answer. A tracker
 // without the notion, or an unreachable one, simply adds nothing.
-func (d *DB) remoteTrackerStatuses(projectID, trackerName string) []models.DetectedStatus {
+func (d *DB) remoteTrackerStatuses(ctx context.Context, projectID, trackerName string) []models.DetectedStatus {
 	if trackerName == "github" || trackerName == "local" || trackerName == "" {
 		return nil
 	}
@@ -5860,7 +5860,7 @@ func (d *DB) remoteTrackerStatuses(projectID, trackerName string) []models.Detec
 	if err != nil || !ts.Supports(tracker.CapBoard) {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), boardAPITimeout)
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
 	statuses, err := ts.ListStatuses(ctx, tracker.ProjectRequest{Project: proj})
 	if err != nil {
@@ -5883,7 +5883,7 @@ func (d *DB) remoteTrackerStatuses(projectID, trackerName string) []models.Detec
 	return out
 }
 
-func (d *DB) DetectTrackerStatuses(projectID, trackerName, githubRepo string) ([]models.DetectedStatus, error) {
+func (d *DB) DetectTrackerStatuses(ctx context.Context, projectID, trackerName, githubRepo string) ([]models.DetectedStatus, error) {
 	// The project row decides which tracker answers, so the name is resolved
 	// first when the caller did not give one.
 	if trackerName == "" && projectID != "" && projectID != "detect-statuses" {
@@ -5891,7 +5891,7 @@ func (d *DB) DetectTrackerStatuses(projectID, trackerName, githubRepo string) ([
 			trackerName = proj.IssueTracker
 		}
 	}
-	remote := d.remoteTrackerStatuses(projectID, trackerName)
+	remote := d.remoteTrackerStatuses(ctx, projectID, trackerName)
 
 	d.mu.RLock()
 	defer d.mu.RUnlock()

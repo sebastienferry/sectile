@@ -34,6 +34,8 @@ type fakeTracker struct {
 	readAs      string
 	commentedAs string
 	updatedAs   string
+	sprintedAs  string
+	sprintedOn  string
 	comments    []models.TaskComment
 }
 
@@ -93,6 +95,32 @@ func (f *fakeTracker) updatedBy(t *testing.T) string {
 		time.Sleep(30 * time.Millisecond)
 	}
 	return ""
+}
+
+// SetSprint is one of the fine-grained writes: it takes work item keys and
+// nothing else, so it can only learn who asked and which project from the
+// context the queue gives it.
+func (f *fakeTracker) SetSprint(ctx context.Context, sprintID string, keys []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "sprint")
+	f.sprintedAs = tracker.ActingUser(ctx)
+	f.sprintedOn = tracker.Project(ctx)
+	return nil
+}
+
+func (f *fakeTracker) sprintedBy(t *testing.T) (string, string) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		f.mu.Lock()
+		who, where, done := f.sprintedAs, f.sprintedOn, f.sprintedAs != ""
+		f.mu.Unlock()
+		if done {
+			return who, where
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return "", ""
 }
 
 func (f *fakeTracker) AddComment(ctx context.Context, req tracker.AddCommentRequest) error {
@@ -289,7 +317,7 @@ func TestATrackerWithoutBoardsAnswersAnUnsupportedCapability(t *testing.T) {
 			_, err := database.RefreshTeamMembersNow(project.ID, "team-1")
 			return err
 		},
-		"columns": func() error { _, err := database.SyncProjectBoardColumns(project.ID); return err },
+		"columns": func() error { _, err := database.SyncProjectBoardColumns(context.Background(), project.ID); return err },
 	} {
 		err := call()
 		if !tracker.IsUnsupported(err) {
@@ -407,5 +435,38 @@ func TestAQueuedFieldUpdateCarriesItsActor(t *testing.T) {
 	// The write runs in the queue, so the assertion waits for the worker.
 	if who := fake.updatedBy(t); who != "u-ada" {
 		t.Fatalf("the queued write must run as its actor, got %q", who)
+	}
+}
+
+// Every queued write carries its author and its project, not only the two that
+// happened to be tested. A sprint move is the shape that proves it: the Writer
+// interface hands the adapter a list of keys and nothing else, so both facts
+// can only come from the context. They did not: seven of the eight operation
+// runners started from a blank context, and only the stage change ever put a
+// user on the operation at all — so an assignment, a sprint move or a team
+// change went to the tracker under the server account.
+func TestAQueuedSprintMoveCarriesItsAuthorAndItsProject(t *testing.T) {
+	fake := newFakeTracker()
+	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
+	database, project := jiraTestDB(t, fake)
+
+	activity := models.TaskActivity{ID: "sync-for-sprint", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := database.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := database.GetSettings()
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
+
+	taskID := "jira-" + project.ID + "-PE-1"
+	ctx := tracker.WithActingUser(context.Background(), "u-ada")
+	if _, err := database.SetTasksSprint(ctx, project.ID, []string{taskID}, "42", "Sprint 42"); err != nil {
+		t.Fatal(err)
+	}
+	who, where := fake.sprintedBy(t)
+	if who != "u-ada" {
+		t.Fatalf("the queued sprint move must run as its author, got %q", who)
+	}
+	if where != project.ID {
+		t.Fatalf("the queued sprint move must name its project, got %q", where)
 	}
 }
