@@ -272,11 +272,16 @@ func cleanJiraKey(key string) (string, error) {
 	if jiraKeyPattern.MatchString(s) {
 		return s, nil
 	}
-	// A local identity ends with the key, whatever the project id is made of.
-	if parts := strings.Split(s, "-"); len(parts) >= 2 {
-		candidate := parts[len(parts)-2] + "-" + parts[len(parts)-1]
-		if jiraKeyPattern.MatchString(candidate) {
-			return candidate, nil
+	// A local identity ends with the key, whatever the project id is made of —
+	// but it also begins with JIRA-, and requiring that is what keeps the last
+	// two segments of somebody else's identity out. Without it "gh-default-42"
+	// came back as the perfectly plausible Jira key "DEFAULT-42".
+	if rest, ok := strings.CutPrefix(s, "JIRA-"); ok {
+		if parts := strings.Split(rest, "-"); len(parts) >= 2 {
+			candidate := parts[len(parts)-2] + "-" + parts[len(parts)-1]
+			if jiraKeyPattern.MatchString(candidate) {
+				return candidate, nil
+			}
 		}
 	}
 	return "", fmt.Errorf("issue key %q is not a Jira key", key)

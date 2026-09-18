@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -92,9 +93,16 @@ func (j *JiraAdapter) FormatTaskID(projectID string, key string, rawID string) s
 	return "jira-" + clean
 }
 
-// fieldsFor is the field list of one read, custom ids included.
-func (j *JiraAdapter) fieldsFor(ctx context.Context, c *Client) ([]string, jiraFieldIDs) {
-	ids, _ := c.jiraFields(ctx)
+// fieldsFor is the field list of one read, custom ids included. A site that
+// cannot be asked which fields it has is an error rather than a site with none:
+// swallowing it imported every work item with an empty sprint and an empty
+// team, reported the sync as a success, and left nobody any way to tell that
+// from a site that genuinely has neither field.
+func (j *JiraAdapter) fieldsFor(ctx context.Context, c *Client) ([]string, jiraFieldIDs, error) {
+	ids, err := c.jiraFields(ctx)
+	if err != nil {
+		return nil, jiraFieldIDs{}, fmt.Errorf("jira did not say which fields it has: %w", err)
+	}
 	fields := append([]string{}, jiraBaseFields...)
 	if ids.Sprint != "" {
 		fields = append(fields, ids.Sprint)
@@ -102,24 +110,38 @@ func (j *JiraAdapter) fieldsFor(ctx context.Context, c *Client) ([]string, jiraF
 	if ids.Team != "" {
 		fields = append(fields, ids.Team)
 	}
-	return fields, ids
+	return fields, ids, nil
 }
 
 func (j *JiraAdapter) search(ctx context.Context, c *Client, jql string) ([]models.Task, error) {
-	fields, ids := j.fieldsFor(ctx, c)
+	fields, ids, err := j.fieldsFor(ctx, c)
+	if err != nil {
+		return nil, err
+	}
 	pages, err := c.jiraSearchPages(ctx, jql, fields)
 	if err != nil {
 		return nil, err
 	}
 	tasks := make([]models.Task, 0, len(pages))
+	unreadable := 0
 	for _, raw := range pages {
 		issue, err := decodeJiraIssue(raw)
 		if err != nil {
-			return nil, err
+			// One work item of an unexpected shape is not a reason to import
+			// none of the other two thousand. It is counted, so the import does
+			// not silently come back short.
+			unreadable++
+			continue
 		}
 		task := jiraTask(c.JiraURL, issue, ids)
 		task.Position = len(tasks)
 		tasks = append(tasks, *task)
+	}
+	if unreadable > 0 && len(tasks) == 0 {
+		return nil, fmt.Errorf("jira returned %d unreadable work items and nothing else", unreadable)
+	}
+	if unreadable > 0 {
+		log.Printf("[jira] %d work item(s) skipped: unreadable shape", unreadable)
 	}
 	return tasks, nil
 }
@@ -149,7 +171,10 @@ func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest)
 	if err != nil {
 		return nil, err
 	}
-	fields, ids := j.fieldsFor(ctx, c)
+	fields, ids, err := j.fieldsFor(ctx, c)
+	if err != nil {
+		return nil, err
+	}
 	query := url.Values{}
 	query.Set("fields", strings.Join(fields, ","))
 	var raw json.RawMessage
@@ -198,14 +223,28 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	if parent := strings.TrimSpace(req.ParentKey); parent != "" {
 		fields["parent"] = map[string]string{"key": strings.ToUpper(parent)}
 	}
-	// Fields the site makes mandatory, passed by option id: the form Jira
-	// accepts for a select list, which is what those fields are in practice.
-	for id, value := range req.Fields {
-		id, value = strings.TrimSpace(id), strings.TrimSpace(value)
-		if id == "" || value == "" {
-			continue
+	// Fields the site makes mandatory. A select list takes an option id, a free
+	// text field takes the text: sending every one of them as {"id": …} made
+	// creation impossible on any project with a mandatory text or number field,
+	// with Jira answering that the value must be a string. Which is which comes
+	// from the site itself, and is only asked for when there is something to
+	// ask about.
+	if len(req.Fields) > 0 {
+		options, err := j.optionFields(ctx, req.Project, issueType)
+		if err != nil {
+			return nil, err
 		}
-		fields[id] = map[string]string{"id": value}
+		for id, value := range req.Fields {
+			id, value = strings.TrimSpace(id), strings.TrimSpace(value)
+			if id == "" || value == "" {
+				continue
+			}
+			if options[id] {
+				fields[id] = map[string]string{"id": value}
+			} else {
+				fields[id] = value
+			}
+		}
 	}
 	c, err := j.forProject(ctx, req.Project)
 	if err != nil {
@@ -382,6 +421,22 @@ func (c *Client) jiraTransitions(ctx context.Context, key string) ([]jiraTransit
 	return out, nil
 }
 
+// jiraStatusOf reads the status a work item is in, and nothing else.
+func (c *Client) jiraStatusOf(ctx context.Context, key string) (string, error) {
+	var payload struct {
+		Fields struct {
+			Status struct {
+				Name string `json:"name"`
+			} `json:"status"`
+		} `json:"fields"`
+	}
+	query := url.Values{"fields": []string{"status"}}
+	if err := c.jira(ctx, http.MethodGet, "/rest/api/3/issue/"+url.PathEscape(key), query, nil, &payload); err != nil {
+		return "", err
+	}
+	return payload.Fields.Status.Name, nil
+}
+
 func (c *Client) jiraRunTransition(ctx context.Context, key, transitionID string) error {
 	return c.jira(ctx, http.MethodPost, "/rest/api/3/issue/"+url.PathEscape(key)+"/transitions", nil,
 		map[string]any{"transition": map[string]string{"id": transitionID}}, nil)
@@ -410,6 +465,13 @@ func (c *Client) jiraTransitionTo(ctx context.Context, key, statusName string) e
 		if strings.EqualFold(strings.TrimSpace(tr.ToName), strings.TrimSpace(statusName)) {
 			return c.jiraRunTransition(ctx, key, tr.ID)
 		}
+	}
+	// Already there is done, not failed. A stage change transitions the work
+	// item and then updates its fields, and the update transitions again: the
+	// second call found no self-transition and reported the whole stage change
+	// as failed, after every field had been written.
+	if current, err := c.jiraStatusOf(ctx, key); err == nil && strings.EqualFold(strings.TrimSpace(current), strings.TrimSpace(statusName)) {
+		return nil
 	}
 	return fmt.Errorf("no transition of %s leads to %q from its current status (available: %s)", key, statusName, transitionNames(transitions))
 }
@@ -817,7 +879,7 @@ type jiraIssueType struct {
 }
 
 func (c *Client) jiraIssueTypes(ctx context.Context, projectKey string) ([]jiraIssueType, error) {
-	items, err := c.jiraAgilePages(ctx, "/rest/api/3/issue/createmeta/"+url.PathEscape(projectKey)+"/issuetypes", nil)
+	items, err := c.jiraCreateMetaPages(ctx, "/rest/api/3/issue/createmeta/"+url.PathEscape(projectKey)+"/issuetypes", "issueTypes")
 	if err != nil {
 		return nil, err
 	}
@@ -886,6 +948,23 @@ func (j *JiraAdapter) TeamMembers(ctx context.Context, req tracker.TeamRequest) 
 	return c.jiraTeamMembers(ctx, req.TeamID)
 }
 
+// optionFields tells which of the mandatory fields of one issue type are chosen
+// from a list the site enumerates, and therefore take an option id rather than
+// the value itself.
+func (j *JiraAdapter) optionFields(ctx context.Context, project *models.Project, issueType string) (map[string]bool, error) {
+	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Project: project, IssueType: issueType})
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, field := range required {
+		if len(field.Options) > 0 {
+			out[field.ID] = true
+		}
+	}
+	return out, nil
+}
+
 // RequiredCreateFields lists what the site makes mandatory on creation for one
 // issue type, beyond project, type, summary and parent, with the allowed
 // values when the site enumerates them. Fields with a default are left out:
@@ -917,7 +996,7 @@ func (j *JiraAdapter) RequiredCreateFields(ctx context.Context, req tracker.Crea
 	if typeID == "" {
 		return nil, fmt.Errorf("issue type %q does not exist on project %s", wanted, key)
 	}
-	items, err := c.jiraAgilePages(ctx, "/rest/api/3/issue/createmeta/"+url.PathEscape(key)+"/issuetypes/"+url.PathEscape(typeID), nil)
+	items, err := c.jiraCreateMetaPages(ctx, "/rest/api/3/issue/createmeta/"+url.PathEscape(key)+"/issuetypes/"+url.PathEscape(typeID), "fields")
 	if err != nil {
 		return nil, err
 	}

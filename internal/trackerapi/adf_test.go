@@ -126,3 +126,46 @@ func TestMarkdownToADFEmptyIsAnEmptyDocument(t *testing.T) {
 		t.Fatalf("content: %#v", doc["content"])
 	}
 }
+
+// A list indented under a sentence is a list, not a list inside an empty
+// bullet. It was read as one level deeper than its parent and hung under a
+// listItem with no paragraph; Jira's validator refuses a listItem whose content
+// does not begin with one, so the site answered 400 and the whole description
+// or comment was lost.
+func TestAnIndentedListIsNotNestedUnderAnEmptyBullet(t *testing.T) {
+	doc := MarkdownToADF("Intro:\n  - x\n  - y\n")
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `{"type":"listItem"}`) {
+		t.Fatalf("a listItem must carry a paragraph: %s", raw)
+	}
+
+	var parsed struct {
+		Content []struct {
+			Type    string `json:"type"`
+			Content []struct {
+				Type    string `json:"type"`
+				Content []struct {
+					Type string `json:"type"`
+				} `json:"content"`
+			} `json:"content"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Content) != 2 || parsed.Content[0].Type != "paragraph" || parsed.Content[1].Type != "bulletList" {
+		t.Fatalf("a paragraph then one list: %s", raw)
+	}
+	items := parsed.Content[1].Content
+	if len(items) != 2 {
+		t.Fatalf("both bullets belong to the same list: %s", raw)
+	}
+	for _, item := range items {
+		if item.Type != "listItem" || len(item.Content) == 0 || item.Content[0].Type != "paragraph" {
+			t.Fatalf("every listItem opens on a paragraph: %s", raw)
+		}
+	}
+}

@@ -134,7 +134,12 @@ func parseMarkdownBlocks(markdown string) []adfNode {
 		}
 		if mdBullet.MatchString(line) || mdOrdered.MatchString(line) {
 			flushParagraph()
-			list, next := parseMarkdownList(lines, i, 0)
+			// The list's own indent, not zero: a list merely indented under a
+			// sentence or a numbered step was read as a level deeper than its
+			// parent and hung under a listItem with no paragraph, which Jira's
+			// validator refuses outright — the whole description or comment was
+			// then lost to a 400.
+			list, next := parseMarkdownList(lines, i, listIndent(line))
 			blocks = append(blocks, list)
 			i = next - 1
 			continue
@@ -217,7 +222,10 @@ func parseMarkdownList(lines []string, start, indent int) (adfNode, int) {
 			// Deeper item: nest under the previous item.
 			nested, next := parseMarkdownList(lines, i, lineIndent)
 			if len(list.Content) == 0 {
-				list.Content = append(list.Content, adfNode{Type: "listItem"})
+				// A nested list with nothing above it still needs an item to
+				// hang from, and that item needs a paragraph: a listItem whose
+				// content does not begin with one is invalid ADF.
+				list.Content = append(list.Content, adfNode{Type: "listItem", Content: []adfNode{{Type: "paragraph"}}})
 			}
 			last := &list.Content[len(list.Content)-1]
 			last.Content = append(last.Content, nested)

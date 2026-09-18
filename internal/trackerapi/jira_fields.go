@@ -6,29 +6,47 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Sprint and Team are custom fields whose ids differ per Jira site. They are
-// looked up once per site, by schema then by display name, and remembered for
-// the life of the process: a field id does not change within a site.
+// looked up by schema then by display name, and remembered for a while: a field
+// id does not change within a site, but which fields exist does — an
+// administrator adding the Team field to a site that had none must not need a
+// server restart to be seen. Hence an expiry rather than a permanent answer:
+// half a discovery kept forever meant the site was reported as having no Team
+// field for as long as the process lived.
 
 type jiraFieldIDs struct {
 	Sprint string
 	Team   string
 }
 
-var jiraFieldCache sync.Map // base URL -> jiraFieldIDs
+// jiraFieldTTL is how long a discovery stands. Long enough that it is not one
+// call per operation, short enough that a field added today is seen today.
+const jiraFieldTTL = 10 * time.Minute
+
+type jiraFieldEntry struct {
+	ids    jiraFieldIDs
+	expiry time.Time
+}
+
+var jiraFieldCache sync.Map // base URL -> jiraFieldEntry
 
 // resetJiraFieldCache forgets every discovered id, for tests that rebuild a
 // site under the same URL.
 func resetJiraFieldCache() { jiraFieldCache = sync.Map{} }
 
 // jiraFields returns the sprint and team field ids of the client's site. A site
-// exposing neither is not an error: the sync then leaves sprint and team
-// empty, and the answer is not cached so a later configuration can be found.
+// exposing neither is not an error: the sync then leaves sprint and team empty.
+// A site that could not be asked is an error, and the caller must not confuse
+// the two — importing every work item with no sprint and no team looks exactly
+// like a site that has neither.
 func (c *Client) jiraFields(ctx context.Context) (jiraFieldIDs, error) {
 	if cached, ok := jiraFieldCache.Load(c.JiraURL); ok {
-		return cached.(jiraFieldIDs), nil
+		if entry, ok := cached.(jiraFieldEntry); ok && time.Now().Before(entry.expiry) {
+			return entry.ids, nil
+		}
 	}
 	var fields []struct {
 		ID     string `json:"id"`
@@ -61,9 +79,7 @@ func (c *Client) jiraFields(ctx context.Context) (jiraFieldIDs, error) {
 			ids.Team = f.ID
 		}
 	}
-	if ids.Sprint != "" || ids.Team != "" {
-		jiraFieldCache.Store(c.JiraURL, ids)
-	}
+	jiraFieldCache.Store(c.JiraURL, jiraFieldEntry{ids: ids, expiry: time.Now().Add(jiraFieldTTL)})
 	return ids, nil
 }
 
@@ -106,6 +122,10 @@ func parseJiraSprint(raw json.RawMessage) string {
 // parseJiraTeam reads the Team field, an object whose label lives under one of
 // several keys depending on the site. The id is kept verbatim: a site-scoped
 // team carries a suffix that is part of the id, not noise to trim.
+//
+// The field also comes back as a bare string on many sites, and that string is
+// the id — it is the form jiraSetTeam writes first. Returning it as the name
+// put a UUID on the board and left nothing to resolve the team's members with.
 func parseJiraTeam(raw json.RawMessage) (id string, name string) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return "", ""
@@ -124,7 +144,35 @@ func parseJiraTeam(raw json.RawMessage) (id string, name string) {
 	}
 	var asText string
 	if err := json.Unmarshal(raw, &asText); err == nil {
-		return "", strings.TrimSpace(asText)
+		text := strings.TrimSpace(asText)
+		if looksLikeTeamID(text) {
+			return text, ""
+		}
+		return "", text
 	}
 	return "", ""
+}
+
+// looksLikeTeamID tells an identifier from a label. Jira team ids are UUIDs,
+// sometimes with a site suffix, or Atlassian resource names; a team called
+// "Platform" is neither. A team named in nothing but hexadecimal letters would
+// be read as an id, which is the price of not knowing which of the two a bare
+// string is.
+func looksLikeTeamID(text string) bool {
+	if text == "" {
+		return false
+	}
+	if strings.HasPrefix(text, "ari:") {
+		return true
+	}
+	for _, r := range text {
+		switch {
+		case r >= '0' && r <= '9', r >= 'a' && r <= 'f', r >= 'A' && r <= 'F', r == '-':
+		default:
+			return false
+		}
+	}
+	// A bare word of fewer than eight hex characters is far more likely to be a
+	// short label than an identifier.
+	return len(text) >= 8
 }

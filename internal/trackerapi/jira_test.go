@@ -225,6 +225,15 @@ func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
 		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
 	})
 	site.reply("GET", "/rest/api/3/issue/PE-42", `{"key":"PE-42","fields":{"summary":"New","status":{"name":"To Do","statusCategory":{"key":"new"}},"labels":["new"]}}`)
+	// What the site makes mandatory, and of which shape: a select list takes an
+	// option id, a free text field takes the text.
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes", `{"total":2,"issueTypes":[{"id":"10001","name":"Story"},{"id":"10002","name":"Task"}]}`)
+	mandatory := `{"total":2,"fields":[
+		{"fieldId":"customfield_10011","name":"Epic Type","required":true,"allowedValues":[{"id":"10200","value":"Feature"}]},
+		{"fieldId":"customfield_10050","name":"Cost centre","required":true}
+	]}`
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10001", mandatory)
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10002", mandatory)
 
 	proj := jiraProject()
 	proj.IssueTypes = []string{"Story"}
@@ -240,12 +249,18 @@ func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
 		t.Fatalf("description must be ADF: %#v", fields["description"])
 	}
 
-	task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: proj, Title: "New", Fields: map[string]string{"customfield_10011": "10200"}})
+	task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: proj, Title: "New", Fields: map[string]string{"customfield_10011": "10200", "customfield_10050": "R&D"}})
 	if err != nil || task.Key != "PE-42" || task.Source != "jira" || task.Status != models.StatusToClarify {
 		t.Fatalf("created task: %+v %v", task, err)
 	}
-	if fields := created["fields"].(map[string]any); fields["customfield_10011"].(map[string]any)["id"] != "10200" {
-		t.Fatalf("mandatory field: %#v", fields)
+	fields = created["fields"].(map[string]any)
+	if fields["customfield_10011"].(map[string]any)["id"] != "10200" {
+		t.Fatalf("a select list takes an option id: %#v", fields)
+	}
+	// Wrapping this one too made creation impossible on any project with a
+	// mandatory text field: Jira answers that the value must be a string.
+	if fields["customfield_10050"] != "R&D" {
+		t.Fatalf("a free text field takes its text: %#v", fields["customfield_10050"])
 	}
 
 	// No configured type and no request type: Task.
@@ -465,12 +480,15 @@ func TestJiraReadSideBoardsColumnsSprintsStatusesTypes(t *testing.T) {
 	site.reply("GET", "/rest/api/3/status", `[{"id":"1","name":"To Do"},{"id":"3","name":"Done"},{"id":"4","name":"Closed"}]`)
 	site.reply("GET", "/rest/agile/1.0/board/5/sprint", `{"values":[{"id":9,"name":"Sprint 9","state":"active","startDate":"2026-09-01","endDate":"2026-09-14"}],"isLast":true}`)
 	site.reply("GET", "/rest/api/3/project/PE/statuses", `[{"statuses":[{"id":"1","name":"To Do","statusCategory":{"key":"new"}},{"id":"3","name":"Done","statusCategory":{"key":"done"}}]},{"statuses":[{"id":"1","name":"To Do","statusCategory":{"key":"new"}}]}]`)
-	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes", `{"values":[{"id":"10001","name":"Story","subtask":false},{"id":"10003","name":"Sub-task","subtask":true},{"id":"10000","name":"Epic","subtask":false}],"isLast":true}`)
-	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10000", `{"values":[
+	// The create-metadata envelope, verbatim: its own array name and a total,
+	// with none of the "values"/"isLast" the Agile pages carry. Stubbing it as
+	// an Agile page hid an adapter that decoded nothing from a real site.
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes", `{"maxResults":50,"startAt":0,"total":3,"issueTypes":[{"id":"10001","name":"Story","subtask":false},{"id":"10003","name":"Sub-task","subtask":true},{"id":"10000","name":"Epic","subtask":false}]}`)
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10000", `{"maxResults":50,"startAt":0,"total":3,"fields":[
 		{"fieldId":"summary","name":"Summary","required":true},
 		{"fieldId":"customfield_10011","name":"Epic Type","required":true,"hasDefaultValue":false,"allowedValues":[{"id":"1","value":"Feature"},{"id":"2","value":"Tech"}]},
 		{"fieldId":"customfield_10099","name":"Defaulted","required":true,"hasDefaultValue":true}
-	],"isLast":true}`)
+	]}`)
 	site.reply("GET", "/rest/api/3/search/jql", `{"issues":[{"key":"PE-10","fields":{"summary":"Big epic","issuetype":{"name":"Epic"},"status":{"name":"To Do","statusCategory":{"key":"new"}}}}],"isLast":true}`)
 
 	j := site.adapter()

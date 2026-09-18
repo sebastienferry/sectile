@@ -155,6 +155,43 @@ func (c *Client) jiraAgilePages(ctx context.Context, path string, query url.Valu
 	return items, fmt.Errorf("tracker pagination did not end")
 }
 
+// jiraCreateMetaPages walks the startAt/total pagination of the create-metadata
+// endpoints, whose answer is shaped unlike every other paginated Jira reply:
+// the issue-type page names its array "issueTypes", the field page names it
+// "fields", and neither carries the "isLast" the Agile pages use. Read as an
+// Agile page they decoded nothing at all, page one looked empty and the walk
+// stopped with no error — so the issue-type picker was permanently empty and
+// creation could never ask for a field the site makes mandatory.
+func (c *Client) jiraCreateMetaPages(ctx context.Context, path string, field string) ([]json.RawMessage, error) {
+	query := url.Values{}
+	var items []json.RawMessage
+	startAt := 0
+	for page := 0; page < jiraMaxPages; page++ {
+		query.Set("startAt", fmt.Sprint(startAt))
+		query.Set("maxResults", fmt.Sprint(jiraPageSize))
+		var payload map[string]json.RawMessage
+		if err := c.jira(ctx, http.MethodGet, path, query, nil, &payload); err != nil {
+			return items, err
+		}
+		var batch []json.RawMessage
+		if raw, ok := payload[field]; ok {
+			if err := json.Unmarshal(raw, &batch); err != nil {
+				return items, fmt.Errorf("jira returned an unreadable %s page: %w", field, err)
+			}
+		}
+		items = append(items, batch...)
+		total := 0
+		if raw, ok := payload["total"]; ok {
+			_ = json.Unmarshal(raw, &total)
+		}
+		if len(batch) == 0 || len(items) >= total {
+			return items, nil
+		}
+		startAt += len(batch)
+	}
+	return items, fmt.Errorf("tracker pagination did not end")
+}
+
 // jiraSearchPages walks the token pagination of the enhanced search endpoint
 // and returns the raw issues. The removed startAt form of /search answers 410
 // on Cloud, which is why this is the only search the client knows.
