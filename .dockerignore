@@ -1,0 +1,37 @@
+# Build context for the server image (see Dockerfile). Only the Go sources and
+# the web interface sources are needed; the interface is compiled inside the
+# image, so the local dist is deliberately excluded.
+.git
+.github
+.gitlab-ci.yml
+bin/
+dist/
+tmp/
+scratch/
+*.exe
+*.log
+
+# Databases & local state
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.local
+.tasks/
+.taskflow/
+.agents/
+.agent/
+.claude/
+
+# Node dependencies and build outputs (reinstalled / rebuilt in the image)
+web/node_modules/
+web/dist/
+internal/webui/dist/*
+!internal/webui/dist/.gitkeep
+
+# Not part of the server
+desktop/
+docs/
+openspec/
+specs/
+*.md
