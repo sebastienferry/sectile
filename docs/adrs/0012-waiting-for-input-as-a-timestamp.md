@@ -179,13 +179,27 @@ Two consequences on the agent side:
   the server as two requests in the wrong order.
 
 The two per-event scripts became one, `sectile-hook.sh`, registered on the five
-events and reading the event from its payload. One script is the point: the
-split is how the first version came to clear the wait in one place only. The
-retired names stay recognised so an upgrade retires the files through the
-manifest and drops their registrations from `~/.claude/settings.json` rather
-than leaving two dead entries that would fail on every turn.
+events and reading the event from its payload. One hook is the point: the split
+is how the first version came to clear the wait in one place only. The retired
+names stay recognised so an upgrade retires the files through the manifest and
+drops their registrations from `~/.claude/settings.json` rather than leaving
+dead entries that would fail on every turn.
 
-The cost is one `sh` plus one `curl` to the loopback per tool call, measured
-under 50 ms on a 200 KB payload. It was preferred to an `async` registration, which would let a
-"working" report land after the "waiting" one it is meant to precede, and to a
-marker file that the script would have to keep in step with the agent.
+**Revised (#260): the one script became a subcommand of the agent binary,
+`<agent binary> sectile-hook`, registered on every platform.** The script never
+ran on Windows. Claude Code hands the registered command to the host shell, and
+`cmd.exe` resolves a `.sh` file through its file association: a detached Git
+Bash window on a workstation that has Git for Windows, and "not recognized as an
+internal or external command" on one that does not. The event table is
+unchanged; what changed is that it no longer needs a POSIX shell, `curl`, `sed`,
+`basename` or a `$HOME` the shell may not set, and that it can be unit-tested on
+any host instead of only through `/bin/sh`. `sectile-hook.sh` joined the retired
+names, and a registration is now recognised as Sectile's by its trailing
+`sectile-hook` argument rather than by a file name the binary does not have —
+the Makefile builds it as `agent`, the desktop package ships it as
+`sectile-agent`.
+
+The cost is one short-lived process per tool call, as before. It was preferred
+to an `async` registration, which would let a "working" report land after the
+"waiting" one it is meant to precede, and to a marker file that the hook would
+have to keep in step with the agent.
