@@ -674,14 +674,15 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 	if _, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Project: project}); err != nil {
 		t.Fatal(err)
 	}
-	// Somebody acting, with none: the server credential again.
-	if _, err := adapter.SyncIssues(tracker.WithActingUser(context.Background(), "someone-else"), tracker.SyncRequest{Project: project}); err != nil {
-		t.Fatal(err)
+	// Somebody acting, with no token of their own: refused rather than written
+	// under the server account, which would put a name on it nobody chose.
+	if _, err := adapter.SyncIssues(tracker.WithActingUser(context.Background(), "someone-else"), tracker.SyncRequest{Project: project}); err == nil || !strings.Contains(err.Error(), "personal Jira token") {
+		t.Fatalf("a named user without a token must be refused: %v", err)
 	}
 
 	service := "Basic " + base64.StdEncoding.EncodeToString([]byte("service@example.com:service-token"))
 	personal := "Basic " + base64.StdEncoding.EncodeToString([]byte("ada@example.com:ada-token"))
-	if len(seen) != 3 || seen[0] != service || seen[1] != personal || seen[2] != service {
+	if len(seen) != 2 || seen[0] != service || seen[1] != personal {
 		t.Fatalf("wrong credential used: %v", seen)
 	}
 

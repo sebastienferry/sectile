@@ -7,6 +7,7 @@ import {
   credentialState,
   initialTracker,
   saveBlockedReason,
+  scopesFor,
   sealingConsequence,
   storedFor,
   trackerFields,
@@ -58,20 +59,31 @@ test('each tracker is prefilled from its own stored values', () => {
 })
 
 test('a token may stay empty: the check revalidates the stored one', () => {
-  assert.equal(canCheck('jira', { siteUrl: 'acme.atlassian.net', email: 'ada@example.com' }), true)
-  assert.equal(canCheck('jira', { siteUrl: 'acme.atlassian.net' }), false)
+  // Jira's site comes from the server configuration, so only the account
+  // e-mail is missing from the personal card.
+  assert.equal(canCheck('jira', { email: 'ada@example.com' }), true)
+  assert.equal(canCheck('jira', {}), false)
   // GitHub and GitLab have a public instance the server falls back to, so an
-  // empty site must not block the check the way it does for Jira.
+  // empty site must not block their check either.
   assert.equal(canCheck('github', { siteUrl: '' }), true)
   assert.equal(canCheck('gitlab', {}), true)
 })
 
 test('a blocked save says why, rather than greying a button in silence', () => {
-  assert.match(saveBlockedReason('jira', {}, false), /site et l'e-mail/)
-  assert.match(saveBlockedReason('jira', { siteUrl: 'acme.atlassian.net', email: 'ada@example.com' }, false), /Vérifiez les accès/)
+  assert.match(saveBlockedReason('jira', {}, false), /e-mail/)
+  assert.match(saveBlockedReason('jira', { email: 'ada@example.com' }, false), /Vérifiez les accès/)
   assert.match(saveBlockedReason('github', {}, false), /Vérifiez/)
   // Once the instance accepted them, nothing is in the way any more.
-  assert.equal(saveBlockedReason('jira', { siteUrl: 'acme.atlassian.net', email: 'ada@example.com' }, true), '')
+  assert.equal(saveBlockedReason('jira', { email: 'ada@example.com' }, true), '')
+})
+
+test('a tracker that attributes its writes is personal only', () => {
+  // The server token stays a configuration fallback, never a box in the screen.
+  assert.deepEqual(scopesFor('jira'), ['personal'])
+  assert.deepEqual(scopesFor('github'), ['server', 'personal'])
+  assert.deepEqual(scopesFor('gitlab'), ['server', 'personal'])
+  assert.equal(trackerFields('jira').siteFromServer, true)
+  assert.equal(trackerFields('github').siteFromServer, undefined)
 })
 
 test('every tracker with a server adapter can be set on a project', () => {

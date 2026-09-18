@@ -17,6 +17,18 @@ export interface TrackerFields {
   projectLabel?: string
   projectPlaceholder?: string
   tokenHint: string
+  /**
+   * Un jeton que le tracker attribue à un compte n'a de sens que personnel :
+   * sur Jira, un commentaire porte le nom du compte qui l'a écrit. L'écran
+   * n'offre alors pas d'enregistrer pour le serveur, dont le jeton ne reste
+   * qu'un repli de configuration, hors interface.
+   */
+  personalOnly?: boolean
+  /**
+   * Le site vient de la configuration globale et du projet, pas de la fiche
+   * personnelle : une équipe partage une instance, chacun y a son compte.
+   */
+  siteFromServer?: boolean
 }
 
 export const TRACKERS: TrackerFields[] = [
@@ -28,7 +40,9 @@ export const TRACKERS: TrackerFields[] = [
     wantsEmail: true,
     projectLabel: 'Clé du projet par défaut',
     projectPlaceholder: 'PE',
-    tokenHint: "À créer sur id.atlassian.com, section jetons d'API.",
+    tokenHint: "À créer sur id.atlassian.com, section jetons d'API. Il s'authentifie avec votre e-mail Atlassian, pas seul.",
+    personalOnly: true,
+    siteFromServer: true,
   },
   {
     id: 'github',
@@ -135,7 +149,10 @@ export function storedFor(settings: StoredSettings, tracker: TrackerKind) {
  * donc exigés.
  */
 export function canCheck(tracker: TrackerKind, values: { siteUrl?: string; email?: string }): boolean {
-  if (!trackerFields(tracker).wantsEmail) return true
+  const fields = trackerFields(tracker)
+  if (!fields.wantsEmail) return true
+  // Le site vient du serveur pour ce tracker : seul l'e-mail manque ici.
+  if (fields.siteFromServer) return Boolean(values.email?.trim())
   return Boolean(values.siteUrl?.trim()) && Boolean(values.email?.trim())
 }
 
@@ -147,7 +164,9 @@ export function canCheck(tracker: TrackerKind, values: { siteUrl?: string; email
 export function saveBlockedReason(tracker: TrackerKind, values: { siteUrl?: string; email?: string }, checked: boolean): string {
   if (checked) return ''
   if (!canCheck(tracker, values)) {
-    return trackerFields(tracker).wantsEmail
+    const fields = trackerFields(tracker)
+    if (fields.siteFromServer) return "Renseignez l'e-mail de votre compte, puis vérifiez les accès."
+    return fields.wantsEmail
       ? "Renseignez le site et l'e-mail du compte, puis vérifiez les accès."
       : 'Renseignez les accès, puis vérifiez-les.'
   }
@@ -187,4 +206,13 @@ export function credentialState(credential?: StoredUserCredential): string {
   if (!credential) return "Aucun accès personnel : vos écritures partent avec le jeton du serveur."
   if (!credential.sealed) return 'Enregistré et chiffré avec la clé du serveur.'
   return credential.unlocked ? 'Scellé et déverrouillé pour cette session.' : 'Scellé et verrouillé : saisissez votre phrase pour le déverrouiller.'
+}
+
+/**
+ * Pour qui l'écran peut enregistrer ce tracker. Un tracker qui attribue ses
+ * écritures à un compte n'accepte que le personnel : son jeton serveur reste
+ * un repli de configuration, jamais une case de l'interface.
+ */
+export function scopesFor(tracker: TrackerKind): CredentialScope[] {
+  return trackerFields(tracker).personalOnly ? ['personal'] : ['server', 'personal']
 }

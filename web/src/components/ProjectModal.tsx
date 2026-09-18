@@ -1001,6 +1001,12 @@ export const ProjectModal: React.FC = () => {
                     const newTrk = e.target.value as IssueTracker
                     setIssueTracker(newTrk)
                     fetchDetectedStatuses(newTrk)
+                    // L'instance est une configuration du serveur : un projet
+                    // Jira part de celle-ci plutôt que de la faire retaper.
+                    // Une valeur déjà saisie ici n'est pas écrasée.
+                    if (newTrk === 'jira' && !trackerUrl.trim() && settings.jiraUrl?.trim()) {
+                      setTrackerUrl(settings.jiraUrl.trim())
+                    }
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
                 >
@@ -1268,6 +1274,11 @@ export const ProjectModal: React.FC = () => {
                 <div className={issueTracker === 'local' ? 'col-span-2' : ''}>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                     {issueTracker === 'jira' ? 'URL Jira (base)' : 'URL du Tracker'}
+                    {issueTracker === 'jira' && settings.jiraUrl?.trim() && trackerUrl.trim() === settings.jiraUrl.trim() ? (
+                      <span className="ml-1 font-normal normal-case text-[9px] text-[var(--text-muted)]">
+                        reprise du serveur
+                      </span>
+                    ) : null}
                   </label>
                   <div className="relative">
                     <input

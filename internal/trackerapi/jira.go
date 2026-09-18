@@ -47,7 +47,19 @@ func (j *JiraAdapter) forProject(ctx context.Context, p *models.Project) (*Clien
 	if p != nil {
 		projectID = p.ID
 	}
-	return j.client.ForActingUser(tracker.ActingUser(ctx), "jira", projectID)
+	user := tracker.ActingUser(ctx)
+	client, personal, err := j.client.ForActingUser(user, "jira", projectID)
+	if err != nil {
+		return nil, err
+	}
+	// Jira attributes a write to the account behind the token. So an operation
+	// somebody asked for either carries their own token or does not happen:
+	// writing under the server account would put a name on it that nobody
+	// chose. Unattended work names nobody and keeps the server credential.
+	if user != "" && !personal {
+		return nil, fmt.Errorf("no personal Jira token for this user: store one in your profile, or the work would be attributed to the server account")
+	}
+	return client, nil
 }
 
 func (j *JiraAdapter) projectKey(p *models.Project) (string, error) {

@@ -8,6 +8,7 @@ import {
   credentialState,
   initialTracker,
   saveBlockedReason,
+  scopesFor,
   sealingConsequence,
   storedFor,
   trackerFields,
@@ -52,7 +53,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   // Pour qui le jeton est enregistré. Sur Jira une écriture est attribuée au
   // compte du jeton, donc un jeton partagé fait signer toute l'équipe par un
   // même compte d'intégration.
-  const [scope, setScope] = useState<CredentialScope>('server')
+  const [scope, setScope] = useState<CredentialScope>(scopesFor(initial)[0])
   const [passphrase, setPassphrase] = useState('')
   const [unlockPhrase, setUnlockPhrase] = useState('')
 
@@ -65,6 +66,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   const selectTracker = (next: TrackerKind) => {
     const values = storedFor(settings, next)
     setTracker(next)
+    setScope(scopesFor(next)[0])
     setSiteUrl(values.siteUrl)
     setProject(values.project)
     setToken('')
@@ -159,21 +161,32 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             </div>
           </div>
 
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              {kind.siteLabel}
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                value={siteUrl}
-                onChange={e => setSiteUrl(e.target.value)}
-                placeholder={kind.sitePlaceholder}
-                className={fieldClass}
-              />
-              <Globe size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+          {kind.siteFromServer ? (
+            <div className="p-2.5 rounded-xl bg-[var(--bg-tertiary)]/60 border border-[var(--border-color)] text-[10.5px] text-[var(--text-secondary)] leading-relaxed">
+              <span className="font-semibold text-[var(--text-primary)]">{kind.siteLabel} : </span>
+              {settings.jiraUrl?.trim() || 'non configuré sur le serveur'}
+              <span className="block text-[var(--text-muted)] mt-0.5">
+                L'instance est une configuration du serveur, reprise par les projets. Vous n'y
+                apportez que votre compte.
+              </span>
             </div>
-          </div>
+          ) : (
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {kind.siteLabel}
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={siteUrl}
+                  onChange={e => setSiteUrl(e.target.value)}
+                  placeholder={kind.sitePlaceholder}
+                  className={fieldClass}
+                />
+                <Globe size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+              </div>
+            </div>
+          )}
 
           {kind.wantsEmail && (
             <div>
@@ -193,7 +206,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             </div>
           )}
 
-          {kind.projectLabel && (
+          {kind.projectLabel && !kind.personalOnly && (
             <div>
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                 {kind.projectLabel}
@@ -241,27 +254,26 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
               Enregistrer ce jeton
             </label>
-            <div className="flex items-center gap-1.5">
-              {(
-                [
-                  { id: 'server' as CredentialScope, label: 'Pour le serveur' },
-                  { id: 'personal' as CredentialScope, label: 'Pour moi seulement' },
-                ]
-              ).map(choice => (
-                <button
-                  key={choice.id}
-                  type="button"
-                  onClick={() => setScope(choice.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer ${
-                    choice.id === scope
-                      ? 'accent-bg text-white border-transparent'
-                      : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                  }`}
-                >
-                  {choice.label}
-                </button>
-              ))}
-            </div>
+            {scopesFor(tracker).length > 1 ? (
+              <div className="flex items-center gap-1.5">
+                {scopesFor(tracker).map(choice => (
+                  <button
+                    key={choice}
+                    type="button"
+                    onClick={() => setScope(choice)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer ${
+                      choice === scope
+                        ? 'accent-bg text-white border-transparent'
+                        : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {choice === 'personal' ? 'Pour moi seulement' : 'Pour le serveur'}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-[11px] font-semibold text-[var(--text-primary)]">Pour moi seulement</div>
+            )}
             <span className="text-[9.5px] text-[var(--text-muted)] block mt-1 leading-relaxed">
               {scope === 'personal'
                 ? "Ce que vous écrivez porte votre compte plutôt que celui du serveur. " + credentialState(mine)

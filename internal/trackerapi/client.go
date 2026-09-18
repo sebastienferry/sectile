@@ -58,19 +58,20 @@ type Client struct {
 }
 
 // ForActingUser is For, with the acting user's own credentials substituted
-// where they have any. Nobody acting, or nobody with a personal credential,
-// gives exactly the client For would.
-func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, error) {
+// where they have any. The second result says whether the client carries a
+// personal credential: a tracker that attributes its writes to the account
+// behind the token uses it to refuse rather than write under the server's name.
+func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool, error) {
 	resolved := c.For(projectID)
 	if resolved == nil || resolved.ResolveUser == nil || strings.TrimSpace(userID) == "" {
-		return resolved, nil
+		return resolved, false, nil
 	}
 	email, token, err := resolved.ResolveUser(userID, tracker)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if token == "" {
-		return resolved, nil
+		return resolved, false, nil
 	}
 	personal := *resolved
 	switch strings.ToLower(strings.TrimSpace(tracker)) {
@@ -84,9 +85,9 @@ func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, erro
 	case "gitlab":
 		personal.GitlabToken = token
 	default:
-		return resolved, nil
+		return resolved, false, nil
 	}
-	return &personal, nil
+	return &personal, true, nil
 }
 
 func NewClient() *Client {
