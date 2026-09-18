@@ -189,6 +189,19 @@ ends while the pointer rests on the sidebar leaves its ticket row disabled.
 Disabling the focused **Run** would send focus to the body, so focus moves to
 that row's menu, which is never disabled.
 
+### One open menu, always detached
+The menu's outside-press listener lives on the document, so it must not outlive
+its menu. Most dismissals detach it on their own, but a rebuild or a
+disconnection removes the row without any pointer event, which would leave the
+listener bound to a detached menu. The view holds the open menu's closer, and
+closing the pane or rebuilding the table calls it. That also keeps a single menu
+open at a time.
+
+### Typed instructions are the user's work, not render state
+Sorting or searching rebuilds every row. The composed instructions and the
+execution mode are held on the view and restored into the rebuilt row, so a
+click on a column header cannot silently discard what the user was writing.
+
 ### Data refresh and stale responses
 `openTickets` keeps a `generation` counter like today so a slow response cannot
 overwrite a newer one or another project's pane. The task list is fetched on

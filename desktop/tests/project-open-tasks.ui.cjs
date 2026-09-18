@@ -178,6 +178,11 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   assert.equal(launches.length,3)
   await instructions.fill('Explain the ticket')
   await page.getByRole('combobox',{name:'Execution mode for #1',exact:true}).selectOption('autonomous')
+  // Sorting rebuilds the rows; what the user is typing is their work, not render state.
+  await page.getByRole('button',{name:'Title',exact:true}).click()
+  await expect(instructions).toHaveValue('Explain the ticket')
+  await expect(page.getByRole('combobox',{name:'Execution mode for #1',exact:true})).toHaveValue('autonomous')
+  await expect(page.getByRole('button',{name:'Title',exact:true})).toBeFocused()
   await page.getByRole('button',{name:'Launch',exact:true}).click()
   await expect.poll(()=>launches.length).toBe(4)
   assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'custom',prompt:'Explain the ticket',mode:'autonomous'})

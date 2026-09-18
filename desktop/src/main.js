@@ -858,6 +858,7 @@ let ticketsView=null
 function closeTickets(restoreFocus=true){
  if(!ticketsOpen)return
  const projectID=ticketsView?.projectID,opener=ticketsView?.opener
+ ticketsView?.closeOpenMenu?.()
  ticketsOpen=false;ticketsView=null;ticketsPane.hidden=true;ticketsPane.replaceChildren()
  document.querySelector('#workspace article').hidden=false
  resize()
@@ -911,6 +912,10 @@ async function openTickets(projectID,initialQuery=''){
 const TICKET_COLUMNS=[['state',''],['key','Key'],['title','Title'],['stage','Stage'],['priority','Priority'],['pr','PR'],['actions','Actions']]
 function renderTicketsTable(view,focusField=null){
  const {list,tasks,info,sort}=view
+ view.closeOpenMenu?.()
+ // Sorting or searching rebuilds the rows. Instructions being typed are the
+ // user's work, not render state, so they survive the rebuild.
+ const pending=view.compose?{...view.compose}:null
  list.replaceChildren();view.rows.clear();view.compose=null
  if(!info.configured){const notice=document.createElement('p');notice.textContent='Configure a local repository before launching tasks.';list.append(notice)}
  if(!tasks.length){const empty=document.createElement('p');empty.textContent=view.query?'No matching open tasks':'No open tasks in this project';list.append(empty);return}
@@ -939,6 +944,7 @@ function renderTicketsTable(view,focusField=null){
  const body=document.createElement('tbody')
  for(const task of orderedTasks(tasks,sort))body.append(ticketRow(view,task))
  table.append(caption,head,body);list.append(table)
+ if(pending&&view.rows.has(pending.taskId))openCompose(view,view.rows.get(pending.taskId),pending,false)
  if(focusField)list.querySelector('.sort-header[data-field="'+focusField+'"]')?.focus()
 }
 function ticketRow(view,task){
@@ -971,12 +977,15 @@ function ticketRow(view,task){
   if(menu.hidden)return
   menu.hidden=true;more.setAttribute('aria-expanded','false')
   if(dismiss){document.removeEventListener('pointerdown',dismiss,true);dismiss=null}
+  if(view.closeOpenMenu===closeMenu)view.closeOpenMenu=null
   if(focusOpener)more.focus()
  }
  const openMenu=()=>{
+  view.closeOpenMenu?.()
   menu.hidden=false;more.setAttribute('aria-expanded','true')
   dismiss=event=>{if(!menu.contains(event.target)&&event.target!==more)closeMenu()}
   document.addEventListener('pointerdown',dismiss,true)
+  view.closeOpenMenu=closeMenu
   menu.querySelector('[role=menuitem]:not(:disabled)')?.focus()
  }
  more.onclick=()=>{menu.hidden?openMenu():closeMenu()}
@@ -1050,7 +1059,7 @@ function closeCompose(view){
  if(!view.compose)return
  view.compose.row.remove();view.compose=null
 }
-function openCompose(view,entry){
+function openCompose(view,entry,initial=null,focusPrompt=true){
  closeCompose(view)
  const key=entry.task.key||entry.task.id
  const row=document.createElement('tr');row.className='ticket-compose'
@@ -1062,7 +1071,13 @@ function openCompose(view,entry){
  const notice=document.createElement('p');notice.setAttribute('role','status')
  const controls=document.createElement('div');controls.className='ticket-compose-controls';controls.append(mode,launch,cancel)
  cell.append(prompt,controls,notice);row.append(cell)
- entry.row.after(row);view.compose={row,taskId:entry.task.id}
+ prompt.value=initial?.text||''
+ mode.value=initial?.mode||''
+ entry.row.after(row);view.compose={row,taskId:entry.task.id,text:prompt.value,mode:mode.value}
+ // What the user types is held on the view, so a sort or a search rebuilds the
+ // rows around it instead of throwing it away.
+ prompt.oninput=()=>{if(view.compose?.row===row)view.compose.text=prompt.value}
+ mode.onchange=()=>{if(view.compose?.row===row)view.compose.mode=mode.value}
  cancel.onclick=()=>{closeCompose(view);entry.more.focus()}
  row.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closeCompose(view);entry.more.focus()}}
  launch.onclick=async()=>{
@@ -1071,7 +1086,7 @@ function openCompose(view,entry){
   try{await submitTicketLaunch(view,entry,'custom',prompt.value,launchModeOverride(mode.value));closeCompose(view);entry.more.focus()}
   catch(err){notice.textContent=err.message;launch.disabled=false}
  }
- prompt.focus()
+ if(focusPrompt)prompt.focus()
 }
 async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  const key=entry.task.key||entry.task.id

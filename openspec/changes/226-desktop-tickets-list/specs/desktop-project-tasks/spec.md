@@ -100,6 +100,11 @@ Each listed task SHALL offer a primary action that launches the task's next work
 - **THEN** one execution carrying those instructions and that mode override is submitted
 - **AND** an empty instruction text is refused with a message and nothing is submitted.
 
+#### Scenario: Instructions survive a reordering
+- **GIVEN** a row's custom instructions are open with text entered and an execution mode chosen
+- **WHEN** the user sorts or searches, which rebuilds the rows
+- **THEN** that text and that mode are still there, on that task's row.
+
 #### Scenario: Unconfigured project or failed launch
 - **GIVEN** a missing local repository mapping or a launch failure
 - **WHEN** the user views or launches a task
