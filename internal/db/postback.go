@@ -56,7 +56,9 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 			if payload.PrURL != nil {
 				url = *payload.PrURL
 			}
-			verified, err := d.validateStagePR(task, skill, d.adjustmentCheckout(task), branch, url)
+			// A post-back names no user: it is the agent reporting, not a
+			// person acting, so the evidence lookup keeps the project credential.
+			verified, err := d.validateStagePR(task, "", skill, d.adjustmentCheckout(task), branch, url)
 			if err != nil {
 				return nil, nil, err
 			}

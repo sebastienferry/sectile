@@ -77,6 +77,22 @@ func overrideWith(target *string, override string) {
 // tracker returns the tracker client carrying the credentials of one project.
 func (d *DB) tracker(projectID string) *trackerapi.Client { return d.trackers.For(projectID) }
 
+// trackerAs is tracker with the credentials of the person who asked for the
+// work substituted where they stored any. A tracker attributes a write to the
+// account behind the token, so an operation somebody asked for travels under
+// their own token rather than the server's. Unattended work names nobody and
+// keeps the project credential, which is why an empty user is not an error.
+func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client {
+	client, _, err := d.trackers.ForActingUser(userID, trackerName, projectID)
+	if err != nil || client == nil {
+		// A credential that cannot be resolved is not a reason to drop the
+		// request: the project's own is still there, and the call will say for
+		// itself whether it is accepted.
+		return d.trackers.For(projectID)
+	}
+	return client
+}
+
 // withoutTrackerTokens strips the credentials from a settings row on its way to
 // a client and reports them through flags instead: whether one is stored, and
 // whether the server environment supplies one in its absence. The interface

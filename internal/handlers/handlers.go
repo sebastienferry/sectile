@@ -521,7 +521,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 		var statuses []string
 		if projID != "" {
-			statuses, _ = h.db.GetProjectTrackerStatuses(projID)
+			statuses, _ = h.db.GetProjectTrackerStatuses(h.actingContext(r), projID)
 		} else {
 			dummyProj := &models.Project{
 				IssueTracker: tracker,
@@ -540,7 +540,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 					if len(parts) == 2 {
 						gqlQuery, _ := trackerapi.GithubStatusQuery(rRepo)
 
-						if output, err := h.db.TrackerGraphQL(gqlQuery); err == nil {
+						if output, err := h.db.TrackerGraphQL(h.actingContext(r), gqlQuery); err == nil {
 							var gqlRes struct {
 								Data struct {
 									Repository struct {
@@ -972,7 +972,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/projects/{id}/tracker-statuses: the statuses actually
 	// seen on this project's tickets, to assign them to columns
 	if len(parts) >= 2 && parts[1] == "tracker-statuses" && r.Method == http.MethodGet {
-		statuses, err := h.db.GetProjectTrackerStatuses(id)
+		statuses, err := h.db.GetProjectTrackerStatuses(h.actingContext(r), id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
