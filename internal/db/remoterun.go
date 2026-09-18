@@ -31,6 +31,11 @@ type RunLaunch struct {
 	// Mode is the resolved execution mode, autonomous or interactive. Empty when
 	// the launcher did not resolve one, as for a run a standalone CLI declares.
 	Mode string
+	// Provider and Model are the engine the launcher resolved for this run. The
+	// agent corrects them later through SetRemoteRunEngine, since it alone sees
+	// the workstation override.
+	Provider string
+	Model    string
 	// Stage is the workflow stage of the task at launch.
 	Stage string
 	// ChainStop is set only on a step of a full chain run, to the stage that
@@ -78,7 +83,10 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, ProjectID: task.ProjectID,
 		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
 		Status: "running", Summary: "Execution reported by a local agent or native client",
-		CreatedAt: now, StartedAt: &now, Steps: []string{}}
+		CreatedAt: now, StartedAt: &now, Steps: []string{},
+		// What the launcher resolved. The agent corrects it through
+		// SetRemoteRunEngine once it has built the real command line.
+		Provider: strings.TrimSpace(launch.Provider), Model: strings.TrimSpace(launch.Model)}
 	if agentOwned {
 		activity.Action = RunActionAgent
 	}
@@ -257,6 +265,44 @@ func (d *DB) SetRemoteRunWaiting(runID string, waiting bool) error {
 const RemoteRunOutputLimit = 256 * 1024
 
 const remoteRunOutputTruncated = "\n\n[output truncated: the run printed more than the recorded limit]"
+
+// SetRemoteRunEngine records the engine a run is really running against, as the
+// agent reports it once the command line is built. The launcher wrote its own
+// resolution at launch, but only the agent sees the workstation override, so
+// this is the value that ends up displayed.
+//
+// A run that is no longer running is left alone: a late report must not rewrite
+// a finished record, which is the same rule SetRemoteRunWaiting follows.
+func (d *DB) SetRemoteRunEngine(runID, provider, model string) error {
+	if strings.TrimSpace(runID) == "" {
+		return fmt.Errorf("run id is required")
+	}
+	provider, model = strings.TrimSpace(provider), strings.TrimSpace(model)
+	d.mu.Lock()
+	result, err := d.conn.Exec("UPDATE task_activities SET run_provider=?, run_model=? WHERE id=? AND skill_id='remote_run' AND status='running'",
+		provider, model, runID)
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fmt.Errorf("remote run not found or no longer running")
+	}
+	activity, err := d.GetActivityByID(runID)
+	if err != nil || activity == nil {
+		return err
+	}
+	task, err := d.GetTaskByID(activity.TaskID)
+	if err != nil || task == nil {
+		return nil
+	}
+	d.notifyPostBackListeners(task, activity, nil)
+	return nil
+}
 
 // AppendRemoteRunOutput adds captured CLI output to a running remote activity.
 // It is the only channel an autonomous run has: nobody is watching a terminal,

@@ -1,7 +1,8 @@
 import React from 'react'
 import { Cpu, Info } from 'lucide-react'
 import type { AIProvider } from '../types'
-import { AI_MODEL_SUGGESTIONS, isValidModel, providerTakesModel, templateGovernsCommand } from '../lib/aiModels'
+import { isValidModel, providerModels, providerTakesModel, templateGovernsCommand } from '../lib/aiModels'
+import { useApp } from '../context/AppContext'
 
 interface AIModelFieldProps {
   provider: AIProvider | ''
@@ -26,8 +27,11 @@ export const AIModelField: React.FC<AIModelFieldProps> = ({
   placeholder,
   label,
 }) => {
+  const { settings } = useApp()
   const listID = `ai-model-suggestions-${provider || 'none'}`
-  const suggestions = (provider && AI_MODEL_SUGGESTIONS[provider as AIProvider]) || []
+  // The suggestions are the models configured for this provider: the same list
+  // the launch surfaces offer, so adding one there makes it available here too.
+  const suggestions = providerModels(settings, provider)
   const templateWins = templateGovernsCommand(provider, commandTemplate)
   const ignored = !providerTakesModel(provider)
   const invalid = !isValidModel(value)

@@ -29,7 +29,7 @@ const headlessFlushInterval = 3 * time.Second
 //
 // The run is still registered like any other, so the desktop lists it, can
 // select it, and can stop it. What it cannot do is type into it.
-func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch string, envVars map[string]string, fullLine string) error {
+func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch string, envVars map[string]string, fullLine, provider, model string) error {
 	cmd := exec.Command("bash", "-lc", fullLine)
 	cmd.Dir = workDir
 	cmd.Stdin = nil
@@ -50,7 +50,7 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	// than split in two.
 	cmd.Stderr = cmd.Stdout
 
-	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch)
+	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model)
 	if err := cmd.Start(); err != nil {
 		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", err.Error())
 		return err
@@ -63,7 +63,7 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 // registerHeadlessRun records the run the way the PTY path does, minus the
 // session: an autonomous run has no terminal to attach to, and the desktop must
 // not present it as an execution whose console is missing.
-func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch string) *controlledRun {
+func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch, provider, model string) *controlledRun {
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	if d.queue.runs == nil {
@@ -79,6 +79,7 @@ func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Di
 		CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt,
 		ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID,
 		Skill: payload.SkillID, Directory: workDir, Branch: branch, Status: "running",
+		Provider: provider, Model: model,
 		Headless: true,
 	}
 	return run

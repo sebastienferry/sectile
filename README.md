@@ -35,6 +35,11 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     Les autres fournisseurs : `agy -i` en interactif, `vibe -p --auto-approve` et
     `codex exec` en autonome. `agy`, `gemini` et `cursor` n'ont pas de mode autonome
     attesté et refusent un lancement headless plutôt que d'en deviner un.
+  - **Modèle par lancement** : la liste des modèles de chaque moteur se règle globalement
+    (section *Moteur IA* du profil) et c'est elle que proposent le lanceur de la vue détail
+    et le menu `...` d'une carte. Le modèle résolu par la configuration y est le choix par
+    défaut : le garder ne change rien à la commande, en choisir un autre ne vaut que pour
+    ce run et n'écrit aucun réglage.
   - **Commandes personnalisées** : chaque mode a son champ, au global comme par projet,
     et les deux s'héritent indépendamment. La commande autonome sert les lancements
     headless ; laissée vide, ce sont les lancements headless qui retombent sur la

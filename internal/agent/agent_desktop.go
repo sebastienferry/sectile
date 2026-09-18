@@ -43,6 +43,7 @@ type desktopRun struct {
 	Branch          string    `json:"branch,omitempty"`
 	Kind            string    `json:"kind,omitempty"`
 	Provider        string    `json:"provider,omitempty"`
+	Model           string    `json:"model,omitempty"`
 	CancelRequested bool      `json:"cancelRequested,omitempty"`
 	QueueSequence   uint64    `json:"queueSequence,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`

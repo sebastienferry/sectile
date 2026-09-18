@@ -28,6 +28,7 @@ import { MarkdownView } from './Markdown'
 import { RunStateGlyph } from './RunStateGlyph'
 import { runStateOf, runStateLabel } from '../../../shared/runStates'
 import type { ActivityStatus, TaskActivity } from '../types'
+import { runEngineLabel } from '../lib/runEngine'
 
 // The badge's colour stays a Tailwind class rather than the hex value the shared
 // definition carries: replacing the palette is its own change, tracked apart to
@@ -484,6 +485,9 @@ export const ActivitiesView: React.FC = () => {
                           <span className="font-bold text-xs text-[var(--text-primary)] truncate">
                             {act.skillName || act.skillId}
                           </span>
+                          {runEngineLabel(act) && (
+                            <span className="text-[10px] font-mono text-[var(--text-muted)] truncate">{runEngineLabel(act)}</span>
+                          )}
                           {getStatusBadge(act)}
                         </div>
                         {/* Task Key & Title Link */}
@@ -607,6 +611,11 @@ export const ActivitiesView: React.FC = () => {
                     <h2 className="text-base font-bold text-[var(--text-primary)] truncate">
                       {selectedActivity.skillName}
                     </h2>
+                    {runEngineLabel(selectedActivity) && (
+                      <span className="text-[11px] font-mono text-[var(--text-muted)] truncate">
+                        {runEngineLabel(selectedActivity)}
+                      </span>
+                    )}
                     {getStatusBadge(selectedActivity)}
                   </div>
                   <p className="text-xs text-[var(--text-muted)] font-mono mt-0.5">

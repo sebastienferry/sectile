@@ -58,7 +58,7 @@ func runHeadless(t *testing.T, command string) (*headlessServer, *controlledRun)
 	server := newHeadlessServer(t)
 	d := &agentDaemon{link: serverLink{serverURL: server.server.URL}}
 	payload := agentconfig.Dispatch{RunID: "run-1", TaskKey: "#7", SkillID: "clarify"}
-	if err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, command); err != nil {
+	if err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, command, "claude", "claude-opus-5"); err != nil {
 		t.Fatalf("startHeadlessRun: %v", err)
 	}
 	d.queue.mu.Lock()
@@ -119,7 +119,7 @@ func TestHeadlessRunIsStoppable(t *testing.T) {
 	server := newHeadlessServer(t)
 	d := &agentDaemon{link: serverLink{serverURL: server.server.URL}}
 	payload := agentconfig.Dispatch{RunID: "run-stop", TaskKey: "#7", SkillID: "clarify"}
-	if err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, "sleep 120"); err != nil {
+	if err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, "sleep 120", "claude", "claude-opus-5"); err != nil {
 		t.Fatalf("startHeadlessRun: %v", err)
 	}
 	d.queue.mu.Lock()

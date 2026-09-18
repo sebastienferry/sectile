@@ -100,6 +100,26 @@ func TestWorkerLaunchDoesNotLockOrAdvanceWorkflow(t *testing.T) {
 	if run.Status != "running" {
 		t.Fatalf("launch ended skill execution: %#v", run)
 	}
+	// The native transition above files a tracker job on the background queue,
+	// which is still writing when the test returns. Closing the pool under it
+	// leaves the WAL files behind and fails the temporary directory cleanup, so
+	// the test waits for the queue to let go of its connection.
+	waitForIdleConnections(t, d)
+}
+
+// waitForIdleConnections blocks until no connection is checked out of the pool,
+// which is how a test tells that the background queue has finished with the
+// database it is about to close.
+func waitForIdleConnections(t *testing.T, d *DB) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if d.conn.Stats().InUse == 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("background work still holds a database connection")
 }
 
 func TestTrackerFailureDoesNotCreatePhantomTaskOrCompleteSync(t *testing.T) {

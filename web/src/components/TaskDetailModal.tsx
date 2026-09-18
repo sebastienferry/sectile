@@ -50,6 +50,8 @@ import { LookupField, type LookupOption } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { sprintLookup, macroLookup, isProjectCompatible } from '../lib/lookups'
 import { issueTypeStyle } from '../lib/issueTypes'
+import { providerModels, providerTakesModel, resolveConfiguredModel, templateGovernsCommand } from '../lib/aiModels'
+import { runEngineLabel } from '../lib/runEngine'
 
 export const TaskDetailModal: React.FC = () => {
   const {
@@ -136,6 +138,24 @@ export const TaskDetailModal: React.FC = () => {
   // the same CLI, otherwise the badge says AGY while the command runs Claude.
   const activeProvider = taskProject?.aiProvider || settings.aiProvider || 'agy'
 
+  // Les modèles proposés au lancement sont ceux configurés pour le moteur de ce
+  // projet : rien n'est saisi à la main ici, contrairement aux réglages. Le
+  // premier choix est le modèle que la précédence résout, et il n'envoie aucune
+  // surcharge, donc un lancement non touché reproduit la commande d'avant.
+  const launchModels = providerModels(settings, activeProvider)
+  // Le sélecteur vaut pour toutes les compétences de la vue, alors que la
+  // résolution dépend de la compétence lancée : on nomme donc le modèle de base,
+  // celui qu'appliquent les compétences qu'aucun niveau ne singularise. Il est
+  // retiré des autres choix, sinon le reprendre enverrait une surcharge là où le
+  // premier choix n'en envoie aucune.
+  const configuredLaunchModel = resolveConfiguredModel(taskProject || undefined, settings)
+  const activeTemplate = taskProject?.aiCommandTemplate || settings.aiCommandTemplate || ''
+  const launchModelNotice = templateGovernsCommand(activeProvider, activeTemplate)
+    ? "Le modèle de ligne de commande pilote l'exécution : le modèle n'est appliqué que via le marqueur {model}."
+    : !providerTakesModel(activeProvider)
+      ? `${activeProvider.toUpperCase()} n'accepte pas de sélection de modèle : la valeur est ignorée.`
+      : ''
+
 
 
   const [isSyncingTask, setIsSyncingTask] = useState(false)
@@ -168,6 +188,14 @@ export const TaskDetailModal: React.FC = () => {
   // Surcharge ponctuelle du mode d'exécution. Vide veut dire « mode configuré » :
   // aucune surcharge n'est envoyée et la précédence s'applique normalement.
   const [launchMode, setLaunchMode] = useState<SkillMode>('')
+  // Le modèle choisi pour les lancements de cette vue. Vide veut dire « le
+  // modèle configuré », donc aucune surcharge envoyée.
+  const [launchModel, setLaunchModel] = useState('')
+  // Le choix ne vaut que pour la liste devant lui : ouvrir une tâche d'un projet
+  // dont le moteur diffère ne doit pas lancer le modèle retenu pour le projet
+  // précédent. Dériver la valeur plutôt que la remettre à zéro dans un effet
+  // évite aussi qu'un rendu intermédiaire l'envoie encore.
+  const effectiveLaunchModel = launchModels.includes(launchModel) ? launchModel : ''
 
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
   const [isExpandedSpec, setIsExpandedSpec] = useState(false)
@@ -650,7 +678,7 @@ export const TaskDetailModal: React.FC = () => {
   const handleTriggerSkill = async (skillId: string, overridePrompt?: string, modeOverride?: SkillMode) => {
     if (!selectedTask || isSkillRunning) return
     const promptToUse = overridePrompt || customPrompt
-    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: modeOverride ?? launchMode })
+    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: modeOverride ?? launchMode, model: effectiveLaunchModel })
     if (activity && !overridePrompt) {
       setCustomPrompt('')
     }
@@ -1470,7 +1498,32 @@ export const TaskDetailModal: React.FC = () => {
               <option value="autonomous">Autonome</option>
             </select>
           </label>
+          {launchModels.length > 0 && (
+            <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
+              <span>Modèle</span>
+              <select
+                value={effectiveLaunchModel}
+                onChange={e => setLaunchModel(e.target.value)}
+                className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
+                title="Modèle pour ce lancement seulement. Aucun réglage enregistré n'est modifié ; une surcharge poste de travail peut encore s'appliquer."
+              >
+                <option value="">
+                  {configuredLaunchModel ? `Modèle configuré (${configuredLaunchModel})` : 'Modèle configuré'}
+                </option>
+                {launchModels
+                  .filter(model => model !== configuredLaunchModel)
+                  .map(model => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
         </div>
+        {launchModels.length > 0 && launchModelNotice && (
+          <p className="mb-1 text-[10px] text-[var(--text-muted)] leading-relaxed">{launchModelNotice}</p>
+        )}
         <input
           type="text"
           value={customPrompt}
@@ -1544,6 +1597,9 @@ export const TaskDetailModal: React.FC = () => {
                 <div className="flex items-center gap-2 truncate">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
                   <span className="font-bold text-[11px] text-[var(--text-primary)]">{act.skillName}</span>
+                  {runEngineLabel(act) && (
+                    <span className="text-[10px] font-mono text-[var(--text-muted)]">{runEngineLabel(act)}</span>
+                  )}
                   <span className="text-[10px] text-[var(--text-muted)] truncate max-w-[200px]">{act.summary}</span>
                 </div>
                 <span className="text-[10px] text-[var(--text-muted)] font-mono">
