@@ -67,19 +67,38 @@ export const TrackerCredentialForm: React.FC<{ tracker: TrackerKind; onSaved?: (
 
   const blockedReason = saveBlockedReason(tracker, { siteUrl, email }, Boolean(check?.ok))
 
+  // Le bouton doit revenir à son état normal quoi qu'il arrive. Sans cela une
+  // exception levée avant l'envoi laisse une attente sans fin, sans message et
+  // sans requête : rien à l'écran ne dit qu'il s'est passé quelque chose, et on
+  // ne peut même pas réessayer.
   const runCheck = async () => {
     setIsChecking(true)
-    setCheck(await checkTrackerCredentials({ tracker, siteUrl, project, email, token }))
-    setIsChecking(false)
+    try {
+      setCheck(await checkTrackerCredentials({ tracker, siteUrl, project, email, token }))
+    } catch (err) {
+      setCheck({ ok: false, error: err instanceof Error ? err.message : 'Vérification impossible' })
+    } finally {
+      setIsChecking(false)
+    }
   }
 
   const save = async () => {
     setIsSaving(true)
-    const saved =
-      scope === 'personal'
-        ? await saveUserCredential({ tracker, siteUrl, email, token, passphrase })
-        : await saveTrackerCredentials({ tracker, siteUrl, project, email, token })
-    setIsSaving(false)
+    let saved = false
+    try {
+      saved =
+        scope === 'personal'
+          ? await saveUserCredential({ tracker, siteUrl, email, token, passphrase })
+          : await saveTrackerCredentials({ tracker, siteUrl, project, email, token })
+    } catch (err) {
+      addToast({
+        type: 'error',
+        title: 'Enregistrement impossible',
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setIsSaving(false)
+    }
     if (!saved) return
     addToast({
       type: 'success',
