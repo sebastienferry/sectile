@@ -238,6 +238,26 @@ func TestActivityOwnerRoundTrips(t *testing.T) {
 	if err != nil || inserted.UserID != owner.ID {
 		t.Fatalf("inserted run owner = %q, %v", inserted.UserID, err)
 	}
+
+	// The three activity queries join the users table themselves instead of
+	// going through userColumns, so the chosen name has to reach each of them
+	// or the log keeps naming people by the address they renamed away from.
+	if _, err = d.SetDisplayName(owner.ID, "Alice Dupont"); err != nil {
+		t.Fatal(err)
+	}
+	byID, _ = d.GetActivityByID(run.ID)
+	if byID.UserName != "Alice Dupont" {
+		t.Fatalf("GetActivityByID keeps the old name: %q", byID.UserName)
+	}
+	perTask, _ = d.GetTaskActivities(task.ID)
+	all, _ = d.GetActivities("", "", "", task.ID, "", 10)
+	for name, list := range map[string][]models.TaskActivity{"GetTaskActivities": perTask, "GetActivities": all} {
+		for _, a := range list {
+			if a.ID == run.ID && a.UserName != "Alice Dupont" {
+				t.Fatalf("%s keeps the old name: %q", name, a.UserName)
+			}
+		}
+	}
 }
 
 // Closing a run is reporting its outcome, which is the run's own business: a

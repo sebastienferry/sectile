@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -242,8 +243,11 @@ func (h *Handler) renameCurrentUser(w http.ResponseWriter, r *http.Request) bool
 		return false
 	}
 	switch _, err := h.db.SetDisplayName(caller.UserID, payload.DisplayName); {
-	case errors.Is(err, db.ErrDisplayNameTooLong), errors.Is(err, db.ErrDisplayNameInvalid):
-		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, db.ErrDisplayNameTooLong):
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("A display name is at most %d characters", db.MaxDisplayNameLength))
+		return false
+	case errors.Is(err, db.ErrDisplayNameInvalid):
+		writeError(w, http.StatusBadRequest, "A display name cannot contain line breaks")
 		return false
 	case errors.Is(err, sql.ErrNoRows):
 		writeError(w, http.StatusNotFound, "Unknown user")

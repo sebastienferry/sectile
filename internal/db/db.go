@@ -2970,7 +2970,7 @@ func ownerDisplayName(displayName, email string) string {
 func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
 		SELECT a.id, a.task_id, a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
-		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
 		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE a.task_id = ? ORDER BY a.created_at DESC
 	`, taskID)
 	if err != nil {
@@ -4615,7 +4615,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
-		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id
@@ -4725,7 +4725,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
-		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id

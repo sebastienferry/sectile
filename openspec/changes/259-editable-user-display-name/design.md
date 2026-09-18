@@ -15,9 +15,13 @@ ALTER TABLE users ADD COLUMN chosen_name TEXT NOT NULL DEFAULT '';
 added next to the existing in-place `ALTER TABLE` statements of `initIdentitySchema`, which
 is how `role` and `last_sign_in` were introduced. `User.DisplayName` — the field every
 reader already uses — becomes `COALESCE(NULLIF(chosen_name, ''), display_name)`, resolved in
-`userColumns` and `scanUser`. Nothing downstream changes: `/api/me`, `/api/users`,
-`ownerDisplayName` and the users panel keep reading `DisplayName` and simply start seeing
-the chosen value.
+`userColumns` and `scanUser`. `/api/me`, `/api/users` and the users panel therefore keep
+reading `DisplayName` and simply start seeing the chosen value.
+
+The activity log is the exception, and it has to be handled by hand: its three queries
+(`GetActivityByID`, `GetTaskActivities`, `GetActivities`) join `users` themselves instead
+of going through `userColumns`, so each resolves the same `COALESCE` in its own `SELECT`.
+Without that, the log would keep naming people by the address they renamed away from.
 
 ### The provider keeps the e-mail, the person keeps the name
 `UpsertUser` is unchanged: it keeps writing `email` and `display_name` from the provider on

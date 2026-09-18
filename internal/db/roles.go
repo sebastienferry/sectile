@@ -42,10 +42,11 @@ const MaxDisplayNameLength = 80
 
 // ErrDisplayNameTooLong and ErrDisplayNameInvalid refuse what is not a name.
 // They are distinct because the person can act on each: shorten it, or remove
-// what does not belong in a name.
+// what does not belong in a name. The wording shown to that person belongs to
+// the handler, which is the layer that answers them.
 var (
-	ErrDisplayNameTooLong = errors.New("A display name is at most 80 characters")
-	ErrDisplayNameInvalid = errors.New("A display name cannot contain line breaks")
+	ErrDisplayNameTooLong = errors.New("display name is longer than the ceiling")
+	ErrDisplayNameInvalid = errors.New("display name carries a control character")
 )
 
 // NormalizeDisplayName is the name as it is stored: trimmed, free of control
@@ -54,9 +55,10 @@ var (
 func NormalizeDisplayName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	for _, r := range name {
-		// A name spanning two lines, or carrying a control character, is not a
-		// name: it is something that would break the row it is shown in.
-		if r == '\n' || r == '\r' || unicode.IsControl(r) {
+		// A name spanning two lines is not a name: it is something that would
+		// break the row it is shown in. A line break is a control character, so
+		// the one test covers both.
+		if unicode.IsControl(r) {
 			return "", ErrDisplayNameInvalid
 		}
 	}
