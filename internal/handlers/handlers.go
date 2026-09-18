@@ -343,7 +343,7 @@ func (h *Handler) HandleSyncAll(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	activity, err := h.db.EnqueueSync("all", "", req.ProjectID)
+	activity, err := h.db.EnqueueSyncAs(h.webSessionUser(r), "all", "", req.ProjectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -367,7 +367,7 @@ func (h *Handler) HandleSyncGithub(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	activity, err := h.db.EnqueueSync("github", req.Repo, req.ProjectID)
+	activity, err := h.db.EnqueueSyncAs(h.webSessionUser(r), "github", req.Repo, req.ProjectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -394,7 +394,7 @@ func (h *Handler) HandleSyncJira(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	activity, err := h.db.EnqueueSync("jira", req.ProjectKey, req.ProjectID)
+	activity, err := h.db.EnqueueSyncAs(h.webSessionUser(r), "jira", req.ProjectKey, req.ProjectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

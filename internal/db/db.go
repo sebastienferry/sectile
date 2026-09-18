@@ -30,6 +30,11 @@ type SkillJob struct {
 	ProjectID  string
 	SkillID    string
 	Prompt     string
+	// ActingUser is whoever asked for the work, carried onto the queue so a
+	// tracker credential belonging to a person can still be resolved once the
+	// request that started it is gone. Empty means nobody asked, which is what
+	// a timer does, and resolves to the server credential.
+	ActingUser string
 	// Mode is the execution mode already resolved by ResolveSkillMode. The
 	// agent applies it; it never re-reads project settings to decide, so a
 	// stale agent configuration cannot open a window inside a full chain run.
@@ -3569,6 +3574,9 @@ func (d *DB) afterTrackerSync(proj *models.Project, ts tracker.TicketingSystem, 
 }
 
 func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.Settings) {
+	// Whoever asked travels with the job: a personal tracker credential cannot
+	// be resolved from a request that ended long before the worker picked it up.
+	ctx = tracker.WithActingUser(ctx, job.ActingUser)
 	var steps []string
 	var summary string
 	var outputLines []string
@@ -4116,7 +4124,17 @@ func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
 	d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("✅ Ticket %s synchronisé avec succès", syncedTask.Key)}, fmt.Sprintf("Synchronisation de %s effectuée avec succès", syncedTask.Key), nil)
 }
 
+// EnqueueSync queues a synchronisation nobody in particular asked for, so it
+// runs with the server credential.
 func (d *DB) EnqueueSync(syncType string, param string, projectID string) (*models.TaskActivity, error) {
+	return d.EnqueueSyncAs("", syncType, param, projectID)
+}
+
+// EnqueueSyncAs queues a synchronisation on behalf of whoever asked. On a
+// tracker whose credential is personal, this is what lets the work reach the
+// site at all: the queue outlives the request, and the token belongs to the
+// person rather than to the server.
+func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, projectID string) (*models.TaskActivity, error) {
 	d.mu.RLock()
 	settings, _ := d.getSettingsUnsafe()
 	var proj *models.Project
@@ -4207,6 +4225,7 @@ func (d *DB) EnqueueSync(syncType string, param string, projectID string) (*mode
 		ProjectID:  projectID,
 		SkillID:    syncType,
 		Prompt:     param,
+		ActingUser: userID,
 	}
 
 	return &act, nil
