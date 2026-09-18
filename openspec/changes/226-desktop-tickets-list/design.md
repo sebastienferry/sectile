@@ -173,6 +173,22 @@ so an execution the user archived does not reappear here. `hiddenRun` never
 hides an active run, so archiving cannot silently re-enable **Run** on a task
 that is still executing.
 
+### The pane is a view of the workspace, not a mode beside it
+`select()` closes the pane as it closes the log pane: otherwise selecting a
+sidebar execution, or opening an agent console, changes state behind a hidden
+view, and the console it creates cannot be seen or typed into. `agentUnavailable()`
+closes it too, since its contents come from that agent, and `openTickets` refuses
+to run while no agent is connected rather than hiding the connection screen the
+user is looking at.
+
+The poll's deferred render protects the sidebar rows under the pointer from
+reordering. The pane is a different region whose update reorders nothing, so
+`renderTicketRows()` runs on the deferred path as well; otherwise a run that
+ends while the pointer rests on the sidebar leaves its ticket row disabled.
+
+Disabling the focused **Run** would send focus to the body, so focus moves to
+that row's menu, which is never disabled.
+
 ### Data refresh and stale responses
 `openTickets` keeps a `generation` counter like today so a slow response cannot
 overwrite a newer one or another project's pane. The task list is fetched on

@@ -126,6 +126,7 @@ function agentUnavailable(){
  document.querySelector('#shutdown').hidden=true
  document.querySelector('#restart').hidden=true
  document.querySelector('#agent-offline').hidden=false
+ closeTickets(false)
  document.querySelector('#setup').hidden=logsOpen
  document.querySelector('#workspace').hidden=!logsOpen
  connectionStatus({text:'Local agent stopped'})
@@ -143,7 +144,7 @@ function ready(){
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
- if(!background)closeLogs(false)
+ if(!background){closeLogs(false);closeTickets(false)}
  selectedProject=run.projectId
  selected=run.id
  changes.select(selected)
@@ -268,7 +269,7 @@ function renderHeader(){
  if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title=result.label;badge.setAttribute('aria-label',result.label)}
 }
 function render(options){
- if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();return}
+ if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();renderTicketRows();return}
  pendingRender=false
  changes.select(selected)
  renderHeader()
@@ -856,18 +857,27 @@ const ticketsPane=document.querySelector('#tickets-pane')
 let ticketsView=null
 function closeTickets(restoreFocus=true){
  if(!ticketsOpen)return
- const projectID=ticketsView?.projectID
+ const projectID=ticketsView?.projectID,opener=ticketsView?.opener
  ticketsOpen=false;ticketsView=null;ticketsPane.hidden=true;ticketsPane.replaceChildren()
  document.querySelector('#workspace article').hidden=false
  resize()
- if(restoreFocus)document.querySelector('.project-open-tasks[data-project-id="'+projectID+'"]')?.focus()
+ // The opener is where focus belongs, but only while it can still take it: a
+ // dialog button stays in the DOM after its dialog closes, and a project
+ // without a local path has no sidebar icon. The fallbacks keep focus inside
+ // the app instead of dropping it on the body.
+ if(!restoreFocus)return
+ const reachable=element=>element?.isConnected&&element.offsetParent!==null
+ const target=reachable(opener)?opener:document.querySelector('.project-open-tasks[data-project-id="'+projectID+'"]')||document.querySelector('#command-palette')
+ if(reachable(target))target.focus()
 }
 async function openTickets(projectID,initialQuery=''){
  selectedProject=projectID
+ if(!agentConnected){showDialog('Tickets');paragraph('Connect to the local agent to browse this project\u2019s tickets.');return}
+ const opener=document.activeElement
  if(dialog.open)dialog.close()
  closeLogs(false)
  const project=projects.find(item=>item.id===projectID)
- const view={projectID,projectName:project?.name||projectID,sort:{...DEFAULT_SORT},tasks:[],info:null,query:'',rows:new Map(),submitting:new Set(),compose:null,generation:0}
+ const view={projectID,projectName:project?.name||projectID,sort:{...DEFAULT_SORT},tasks:[],info:null,query:'',rows:new Map(),submitting:new Set(),compose:null,generation:0,opener:opener&&opener!==document.body?opener:null}
  ticketsOpen=true;ticketsView=view;ticketsPane.hidden=false;ticketsPane.replaceChildren()
  document.querySelector('#workspace article').hidden=true
  document.querySelector('#workspace').hidden=false;document.querySelector('#setup').hidden=true
@@ -886,7 +896,7 @@ async function openTickets(projectID,initialQuery=''){
  async function load(){
   const current=++view.generation,searchText=query.value.trim()
   const isCurrent=()=>current===view.generation&&ticketsView===view&&ticketsOpen
-  list.textContent='Loading open tasks…';list.setAttribute('aria-busy','true');view.rows.clear();view.compose=null
+  list.textContent='Loading open tasks…';list.setAttribute('aria-busy','true');view.rows.clear();view.compose=null;status.textContent=''
   try{
    const [tasks,info]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID)])
    if(!isCurrent())return
@@ -902,8 +912,8 @@ const TICKET_COLUMNS=[['state',''],['key','Key'],['title','Title'],['stage','Sta
 function renderTicketsTable(view,focusField=null){
  const {list,tasks,info,sort}=view
  list.replaceChildren();view.rows.clear();view.compose=null
- if(!tasks.length){const empty=document.createElement('p');empty.textContent=view.query?'No matching open tasks':'No open tasks in this project';list.append(empty);return}
  if(!info.configured){const notice=document.createElement('p');notice.textContent='Configure a local repository before launching tasks.';list.append(notice)}
+ if(!tasks.length){const empty=document.createElement('p');empty.textContent=view.query?'No matching open tasks':'No open tasks in this project';list.append(empty);return}
  const table=document.createElement('table');table.className='tickets-table'
  const caption=document.createElement('caption');caption.className='visually-hidden';caption.textContent='Open tasks in '+view.projectName
  const head=document.createElement('thead'),headRow=document.createElement('tr')
@@ -1019,7 +1029,12 @@ function updateTicketRow(view,entry){
  const active=executions.some(activeRun),pending=view.submitting.has(task.id)
  if(chosen){run.textContent='Run: '+chosen.label;run.dataset.skillId=chosen.skillId}
  else{run.textContent='Run';delete run.dataset.skillId}
+ const hadFocus=document.activeElement===run
  run.disabled=!chosen||active||pending
+ // A disabled control loses focus to the body, which sends a keyboard user back
+ // to the top of the page. The row's own menu is always available, so focus
+ // stays where the user was working.
+ if(run.disabled&&hadFocus)entry.more.focus()
  run.title=!chosen?step.message:active?'An execution is active on this task':pending?'Submitting execution…':'Launch '+chosen.label+' on '+key
  // Chromium delivers no pointer events to a disabled control, so its own title
  // would never appear: the cell carries the explanation while it is unusable.

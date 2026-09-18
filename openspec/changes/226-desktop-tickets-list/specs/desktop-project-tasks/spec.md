@@ -24,7 +24,18 @@ Each desktop sidebar project row SHALL offer an accessible icon action for brows
 - **GIVEN** the tickets pane is open
 - **WHEN** the user activates its close control or presses Escape with no dialog open
 - **THEN** the pane closes, the previously selected execution view is shown again
-- **AND** keyboard focus returns to the control that opened the pane.
+- **AND** keyboard focus returns to the control that opened the pane, or to a stable control of the app when that opener no longer exists.
+
+#### Scenario: Selecting an execution leaves the pane
+- **GIVEN** the tickets pane is open
+- **WHEN** the user selects an execution, or opens a console, from outside the pane
+- **THEN** the pane closes and that execution's console is shown, so no selection is made behind a hidden view.
+
+#### Scenario: The local agent becomes unavailable
+- **GIVEN** the tickets pane is open
+- **WHEN** the local agent stops
+- **THEN** the pane closes, since its contents come from that agent
+- **AND** opening it while no agent is connected explains that instead of replacing the connection screen.
 
 #### Scenario: One replacement view at a time
 - **GIVEN** the agent-log pane is open
@@ -68,9 +79,15 @@ Each listed task SHALL offer a primary action that launches the task's next work
 - **AND** the pane stays open and reports the submission.
 
 #### Scenario: Next step unavailable
-- **GIVEN** a listed task whose next step cannot be resolved (finished, awaiting human merge, skill missing on the project, or project unconfigured)
+- **GIVEN** a listed task whose next step cannot be resolved (finished, skill missing on the project, or project unconfigured)
 - **WHEN** its row renders
-- **THEN** the primary action is disabled and explains why in its tooltip.
+- **THEN** the primary action is disabled and explains why where a pointer can reach the explanation, since a disabled control receives no pointer events.
+
+#### Scenario: Reviewed task offers its closing step
+- **GIVEN** a listed task awaiting human merge on a project that exposes the closing skill
+- **WHEN** its row renders
+- **THEN** the primary action offers that closing step rather than being disabled
+- **AND** it is disabled with an explanation when the project does not expose that skill.
 
 #### Scenario: Launch another skill from the menu
 - **GIVEN** a listed task on a configured project
@@ -134,4 +151,14 @@ A row whose task has a local execution SHALL show the shared run-state glyph and
 - **GIVEN** the row above
 - **WHEN** the execution completes and the desktop refreshes
 - **THEN** the row shows the completed state glyph, the primary action becomes available again
-- **AND** the row order, keyboard focus and any open menu are unchanged.
+- **AND** the row order and any open menu are unchanged, and a refresh that disables the focused primary action moves focus to that row's secondary menu rather than losing it.
+
+#### Scenario: Refresh deferred by the sidebar
+- **GIVEN** the pointer or keyboard focus rests on a sidebar task row, which defers the sidebar's own re-render
+- **WHEN** a listed task's execution changes state
+- **THEN** the tickets rows still reflect that change.
+
+#### Scenario: Executions the user archived
+- **GIVEN** a listed task whose only execution has been archived
+- **WHEN** its row renders
+- **THEN** no run state is shown for it, as in the sidebar that hides it.

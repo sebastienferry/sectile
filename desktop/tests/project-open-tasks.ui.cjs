@@ -6,7 +6,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 test('the tickets pane lists, sorts and launches a project\'s open tasks',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-open-tasks-'))
  const requests=[],launches=[],pending=[]
- let failRead=false,failLaunch=false,configured=true,empty=false,runs=[]
+ let failRead=false,failLaunch=false,configured=true,empty=false,offline=false,runs=[]
  const tasks=[
   {id:'a1',key:'#1',title:'First open task',status:'to_clarify',priority:'medium'},
   {id:'a2',key:'#2',title:'Second open task',status:'to_implement',priority:'urgent',prUrl:'https://github.com/acme/repo/pull/42'},
@@ -18,6 +18,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
  ]
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
+  if(offline){res.writeHead(503).end('{}');return}
   const url=new URL(req.url,'http://localhost'),project=url.searchParams.get('projectId')
   if(url.pathname==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test'}));return}
   if(url.pathname==='/desktop/projects'){res.end(JSON.stringify(['A','B'].map(name=>({id:'project-'+name.toLowerCase(),name:'Project '+name,path:'/tmp/'+name}))));return}
@@ -63,6 +64,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await page.getByRole('button',{name:'Project B',exact:true}).click()
   await expect(page.getByRole('heading',{name:'Tickets · Project B',exact:true})).toBeVisible()
   await page.getByRole('button',{name:'Close tickets',exact:true}).click()
+  await expect(open('B')).toBeFocused()
   await page.mouse.move(700,400)
   await expect(open('A')).toHaveCSS('opacity','0')
   await heading.hover()
@@ -182,22 +184,38 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(instructions).toHaveCount(0)
   // An active execution disables Run, shows the shared state and leaves the menu open to use;
   // the poll updates the row in place without moving focus.
+  await run.focus()
   runs=[{id:'run-b1',taskId:'b1',taskKey:'#1',projectId:'project-b',skill:'clarify',status:'running',directory:'/tmp/B',createdAt:new Date().toISOString()}]
   const state=rows.first().locator('.run-state')
   await expect(state).toHaveAttribute('aria-label','Running')
   await expect(run).toBeDisabled();await expect(run).toHaveAttribute('title','An execution is active on this task')
-  await expect(more).toBeEnabled()
-  await page.getByRole('button',{name:'Title',exact:true}).focus()
+  // Disabling the focused control hands focus to the row's menu, never to the body.
+  await expect(more).toBeFocused();await expect(more).toBeEnabled()
   runs=[{...runs[0],status:'completed'}]
   await expect(state).toHaveAttribute('aria-label','Finished')
   await expect(run).toBeEnabled()
-  await expect(page.getByRole('button',{name:'Title',exact:true})).toBeFocused()
+  // A control the refresh does not touch keeps focus.
+  await expect(more).toBeFocused()
   assert.deepEqual(await keys(),['#1'])
+  // An archived execution is hidden here as it is in the sidebar.
+  await page.getByRole('button',{name:'Archive #1',exact:true}).click()
+  await expect(state).toBeEmpty()
+  // Selecting an execution leaves the pane instead of changing it behind a hidden view.
+  runs=[{...runs[0],status:'running'}]
+  await expect(state).toHaveAttribute('aria-label','Running')
+  await page.locator('#runs .local-task .run').first().click()
+  await expect(pane).toBeHidden()
+  await expect(page.locator('#workspace article')).toBeVisible()
+  await open('B').click();await expect(rows).toHaveCount(1)
+  runs=[]
   // Loading errors, empty lists and an unconfigured project.
   failRead=true;await open('A').click();await page.getByRole('alert').filter({hasText:'Could not load open tasks'}).waitFor()
   failRead=false;await search.click();await expect(rows).toHaveCount(4)
   empty=true;await search.click();await page.getByText('No open tasks in this project',{exact:true}).waitFor()
-  empty=false;configured=false;await search.click();await expect(rows).toHaveCount(4)
+  configured=false;await search.click()
+  await page.getByText('Configure a local repository before launching tasks.',{exact:true}).waitFor()
+  await page.getByText('No open tasks in this project',{exact:true}).waitFor()
+  empty=false;await search.click();await expect(rows).toHaveCount(4)
   await page.getByText('Configure a local repository before launching tasks.',{exact:true}).waitFor()
   for(const button of await page.locator('.ticket-run').all())assert.equal(await button.isDisabled(),true)
   const disabledMenu=page.getByRole('button',{name:'More actions for #1',exact:true})
@@ -228,6 +246,12 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
    const control=await button.boundingBox()
    assert.ok(control.x>=bounds.x-1&&control.x+control.width<=bounds.x+bounds.width+1,'project control overflows the row')
   }
+  await open('A').click();await expect(pane).toBeVisible()
+  offline=true
+  await expect(page.locator('#setup')).toBeVisible()
+  await expect(pane).toBeHidden()
+  offline=false
+  await expect(page.locator('#workspace')).toBeVisible()
  }finally{
   for(const response of pending)response.end('[]')
   if(app)await app.close()
