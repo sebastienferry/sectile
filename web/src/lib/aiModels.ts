@@ -60,6 +60,49 @@ export function taskProvider(
   return (project?.aiProvider || settings?.aiProvider || '') as AIProvider | ''
 }
 
+/**
+ * Formes courtes des familles connues, pour l'indicateur d'une carte : quatre
+ * caractères au plus, sinon il vole la place des boutons d'action. Un modèle
+ * hors de cette table garde ses quatre premiers caractères distinctifs.
+ */
+const SHORT_MODEL_NAMES: Record<string, string> = {
+  opus: 'OPUS',
+  sonnet: 'SONN',
+  haiku: 'HAIK',
+  codex: 'CDX',
+  flash: 'FLSH',
+  pro: 'PRO',
+  mini: 'MINI',
+  auto: 'AUTO',
+}
+
+/** Segments qui nomment le fournisseur plutôt que le modèle. */
+const VENDOR_SEGMENTS = new Set(['claude', 'anthropic', 'gemini', 'google', 'openai', 'gpt', 'o'])
+
+/**
+ * L'étiquette courte d'un modèle, telle qu'une carte l'affiche à côté de ses
+ * boutons : « claude-opus-5 » devient OPUS, « gpt-5-codex » devient CDX. Vide
+ * pour un modèle vide, ce qui veut dire qu'il n'y a rien à annoncer.
+ */
+export function shortModelLabel(model: string): string {
+  const segments = (model || '')
+    .trim()
+    .toLowerCase()
+    .split('/')
+    .pop()!
+    .split(/[-_.:]/)
+    .filter(Boolean)
+  if (segments.length === 0) return ''
+  for (const segment of segments) {
+    if (SHORT_MODEL_NAMES[segment]) return SHORT_MODEL_NAMES[segment]
+  }
+  // Rien de connu : le premier segment qui ne nomme pas le fournisseur, sinon
+  // les deux premiers collés, ce qui garde « gpt-5 » lisible en GPT5.
+  const distinctive = segments.find(segment => !VENDOR_SEGMENTS.has(segment))
+  const base = distinctive || segments.slice(0, 2).join('')
+  return base.slice(0, 4).toUpperCase()
+}
+
 /** Engines Sectile passes `--model` to. The others ignore a configured model. */
 export function providerTakesModel(provider?: AIProvider | ''): boolean {
   return provider === 'claude' || provider === 'codex' || provider === 'gemini' || provider === 'cursor'

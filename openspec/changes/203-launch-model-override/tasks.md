@@ -55,7 +55,16 @@
 - [x] 8.2 In `README.md:32-33`, mention the per-provider model list and the per-launch choice.
 - [x] 8.3 Update `.agents/MEMORY.md` §6 to list the two new `task_activities` columns and the new `settings` column among the ones every explicit column list must carry.
 
-## 9. Verification
+## 9. Revision after testing: the card selects, it does not launch
+- [x] 9.1 Add `web/src/lib/launchModel.ts`, the per-task selection in `localStorage`, tolerant of unreadable or unavailable storage, modelled on `boardDisplayMode.ts`.
+- [x] 9.2 Add `shortModelLabel` to `web/src/lib/aiModels.ts`: four characters at most, a short form per shipped family, the vendor segment skipped so `claude-opus-5` does not read as CLAU.
+- [x] 9.3 In `TaskCard.tsx`, turn the submenu rows into `menuitemradio` entries that call `chooseModel` and start nothing, the retained one ticked.
+- [x] 9.4 Thread the retained model into `handleAdvance`, so the next-step control, the full chain and both mode entries use it, and render the indicator immediately before the action buttons with the full identifier in its tooltip.
+- [x] 9.5 Stop `advanceTask` from dropping the model for a chain: from a card the chain is one `pickup` run, which carries it like any other launch.
+- [x] 9.6 Rename the menu entry, which no longer advances anything, in both locales.
+- [x] 9.7 Tests: the rows select and never launch, every card control passes the retained model, the indicator precedes the buttons, the selection is per task and survives a reload, and a selection the provider no longer offers is ignored.
+
+## 10. Verification
 - [x] 9.1 `go build ./... && go vet ./... && gofmt -l .` clean; `go test ./internal/...` green.
 - [x] 9.2 `cd web && npm test` green; `npx vite build` then the desktop UI tests green.
 - [x] 9.3 Manual check against a project with a configured model: launch untouched from both surfaces and compare the command line in the desktop console with the previous one; launch with another model from the card submenu on a condensed and on an expanded card, and from the detail view, and confirm `--model <choice>` and the run label; confirm the project and global settings are unchanged afterwards.

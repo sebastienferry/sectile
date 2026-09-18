@@ -25,6 +25,7 @@ import {
   Pin,
   Terminal,
   Cpu,
+  Check,
   X,
 } from 'lucide-react'
 import type { Task, Priority, SkillMode } from '../types'
@@ -33,7 +34,8 @@ import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
-import { providerModels, resolveConfiguredModel, taskProvider } from '../lib/aiModels'
+import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
+import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
 
 interface TaskCardProps {
   task: Task
@@ -74,6 +76,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   // Le sous-menu des modèles. Fermé par défaut : le menu reste une liste
   // d'entrées en un clic, et choisir un modèle est une étape de plus.
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false)
+  // Le modèle retenu pour cette tâche. Le sous-menu le change et rien d'autre :
+  // ce sont les boutons d'action qui lancent, et ils l'utilisent tous. Vide veut
+  // dire « le modèle configuré », donc aucune surcharge envoyée.
+  const [launchModel, setLaunchModel] = useState(() => loadLaunchModel(task.id))
   const modelMenuRef = useRef<HTMLDivElement>(null)
   const modelEntryRef = useRef<HTMLButtonElement>(null)
   const [menuPos, setMenuPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null)
@@ -298,10 +304,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   // Un pas du workflow. Sans surcharge, le mode est celui que la précédence
   // résout (surcharge > skill > défaut du projet > interactif). La chaîne
   // complète est autonome par construction et ne prend pas de surcharge.
-  const handleAdvance = async (auto: boolean, mode?: SkillMode, model?: string) => {
+  // Tout lancement parti de cette carte utilise le modèle retenu : le pas
+  // suivant, la chaîne complète et les deux modes. C'est ce qu'annonce
+  // l'indicateur placé devant les boutons.
+  const handleAdvance = async (auto: boolean, mode?: SkillMode) => {
     if (advancing || isFinishedTask) return
     setAdvancing(auto ? 'auto' : 'step')
-    await advanceTask(task.id, auto, mode, model)
+    await advanceTask(task.id, auto, mode, effectiveLaunchModel)
     setAdvancing(null)
   }
 
@@ -356,7 +365,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   // the card itself and carry no mode, so without these entries there is no way
   // to depart from the configured mode without opening the project settings.
   // Les modèles proposés pour le moteur de ce projet, celui que la précédence
-  // résout en tête. Le choisir n'envoie aucune surcharge : c'est déjà ce que
+  // résout en tête. Le retenir n'envoie aucune surcharge : c'est déjà ce que
   // ferait un lancement non touché. Aucune saisie libre ici, c'est une liste.
   const cardProvider = taskProvider(taskProject || undefined, settings)
   const cardModels = providerModels(settings, cardProvider)
@@ -366,10 +375,23 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   const cardSkillId = skillForStage(resolveTaskStage(task, taskProject)) || undefined
   const configuredCardModel = resolveConfiguredModel(taskProject || undefined, settings, cardSkillId)
   const offeredModels = cardModels.filter(model => model !== configuredCardModel)
+  // Une sélection que le moteur du projet ne propose plus ne peut pas être
+  // lancée : le projet a pu changer de moteur, ou sa liste a pu être retouchée.
+  const effectiveLaunchModel = cardModels.includes(launchModel) ? launchModel : ''
+  // Ce que la carte annonce et lancera : la sélection, sinon le modèle configuré.
+  const launchedModel = effectiveLaunchModel || configuredCardModel
 
   const closeMenu = () => {
     setIsModelMenuOpen(false)
     setIsMenuOpen(false)
+  }
+
+  // Choisir ne lance rien : la sélection change, la carte l'annonce, et le
+  // prochain bouton d'action s'en sert.
+  const chooseModel = (model: string) => {
+    setLaunchModel(model)
+    saveLaunchModel(task.id, model)
+    closeMenu()
   }
 
   const modeActions = (
@@ -397,7 +419,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               }
             }}>
             <Cpu size={12} /><span>{t.compactCard.advanceWithModel}</span>
-            <ChevronRight size={12} className="ml-auto" />
+            {launchedModel && (
+              <span className="ml-auto text-[10px] font-mono text-[var(--text-muted)]">{shortModelLabel(launchedModel)}</span>
+            )}
+            <ChevronRight size={12} className={launchedModel ? '' : 'ml-auto'} />
           </button>
           {isModelMenuOpen && (
             <div
@@ -415,10 +440,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               className="mt-0.5 ml-2 border-l border-[var(--border-color)] pl-1">
               <button
                 type="button"
-                role="menuitem"
+                role="menuitemradio"
+                aria-checked={effectiveLaunchModel === ''}
                 className={compactActionClass}
-                disabled={advancing !== null || isFinishedTask}
-                onClick={() => { closeMenu(); handleAdvance(false) }}>
+                onClick={() => chooseModel('')}>
+                <Check size={12} className={effectiveLaunchModel === '' ? 'opacity-100' : 'opacity-0'} />
                 <span className="truncate">
                   {configuredCardModel ? `${configuredCardModel} ${t.compactCard.currentModel}` : t.compactCard.currentModel}
                 </span>
@@ -427,10 +453,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
                 <button
                   key={model}
                   type="button"
-                  role="menuitem"
+                  role="menuitemradio"
+                  aria-checked={effectiveLaunchModel === model}
                   className={compactActionClass}
-                  disabled={advancing !== null || isFinishedTask}
-                  onClick={() => { closeMenu(); handleAdvance(false, undefined, model) }}>
+                  onClick={() => chooseModel(model)}>
+                  <Check size={12} className={effectiveLaunchModel === model ? 'opacity-100' : 'opacity-0'} />
                   <span className="truncate">{model}</span>
                 </button>
               ))}
@@ -851,6 +878,27 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
           <Pin size={14} />
         </button>
 
+        {/* Le modèle que les boutons suivants utiliseront. Il précède le groupe
+            parce qu'il le qualifie : quatre caractères au plus, le nom complet
+            dans l'infobulle. Discret quand il vient de la configuration, marqué
+            quand il vient d'un choix fait sur cette carte. */}
+        {launchedModel && (
+          <span
+            className={`ml-auto px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold tracking-wide border ${
+              effectiveLaunchModel
+                ? 'accent-text bg-[var(--accent-light)] border-[var(--accent-color)]/40'
+                : 'text-[var(--text-muted)] bg-[var(--bg-tertiary)] border-transparent'
+            }`}
+            title={
+              effectiveLaunchModel
+                ? `Modèle retenu pour cette tâche : ${launchedModel}`
+                : `Modèle configuré : ${launchedModel}`
+            }
+          >
+            {shortModelLabel(launchedModel)}
+          </span>
+        )}
+
         {/* Le terminal de la tâche est l'action la plus fréquente : elle mérite
             son icône, le reste vit dans le menu (...) */}
         <button
@@ -860,7 +908,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             e.stopPropagation()
             handleAdvance(false)
           }}
-          className="ml-auto p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40"
+          className={`${launchedModel ? '' : 'ml-auto '}p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--accent-color)] hover:bg-[var(--accent-light)] border border-transparent hover:border-[var(--accent-color)]/30 transition-colors cursor-pointer disabled:opacity-40`}
           title={nextStepInfo.stepTooltip}
         >
           {advancing === 'step' ? <Loader2 size={14} className="animate-spin" /> : <ChevronRight size={14} />}

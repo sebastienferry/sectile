@@ -52,20 +52,39 @@ The task detail view's skill launcher SHALL offer a model selector beside its ex
 - **WHEN** the user opens the launcher
 - **THEN** it states that this provider ignores the model, as the settings do
 
-### Requirement: The card menu offers the next step under a chosen model
-The task card's `...` menu SHALL offer, in both board display modes, an entry that opens a submenu listing the models configured for the task project's provider, with the model the configured levels resolve first and marked as current. Picking a listed model SHALL launch the task's next step under that model in the configured execution mode. The submenu SHALL be a list to pick from and SHALL NOT offer free-text entry. The entry SHALL come from the definition both card shapes already share for the mode entries.
+### Requirement: The card retains a model and says which one its buttons use
+The task card's `...` menu SHALL offer, in both board display modes, an entry opening a submenu that lists the models configured for the task project's provider, with the model the configured levels resolve first. The submenu SHALL be a selection: exactly one row SHALL be marked as retained, and picking a row SHALL change that selection without launching anything. The retained model SHALL be remembered for that task and SHALL survive a reload. Every launch started from the card SHALL use it: the next-step control, the full chain, and both one-off execution modes. The card SHALL show the model those controls will use, abbreviated to at most four characters, immediately before them, with the full identifier available on hover. Retaining the configured model SHALL send no override.
 
-#### Scenario: Launching the next step under another model
-- **GIVEN** a task on a project whose provider is `claude` and whose configured levels resolve `claude-sonnet-5`
+#### Scenario: Picking a model changes the selection and nothing else
+- **GIVEN** a task whose configured levels resolve `claude-sonnet-5`
 - **WHEN** the user opens the card's `...` menu, opens the model submenu and picks `claude-opus-5`
-- **THEN** the next step is launched with model `claude-opus-5` in the configured execution mode
-- **AND** the project and global settings are unchanged
+- **THEN** no run is started
+- **AND** `claude-opus-5` becomes the row marked as retained
+- **AND** the card shows its abbreviation before its action buttons
 
-#### Scenario: The current model is listed first and sends nothing
-- **GIVEN** the same task
-- **WHEN** the user opens the model submenu
-- **THEN** `claude-sonnet-5` is the first row and is marked as current
-- **AND** picking it launches the next step with no model override
+#### Scenario: The retained model is used by every control of the card
+- **GIVEN** a card retaining `claude-opus-5`
+- **WHEN** the user activates the next-step control, the full chain control, or either one-off mode entry
+- **THEN** each of those launches runs against `claude-opus-5`
+- **AND** no project or global setting is modified
+
+#### Scenario: Returning to the configured model
+- **GIVEN** a card retaining a model other than the configured one
+- **WHEN** the user picks the first row, the configured model
+- **THEN** that row becomes the retained one
+- **AND** the next launch carries no model override
+
+#### Scenario: The selection survives a reload
+- **GIVEN** a card retaining `claude-opus-5`
+- **WHEN** the interface is reloaded
+- **THEN** that card still retains `claude-opus-5`
+- **AND** the card of another task is unaffected
+
+#### Scenario: A retained model the provider no longer offers
+- **GIVEN** a card retaining a model that the task project's provider no longer lists
+- **WHEN** the card renders
+- **THEN** it shows the configured model instead
+- **AND** a launch from that card carries no override
 
 #### Scenario: Both card shapes offer the entry
 - **GIVEN** a board in condensed display mode and a board in expanded display mode
@@ -77,7 +96,7 @@ The task card's `...` menu SHALL offer, in both board display modes, an entry th
 - **WHEN** the user presses the right arrow key
 - **THEN** the submenu opens with focus on its first row
 - **AND** the left arrow or escape key closes the submenu and returns focus to the entry
-- **AND** activating a row closes the whole menu
+- **AND** picking a row closes the whole menu
 
 #### Scenario: Submenu near the viewport edge
 - **GIVEN** a card whose `...` menu opens near an edge of the viewport

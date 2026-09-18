@@ -27,10 +27,13 @@ organisation forbids, needs a Sectile release to appear or disappear.
   importantly, the two launch surfaces below. A model absent from it cannot be
   picked at launch.
 - The task card's `...` menu gains a submenu listing the models configured for
-  the task project's provider, the model the configured levels resolve first and
-  marked as current. Picking one launches the next step under that model in the
-  configured execution mode. Both card shapes share the entry, as they share the
-  mode entries since #177.
+  the task project's provider, the model the configured levels resolve first.
+  It is a selection, not a launcher: one row is ticked, picking another changes
+  what the card retains and starts nothing. The card shows that model, in four
+  characters at most, immediately before its action buttons, and every launch
+  it starts uses it, the full chain included. The selection is remembered per
+  task and survives a reload. Both card shapes share the entry, as they share
+  the mode entries since #177.
 - The task detail view's skill launcher gains a model selector beside its
   execution mode selector, fed by the same list, defaulting to the configured
   model. Its value applies to every launch control of that view.
@@ -79,8 +82,10 @@ organisation forbids, needs a Sectile release to appear or disappear.
   surfaces are restricted to the list.
 - Cost or quota tracking.
 - Choosing the provider at launch: this change is about the model only.
-- A model choice on the full chain run, which takes no override of any kind
-  today and re-enqueues each step from the previous run record.
+- A model choice on the server's own chain entry, `POST /api/tasks/{id}/advance`
+  with `{"auto": true}`, which re-enqueues each step from the previous run
+  record and has no surface offering a model. The full chain started from a card
+  is a single `pickup` run and carries the retained model like any other launch.
 - A model entry in the desktop next-step control or in the "Copy command" menu.
   The copy menu copies a prompt, not a command line, so it cannot carry a model
   at all.

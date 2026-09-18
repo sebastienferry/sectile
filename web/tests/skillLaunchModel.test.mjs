@@ -15,6 +15,7 @@ const profile = await read('components/ProfileModal.tsx')
 const providerField = await read('components/ProviderModelsField.tsx')
 const modelField = await read('components/AIModelField.tsx')
 const activities = await read('components/ActivitiesView.tsx')
+const launchModel = await read('lib/launchModel.ts')
 
 test('the models offered come from the settings, with the shipped list as fallback', () => {
   assert.match(models, /export function providerModels\(/)
@@ -41,7 +42,7 @@ test('the launch request carries the model, and an untouched choice sends none',
   assert.match(context, /model: opts\?\.model\?\.trim\(\) \|\| undefined/)
   // The card path goes through advanceTask, which now forwards the model.
   assert.match(context, /const advanceTask = async \(taskId: string, auto\?: boolean, mode\?: SkillMode, model\?: string\)/)
-  assert.match(context, /model:auto \? undefined : model/)
+  assert.match(context, /\{mode:auto \? 'autonomous' : mode, model\}/)
 })
 
 test('the detail launcher offers a list, never a free-text model', () => {
@@ -60,20 +61,24 @@ test('the detail launcher offers a list, never a free-text model', () => {
   assert.match(modal, /model: effectiveLaunchModel/)
 })
 
-test('the card menu offers the next step under a chosen model', () => {
+test('the card submenu selects a model and launches nothing', () => {
   assert.match(card, /const cardModels = providerModels\(settings, cardProvider\)/)
   // The model is resolved for the skill the card actually launches, not for the
   // one the next-step label names: at stage reviewed they differ.
   assert.match(card, /const cardSkillId = skillForStage\(resolveTaskStage\(task, taskProject\)\) \|\| undefined/)
   assert.match(card, /const configuredCardModel = resolveConfiguredModel\(taskProject \|\| undefined, settings, cardSkillId\)/)
-  // The configured model is first and sends no override.
-  assert.match(card, /onClick=\{\(\) => \{ closeMenu\(\); handleAdvance\(false\) \}\}/)
   assert.match(card, /const offeredModels = cardModels\.filter\(model => model !== configuredCardModel\)/)
-  assert.match(card, /onClick=\{\(\) => \{ closeMenu\(\); handleAdvance\(false, undefined, model\) \}\}/)
+  // Picking a row only changes the selection: no row launches anything.
+  assert.match(card, /onClick=\{\(\) => chooseModel\(''\)\}/)
+  assert.match(card, /onClick=\{\(\) => chooseModel\(model\)\}/)
+  assert.doesNotMatch(card, /chooseModel[\s\S]{0,120}handleAdvance/)
+  // The retained one is ticked, and the rows are a single choice.
+  assert.match(card, /role="menuitemradio"/)
+  assert.match(card, /aria-checked=\{effectiveLaunchModel === ''\}/)
+  assert.match(card, /aria-checked=\{effectiveLaunchModel === model\}/)
   // A submenu, not a form: no input element anywhere in the card menu.
   assert.doesNotMatch(card, /<input/)
   assert.match(card, /aria-haspopup="menu"/)
-  assert.match(card, /role="menuitem"/)
   // Keyboard: right opens the submenu, left closes it and returns focus.
   assert.match(card, /e\.key === 'ArrowRight'/)
   assert.match(card, /if \(e\.key === 'ArrowLeft'\)[\s\S]{0,160}modelEntryRef\.current\?\.focus/)
@@ -84,6 +89,36 @@ test('the card menu offers the next step under a chosen model', () => {
   assert.match(card, /\}, \[isMenuOpen, isModelMenuOpen\]\)/)
   // Hidden when the provider has nothing to offer.
   assert.match(card, /\{cardModels\.length > 0 && \(/)
+})
+
+test('every launch from the card uses the retained model', () => {
+  // One handler, no per-call model: the chevrons, the chain and both modes all
+  // go through it, which is what the indicator in front of them promises.
+  assert.match(card, /const handleAdvance = async \(auto: boolean, mode\?: SkillMode\) => \{/)
+  assert.match(card, /await advanceTask\(task\.id, auto, mode, effectiveLaunchModel\)/)
+  // The full chain carries it too: from a card it is a single pickup run.
+  assert.match(context, /model\}\)$/m)
+  assert.doesNotMatch(context, /model:auto \? undefined : model/)
+})
+
+test('the card shows the model its buttons will use', () => {
+  // Four characters at most, the full name in the tooltip, placed before the
+  // action buttons because it qualifies them.
+  assert.match(card, /const launchedModel = effectiveLaunchModel \|\| configuredCardModel/)
+  assert.match(card, /\{shortModelLabel\(launchedModel\)\}/)
+  assert.match(card, /title=\{\s*effectiveLaunchModel\s*\? `Modèle retenu pour cette tâche : \$\{launchedModel\}`/)
+  const indicator = card.indexOf('{shortModelLabel(launchedModel)}', card.indexOf('Ligne 4'))
+  const firstAction = card.indexOf('handleAdvance(false)', card.indexOf('Ligne 4'))
+  assert.ok(indicator > 0 && indicator < firstAction, 'the indicator precedes the action buttons')
+})
+
+test('the selection is remembered per task', () => {
+  assert.match(card, /useState\(\(\) => loadLaunchModel\(task\.id\)\)/)
+  assert.match(card, /saveLaunchModel\(task\.id, model\)/)
+  // A selection the project's engine no longer offers cannot be launched.
+  assert.match(card, /const effectiveLaunchModel = cardModels\.includes\(launchModel\) \? launchModel : ''/)
+  // Storage failures must not take a card down with them.
+  assert.match(launchModel, /} catch \{/)
 })
 
 test('both card shapes share the model entry', () => {
