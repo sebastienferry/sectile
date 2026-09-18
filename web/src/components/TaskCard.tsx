@@ -24,6 +24,7 @@ import {
   CopyPlus,
   Pin,
   Terminal,
+  Cpu,
   X,
 } from 'lucide-react'
 import type { Task, Priority, SkillMode } from '../types'
@@ -32,6 +33,7 @@ import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill } from '../lib/workflow'
+import { providerModels, resolveConfiguredModel, taskProvider } from '../lib/aiModels'
 
 interface TaskCardProps {
   task: Task
@@ -69,6 +71,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   // quand il n'y a pas la place au-dessus.
   const [advancing, setAdvancing] = useState<'step' | 'auto' | null>(null)
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  // Le sous-menu des modèles. Fermé par défaut : le menu reste une liste
+  // d'entrées en un clic, et choisir un modèle est une étape de plus.
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false)
+  const modelMenuRef = useRef<HTMLDivElement>(null)
+  const modelEntryRef = useRef<HTMLButtonElement>(null)
   const [menuPos, setMenuPos] = useState<{ left: number; top?: number; bottom?: number; maxHeight: number } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const menuNodeRef = useRef<HTMLDivElement>(null)
@@ -128,6 +135,19 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       ? `https://github.com/${targetGithubRepo}/issues/${task.key.replace('#', '')}`
       : undefined
   )
+
+  // Le sous-menu prend le focus sur sa première ligne à l'ouverture, et le rend
+  // à son entrée à la fermeture : ouvert au clavier, il serait sinon impossible
+  // d'atteindre ses lignes.
+  useEffect(() => {
+    if (!isModelMenuOpen) return
+    modelMenuRef.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus({ preventScroll: true })
+  }, [isModelMenuOpen])
+
+  // Refermer le menu referme son sous-menu : sans cela il se rouvrirait ouvert.
+  useEffect(() => {
+    if (!isMenuOpen) setIsModelMenuOpen(false)
+  }, [isMenuOpen])
 
   useEffect(() => {
     if (!isMenuOpen) return
@@ -262,10 +282,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   // Un pas du workflow. Sans surcharge, le mode est celui que la précédence
   // résout (surcharge > skill > défaut du projet > interactif). La chaîne
   // complète est autonome par construction et ne prend pas de surcharge.
-  const handleAdvance = async (auto: boolean, mode?: SkillMode) => {
+  const handleAdvance = async (auto: boolean, mode?: SkillMode, model?: string) => {
     if (advancing || isFinishedTask) return
     setAdvancing(auto ? 'auto' : 'step')
-    await advanceTask(task.id, auto, mode)
+    await advanceTask(task.id, auto, mode, model)
     setAdvancing(null)
   }
 
@@ -319,14 +339,87 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   // condensed card the chevrons live in this menu, on a full card they sit on
   // the card itself and carry no mode, so without these entries there is no way
   // to depart from the configured mode without opening the project settings.
+  // Les modèles proposés pour le moteur de ce projet, celui que la précédence
+  // résout en tête. Le choisir n'envoie aucune surcharge : c'est déjà ce que
+  // ferait un lancement non touché. Aucune saisie libre ici, c'est une liste.
+  const cardProvider = taskProvider(taskProject || undefined, settings)
+  const cardModels = providerModels(settings, cardProvider)
+  const configuredCardModel = resolveConfiguredModel(taskProject || undefined, settings, nextStepInfo.nextSkillId || undefined)
+  const offeredModels = cardModels.filter(model => model !== configuredCardModel)
+
+  const closeMenu = () => {
+    setIsModelMenuOpen(false)
+    setIsMenuOpen(false)
+  }
+
   const modeActions = (
     <>
-      <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'interactive') }}>
+      <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { closeMenu(); handleAdvance(false, 'interactive') }}>
         <Terminal size={12} /><span>{t.compactCard.advanceInteractive}</span>
       </button>
-      <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { setIsMenuOpen(false); handleAdvance(false, 'autonomous') }}>
+      <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { closeMenu(); handleAdvance(false, 'autonomous') }}>
         <Bot size={12} /><span>{t.compactCard.advanceAutonomous}</span>
       </button>
+      {cardModels.length > 0 && (
+        <div className="relative">
+          <button
+            type="button"
+            ref={modelEntryRef}
+            className={compactActionClass}
+            disabled={advancing !== null || isFinishedTask}
+            aria-haspopup="menu"
+            aria-expanded={isModelMenuOpen}
+            onClick={() => setIsModelMenuOpen(open => !open)}
+            onKeyDown={e => {
+              if (e.key === 'ArrowRight') {
+                e.preventDefault()
+                setIsModelMenuOpen(true)
+              }
+            }}>
+            <Cpu size={12} /><span>{t.compactCard.advanceWithModel}</span>
+            <ChevronRight size={12} className="ml-auto" />
+          </button>
+          {isModelMenuOpen && (
+            <div
+              ref={modelMenuRef}
+              role="menu"
+              aria-label={t.compactCard.advanceWithModel}
+              onKeyDown={e => {
+                if (e.key === 'ArrowLeft' || e.key === 'Escape') {
+                  // Escape ne doit pas remonter jusqu'au menu : il ferme le
+                  // sous-menu et rend le focus à son entrée, pas plus.
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setIsModelMenuOpen(false)
+                  modelEntryRef.current?.focus({ preventScroll: true })
+                }
+              }}
+              className="mt-0.5 ml-2 border-l border-[var(--border-color)] pl-1">
+              <button
+                type="button"
+                role="menuitem"
+                className={compactActionClass}
+                disabled={advancing !== null || isFinishedTask}
+                onClick={() => { closeMenu(); handleAdvance(false) }}>
+                <span className="truncate">
+                  {configuredCardModel ? `${configuredCardModel} ${t.compactCard.currentModel}` : t.compactCard.currentModel}
+                </span>
+              </button>
+              {offeredModels.map(model => (
+                <button
+                  key={model}
+                  type="button"
+                  role="menuitem"
+                  className={compactActionClass}
+                  disabled={advancing !== null || isFinishedTask}
+                  onClick={() => { closeMenu(); handleAdvance(false, undefined, model) }}>
+                  <span className="truncate">{model}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </>
   )
 

@@ -509,10 +509,51 @@ func sameDirectory(a, b string) bool {
 	return err == nil && os.SameFile(first, second)
 }
 
+// LaunchModel is the model one launch runs against: the model chosen for that
+// launch when there is one, otherwise the model the configured levels resolve
+// for the skill. A launch names a single run, which is more specific than any
+// per-skill entry, so it wins outright instead of being merged as a bare model.
+//
+// An identifier the shape rule rejects is refused here rather than resolved:
+// the value is about to be placed on a command line this process runs through
+// sh -c, so the agent checks it even though the server already did.
+func LaunchModel(config agentconfig.Config, skillID, override string) (string, error) {
+	if override = strings.TrimSpace(override); override != "" {
+		if err := agentconfig.ValidModel(override); err != nil {
+			return "", err
+		}
+		return override, nil
+	}
+	return agentconfig.ResolveModel(config, models.NormalizeSkillID(skillID)), nil
+}
+
+// launchEngine names the provider and the model a launch really runs against,
+// once the rules that govern the command line have had their say: a template
+// carries the model only through its {model} slot, and a provider without a
+// model flag runs without one. It is what the run record ends up displaying.
+func launchEngine(config agentconfig.Config, skillID, modelOverride, mode string) (string, string) {
+	provider := strings.ToLower(strings.TrimSpace(config.AIProvider))
+	if provider == "" {
+		provider = "agy"
+	}
+	model, err := LaunchModel(config, skillID, modelOverride)
+	if err != nil {
+		return provider, ""
+	}
+	template := config.AICommandTemplate
+	if models.NormalizeSkillMode(mode) == models.SkillModeAutonomous {
+		if dedicated := strings.TrimSpace(config.AICommandTemplateAutonomous); dedicated != "" {
+			template = dedicated
+		}
+	}
+	return provider, agentconfig.EffectiveModel(provider, template, model)
+}
+
 // dispatchCommand distinguishes opening an interactive agent from running a skill.
 // mode is the execution mode the server resolved for this launch; an empty value
-// reads as interactive, which keeps an older server working.
-func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command, mode string, contexts ...agentCommandContext) (string, error) {
+// reads as interactive, which keeps an older server working. modelOverride is the
+// model picked for this launch, empty when the user kept the configured one.
+func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt, command, mode, modelOverride string, contexts ...agentCommandContext) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	action = models.NormalizeSkillID(action)
 	// A discussion or a bare terminal has no skill, so it runs against the model
@@ -523,7 +564,10 @@ func dispatchCommand(config agentconfig.Config, taskKey, skillID, action, prompt
 			AIModel: agentconfig.ResolveModel(config, ""),
 		})
 	}
-	model := agentconfig.ResolveModel(config, skillID)
+	model, err := LaunchModel(config, skillID, modelOverride)
+	if err != nil {
+		return "", err
+	}
 	if action == "open_terminal" {
 		if strings.TrimSpace(command) != "" {
 			return command, nil

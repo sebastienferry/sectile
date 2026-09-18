@@ -80,9 +80,10 @@ The task card's `...` menu SHALL offer, in both board display modes, an entry th
 - **AND** activating a row closes the whole menu
 
 #### Scenario: Submenu near the viewport edge
-- **GIVEN** a card whose `...` menu opens near the right edge of the viewport
+- **GIVEN** a card whose `...` menu opens near an edge of the viewport
 - **WHEN** the user opens the model submenu
-- **THEN** the list is placed on the side where it fits entirely within the viewport
+- **THEN** the list stays within the menu's own bounds and scrolls with it
+- **AND** no part of it is rendered outside the viewport
 
 #### Scenario: Copy menu and desktop next step are unchanged
 - **GIVEN** a task card's "Copy command" menu and the desktop next-step control

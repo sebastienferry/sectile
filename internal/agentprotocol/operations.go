@@ -13,15 +13,18 @@ type Operation struct {
 	Provider          string `json:"provider,omitempty"`
 	Force             bool   `json:"force,omitempty"`
 	SkillID           string `json:"skillId,omitempty"`
-	RunID             string `json:"runId,omitempty"`
-	ProjectID         string `json:"projectId"`
-	TaskID            string `json:"taskId,omitempty"`
-	Action            string `json:"action"`
-	Branch            string `json:"branch,omitempty"`
-	Create            bool   `json:"create,omitempty"`
-	DeleteRemote      bool   `json:"deleteRemote,omitempty"`
-	Editor            string `json:"editor,omitempty"`
-	Prompt            string `json:"prompt,omitempty"`
+	// Model is the one-off model override carried by a queued launch, empty when
+	// the launcher resolved none.
+	Model        string `json:"model,omitempty"`
+	RunID        string `json:"runId,omitempty"`
+	ProjectID    string `json:"projectId"`
+	TaskID       string `json:"taskId,omitempty"`
+	Action       string `json:"action"`
+	Branch       string `json:"branch,omitempty"`
+	Create       bool   `json:"create,omitempty"`
+	DeleteRemote bool   `json:"deleteRemote,omitempty"`
+	Editor       string `json:"editor,omitempty"`
+	Prompt       string `json:"prompt,omitempty"`
 	// Mode is the execution mode the server resolved for this launch:
 	// "interactive" or "autonomous". Empty is read as interactive by the agent,
 	// which keeps an older server working.

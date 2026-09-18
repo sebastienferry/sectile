@@ -14,6 +14,7 @@ import { taskStage, nextTaskStep, closingStep } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
+import { runEngine } from './run-engine.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -42,7 +43,10 @@ const pullRequests=new Map()
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
-const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+' console':run.skill
+// Le moteur d'un run de tâche accompagne la compétence : deux runs de la même
+// compétence peuvent tourner contre des modèles différents. Une console libre
+// garde son libellé, son moteur est déjà dans son nom.
+const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+' console':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}

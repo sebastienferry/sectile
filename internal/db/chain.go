@@ -106,5 +106,7 @@ func (d *DB) handBackRun(taskID, runID, status string) {
 // started: headless, whatever mode a single launch of that skill would resolve
 // to, and still carrying the stage the chain stops at.
 func (d *DB) enqueueChainStep(taskID, skillID, stopStage string) (*models.Task, *models.TaskActivity, error) {
-	return d.enqueueSkillOnTask(taskID, skillID, "", true, models.SkillModeAutonomous, stopStage)
+	// A chained step carries no model override: the chain is launched once and
+	// each step resolves the configured model, as it resolves its own stage.
+	return d.enqueueSkillOnTask(taskID, skillID, "", true, models.SkillModeAutonomous, "", stopStage)
 }

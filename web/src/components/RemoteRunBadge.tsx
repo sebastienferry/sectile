@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext'
 import { deriveRunIndicator, type RunIndicatorState } from '../lib/remoteRunIndicator'
 import { RunStateGlyph } from './RunStateGlyph'
 import { runState } from '../../../shared/runStates'
+import { runEngineLabel } from '../lib/runEngine'
 
 // The indicator is a bare glyph: a filled box would read as an action button
 // competing with the card's own controls, and the state already carries in the
@@ -52,7 +53,14 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   if (!indicator) return null
 
   const { state, runs, cancelableRunIds, count, waitingSince } = indicator
-  const skills = runs.map(run => run.skillName).join(', ')
+  // Le moteur accompagne la compétence : c'est ce qui distingue deux runs de la
+  // même compétence lancés contre des modèles différents.
+  const skills = runs
+    .map(run => {
+      const engine = runEngineLabel(run)
+      return engine ? `${run.skillName} (${engine})` : run.skillName
+    })
+    .join(', ')
   const waited = state === 'waiting' ? formatWaited(waitingSince) : ''
   const stateLabel = LABELS[state] + (waited ? ` for ${waited}` : '')
     + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')

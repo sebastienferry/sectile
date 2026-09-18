@@ -214,6 +214,33 @@ configuration with no headless command falls back to `aiCommandTemplate`, which
 then owns its own mode: it is refused unless it carries a
 `{mode:AUTONOMOUS|INTERACTIVE}` marker, for example `agy {mode:-p|-i} '{prompt}'`.
 
+### The model a run uses
+
+A model can be configured at three levels, global, project and workstation, with
+a per-skill map at each of them. The most specific statement wins: naming a skill
+outranks a bare model, whatever level that bare model sits on.
+
+A launch adds a fourth and most specific level. The task detail view's launcher
+and the task card's `...` menu both offer the models configured for the task
+project's provider, and a model picked there governs that run alone: it outranks
+every configured level, the workstation override included, and nothing is written
+back to any setting. The model the configured levels resolve is the default on
+both surfaces, and choosing it sends no override at all, so a launch nobody
+touched builds the same command line as before.
+
+Neither launch surface accepts free text. The models each provider may run are a
+global setting, `aiProviderModels`, edited in the AI engine section of the
+profile; a provider with no list there falls back to the list Sectile ships. That
+same list feeds the suggestions of the project and profile model fields, which do
+keep accepting any identifier: the restriction belongs to the launch, where a
+typo would only surface when the CLI fails.
+
+A chosen model reaches the command line through the rules that already govern a
+configured one: the `--model` flag for a provider that takes it, the `{model}`
+slot when a command template governs the line, and nothing at all for a provider
+that accepts no model. What actually reached the line is what a finished run
+reports beside its engine, as the agent sees it.
+
 ### The full chain run
 
 The `>>` action, **Full chain**, always runs autonomous, whatever mode those
