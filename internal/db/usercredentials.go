@@ -123,11 +123,25 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	if tracker == "" {
 		return fmt.Errorf("name the tracker this credential is for")
 	}
-	if token == "" {
-		return fmt.Errorf("the token is required")
-	}
-
 	binding := secrets.Binding{UserID: userID, Tracker: tracker}
+	if token == "" {
+		// The screen says "already configured, leave empty to keep it", and
+		// that has to be true: the token is never sent back, so demanding it
+		// again made every other change — the site, the e-mail, the sealing —
+		// impossible to save without retyping a secret the person may not have
+		// kept. A sealed credential has to be open for this: re-storing it
+		// re-encrypts it, and a locked one cannot be read to be re-encrypted.
+		existing, err := d.userTrackerCredentialToken(userID, tracker)
+		switch {
+		case errors.Is(err, ErrCredentialLocked):
+			return fmt.Errorf("votre jeton est scellé et verrouillé : descellez-le, ou saisissez-le à nouveau")
+		case errors.Is(err, ErrNoUserCredential):
+			return fmt.Errorf("the token is required")
+		case err != nil:
+			return err
+		}
+		token = existing
+	}
 	key := d.serverKey
 	var salt []byte
 	sealed := strings.TrimSpace(passphrase) != ""
@@ -316,6 +330,17 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 		return "", "", "", err
 	}
 	return siteURL, email, token, nil
+}
+
+// userTrackerCredentialToken opens just the token of a stored credential, for
+// the caller that is about to store it again unchanged. It takes the read lock:
+// unlike the resolver it is called from the handler path, where nothing holds
+// the store's lock yet.
+func (d *DB) userTrackerCredentialToken(userID, tracker string) (string, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	_, _, token, err := d.userTrackerCredential(userID, tracker)
+	return token, err
 }
 
 // UserTrackerCredentialsFor resolves the connection parameters of one acting

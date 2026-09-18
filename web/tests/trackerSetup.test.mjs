@@ -8,6 +8,7 @@ import {
   canCheck,
   credentialState,
   initialTracker,
+  needsCredentialsFor,
   saveBlockedReason,
   scopesFor,
   sealingConsequence,
@@ -143,4 +144,24 @@ test('only a tracker the server can drive offers a personal credential', () => {
     if (t.id === 'local') continue
     assert.equal(PERSONAL_TRACKERS.some(p => p.id === t.id), true, `${t.id} has an adapter but no personal credential`)
   }
+})
+
+test('a project only asks for credentials the person does not already have', () => {
+  const noServer = {}
+  const mine = [{ tracker: 'jira', siteUrl: 'acme.atlassian.net', email: 'ada@example.com', sealed: false, unlocked: true }]
+
+  // Jira has no server-wide credential in the interface at all, so asking the
+  // global settings answered "nothing configured" whatever the person stored:
+  // the connection screen reopened on every Jira project created or edited.
+  assert.equal(needsCredentialsFor('jira', noServer, mine), false)
+  assert.equal(needsCredentialsFor('jira', noServer, []), true)
+
+  // GitHub keeps its server token, and a personal one counts too.
+  assert.equal(needsCredentialsFor('github', { githubTokenSet: true }, []), false)
+  assert.equal(needsCredentialsFor('github', { githubTokenFromEnv: true }, []), false)
+  assert.equal(needsCredentialsFor('github', noServer, [{ tracker: 'github', sealed: false, unlocked: true }]), false)
+  assert.equal(needsCredentialsFor('github', noServer, []), true)
+
+  // A local project needs nothing.
+  assert.equal(needsCredentialsFor('local', noServer, []), false)
 })
