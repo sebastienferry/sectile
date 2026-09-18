@@ -324,12 +324,13 @@ and do not create a shell.
 Several agent sessions run in parallel across worktrees and desktop tabs, and a
 session blocked on a permission prompt looks exactly like one still working.
 
-**The hooks report, they do not alert.** Setting up the Claude provider installs
-one script, `~/.claude/hooks/sectile-hook.sh`, and registers it in
-`~/.claude/settings.json` on five Claude Code events. It is POSIX shell, needs no
-`jq`, exits 0 on every path and writes nothing on standard output — a hook must
-never interrupt the session it reports on. The script reads the event from its
-payload and turns it into a state, so the wait is bracketed from both sides:
+**The hooks report, they do not alert.** Setting up the Claude provider
+registers one command in `~/.claude/settings.json` on five Claude Code events:
+`<agent binary> sectile-hook`, a subcommand of the workstation agent Sectile has
+already installed. It installs no file of its own. The subcommand exits 0 on
+every path and writes nothing on standard output — a hook must never interrupt
+the session it reports on — and it reads the event from its payload and turns it
+into a state, so the wait is bracketed from both sides:
 
 | Event | Meaning | State reported |
 |---|---|---|
@@ -351,6 +352,16 @@ What the report does depends on what the session carries:
 | Launched by Sectile (`SECTILE_RUN_ID` present) | `POST <loopback>/control/runs/{id}/waiting` | the run is marked waiting, or working again, everywhere |
 | Any other Claude Code session | `POST <loopback>/desktop/session-alert`, authenticated with `~/.taskflow/agent-connection.json`, on `Notification` and `Stop` only | a banner, and nothing else |
 | A workstation that was never paired | none | silent no-op |
+
+Earlier releases installed a POSIX script instead, `~/.claude/hooks/sectile-hook.sh`.
+It never ran on Windows: Claude Code hands the registered command to the host
+shell, and `cmd.exe` resolves a `.sh` file through its file association — a
+detached Git Bash window where one is configured, and an error on every tool
+call where none is. A binary is a program under every launcher, so the hook
+needs no shell, no `curl` and no `$HOME` the shell may not set. An upgrade
+removes the script and replaces its registration in place; a registration is
+recognised as Sectile's by the trailing `sectile-hook` argument, or by the name
+of a script an earlier release installed.
 
 The agent applies two rules to a run report. An autonomous run never waits: its
 `Stop` hook fires as the process ends, and a waiting mark there would raise a

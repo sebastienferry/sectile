@@ -1,81 +1,72 @@
 package agentconfig
 
 import (
-	"embed"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 )
 
-// hookScripts carries the managed hook body into the binary. It is shell, not
-// Go, because the only client that runs it is Claude Code, which invokes a
-// command and reads its exit code.
-//
-//go:embed hooks/hook.sh
-var hookScripts embed.FS
-
-// Where the hook lives and how it is named. Both paths are relative to Home,
-// like every other managed destination, so the write stays inside the one
-// guarded root.
+// Where the hook is registered, and what it is registered as.
 const (
+	// claudeHookDir held the installed hook scripts. Nothing is written there
+	// any more — the hook is a subcommand of the agent binary — but the name
+	// stays, because the manifest must still be allowed to retire what earlier
+	// releases put in it.
 	claudeHookDir      = ".claude/hooks"
 	claudeSettingsFile = ".claude/settings.json"
-	// claudeHookFile is the one script every registration points at. The name
-	// carries the sectile- prefix: it is what tells a Sectile-owned registration
-	// from a hook the user wrote themselves, when the settings file is merged.
-	claudeHookFile   = "sectile-hook.sh"
-	claudeHookSource = "hooks/hook.sh"
+	// claudeHookSubcommand is both the argument that makes the agent binary
+	// answer a hook and the marker that tells a Sectile-owned registration from
+	// one the user wrote. It is read from the argument rather than from the
+	// executable because the binary has no stable name: `make build-agent`
+	// produces `agent`, the desktop package ships `sectile-agent`, and either
+	// may be renamed or moved.
+	claudeHookSubcommand = "sectile-hook"
 )
 
-// claudeHookEvents are the Claude Code events the script answers. Together they
+// claudeHookEvents are the Claude Code events the hook answers. Together they
 // bracket a wait from both sides: Notification and Stop open it, and the other
 // three close it, because each of them only fires while the agent is working.
-// The script reads the event from its payload, so one registration per event
-// is all the settings need to carry.
+// The hook reads the event from its payload, so one registration per event is
+// all the settings need to carry.
 var claudeHookEvents = []string{"Notification", "Stop", "UserPromptSubmit", "PreToolUse", "PostToolUse"}
 
-// retiredClaudeHookFiles are the per-event scripts the first release installed.
-// They stay recognised for two reasons: a manifest that records them must stay
-// readable so the refresh retires the files, and the settings merge must drop
-// their registrations rather than leave two dead entries pointing at nothing.
-var retiredClaudeHookFiles = []string{"sectile-notification.sh", "sectile-stop.sh"}
+// retiredClaudeHookFiles are the scripts earlier releases installed: one per
+// event first, then the single `sectile-hook.sh` that replaced them, and now
+// none at all. They stay recognised for two reasons: a manifest that records
+// them must stay readable so the refresh retires the files, and the settings
+// merge must drop their registrations rather than leave dead entries pointing
+// at scripts that are gone.
+var retiredClaudeHookFiles = []string{"sectile-notification.sh", "sectile-stop.sh", "sectile-hook.sh"}
 
-// hookFiles returns the managed hook script by destination path. Only Claude
-// Code has a hook convention Sectile supports, so every other provider installs
-// none, which is a valid installation rather than an error.
-func hookFiles(provider string) (map[string]string, error) {
-	files := map[string]string{}
-	if provider != "claude" {
-		return files, nil
+// claudeHookCommand renders the command a registration carries: the agent
+// binary, quoted for the shell that will read it, then the subcommand. Claude
+// Code hands the string to the host shell, so the quoting differs per platform,
+// and goos is a parameter rather than runtime.GOOS so both forms can be
+// asserted from one host.
+func claudeHookCommand(executable, goos string) string {
+	if goos == "windows" {
+		// A Windows path cannot contain a double quote, so there is nothing to
+		// escape inside; the quotes are what protects `C:\Program Files\...`.
+		return `"` + executable + `" ` + claudeHookSubcommand
 	}
-	raw, err := hookScripts.ReadFile(claudeHookSource)
-	if err != nil {
-		return nil, err
-	}
-	files[filepath.Join(claudeHookDir, claudeHookFile)] = string(raw)
-	return files, nil
+	return "'" + strings.ReplaceAll(executable, "'", `'\''`) + "' " + claudeHookSubcommand
 }
 
 // managedHookPath guards the manifest exactly as managedPath does for skills:
-// only the hook destinations Sectile owns, or once owned, may be recorded or
-// retired.
+// only the hook destinations Sectile owned may be recorded or retired.
 func managedHookPath(p string) bool {
 	_, owned := sectileHookFile(filepath.ToSlash(p))
 	return owned && filepath.ToSlash(filepath.Dir(p)) == claudeHookDir
 }
 
-// sectileHookFile reports whether a path or command names a script Sectile
-// installs or installed, and which one. Ownership is read from the file name,
-// not from the full command, so a workstation whose home directory moved is
-// updated in place rather than gaining a second, dead entry.
-func sectileHookFile(command string) (string, bool) {
-	name := filepath.Base(filepath.FromSlash(command))
-	if name == claudeHookFile {
-		return name, true
-	}
+// sectileHookFile reports whether a path names a script Sectile once installed,
+// and which one. Ownership is read from the file name, not from the full path,
+// so a workstation whose home directory moved has its entry retired rather than
+// left behind.
+func sectileHookFile(path string) (string, bool) {
+	name := filepath.Base(filepath.FromSlash(path))
 	for _, retired := range retiredClaudeHookFiles {
 		if name == retired {
 			return name, true
@@ -84,12 +75,26 @@ func sectileHookFile(command string) (string, bool) {
 	return "", false
 }
 
+// sectileHookRegistration reports whether a command already present is one
+// Sectile wrote, now or in an earlier release: a command ending in the hook
+// subcommand, or one naming a retired script. Neither test reads the path, so a
+// workstation whose home directory or agent location moved is updated in place
+// rather than gaining a second, dead entry.
+func sectileHookRegistration(command string) bool {
+	fields := strings.Fields(command)
+	if len(fields) > 1 && fields[len(fields)-1] == claudeHookSubcommand {
+		return true
+	}
+	_, owned := sectileHookFile(command)
+	return owned
+}
+
 // registerClaudeHooks adds the Sectile hook entries to the user's Claude
 // settings. The file belongs to the user: it is read, merged on the entries
 // Sectile owns, and rewritten whole, so unrelated keys and third-party hooks
 // survive. A file that cannot be parsed is left exactly as it is and reported;
 // rewriting it would destroy configuration Sectile does not understand.
-func registerClaudeHooks(fs *os.Root, home string) (string, error) {
+func registerClaudeHooks(fs *os.Root, command string) (string, error) {
 	settings := map[string]any{}
 	raw, err := fs.ReadFile(claudeSettingsFile)
 	switch {
@@ -108,7 +113,6 @@ func registerClaudeHooks(fs *os.Root, home string) (string, error) {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	command := filepath.Join(home, claudeHookDir, claudeHookFile)
 	// Every event is visited, not only the ones registered today: a Sectile
 	// entry on an event this release no longer answers is a dead entry, and
 	// a retired script's registration is one too.
@@ -143,7 +147,7 @@ func registerClaudeHooks(fs *os.Root, home string) (string, error) {
 }
 
 // sectileHookGroup is the registration Sectile writes for one event: no
-// matcher, since the script filters the payload itself, and one command.
+// matcher, since the hook filters the payload itself, and one command.
 func sectileHookGroup(command string) map[string]any {
 	return map[string]any{
 		"matcher": "",
@@ -176,7 +180,7 @@ func mergeHookGroups(groups []any, command string, wanted bool) []any {
 }
 
 // ownsHookGroup reports whether a registration already present is one Sectile
-// wrote, current or retired, by the managed script it points at.
+// wrote, current or retired.
 func ownsHookGroup(group any) bool {
 	values, _ := group.(map[string]any)
 	if values == nil {
@@ -189,25 +193,10 @@ func ownsHookGroup(group any) bool {
 			continue
 		}
 		if command, _ := entry["command"].(string); command != "" {
-			if _, owned := sectileHookFile(command); owned {
+			if sectileHookRegistration(command) {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-// executableHooks marks the installed script executable. Scaffold writes every
-// managed file 0600, which is right for a skill and useless for a script Claude
-// Code has to run.
-func executableHooks(fs *os.Root, files map[string]string) error {
-	for path := range files {
-		if !managedHookPath(path) {
-			continue
-		}
-		if err := fs.Chmod(path, 0700); err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("hook %s could not be made executable: %w", path, err)
-		}
-	}
-	return nil
 }

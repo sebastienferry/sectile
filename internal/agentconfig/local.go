@@ -7,6 +7,8 @@ import (
 	"github.com/google/uuid"
 	"os"
 	"path/filepath"
+	"runtime"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -153,13 +155,6 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 		for path, content := range installed {
 			files[path] = content
 		}
-		hooks, err := hookFiles(provider)
-		if err != nil {
-			return nil, err
-		}
-		for path, content := range hooks {
-			files[path] = content
-		}
 		if loc.InstallsSkills() && !hasCreatePR(config.Skills) {
 			for _, skill := range config.Skills {
 				if skill.ID != "adjust" {
@@ -212,17 +207,18 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 	if err != nil {
 		return backups, err
 	}
-	if err := executableHooks(fs, files); err != nil {
-		return backups, err
-	}
 	// Registering the hooks makes Sectile a writer of ~/.claude/settings.json,
 	// which it only ever read before. A file it cannot parse is left alone and
 	// reported: the rest of the setup is still valid without the registration.
-	for _, provider := range providers {
-		if provider != "claude" {
-			continue
+	// The hook is a subcommand of this very binary, so the command it registers
+	// is os.Executable() — Scaffold always runs inside the agent, which is how
+	// bootstrapLocalMCP resolves the command it writes too.
+	if slices.Contains(providers, "claude") {
+		executable, err := os.Executable()
+		if err != nil {
+			return backups, err
 		}
-		report, err := registerClaudeHooks(fs, home)
+		report, err := registerClaudeHooks(fs, claudeHookCommand(executable, runtime.GOOS))
 		if err != nil {
 			return backups, err
 		}
