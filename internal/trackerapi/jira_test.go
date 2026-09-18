@@ -562,8 +562,9 @@ func TestJiraRateLimitAndCredentialRefusalsAreReadable(t *testing.T) {
 	c := site.client()
 	c.JiraToken = "wrong"
 	_, err = NewJiraAdapter(c).GetIssue(context.Background(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
-	if err == nil || !strings.Contains(err.Error(), "credentials") || strings.Contains(err.Error(), "wrong") {
-		t.Fatalf("a 401 names the credentials without echoing them: %v", err)
+	// The refusal says what to check and never echoes the credential itself.
+	if err == nil || !strings.Contains(err.Error(), "e-mail et jeton") || strings.Contains(err.Error(), "wrong") {
+		t.Fatalf("a 401 must name what to check without echoing the credential: %v", err)
 	}
 }
 

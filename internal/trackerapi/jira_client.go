@@ -98,8 +98,14 @@ func jiraError(err error) error {
 		return err
 	}
 	switch httpErr.Status {
-	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Errorf("%w: Jira refused the credentials, check the e-mail and the API token", err)
+	case http.StatusUnauthorized:
+		// The three things that produce a 401 here, in the order they happen:
+		// the wrong kind of token, an e-mail that is not the token's account,
+		// and a token that has expired or been revoked. Saying so beats
+		// repeating that the credentials are refused.
+		return fmt.Errorf("%w : le site a refusé ce couple e-mail et jeton. Vérifiez que le jeton est un jeton d'API Atlassian Cloud créé sur id.atlassian.com, que l'e-mail est bien celui de ce compte, et que le jeton n'a pas expiré", err)
+	case http.StatusForbidden:
+		return fmt.Errorf("%w : le compte est authentifié mais n'a pas les droits sur ce projet Jira", err)
 	}
 	var body struct {
 		ErrorMessages []string          `json:"errorMessages"`
