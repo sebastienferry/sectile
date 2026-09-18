@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
 
@@ -112,17 +113,27 @@ func withoutProjectTokens(p *models.Project) *models.Project {
 // falls back to what is already resolved for the server, so the setup screen can
 // re-check a stored credential it never received back. The e-mail only matters
 // to Jira, which authenticates the account rather than a bare token.
-func (d *DB) CheckTrackerCredentials(ctx context.Context, tracker, apiURL, email, token string) (string, error) {
+func (d *DB) CheckTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
 	client := d.tracker("")
-	switch strings.ToLower(strings.TrimSpace(tracker)) {
+	switch strings.ToLower(strings.TrimSpace(trackerName)) {
 	case "github":
 		return client.CheckGithub(ctx, firstNonEmpty(apiURL, client.GithubURL), firstNonEmpty(token, client.GithubToken))
 	case "gitlab":
 		return client.CheckGitlab(ctx, firstNonEmpty(apiURL, client.GitlabURL), firstNonEmpty(token, client.GitlabToken))
 	case "jira":
-		return client.CheckJira(ctx, firstNonEmpty(apiURL, client.JiraURL), firstNonEmpty(email, client.JiraEmail), firstNonEmpty(token, client.JiraToken))
+		// A Jira credential is personal, so re-checking a stored one falls back
+		// to the caller's own token rather than the server's: the interface
+		// never received the token back and cannot resend it.
+		site, mail, own := "", "", ""
+		if user := tracker.ActingUser(ctx); user != "" {
+			site, mail, own, _ = d.UserTrackerCredentialsFor(user, "jira")
+		}
+		return client.CheckJira(ctx,
+			firstNonEmpty(apiURL, site, client.JiraURL),
+			firstNonEmpty(email, mail, client.JiraEmail),
+			firstNonEmpty(token, own, client.JiraToken))
 	default:
-		return "", fmt.Errorf("aucune vérification de connexion pour le tracker %q", tracker)
+		return "", fmt.Errorf("aucune vérification de connexion pour le trackerName %q", trackerName)
 	}
 }
 

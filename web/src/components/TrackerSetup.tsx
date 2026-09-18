@@ -7,6 +7,7 @@ import {
   canCheck,
   credentialState,
   initialTracker,
+  prefillFromCredential,
   saveBlockedReason,
   scopesFor,
   sealingConsequence,
@@ -45,7 +46,10 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   const initial = initialTracker(settings.issueTracker)
   const [tracker, setTracker] = useState<TrackerKind>(initial)
   const kind = trackerFields(tracker)
-  const stored = storedFor(settings, tracker)
+  // Pour un tracker dont l'accès est personnel, l'état à montrer est celui de
+  // la personne, pas celui du serveur : sinon l'écran annonce « aucun jeton »
+  // à quelqu'un qui en a enregistré un.
+  const serverStored = storedFor(settings, tracker)
 
   const [siteUrl, setSiteUrl] = useState(storedFor(settings, initial).siteUrl)
   const [project, setProject] = useState(storedFor(settings, initial).project)
@@ -63,12 +67,17 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   }, [refreshUserCredentials])
 
   const mine = userCredentials.find(c => c.tracker === tracker)
+  const stored = kind.personalOnly
+    ? { ...serverStored, tokenIsSet: Boolean(mine), tokenFromEnv: false }
+    : serverStored
 
   // Le site enregistré avec l'accès personnel est celui de la personne : il
   // reprend la main sur la valeur serveur dès qu'il existe.
   useEffect(() => {
-    if (mine?.siteUrl && !siteUrl.trim()) setSiteUrl(mine.siteUrl)
-  }, [mine?.siteUrl, siteUrl])
+    const prefill = prefillFromCredential(mine, { siteUrl, email })
+    if (prefill.siteUrl !== siteUrl) setSiteUrl(prefill.siteUrl)
+    if (prefill.email !== email) setEmail(prefill.email)
+  }, [mine, siteUrl, email])
 
   const selectTracker = (next: TrackerKind) => {
     const values = storedFor(settings, next)

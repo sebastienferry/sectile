@@ -219,3 +219,19 @@ export function credentialState(credential?: StoredUserCredential): string {
 export function scopesFor(tracker: TrackerKind): CredentialScope[] {
   return trackerFields(tracker).personalOnly ? ['personal'] : ['server', 'personal']
 }
+
+/**
+ * Ce qu'un accès déjà enregistré remet dans le formulaire. Le site et l'e-mail
+ * en font partie : sans eux, l'écran redemande à la personne ce qu'elle a déjà
+ * donné, et le bouton de vérification reste gris faute d'un champ obligatoire.
+ * Une valeur en cours de saisie n'est jamais écrasée.
+ */
+export function prefillFromCredential(
+  credential: StoredUserCredential | undefined,
+  current: { siteUrl?: string; email?: string }
+): { siteUrl: string; email: string } {
+  return {
+    siteUrl: current.siteUrl?.trim() ? current.siteUrl : credential?.siteUrl || '',
+    email: current.email?.trim() ? current.email : credential?.email || '',
+  }
+}

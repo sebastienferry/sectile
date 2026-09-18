@@ -1442,11 +1442,11 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tracker := strings.ToLower(strings.TrimSpace(req.Tracker))
+	trackerName := strings.ToLower(strings.TrimSpace(req.Tracker))
 	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
 	verified := ""
-	if tracker == "github" || tracker == "gitlab" || tracker == "jira" {
-		account, err := h.db.CheckTrackerCredentials(r.Context(), tracker, req.SiteURL, req.Email, req.Token)
+	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
+		account, err := h.db.CheckTrackerCredentials(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), trackerName, req.SiteURL, req.Email, req.Token)
 		if err != nil {
 			// Nothing is persisted on a failed check: the user configuration
 			// keeps the parameters that were working.
@@ -1461,8 +1461,8 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if tracker == "github" || tracker == "gitlab" || tracker == "jira" {
-		settings, err := h.db.SaveTrackerCredentials(tracker, req.SiteURL, req.Project, req.Email, req.Token)
+	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
+		settings, err := h.db.SaveTrackerCredentials(trackerName, req.SiteURL, req.Project, req.Email, req.Token)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

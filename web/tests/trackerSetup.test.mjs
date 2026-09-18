@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   PROJECT_TRACKERS,
+  prefillFromCredential,
   TRACKERS,
   canCheck,
   credentialState,
@@ -115,4 +116,18 @@ test('a personal credential reads as absent, stored, sealed or locked', () => {
   assert.match(credentialState({ tracker: 'jira', sealed: false, unlocked: true }), /sous votre compte/)
   assert.match(credentialState({ tracker: 'jira', sealed: true, unlocked: true }), /descellé/)
   assert.match(credentialState({ tracker: 'jira', sealed: true, unlocked: false }), /descellez/)
+})
+
+test('a stored credential puts its site and e-mail back in the form', () => {
+  // Without the e-mail the check button stays disabled, so the save can never
+  // unlock: the screen would ask again for what the person already gave.
+  const mine = { tracker: 'jira', siteUrl: 'acme.atlassian.net', email: 'ada@example.com', sealed: true, unlocked: false }
+  assert.deepEqual(prefillFromCredential(mine, {}), { siteUrl: 'acme.atlassian.net', email: 'ada@example.com' })
+  assert.equal(canCheck('jira', prefillFromCredential(mine, {})), true)
+  // What is being typed wins over what is stored.
+  assert.deepEqual(prefillFromCredential(mine, { siteUrl: 'other.atlassian.net', email: 'bob@example.com' }), {
+    siteUrl: 'other.atlassian.net',
+    email: 'bob@example.com',
+  })
+  assert.deepEqual(prefillFromCredential(undefined, {}), { siteUrl: '', email: '' })
 })
