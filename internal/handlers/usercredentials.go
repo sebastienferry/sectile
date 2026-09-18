@@ -58,7 +58,11 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 		h.listUserCredentials(w, userID)
 
 	case action == "" && r.Method == http.MethodDelete:
-		if err := h.db.ClearUserTrackerCredential(userID, r.URL.Query().Get("tracker")); err != nil {
+		switch err := h.db.ClearUserTrackerCredential(userID, r.URL.Query().Get("tracker")); {
+		case errors.Is(err, db.ErrNoUserCredential):
+			writeError(w, http.StatusNotFound, "Aucun accès personnel enregistré pour ce tracker")
+			return
+		case err != nil:
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -81,6 +85,9 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			return
 		case errors.Is(err, db.ErrNoUserCredential):
 			writeError(w, http.StatusNotFound, "Aucun accès personnel enregistré pour ce tracker")
+			return
+		case errors.Is(err, db.ErrNotSealed):
+			writeError(w, http.StatusConflict, "Ce jeton n'est pas scellé : il n'y a rien à desceller.")
 			return
 		case err != nil:
 			writeError(w, http.StatusInternalServerError, err.Error())

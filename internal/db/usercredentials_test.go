@@ -280,3 +280,30 @@ func TestCreatingAThirdPartyTaskDoesNotWedgeTheStore(t *testing.T) {
 		t.Fatalf("the store stayed locked: %v", err)
 	}
 }
+
+// Three answers that used to say a thing was done when nothing was.
+func TestAnActionOnNothingIsRefusedRatherThanReportedDone(t *testing.T) {
+	database := testDB(t)
+
+	// Forgetting a credential that is not there.
+	if err := database.ClearUserTrackerCredential("u-ada", "jira"); !errors.Is(err, ErrNoUserCredential) {
+		t.Fatalf("forgetting nothing must say so, got %v", err)
+	}
+	// Forgetting without naming a tracker deleted nothing and answered success,
+	// so the screen showed "credential forgotten" over a credential still there.
+	if err := database.ClearUserTrackerCredential("u-ada", ""); !errors.Is(err, ErrNoUserCredential) {
+		t.Fatalf("a request naming no tracker must be refused, got %v", err)
+	}
+
+	// Unsealing what was never sealed.
+	if err := database.SetUserTrackerCredential("u-ada", "jira", "https://acme.atlassian.net", "ada@example.com", "tok", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.UnlockUserTrackerCredential("u-ada", "jira", "anything at all"); !errors.Is(err, ErrNotSealed) {
+		t.Fatalf("an unsealed credential has nothing to unseal, got %v", err)
+	}
+	// And the real one still works.
+	if err := database.ClearUserTrackerCredential("u-ada", "jira"); err != nil {
+		t.Fatalf("forgetting a stored credential: %v", err)
+	}
+}

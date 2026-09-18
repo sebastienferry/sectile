@@ -48,6 +48,10 @@ var ErrNoUserCredential = errors.New("no personal credential for this user")
 // anything can use it.
 var ErrCredentialLocked = secrets.ErrSealed
 
+// ErrNotSealed means there is nothing to unlock: the credential is stored
+// unsealed, and the server key already opens it.
+var ErrNotSealed = errors.New("this credential is not sealed")
+
 // unlockedKeys holds the keys derived from a sealing passphrase, for as long as
 // the server runs. They are deliberately nowhere else: written down, they would
 // defeat the passphrase.
@@ -179,10 +183,19 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 func (d *DB) ClearUserTrackerCredential(userID, tracker string) error {
 	userID = strings.TrimSpace(userID)
 	tracker = strings.ToLower(strings.TrimSpace(tracker))
+	if userID == "" || tracker == "" {
+		// A request naming no tracker deleted nothing and answered that the
+		// credential was forgotten.
+		return ErrNoUserCredential
+	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if _, err := d.conn.Exec(`DELETE FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker); err != nil {
+	result, err := d.conn.Exec(`DELETE FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker)
+	if err != nil {
 		return err
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
+		return ErrNoUserCredential
 	}
 	d.unlocked.clear(unlockKey(userID, tracker))
 	return nil
@@ -208,8 +221,10 @@ func (d *DB) UnlockUserTrackerCredential(userID, tracker, passphrase string) err
 		return err
 	}
 	if sealed == 0 {
-		// Nothing to unlock: the server key already opens it.
-		return nil
+		// Nothing to unlock, and saying "unlocked" to any passphrase at all
+		// would teach the person that their credential is not sealed only by
+		// them never being asked again.
+		return ErrNotSealed
 	}
 	key := secrets.DeriveKey(passphrase, salt)
 	if _, err := secrets.Open(key, secrets.Binding{UserID: userID, Tracker: tracker}, record); err != nil {
@@ -244,7 +259,9 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 		var credential UserCredential
 		var sealed int
 		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &sealed, &credential.UpdatedAt); err != nil {
-			continue
+			// Skipping it silently showed a profile with no credential while
+			// the tracker kept using one.
+			return nil, err
 		}
 		credential.Sealed = sealed == 1
 		if credential.Sealed {

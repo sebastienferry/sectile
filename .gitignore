@@ -15,6 +15,12 @@ build/
 *.db
 *.db-shm
 *.db-wal
+
+# The key encrypting personal tracker credentials, written next to the database
+# when SECTILE_SECRET_KEY is not set. A developer running the server from the
+# repository gets one at the root, and it opens every unsealed token in any copy
+# of that database.
+secret.key
 *.sqlite
 *.sqlite3
 

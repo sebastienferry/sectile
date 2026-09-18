@@ -67,7 +67,7 @@ func (r *Runner) runCommand(ctx context.Context, dir string, name string, args .
 	}
 
 	// Inherit and extend PATH dynamically to include ~/.local/bin and Homebrew paths
-	env := os.Environ()
+	env := SanitizedEnviron()
 	customPath := GetDynamicCustomPath()
 	foundPath := false
 	for i, e := range env {
@@ -1031,7 +1031,7 @@ func (r *Runner) OpenInEditor(editorCmd string, targetPath string) error {
 	}
 
 	cmd := exec.Command(bin, args...)
-	cmd.Env = append(os.Environ(), "PATH="+prefixedPath())
+	cmd.Env = append(SanitizedEnviron(), "PATH="+prefixedPath())
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to open in '%s': %w", editorCmd, err)

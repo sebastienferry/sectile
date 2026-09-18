@@ -147,14 +147,21 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 		// never received the token back and cannot resend it.
 		site, mail, own := "", "", ""
 		if user := tracker.ActingUser(ctx); user != "" {
-			site, mail, own, _ = d.UserTrackerCredentialsFor(user, "jira")
+			var err error
+			// A sealed credential the person has not unlocked is an error, not
+			// an absence: falling through checked the server's token instead
+			// and reported "connected as <the service account>", telling them
+			// their own sealed credential works when it was never touched.
+			if site, mail, own, err = d.UserTrackerCredentialsFor(user, "jira"); err != nil {
+				return "", err
+			}
 		}
 		return client.CheckJira(ctx,
 			firstNonEmpty(apiURL, site, client.JiraURL),
 			firstNonEmpty(email, mail, client.JiraEmail),
 			firstNonEmpty(token, own, client.JiraToken))
 	default:
-		return "", fmt.Errorf("aucune vérification de connexion pour le trackerName %q", trackerName)
+		return "", fmt.Errorf("aucune vérification de connexion pour le tracker %q", trackerName)
 	}
 }
 

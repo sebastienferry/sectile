@@ -155,8 +155,15 @@ type Binding struct {
 	Tracker string
 }
 
+// The parts are length-prefixed rather than merely joined: concatenation alone
+// lets one user id spell the boundary of the next field, so two different
+// bindings could serialise the same and a record could open under the wrong
+// owner. No identity in use today can do that; the prefix costs nothing and
+// means the guarantee does not depend on how identities are shaped tomorrow.
 func (b Binding) bytes() []byte {
-	return []byte("sectile:v1:user=" + strings.TrimSpace(b.UserID) + ":tracker=" + strings.ToLower(strings.TrimSpace(b.Tracker)))
+	user := strings.TrimSpace(b.UserID)
+	name := strings.ToLower(strings.TrimSpace(b.Tracker))
+	return fmt.Appendf(nil, "sectile:v1:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
 }
 
 // Seal encrypts a credential for one owner. The nonce is random and prepended,
