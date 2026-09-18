@@ -38,13 +38,13 @@ with an active execution stay listed with **Run** disabled.
   disable **Run** while that execution is active; the menu stays available.
 - Keep the search form, the loading, empty and error messages, the finished-task
   filter and the unconfigured-project notice as they are.
-- **BREAKING** for the desktop UI tests only: `desktop/tests/project-open-tasks.ui.cjs`
-  and `desktop/tests/skill-mode.ui.cjs` drive the dialog cards and must be
-  rewritten against the pane.
+- **BREAKING** for the desktop UI tests only: `desktop/tests/project-open-tasks.ui.cjs`,
+  `desktop/tests/skill-mode.ui.cjs` and `desktop/tests/console.ui.cjs` drive the
+  dialog cards and must be rewritten against the pane.
 
 ## Impact
-- Desktop renderer only: `desktop/index.html` (pane element), `desktop/src/main.js`
-  (`browseTasks` rewritten, open/close logic shared with the log pane),
+- Desktop renderer only: `desktop/src/main.js` (pane element in the `#app`
+  template, `browseTasks` rewritten, open/close logic shared with the log pane),
   new `desktop/src/task-list-order.mjs` and its unit test, `desktop/src/style.css`.
 - `desktop/README.md` "Open tasks" paragraphs.
 - No server, agent, database or web change: `GET /desktop/tasks` already returns

@@ -311,14 +311,37 @@ inherits. Changes take effect after **Save local
 configuration**. Server metadata and skill content remain read-only.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
-open server tasks immediately, even when the project is collapsed. Search by title
-or task key to narrow the list; submit an empty search to restore all open tasks.
-Select a server-provided skill and **Launch**; pickup is selected by default when
-available. Submission uses the server's
-existing run-skill dispatch and local queue; it does not create a duplicate task.
-The project must have a valid local repository mapping.
+open server tasks in the **Tickets** pane, which takes the console's place the
+way **Agent logs** does; the **+** menu's **Run an existing ticket** opens the
+same pane. **Close tickets** or Escape returns to the selected execution and
+puts focus back on the icon that opened the pane. The list loads immediately,
+even when the project is collapsed. Search by title or task key to narrow it;
+submit an empty search to restore all open tasks. Finished tasks are excluded.
 
-Each result shows its status and a skill selector; Custom instructions sends a free-text request to the configured AI client. Loading, empty and error states are shown in the list; use Search to retry a failed request. Executions appear in the local task list. Opening the list does not start an execution.
+The pane is a table with one row per task: execution state, **Key**, **Title**,
+**Stage**, **Priority**, a pull request icon when one is linked, and actions.
+Rows are ordered by priority descending (urgent, high, medium, low, then
+unknown) and, within a priority, by task identity ascending with natural
+numeric comparison, so `#9` precedes `#100` and `PROJ-9` precedes `PROJ-10`.
+Activate the **Key**, **Title**, **Stage** or **Priority** header to sort by
+that column; the first activation sorts ascending (Priority: descending) and a
+second one reverses it. Identity ascending remains the final tie-break. The
+ordering lasts for the window session and resets when the pane is reopened.
+
+Each row ends with **Run: <next step>**, which launches the task's next
+workflow step with the project's configured execution mode, and a **…** menu
+offering **Pickup (full chain)**, the other server skills, **Discussion (no
+skill)** and **Custom instructions…**. The last one opens an inline form under
+the row with the instructions text, the one-off execution mode and **Launch**.
+A row whose task has a local execution shows the shared run-state glyph;
+while that execution is queued, preparing or running, **Run** is disabled and
+the menu stays available. Submission uses the server's existing run-skill
+dispatch and local queue; it does not create a duplicate task. The pane stays
+open after a launch and reports it in its status line; the execution appears
+in the sidebar on the next refresh. The project must have a valid local
+repository mapping, otherwise every launch control is disabled with a notice.
+Loading, empty and error states are shown in the pane; use **Search** to
+retry a failed request. Opening the pane does not start an execution.
 
 The Local project tab includes the effective **CLI command**. Edit it to save a
 per-project override under `commands` in user settings; the reset icon restores

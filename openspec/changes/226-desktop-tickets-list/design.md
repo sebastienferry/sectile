@@ -39,7 +39,8 @@ Other reusable pieces:
 
 ### A content-area pane, sharing the log pane's mechanics
 A new `<section id="tickets-pane" aria-label="Tickets" hidden>` sits next to
-`#agent-log-pane` in `desktop/index.html`. `browseTasks` becomes `openTickets(projectID,
+`#agent-log-pane` in the `#app` template of `desktop/src/main.js` (the workspace
+markup is built there; `desktop/index.html` only hosts the `#app` root). `browseTasks` becomes `openTickets(projectID,
 initialQuery)`: it closes the dialog if open, closes the log pane if open, sets
 a `ticketsOpen` flag, hides `#workspace article`, shows the pane and renders a
 heading `Tickets · <project name>`, the search form, a `role=status` line and
@@ -97,7 +98,9 @@ actions header are plain text.
 Row cells: state glyph (a `<span class="run-state">` filled by
 `renderRunState` when a local run exists for `task.id`, otherwise empty with
 `aria-hidden`), Key, Title (truncated to one line with `title` attribute),
-Stage (`taskStage(task)`), Priority (the word, plus a small coloured dot using
+Stage (`taskStage(task)`, with the tracker status as tooltip when the server
+supplies one, so the information the old card printed is not lost), Priority
+(the word, plus a small coloured dot using
 the same four colours as the web: danger, warn, info, muted), PR icon (reusing
 the sidebar SVG, `title` = URL, opens externally via the existing handler), and
 the actions cell.
@@ -153,8 +156,8 @@ project row icon call `openTickets`. `.server-task` CSS rules are removed.
 `browseTasks`, points at `openTickets(projectID, task.key)` instead.
 
 ## Risks
-- `desktop/tests/project-open-tasks.ui.cjs` and `desktop/tests/skill-mode.ui.cjs`
-  address `.server-task`, the `Skill for #1` select and the dialog **Close**;
+- `desktop/tests/project-open-tasks.ui.cjs`, `desktop/tests/skill-mode.ui.cjs`
+  and `desktop/tests/console.ui.cjs` address `.server-task`, the `Skill for #1` select and the dialog **Close**;
   both are rewritten against the pane's roles (table, columnheader buttons,
   `Run: Clarify`, `More actions for #1`). The mock agent in those tests must
   return `priority` on tasks to exercise the default order.
