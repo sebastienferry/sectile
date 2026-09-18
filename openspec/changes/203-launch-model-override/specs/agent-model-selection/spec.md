@@ -66,14 +66,32 @@ A launch override SHALL enter the command line only through the rules that alrea
 - **WHEN** a skill is launched with a model
 - **THEN** the command line carries no model and the launch is not refused
 
-### Requirement: A launch override is validated on shape at every boundary
-A launch override SHALL be checked with the same shape rule as the configured model in the web interface, in the server handlers and in the local agent. A value the rule rejects SHALL be refused before any run is recorded or any command line is built, with an error naming the value. An empty value SHALL mean "no override".
+### Requirement: The models offered per provider are configured globally
+The global settings SHALL carry, for each AI provider, the list of model identifiers that provider may run. Each identifier SHALL be validated with the same shape rule as a configured model, and an invalid one SHALL be refused naming its provider and value. A provider with no configured list SHALL fall back to a built-in list, so that an installation that configured nothing still offers models. This list SHALL be the source of the models offered wherever a model can be picked or suggested.
 
-#### Scenario: Malformed identifier at the web interface
-- **GIVEN** the user types a model containing a space or a shell metacharacter
-- **WHEN** the launch surface renders
-- **THEN** the field is marked invalid with the same hint as the configuration field
-- **AND** the launch controls of that surface are disabled
+#### Scenario: Configuring the list of a provider
+- **GIVEN** the AI engine settings
+- **WHEN** the user adds a model identifier to a provider's list and saves
+- **THEN** the identifier is stored for that provider
+- **AND** it is offered wherever a model for that provider can be picked or suggested
+
+#### Scenario: Removing a model
+- **GIVEN** a provider whose list contains a model
+- **WHEN** the user removes it and saves
+- **THEN** it is no longer offered for that provider
+
+#### Scenario: Provider with no configured list
+- **GIVEN** a provider for which nothing was configured
+- **WHEN** its models are offered
+- **THEN** the built-in list for that provider is used
+
+#### Scenario: Invalid identifier in a list
+- **GIVEN** the user adds an identifier the shape rule rejects
+- **WHEN** the settings are saved
+- **THEN** the save is refused with an error naming the provider and the value
+
+### Requirement: A launch override is validated on shape at every boundary
+A launch override SHALL be checked with the same shape rule as the configured model in the server handlers and in the local agent. A value the rule rejects SHALL be refused before any run is recorded or any command line is built, with an error naming the value. An empty value SHALL mean "no override". Membership in a configured list SHALL NOT be required for acceptance: the list governs what can be picked, not what is accepted.
 
 #### Scenario: Malformed identifier reaching the server
 - **GIVEN** a launch request whose model the shape rule rejects
@@ -87,9 +105,9 @@ A launch override SHALL be checked with the same shape rule as the configured mo
 - **THEN** it refuses the launch with an error naming the value
 - **AND** no command line is built
 
-#### Scenario: Well-formed but unknown identifier
-- **GIVEN** a model identifier the rule accepts that no suggestion list contains
-- **WHEN** it is given at launch
+#### Scenario: Well-formed identifier absent from the configured list
+- **GIVEN** a launch request carrying a well-formed model that the configured list no longer contains
+- **WHEN** the server and the agent handle it
 - **THEN** it is accepted and reaches the command line unchanged
 
 ### Requirement: A run record names the engine and model it used

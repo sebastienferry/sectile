@@ -31,86 +31,88 @@ The mode override added by #123 already travels every hop of both paths:
 `run_mode`) → `Operation.Mode` → `Dispatch.Mode`. The model follows the same
 route, field for field.
 
+The list of models a provider can run is, today, the hardcoded
+`AI_MODEL_SUGGESTIONS` map of `web/src/lib/aiModels.ts:8-13`. It is presentation
+data for a free-text field, it lives only in the web bundle, and nothing on the
+server or the agent knows it.
+
 ## Decisions
 
-### An untouched control sends no override
-The launch field is empty by default and its placeholder shows the model the
-server resolves for the task's project and skill. Only a non-empty value is
-sent, as `model` on the launch request.
+### The model list is global configuration, per provider
+A new setting `aiProviderModels`, a map from provider id to an ordered list of
+model identifiers, stored as JSON in a new `settings.ai_provider_models` column
+and edited in the AI engine section of the profile
+(`web/src/components/ProfileModal.tsx:440-500`). Each entry is validated with
+the existing `agentconfig.ValidModel`, and a `ValidProviderModels` helper
+reports the offending provider and value, as `ValidModelConfig` already does for
+a level.
 
-Rejected: pre-filling the input with the resolved value and always sending it.
-The server cannot see the workstation override, so a pre-filled value would
-outrank it on every launch and change the command line of a user who touched
-nothing. The mode override sets the precedent: "an untouched control sends no
-override" (`skill-execution-mode`, #123).
+An empty or absent list for a provider falls back to the built-in seed, which is
+today's `AI_MODEL_SUGGESTIONS` moved next to the other model helpers. That keeps
+a fresh install usable and makes the setting an override rather than a
+prerequisite.
 
-The placeholder is computed client-side from data the web already holds:
-`taskProject.aiSkillModels[skillId]`, then `taskProject.aiModel`, then
-`settings.aiSkillModels[skillId]`, then `settings.aiModel`, then the CLI
-default wording used by `ProjectModal.tsx:780`. The helper lives in
-`web/src/lib/aiModels.ts` next to `isValidModel`. The label states that a
-workstation override may still apply, since the web has no way to know it.
+This one list feeds three consumers: the datalist of the existing configuration
+fields (`AIModelField`), the card submenu and the detail view selector. Adding a
+model in one place therefore makes it available everywhere it can be chosen.
 
-### The card menu offers a list to pick from, not a form
-The card's `...` menu is made of one-click entries (`TaskCard.tsx:318-400`); a
-text input there would have no precedent and would fight the menu's
-click-to-close behaviour. The reviewer asked for a submenu instead: an entry
-`Advance with model…` that opens a nested list, each row launching the next
-step under that model in the configured execution mode.
+Rejected: keeping the list hardcoded and only restricting the launch surfaces to
+it. The reviewer asked for a list "configured globally per LLM provider", and a
+hardcoded list would make a newly released model unreachable at launch while it
+is reachable in the settings, which is the inconsistency this change is meant to
+remove.
 
-- **What the list holds**: the suggestions for the task project's provider
-  (`AI_MODEL_SUGGESTIONS` in `web/src/lib/aiModels.ts`, provider from
-  `taskProject.aiProvider`, else `settings.aiProvider`), with the configured
-  resolution from `resolveConfiguredModel` listed first and marked as current
-  when it is not already in the list. Picking the current one sends no
-  override, which keeps the "untouched sends nothing" rule on the card too.
-- **When the entry is absent**: a provider with no suggestion list (`agy`,
-  `vibe`, `custom`) has nothing to list, and `agy` / `vibe` ignore the model
-  anyway. The entry is not rendered for them; the detail view's free-text field
-  remains the way to type an identifier for a `custom` template with `{model}`.
-- **Mode**: the configured one. The submenu does not multiply the mode entries
-  by the model entries; a user who wants both picks the mode in the detail
-  view, which carries both fields.
-- **Shared fragment**: the entry joins `modeActions`, the fragment both card
-  shapes render (#177), so neither shape can lose it on its own.
-- **Mechanics**: the nested list renders inside the same portal as the menu,
-  to the side of the entry, with `aria-haspopup="menu"` on the entry and the
-  rows as `role="menuitem"`. It opens on click and on `ArrowRight`, closes on
-  `ArrowLeft` and `Escape`, and picking a row closes the whole menu. The
-  `MENU_WIDTH` / `MENU_MAX_HEIGHT` placement (`TaskCard.tsx:77`) flips the
-  submenu to the other side when it would overflow the viewport.
-- **Request path**: the card's advance goes through `advanceTask` →
-  `runSkill` (`AppContext.tsx:2418-2428`), not through `/advance`. `advanceTask`
-  gains a `model` argument forwarded as `{ mode, model }`, so the card and the
-  detail view share one request shape. `/advance` still gains the field for
-  the other clients that use it.
+Rejected: a per-project list. The provider is already a per-project setting, and
+a project that departs from the global model does so through `aiModel` and
+`aiSkillModels`. A second per-project dimension would multiply the levels
+without answering a need the ticket states.
 
-Rejected: a free-text input in the menu. No precedent, invalid interaction with
-the menu's outside-click close, and the ticket's reviewer explicitly asked for a
-list.
+### Both launch surfaces pick from that list, never free text
+The configured model for the task and the skill is always the first entry and
+is marked as current; picking it sends no override. The remaining entries are
+the models configured for the task project's provider, minus the current one
+when it is already among them.
 
-Rejected: listing every model of every provider. A row the provider cannot
-run would launch, be ignored, and show a misleading label on the run.
+- **Card menu** (`TaskCard.tsx:322`, the shared `modeActions` fragment): an
+  `Advance with model…` entry opening a nested list, each row launching the next
+  step under that model in the configured execution mode. The card is made of
+  one-click entries, so a nested list is the only shape that fits; the submenu
+  does not multiply the mode entries by the model entries, and a user who wants
+  to depart from both picks them in the detail view.
+- **Detail view** (`TaskDetailModal.tsx:1463`): a `<select>` beside the existing
+  mode selector, defaulting to the current model, applying to the interactive,
+  autonomous and configured-mode buttons of every skill row alike.
+
+`AIModelField` keeps its free-text input: it edits configuration, which #132
+requires to accept any identifier. The restriction is a property of the launch
+surfaces, where a typo would be discovered only when the CLI fails.
+
+The entry and the selector are not rendered when the task project's provider has
+no models at all, which is the case for the providers that take none (`agy`,
+`vibe`) unless the user configured some. A `custom` provider whose template
+carries `{model}` is served by configuring its list like any other.
+
+Rejected: a free-text input in the card menu. No precedent in that menu, it
+fights the menu's outside-click close, and the reviewer ruled against it twice.
+
+Rejected: listing every model of every provider. A row the provider cannot run
+would launch, be ignored, and show a misleading label on the run.
+
+### The card's request path joins the detail view's
+The card advances through `advanceTask` → `runSkill`
+(`AppContext.tsx:2418-2428`), not through `/advance`. `advanceTask` gains a
+`model` argument forwarded as `{ mode, model }`, so both surfaces send the same
+request shape. `/advance` gains the field too, for the other clients that use
+it.
 
 ### A fourth, most specific level, folded where the levels already merge
-On the agent, the dispatched model is applied as one more `ModelConfig` level
-on top of the local configuration before `ResolveModel` runs:
-
-```go
-cfg := config
-if override := strings.TrimSpace(payload.Model); override != "" {
-    merged := agentconfig.MergeModels(agentconfig.ModelConfig{Model: override}, cfg.Models())
-    cfg.AIModel, cfg.AISkillModels = merged.Model, merged.SkillModels
-}
-```
-
-A bare model on the highest level would normally lose to a per-skill entry
-below it, by the #132 rule. A launch override names one run, which is more
-specific than any per-skill entry, so the merge above is not enough on its own:
-the skill map is also cleared for the launched skill. Concretely
+On the agent, the dispatched model is applied on top of the local configuration
+before `ResolveModel` runs. A bare model on the highest level would normally
+lose to a per-skill entry below it, by the #132 rule, and a launch override
+names one run, which is more specific than any per-skill entry. So
 `dispatchCommand` resolves `model := override` when the override is set and
 falls back to `ResolveModel(config, skillID)` otherwise. `MergeModels` is not
-modified; the override is a precedence rule of the launch, not of the
+modified: the override is a precedence rule of the launch, not of the
 configuration.
 
 Rejected: passing the override as a fully resolved model that bypasses
@@ -118,20 +120,22 @@ Rejected: passing the override as a fully resolved model that bypasses
 `UsesCommandTemplate`) and the flagless-provider rule (`ModelArgs`) must keep
 governing the line. The override only changes the value that enters them.
 
-Rejected: writing the override into the project or the agent configuration
-for the duration of the run. It would race with concurrent launches on the same
+Rejected: writing the override into the project or the agent configuration for
+the duration of the run. It would race with concurrent launches on the same
 project and is exactly what the ticket wants to stop doing by hand.
 
-### The same shape rule, enforced three times
-- **Web**: `isValidModel` on the launch field; the skill row's launch buttons
-  are disabled while the value is invalid, with the same inline hint as
-  `AIModelField`.
+### Shape validation stays the security boundary, membership stays a client rule
 - **Server**: `agentconfig.ValidModel(req.Model)` in the run-skill and advance
   handlers, answering 400 like the existing `mode invalide` check.
 - **Agent**: `agentconfig.ValidModel(payload.Model)` in `dispatchCommand`,
   refusing the launch with an error naming the value. The agent is the process
   that runs `sh -c`; it must not trust the server for a word it places on the
   command line, for the same reason `escapeForDoubleQuotes` exists.
+
+Neither checks membership in the configured list. #132 requires validation on
+shape and not on membership, so that a model released after a build still works;
+a client holding a list edited a minute ago would otherwise have its launch
+refused. The list governs what can be picked, not what is accepted.
 
 ### Every hop carries the model
 | Hop | Field | Location |
@@ -152,9 +156,9 @@ Two new columns on `task_activities`, `run_provider` and `run_model`, both
 `TEXT NOT NULL DEFAULT ''`, added beside `run_mode` (`internal/db/db.go:395`).
 Empty reads as "unknown" on every run recorded before this change.
 
-- **At launch**, `startRemoteRun` writes the server's own resolution: the
-  project provider and `ResolveSkillModel` over the merged global and project
-  levels, with the launch override on top when one was sent.
+- **At launch**, `startRemoteRun` writes the server's own resolution: the project
+  provider and `ResolveSkillModel` over the merged global and project levels,
+  with the launch override on top when one was sent.
 - **From the agent**, once `dispatchCommand` has built the line, the agent posts
   `{"provider": "<p>", "model": "<m>"}` to `POST /api/activities/{id}/engine`,
   modelled on `postRunWaiting` (`internal/agent/agent_run.go:254`) and its
@@ -167,8 +171,8 @@ Empty reads as "unknown" on every run recorded before this change.
   explicit column lists of `task_activities` (`db.go:2815`, `db.go:2829`,
   `db.go:4372`, `db.go:4471`, `postback.go:255`) gain both columns in the same
   edit, per the trap recorded in `.agents/MEMORY.md` §6.
-- **Desktop**: `desktopRun.Provider` is already serialised but only set for
-  free consoles; task runs now set it and gain `Model`. `runLabel` in
+- **Desktop**: `desktopRun.Provider` is already serialised but only set for free
+  consoles; task runs now set it and gain `Model`. `runLabel` in
   `desktop/src/main.js:45` appends the pair to the skill name for task runs.
 
 Rejected: a new websocket message type from agent to server. The waiting relay
@@ -180,19 +184,22 @@ override and would sometimes name a model the CLI never ran. The reviewer
 confirmed the agent-reported value at the specification review.
 
 ### Template and flagless providers: notice, no refusal
-The launch field reuses `AIModelField` with the task project's provider and
-command template, as `TaskDetailModal.tsx:137` already computes the provider.
-The component's two notices ("the template governs the command line", "this
-provider takes no model") appear exactly as in the settings. A launch is never
+The detail view's selector reuses the two notices `AIModelField` already shows,
+fed with the task project's provider and command template as
+`TaskDetailModal.tsx:137` already computes the provider. A launch is never
 refused for that reason: the configured model is a silent no-op in the same
 cases, and refusing here would make the launch stricter than the settings.
 
 ### Discussion and free console stay out
 `discuss` and `open_terminal` resolve with an empty skill ID and never read the
-override (`agent_config.go:519-523`, `live()`). The launch panel does not offer
+override (`agent_config.go:519-523`, `live()`). The launch surfaces do not offer
 a model for them.
 
 ## Risks
+- **Settings column**: `settings` is written by one `INSERT ... ON CONFLICT`
+  whose column list, placeholder count and `excluded` assignments must change
+  together (`db.go:3226-3267`), plus the two `SELECT` lists (`db.go:2463`,
+  `db.go:2909`). Same trap as `task_activities` below.
 - **Column lists**: a column added to `task_activities` without its `?` in the
   `INSERT` yields `SQL logic error: N values for M columns` at runtime, caught
   only by the DB tests. The tasks list the five sites explicitly.
@@ -203,5 +210,4 @@ a model for them.
 - **Web tests are source assertions** (`web/tests/skillLaunchMode.test.mjs`,
   #162): the new wiring is pinned the same way, by regex on the handler calls,
   which is what stops an unrelated refactor from dropping the field.
-- **Desktop UI tests load `dist/index.html`**: `npx vite build` runs before
-  them.
+- **Desktop UI tests load `dist/index.html`**: `npx vite build` runs before them.

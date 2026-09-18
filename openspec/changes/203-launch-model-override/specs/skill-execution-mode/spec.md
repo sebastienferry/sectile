@@ -1,55 +1,65 @@
 ## ADDED Requirements
 
-### Requirement: The task detail launcher offers a per-run model
-The task detail view's skill launcher SHALL offer a model field beside its execution mode selector. The field SHALL be empty by default and its placeholder SHALL show the model the project and global settings resolve for the task's project and the skill being launched, stating that a workstation override may still apply. The field SHALL accept the same free text and suggestions as the configuration field, and SHALL show the same notices when a command template governs the command line or when the provider takes no model. A launch from any of the skill row's controls, interactive, autonomous or configured mode, SHALL carry the field's value. An untouched field SHALL send no override.
+### Requirement: The launch surfaces offer the configured models, not free text
+The surfaces on which a skill is launched on a task SHALL let the user pick the model that run uses from the models configured for the task project's provider, and SHALL NOT accept a free-text identifier. The model the configured levels resolve for that task and skill SHALL be the default choice on every such surface and SHALL be presented as the current one; picking it SHALL send no override, so a launch nobody touched reproduces the command line built before this change. Picking any other listed model SHALL apply to that launch only and SHALL persist nothing. A surface SHALL NOT offer a model when the task project's provider has no configured models.
 
-#### Scenario: Placeholder shows the configured resolution
-- **GIVEN** a project whose per-skill map names `implement -> claude-sonnet-5` and whose bare model is `claude-opus-5`
-- **WHEN** the user opens the launcher on a task of that project
-- **THEN** the model field is empty
-- **AND** its placeholder names `claude-sonnet-5` for `implement` and `claude-opus-5` for the other skills
-
-#### Scenario: Launching with the field untouched
-- **GIVEN** the model field is empty
-- **WHEN** the user launches a skill from any of its row's controls
+#### Scenario: Default is the configured model and sends nothing
+- **GIVEN** a task whose configured levels resolve `claude-sonnet-5` for the skill being launched
+- **WHEN** the user launches it without changing the model
 - **THEN** the launch request carries no model
-- **AND** the run uses the model the configured levels resolve
+- **AND** the run uses `claude-sonnet-5`
 
-#### Scenario: Launching with a model
-- **GIVEN** the user types `claude-opus-5` in the model field
-- **WHEN** they launch a skill autonomously from its row
-- **THEN** the launch request carries `claude-opus-5` and the autonomous mode
+#### Scenario: Picking another configured model
+- **GIVEN** the same task, on a provider whose configured list contains `claude-opus-5`
+- **WHEN** the user picks `claude-opus-5` and launches
+- **THEN** the launch request carries `claude-opus-5`
 - **AND** no project or global setting is modified
+- **AND** the next launch left untouched uses `claude-sonnet-5` again
 
-#### Scenario: Field carries over to the next launch in the same view
-- **GIVEN** the user typed a model and launched one skill
+#### Scenario: No free-text entry
+- **GIVEN** any launch surface offering the model
+- **WHEN** the user opens it
+- **THEN** it offers only the configured models to pick from
+- **AND** it exposes no field in which an identifier can be typed
+
+#### Scenario: Provider with no configured models
+- **GIVEN** a task whose project provider has no configured model list
+- **WHEN** the user opens the launch surfaces
+- **THEN** no model choice is offered
+- **AND** launching uses the model the configured levels resolve
+
+### Requirement: The task detail launcher offers a per-run model
+The task detail view's skill launcher SHALL offer a model selector beside its execution mode selector, listing the models configured for the task project's provider with the configured resolution as its default. Its value SHALL apply to every launch control of that view, interactive, autonomous and configured mode alike. The selector SHALL show the same notices as the configuration field when a command template governs the command line or when the provider takes no model.
+
+#### Scenario: One choice serves every control of the view
+- **GIVEN** the user picked a model in the launcher
+- **WHEN** they launch a skill from its interactive, autonomous or configured-mode control
+- **THEN** each launch carries that model
+- **AND** the execution mode of each control is unchanged
+
+#### Scenario: Choice carries over to the next launch in the same view
+- **GIVEN** the user picked a model and launched one skill
 - **WHEN** they launch another skill from the same open detail view
-- **THEN** the same model is carried, until they clear the field or close the view
+- **THEN** the same model is carried, until they select the current model again or close the view
 
 #### Scenario: Template governs the line
 - **GIVEN** a project whose command template contains no `{model}`
 - **WHEN** the user opens the launcher
-- **THEN** the field states that the template governs the command line, as the settings do
+- **THEN** it states that the template governs the command line, as the settings do
 
-#### Scenario: Provider without a model flag
-- **GIVEN** a project on a provider that takes no model
+#### Scenario: Provider that takes no model flag
+- **GIVEN** a project on a provider that takes no model but has configured models
 - **WHEN** the user opens the launcher
-- **THEN** the field states that this provider ignores the model, as the settings do
-
-#### Scenario: Copy menu and desktop next step are unchanged
-- **GIVEN** a task card's "Copy command" menu and the desktop next-step control
-- **WHEN** the user launches from either of them
-- **THEN** no model is offered and the run uses the model the configured levels resolve
+- **THEN** it states that this provider ignores the model, as the settings do
 
 ### Requirement: The card menu offers the next step under a chosen model
-The task card's `...` menu SHALL offer, in both board display modes, an entry that opens a submenu listing the models suggested for the task project's provider, with the model the configured levels resolve listed first and marked as current. Picking a listed model SHALL launch the task's next step under that model in the configured execution mode, for that launch only, and SHALL persist nothing. Picking the current model SHALL send no override. The submenu SHALL be a list to pick from and SHALL NOT offer free-text entry. The entry SHALL NOT be rendered when the provider has no suggested model list. The entry SHALL come from the definition both card shapes already share for the mode entries.
+The task card's `...` menu SHALL offer, in both board display modes, an entry that opens a submenu listing the models configured for the task project's provider, with the model the configured levels resolve first and marked as current. Picking a listed model SHALL launch the task's next step under that model in the configured execution mode. The submenu SHALL be a list to pick from and SHALL NOT offer free-text entry. The entry SHALL come from the definition both card shapes already share for the mode entries.
 
 #### Scenario: Launching the next step under another model
 - **GIVEN** a task on a project whose provider is `claude` and whose configured levels resolve `claude-sonnet-5`
 - **WHEN** the user opens the card's `...` menu, opens the model submenu and picks `claude-opus-5`
 - **THEN** the next step is launched with model `claude-opus-5` in the configured execution mode
 - **AND** the project and global settings are unchanged
-- **AND** the next launch without a model uses `claude-sonnet-5` again
 
 #### Scenario: The current model is listed first and sends nothing
 - **GIVEN** the same task
@@ -62,12 +72,6 @@ The task card's `...` menu SHALL offer, in both board display modes, an entry th
 - **WHEN** the user opens a card's `...` menu in each
 - **THEN** both menus offer the model entry next to the mode entries
 
-#### Scenario: Provider without a suggestion list
-- **GIVEN** a task on a project whose provider is `agy`, `vibe` or `custom`
-- **WHEN** the user opens the card's `...` menu
-- **THEN** no model entry is shown
-- **AND** the detail view's model field remains available for that task
-
 #### Scenario: Keyboard operation
 - **GIVEN** the card's `...` menu is open with focus on the model entry
 - **WHEN** the user presses the right arrow key
@@ -79,3 +83,8 @@ The task card's `...` menu SHALL offer, in both board display modes, an entry th
 - **GIVEN** a card whose `...` menu opens near the right edge of the viewport
 - **WHEN** the user opens the model submenu
 - **THEN** the list is placed on the side where it fits entirely within the viewport
+
+#### Scenario: Copy menu and desktop next step are unchanged
+- **GIVEN** a task card's "Copy command" menu and the desktop next-step control
+- **WHEN** the user launches from either of them
+- **THEN** no model is offered and the run uses the model the configured levels resolve
