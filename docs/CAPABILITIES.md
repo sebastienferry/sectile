@@ -39,8 +39,11 @@ who started what.
 - **Sign-in.** Through an OpenID Connect provider when one is configured, and
   otherwise through the local sign-in, an e-mail address and nothing else, which
   identifies people without authenticating them and is meant to be replaced by a
-  provider. A deployment with no provider and no account keeps its single
-  implicit user; the first account created ends that mode and becomes the admin.
+  provider. Signing in is mandatory: a deployment with no account shows the
+  sign-in screen and no board, and the first person to sign in becomes the admin.
+- **Personal and deployment settings.** Presentation, displayed identity and the
+  workstation commands are personal to each account; trackers, auto-sync, the AI
+  configuration and the prompts are the deployment's and an admin's to change.
 - **Two roles.** An admin manages users and roles, projects, global settings,
   tracker credentials, anyone's workstations and anyone's execution. A member
   does everything else, including the board, its tasks, its transitions, its

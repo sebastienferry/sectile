@@ -751,9 +751,12 @@ type Settings struct {
 	// moves the root font size, which leaves every fixed pixel size untouched;
 	// the scale zooms the whole interface, which is what a large or a small
 	// screen actually needs.
-	UIScale           int    `json:"uiScale"`
-	DetailMode        string `json:"detailMode"` // "panel", "modal"
-	UserName          string `json:"userName"`
+	UIScale    int    `json:"uiScale"`
+	DetailMode string `json:"detailMode"` // "panel", "modal"
+	UserName   string `json:"userName"`
+	// UserEmail is a projection of the signed-in account's e-mail (ADR 0015):
+	// it is answered on a read and ignored on a write, the identity being the
+	// only authority on it.
 	UserEmail         string `json:"userEmail"`
 	UserAvatar        string `json:"userAvatar"`
 	AIProvider        string `json:"aiProvider"`        // "agy", "claude", "codex", "custom"

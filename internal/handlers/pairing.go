@@ -31,10 +31,10 @@ func (r apiKeyRequest) ttl() time.Duration {
 	return time.Duration(*r.TTLDays) * 24 * time.Hour
 }
 
-// ImplicitUser is the single user a deployment has before an identity provider
-// is configured. Paths that run without an HTTP request name it explicitly,
-// so what still has to change for real multi-user is visible rather than
-// spread through the code as a bare string.
+// ImplicitUser owns what runs without an HTTP request, the local agent's own
+// operations and the launches started outside a browser session. No HTTP path
+// resolves to it any more (ADR 0015): it is an ordinary account, named here so
+// those requestless entry points do not carry a bare string.
 const ImplicitUser = "default"
 
 // webSessionUser identifies the caller of an interface request: whoever holds
@@ -48,10 +48,9 @@ const ImplicitUser = "default"
 // open mode where any value named the implicit user: those would hand anyone a
 // way past sign-in by setting one header.
 //
-// Without either, the answer depends on the deployment. With a provider, or
-// once a local account exists, an anonymous request is a stranger. Before the
-// first local account the interface keeps its single implicit user, which is
-// how a personal deployment runs and how a fresh one opens its board.
+// Without either, the caller is a stranger and the answer is empty: signing in
+// is mandatory on every deployment (ADR 0015), including a fresh one, whose
+// board only opens once someone has signed in.
 // actingContext is the request's context marked with whoever is making it, for
 // the store calls that reach a tracker: on a tracker that attributes its writes
 // to the account behind the token, this is what puts the right name on them.
@@ -70,13 +69,7 @@ func (h *Handler) webSessionUser(r *http.Request) string {
 			return credential.UserID
 		}
 	}
-	if h.identityProvider != nil {
-		return ""
-	}
-	if h.db != nil && h.db.HasLocalAccounts() {
-		return ""
-	}
-	return ImplicitUser
+	return ""
 }
 
 // HandlePairingCode issues a single-use pairing code for the signed-in user.

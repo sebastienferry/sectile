@@ -292,6 +292,25 @@ func (d *DB) initSchema() error {
 			auto_sync_interval_sec INTEGER NOT NULL DEFAULT 60,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);`,
+		// user_settings holds the personal half of the settings: one row per
+		// account, created on the first save and seeded, until then, from the
+		// deployment row (ADR 0015). The deployment half stays in settings.
+		`CREATE TABLE IF NOT EXISTS user_settings (
+			user_id TEXT PRIMARY KEY,
+			theme TEXT NOT NULL DEFAULT 'dark',
+			accent_color TEXT NOT NULL DEFAULT 'indigo',
+			language TEXT NOT NULL DEFAULT 'fr',
+			density TEXT NOT NULL DEFAULT 'standard',
+			default_view TEXT NOT NULL DEFAULT 'board',
+			detail_mode TEXT NOT NULL DEFAULT 'panel',
+			ui_scale INTEGER NOT NULL DEFAULT 100,
+			user_name TEXT NOT NULL DEFAULT '',
+			user_email TEXT NOT NULL DEFAULT '',
+			user_avatar TEXT NOT NULL DEFAULT '',
+			editor_command TEXT NOT NULL DEFAULT '',
+			external_terminal_command TEXT NOT NULL DEFAULT '',
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);`,
 		`CREATE TABLE IF NOT EXISTS projects (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,

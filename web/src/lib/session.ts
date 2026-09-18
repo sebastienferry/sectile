@@ -5,9 +5,16 @@
  */
 
 /** How people sign in on this deployment, as `/api/me` reports it. */
-export type SignInMode = 'oidc' | 'local' | 'implicit'
+export type SignInMode = 'oidc' | 'local'
 
 export type Role = 'admin' | 'member'
+
+/** What the server says it stores about a personal tracker credential. */
+export interface SealedCredential {
+  tracker: string
+  sealed: boolean
+  unlocked: boolean
+}
 
 export interface CurrentUser {
   userId: string
@@ -64,17 +71,20 @@ export function shouldRedirectToSignIn(url: string, status: number, currentPath:
   return path.startsWith('/api/') && !path.startsWith('/api/v1/')
 }
 
-/** Whether the interface must show the sign-in screen for this user. */
+/**
+ * Whether the interface must show the sign-in screen for this user. Signing in
+ * is mandatory (ADR 0015): a signed-out visitor sees the screen and nothing
+ * else, whatever the deployment's mode.
+ */
 export function needsSignIn(user: CurrentUser | null): boolean {
   if (!user) return false
-  return !user.signedIn && user.mode !== 'implicit'
+  return !user.signedIn
 }
 
 export function describeSignInMode(mode: SignInMode): string {
   switch (mode) {
     case 'oidc': return 'Identity provider'
-    case 'local': return 'Local e-mail sign-in (temporary)'
-    default: return 'Single user, no sign-in'
+    default: return 'Local e-mail sign-in (temporary)'
   }
 }
 
@@ -84,6 +94,42 @@ export function describeRole(role: Role | ''): string {
     case 'member': return 'Member'
     default: return ''
   }
+}
+
+/**
+ * Unlocks the sealed tracker tokens of the person who just signed in, one call
+ * per sealed tracker since the route takes one at a time. It reports, it never
+ * blocks: the session is already open.
+ */
+export async function unlockSealedCredentials(passphrase: string): Promise<string> {
+  const phrase = passphrase.trim()
+  if (!phrase) return ''
+  let sealed: SealedCredential[] = []
+  try {
+    const res = await fetch('/api/me/tracker-credentials')
+    if (!res.ok) return ''
+    const body = await res.json().catch(() => ({}))
+    const list: SealedCredential[] = Array.isArray(body.credentials) ? body.credentials : []
+    sealed = list.filter(credential => credential.sealed && !credential.unlocked)
+  } catch {
+    return 'Sealed tokens could not be read; unlock them from your profile.'
+  }
+  if (sealed.length === 0) return ''
+  const refused: string[] = []
+  for (const credential of sealed) {
+    try {
+      const res = await fetch('/api/me/tracker-credentials/unlock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tracker: credential.tracker, passphrase: phrase }),
+      })
+      if (!res.ok) refused.push(credential.tracker)
+    } catch {
+      refused.push(credential.tracker)
+    }
+  }
+  if (refused.length === 0) return ''
+  return `Sealing passphrase refused for ${refused.join(', ')}: those tokens stay locked, unlock them from your profile.`
 }
 
 /**

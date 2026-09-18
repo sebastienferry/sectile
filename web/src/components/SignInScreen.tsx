@@ -1,18 +1,29 @@
 import { useState } from 'react'
-import { LogIn, Mail, ShieldAlert } from 'lucide-react'
+import { KeyRound, LogIn, Mail, ShieldAlert } from 'lucide-react'
 import type { CurrentUser } from '../lib/session'
-import { redirectFromSearch } from '../lib/session'
+import { redirectFromSearch, unlockSealedCredentials } from '../lib/session'
 
 /**
- * The sign-in screen. With an identity provider it is one link; without one
- * it is the temporary local sign-in: an e-mail address and nothing else, which
- * identifies people without authenticating them. The screen says so, because a
- * mode that looks like a login and is not one would mislead.
+ * The sign-in screen. Signing in is mandatory (ADR 0015): a signed-out visitor
+ * sees this and nothing else. With an identity provider it is one link; without
+ * one it is the temporary local sign-in, an e-mail address which identifies
+ * people without authenticating them. The screen says so, because a mode that
+ * looks like a login and is not one would mislead.
+ *
+ * The only secret the form ever asks for is the sealing passphrase of ADR 0014,
+ * and only for whoever chose to seal their tracker tokens. It is optional, and
+ * a wrong one never refuses the sign-in: that would turn it into a password.
  */
+
 export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSignedIn: () => void }) {
   const [email, setEmail] = useState('')
+  const [passphrase, setPassphrase] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  // A refused passphrase holds the screen instead of handing over to the
+  // application: the session is open, but the notice has to be read, and
+  // signalling the sign-in would unmount this screen along with the message.
+  const [notice, setNotice] = useState('')
   const returnTo = redirectFromSearch(window.location.search)
 
   async function signInLocally(event: React.FormEvent) {
@@ -27,13 +38,24 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error || `HTTP ${res.status}`)
       }
-      onSignedIn()
-      window.location.assign(returnTo)
+      // A refused passphrase is reported and nothing else: the session is open
+      // and the tokens simply stay locked.
+      const refusal = await unlockSealedCredentials(passphrase)
+      if (refusal) {
+        setNotice(refusal)
+        return
+      }
+      enterApplication()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not sign in.')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  function enterApplication() {
+    onSignedIn()
+    window.location.assign(returnTo)
   }
 
   const card = 'w-full max-w-sm space-y-5 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-6 shadow-2xl'
@@ -52,7 +74,17 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
           </p>
         </div>
 
-        {user.mode === 'oidc' ? (
+        {notice ? (
+          <div className="space-y-4">
+            <p role="alert" className="flex gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
+              <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
+              <span>{notice}</span>
+            </p>
+            <button type="button" onClick={enterApplication} className={button}>
+              <LogIn size={16} /> Continue
+            </button>
+          </div>
+        ) : user.mode === 'oidc' ? (
           <a href={`/auth/login?redirect=${encodeURIComponent(returnTo)}`} className={button}>
             <LogIn size={16} /> Continue with the identity provider
           </a>
@@ -69,15 +101,27 @@ export function SignInScreen({ user, onSignedIn }: { user: CurrentUser; onSigned
                 <Mail size={15} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
               </div>
             </label>
+            <label className="block text-xs font-medium text-[var(--text-secondary)]">
+              Sealing passphrase <span className="text-[var(--text-muted)]">(optional)</span>
+              <div className="relative mt-1">
+                <input
+                  type="password" autoComplete="off" value={passphrase}
+                  onChange={event => setPassphrase(event.target.value)}
+                  placeholder="Only if you sealed your tracker tokens" className={field}
+                />
+                <KeyRound size={15} className="absolute left-3 top-2.5 text-[var(--text-muted)]" />
+              </div>
+            </label>
             <button type="submit" disabled={submitting || !email.trim()} className={button}>
               <LogIn size={16} /> {submitting ? 'Signing in' : 'Sign in'}
             </button>
             <p role="note" className="flex gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-[11px] leading-relaxed text-[var(--text-secondary)]">
               <ShieldAlert size={16} className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
               <span>
-                No password is asked: this mode identifies people without authenticating them and is
-                meant for a trusted network until an identity provider is connected. The first account
-                created becomes the admin.
+                No login password is asked: this mode identifies people without authenticating them
+                and is meant for a trusted network until an identity provider is connected. The first
+                account created becomes the admin. The passphrase above is only the one sealing your
+                own tracker tokens; leaving it empty signs you in with those tokens locked.
               </span>
             </p>
           </form>

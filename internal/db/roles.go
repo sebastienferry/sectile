@@ -20,9 +20,11 @@ const (
 // temporary mode a deployment runs in until an identity provider is connected.
 const LocalSubjectPrefix = "local|"
 
-// ImplicitUserID is the single user a deployment has before anyone signs in.
-// It is spelled here as well as in the handlers because the storage layer has
-// to know which row may be created without a sign-in.
+// ImplicitUserID owns what runs without an HTTP request: the local agent's own
+// operations and the launches started outside a browser session. Since sign-in
+// became mandatory (ADR 0015) it is an ordinary account like any other, spelled
+// here as well as in the handlers because the storage layer has to know which
+// row may be created without a sign-in.
 const ImplicitUserID = "default"
 
 // ErrLastAdmin refuses the change that would leave the board with nobody able

@@ -2491,14 +2491,47 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// composedSettings is what /api/settings answers: the deployment row for the
+// shared configuration, the caller's own row for the preferences, and the
+// account's e-mail for userEmail, which is a projection of the identity rather
+// than a field anyone types (ADR 0015).
+func (h *Handler) composedSettings(userID string) (*models.Settings, error) {
+	deployment, err := h.db.GetSettings()
+	if err != nil {
+		return nil, err
+	}
+	personal, err := h.db.UserSettings(userID)
+	if err != nil {
+		return nil, err
+	}
+	composed := *deployment
+	composed.Theme = personal.Theme
+	composed.AccentColor = personal.AccentColor
+	composed.Language = personal.Language
+	composed.Density = personal.Density
+	composed.DefaultView = personal.DefaultView
+	composed.DetailMode = personal.DetailMode
+	composed.UIScale = personal.UIScale
+	composed.UserName = personal.UserName
+	composed.UserEmail = personal.UserEmail
+	composed.UserAvatar = personal.UserAvatar
+	composed.EditorCommand = personal.EditorCommand
+	composed.ExternalTerminalCommand = personal.ExternalTerminalCommand
+	if user, err := h.db.GetUser(userID); err == nil && user != nil && user.Email != "" {
+		composed.UserEmail = user.Email
+	}
+	return &composed, nil
+}
+
 // maskJiraToken strips the Jira API token from anything sent to the client and
 // replaces it with two flags: whether a token is configured at all, and whether
 // it comes from the environment rather than the database. An empty incoming
 // token means "keep the stored one", so the UI can leave its field blank.
 func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
+	caller := h.webPrincipal(r)
 	switch r.Method {
 	case http.MethodGet:
-		settings, err := h.db.GetSettings()
+		settings, err := h.composedSettings(caller.UserID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2529,31 +2562,64 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 		// two apart, so presence of the key is what carries the intent.
 		var sent map[string]json.RawMessage
 		_ = json.Unmarshal(body, &sent)
-		// The row mixes personal preferences with the deployment's
-		// configuration. A member may change the former; touching the latter
-		// is refused by naming the keys, so the interface can say which.
-		if caller := h.webPrincipal(r); !caller.IsAdmin() {
-			current, err := h.db.GetSettings()
-			if err != nil {
-				writeError(w, http.StatusInternalServerError, err.Error())
-				return
-			}
+		// userEmail is a projection of the account's identity: it is answered
+		// on a read and ignored on a write.
+		delete(sent, "userEmail")
+		current, err := h.db.GetSettings()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		// The payload carries both halves. A member may change the personal
+		// one; touching the deployment's is refused by naming the keys, so the
+		// interface can say which.
+		if !caller.IsAdmin() {
 			if offending := memberSettingsViolations(*current, sent); len(offending) > 0 {
 				writeError(w, http.StatusForbidden, msgAdminOnly+": "+strings.Join(offending, ", "))
 				return
 			}
-			if req, err = memberSettingsPayload(*current, sent); err != nil {
+		}
+
+		// The personal keys go to the caller's own row. An anonymous caller has
+		// no row: the guard already refuses it, this is only belt and braces.
+		if caller.UserID != "" {
+			personal, err := h.db.UserSettings(caller.UserID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			personalReq, err := memberSettingsPayload(*personal, sent)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			if _, err := h.db.UpdateUserSettings(caller.UserID, personalReq); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 		}
-		var clear []string
-		for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
-			if _, ok := sent[name]; ok {
-				clear = append(clear, name)
+
+		// The deployment keys go to the shared row, and only an admin ever
+		// reaches this: a member's payload was just checked to change none.
+		if caller.IsAdmin() {
+			deploymentReq, err := deploymentSettingsPayload(*current, sent)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			var clear []string
+			for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
+				if _, ok := sent[name]; ok {
+					clear = append(clear, name)
+				}
+			}
+			if _, err := h.db.UpdateSettings(deploymentReq, clear...); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
 			}
 		}
-		saved, err := h.db.UpdateSettings(req, clear...)
+
+		saved, err := h.composedSettings(caller.UserID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -3115,7 +3181,9 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 		req.ProjectID = task.ProjectID
 	}
 	if req.EditorCommand == "" {
-		settings, _ := h.db.GetSettings()
+		// The editor is a personal command too, so it is the caller's own,
+		// falling back to the deployment default through UserSettings.
+		settings, _ := h.db.UserSettings(h.webSessionUser(r))
 		if settings != nil {
 			req.EditorCommand = settings.EditorCommand
 		}
@@ -3166,20 +3234,27 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
-	settings, _ := h.db.GetSettings()
+	// The workstation commands are personal (ADR 0015): the terminal that
+	// opens is the one of whoever owns this execution, not the deployment's.
+	// The project's own override still comes first, the deployment default last.
+	settings, _ := h.db.UserSettings(userID)
 	var proj *models.Project
 	if task.ProjectID != "" {
 		proj, _ = h.db.GetProjectByID(task.ProjectID)
 	}
 
+	// Precedence: what the call asked for, then the project's own terminal,
+	// then the owner's. The resolved value is what travels to the agent, so a
+	// personal terminal command is honoured on a launch, not only in the
+	// profile screen.
 	customTermCmd = strings.TrimSpace(customTermCmd)
-	terminalOverride := customTermCmd
 	if customTermCmd == "" && proj != nil && proj.ExternalTerminalCommand != "" {
 		customTermCmd = proj.ExternalTerminalCommand
 	}
 	if customTermCmd == "" && settings != nil && settings.ExternalTerminalCommand != "" {
 		customTermCmd = settings.ExternalTerminalCommand
 	}
+	terminalOverride := customTermCmd
 
 	projectID := "default"
 	if task.ProjectID != "" {

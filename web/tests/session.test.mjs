@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   safeRedirectPath, signInPath, redirectFromSearch, shouldRedirectToSignIn, needsSignIn,
-  describeSignInMode, describeRole, SIGN_IN_PATH,
+  describeSignInMode, describeRole, SIGN_IN_PATH, unlockSealedCredentials,
 } from '../src/lib/session.ts'
 
 test('a return target stays inside the interface', () => {
@@ -38,9 +38,8 @@ test('only a 401 on the interface API sends to sign-in, and never from the sign-
   assert.equal(shouldRedirectToSignIn('not a url at all ::', 401, '/'), false)
 })
 
-test('the sign-in screen is needed for an anonymous person unless the deployment has no sign-in', () => {
+test('the sign-in screen is needed for anyone not signed in, with no escape hatch', () => {
   assert.equal(needsSignIn(null), false)
-  assert.equal(needsSignIn({ userId: 'default', signedIn: true, identityProvider: false, mode: 'implicit', role: 'admin' }), false)
   assert.equal(needsSignIn({ userId: '', signedIn: false, identityProvider: false, mode: 'local', role: '' }), true)
   assert.equal(needsSignIn({ userId: '', signedIn: false, identityProvider: true, mode: 'oidc', role: '' }), true)
   assert.equal(needsSignIn({ userId: 'usr_1', signedIn: true, identityProvider: false, mode: 'local', role: 'member' }), false)
@@ -52,4 +51,33 @@ test('modes and roles have a label', () => {
   assert.equal(describeRole('admin'), 'Admin')
   assert.equal(describeRole('member'), 'Member')
   assert.equal(describeRole(''), '')
+})
+
+test('a supplied sealing passphrase unlocks each sealed tracker, and a refusal only reports', async () => {
+  const calls = []
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, body: init?.body })
+    if (url === '/api/me/tracker-credentials') {
+      return { ok: true, json: async () => ({ credentials: [
+        { tracker: 'jira', sealed: true, unlocked: false },
+        { tracker: 'gitlab', sealed: true, unlocked: false },
+        { tracker: 'github', sealed: false, unlocked: false },
+      ] }) }
+    }
+    return { ok: JSON.parse(init.body).tracker === 'jira', json: async () => ({}) }
+  }
+  try {
+    // No passphrase asks nothing: the session is open with the tokens locked.
+    assert.equal(await unlockSealedCredentials('   '), '')
+    assert.equal(calls.length, 0)
+
+    const notice = await unlockSealedCredentials('open sesame')
+    assert.equal(calls.length, 3)
+    assert.deepEqual(calls.slice(1).map(call => JSON.parse(call.body).tracker), ['jira', 'gitlab'])
+    assert.match(notice, /gitlab/)
+    assert.doesNotMatch(notice, /jira/)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
 })

@@ -361,8 +361,9 @@ export SECTILE_OIDC_REDIRECT_URL='https://sectile.example.com/auth/callback'
 
 The provider's endpoints are discovered from its metadata document at startup.
 A provider that cannot be reached stops the server rather than serving the
-interface unauthenticated. Without these variables the interface keeps a single
-implicit user, which is how a personal deployment runs.
+interface unauthenticated. Without these variables the interface falls back to
+the local e-mail sign-in below. Signing in is mandatory either way: an
+unauthenticated visitor sees the sign-in screen and nothing else.
 
 Each person then **pairs their workstation** from the profile dialog: generate a
 pairing code, single use and valid ten minutes, and spend it once with
@@ -396,11 +397,25 @@ Without `SECTILE_OIDC_ISSUER` the interface offers a local sign-in: an e-mail
 address and nothing else. An unknown address creates the account, the first
 account created is the admin, and everyone after that is a member.
 
+The form also takes an optional sealing passphrase, the one protecting your own
+tracker tokens. It is never a login password: a wrong one signs you in anyway
+and leaves those tokens locked until you unlock them from your profile.
+
 It identifies people; it does not authenticate them. Anyone who types a
 colleague's address is that colleague, so keep it to a trusted network and treat
 it as the step before connecting Okta or Auth0, which disables it. A deployment
-with no provider and no account yet keeps the single implicit user, who may do
-everything; creating the first account ends that mode.
+with no account yet shows the sign-in screen and no board; the first person to
+sign in becomes the admin.
+
+### Personal and deployment settings
+
+Presentation (theme, accent, language, density, default view, scale, detail
+mode), the displayed identity and the workstation commands (editor, external
+terminal) are **personal**: each account keeps its own, and an execution opens
+the terminal of whoever owns it. The trackers, the repository path, auto-sync,
+the AI configuration and the prompts are the **deployment's** and are an admin's
+to change. An account that has never saved a preference sees the deployment's
+values, so an upgrade changes nothing on screen.
 
 ### Roles
 

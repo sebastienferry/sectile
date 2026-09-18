@@ -68,7 +68,9 @@ e-mail address alone. It identifies people; it does not authenticate them, and
 the sign-in screen, the profile and the documentation all say so. It replaces
 `SECTILE_DEV_IDENTITY` and the `X-Sectile-User` header, which are removed.
 
-**The implicit user lasts until the first account.** A deployment with no
+**The implicit user lasts until the first account.** *(Superseded by
+[ADR 0015](0015-sign-in-is-mandatory-and-settings-are-personal.md): signing in
+is mandatory and there is no implicit mode.)* A deployment with no
 provider and no account keeps the single implicit user of ADR 0008, who holds
 the admin role. The first local account ends that mode: from then on an
 anonymous request is a stranger and the interface leads to the sign-in screen.
@@ -98,7 +100,8 @@ The shared settings row mixes personal preferences with the deployment's
 configuration. Members keep their theme, language, density and view; the rest is
 refused by naming the offending keys rather than by silently dropping them. That
 row is due to be split, and the legacy free-text name and e-mail retired, now
-that an account carries the identity.
+that an account carries the identity. *(Done by
+[ADR 0015](0015-sign-in-is-mandatory-and-settings-are-personal.md).)*
 
 A team that upgrades finds every existing user a member, because no role had
 been stored, and the next person to sign in becomes the first admin, exactly as

@@ -12,18 +12,13 @@ import (
 	"tasks/internal/models"
 )
 
-// modeImplicit is the sign-in mode of a deployment without a provider and
-// without a local account yet: the single implicit user of ADR 0008, who holds
-// the admin role so a personal deployment is never locked out of anything.
-const modeImplicit = "implicit"
-
 // principal is who a request comes from, resolved once and read by every
 // authorization check. No handler compares user ids by hand or reads the role
 // column itself: the two roles and the one ownership rule live here.
 type principal struct {
 	UserID string
 	Role   string
-	// Mode is the deployment's sign-in mode: oidc, local or implicit.
+	// Mode is the deployment's sign-in mode: oidc or local.
 	Mode string
 	Name string
 }
@@ -45,27 +40,22 @@ const (
 )
 
 // signInMode is the deployment's mode. A configured provider is the only
-// authority; without one the local e-mail sign-in identifies people, except
-// while nobody has an account yet, where the implicit user keeps the board open.
+// authority; without one the local e-mail sign-in identifies people. Signing
+// in is mandatory either way (ADR 0015): there is no mode that opens the board
+// to an anonymous visitor.
 func (h *Handler) signInMode() string {
 	if h.identityProvider != nil {
 		return auth.ModeOIDC
 	}
-	if h.db != nil && h.db.HasLocalAccounts() {
-		return auth.ModeLocal
-	}
-	return modeImplicit
+	return auth.ModeLocal
 }
 
-// principalFor resolves a user id to its principal. The implicit user is
-// always an admin; an unknown id is a member, the safe reading of a bad row.
+// principalFor resolves a user id to its principal. Every id, "default"
+// included, resolves through the users table and keeps its stored role; an
+// unknown id is a member, the safe reading of a bad row.
 func (h *Handler) principalFor(userID string) principal {
 	p := principal{UserID: strings.TrimSpace(userID), Mode: h.signInMode()}
 	if p.UserID == "" {
-		return p
-	}
-	if p.UserID == ImplicitUser {
-		p.Role = db.RoleAdmin
 		return p
 	}
 	p.Role = db.RoleMember
@@ -138,14 +128,20 @@ func adminOnlyRoute(method, path string) bool {
 	return false
 }
 
-// memberSettingsKeys are the settings a member may write: the personal
-// preferences the profile edits, none of which configures the deployment.
-// Everything else in the shared settings row is an admin's.
-var memberSettingsKeys = map[string]bool{
+// personalSettingsKeys is the routing table between the two settings stores
+// (ADR 0015): a key named here belongs to the caller and is written to their
+// user_settings row; every other key configures the deployment, lives in the
+// single settings row and is an admin's to change. It is therefore also the
+// list a member may write, which is what it was before the split.
+var personalSettingsKeys = map[string]bool{
 	"theme": true, "accentColor": true, "language": true, "density": true,
 	"defaultView": true, "uiScale": true, "detailMode": true,
 	"userName": true, "userEmail": true, "userAvatar": true,
+	"editorCommand": true, "externalTerminalCommand": true,
 }
+
+// memberSettingsKeys is the same table read as an authorization rule.
+var memberSettingsKeys = personalSettingsKeys
 
 // memberSettingsViolations names the admin-only keys a member's payload would
 // change. The interface always posts the whole row, so a key is only offending
@@ -177,6 +173,19 @@ func memberSettingsViolations(current models.Settings, sent map[string]json.RawM
 // the decoder and would switch off a boolean like autoSyncEnabled; taking
 // everything else from storage makes an omission change nothing.
 func memberSettingsPayload(current models.Settings, sent map[string]json.RawMessage) (models.Settings, error) {
+	return settingsOverlay(current, sent, func(key string) bool { return personalSettingsKeys[key] })
+}
+
+// deploymentSettingsPayload is the other half of the routing: the stored
+// deployment row overlaid with the deployment keys the request carried, so a
+// personal key in the same payload never reaches the shared row.
+func deploymentSettingsPayload(current models.Settings, sent map[string]json.RawMessage) (models.Settings, error) {
+	return settingsOverlay(current, sent, func(key string) bool { return !personalSettingsKeys[key] })
+}
+
+// settingsOverlay merges the keys wanted names over the stored row, through
+// JSON so the payload's own spelling of a field decides whether it was sent.
+func settingsOverlay(current models.Settings, sent map[string]json.RawMessage, wanted func(string) bool) (models.Settings, error) {
 	stored, err := json.Marshal(current)
 	if err != nil {
 		return current, err
@@ -186,7 +195,7 @@ func memberSettingsPayload(current models.Settings, sent map[string]json.RawMess
 		return current, err
 	}
 	for key, value := range sent {
-		if memberSettingsKeys[key] {
+		if wanted(key) {
 			merged[key] = value
 		}
 	}
