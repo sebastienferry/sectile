@@ -85,6 +85,13 @@ The global settings SHALL carry, for each AI provider, the list of model identif
 - **WHEN** its models are offered
 - **THEN** the built-in list for that provider is used
 
+#### Scenario: A provider whose list was emptied offers nothing
+- **GIVEN** a provider whose every model the user removed and saved
+- **WHEN** its models are offered
+- **THEN** nothing is offered for that provider
+- **AND** the built-in list does not come back, since emptying the list is a
+  decision and not an absence of configuration
+
 #### Scenario: Invalid identifier in a list
 - **GIVEN** the user adds an identifier the shape rule rejects
 - **WHEN** the settings are saved

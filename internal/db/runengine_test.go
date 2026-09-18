@@ -1,9 +1,13 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 )
 
@@ -117,13 +121,60 @@ func TestSetRemoteRunEngineCorrectsTheRecord(t *testing.T) {
 	}
 }
 
+// The queued path must carry the choice all the way to the agent: the launch,
+// the job it files and the operation the worker sends are three hops, and a
+// value dropped at any of them is invisible until a run uses the wrong model.
+func TestQueuedLaunchCarriesTheModel(t *testing.T) {
+	database := engineDB(t)
+	task := engineTask(t, database)
+
+	sent := make(chan agentprotocol.Operation, 4)
+	database.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		sent <- op
+		return json.RawMessage(`null`), nil
+	})
+
+	launch := func(mode, model string) agentprotocol.Operation {
+		t.Helper()
+		if _, _, err := database.EnqueueSkillOnTaskWithOverrides(task.ID, "clarify", "", mode, model); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case op := <-sent:
+			return op
+		case <-time.After(5 * time.Second):
+			t.Fatal("the worker sent no operation")
+			return agentprotocol.Operation{}
+		}
+	}
+
+	op := launch(models.SkillModeAutonomous, "claude-opus-5")
+	if op.Model != "claude-opus-5" {
+		t.Fatalf("the queued launch lost the model: %q", op.Model)
+	}
+	if op.Mode != models.SkillModeAutonomous {
+		t.Fatalf("the queued launch lost the mode: %q", op.Mode)
+	}
+
+	// A launch with no choice sends no override, which is what keeps the
+	// configured levels in charge on this path too.
+	if op = launch("", "  "); op.Model != "" {
+		t.Fatalf("an untouched launch must send no model: %q", op.Model)
+	}
+
+	waitForIdleConnections(t, database)
+}
+
 // What the server can resolve on its own: the project over the global settings,
 // with the launch choice on top. It is what a run shows until the agent reports.
 func TestResolveTaskEngine(t *testing.T) {
 	database := engineDB(t)
+	// The legacy global template is cleared on purpose: it carries {prompt}, so
+	// it would govern the command line and no model would reach it, which is
+	// exactly what the last case below checks.
 	if _, err := database.UpdateSettings(models.Settings{
 		AIProvider: "gemini", AIModel: "global-model", AISkillModels: map[string]string{"clarify": "global-clarify"},
-	}); err != nil {
+	}, "aiCommandTemplate"); err != nil {
 		t.Fatal(err)
 	}
 	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Resolve", AIProvider: "claude", AIModel: "project-model"})
@@ -150,6 +201,27 @@ func TestResolveTaskEngine(t *testing.T) {
 	}
 	if provider, _ = database.ResolveTaskEngine(plain.ID, "implement", ""); provider != "gemini" {
 		t.Fatalf("global provider lost: %q", provider)
+	}
+
+	// A template that governs the command line without a {model} slot carries no
+	// model, so the run must not claim one it never ran against.
+	templated, err := database.CreateProject(models.CreateProjectRequest{
+		Name: "Templated", AIProvider: "claude", AIModel: "project-model", AICommandTemplate: `claude -p "{prompt}"`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, model = database.ResolveTaskEngine(templated.ID, "implement", "chosen-model"); model != "" {
+		t.Fatalf("a template with no {model} slot must report no model: %q", model)
+	}
+
+	// A provider that takes no model reports none either, configured or chosen.
+	flagless, err := database.CreateProject(models.CreateProjectRequest{Name: "Flagless", AIProvider: "agy", AIModel: "project-model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider, model = database.ResolveTaskEngine(flagless.ID, "implement", "chosen-model"); provider != "agy" || model != "" {
+		t.Fatalf("a flagless provider must report no model: %q/%q", provider, model)
 	}
 }
 

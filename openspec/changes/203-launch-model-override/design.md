@@ -47,10 +47,12 @@ the existing `agentconfig.ValidModel`, and a `ValidProviderModels` helper
 reports the offending provider and value, as `ValidModelConfig` already does for
 a level.
 
-An empty or absent list for a provider falls back to the built-in seed, which is
-today's `AI_MODEL_SUGGESTIONS` moved next to the other model helpers. That keeps
-a fresh install usable and makes the setting an override rather than a
-prerequisite.
+An empty or absent list for a provider falls back to a built-in seed, today's
+`AI_MODEL_SUGGESTIONS` values, which keeps a fresh install usable and makes the
+setting an override rather than a prerequisite. That seed lives in the web
+alone, beside the code that applies the fallback: the server and the agent never
+offer models, so a second copy in Go would be read by nothing and could drift
+from the one users actually see.
 
 This one list feeds three consumers: the datalist of the existing configuration
 fields (`AIModelField`), the card submenu and the detail view selector. Adding a

@@ -4361,13 +4361,18 @@ func (d *DB) ResolveTaskEngine(projectID, skillID, modelOverride string) (provid
 		project = p
 	}
 	levels := agentconfig.ModelConfig{}
+	template := ""
 	if project != nil {
 		provider = strings.TrimSpace(project.AIProvider)
+		template = project.AICommandTemplate
 		levels = agentconfig.ModelConfig{Model: project.AIModel, SkillModels: project.AISkillModels}
 	}
 	if settings != nil {
 		if provider == "" {
 			provider = strings.TrimSpace(settings.AIProvider)
+		}
+		if strings.TrimSpace(template) == "" {
+			template = settings.AICommandTemplate
 		}
 		levels = agentconfig.MergeModels(levels,
 			agentconfig.ModelConfig{Model: settings.AIModel, SkillModels: settings.AISkillModels})
@@ -4375,12 +4380,17 @@ func (d *DB) ResolveTaskEngine(projectID, skillID, modelOverride string) (provid
 	if provider == "" {
 		provider = "agy"
 	}
+	resolved := agentconfig.ResolveSkillModel(levels, models.NormalizeSkillID(skillID))
 	if override := strings.TrimSpace(modelOverride); override != "" {
 		// The launch names one run, which is more specific than any per-skill
 		// entry, so it wins outright rather than being merged as a bare model.
-		return provider, override
+		resolved = override
 	}
-	return provider, agentconfig.ResolveSkillModel(levels, models.NormalizeSkillID(skillID))
+	// A run must not claim an engine its command line never carried: a provider
+	// without a model flag, or a template with no {model} slot, runs without
+	// one. The agent reaches the same conclusion from the configuration it
+	// holds; this is the value shown until its report arrives.
+	return provider, agentconfig.EffectiveModel(provider, template, resolved)
 }
 
 // resolveTaskSkillMode applies the precedence for one launch: the override

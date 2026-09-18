@@ -97,6 +97,33 @@ func TestDispatchCommandCarriesTheLaunchModel(t *testing.T) {
 	}
 }
 
+// An autonomous launch carries the override too: the mode and the model are
+// independent, and a headless run is where a stronger model matters most.
+func TestDispatchCommandCarriesTheLaunchModelHeadless(t *testing.T) {
+	config := launchConfig()
+	line, err := dispatchCommand(config, "#203", "implement", "execute_skill", "", "", models.SkillModeAutonomous, "claude-opus-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(line, "--model claude-opus-5") {
+		t.Fatalf("launch model missing from the headless command line: %q", line)
+	}
+
+	// With a dedicated autonomous template, the model reaches the line through
+	// its {model} slot and nowhere else.
+	templated := launchConfig()
+	templated.AICommandTemplateAutonomous = `claude -p --model {model} "{prompt}"`
+	line, err = dispatchCommand(templated, "#203", "implement", "execute_skill", "", "", models.SkillModeAutonomous, "claude-opus-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The template owns its own quoting, so the model is asserted on its value
+	// rather than on a bare flag pair.
+	if !strings.Contains(line, "claude-opus-5") || strings.Contains(line, "{model}") {
+		t.Fatalf("the autonomous template must carry the launch model: %q", line)
+	}
+}
+
 // A discussion resolves the project model and never reads the override: it is
 // not a skill run, and its launch surface offers no model.
 func TestDispatchCommandIgnoresTheOverrideForADiscussion(t *testing.T) {

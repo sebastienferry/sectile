@@ -2,50 +2,6 @@ package agentconfig
 
 import "testing"
 
-// A provider nobody configured still offers the models Sectile ships, otherwise
-// a fresh install would show an empty list at launch.
-func TestProviderModelsFallsBackToTheShippedList(t *testing.T) {
-	if got := ProviderModels(nil, "claude"); len(got) == 0 {
-		t.Fatal("an unconfigured provider must fall back to the shipped list")
-	}
-	if got := ProviderModels(map[string][]string{}, "gemini"); len(got) == 0 {
-		t.Fatal("an empty configuration must fall back to the shipped list")
-	}
-	if got := ProviderModels(nil, "unknown-engine"); len(got) != 0 {
-		t.Fatalf("a provider Sectile ships nothing for must offer nothing: %v", got)
-	}
-	if got := ProviderModels(nil, ""); got != nil {
-		t.Fatalf("no provider must resolve no list: %v", got)
-	}
-}
-
-// Configuring a provider replaces its list: a model removed in the interface has
-// to disappear from the launch surfaces, which an additive merge would prevent.
-func TestProviderModelsReplacesTheShippedList(t *testing.T) {
-	configured := map[string][]string{"claude": {"claude-haiku-4-5"}}
-	got := ProviderModels(configured, "claude")
-	if len(got) != 1 || got[0] != "claude-haiku-4-5" {
-		t.Fatalf("configured list must win outright: %v", got)
-	}
-	// Another provider keeps its own fallback rather than inheriting this one.
-	if len(ProviderModels(configured, "codex")) == 0 {
-		t.Fatal("configuring one provider must not empty another")
-	}
-}
-
-// The shipped lists are copies: a caller that sorts or appends must not corrupt
-// what the next caller reads.
-func TestDefaultProviderModelsIsACopy(t *testing.T) {
-	first := DefaultProviderModels()
-	first["claude"][0] = "mutated"
-	if got := DefaultProviderModels()["claude"][0]; got == "mutated" {
-		t.Fatal("DefaultProviderModels handed out its own slice")
-	}
-	if got := ProviderModels(nil, "claude")[0]; got == "mutated" {
-		t.Fatal("ProviderModels handed out the shipped slice")
-	}
-}
-
 func TestNormalizeProviderModels(t *testing.T) {
 	got := NormalizeProviderModels(map[string][]string{
 		"  Claude ": {" claude-opus-5 ", "", "claude-opus-5", "claude-sonnet-5"},
@@ -59,8 +15,10 @@ func TestNormalizeProviderModels(t *testing.T) {
 	if _, ok := got[""]; ok {
 		t.Fatal("a blank provider key must be dropped")
 	}
-	if _, ok := got["empty"]; ok {
-		t.Fatal("a provider left with no model must be dropped")
+	// Emptying a list is a decision that must survive: dropping the key would
+	// read as "never configured", which falls back to the shipped list.
+	if kept, ok := got["empty"]; !ok || len(kept) != 0 {
+		t.Fatalf("an emptied provider must keep an empty entry: %v (present=%v)", kept, ok)
 	}
 	if NormalizeProviderModels(nil) != nil {
 		t.Fatal("nothing configured must normalise to nothing")

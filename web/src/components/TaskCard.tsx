@@ -32,7 +32,7 @@ import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
-import { resolveTaskStage, getNextStepInfo, prRecoverySkill } from '../lib/workflow'
+import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { providerModels, resolveConfiguredModel, taskProvider } from '../lib/aiModels'
 
 interface TaskCardProps {
@@ -145,8 +145,15 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   }, [isModelMenuOpen])
 
   // Refermer le menu referme son sous-menu : sans cela il se rouvrirait ouvert.
+  // L'ouverture donne le focus à la première entrée, dans un effet à part : le
+  // gestionnaire de touches ci-dessous dépend de l'état du sous-menu et se
+  // rejoue donc à chaque bascule, ce qui reprendrait le focus au sous-menu.
   useEffect(() => {
-    if (!isMenuOpen) setIsModelMenuOpen(false)
+    if (!isMenuOpen) {
+      setIsModelMenuOpen(false)
+      return
+    }
+    menuNodeRef.current?.querySelector<HTMLElement>('button:not(:disabled), a[href]')?.focus({ preventScroll: true })
   }, [isMenuOpen])
 
   useEffect(() => {
@@ -165,13 +172,19 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       setIsMenuOpen(false)
     }
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        setIsMenuOpen(false)
-        menuButtonRef.current?.focus()
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      // Échap ferme d'abord le sous-menu ouvert, et seulement lui : décider ici
+      // plutôt que dans le gestionnaire React du sous-menu, dont l'événement
+      // traverse un portail et n'a donc aucune garantie d'arrêter celui-ci.
+      if (isModelMenuOpen) {
+        setIsModelMenuOpen(false)
+        modelEntryRef.current?.focus({ preventScroll: true })
+        return
       }
+      setIsMenuOpen(false)
+      menuButtonRef.current?.focus()
     }
-    menuNodeRef.current?.querySelector<HTMLElement>('button:not(:disabled), a[href]')?.focus({ preventScroll: true })
     document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('mousedown', handleClickOutside)
     window.addEventListener('scroll', close, true)
@@ -182,7 +195,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
       window.removeEventListener('scroll', close, true)
       window.removeEventListener('resize', close)
     }
-  }, [isMenuOpen])
+    // isModelMenuOpen est lu par le gestionnaire d'Échap : sans lui dans les
+    // dépendances, le gestionnaire garderait la valeur du premier rendu et
+    // fermerait tout le menu alors que le sous-menu est ouvert.
+  }, [isMenuOpen, isModelMenuOpen])
 
   const latestActivity = React.useMemo(() => {
     if (!activities || activities.length === 0) return null
@@ -344,7 +360,11 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
   // ferait un lancement non touché. Aucune saisie libre ici, c'est une liste.
   const cardProvider = taskProvider(taskProject || undefined, settings)
   const cardModels = providerModels(settings, cardProvider)
-  const configuredCardModel = resolveConfiguredModel(taskProject || undefined, settings, nextStepInfo.nextSkillId || undefined)
+  // La compétence réellement lancée par « Avancer », pas celle affichée : à
+  // l'étape reviewed le pas suivant n'en nomme aucune alors que le lancement
+  // exécute handoff, et une entrée par compétence sur handoff serait ignorée.
+  const cardSkillId = skillForStage(resolveTaskStage(task, taskProject)) || undefined
+  const configuredCardModel = resolveConfiguredModel(taskProject || undefined, settings, cardSkillId)
   const offeredModels = cardModels.filter(model => model !== configuredCardModel)
 
   const closeMenu = () => {
@@ -385,11 +405,9 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               role="menu"
               aria-label={t.compactCard.advanceWithModel}
               onKeyDown={e => {
-                if (e.key === 'ArrowLeft' || e.key === 'Escape') {
-                  // Escape ne doit pas remonter jusqu'au menu : il ferme le
-                  // sous-menu et rend le focus à son entrée, pas plus.
+                // Échap est traité au niveau document, avec le menu parent.
+                if (e.key === 'ArrowLeft') {
                   e.preventDefault()
-                  e.stopPropagation()
                   setIsModelMenuOpen(false)
                   modelEntryRef.current?.focus({ preventScroll: true })
                 }

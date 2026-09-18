@@ -21,8 +21,10 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, string[]>> = {
  */
 export function providerModels(settings: Partial<Pick<UserSettings, 'aiProviderModels'>> | undefined, provider: AIProvider | '' | undefined): string[] {
   if (!provider) return []
+  // Une liste vide est un choix, « ne rien proposer pour ce moteur », et non une
+  // absence de réglage : seule l'absence de clé retombe sur la liste livrée.
   const configured = settings?.aiProviderModels?.[provider]
-  if (configured && configured.length > 0) return configured
+  if (configured) return configured
   return DEFAULT_PROVIDER_MODELS[provider as AIProvider] || []
 }
 

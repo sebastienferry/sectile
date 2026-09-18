@@ -489,7 +489,12 @@ export const ProfileModal: React.FC = () => {
                 label="Modèle par défaut"
               />
 
-              <ProviderModelsField provider={aiProvider} value={aiProviderModels} onChange={setAiProviderModels} />
+              <ProviderModelsField
+                provider={aiProvider}
+                providers={AI_PROVIDERS.map(p => p.id)}
+                value={aiProviderModels}
+                onChange={setAiProviderModels}
+              />
 
               {/* Command Line Template Configuration */}
               <div className="space-y-2.5 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">

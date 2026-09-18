@@ -33,45 +33,15 @@ func ValidModel(value string) error {
 	return nil
 }
 
-// defaultProviderModels is the list Sectile ships for each provider, used when
-// an installation configured none. It exists so a fresh install can already
-// pick a model at launch, not to limit what can be configured: the list is a
-// setting, and a provider absent here simply starts empty.
-var defaultProviderModels = map[string][]string{
-	"claude": {"claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"},
-	"codex":  {"gpt-5-codex", "gpt-5", "o4-mini"},
-	"gemini": {"gemini-2.5-pro", "gemini-2.5-flash"},
-	"cursor": {"auto", "claude-sonnet-5", "gpt-5"},
-}
-
-// DefaultProviderModels copies the shipped lists. Callers may keep the result.
-func DefaultProviderModels() map[string][]string {
-	out := make(map[string][]string, len(defaultProviderModels))
-	for provider, models := range defaultProviderModels {
-		out[provider] = append([]string(nil), models...)
-	}
-	return out
-}
-
-// ProviderModels is the list of models offered for one provider: what the
-// settings configure for it, or the shipped list when they configure nothing.
-// Configuring a provider replaces its list rather than adding to it, so a model
-// removed from the interface really disappears from the launch surfaces.
-func ProviderModels(configured map[string][]string, provider string) []string {
-	provider = strings.ToLower(strings.TrimSpace(provider))
-	if provider == "" {
-		return nil
-	}
-	if models := NormalizeProviderModels(configured)[provider]; len(models) > 0 {
-		return models
-	}
-	return append([]string(nil), defaultProviderModels[provider]...)
-}
-
 // NormalizeProviderModels drops what means nothing, a blank provider, a blank
 // identifier or a duplicate, and lowercases the provider keys so the map is
 // keyed the way providers are spelled everywhere else. Order is preserved: it
 // is the order the lists are offered in.
+//
+// A provider left with no model keeps its entry, empty. Emptying a list is a
+// decision, "offer nothing for this engine", and it has to survive: dropping
+// the key would make it indistinguishable from never having configured the
+// provider, which is what falls back to the shipped list.
 func NormalizeProviderModels(in map[string][]string) map[string][]string {
 	if len(in) == 0 {
 		return nil
@@ -91,9 +61,6 @@ func NormalizeProviderModels(in map[string][]string) map[string][]string {
 			}
 			seen[model] = true
 			kept = append(kept, model)
-		}
-		if len(kept) == 0 {
-			continue
 		}
 		out[provider] = kept
 	}

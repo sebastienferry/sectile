@@ -144,11 +144,11 @@ export const TaskDetailModal: React.FC = () => {
   // surcharge, donc un lancement non touché reproduit la commande d'avant.
   const launchModels = providerModels(settings, activeProvider)
   // Le sélecteur vaut pour toutes les compétences de la vue, alors que la
-  // résolution dépend de la compétence lancée. On ne nomme donc le modèle
-  // configuré que lorsque aucune entrée par compétence ne peut le contredire.
-  const hasSkillModels =
-    Object.keys(taskProject?.aiSkillModels || {}).length > 0 || Object.keys(settings.aiSkillModels || {}).length > 0
-  const configuredLaunchModel = hasSkillModels ? '' : resolveConfiguredModel(taskProject || undefined, settings)
+  // résolution dépend de la compétence lancée : on nomme donc le modèle de base,
+  // celui qu'appliquent les compétences qu'aucun niveau ne singularise. Il est
+  // retiré des autres choix, sinon le reprendre enverrait une surcharge là où le
+  // premier choix n'en envoie aucune.
+  const configuredLaunchModel = resolveConfiguredModel(taskProject || undefined, settings)
   const activeTemplate = taskProject?.aiCommandTemplate || settings.aiCommandTemplate || ''
   const launchModelNotice = templateGovernsCommand(activeProvider, activeTemplate)
     ? "Le modèle de ligne de commande pilote l'exécution : le modèle n'est appliqué que via le marqueur {model}."
@@ -191,6 +191,11 @@ export const TaskDetailModal: React.FC = () => {
   // Le modèle choisi pour les lancements de cette vue. Vide veut dire « le
   // modèle configuré », donc aucune surcharge envoyée.
   const [launchModel, setLaunchModel] = useState('')
+  // Le choix ne vaut que pour la liste devant lui : ouvrir une tâche d'un projet
+  // dont le moteur diffère ne doit pas lancer le modèle retenu pour le projet
+  // précédent. Dériver la valeur plutôt que la remettre à zéro dans un effet
+  // évite aussi qu'un rendu intermédiaire l'envoie encore.
+  const effectiveLaunchModel = launchModels.includes(launchModel) ? launchModel : ''
 
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
   const [isExpandedSpec, setIsExpandedSpec] = useState(false)
@@ -673,7 +678,7 @@ export const TaskDetailModal: React.FC = () => {
   const handleTriggerSkill = async (skillId: string, overridePrompt?: string, modeOverride?: SkillMode) => {
     if (!selectedTask || isSkillRunning) return
     const promptToUse = overridePrompt || customPrompt
-    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: modeOverride ?? launchMode, model: launchModel })
+    const activity = await runSkill(selectedTask.id, skillId, promptToUse, { mode: modeOverride ?? launchMode, model: effectiveLaunchModel })
     if (activity && !overridePrompt) {
       setCustomPrompt('')
     }
@@ -1497,7 +1502,7 @@ export const TaskDetailModal: React.FC = () => {
             <label className="flex items-center gap-1 text-[10px] text-[var(--text-secondary)]">
               <span>Modèle</span>
               <select
-                value={launchModel}
+                value={effectiveLaunchModel}
                 onChange={e => setLaunchModel(e.target.value)}
                 className="px-1.5 py-1 rounded-lg text-[10px] bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] focus:outline-none focus:border-[var(--accent-color)] cursor-pointer"
                 title="Modèle pour ce lancement seulement. Aucun réglage enregistré n'est modifié ; une surcharge poste de travail peut encore s'appliquer."

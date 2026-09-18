@@ -39,7 +39,7 @@ test('each skill card can be started in either mode', () => {
 
 test('a card choice overrides the panel selector for that launch only', () => {
   assert.match(modal, /const handleTriggerSkill = async \(skillId: string, overridePrompt\?: string, modeOverride\?: SkillMode\)/)
-  assert.match(modal, /\{ mode: modeOverride \?\? launchMode, model: launchModel \}/)
+  assert.match(modal, /\{ mode: modeOverride \?\? launchMode, model: effectiveLaunchModel \}/)
   // The panel selector's empty value stays "no override", not "interactive".
   assert.match(modal, /<option value="">Mode configuré<\/option>/)
 })

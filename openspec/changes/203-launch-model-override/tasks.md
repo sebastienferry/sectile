@@ -2,10 +2,10 @@
 
 ## 1. The per-provider model list
 - [x] 1.1 Add `AIProviderModels map[string][]string json:"aiProviderModels,omitempty"` to `models.Settings` (`internal/models/models.go:150`), with a comment stating that an empty list for a provider falls back to the built-in seed.
-- [x] 1.2 Add `agentconfig.DefaultProviderModels()` (the seed, today's `AI_MODEL_SUGGESTIONS` values), `ProviderModels(configured, provider)` returning the configured list for that provider or the seed, and `ValidProviderModels(map[string][]string) error` naming the offending provider and value, beside `ValidModelConfig` (`internal/agentconfig/model.go:38`).
+- [x] 1.2 Add `agentconfig.NormalizeProviderModels` and `ValidProviderModels(map[string][]string) error`, the latter naming the offending provider and value, beside `ValidModelConfig` (`internal/agentconfig/model.go:38`). The shipped fallback list stays in the web alone, where the fallback is actually applied: a second copy in Go would be read by nothing and could drift from it.
 - [x] 1.3 Add the `ai_provider_models TEXT NOT NULL DEFAULT '{}'` column to `settings`: the `CREATE TABLE` (`internal/db/db.go:196` area), the `ALTER TABLE` migration (`db.go:417` area), both `SELECT` lists (`db.go:2463`, `db.go:2909`) and the `INSERT ... ON CONFLICT` with its placeholder and `excluded` assignment (`db.go:3226-3267`). Normalise on write: drop empty provider keys, empty identifiers and duplicates.
 - [x] 1.4 Validate the list in the settings handler (`internal/handlers/handlers.go:2470`) with `ValidProviderModels`, answering 400 as the model config check does.
-- [x] 1.5 Tests: seed fallback for an unconfigured provider, configured list overriding the seed, normalisation, and a rejected identifier naming its provider.
+- [x] 1.5 Tests: normalisation, a rejected identifier naming its provider, and what actually reaches a command line for a flagless provider or a template with no `{model}` slot. The seed fallback is covered on the web side, where it lives.
 
 ## 2. Run contracts and storage
 - [x] 2.1 Add `Model string json:"model,omitempty"` to `models.RunSkillRequest` (`models.go:917`) and `Provider` / `Model` (`omitempty`) to `models.TaskActivity` (`models.go:46`).

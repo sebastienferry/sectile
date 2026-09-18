@@ -2652,6 +2652,13 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Body must be {\"provider\": string, \"model\": string}")
 			return
 		}
+		// The provider never reaches a command line, but it is stored and
+		// displayed, so it is held to the same shape as the model rather than
+		// persisted verbatim.
+		if err := agentconfig.ValidModel(body.Provider); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err := agentconfig.ValidModel(body.Model); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
