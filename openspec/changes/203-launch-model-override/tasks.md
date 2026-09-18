@@ -28,7 +28,11 @@
 - [ ] 4.2 In `TaskDetailModal.tsx`, add a `launchModel` state beside `launchMode` (`:170`), render an `AIModelField` beside the mode selector (`:1463`) fed with the task project's provider and template (`:137`), the placeholder from 4.1 and a label stating that a workstation override may still apply. Disable the skill rows' launch buttons while `isValidModel(launchModel)` is false.
 - [ ] 4.3 Pass `launchModel` through `handleTriggerSkill` (`:650`) to `runSkill(..., { mode, model })` for the interactive, autonomous and configured-mode buttons alike; send `model` only when non-empty (`AppContext.tsx:2757`, same pattern as `mode`).
 - [ ] 4.4 Add `provider?` and `model?` to `TaskActivity` (`web/src/types/index.ts:22`) and render `provider · model` beside the skill name in `ActivitiesView.tsx:485` and `:608`, `TaskDetailModal.tsx:1546`, and in the `RemoteRunBadge.tsx:55` title. Show nothing when both are empty.
-- [ ] 4.5 Source-assertion tests in `web/tests/skillLaunchModel.test.mjs`, in the style of `skillLaunchMode.test.mjs`: the request carries `model`, an empty field sends none, the field is rendered next to the mode selector, the three launch buttons pass the model, the activity views render the pair.
+- [ ] 4.5 Extend `advanceTask` (`AppContext.tsx:2418`) with a `model?: string` argument forwarded to `runSkill` as `{ mode, model }`; the full chain keeps passing none.
+- [ ] 4.6 In `TaskCard.tsx`, add to the shared `modeActions` fragment (`:322`) an `Advance with model…` entry with `aria-haspopup="menu"` that opens a nested list inside the menu portal: rows from `AI_MODEL_SUGGESTIONS[provider]` with the `resolveConfiguredModel` value first and marked as current; a row calls `handleAdvance(false, undefined, model)`, the current row passes no model; the entry is not rendered when the provider has no suggestion list.
+- [ ] 4.7 Submenu mechanics: opens on click and `ArrowRight`, closes on `ArrowLeft` and `Escape`, picking a row closes the whole menu, and the list flips to the other side when it would overflow the viewport, reusing the `MENU_WIDTH` / `MENU_MAX_HEIGHT` placement (`:77`).
+- [ ] 4.8 Add the `compactCard.advanceWithModel` and `compactCard.currentModel` strings to both locales in `web/src/locales/translations.ts` (`:332`, `:719`, `:1104`).
+- [ ] 4.9 Source-assertion tests in `web/tests/skillLaunchModel.test.mjs`, in the style of `skillLaunchMode.test.mjs`: the request carries `model`, an empty field sends none, the field is rendered next to the mode selector, the three launch buttons pass the model, `advanceTask` forwards the model, the card submenu lives in the shared `modeActions` fragment and is referenced from both card shapes, the current row sends no model, the activity views render the pair.
 
 ## 5. Desktop
 - [ ] 5.1 In `desktop/src/main.js:45`, make `runLabel` append `provider · model` to the skill name when the run carries them; leave free consoles unchanged.
@@ -42,5 +46,5 @@
 ## 7. Verification
 - [ ] 7.1 `go build ./... && go vet ./... && gofmt -l .` clean; `go test ./internal/...` green.
 - [ ] 7.2 `cd web && npm test` green; `npx vite build` then the desktop UI tests green.
-- [ ] 7.3 Manual check against a project with a configured model: launch untouched and compare the command line in the desktop console with the previous one; launch with an override and confirm `--model <override>` and the run label; confirm the project and global settings are unchanged afterwards.
+- [ ] 7.3 Manual check against a project with a configured model: launch untouched and compare the command line in the desktop console with the previous one; launch with an override from the detail view and from the card submenu, on a condensed and on an expanded card, and confirm `--model <override>` and the run label; confirm the project and global settings are unchanged afterwards.
 - [ ] 7.4 `openspec validate 203-launch-model-override --strict` passes.

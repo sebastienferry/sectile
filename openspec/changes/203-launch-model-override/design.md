@@ -51,6 +51,47 @@ default wording used by `ProjectModal.tsx:780`. The helper lives in
 `web/src/lib/aiModels.ts` next to `isValidModel`. The label states that a
 workstation override may still apply, since the web has no way to know it.
 
+### The card menu offers a list to pick from, not a form
+The card's `...` menu is made of one-click entries (`TaskCard.tsx:318-400`); a
+text input there would have no precedent and would fight the menu's
+click-to-close behaviour. The reviewer asked for a submenu instead: an entry
+`Advance with model…` that opens a nested list, each row launching the next
+step under that model in the configured execution mode.
+
+- **What the list holds**: the suggestions for the task project's provider
+  (`AI_MODEL_SUGGESTIONS` in `web/src/lib/aiModels.ts`, provider from
+  `taskProject.aiProvider`, else `settings.aiProvider`), with the configured
+  resolution from `resolveConfiguredModel` listed first and marked as current
+  when it is not already in the list. Picking the current one sends no
+  override, which keeps the "untouched sends nothing" rule on the card too.
+- **When the entry is absent**: a provider with no suggestion list (`agy`,
+  `vibe`, `custom`) has nothing to list, and `agy` / `vibe` ignore the model
+  anyway. The entry is not rendered for them; the detail view's free-text field
+  remains the way to type an identifier for a `custom` template with `{model}`.
+- **Mode**: the configured one. The submenu does not multiply the mode entries
+  by the model entries; a user who wants both picks the mode in the detail
+  view, which carries both fields.
+- **Shared fragment**: the entry joins `modeActions`, the fragment both card
+  shapes render (#177), so neither shape can lose it on its own.
+- **Mechanics**: the nested list renders inside the same portal as the menu,
+  to the side of the entry, with `aria-haspopup="menu"` on the entry and the
+  rows as `role="menuitem"`. It opens on click and on `ArrowRight`, closes on
+  `ArrowLeft` and `Escape`, and picking a row closes the whole menu. The
+  `MENU_WIDTH` / `MENU_MAX_HEIGHT` placement (`TaskCard.tsx:77`) flips the
+  submenu to the other side when it would overflow the viewport.
+- **Request path**: the card's advance goes through `advanceTask` →
+  `runSkill` (`AppContext.tsx:2418-2428`), not through `/advance`. `advanceTask`
+  gains a `model` argument forwarded as `{ mode, model }`, so the card and the
+  detail view share one request shape. `/advance` still gains the field for
+  the other clients that use it.
+
+Rejected: a free-text input in the menu. No precedent, invalid interaction with
+the menu's outside-click close, and the ticket's reviewer explicitly asked for a
+list.
+
+Rejected: listing every model of every provider. A row the provider cannot
+run would launch, be ignored, and show a misleading label on the run.
+
 ### A fourth, most specific level, folded where the levels already merge
 On the agent, the dispatched model is applied as one more `ModelConfig` level
 on top of the local configuration before `ResolveModel` runs:
@@ -135,9 +176,8 @@ proved an HTTP post from the agent to `/api/activities/{id}/...` is enough and
 reaches the same listeners.
 
 Rejected: the server-resolved value alone. It cannot see the workstation
-override and would sometimes name a model the CLI never ran. This is the second
-open point of the proposal; if the reviewer accepts that limitation, the agent
-post and the `/engine` route are dropped and the launch-time write stays.
+override and would sometimes name a model the CLI never ran. The reviewer
+confirmed the agent-reported value at the specification review.
 
 ### Template and flagless providers: notice, no refusal
 The launch field reuses `AIModelField` with the task project's provider and
