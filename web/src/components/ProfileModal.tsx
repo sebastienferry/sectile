@@ -22,6 +22,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { LocalAgentSetup } from './LocalAgentSetup'
 import { ApiKeysPanel } from './ApiKeys'
+import { TrackerCredentialPanel } from './TrackerCredentialPanel'
 import { SignInStatus } from './SignInStatus'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
 import { AIModelField } from './AIModelField'
@@ -430,6 +431,7 @@ export const ProfileModal: React.FC = () => {
           {/* TAB 2: AGENT SETTINGS (workstations, local agent, CLI) */}
           {activeTab === 'agentic' && (
             <div className="space-y-6 animate-in fade-in duration-150">
+              <TrackerCredentialPanel />
               <ApiKeysPanel />
               <LocalAgentSetup />
               {/* Agentic CLI Provider Selection */}
