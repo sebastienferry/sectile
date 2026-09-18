@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Check, Key, Globe, Mail, Loader2, ShieldCheck, X, AlertCircle, FolderGit2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { TrackerCredentials } from '../types'
-import { TRACKERS, canCheck, initialTracker, storedFor, trackerFields, type TrackerKind } from '../lib/trackers'
+import { TRACKERS, canCheck, initialTracker, saveBlockedReason, storedFor, trackerFields, type TrackerKind } from '../lib/trackers'
 
 /**
  * Premier démarrage : ce qu'il faut savoir avant que quoi que ce soit fonctionne.
@@ -48,6 +48,10 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   } | null>(null)
 
   const credentials = (): TrackerCredentials => ({ tracker, siteUrl, project, email, token })
+
+  // Dire pourquoi l'enregistrement est bloqué, plutôt que de laisser un bouton
+  // gris sans explication visible.
+  const blockedReason = saveBlockedReason(tracker, { siteUrl, email }, Boolean(check?.ok))
 
   const runCheck = async () => {
     setIsChecking(true)
@@ -236,6 +240,9 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
           >
             Plus tard
           </button>
+          {blockedReason && (
+            <span className="text-[10px] text-[var(--text-muted)] leading-tight flex-1 text-right pr-1">{blockedReason}</span>
+          )}
           <div className="flex items-center gap-2">
             <button
               type="button"

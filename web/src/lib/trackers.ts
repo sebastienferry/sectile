@@ -128,9 +128,28 @@ export function storedFor(settings: StoredSettings, tracker: TrackerKind) {
  * Le formulaire est vérifiable dès que les champs que le tracker exige sont
  * remplis. Le jeton peut rester vide : l'écran revérifie alors celui qui est
  * déjà enregistré, qu'il n'a jamais reçu en retour.
+ *
+ * Le site aussi peut rester vide là où le serveur sait retomber sur une
+ * instance publique, ce que font GitHub et GitLab. Jira n'a pas d'instance par
+ * défaut, et son authentification porte sur un couple : site et e-mail y sont
+ * donc exigés.
  */
 export function canCheck(tracker: TrackerKind, values: { siteUrl?: string; email?: string }): boolean {
-  const fields = trackerFields(tracker)
-  if (!values.siteUrl?.trim()) return false
-  return !fields.wantsEmail || Boolean(values.email?.trim())
+  if (!trackerFields(tracker).wantsEmail) return true
+  return Boolean(values.siteUrl?.trim()) && Boolean(values.email?.trim())
+}
+
+/**
+ * Pourquoi l'enregistrement est bloqué, ou une chaîne vide quand il ne l'est
+ * pas. L'écran n'annonçait la règle que dans une infobulle, invisible tant
+ * qu'on ne survole pas un bouton déjà grisé.
+ */
+export function saveBlockedReason(tracker: TrackerKind, values: { siteUrl?: string; email?: string }, checked: boolean): string {
+  if (checked) return ''
+  if (!canCheck(tracker, values)) {
+    return trackerFields(tracker).wantsEmail
+      ? "Renseignez le site et l'e-mail du compte, puis vérifiez les accès."
+      : 'Renseignez les accès, puis vérifiez-les.'
+  }
+  return "Vérifiez les accès : l'enregistrement se débloque une fois que l'instance les a acceptés."
 }

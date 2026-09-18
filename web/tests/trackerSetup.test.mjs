@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { PROJECT_TRACKERS, TRACKERS, canCheck, initialTracker, storedFor, trackerFields } from '../src/lib/trackers.ts'
+import { PROJECT_TRACKERS, TRACKERS, canCheck, initialTracker, saveBlockedReason, storedFor, trackerFields } from '../src/lib/trackers.ts'
 
 test('the three trackers are offered, Jira asking for an account e-mail', () => {
   assert.deepEqual(TRACKERS.map(t => t.id), ['jira', 'github', 'gitlab'])
@@ -50,8 +50,18 @@ test('each tracker is prefilled from its own stored values', () => {
 test('a token may stay empty: the check revalidates the stored one', () => {
   assert.equal(canCheck('jira', { siteUrl: 'acme.atlassian.net', email: 'ada@example.com' }), true)
   assert.equal(canCheck('jira', { siteUrl: 'acme.atlassian.net' }), false)
-  assert.equal(canCheck('github', { siteUrl: 'https://api.github.com' }), true)
-  assert.equal(canCheck('github', { siteUrl: '  ' }), false)
+  // GitHub and GitLab have a public instance the server falls back to, so an
+  // empty site must not block the check the way it does for Jira.
+  assert.equal(canCheck('github', { siteUrl: '' }), true)
+  assert.equal(canCheck('gitlab', {}), true)
+})
+
+test('a blocked save says why, rather than greying a button in silence', () => {
+  assert.match(saveBlockedReason('jira', {}, false), /site et l'e-mail/)
+  assert.match(saveBlockedReason('jira', { siteUrl: 'acme.atlassian.net', email: 'ada@example.com' }, false), /Vérifiez les accès/)
+  assert.match(saveBlockedReason('github', {}, false), /Vérifiez/)
+  // Once the instance accepted them, nothing is in the way any more.
+  assert.equal(saveBlockedReason('jira', { siteUrl: 'acme.atlassian.net', email: 'ada@example.com' }, true), '')
 })
 
 test('every tracker with a server adapter can be set on a project', () => {
