@@ -37,6 +37,10 @@ stages:
 
 variables:
   NODE_IMAGE: "node:22"
+  # The golang images pin GOTOOLCHAIN=local, and go.mod may require a newer
+  # patch than the image ships (1.26.6 against 1.26.4 today). `auto` lets Go
+  # fetch the toolchain go.mod asks for instead of failing on the version.
+  GOTOOLCHAIN: "auto"
   # Go objects are content-addressed, so this cache is safe to share across
   # branches: a stale entry is skipped, never served. The template only caches
   # the module download directory.

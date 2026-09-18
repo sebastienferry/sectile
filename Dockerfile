@@ -17,6 +17,9 @@ RUN mkdir -p ../internal/webui && npm run build
 
 # ── Server binary ─────────────────────────────────────────────────────────────
 FROM golang:1.26-alpine AS build
+# The image pins GOTOOLCHAIN=local; go.mod may ask for a newer patch release
+# than it ships, so let Go download the toolchain go.mod requires.
+ENV GOTOOLCHAIN=auto
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
