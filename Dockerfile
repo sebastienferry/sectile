@@ -41,6 +41,12 @@ FROM gcr.io/distroless/static-debian12:nonroot
 # -wal/-shm side files (DB_PATH), and the data directory os.UserConfigDir()
 # resolves through XDG_CONFIG_HOME, where an optional .env can be mounted.
 # Mount a persistent volume there.
+#
+# The key encrypting personal tracker credentials is generated there too, as
+# secret.key. A volume snapshot therefore carries the database and its key
+# together, which protects nothing on its own: set SECTILE_SECRET_KEY from the
+# platform's secret store to keep them apart. The server starts either way and
+# refuses only the credentials that would need the key.
 ENV PORT=8090 \
     DB_PATH=/data/tasks.db \
     HOME=/data \

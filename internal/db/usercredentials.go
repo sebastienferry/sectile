@@ -123,6 +123,12 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	key := d.serverKey
 	var salt []byte
 	sealed := strings.TrimSpace(passphrase) != ""
+	if !sealed && d.serverKeyErr != nil {
+		// A zero key is a valid AES key: storing under it would look like
+		// encryption and protect nothing. Sealing is still available, since it
+		// derives its own key from the passphrase.
+		return fmt.Errorf("la clé de chiffrement du serveur est indisponible (%w) : scellez votre jeton avec une phrase, ou définissez %s sur le serveur", d.serverKeyErr, secrets.KeyEnvVar)
+	}
 	if sealed {
 		var err error
 		if salt, err = secrets.NewSalt(); err != nil {
@@ -275,6 +281,9 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 	}
 
 	key := d.serverKey
+	if sealed == 0 && d.serverKeyErr != nil {
+		return "", "", "", fmt.Errorf("la clé de chiffrement du serveur est indisponible : %w", d.serverKeyErr)
+	}
 	if sealed == 1 {
 		held, ok := d.unlocked.get(unlockKey(userID, tracker))
 		if !ok {

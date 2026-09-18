@@ -199,3 +199,27 @@ func TestResolutionDistinguishesAbsentFromLocked(t *testing.T) {
 		t.Fatalf("a locked credential must be reported: %v", err)
 	}
 }
+
+// The server must serve without a secret key: a read-only volume, or a
+// deployment that never stores a personal credential, is not a reason to
+// refuse to start. Only what needs the key refuses, and it says why.
+func TestAMissingServerKeyBlocksOnlyWhatNeedsIt(t *testing.T) {
+	database := testDB(t)
+	database.serverKeyErr = errors.New("volume en lecture seule")
+
+	err := database.SetUserTrackerCredential("u1", "jira", "acme.atlassian.net", "ada@example.com", "token", "")
+	if err == nil {
+		t.Fatal("an unsealed credential must not be stored under a key that could not be read")
+	}
+	if !strings.Contains(err.Error(), "SECTILE_SECRET_KEY") {
+		t.Errorf("the refusal must name the way out: %v", err)
+	}
+
+	// Sealing derives its own key, so it still works.
+	if err := database.SetUserTrackerCredential("u1", "jira", "acme.atlassian.net", "ada@example.com", "token", "ma phrase"); err != nil {
+		t.Fatalf("a sealed credential needs no server key: %v", err)
+	}
+	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "token" {
+		t.Fatalf("a sealed credential must still open: %q %v", token, err)
+	}
+}

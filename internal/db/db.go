@@ -112,7 +112,11 @@ type DB struct {
 	trackerRegistry *tracker.Registry
 	// serverKey opens the credentials a user did not seal behind a passphrase.
 	// It lives outside the database, so a copy of the database alone is useless.
-	serverKey secrets.Key
+	// serverKeyErr says it could not be read, in which case it must never be
+	// used: a zero key is a valid AES key, and encrypting under it would be
+	// worse than refusing.
+	serverKey    secrets.Key
+	serverKeyErr error
 	// unlocked holds the keys derived from sealing passphrases, for this
 	// server's lifetime only.
 	unlocked         unlockedKeys
@@ -144,12 +148,17 @@ func NewDB(dbPath string) (*DB, error) {
 	trackerClient := trackerapi.NewClient()
 	// The key sits beside the database: an operator who backs one up without the
 	// other ends up with a copy that opens nothing.
-	serverKey, err := secrets.ServerKey(filepath.Dir(dbPath))
-	if err != nil {
-		return nil, fmt.Errorf("secret key: %w", err)
+	//
+	// It is not required to serve: a deployment on a read-only volume, or one
+	// that never stores a personal credential, must still start. Only the
+	// operations that need the key refuse, and they say why.
+	serverKey, serverKeyErr := secrets.ServerKey(filepath.Dir(dbPath))
+	if serverKeyErr != nil {
+		log.Printf("⚠️  Clé de chiffrement indisponible (%v) : les accès tracker personnels non scellés seront refusés. Définissez %s pour la fournir.", serverKeyErr, secrets.KeyEnvVar)
 	}
 	db := &DB{
 		serverKey:       serverKey,
+		serverKeyErr:    serverKeyErr,
 		conn:            conn,
 		trackers:        trackerClient,
 		trackerRegistry: trackerapi.NewDefaultRegistry(trackerClient),
