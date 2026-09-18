@@ -1083,7 +1083,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [])
 
   const userCredentialCall = useCallback(
-    async (path: string, method: string, body?: unknown, failure?: string): Promise<boolean> => {
+    async (path: string, method: string, body?: unknown, failure?: string, success?: string): Promise<boolean> => {
       try {
         const res = await fetch(`${API_BASE}/me/tracker-credentials${path}`, {
           method,
@@ -1093,6 +1093,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.error || failure || 'Opération refusée')
         setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
+        if (success) addToast({ type: 'success', title: success })
         return true
       } catch (err: any) {
         addToast({ type: 'error', title: failure || 'Accès personnel', description: err.message })
@@ -1110,13 +1111,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const unlockUserCredential = useCallback(
     (tracker: string, passphrase: string) =>
-      userCredentialCall('/unlock', 'POST', { tracker, passphrase }, 'Déverrouillage refusé'),
+      userCredentialCall('/unlock', 'POST', { tracker, passphrase }, 'Déverrouillage refusé', 'Jeton descellé'),
     [userCredentialCall]
   )
 
   const clearUserCredential = useCallback(
     (tracker: string) =>
-      userCredentialCall(`?tracker=${encodeURIComponent(tracker)}`, 'DELETE', undefined, 'Suppression refusée'),
+      userCredentialCall(`?tracker=${encodeURIComponent(tracker)}`, 'DELETE', undefined, 'Suppression refusée', 'Accès oublié'),
     [userCredentialCall]
   )
 

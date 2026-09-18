@@ -13,7 +13,8 @@ import { credentialState, trackerFields, type TrackerKind } from '../lib/tracker
  * revenir. Un jeton personnel a besoin d'un chemin durable.
  */
 export const TrackerCredentialPanel: React.FC = () => {
-  const { userCredentials, refreshUserCredentials, unlockUserCredential, setIsTrackerSetupOpen } = useApp()
+  const { userCredentials, refreshUserCredentials, unlockUserCredential, clearUserCredential, setIsTrackerSetupOpen } =
+    useApp()
 
   useEffect(() => {
     void refreshUserCredentials()
@@ -73,18 +74,31 @@ export const TrackerCredentialPanel: React.FC = () => {
                     {credentialState(credential)}
                   </div>
                 </div>
-                {locked && (
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {locked && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const phrase = window.prompt('Phrase de scellement')
+                        if (phrase) void unlockUserCredential(credential.tracker, phrase)
+                      }}
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                    >
+                      Déverrouiller
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
-                      const phrase = window.prompt('Phrase de scellement')
-                      if (phrase) void unlockUserCredential(credential.tracker, phrase)
+                      if (confirm(`Oublier votre accès ${label} ? Vous devrez saisir votre jeton à nouveau.`)) {
+                        void clearUserCredential(credential.tracker)
+                      }
                     }}
-                    className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer shrink-0"
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-semibold bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--status-danger)] cursor-pointer"
                   >
-                    Déverrouiller
+                    Oublier
                   </button>
-                )}
+                </div>
               </div>
             )
           })}

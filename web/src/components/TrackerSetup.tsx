@@ -351,7 +351,20 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
               {mine && (
                 <button
                   type="button"
-                  onClick={() => void clearUserCredential(tracker)}
+                  onClick={async () => {
+                    if (!confirm(`Oublier votre accès ${kind.label} ? Vous devrez saisir votre jeton à nouveau.`)) return
+                    if (await clearUserCredential(tracker)) {
+                      // Vider le formulaire : des champs encore remplis après
+                      // une suppression donnent l'impression qu'il ne s'est rien
+                      // passé.
+                      setToken('')
+                      setPassphrase('')
+                      setUnlockPhrase('')
+                      setSiteUrl('')
+                      setEmail('')
+                      setCheck(null)
+                    }
+                  }}
                   className="text-[10px] text-[var(--text-muted)] hover:text-[var(--status-danger)] cursor-pointer"
                 >
                   Oublier mon accès {kind.label}
