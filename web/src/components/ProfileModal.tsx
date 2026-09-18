@@ -18,11 +18,12 @@ import {
   Flame,
   GitPullRequest,
   Info,
+  KeyRound,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { LocalAgentSetup } from './LocalAgentSetup'
 import { ApiKeysPanel } from './ApiKeys'
-import { TrackerCredentialPanel } from './TrackerCredentialPanel'
+import { TrackerCredentialsTab } from './TrackerCredentialsTab'
 import { SignInStatus } from './SignInStatus'
 import { UsersPanel } from './UsersPanel'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -33,7 +34,7 @@ import { CommandModePreview } from './CommandModePreview'
 import { commandPreview } from '../lib/commandTemplate'
 import { isValidModel } from '../lib/aiModels'
 
-type SettingsTab = 'appearance' | 'agentic' | 'prompts'
+type SettingsTab = 'appearance' | 'trackers' | 'agentic' | 'prompts'
 
 // A provider with no template runs the command lines the agent attests for each
 // execution mode, so selecting one clears the field rather than pinning a single
@@ -218,6 +219,19 @@ export const ProfileModal: React.FC = () => {
           >
             <Palette size={14} />
             <span>Profil & Apparence</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('trackers')}
+            className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
+              activeTab === 'trackers'
+                ? 'border-emerald-400 text-emerald-400 font-bold'
+                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <KeyRound size={14} className="text-emerald-400" />
+            <span>Trackers</span>
           </button>
 
           <button
@@ -442,10 +456,12 @@ export const ProfileModal: React.FC = () => {
             </div>
           )}
 
-          {/* TAB 2: AGENT SETTINGS (workstations, local agent, CLI) */}
+          {/* TAB 2: TRACKER CREDENTIALS, one activatable zone per tracker */}
+          {activeTab === 'trackers' && <TrackerCredentialsTab />}
+
+          {/* TAB 3: AGENT SETTINGS (workstations, local agent, CLI) */}
           {activeTab === 'agentic' && (
             <div className="space-y-6 animate-in fade-in duration-150">
-              <TrackerCredentialPanel />
               <ApiKeysPanel />
               <LocalAgentSetup />
               {/* Agentic CLI Provider Selection */}
