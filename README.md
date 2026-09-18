@@ -141,6 +141,26 @@ Tokens are write-only: the API never returns one. It reports `githubTokenSet` /
 stored and the server environment supplies one. Saving with an empty token field
 keeps the stored token; sending the sentinel `__clear__` deletes it.
 
+**A tracker credential can be personal.** On Jira a comment, an assignment and
+a transition are attributed to the account whose token made the call, so a
+shared token makes the whole team sign as one integration account. *Connecter
+votre tracker* therefore offers to store a token **for the server** or **for
+you only**. A personal token is encrypted with AES-256-GCM, bound to its owner
+and to its tracker, with the key held outside the database
+(`SECTILE_SECRET_KEY`, or a 0600 file beside it). A row moved from one user to
+another stops opening.
+
+Optionally, a **sealing passphrase** derives the key instead, through Argon2id,
+and is never stored. Nothing can then open that token without its owner, the
+server included. The cost is stated in the screen at the moment of the choice:
+Sectile writes to trackers from a background queue, and a sealed token is
+unusable there until its owner unlocks it. A locked credential fails the
+operation rather than falling back to the server token, which would write under
+a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credentials-are-sealed.md).
+
+The background queue still uses the server credential: it carries no acting
+user yet, which is ticket #237's work.
+
 Jira asks for the site (`mon-org.atlassian.net`), the account e-mail and an
 Atlassian API token, which authenticate as `email:token`. Its environment
 fallbacks are `SECTILE_JIRA_URL`, `SECTILE_JIRA_EMAIL` and `SECTILE_JIRA_TOKEN`,

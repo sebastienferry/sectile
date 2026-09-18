@@ -24,6 +24,7 @@ import (
 	"tasks/internal/db"
 	"tasks/internal/models"
 	"tasks/internal/taskmcp"
+	"tasks/internal/tracker"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -1396,7 +1397,9 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		task, err := h.db.CreateTask(req)
+		// The creation carries whoever asked for it, so a tracker that
+		// attributes it to an account uses theirs when they stored one.
+		task, err := h.db.CreateTaskAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

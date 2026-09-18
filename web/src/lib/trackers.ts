@@ -153,3 +153,38 @@ export function saveBlockedReason(tracker: TrackerKind, values: { siteUrl?: stri
   }
   return "Vérifiez les accès : l'enregistrement se débloque une fois que l'instance les a acceptés."
 }
+
+/**
+ * Pour qui un jeton est enregistré. Un jeton serveur sert toutes les écritures,
+ * y compris celles de la file de fond. Un jeton personnel porte le nom de la
+ * personne sur ce qu'elle écrit, ce qui compte sur Jira où une écriture est
+ * attribuée au compte du jeton.
+ */
+export type CredentialScope = 'server' | 'personal'
+
+/** Un accès personnel déjà enregistré, tel que l'API le décrit : jamais le jeton. */
+export interface StoredUserCredential {
+  tracker: string
+  email?: string
+  sealed: boolean
+  unlocked: boolean
+  updatedAt?: string
+}
+
+/**
+ * Ce que le scellement change, dit au moment du choix plutôt qu'après coup.
+ * Une phrase de scellement rend le jeton illisible par le serveur seul, donc
+ * inutilisable par tout ce qui tourne sans son propriétaire.
+ */
+export function sealingConsequence(sealed: boolean): string {
+  return sealed
+    ? "Scellé : personne ne peut l'ouvrir sans votre phrase, pas même le serveur. Les écritures parties en file de fond échoueront tant que vous ne l'aurez pas déverrouillé."
+    : "Chiffré avec la clé du serveur, qui vit hors de la base. Une copie de la base ne le livre pas, et il reste utilisable par les écritures de fond."
+}
+
+/** L'état d'un accès personnel, en une phrase, pour l'écran. */
+export function credentialState(credential?: StoredUserCredential): string {
+  if (!credential) return "Aucun accès personnel : vos écritures partent avec le jeton du serveur."
+  if (!credential.sealed) return 'Enregistré et chiffré avec la clé du serveur.'
+  return credential.unlocked ? 'Scellé et déverrouillé pour cette session.' : 'Scellé et verrouillé : saisissez votre phrase pour le déverrouiller.'
+}

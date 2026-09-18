@@ -49,6 +49,44 @@ type Client struct {
 	// values above stay as the environment-derived fallback. Without it the
 	// client behaves exactly as it did before the configuration existed.
 	Resolve func(projectID string) Credentials
+	// ResolveUser returns one person's own credentials for one tracker, empty
+	// strings when they stored none. It answers an error when they sealed the
+	// credential behind a passphrase and have not unlocked it: writing under the
+	// server account while somebody believes they act as themselves would
+	// misattribute the work, so the caller has to fail instead.
+	ResolveUser func(userID, tracker string) (email string, token string, err error)
+}
+
+// ForActingUser is For, with the acting user's own credentials substituted
+// where they have any. Nobody acting, or nobody with a personal credential,
+// gives exactly the client For would.
+func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, error) {
+	resolved := c.For(projectID)
+	if resolved == nil || resolved.ResolveUser == nil || strings.TrimSpace(userID) == "" {
+		return resolved, nil
+	}
+	email, token, err := resolved.ResolveUser(userID, tracker)
+	if err != nil {
+		return nil, err
+	}
+	if token == "" {
+		return resolved, nil
+	}
+	personal := *resolved
+	switch strings.ToLower(strings.TrimSpace(tracker)) {
+	case "jira":
+		personal.JiraToken = token
+		if email != "" {
+			personal.JiraEmail = email
+		}
+	case "github":
+		personal.GithubToken = token
+	case "gitlab":
+		personal.GitlabToken = token
+	default:
+		return resolved, nil
+	}
+	return &personal, nil
 }
 
 func NewClient() *Client {

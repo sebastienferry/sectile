@@ -240,6 +240,8 @@ func main() {
 	mux.HandleFunc("/auth/callback", h.HandleAuthCallback)
 	mux.HandleFunc("/auth/logout", h.HandleLogout)
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
+	mux.HandleFunc("/api/me/tracker-credentials", h.HandleUserTrackerCredentials)
+	mux.HandleFunc("/api/me/tracker-credentials/", h.HandleUserTrackerCredentials)
 
 	mux.Handle("/mcp", h.MCPHandler())
 	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)

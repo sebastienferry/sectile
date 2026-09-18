@@ -196,6 +196,25 @@ and the tracker's own refusal when it fails.
 | `GET` | `/api/projects/{id}/spec-framework-status` | Per-framework SDD status for this project (see 2.5). |
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
 
+### 2.3.1 Personal Tracker Credentials API
+
+A tracker credential may be personal, so a write carries the name of whoever
+made it. The routes act on the signed-in caller only: the user comes from the
+session, never from the payload, and no answer ever carries a token.
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, e-mail, sealed, unlocked. |
+| `PUT` | `/api/me/tracker-credentials` | `{tracker, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. |
+| `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. |
+| `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. |
+| `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |
+
+Stored in `user_tracker_credentials`, encrypted with AES-256-GCM and bound to
+`(user_id, tracker)` as additional authenticated data. The key is the server key
+held outside the database, or one derived from the owner's passphrase with
+Argon2id. A wrong passphrase and a missing record answer the same way.
+
 ### 2.4 Tracker Synchronization API
 
 | Method | Path | Body | Description |

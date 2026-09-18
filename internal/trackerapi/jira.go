@@ -38,13 +38,16 @@ func NewJiraAdapter(client *Client) *JiraAdapter {
 	}
 }
 
-// forProject is the client carrying the project's credentials, the site URL
-// included when the project names its own.
-func (j *JiraAdapter) forProject(p *models.Project) *Client {
-	if p == nil {
-		return j.client.For("")
+// forProject is the client carrying the credentials of one call: the project's,
+// or the acting user's own when the context names one and they stored a token.
+// A Jira write is attributed to the account its token belongs to, which is why
+// this is resolved per call rather than once per project.
+func (j *JiraAdapter) forProject(ctx context.Context, p *models.Project) (*Client, error) {
+	projectID := ""
+	if p != nil {
+		projectID = p.ID
 	}
-	return j.client.For(p.ID)
+	return j.client.ForActingUser(tracker.ActingUser(ctx), "jira", projectID)
 }
 
 func (j *JiraAdapter) projectKey(p *models.Project) (string, error) {
@@ -111,7 +114,11 @@ func (j *JiraAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	if req.Project != nil {
 		types = models.NormalizeIssueTypes(req.Project.IssueTypes)
 	}
-	return j.search(ctx, j.forProject(req.Project), jiraJQL(key, types, ""))
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	return j.search(ctx, c, jiraJQL(key, types, ""))
 }
 
 func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
@@ -119,7 +126,10 @@ func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest)
 	if err != nil {
 		return nil, err
 	}
-	c := j.forProject(req.Project)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	fields, ids := j.fieldsFor(ctx, c)
 	query := url.Values{}
 	query.Set("fields", strings.Join(fields, ","))
@@ -178,7 +188,10 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		}
 		fields[id] = map[string]string{"id": value}
 	}
-	c := j.forProject(req.Project)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	var created struct {
 		Key string `json:"key"`
 	}
@@ -228,7 +241,10 @@ func (j *JiraAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 	if err != nil {
 		return err
 	}
-	c := j.forProject(req.Project)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return err
+	}
 
 	fields := map[string]any{}
 	if req.Title != nil {
@@ -309,7 +325,11 @@ func (j *JiraAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssueRe
 	}
 	// A Jira deletion is destructive and irreversible; closing is what the
 	// board means by removing a card, whether or not CloseOnly is set.
-	return j.forProject(req.Project).jiraTransitionDone(ctx, key)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return err
+	}
+	return c.jiraTransitionDone(ctx, key)
 }
 
 // jiraTransition is one workflow transition available from the current status.
@@ -413,7 +433,11 @@ func (j *JiraAdapter) AddComment(ctx context.Context, req tracker.AddCommentRequ
 	if err != nil {
 		return err
 	}
-	return j.forProject(req.Project).jira(ctx, http.MethodPost, "/rest/api/3/issue/"+url.PathEscape(key)+"/comment", nil,
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return err
+	}
+	return c.jira(ctx, http.MethodPost, "/rest/api/3/issue/"+url.PathEscape(key)+"/comment", nil,
 		map[string]any{"body": MarkdownToADF(req.Body)}, nil)
 }
 
@@ -422,7 +446,10 @@ func (j *JiraAdapter) GetComments(ctx context.Context, req tracker.GetCommentsRe
 	if err != nil {
 		return nil, err
 	}
-	c := j.forProject(req.Project)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	comments := []models.TaskComment{}
 	startAt := 0
 	for page := 0; page < jiraMaxPages; page++ {
@@ -479,7 +506,11 @@ func (j *JiraAdapter) Assign(ctx context.Context, key string, personID string) e
 	if err != nil {
 		return err
 	}
-	return j.assign(ctx, j.forProject(nil), clean, personID)
+	c, err := j.forProject(ctx, nil)
+	if err != nil {
+		return err
+	}
+	return j.assign(ctx, c, clean, personID)
 }
 
 func (j *JiraAdapter) Transition(ctx context.Context, key string, status string) error {
@@ -487,7 +518,11 @@ func (j *JiraAdapter) Transition(ctx context.Context, key string, status string)
 	if err != nil {
 		return err
 	}
-	return j.forProject(nil).jiraTransitionTo(ctx, clean, status)
+	c, err := j.forProject(ctx, nil)
+	if err != nil {
+		return err
+	}
+	return c.jiraTransitionTo(ctx, clean, status)
 }
 
 func (j *JiraAdapter) SetSprint(ctx context.Context, sprintID string, keys []string) error {
@@ -504,7 +539,10 @@ func (j *JiraAdapter) SetSprint(ctx context.Context, sprintID string, keys []str
 	if id := strings.TrimSpace(sprintID); id != "" {
 		path = "/rest/agile/1.0/sprint/" + url.PathEscape(id) + "/issue"
 	}
-	c := j.forProject(nil)
+	c, err := j.forProject(ctx, nil)
+	if err != nil {
+		return err
+	}
 	// The Agile API takes fifty keys per call at most.
 	const batch = 50
 	for start := 0; start < len(clean); start += batch {
@@ -524,7 +562,11 @@ func (j *JiraAdapter) SetTeam(ctx context.Context, key string, teamID string) er
 	if err != nil {
 		return err
 	}
-	return j.forProject(nil).jiraSetTeam(ctx, clean, teamID)
+	c, err := j.forProject(ctx, nil)
+	if err != nil {
+		return err
+	}
+	return c.jiraSetTeam(ctx, clean, teamID)
 }
 
 func (j *JiraAdapter) SetParent(ctx context.Context, key string, parentKey string) error {
@@ -536,7 +578,11 @@ func (j *JiraAdapter) SetParent(ctx context.Context, key string, parentKey strin
 	if p := strings.TrimSpace(parentKey); p != "" {
 		parent = map[string]string{"key": strings.ToUpper(p)}
 	}
-	return j.forProject(nil).jira(ctx, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(clean), nil,
+	c, err := j.forProject(ctx, nil)
+	if err != nil {
+		return err
+	}
+	return c.jira(ctx, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(clean), nil,
 		map[string]any{"fields": map[string]any{"parent": parent}}, nil)
 }
 
@@ -549,7 +595,11 @@ func (j *JiraAdapter) UpdateLabels(ctx context.Context, key string, add []string
 	if len(ops) == 0 {
 		return nil
 	}
-	return j.forProject(nil).jira(ctx, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(clean), nil,
+	c, err := j.forProject(ctx, nil)
+	if err != nil {
+		return err
+	}
+	return c.jira(ctx, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(clean), nil,
 		map[string]any{"update": map[string]any{"labels": ops}}, nil)
 }
 
@@ -558,7 +608,11 @@ func (j *JiraAdapter) SearchAssignable(ctx context.Context, key string, query st
 	if err != nil {
 		return nil, err
 	}
-	members, err := j.forProject(nil).jiraAssignable(ctx, clean, query, limit)
+	c, err := j.forProject(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	members, err := c.jiraAssignable(ctx, clean, query, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -578,7 +632,11 @@ func (j *JiraAdapter) ListBoards(ctx context.Context, req tracker.BoardsRequest)
 	}
 	query := url.Values{}
 	query.Set("projectKeyOrId", key)
-	items, err := j.forProject(req.Project).jiraAgilePages(ctx, "/rest/agile/1.0/board", query)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	items, err := c.jiraAgilePages(ctx, "/rest/agile/1.0/board", query)
 	if err != nil {
 		return nil, err
 	}
@@ -607,7 +665,11 @@ func (j *JiraAdapter) ListSprints(ctx context.Context, req tracker.BoardRequest)
 	}
 	query := url.Values{}
 	query.Set("state", "active,future,closed")
-	items, err := j.forProject(req.Project).jiraAgilePages(ctx, "/rest/agile/1.0/board/"+url.PathEscape(boardID)+"/sprint", query)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	items, err := c.jiraAgilePages(ctx, "/rest/agile/1.0/board/"+url.PathEscape(boardID)+"/sprint", query)
 	if err != nil {
 		return nil, err
 	}
@@ -652,7 +714,10 @@ func (j *JiraAdapter) ListBoardColumns(ctx context.Context, req tracker.BoardReq
 	if boardID == "" {
 		return nil, fmt.Errorf("select a board on the project first")
 	}
-	c := j.forProject(req.Project)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	var cfg struct {
 		ColumnConfig struct {
 			Columns []struct {
@@ -704,7 +769,11 @@ func (j *JiraAdapter) ListStatuses(ctx context.Context, req tracker.ProjectReque
 			} `json:"statusCategory"`
 		} `json:"statuses"`
 	}
-	if err := j.forProject(req.Project).jira(ctx, http.MethodGet, "/rest/api/3/project/"+url.PathEscape(key)+"/statuses", nil, nil, &perType); err != nil {
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.jira(ctx, http.MethodGet, "/rest/api/3/project/"+url.PathEscape(key)+"/statuses", nil, nil, &perType); err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
@@ -748,7 +817,11 @@ func (j *JiraAdapter) ListIssueTypes(ctx context.Context, req tracker.ProjectReq
 	if err != nil {
 		return nil, err
 	}
-	types, err := j.forProject(req.Project).jiraIssueTypes(ctx, key)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	types, err := c.jiraIssueTypes(ctx, key)
 	if err != nil {
 		return nil, err
 	}
@@ -771,15 +844,27 @@ func (j *JiraAdapter) ListEpics(ctx context.Context, req tracker.ProjectRequest)
 	if err != nil {
 		return nil, err
 	}
-	return j.search(ctx, j.forProject(req.Project), jiraJQL(key, nil, "issuetype = Epic"))
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	return j.search(ctx, c, jiraJQL(key, nil, "issuetype = Epic"))
 }
 
 func (j *JiraAdapter) SearchTeams(ctx context.Context, req tracker.TeamSearchRequest) ([]models.TrackerTeam, error) {
-	return j.forProject(req.Project).jiraSearchTeams(ctx, req.Query)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	return c.jiraSearchTeams(ctx, req.Query)
 }
 
 func (j *JiraAdapter) TeamMembers(ctx context.Context, req tracker.TeamRequest) ([]models.TeamMember, error) {
-	return j.forProject(req.Project).jiraTeamMembers(ctx, req.TeamID)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
+	return c.jiraTeamMembers(ctx, req.TeamID)
 }
 
 // RequiredCreateFields lists what the site makes mandatory on creation for one
@@ -791,7 +876,10 @@ func (j *JiraAdapter) RequiredCreateFields(ctx context.Context, req tracker.Crea
 	if err != nil {
 		return nil, err
 	}
-	c := j.forProject(req.Project)
+	c, err := j.forProject(ctx, req.Project)
+	if err != nil {
+		return nil, err
+	}
 	types, err := c.jiraIssueTypes(ctx, key)
 	if err != nil {
 		return nil, err

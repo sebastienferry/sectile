@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/secrets"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
@@ -96,9 +98,15 @@ func (l *ProjectLimiter) Release(projectID string) {
 }
 
 type DB struct {
-	agentOperations  AgentOperations
-	trackers         *trackerapi.Client
-	trackerRegistry  *tracker.Registry
+	agentOperations AgentOperations
+	trackers        *trackerapi.Client
+	trackerRegistry *tracker.Registry
+	// serverKey opens the credentials a user did not seal behind a passphrase.
+	// It lives outside the database, so a copy of the database alone is useless.
+	serverKey secrets.Key
+	// unlocked holds the keys derived from sealing passphrases, for this
+	// server's lifetime only.
+	unlocked         unlockedKeys
 	prEvidenceLookup func(string, string) (trackerapi.PullRequest, error)
 	conn             *sql.DB
 	mu               sync.RWMutex
@@ -122,7 +130,14 @@ func NewDB(dbPath string) (*DB, error) {
 	conn.SetMaxIdleConns(10)
 
 	trackerClient := trackerapi.NewClient()
+	// The key sits beside the database: an operator who backs one up without the
+	// other ends up with a copy that opens nothing.
+	serverKey, err := secrets.ServerKey(filepath.Dir(dbPath))
+	if err != nil {
+		return nil, fmt.Errorf("secret key: %w", err)
+	}
 	db := &DB{
+		serverKey:       serverKey,
 		conn:            conn,
 		trackers:        trackerClient,
 		trackerRegistry: trackerapi.NewDefaultRegistry(trackerClient),
@@ -133,6 +148,8 @@ func NewDB(dbPath string) (*DB, error) {
 	// The client resolves its credentials through the store, which is the only
 	// component able to read the settings and the project override.
 	trackerClient.Resolve = db.trackerCredentials
+	// And the acting user's own credential, where they stored one.
+	trackerClient.ResolveUser = db.UserTrackerCredentialsFor
 	if err := db.initIdentitySchema(); err != nil {
 		return nil, err
 	}
@@ -1899,7 +1916,17 @@ func SetWorkflowLabel(existingLabels []string, targetLabel string) []string {
 	return result
 }
 
+// CreateTask creates a work item with no acting user, which is what background
+// and machine callers do: the remote creation then uses the server credential.
 func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
+	return d.CreateTaskAs(context.Background(), req)
+}
+
+// CreateTaskAs creates a work item on behalf of whoever the context names. On a
+// tracker that attributes a creation to the account its token belongs to, this
+// is what puts the person's own name on the ticket they just created rather
+// than a shared service account.
+func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*models.Task, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -1989,7 +2016,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 	// Remote creation requires confirmation from the server HTTP adapter.
 	ts, tsErr := d.TrackerForProject(proj)
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
-		created, err := ts.CreateIssue(context.Background(), tracker.CreateIssueRequest{
+		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
 			Project:     proj,
 			Title:       req.Title,
 			Description: req.Description,

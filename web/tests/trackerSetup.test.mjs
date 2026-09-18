@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { PROJECT_TRACKERS, TRACKERS, canCheck, initialTracker, saveBlockedReason, storedFor, trackerFields } from '../src/lib/trackers.ts'
+import {
+  PROJECT_TRACKERS,
+  TRACKERS,
+  canCheck,
+  credentialState,
+  initialTracker,
+  saveBlockedReason,
+  sealingConsequence,
+  storedFor,
+  trackerFields,
+} from '../src/lib/trackers.ts'
 
 test('the three trackers are offered, Jira asking for an account e-mail', () => {
   assert.deepEqual(TRACKERS.map(t => t.id), ['jira', 'github', 'gitlab'])
@@ -72,4 +82,20 @@ test('every tracker with a server adapter can be set on a project', () => {
   // GitLab parameters are storable, but no adapter is registered for it.
   assert.equal(PROJECT_TRACKERS.some(t => t.id === 'gitlab'), false)
   assert.equal(PROJECT_TRACKERS.every(t => t.label.trim().length > 0), true)
+})
+
+test('the screen states what sealing costs, at the moment of the choice', () => {
+  // A sealed token cannot be opened by the server alone, so nothing running
+  // without its owner can use it. Saying it afterwards would be too late.
+  assert.match(sealingConsequence(true), /phrase/)
+  assert.match(sealingConsequence(true), /file de fond/)
+  assert.match(sealingConsequence(false), /clé du serveur/)
+  assert.notEqual(sealingConsequence(true), sealingConsequence(false))
+})
+
+test('a personal credential reads as absent, stored, sealed or locked', () => {
+  assert.match(credentialState(undefined), /jeton du serveur/)
+  assert.match(credentialState({ tracker: 'jira', sealed: false, unlocked: true }), /clé du serveur/)
+  assert.match(credentialState({ tracker: 'jira', sealed: true, unlocked: true }), /déverrouillé/)
+  assert.match(credentialState({ tracker: 'jira', sealed: true, unlocked: false }), /verrouillé/)
 })

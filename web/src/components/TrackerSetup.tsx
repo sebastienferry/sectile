@@ -1,8 +1,19 @@
-import React, { useState } from 'react'
-import { Check, Key, Globe, Mail, Loader2, ShieldCheck, X, AlertCircle, FolderGit2 } from 'lucide-react'
+import React, { useEffect, useState } from 'react'
+import { Check, Key, Globe, Mail, Loader2, ShieldCheck, X, AlertCircle, FolderGit2, Lock } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { TrackerCredentials } from '../types'
-import { TRACKERS, canCheck, initialTracker, saveBlockedReason, storedFor, trackerFields, type TrackerKind } from '../lib/trackers'
+import {
+  TRACKERS,
+  canCheck,
+  credentialState,
+  initialTracker,
+  saveBlockedReason,
+  sealingConsequence,
+  storedFor,
+  trackerFields,
+  type CredentialScope,
+  type TrackerKind,
+} from '../lib/trackers'
 
 /**
  * Premier démarrage : ce qu'il faut savoir avant que quoi que ce soit fonctionne.
@@ -17,7 +28,17 @@ import { TRACKERS, canCheck, initialTracker, saveBlockedReason, storedFor, track
  * pour configurer GitHub n'a jamais eu de sens.
  */
 export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { checkTrackerCredentials, saveTrackerCredentials, settings, addToast } = useApp()
+  const {
+    checkTrackerCredentials,
+    saveTrackerCredentials,
+    settings,
+    addToast,
+    userCredentials,
+    refreshUserCredentials,
+    saveUserCredential,
+    unlockUserCredential,
+    clearUserCredential,
+  } = useApp()
 
   const initial = initialTracker(settings.issueTracker)
   const [tracker, setTracker] = useState<TrackerKind>(initial)
@@ -28,6 +49,18 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   const [project, setProject] = useState(storedFor(settings, initial).project)
   const [email, setEmail] = useState(settings.jiraEmail || '')
   const [token, setToken] = useState('')
+  // Pour qui le jeton est enregistré. Sur Jira une écriture est attribuée au
+  // compte du jeton, donc un jeton partagé fait signer toute l'équipe par un
+  // même compte d'intégration.
+  const [scope, setScope] = useState<CredentialScope>('server')
+  const [passphrase, setPassphrase] = useState('')
+  const [unlockPhrase, setUnlockPhrase] = useState('')
+
+  useEffect(() => {
+    void refreshUserCredentials()
+  }, [refreshUserCredentials])
+
+  const mine = userCredentials.find(c => c.tracker === tracker)
 
   const selectTracker = (next: TrackerKind) => {
     const values = storedFor(settings, next)
@@ -61,13 +94,19 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
 
   const save = async () => {
     setIsSaving(true)
-    const saved = await saveTrackerCredentials(credentials())
+    const saved =
+      scope === 'personal'
+        ? await saveUserCredential({ tracker, email, token, passphrase })
+        : await saveTrackerCredentials(credentials())
     setIsSaving(false)
     if (saved) {
       addToast({
         type: 'success',
         title: `${kind.label} configuré`,
-        description: 'Le jeton est enregistré dans la configuration utilisateur.',
+        description:
+          scope === 'personal'
+            ? sealingConsequence(Boolean(passphrase.trim()))
+            : 'Le jeton est enregistré dans la configuration du serveur, pour tout le monde.',
       })
       onClose()
     }
@@ -197,6 +236,97 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
               {stored.tokenFromEnv && ' Un jeton vient déjà de l’environnement du serveur ; celui saisi ici prime.'}
             </span>
           </div>
+
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+              Enregistrer ce jeton
+            </label>
+            <div className="flex items-center gap-1.5">
+              {(
+                [
+                  { id: 'server' as CredentialScope, label: 'Pour le serveur' },
+                  { id: 'personal' as CredentialScope, label: 'Pour moi seulement' },
+                ]
+              ).map(choice => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  onClick={() => setScope(choice.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer ${
+                    choice.id === scope
+                      ? 'accent-bg text-white border-transparent'
+                      : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[9.5px] text-[var(--text-muted)] block mt-1 leading-relaxed">
+              {scope === 'personal'
+                ? "Ce que vous écrivez porte votre compte plutôt que celui du serveur. " + credentialState(mine)
+                : 'Le serveur utilise ce jeton pour tout le monde, y compris pour les écritures parties en file de fond.'}
+            </span>
+          </div>
+
+          {scope === 'personal' && (
+            <div className="space-y-2">
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  Phrase de scellement (facultative)
+                </label>
+                <div className="relative">
+                  <input
+                    type="password"
+                    value={passphrase}
+                    onChange={e => setPassphrase(e.target.value)}
+                    placeholder="Laissez vide pour laisser le serveur l'ouvrir"
+                    className={fieldClass}
+                  />
+                  <Lock size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+                </div>
+                <span className="text-[9.5px] text-[var(--text-muted)] block mt-1 leading-relaxed">
+                  {sealingConsequence(Boolean(passphrase.trim()))}
+                </span>
+              </div>
+
+              {mine?.sealed && !mine.unlocked && (
+                <div className="p-2.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] space-y-1.5">
+                  <span className="text-[10.5px] text-[var(--text-secondary)] block">
+                    Votre jeton est scellé et verrouillé. Déverrouillez-le pour cette session.
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="password"
+                      value={unlockPhrase}
+                      onChange={e => setUnlockPhrase(e.target.value)}
+                      placeholder="Phrase de scellement"
+                      className="flex-1 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (await unlockUserCredential(tracker, unlockPhrase)) setUnlockPhrase('')
+                      }}
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+                    >
+                      Déverrouiller
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {mine && (
+                <button
+                  type="button"
+                  onClick={() => void clearUserCredential(tracker)}
+                  className="text-[10px] text-[var(--text-muted)] hover:text-[var(--status-danger)] cursor-pointer"
+                >
+                  Oublier mon accès {kind.label}
+                </button>
+              )}
+            </div>
+          )}
 
           {check && (
             <div

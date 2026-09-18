@@ -94,6 +94,10 @@ func TestOnlyIntendedPathsBypassTheSessionGuard(t *testing.T) {
 		"/api/devices", "/api/pairing-codes",
 		"/api/agent/dispatch", "/api/agent/status",
 		"/ws/terminal",
+		// The identity probe is public; what hangs below it is not. A personal
+		// tracker credential is the last thing that should answer without a
+		// session.
+		"/api/me/tracker-credentials", "/api/me/tracker-credentials/unlock",
 	}
 	for _, path := range guarded {
 		if publicPath(path) {

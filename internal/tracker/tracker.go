@@ -178,3 +178,30 @@ func Has(list []Capability, c Capability) bool {
 	}
 	return false
 }
+
+// The acting user travels in the context rather than in every signature: every
+// TicketingSystem method already takes one, and a tracker credential is
+// personal on the trackers where a write is attributed to the token's account.
+//
+// A context that names nobody is the normal case for background work, and it
+// resolves to the server-wide credential. That is deliberate: the queue has no
+// acting user to speak of until one is recorded on the job itself.
+
+type actingUserKey struct{}
+
+// WithActingUser marks the context with whoever asked for the operation.
+func WithActingUser(ctx context.Context, userID string) context.Context {
+	if strings.TrimSpace(userID) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, actingUserKey{}, strings.TrimSpace(userID))
+}
+
+// ActingUser reports who asked, or an empty string when nobody did.
+func ActingUser(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	user, _ := ctx.Value(actingUserKey{}).(string)
+	return user
+}

@@ -630,3 +630,69 @@ func TestJiraCredentialsComeFromTheEnvironmentWhenNothingIsStored(t *testing.T) 
 		t.Fatalf("stored configuration must win: %q %q %q", got.JiraURL, got.JiraEmail, got.JiraToken)
 	}
 }
+
+// A Jira write is attributed to the account its token belongs to. So the token
+// that leaves must be the acting user's own when they stored one, and the
+// server's when nobody is acting, which is what background work does.
+func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
+	var seen []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/rest/api/3/field" {
+			// Field discovery rides along on every read; the search is what
+			// this test watches.
+			fmt.Fprint(w, `[]`)
+			return
+		}
+		seen = append(seen, r.Header.Get("Authorization"))
+		fmt.Fprint(w, `{"issues":[],"isLast":true}`)
+	}))
+	t.Cleanup(server.Close)
+	resetJiraFieldCache()
+
+	c := &Client{HTTP: server.Client(), JiraURL: server.URL, JiraEmail: "service@example.com", JiraToken: "service-token"}
+	c.ResolveUser = func(userID, tracker string) (string, string, error) {
+		switch {
+		case tracker != "jira":
+			return "", "", nil
+		case userID == "ada":
+			return "ada@example.com", "ada-token", nil
+		case userID == "locked":
+			return "", "", fmt.Errorf("credential is sealed: its owner must unlock it")
+		}
+		return "", "", nil
+	}
+	adapter := NewJiraAdapter(c)
+	project := jiraProject()
+
+	// Nobody acting: the server credential, as every queued job will use.
+	if _, err := adapter.SyncIssues(context.Background(), tracker.SyncRequest{Project: project}); err != nil {
+		t.Fatal(err)
+	}
+	// Somebody acting, with a token of their own.
+	ctx := tracker.WithActingUser(context.Background(), "ada")
+	if _, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Project: project}); err != nil {
+		t.Fatal(err)
+	}
+	// Somebody acting, with none: the server credential again.
+	if _, err := adapter.SyncIssues(tracker.WithActingUser(context.Background(), "someone-else"), tracker.SyncRequest{Project: project}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := "Basic " + base64.StdEncoding.EncodeToString([]byte("service@example.com:service-token"))
+	personal := "Basic " + base64.StdEncoding.EncodeToString([]byte("ada@example.com:ada-token"))
+	if len(seen) != 3 || seen[0] != service || seen[1] != personal || seen[2] != service {
+		t.Fatalf("wrong credential used: %v", seen)
+	}
+
+	// A sealed credential its owner has not unlocked fails loudly. Falling back
+	// to the service account would write under a name nobody chose.
+	before := len(seen)
+	_, err := adapter.SyncIssues(tracker.WithActingUser(context.Background(), "locked"), tracker.SyncRequest{Project: project})
+	if err == nil || !strings.Contains(err.Error(), "sealed") {
+		t.Fatalf("a locked credential must stop the call: %v", err)
+	}
+	if len(seen) != before {
+		t.Fatal("nothing must reach Jira when the acting user's credential is locked")
+	}
+}
