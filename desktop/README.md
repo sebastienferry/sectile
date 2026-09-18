@@ -43,9 +43,11 @@ console exits. No branch or worktree is created for a free console.
 
 
 Launch a skill from the web. Select its local execution to see the Codex/Claude
-console, type answers, resize it, stop it, or export its scrollback. The square
-stop icon in the terminal toolbar cancels the selected execution; its tooltip
-and accessible label are **Stop execution**. The selected
+console, type answers, resize it, stop it, or export its scrollback. The green
+completion mark in the terminal toolbar ends the selected execution, which is how
+the current workflow step is closed and the next one unlocked; its tooltip and
+accessible label stay **Stop execution**, the literal effect, because free
+consoles use the same control and have no next step. The selected
 task uses a highlighted background without a selection border; keyboard focus
 remains visible. The project directory browser discovers server projects and
 saves local Git repository mappings.
@@ -398,7 +400,8 @@ after the search must be reopened on the server first.
 ### Next workflow step
 
 The status line beneath the task console shows its current server workflow stage.
-The action itself sits in the console toolbar, beside **Stop execution**: use
+The action itself sits in the console toolbar, right after the green control that
+ends the current execution and before **Retry**: use
 **Next: Clarify**, **Next: Specify**, **Next: Implement**, or
 **Next: Review and create PR** to launch one step with the project's current
 configuration. Historical consoles use the task's current state too. The action
