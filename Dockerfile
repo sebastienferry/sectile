@@ -12,6 +12,9 @@ FROM node:22-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
+# shared/ sits at the repository root and is imported by both the web app
+# and the desktop app (web/tsconfig.app.json includes ../shared).
+COPY shared/ ../shared/
 COPY web/ ./
 RUN mkdir -p ../internal/webui && npm run build
 
