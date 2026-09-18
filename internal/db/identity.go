@@ -92,6 +92,10 @@ func (d *DB) initIdentitySchema() error {
 	// Credentials issued before keys expired keep NULL here, which means no
 	// expiry: an upgrade must not cut off every paired workstation at once.
 	_, _ = d.conn.Exec(`ALTER TABLE device_credentials ADD COLUMN expires_at DATETIME;`)
+	// Users created before roles existed all become members: the next person to
+	// sign in becomes the first admin, exactly as on a fresh installation.
+	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member';`)
+	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN last_sign_in DATETIME;`)
 	return nil
 }
 
@@ -386,9 +390,47 @@ func (d *DB) PurgeExpiredPairingCodes() error {
 
 // User is the stored identity behind a session.
 type User struct {
-	ID          string
-	Email       string
-	DisplayName string
+	ID          string     `json:"id"`
+	Subject     string     `json:"subject"`
+	Email       string     `json:"email"`
+	DisplayName string     `json:"displayName"`
+	Role        string     `json:"role"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	LastSignIn  *time.Time `json:"lastSignIn,omitempty"`
+}
+
+// Name is what the interface shows for the user: the display name, then the
+// e-mail, then the id, so a row never reads as anonymous.
+func (u User) Name() string {
+	switch {
+	case strings.TrimSpace(u.DisplayName) != "":
+		return u.DisplayName
+	case strings.TrimSpace(u.Email) != "":
+		return u.Email
+	}
+	return u.ID
+}
+
+// userColumns is the one column list every read of `users` shares, so a new
+// column is added here and scanned in scanUser rather than in each query.
+const userColumns = `id, subject, email, display_name, role, created_at, last_sign_in`
+
+type userScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanUser(row userScanner) (*User, error) {
+	var user User
+	var lastSignIn sql.NullTime
+	if err := row.Scan(&user.ID, &user.Subject, &user.Email, &user.DisplayName, &user.Role, &user.CreatedAt, &lastSignIn); err != nil {
+		return nil, err
+	}
+	user.Role = NormalizeRole(user.Role)
+	if lastSignIn.Valid {
+		at := lastSignIn.Time
+		user.LastSignIn = &at
+	}
+	return &user, nil
 }
 
 // GetUser reads one identity, or nil when it is unknown.
@@ -396,14 +438,12 @@ func (d *DB) GetUser(id string) (*User, error) {
 	if strings.TrimSpace(id) == "" {
 		return nil, nil
 	}
-	user := User{ID: id}
-	err := d.conn.QueryRow(`SELECT email, display_name FROM users WHERE id = ?`, id).
-		Scan(&user.Email, &user.DisplayName)
+	user, err := scanUser(d.conn.QueryRow(`SELECT `+userColumns+` FROM users WHERE id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &user, nil
+	return user, nil
 }

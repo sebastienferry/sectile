@@ -31,6 +31,31 @@ Sectile supports multiple concurrent software repositories and projects from a s
 
 ---
 
+## 1bis. Users, roles and owned executions
+
+A server shared by several people signs them in, gives each a role, and records
+who started what.
+
+- **Sign-in.** Through an OpenID Connect provider when one is configured, and
+  otherwise through the local sign-in, an e-mail address and nothing else, which
+  identifies people without authenticating them and is meant to be replaced by a
+  provider. A deployment with no provider and no account keeps its single
+  implicit user; the first account created ends that mode and becomes the admin.
+- **Two roles.** An admin manages users and roles, projects, global settings,
+  tracker credentials, anyone's workstations and anyone's execution. A member
+  does everything else, including the board, its tasks, its transitions, its
+  comments and executions on their own agent. When the provider supplies a role
+  claim, that claim is the authority at every sign-in.
+- **The board stays shared.** Everyone sees every project, task and running
+  execution. The user-to-project binding is the agent registration that routes a
+  run to the right machine, not a visibility rule.
+- **Executions are owned.** A run records who started it, and only that person
+  or an admin can stop it. The stop is dispatched to the owner's agent, so a run
+  is closed as orphaned only when the agent that should hold it says it does
+  not. A member's dispatch reaches their own agent whatever the request names.
+
+See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md).
+
 ## 2. Issue Tracker Abstraction Layer
 
 The server owns native GitHub REST/GraphQL and Jira Cloud REST adapters. It
@@ -217,6 +242,42 @@ An autonomous launch is **refused**, never silently downgraded to interactive. A
 configuration with no headless command falls back to `aiCommandTemplate`, which
 then owns its own mode: it is refused unless it carries a
 `{mode:AUTONOMOUS|INTERACTIVE}` marker, for example `agy {mode:-p|-i} '{prompt}'`.
+
+### The model a run uses
+
+A model can be configured at three levels, global, project and workstation, with
+a per-skill map at each of them. The most specific statement wins: naming a skill
+outranks a bare model, whatever level that bare model sits on.
+
+A launch adds a fourth and most specific level. The task detail view's launcher
+and the task card's `...` menu both offer the models configured for the task
+project's provider, and a model picked there outranks every configured level,
+the workstation override included, without writing anything back to a setting.
+The model the configured levels resolve is the default on both surfaces, and
+keeping it sends no override at all, so a launch nobody touched builds the same
+command line as before.
+
+The two surfaces differ in how long the choice lasts. In the detail view the
+selector applies to the launches made from that view. On a card the submenu is a
+selection the card keeps: one model is ticked, picking another starts nothing,
+and the card shows it in four characters at most right before its action
+buttons. Every launch started from that card then uses it, the full chain
+included, which from a card is a single `pickup` run. The selection is kept per
+task and survives a reload; a model the project's engine no longer offers is
+ignored, and the card falls back to the configured one.
+
+Neither launch surface accepts free text. The models each provider may run are a
+global setting, `aiProviderModels`, edited in the AI engine section of the
+profile; a provider with no list there falls back to the list Sectile ships. That
+same list feeds the suggestions of the project and profile model fields, which do
+keep accepting any identifier: the restriction belongs to the launch, where a
+typo would only surface when the CLI fails.
+
+A chosen model reaches the command line through the rules that already govern a
+configured one: the `--model` flag for a provider that takes it, the `{model}`
+slot when a command template governs the line, and nothing at all for a provider
+that accepts no model. What actually reached the line is what a finished run
+reports beside its engine, as the agent sees it.
 
 ### The full chain run
 

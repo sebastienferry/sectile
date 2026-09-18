@@ -3,11 +3,12 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-// The two dialogs carry a one-off execution mode; the footer next-step button
-// does not. What matters on the wire is that an untouched control sends no
+// The tickets pane's custom-instructions form and the relaunch dialog carry a
+// one-off execution mode; the row's Run button and the footer next-step button
+// do not. What matters on the wire is that an untouched control sends no
 // override at all, so a launch nobody made a choice for behaves exactly as it
 // did before the setting existed.
-test('the launch and relaunch dialogs carry a one-off execution mode',async()=>{
+test('the custom-instructions form and the relaunch dialog carry a one-off execution mode',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-skill-mode-'))
  const launches=[]
  const runs=[{
@@ -27,7 +28,7 @@ test('the launch and relaunch dialogs carry a one-off execution mode',async()=>{
      launches.push({project,...JSON.parse(raw)});res.end(JSON.stringify({status:'queued'}))
     });return
    }
-   res.end(JSON.stringify([{id:'task-a',key:'#7',title:'Open task',status:'to_clarify'}]));return
+   res.end(JSON.stringify([{id:'task-a',key:'#7',title:'Open task',status:'to_clarify',priority:'medium'}]));return
   }
   res.writeHead(404).end()
  })
@@ -42,38 +43,49 @@ test('the launch and relaunch dialogs carry a one-off execution mode',async()=>{
   await heading.waitFor()
   await heading.hover()
   await page.getByRole('button',{name:'Open tasks in Project A',exact:true}).click()
-  await expect(page.locator('.server-task')).toHaveCount(1)
+  const rows=page.locator('.ticket-row')
+  await expect(rows).toHaveCount(1)
+  const more=page.getByRole('button',{name:'More actions for #7',exact:true})
+  const custom=page.getByRole('menuitem',{name:'Custom instructions…',exact:true})
+  const instructions=page.getByRole('textbox',{name:'Custom instructions',exact:true})
+  const launch=page.getByRole('button',{name:'Launch',exact:true})
+
+  // The row's Run button carries no mode: the configured one applies.
+  await page.getByRole('button',{name:'Run: Clarify',exact:true}).click()
+  await expect.poll(()=>launches.length).toBe(1)
+  assert.deepEqual(launches[0],{project:'project-a',taskID:'task-a',skillID:'clarify',prompt:''})
 
   // The control offers the three states and starts on the configured mode.
+  await more.click();await custom.click()
   const mode=page.getByRole('combobox',{name:'Execution mode for #7',exact:true})
   await expect(mode).toHaveValue('')
   assert.deepEqual(await mode.locator('option').evaluateAll(list=>list.map(option=>option.value)),['','interactive','autonomous'])
 
   // An untouched control sends no override.
-  await page.getByRole('combobox',{name:'Skill for #7',exact:true}).selectOption('specify')
-  await page.getByRole('button',{name:'Launch',exact:true}).click()
-  await expect.poll(()=>launches.length).toBe(1)
-  assert.deepEqual(launches[0],{project:'project-a',taskID:'task-a',skillID:'specify',prompt:''})
+  await instructions.fill('Summarize the task')
+  await launch.click()
+  await expect.poll(()=>launches.length).toBe(2)
+  assert.deepEqual(launches[1],{project:'project-a',taskID:'task-a',skillID:'custom',prompt:'Summarize the task'})
+  await expect(instructions).toHaveCount(0)
 
   // An explicit choice travels with that launch.
-  await heading.hover()
-  await page.getByRole('button',{name:'Open tasks in Project A',exact:true}).click()
-  await expect(page.locator('.server-task')).toHaveCount(1)
-  await page.getByRole('combobox',{name:'Skill for #7',exact:true}).selectOption('clarify')
+  await more.click();await custom.click()
   await page.getByRole('combobox',{name:'Execution mode for #7',exact:true}).selectOption('autonomous')
-  await page.getByRole('button',{name:'Launch',exact:true}).click()
-  await expect.poll(()=>launches.length).toBe(2)
-  assert.deepEqual(launches[1],{project:'project-a',taskID:'task-a',skillID:'clarify',prompt:'',mode:'autonomous'})
+  await instructions.fill('Do it headless')
+  await launch.click()
+  await expect.poll(()=>launches.length).toBe(3)
+  assert.deepEqual(launches[2],{project:'project-a',taskID:'task-a',skillID:'custom',prompt:'Do it headless',mode:'autonomous'})
 
   // The relaunch dialog offers the same choice, on the same per-launch terms.
+  await page.getByRole('button',{name:'Close tickets',exact:true}).click()
   await page.getByText('#7',{exact:false}).first().click()
   await page.getByRole('button',{name:'Relaunch',exact:true}).first().click()
   const relaunchMode=page.getByRole('combobox',{name:'Relaunch execution mode',exact:true})
   await expect(relaunchMode).toHaveValue('')
   await relaunchMode.selectOption('interactive')
   await page.getByRole('button',{name:'Launch new execution',exact:true}).click()
-  await expect.poll(()=>launches.length).toBe(3)
-  assert.equal(launches[2].mode,'interactive')
+  await expect.poll(()=>launches.length).toBe(4)
+  assert.equal(launches[3].mode,'interactive')
  }finally{
   if(app)await app.close()
   server.close()

@@ -38,7 +38,11 @@ type SkillJob struct {
 	// Mode is the execution mode already resolved by ResolveSkillMode. The
 	// agent applies it; it never re-reads project settings to decide, so a
 	// stale agent configuration cannot open a window inside a full chain run.
-	Mode          string
+	Mode string
+	// Model is the one-off model override of this launch, empty when none was
+	// given. Like Mode it is resolved before the job is filed, so the agent
+	// applies it without re-reading any configuration.
+	Model         string
 	RemovedLabels []string
 	// TrackerStatus is the status named as the tracker spells it. When set, the
 	// transition targets it directly instead of folding the internal status onto
@@ -233,6 +237,7 @@ func (d *DB) initSchema() error {
 			ai_command_template_autonomous TEXT NOT NULL DEFAULT '',
 			ai_model TEXT NOT NULL DEFAULT '',
 			ai_skill_models TEXT NOT NULL DEFAULT '{}',
+			ai_provider_models TEXT NOT NULL DEFAULT '{}',
 			repo_path TEXT NOT NULL DEFAULT '.',
 			issue_tracker TEXT NOT NULL DEFAULT 'local',
 			github_repo TEXT NOT NULL DEFAULT '',
@@ -410,8 +415,8 @@ func (d *DB) initSchema() error {
 	d.migrateTasksKeyUnique()
 	d.migratePinnedTasks()
 	// pr_links : l'ensemble ordonné des pull requests d'un ticket. Un ticket
-	// produit couramment plusieurs PR — une première fusionnée, puis une suite
-	// poussée sur la même branche — et pr_url seule ne peut en tenir qu'une.
+	// produit couramment plusieurs PR (une première fusionnée, puis une suite
+	// poussée sur la même branche) et pr_url seule ne peut en tenir qu'une.
 	// Déclarée après la reconstruction historique de `tasks`, qui ne la connaît
 	// pas et l'effacerait.
 	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pr_links TEXT NOT NULL DEFAULT '[]';")
@@ -435,6 +440,13 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN launch_stage TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN chain_stop_stage TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN waiting_since DATETIME;")
+	// The owner of an activity; empty on rows written before ownership existed.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN user_id TEXT NOT NULL DEFAULT '';")
+	// The engine a run actually ran against. run_provider and run_model are
+	// written at launch from the server's own resolution, then corrected by the
+	// agent, which alone sees the workstation override. Empty reads as unknown.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_provider TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_model TEXT NOT NULL DEFAULT '';")
 	// Work the server itself was running cannot survive its own restart.
 	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
 	// A remote run dispatched to an agent outlives the server: its supervisor
@@ -454,6 +466,10 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_command_template_autonomous TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_model TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_skill_models TEXT NOT NULL DEFAULT '{}';")
+	// Which models each provider may run. Empty means "use the list Sectile
+	// ships", so an installation that never opened the setting still offers
+	// models at launch.
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_provider_models TEXT NOT NULL DEFAULT '{}';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN repo_path TEXT NOT NULL DEFAULT '.';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN issue_tracker TEXT NOT NULL DEFAULT 'local';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN github_repo TEXT NOT NULL DEFAULT '';")
@@ -2501,7 +2517,7 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 
 func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 	var s models.Settings
-	var aiModel, aiSkillModelsJSON sql.NullString
+	var aiModel, aiSkillModelsJSON, aiProviderModelsJSON sql.NullString
 	var detMode, aiProv, aiCmd, aiCmdAuto, repoP, issTrk, ghRepo, jiraProj, jiraUrl, jiraMail, jiraTok, pClar, pSpec, pImpl, pPR, pPick, editCmd, specFw sql.NullString
 	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 	var uiScale sql.NullInt64
@@ -2509,7 +2525,7 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 
 	err := d.conn.QueryRow(`
 		SELECT id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar,
-		       ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token,
+		       ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token,
 		       github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token,
 		       prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at
 		FROM settings WHERE id = 1
@@ -2529,6 +2545,7 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 		&aiCmdAuto,
 		&aiModel,
 		&aiSkillModelsJSON,
+		&aiProviderModelsJSON,
 		&repoP,
 		&issTrk,
 		&ghRepo,
@@ -2573,6 +2590,7 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 	s.AICommandTemplateAutonomous = aiCmdAuto.String
 	s.AIModel = aiModel.String
 	s.AISkillModels = parseSkillModels(aiSkillModelsJSON.String)
+	s.AIProviderModels = parseProviderModels(aiProviderModelsJSON.String)
 	if repoP.Valid {
 		s.RepoPath = repoP.String
 	}
@@ -2861,9 +2879,9 @@ func insertTaskActivity(conn activityExecutor, act models.TaskActivity) error {
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince)
+		INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model)
 	return err
 }
 
@@ -2873,10 +2891,21 @@ func (d *DB) AddTaskActivity(act models.TaskActivity) error {
 	return d.addTaskActivityDirect(act)
 }
 
+// ownerDisplayName is what an activity shows for its owner: the display name,
+// then the e-mail, nothing for a row without owner or for the implicit user,
+// who has no identity to show.
+func ownerDisplayName(displayName, email string) string {
+	if strings.TrimSpace(displayName) != "" {
+		return displayName
+	}
+	return email
+}
+
 func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
-		SELECT id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since
-		FROM task_activities WHERE task_id = ? ORDER BY created_at DESC
+		SELECT a.id, a.task_id, a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
+		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
+		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE a.task_id = ? ORDER BY a.created_at DESC
 	`, taskID)
 	if err != nil {
 		return []models.TaskActivity{}, nil
@@ -2887,16 +2916,19 @@ func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, erro
 	for rows.Next() {
 		var a models.TaskActivity
 		var stepsJSON string
-		var prompt, errStr sql.NullString
+		var prompt, errStr, runProvider, runModel sql.NullString
 		var startedAt, completedAt, waitingSince sql.NullTime
+		var ownerName, ownerEmail string
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince)
+		err := rows.Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel)
 		if err != nil {
 			continue
 		}
+		a.UserName = ownerDisplayName(ownerName, ownerEmail)
 		if waitingSince.Valid {
 			a.WaitingSince = &waitingSince.Time
 		}
+		a.Provider, a.Model = runProvider.String, runModel.String
 		_ = json.Unmarshal([]byte(stepsJSON), &a.Steps)
 		if a.Steps == nil {
 			a.Steps = []string{}
@@ -2947,7 +2979,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 	defer d.mu.RUnlock()
 
 	var s models.Settings
-	var aiModel, aiSkillModelsJSON sql.NullString
+	var aiModel, aiSkillModelsJSON, aiProviderModelsJSON sql.NullString
 	var detMode, aiProv, aiCmd, aiCmdAuto, repoP, issTrk, ghRepo, jiraProj, jiraUrl, jiraMail, jiraTok, pClar, pSpec, pImpl, pPR, pPick, specFw, extTerm sql.NullString
 	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 	var uiScale sql.NullInt64
@@ -2955,7 +2987,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 
 	err := d.conn.QueryRow(`
 		SELECT id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar,
-		       ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token,
+		       ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token,
 		       github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token,
 		       prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at
 		FROM settings WHERE id = 1
@@ -2975,6 +3007,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 		&aiCmdAuto,
 		&aiModel,
 		&aiSkillModelsJSON,
+		&aiProviderModelsJSON,
 		&repoP,
 		&issTrk,
 		&ghRepo,
@@ -3052,6 +3085,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 	s.AICommandTemplateAutonomous = aiCmdAuto.String
 	s.AIModel = aiModel.String
 	s.AISkillModels = parseSkillModels(aiSkillModelsJSON.String)
+	s.AIProviderModels = parseProviderModels(aiProviderModelsJSON.String)
 	if repoP.Valid {
 		s.RepoPath = repoP.String
 	} else {
@@ -3269,11 +3303,13 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 	s.AIModel = strings.TrimSpace(s.AIModel)
 	s.AISkillModels = normalizeSkillModels(s.AISkillModels)
 	settingsSkillModelsBytes, _ := json.Marshal(s.AISkillModels)
+	s.AIProviderModels = agentconfig.NormalizeProviderModels(s.AIProviderModels)
+	settingsProviderModelsBytes, _ := json.Marshal(s.AIProviderModels)
 
 	now := time.Now()
 	_, err := d.conn.Exec(`
-		INSERT INTO settings (id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO settings (id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			theme = excluded.theme,
 			accent_color = excluded.accent_color,
@@ -3289,6 +3325,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 			ai_command_template_autonomous = excluded.ai_command_template_autonomous,
 			ai_model = excluded.ai_model,
 			ai_skill_models = excluded.ai_skill_models,
+			ai_provider_models = excluded.ai_provider_models,
 			repo_path = excluded.repo_path,
 			issue_tracker = excluded.issue_tracker,
 			github_repo = excluded.github_repo,
@@ -3313,7 +3350,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 			auto_sync_enabled = excluded.auto_sync_enabled,
 			auto_sync_interval_sec = excluded.auto_sync_interval_sec,
 			updated_at = excluded.updated_at
-	`, s.Theme, s.AccentColor, s.Language, s.Density, s.DefaultView, s.DetailMode, s.UserName, s.UserEmail, s.UserAvatar, s.AIProvider, s.AICommandTemplate, s.AICommandTemplateAutonomous, s.AIModel, string(settingsSkillModelsBytes), s.RepoPath, s.IssueTracker, s.GithubRepo, s.JiraProject, s.JiraUrl, s.JiraEmail, s.JiraAPIToken, s.GithubApiUrl, s.GithubToken, s.GitlabUrl, s.GitlabProject, s.GitlabToken, s.PromptClarify, s.PromptSpecify, s.PromptImplement, s.PromptCreatePR, s.PromptPick, s.EditorCommand, s.ExternalTerminalCommand, s.SpecFramework, s.UIScale, autoSyncEnabledInt, s.AutoSyncIntervalSec, now)
+	`, s.Theme, s.AccentColor, s.Language, s.Density, s.DefaultView, s.DetailMode, s.UserName, s.UserEmail, s.UserAvatar, s.AIProvider, s.AICommandTemplate, s.AICommandTemplateAutonomous, s.AIModel, string(settingsSkillModelsBytes), string(settingsProviderModelsBytes), s.RepoPath, s.IssueTracker, s.GithubRepo, s.JiraProject, s.JiraUrl, s.JiraEmail, s.JiraAPIToken, s.GithubApiUrl, s.GithubToken, s.GitlabUrl, s.GitlabProject, s.GitlabToken, s.PromptClarify, s.PromptSpecify, s.PromptImplement, s.PromptCreatePR, s.PromptPick, s.EditorCommand, s.ExternalTerminalCommand, s.SpecFramework, s.UIScale, autoSyncEnabledInt, s.AutoSyncIntervalSec, now)
 
 	if err != nil {
 		return nil, err
@@ -3531,9 +3568,10 @@ func (d *DB) processSkillJob(job SkillJob) {
 	task, err := d.GetTaskByID(job.TaskID)
 	if err == nil && task != nil {
 		var run *models.TaskActivity
-		run, err = d.StartAgentRun(task.ID, job.SkillID, RunLaunch{Mode: job.Mode, ChainStop: job.ChainStopStage})
+		provider, model := d.ResolveTaskEngine(task.ProjectID, job.SkillID, job.Model)
+		run, err = d.StartAgentRun(task.ID, job.SkillID, RunLaunch{Mode: job.Mode, Model: model, Provider: provider, ChainStop: job.ChainStopStage})
 		if err == nil {
-			err = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode}, nil)
+			err = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "execute_skill", SkillID: job.SkillID, Prompt: job.Prompt, RunID: run.ID, Mode: job.Mode, Model: job.Model}, nil)
 			if err != nil {
 				_, _ = d.FinishRemoteRun(task.ID, run.ID, "failed", err.Error())
 			}
@@ -4251,14 +4289,15 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 }
 
 func (d *DB) EnqueueSkillOnTask(taskID string, skillID string, prompt string) (*models.Task, *models.TaskActivity, error) {
-	return d.enqueueSkillOnTask(taskID, skillID, prompt, false, models.SkillModeUnset)
+	return d.enqueueSkillOnTask(taskID, skillID, prompt, false, models.SkillModeUnset, "")
 }
 
-// EnqueueSkillOnTaskWithMode is the launch a user made an explicit mode choice
-// for. An empty override is not "interactive": it means no override, and the
-// precedence still falls through to the skill and then to the project.
-func (d *DB) EnqueueSkillOnTaskWithMode(taskID string, skillID string, prompt string, modeOverride string) (*models.Task, *models.TaskActivity, error) {
-	return d.enqueueSkillOnTask(taskID, skillID, prompt, false, modeOverride)
+// EnqueueSkillOnTaskWithOverrides is the launch a user made an explicit choice
+// for. An empty mode is not "interactive" and an empty model is not "the CLI
+// default": both mean no override, and the precedence still falls through to
+// the skill, the project and the global settings.
+func (d *DB) EnqueueSkillOnTaskWithOverrides(taskID string, skillID string, prompt string, modeOverride string, modelOverride string) (*models.Task, *models.TaskActivity, error) {
+	return d.enqueueSkillOnTask(taskID, skillID, prompt, false, modeOverride, modelOverride)
 }
 
 // EnqueueFullChainRun starts the chain: each step enqueues the next until the
@@ -4297,7 +4336,7 @@ func (d *DB) EnqueueFullChainRun(taskID string) (*models.Task, *models.TaskActiv
 	if !ok {
 		return nil, nil, fmt.Errorf("aucun pas suivant depuis l'étape %s", stage)
 	}
-	return d.enqueueSkillOnTask(taskID, step.SkillID, "", true, models.SkillModeAutonomous, stopStage)
+	return d.enqueueSkillOnTask(taskID, step.SkillID, "", true, models.SkillModeAutonomous, "", stopStage)
 }
 
 // FullChainStopStage is where a full chain run stops for a project. A project
@@ -4312,7 +4351,7 @@ func (d *DB) FullChainStopStage(projectID string) string {
 
 // enqueueSkillOnTask files one skill launch. chainStopStage is variadic so the
 // ordinary launches, which chain nothing, stay a five-argument call.
-func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, autoChain bool, modeOverride string, chainStopStage ...string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, autoChain bool, modeOverride string, modelOverride string, chainStopStage ...string) (*models.Task, *models.TaskActivity, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
@@ -4384,6 +4423,7 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 		SkillID:        targetSkill.ID,
 		Prompt:         prompt,
 		Mode:           d.resolveTaskSkillMode(task.ProjectID, targetSkill.ID, modeOverride),
+		Model:          strings.TrimSpace(modelOverride),
 		ChainStopStage: stopStage,
 	}
 
@@ -4399,6 +4439,53 @@ func (d *DB) RunSkillOnTask(taskID string, skillID string, prompt string) (*mode
 // mode the same way the job worker does.
 func (d *DB) ResolveTaskSkillMode(projectID, skillID, modeOverride string) string {
 	return d.resolveTaskSkillMode(projectID, skillID, modeOverride)
+}
+
+// ResolveTaskEngine names the provider and the model a launch resolves to, from
+// what the server can see: the project over the global settings, with the launch
+// override on top. It is what a run record carries until the agent reports the
+// engine it really ran, which is the only value that also accounts for the
+// workstation override.
+func (d *DB) ResolveTaskEngine(projectID, skillID, modelOverride string) (provider string, model string) {
+	var settings *models.Settings
+	if s, err := d.GetSettings(); err == nil && s != nil {
+		settings = s
+	}
+	var project *models.Project
+	if p, err := d.GetProjectByID(projectID); err == nil && p != nil {
+		project = p
+	}
+	levels := agentconfig.ModelConfig{}
+	template := ""
+	if project != nil {
+		provider = strings.TrimSpace(project.AIProvider)
+		template = project.AICommandTemplate
+		levels = agentconfig.ModelConfig{Model: project.AIModel, SkillModels: project.AISkillModels}
+	}
+	if settings != nil {
+		if provider == "" {
+			provider = strings.TrimSpace(settings.AIProvider)
+		}
+		if strings.TrimSpace(template) == "" {
+			template = settings.AICommandTemplate
+		}
+		levels = agentconfig.MergeModels(levels,
+			agentconfig.ModelConfig{Model: settings.AIModel, SkillModels: settings.AISkillModels})
+	}
+	if provider == "" {
+		provider = "agy"
+	}
+	resolved := agentconfig.ResolveSkillModel(levels, models.NormalizeSkillID(skillID))
+	if override := strings.TrimSpace(modelOverride); override != "" {
+		// The launch names one run, which is more specific than any per-skill
+		// entry, so it wins outright rather than being merged as a bare model.
+		resolved = override
+	}
+	// A run must not claim an engine its command line never carried: a provider
+	// without a model flag, or a template with no {model} slot, runs without
+	// one. The agent reaches the same conclusion from the configuration it
+	// holds; this is the value shown until its report arrives.
+	return provider, agentconfig.EffectiveModel(provider, template, resolved)
 }
 
 // resolveTaskSkillMode applies the precedence for one launch: the override
@@ -4449,9 +4536,11 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 	sqlQuery := `
 		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
-		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since
+		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
+		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
+		LEFT JOIN users u ON u.id = a.user_id
 	`
 	if len(conditions) > 0 {
 		sqlQuery += " WHERE " + strings.Join(conditions, " AND ")
@@ -4471,8 +4560,9 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 	for rows.Next() {
 		var a models.TaskActivity
 		var stepsJSON string
-		var prompt, errStr sql.NullString
+		var prompt, errStr, runProvider, runModel sql.NullString
 		var startedAt, completedAt, waitingSince sql.NullTime
+		var ownerName, ownerEmail string
 
 		err := rows.Scan(
 			&a.ID,
@@ -4492,13 +4582,20 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 			&completedAt,
 			&errStr,
 			&waitingSince,
+			&a.UserID,
+			&ownerName,
+			&ownerEmail,
+			&runProvider,
+			&runModel,
 		)
 		if err != nil {
 			continue
 		}
+		a.UserName = ownerDisplayName(ownerName, ownerEmail)
 		if waitingSince.Valid {
 			a.WaitingSince = &waitingSince.Time
 		}
+		a.Provider, a.Model = runProvider.String, runModel.String
 		_ = json.Unmarshal([]byte(stepsJSON), &a.Steps)
 		if a.Steps == nil {
 			a.Steps = []string{}
@@ -4542,15 +4639,18 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 
 	var a models.TaskActivity
 	var stepsJSON string
-	var prompt, errStr sql.NullString
+	var prompt, errStr, runProvider, runModel sql.NullString
 	var startedAt, completedAt, waitingSince sql.NullTime
+	var ownerName, ownerEmail string
 
 	err := d.conn.QueryRow(`
 		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
-		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since
+		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
+		       a.user_id, COALESCE(u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
+		LEFT JOIN users u ON u.id = a.user_id
 		WHERE a.id = ?
 	`, id).Scan(
 		&a.ID,
@@ -4570,6 +4670,11 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		&completedAt,
 		&errStr,
 		&waitingSince,
+		&a.UserID,
+		&ownerName,
+		&ownerEmail,
+		&runProvider,
+		&runModel,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -4577,9 +4682,11 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		}
 		return nil, err
 	}
+	a.UserName = ownerDisplayName(ownerName, ownerEmail)
 	if waitingSince.Valid {
 		a.WaitingSince = &waitingSince.Time
 	}
+	a.Provider, a.Model = runProvider.String, runModel.String
 
 	_ = json.Unmarshal([]byte(stepsJSON), &a.Steps)
 	if a.Steps == nil {
@@ -4946,8 +5053,22 @@ func parseSkillModels(raw string) map[string]string {
 	return normalizeSkillModels(models)
 }
 
-// normalizeSkillModels drops the entries that mean nothing — a blank skill key or
-// a blank model — so an emptied field in the interface stops overriding instead
+// parseProviderModels reads the per-provider model column. Like the per-skill
+// one, a malformed column yields nil rather than an error: the lists shipped
+// with Sectile then apply, which is better than settings that cannot be read.
+func parseProviderModels(raw string) map[string][]string {
+	if strings.TrimSpace(raw) == "" || raw == "{}" {
+		return nil
+	}
+	var models map[string][]string
+	if err := json.Unmarshal([]byte(raw), &models); err != nil {
+		return nil
+	}
+	return agentconfig.NormalizeProviderModels(models)
+}
+
+// normalizeSkillModels drops the entries that mean nothing, a blank skill key or
+// a blank model, so an emptied field in the interface stops overriding instead
 // of persisting an empty model.
 func normalizeSkillModels(in map[string]string) map[string]string {
 	if len(in) == 0 {

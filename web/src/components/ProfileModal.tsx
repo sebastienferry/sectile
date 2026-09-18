@@ -24,8 +24,11 @@ import { LocalAgentSetup } from './LocalAgentSetup'
 import { ApiKeysPanel } from './ApiKeys'
 import { TrackerCredentialPanel } from './TrackerCredentialPanel'
 import { SignInStatus } from './SignInStatus'
+import { UsersPanel } from './UsersPanel'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
 import { AIModelField } from './AIModelField'
+import { ProviderModelsField } from './ProviderModelsField'
 import { CommandModePreview } from './CommandModePreview'
 import { commandPreview } from '../lib/commandTemplate'
 import { isValidModel } from '../lib/aiModels'
@@ -61,10 +64,16 @@ export const ProfileModal: React.FC = () => {
     setIsProfileOpen,
     settings,
     updateSettings,
+    projects,
     t,
   } = useApp()
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
+  // The signed-in identity is what the account section shows; the free-text
+  // name and e-mail below it are the single-user leftovers, kept only while
+  // nobody has an account.
+  const { user: currentUser } = useCurrentUser()
+  const hasAccount = !!currentUser?.signedIn && currentUser.mode !== 'implicit'
 
   // Appearance & User
   const [userName, setUserName] = useState(settings.userName)
@@ -80,6 +89,7 @@ export const ProfileModal: React.FC = () => {
   const [aiCommandTemplate, setAiCommandTemplate] = useState(settings.aiCommandTemplate || '')
   const [aiCommandAutonomous, setAiCommandAutonomous] = useState(settings.aiCommandTemplateAutonomous || '')
   const [aiModel, setAiModel] = useState(settings.aiModel || '')
+  const [aiProviderModels, setAiProviderModels] = useState<Record<string, string[]>>(settings.aiProviderModels || {})
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
 
   // Skill Prompts
@@ -101,6 +111,7 @@ export const ProfileModal: React.FC = () => {
       setAiCommandTemplate(settings.aiCommandTemplate || '')
       setAiCommandAutonomous(settings.aiCommandTemplateAutonomous || '')
       setAiModel(settings.aiModel || '')
+      setAiProviderModels(settings.aiProviderModels || {})
       setSpecFramework(settings.specFramework || 'speckit')
       setPromptClarify(settings.promptClarify || '')
       setPromptSpecify(settings.promptSpecify || '')
@@ -141,7 +152,8 @@ export const ProfileModal: React.FC = () => {
 
   // Un modèle mal formé désactive l'enregistrement : le bouton est en pied de
   // modale, loin du champ, et un clic sans effet n'indique rien.
-  const modelIsValid = isValidModel(aiModel)
+  const modelIsValid =
+    isValidModel(aiModel) && Object.values(aiProviderModels).every(list => list.every(model => isValidModel(model)))
 
   const handleSave = async () => {
     if (!modelIsValid) return
@@ -157,6 +169,7 @@ export const ProfileModal: React.FC = () => {
       aiCommandTemplate: aiCommandTemplate.trim(),
       aiCommandTemplateAutonomous: aiCommandAutonomous.trim(),
       aiModel: aiModel.trim(),
+      aiProviderModels,
       specFramework,
       promptClarify: promptClarify.trim(),
       promptSpecify: promptSpecify.trim(),
@@ -239,9 +252,10 @@ export const ProfileModal: React.FC = () => {
           {/* TAB 1: APPEARANCE & PROFILE */}
           {activeTab === 'appearance' && (
             <div className="space-y-6 animate-in fade-in duration-150">
-              <SignInStatus />
-              {/* User info */}
-              <div className="space-y-3">
+              <SignInStatus projects={projects} />
+              {currentUser?.role === 'admin' && <UsersPanel currentUserId={currentUser.userId} />}
+              {/* User info: the legacy free-text identity, retired once accounts exist */}
+              <div className={`space-y-3 ${hasAccount ? 'hidden' : ''}`}>
                 <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
                   <User size={13} className="text-cyan-400" />
                   <span>{t.profileModal.userSection}</span>
@@ -484,6 +498,13 @@ export const ProfileModal: React.FC = () => {
                 onChange={setAiModel}
                 placeholder="Défaut du CLI (ex : claude-opus-5)"
                 label="Modèle par défaut"
+              />
+
+              <ProviderModelsField
+                provider={aiProvider}
+                providers={AI_PROVIDERS.map(p => p.id)}
+                value={aiProviderModels}
+                onChange={setAiProviderModels}
               />
 
               {/* Command Line Template Configuration */}

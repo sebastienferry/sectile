@@ -76,7 +76,7 @@ func TestSignOutCookieIsExpired(t *testing.T) {
 // listed as public is an authentication bypass.
 func TestOnlyIntendedPathsBypassTheSessionGuard(t *testing.T) {
 	public := []string{
-		"/auth/login", "/auth/callback", "/auth/logout",
+		"/auth/login", "/auth/callback", "/auth/logout", "/auth/local",
 		"/api/me",
 		"/api/v1/agent/pair", "/api/v1/agent/config", "/api/v1/agent/projects",
 		"/mcp",

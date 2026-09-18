@@ -281,7 +281,7 @@ interface AppContextType {
   moveTasksToEpic: (projectId: string, taskIds: string[], targetEpicKey: string, newEpicTitle?: string, fields?: Record<string, string>) => Promise<boolean>
   /** Transitions a task's agentic workflow stage/label, updating local state and queueing tracker sync. */
   transitionTaskStage: (taskIdOrKey: string, stage: string, note?: string, prUrl?: string, branch?: string) => Promise<{ success: boolean; task?: Task; activity?: TaskActivity; error?: string }>
-  advanceTask: (taskId: string, auto?: boolean, mode?: SkillMode) => Promise<{ mode: string; skillId?: string; label?: string } | null>
+  advanceTask: (taskId: string, auto?: boolean, mode?: SkillMode, model?: string) => Promise<{ mode: string; skillId?: string; label?: string } | null>
   // Pas interactif en cours : la tâche dont la session TTY attend d'être clôturée.
   pendingInteractive: { taskId: string; taskKey: string; skillId: string; label: string } | null
   /** Tickets épinglés : la barre de bascule rapide entre chantiers en cours. */
@@ -306,7 +306,7 @@ interface AppContextType {
   moveTask: (id: string, newStatus: Status, newPosition: number) => Promise<void>
   moveTaskWorkflowStage: (taskId: string, targetStage: WorkflowStage) => Promise<Task | null>
   deleteTask: (id: string) => Promise<boolean>
-  runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean; mode?: SkillMode }) => Promise<TaskActivity | null>
+  runSkill: (taskId: string, skillId: string, prompt?: string, opts?: { withComments?: boolean; mode?: SkillMode; model?: string }) => Promise<TaskActivity | null>
   syncAll: () => Promise<void>
   syncGithub: (repo?: string) => Promise<void>
   syncJira: (projectKey?: string) => Promise<void>
@@ -2475,7 +2475,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
   // l'étape de la tâche : l'interface ne fait qu'ouvrir le terminal quand le pas
   // est interactif.
-  const advanceTask = async (taskId: string, auto?: boolean, mode?: SkillMode): Promise<{mode:string;skillId?:string;label?:string}|null> => {
+  const advanceTask = async (taskId: string, auto?: boolean, mode?: SkillMode, model?: string): Promise<{mode:string;skillId?:string;label?:string}|null> => {
     const task = tasks.find(task => task.id === taskId)
     if (!task) return null
     const project = projects.find(project => project.id === task.projectId)
@@ -2485,7 +2485,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // lieu de laisser la précédence décider, sinon elle ouvrirait un terminal
     // que personne ne regarde. Le pas suivant lancé seul, lui, accepte la
     // surcharge ponctuelle.
-    const activity = await runSkill(taskId,skillId,undefined,{mode:auto ? 'autonomous' : mode})
+    // La chaîne complète lancée depuis une carte est un seul run de la skill
+    // pickup, qui parcourt le workflow lui-même : le modèle retenu vaut donc
+    // pour toute la chaîne, comme pour un pas isolé.
+    const activity = await runSkill(taskId,skillId,undefined,{mode:auto ? 'autonomous' : mode, model})
     return activity ? {mode:'remote',skillId} : null
   }
 
@@ -2818,7 +2821,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     taskId: string,
     skillId: string,
     prompt?: string,
-    opts?: { withComments?: boolean; mode?: SkillMode }
+    opts?: { withComments?: boolean; mode?: SkillMode; model?: string }
   ): Promise<TaskActivity | null> => {
     setIsSkillRunning(true)
     setRunningSkillId(skillId)
@@ -2832,9 +2835,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const res = await fetch(`${API_BASE}/tasks/${encodeURIComponent(taskId)}/run-skill`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // `mode` absent veut dire « pas de surcharge » : la précédence retombe
-        // sur la skill puis sur le projet. Ce n'est pas « interactif ».
-        body: JSON.stringify({ skillId, prompt, withComments: opts?.withComments, mode: opts?.mode || undefined }),
+        // `mode` et `model` absents veulent dire « pas de surcharge » : la
+        // précédence retombe sur la skill puis sur le projet. Ce n'est pas
+        // « interactif », ni « défaut du CLI ».
+        body: JSON.stringify({
+          skillId,
+          prompt,
+          withComments: opts?.withComments,
+          mode: opts?.mode || undefined,
+          model: opts?.model?.trim() || undefined,
+        }),
       })
       if (!res.ok) {
         const errorData = await res.json()

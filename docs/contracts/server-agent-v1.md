@@ -491,9 +491,9 @@ copy of the database yields no usable key.
   only unauthenticated agent endpoint: the code is the proof, consumed
   atomically, so a replay returns 401. Unknown, consumed and expired codes all
   answer `401 Invalid or expired pairing code`.
-- `GET /api/v1/agent/identity` tells a key holder `{"userId", "deviceId",
-  "label", "expiresAt", "sharedToken"}`; the agent calls it before connecting and
-  logs a warning when fewer than ten days remain.
+- `GET /api/v1/agent/identity` tells a key holder `{"userId", "role", "mode",
+  "deviceId", "label", "expiresAt", "sharedToken"}`; the agent calls it before
+  connecting and logs a warning when fewer than ten days remain.
 
 A key past its expiry is refused on every surface with `401 {"error":"API key
 expired"}`, distinct from the generic refusal, so the owner renews it rather
@@ -505,6 +505,39 @@ server. Deprecated for one release: `SECTILE_SERVER_TOKEN`, accepted with a
 startup warning, and the open mode of a server without it, which accepts any
 nonempty token only until the first key is issued. Credentials issued before
 keys expired keep working as keys without expiry.
+
+## Roles and owned executions
+
+Every user holds one of two roles, `admin` or `member`, and a workstation API
+key confers the role of the user it is bound to on every surface. `GET /api/me`
+reports `{"mode", "role", "signedIn", ...}`, where `mode` is `oidc`, `local` or
+`implicit`.
+
+- Admin-only: `POST`/`PUT /api/settings` beyond a member's own preferences,
+  `POST /api/setup/tracker*`, project creation, update and deletion,
+  `GET /api/users` and `PUT /api/users/{id}`, and another user's workstations
+  through `?userId=`. A member is refused with `403` naming the role, distinct
+  from the `401` an anonymous caller gets.
+- Executions carry `userId` and `userName`. Everyone reads every run;
+  `POST /api/tasks/{id}/cancel-run` is refused with `403` to anyone but the
+  owner and admins, and the cancel is dispatched to the **owner's** agent, so a
+  run is closed as orphaned only when the agent that should hold it says it does
+  not. A run without recorded owner predates ownership and is admin-only.
+- `POST /api/agent/dispatch` routes to the caller's own agent whatever `userId`
+  the body names; only an admin may address another user's agent.
+- The MCP `finish_run` tool refuses a run owned by another user, for the same
+  reason: reporting a run finished hands the workflow back and leaves the real
+  process running on its owner's machine. An ownerless run stays closable.
+- The agent gateway's `/api/` forwarding authenticates with the workstation key,
+  which stands in for a session and carries its user's role. The deprecated
+  shared token and the legacy open mode do not: they name no key and are refused
+  on the interface API once anyone can sign in.
+
+Sign-in itself is either the OpenID Connect flow of ADR 0008 or, while no
+provider is configured, `POST /auth/local {"email"}`, which creates or finds an
+account and opens a session. The first account created becomes admin; with a
+provider supplying `SECTILE_OIDC_ROLE_CLAIM`, the claim is the authority at
+every sign-in. See [ADR 0013](../adrs/0013-roles-owned-executions-and-local-sign-in.md).
 
 ## Local project disconnection
 

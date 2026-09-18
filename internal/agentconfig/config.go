@@ -59,6 +59,11 @@ type Dispatch struct {
 	// terminal the user answers, "autonomous" runs the CLI headless. Empty is
 	// read as interactive, which keeps an older server working.
 	Mode string `json:"mode,omitempty"`
+	// Model is the one-off model this launch runs against. It outranks every
+	// configured level, the workstation override included, for this run only.
+	// Empty means no override; an agent that predates the field ignores it and
+	// runs the configured model.
+	Model string `json:"model,omitempty"`
 }
 
 // Project is a discovery record. ID is the server primary key, not a display name.

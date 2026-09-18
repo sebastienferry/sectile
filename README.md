@@ -36,6 +36,13 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
     Les autres fournisseurs : `agy -i` en interactif, `vibe -p --auto-approve` et
     `codex exec` en autonome. `agy`, `gemini` et `cursor` n'ont pas de mode autonome
     attesté et refusent un lancement headless plutôt que d'en deviner un.
+  - **Modèle par lancement** : la liste des modèles de chaque moteur se règle globalement
+    (section *Moteur IA* du profil) et c'est elle que proposent le lanceur de la vue détail
+    et le menu `...` d'une carte. Le modèle résolu par la configuration y est le choix par
+    défaut : le garder ne change rien à la commande, en choisir un autre n'écrit aucun
+    réglage. Sur une carte, le choix est une sélection que la carte conserve, affichée en
+    quatre caractères devant ses boutons d'action ; tous ses lancements l'utilisent, chaîne
+    complète comprise.
   - **Commandes personnalisées** : chaque mode a son champ, au global comme par projet,
     et les deux s'héritent indépendamment. La commande autonome sert les lancements
     headless ; laissée vide, ce sont les lancements headless qui retombent sur la
@@ -345,10 +352,47 @@ agent warns in its log ten days before its key expires, and a refused key says
 A key is shown in clear only in the panel's advanced case: an MCP client
 configured by hand on a machine with no agent to pair for it.
 
-`SECTILE_DEV_IDENTITY=1` allows naming a user through an `X-Sectile-User`
-header, to exercise several accounts before a provider exists. It is an
-impersonation switch: it is ignored once a provider is configured, and it must
-stay off elsewhere.
+Roles can come from the provider. Name the claim carrying a person's groups or
+roles and the value that grants admin, and each sign-in sets the role from it:
+
+```sh
+export SECTILE_OIDC_ROLE_CLAIM='groups'              # Okta: a groups claim on the authorization server
+export SECTILE_OIDC_ADMIN_GROUP='sectile-admins'     # Auth0: a namespaced claim set by a post-login Action
+```
+
+The two are set together or not at all. The claim is read from UserInfo, then
+from the ID token, and it may be a single string or a list. It is the authority:
+it overwrites a role an admin changed by hand at that person's next sign-in.
+Without it, the first person to sign in while no admin exists becomes the admin.
+
+### Before an identity provider: the local sign-in
+
+Without `SECTILE_OIDC_ISSUER` the interface offers a local sign-in: an e-mail
+address and nothing else. An unknown address creates the account, the first
+account created is the admin, and everyone after that is a member.
+
+It identifies people; it does not authenticate them. Anyone who types a
+colleague's address is that colleague, so keep it to a trusted network and treat
+it as the step before connecting Okta or Auth0, which disables it. A deployment
+with no provider and no account yet keeps the single implicit user, who may do
+everything; creating the first account ends that mode.
+
+### Roles
+
+| | Admin | Member |
+|---|---|---|
+| Board, tasks, transitions, comments | yes | yes |
+| Launch and stop **their own** executions | yes | yes |
+| See everyone's running executions | yes | yes |
+| Stop **someone else's** execution, dispatch to their agent | yes | no |
+| Global settings, tracker credentials | yes | no, beyond their own preferences |
+| Create, edit and delete projects | yes | no |
+| List users, change roles, other people's workstations | yes | no |
+
+Executions record who started them. A stop is delivered to the owner's agent,
+which is what keeps a colleague's run from being closed while its process is
+still running. The profile's **Users** section, visible to admins, lists the
+accounts and changes roles; the last admin cannot be demoted.
 
 Then start the workstation agent in an existing clone, with its key:
 
@@ -753,22 +797,30 @@ the workstation must be paired first with `sectile-agent pair`.
 ### Browse desktop project tasks
 
 Hover or keyboard-focus a desktop project row and activate its **Open tasks**
-list icon to browse that project's unfinished server tickets immediately.
-Search by title or key, or submit an empty search to restore the full open list.
-Choose a skill and **Launch** to pick up a ticket; pickup is the default when
-available. Loading the list never starts an execution. Failed requests can be
-retried with Search, and launching requires a configured local repository.
+list icon to browse that project's unfinished server tickets immediately, in the
+**Tickets** pane that takes the console's place. Search by title or key, or
+submit an empty search to restore the full open list. Rows are ordered by
+priority descending then task identity ascending, and the **Key**, **Title**,
+**Stage** and **Priority** headers sort the list. A row's key opens that task in
+Sectile. **Run** launches the task's next workflow step, and the **…** menu
+offers pickup, the other skills, a discussion console and custom instructions.
+**Run** is disabled while an execution is active on that task. Loading the list
+never starts an execution. Failed requests can be retried with Search, and
+launching requires a configured local repository.
 
 ### Desktop Quick add
 
 Click **New task (+)** beside a desktop project to choose **Run an existing
 ticket** or **Quick add task**. Both paths target the clicked project, even
-when another project's execution is selected. Existing tickets open the search
-and skill launcher; Quick add preselects the project and offers **Launch task**
-after successful creation.
+when another project's execution is selected. Existing tickets open the Tickets
+pane; Quick add preselects the project and offers **Launch task** after
+successful creation, which opens that pane on the new ticket.
 
-Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette and choose
-**Quick add task**. The selected project's identity is prefilled; without a
+Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
+actions, and choose **Quick add task** or **Tasks list**. Enter runs the first
+matching action. **Tasks list** opens the Tickets pane for the selected project,
+for the only configured project, or for a project you pick when several apply.
+For **Quick add task**: The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.
 The server creates the task using its project tracker configuration.
 GitHub and Jira creation must succeed remotely; errors do not silently create
@@ -776,7 +828,7 @@ a local fallback, and the site's own refusal is quoted, so a mandatory field it
 requires is readable. Local projects remain local. Creation does not start an execution;
 the success screen offers a separate **Launch task** action.
 
-Task IDs in the desktop sidebar open the task directly on the configured Sectile server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.
+Task IDs in the desktop sidebar and in the Tickets pane open the task directly on the configured Sectile server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.
 
 For `agy`, the local agent registers the Sectile stdio bridge in
 `~/.gemini/config/mcp_config.json`; this CLI does not read the workspace

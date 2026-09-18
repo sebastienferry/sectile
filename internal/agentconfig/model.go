@@ -33,6 +33,57 @@ func ValidModel(value string) error {
 	return nil
 }
 
+// NormalizeProviderModels drops what means nothing, a blank provider, a blank
+// identifier or a duplicate, and lowercases the provider keys so the map is
+// keyed the way providers are spelled everywhere else. Order is preserved: it
+// is the order the lists are offered in.
+//
+// A provider left with no model keeps its entry, empty. Emptying a list is a
+// decision, "offer nothing for this engine", and it has to survive: dropping
+// the key would make it indistinguishable from never having configured the
+// provider, which is what falls back to the shipped list.
+func NormalizeProviderModels(in map[string][]string) map[string][]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][]string, len(in))
+	for provider, models := range in {
+		provider = strings.ToLower(strings.TrimSpace(provider))
+		if provider == "" {
+			continue
+		}
+		seen := map[string]bool{}
+		var kept []string
+		for _, model := range models {
+			model = strings.TrimSpace(model)
+			if model == "" || seen[model] {
+				continue
+			}
+			seen[model] = true
+			kept = append(kept, model)
+		}
+		out[provider] = kept
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// ValidProviderModels checks every configured identifier, naming the provider
+// it belongs to: a rejected value is otherwise impossible to find in a map of
+// lists.
+func ValidProviderModels(in map[string][]string) error {
+	for provider, models := range in {
+		for _, model := range models {
+			if err := ValidModel(model); err != nil {
+				return fmt.Errorf("provider %q: %w", strings.TrimSpace(provider), err)
+			}
+		}
+	}
+	return nil
+}
+
 // ValidModelConfig checks a level as a whole, naming the skill when the offending
 // value is a per-skill one.
 func ValidModelConfig(c ModelConfig) error {
@@ -114,6 +165,28 @@ func ModelFlag(provider string) (string, bool) {
 		return "--model", true
 	}
 	return "", false
+}
+
+// EffectiveModel is the model that actually reaches a command line, which is
+// not always the one resolved: a template governs its own line and carries the
+// model only through a {model} slot, and a provider without a model flag runs
+// without one. Reporting the resolved model in those cases would name an engine
+// the CLI never saw, so a run says it ran against no particular model instead.
+func EffectiveModel(provider, template, resolved string) string {
+	resolved = strings.TrimSpace(resolved)
+	if resolved == "" {
+		return ""
+	}
+	if UsesCommandTemplate(provider, template) {
+		if strings.Contains(template, "{model}") {
+			return resolved
+		}
+		return ""
+	}
+	if _, ok := ModelFlag(provider); !ok {
+		return ""
+	}
+	return resolved
 }
 
 // ModelArgs is the argument pair to splice into a provider invocation, empty when
