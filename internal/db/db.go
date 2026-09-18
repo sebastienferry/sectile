@@ -4439,7 +4439,7 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 	}
 
 	if skillID == "adjust" {
-		if _, err := d.adjustmentPrerequisite(task, false); err != nil {
+		if _, err := d.adjustmentPrerequisite(task, "", false); err != nil {
 			return nil, nil, err
 		}
 	}
