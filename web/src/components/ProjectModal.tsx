@@ -44,6 +44,7 @@ import type {
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { AIModelField } from './AIModelField'
 import { isValidModel } from '../lib/aiModels'
+import { PROJECT_TRACKERS } from '../lib/trackers'
 
 type ProjectTab = 'general' | 'agent' | 'workflow' | 'tracker' | 'skills'
 
@@ -1003,8 +1004,11 @@ export const ProjectModal: React.FC = () => {
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
                 >
-                  <option value="local">Sectile (Local)</option>
-                  <option value="github">GitHub Issues</option>
+                  {PROJECT_TRACKERS.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

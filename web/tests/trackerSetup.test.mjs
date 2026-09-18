@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { TRACKERS, canCheck, initialTracker, storedFor, trackerFields } from '../src/lib/trackers.ts'
+import { PROJECT_TRACKERS, TRACKERS, canCheck, initialTracker, storedFor, trackerFields } from '../src/lib/trackers.ts'
 
 test('the three trackers are offered, Jira asking for an account e-mail', () => {
   assert.deepEqual(TRACKERS.map(t => t.id), ['jira', 'github', 'gitlab'])
@@ -52,4 +52,14 @@ test('a token may stay empty: the check revalidates the stored one', () => {
   assert.equal(canCheck('jira', { siteUrl: 'acme.atlassian.net' }), false)
   assert.equal(canCheck('github', { siteUrl: 'https://api.github.com' }), true)
   assert.equal(canCheck('github', { siteUrl: '  ' }), false)
+})
+
+test('every tracker with a server adapter can be set on a project', () => {
+  // The two selectors (project card, sync view) share this list because they
+  // drifted once: Jira left the project card and stayed in the sync view, so no
+  // project could be put on the tracker the server knew how to drive.
+  assert.deepEqual(PROJECT_TRACKERS.map(t => t.id), ['local', 'github', 'jira'])
+  // GitLab parameters are storable, but no adapter is registered for it.
+  assert.equal(PROJECT_TRACKERS.some(t => t.id === 'gitlab'), false)
+  assert.equal(PROJECT_TRACKERS.every(t => t.label.trim().length > 0), true)
 })

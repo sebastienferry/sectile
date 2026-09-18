@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { IssueTracker, TaskActivity } from '../types'
+import { PROJECT_TRACKERS } from '../lib/trackers'
 
 export const SyncView: React.FC = () => {
   const {
@@ -358,9 +359,11 @@ export const SyncView: React.FC = () => {
                   onChange={e => setIssueTracker(e.target.value as IssueTracker)}
                   className="w-full px-3 py-2 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 >
-                  <option value="github">GitHub Issues (Dépôt)</option>
-                  <option value="jira">Jira (Clé Projet)</option>
-                  <option value="local">Local uniquement (SQLite)</option>
+                  {PROJECT_TRACKERS.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 

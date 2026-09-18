@@ -56,6 +56,22 @@ export function trackerFields(tracker: TrackerKind): TrackerFields {
   return TRACKERS.find(t => t.id === tracker) ?? TRACKERS[0]
 }
 
+/**
+ * Les trackers qu'un projet peut réellement porter : ceux dont un adaptateur est
+ * enregistré côté serveur (`trackerapi.NewDefaultRegistry`). GitLab n'y est pas,
+ * ses paramètres se configurent sans qu'aucun projet puisse le choisir.
+ *
+ * Cette liste est partagée par la fiche projet et la vue de synchronisation.
+ * Les deux avaient leur propre énumération, et elles ont divergé : Jira a
+ * disparu de la fiche projet sans disparaître de la synchronisation, donc aucun
+ * projet ne pouvait plus être posé dessus.
+ */
+export const PROJECT_TRACKERS: { id: IssueTracker; label: string }[] = [
+  { id: 'local', label: 'Sectile (Local)' },
+  { id: 'github', label: 'GitHub Issues' },
+  { id: 'jira', label: 'Jira' },
+]
+
 /** Le tracker proposé à l'ouverture : celui que le projet utilise déjà. */
 export function initialTracker(issueTracker?: IssueTracker | string): TrackerKind {
   const known = TRACKERS.map(t => t.id as string)
