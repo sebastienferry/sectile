@@ -394,6 +394,24 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     closeMenu()
   }
 
+  // Le modèle que les boutons d'action utiliseront, annoncé devant eux. Une
+  // seule définition pour les deux formes de carte : sur une carte condensée les
+  // actions vivent derrière le menu, donc l'indicateur précède ce menu.
+  const modelIndicator = launchedModel ? (
+    <span
+      className={`ml-auto shrink-0 text-[9px] font-mono tracking-wide ${
+        effectiveLaunchModel ? 'accent-text' : 'text-[var(--text-muted)]'
+      }`}
+      title={
+        effectiveLaunchModel
+          ? `Modèle retenu pour cette tâche : ${launchedModel}`
+          : `Modèle configuré : ${launchedModel}`
+      }
+    >
+      {shortModelLabel(launchedModel)}
+    </span>
+  ) : null
+
   const modeActions = (
     <>
       <button type="button" className={compactActionClass} disabled={advancing !== null || isFinishedTask} onClick={() => { closeMenu(); handleAdvance(false, 'interactive') }}>
@@ -408,7 +426,6 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             type="button"
             ref={modelEntryRef}
             className={compactActionClass}
-            disabled={advancing !== null || isFinishedTask}
             aria-haspopup="menu"
             aria-expanded={isModelMenuOpen}
             onClick={() => setIsModelMenuOpen(open => !open)}
@@ -721,6 +738,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             {task.title}
           </button>
           <RemoteRunBadge taskId={task.id} />
+          {modelIndicator}
           {actionsMenu}
         </div>
       ) : (
@@ -878,26 +896,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
           <Pin size={14} />
         </button>
 
-        {/* Le modèle que les boutons suivants utiliseront. Il précède le groupe
-            parce qu'il le qualifie : quatre caractères au plus, le nom complet
-            dans l'infobulle. Discret quand il vient de la configuration, marqué
-            quand il vient d'un choix fait sur cette carte. */}
-        {launchedModel && (
-          <span
-            className={`ml-auto px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold tracking-wide border ${
-              effectiveLaunchModel
-                ? 'accent-text bg-[var(--accent-light)] border-[var(--accent-color)]/40'
-                : 'text-[var(--text-muted)] bg-[var(--bg-tertiary)] border-transparent'
-            }`}
-            title={
-              effectiveLaunchModel
-                ? `Modèle retenu pour cette tâche : ${launchedModel}`
-                : `Modèle configuré : ${launchedModel}`
-            }
-          >
-            {shortModelLabel(launchedModel)}
-          </span>
-        )}
+        {modelIndicator}
 
         {/* Le terminal de la tâche est l'action la plus fréquente : elle mérite
             son icône, le reste vit dans le menu (...) */}

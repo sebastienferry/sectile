@@ -102,14 +102,24 @@ test('every launch from the card uses the retained model', () => {
 })
 
 test('the card shows the model its buttons will use', () => {
-  // Four characters at most, the full name in the tooltip, placed before the
-  // action buttons because it qualifies them.
+  // Four characters at most, the full name in the tooltip.
   assert.match(card, /const launchedModel = effectiveLaunchModel \|\| configuredCardModel/)
+  assert.match(card, /const modelIndicator = launchedModel \? \(/)
+  // Discreet: coloured text only, no badge chrome competing with the buttons.
+  assert.doesNotMatch(card, /modelIndicator[\s\S]{0,400}rounded|modelIndicator[\s\S]{0,400}border/)
   assert.match(card, /\{shortModelLabel\(launchedModel\)\}/)
   assert.match(card, /title=\{\s*effectiveLaunchModel\s*\? `Modèle retenu pour cette tâche : \$\{launchedModel\}`/)
-  const indicator = card.indexOf('{shortModelLabel(launchedModel)}', card.indexOf('Ligne 4'))
+
+  // One definition, rendered by both shapes: a condensed card keeps its actions
+  // behind the menu, so the indicator precedes that menu there, and precedes the
+  // chevrons on an expanded card. Neither shape can lose it on its own.
+  const definitions = card.match(/const modelIndicator = /g) ?? []
+  assert.equal(definitions.length, 1)
+  const condensedRow = card.match(/<RemoteRunBadge taskId=\{task\.id\} \/>\s*\n\s*\{modelIndicator\}\s*\n\s*\{actionsMenu\}/)
+  assert.ok(condensedRow, 'the condensed card shows it before its actions menu')
+  const expanded = card.indexOf('{modelIndicator}', card.indexOf('Ligne 4'))
   const firstAction = card.indexOf('handleAdvance(false)', card.indexOf('Ligne 4'))
-  assert.ok(indicator > 0 && indicator < firstAction, 'the indicator precedes the action buttons')
+  assert.ok(expanded > 0 && expanded < firstAction, 'the expanded card shows it before the chevrons')
 })
 
 test('the selection is remembered per task', () => {
