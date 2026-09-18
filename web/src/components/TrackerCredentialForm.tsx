@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { AlertCircle, Check, Globe, Key, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import {
@@ -59,7 +59,17 @@ export const TrackerCredentialForm: React.FC<{ tracker: TrackerKind; onSaved?: (
   // Ce qui est déjà enregistré revient dans le formulaire : sans cela l'écran
   // redemande ce que la personne a déjà donné, et la vérification reste grise
   // faute d'un champ obligatoire.
+  //
+  // Une seule fois par valeur enregistrée, et non à chaque frappe : `mine` est
+  // un objet neuf à chaque rendu, donc l'effet se rejouait sans cesse et
+  // remplissait à nouveau le champ qu'on venait de vider. On ne pouvait plus
+  // effacer un site pour en saisir un autre sans que l'ancien revienne devant
+  // ce qu'on tapait.
+  const applied = useRef<string | null>(null)
   useEffect(() => {
+    const identity = `${mine?.siteUrl || ''}|${mine?.email || ''}`
+    if (applied.current === identity) return
+    applied.current = identity
     const prefill = prefillFromCredential(mine, { siteUrl, email })
     if (prefill.siteUrl !== siteUrl) setSiteUrl(prefill.siteUrl)
     if (prefill.email !== email) setEmail(prefill.email)
