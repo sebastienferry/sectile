@@ -2252,7 +2252,14 @@ func (d *DB) CloneTask(taskID string, req models.CloneTaskRequest) (*models.Task
 	return d.CreateTask(createReq)
 }
 
+// UpdateTask edits a work item with no acting user, for callers who have none.
 func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, error) {
+	return d.UpdateTaskBy(Actor{}, id, req)
+}
+
+// UpdateTaskBy edits a work item on behalf of whoever asked. The tracker write
+// it queues then goes out under their own credential.
+func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) (*models.Task, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -2458,7 +2465,7 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
 	if req.Status != nil || req.Labels != nil || req.Title != nil || req.Description != nil || req.Priority != nil || req.TrackerStatus != nil {
-		d.enqueueTrackerUpdateUnsafe(existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
+		d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
 			Title:       req.Title != nil,
 			Description: req.Description != nil,
 			Priority:    req.Priority != nil,
@@ -3830,6 +3837,13 @@ type TrackerFieldChanges struct {
 }
 
 func (d *DB) enqueueTrackerUpdateUnsafe(task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
+	d.enqueueTrackerUpdateAsUnsafe("", task, status, labels, removedLabels, changed)
+}
+
+// enqueueTrackerUpdateAsUnsafe queues the same write on behalf of whoever asked
+// for it. A tracker whose credential belongs to a person can then resolve
+// theirs when the worker picks the job up, long after the request ended.
+func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
 	if task == nil {
 		return
 	}
@@ -3916,6 +3930,7 @@ func (d *DB) enqueueTrackerUpdateUnsafe(task *models.Task, status *models.Status
 		ActivityID:      activityID,
 		TaskID:          task.ID,
 		SkillID:         "tracker_update",
+		ActingUser:      actorID,
 		Prompt:          stStr,
 		RemovedLabels:   removedLabels,
 		TrackerStatus:   strings.TrimSpace(task.TrackerStatus),
@@ -3934,6 +3949,9 @@ func (d *DB) enqueueTrackerUpdateUnsafe(task *models.Task, status *models.Status
 }
 
 func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
+	// Whoever asked travels with the job: their credential is what the tracker
+	// attributes the write to.
+	ctx = tracker.WithActingUser(ctx, job.ActingUser)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(job.TaskID)
 	settings, _ := d.getSettingsUnsafe()
@@ -4003,7 +4021,7 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	ts, tsErr := d.TrackerForTask(task)
 	if tsErr == nil && ts != nil && ts.Supports(tracker.CapUpdate) {
 		steps = append(steps, fmt.Sprintf("Exécution: mise à jour %s pour %s (statut: %s, labels: %v)", ts.Name(), task.Key, syncStatus, task.Labels))
-		err := ts.UpdateIssue(context.Background(), tracker.UpdateIssueRequest{
+		err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
 			Project:       proj,
 			Task:          task,
 			Key:           task.Key,
@@ -4025,7 +4043,7 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 			if ts.Supports(tracker.CapGet) {
 				// Rsync local (two-way unit sync): fetch fresh remote state from tracker and update SQLite
 				steps = append(steps, fmt.Sprintf("Synchronisation retour unitaire (rsync local) depuis %s...", ts.Name()))
-				if _, syncErr := d.SyncSingleTask(task.ID); syncErr != nil {
+				if _, syncErr := d.SyncSingleTaskAs(ctx, task.ID); syncErr != nil {
 					steps = append(steps, fmt.Sprintf("⚠️ Rsync local partiel : %v", syncErr))
 				} else {
 					steps = append(steps, "✅ Rsync local terminé : état distant réaligné en base locale")
@@ -4058,7 +4076,14 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 }
 
 // SyncSingleTask pulls the single authoritative issue state from the remote tracker and writes it to SQLite.
+// SyncSingleTask re-reads one work item with no acting user.
 func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
+	return d.SyncSingleTaskAs(context.Background(), taskID)
+}
+
+// SyncSingleTaskAs re-reads it on behalf of whoever asked, so a personal
+// tracker credential can be resolved for the read.
+func (d *DB) SyncSingleTaskAs(ctx context.Context, taskID string) (*models.Task, error) {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	settings, _ := d.getSettingsUnsafe()
@@ -4085,7 +4110,7 @@ func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
 	var syncedTask *models.Task
 	ts, tsErr := d.TrackerForTask(task)
 	if tsErr == nil && ts != nil && ts.Supports(tracker.CapGet) {
-		syncedTask, err = ts.GetIssue(context.Background(), tracker.GetIssueRequest{
+		syncedTask, err = ts.GetIssue(ctx, tracker.GetIssueRequest{
 			Project: proj,
 			Key:     task.Key,
 		})

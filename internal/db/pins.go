@@ -176,7 +176,14 @@ func (d *DB) PinnedTasks() ([]models.Task, error) {
 }
 
 // SetTaskPinned pins or unpins a ticket, updates its labels, database flag and synchronizes with trackers.
+// SetTaskPinned pins or unpins with no acting user.
 func (d *DB) SetTaskPinned(taskID string, pinned bool) error {
+	return d.SetTaskPinnedBy(Actor{}, taskID, pinned)
+}
+
+// SetTaskPinnedBy pins on behalf of whoever asked: the label it writes on the
+// tracker goes out under their credential.
+func (d *DB) SetTaskPinnedBy(actor Actor, taskID string, pinned bool) error {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return fmt.Errorf("identifiant de tâche manquant")
@@ -221,7 +228,7 @@ func (d *DB) SetTaskPinned(taskID string, pinned bool) error {
 		}
 
 		if !hasPin {
-			d.enqueueTrackerUpdateUnsafe(task, nil, task.Labels, nil, TrackerFieldChanges{})
+			d.enqueueTrackerUpdateAsUnsafe(actor.ID, task, nil, task.Labels, nil, TrackerFieldChanges{})
 		}
 	} else {
 		if hasPin {
@@ -253,14 +260,20 @@ func (d *DB) SetTaskPinned(taskID string, pinned bool) error {
 			if len(actualRemoved) == 0 {
 				actualRemoved = []string{PinnedLabel}
 			}
-			d.enqueueTrackerUpdateUnsafe(task, nil, task.Labels, actualRemoved, TrackerFieldChanges{})
+			d.enqueueTrackerUpdateAsUnsafe(actor.ID, task, nil, task.Labels, actualRemoved, TrackerFieldChanges{})
 		}
 	}
 	return nil
 }
 
 // ToggleTaskPinned flips the pin and says what the new state is.
+// ToggleTaskPinned flips the pin with no acting user.
 func (d *DB) ToggleTaskPinned(taskID string) (bool, error) {
+	return d.ToggleTaskPinnedBy(Actor{}, taskID)
+}
+
+// ToggleTaskPinnedBy flips it on behalf of whoever asked.
+func (d *DB) ToggleTaskPinnedBy(actor Actor, taskID string) (bool, error) {
 	taskID = strings.TrimSpace(taskID)
 	if taskID == "" {
 		return false, fmt.Errorf("identifiant de tâche manquant")

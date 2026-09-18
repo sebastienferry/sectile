@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"tasks/internal/models"
 	"tasks/internal/tracker"
 	"testing"
@@ -16,6 +17,9 @@ import (
 // name one, and must keep working for a tracker that has none of it.
 type fakeTracker struct {
 	tracker.BaseTicketingSystem
+	// mu guards the recorded fields: the queue worker writes them from its own
+	// goroutine while the test reads them.
+	mu      sync.Mutex
 	tasks   []models.Task
 	boards  []models.TrackerBoard
 	columns []models.TrackerColumn
@@ -29,6 +33,7 @@ type fakeTracker struct {
 	syncedAs    string
 	readAs      string
 	commentedAs string
+	updatedAs   string
 	comments    []models.TaskComment
 }
 
@@ -64,6 +69,30 @@ func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	f.record("sync")
 	f.syncedAs = tracker.ActingUser(ctx)
 	return append([]models.Task{}, f.tasks...), nil
+}
+
+func (f *fakeTracker) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRequest) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "update")
+	f.updatedAs = tracker.ActingUser(ctx)
+	return nil
+}
+
+// updatedBy waits for the queue worker to run the write, and answers who it
+// ran as.
+func (f *fakeTracker) updatedBy(t *testing.T) string {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		f.mu.Lock()
+		who, done := f.updatedAs, f.updatedAs != ""
+		f.mu.Unlock()
+		if done {
+			return who
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return ""
 }
 
 func (f *fakeTracker) AddComment(ctx context.Context, req tracker.AddCommentRequest) error {
@@ -352,5 +381,31 @@ func TestACommentIsPostedUnderItsAuthorsCredential(t *testing.T) {
 	}
 	if len(comments) != 1 || comments[0].Body != "Written by Ada" {
 		t.Fatalf("comments: %+v", comments)
+	}
+}
+
+// Editing a work item writes to the tracker through the queue. The job carries
+// its actor for the same reason a transition does: the credential the write
+// goes out under belongs to a person.
+func TestAQueuedFieldUpdateCarriesItsActor(t *testing.T) {
+	fake := newFakeTracker()
+	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
+	database, project := jiraTestDB(t, fake)
+
+	activity := models.TaskActivity{ID: "sync-for-update", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := database.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := database.GetSettings()
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
+
+	taskID := "jira-" + project.ID + "-PE-1"
+	title := "Edited by Ada"
+	if _, err := database.UpdateTaskBy(Actor{ID: "u-ada", Name: "Ada"}, taskID, models.UpdateTaskRequest{Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	// The write runs in the queue, so the assertion waits for the worker.
+	if who := fake.updatedBy(t); who != "u-ada" {
+		t.Fatalf("the queued write must run as its actor, got %q", who)
 	}
 }

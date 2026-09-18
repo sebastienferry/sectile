@@ -1981,14 +1981,14 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// pouvoir basculer vite d'un chantier à l'autre.
 	if subAction == "pin" && (r.Method == http.MethodPost || r.Method == http.MethodDelete) {
 		if r.Method == http.MethodDelete {
-			if err := h.db.SetTaskPinned(id, false); err != nil {
+			if err := h.db.SetTaskPinnedBy(h.webPrincipal(r).Actor(), id, false); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"pinned": false})
 			return
 		}
-		pinned, err := h.db.ToggleTaskPinned(id)
+		pinned, err := h.db.ToggleTaskPinnedBy(h.webPrincipal(r).Actor(), id)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2472,7 +2472,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
 			return
 		}
-		task, err := h.db.UpdateTask(id, req)
+		task, err := h.db.UpdateTaskBy(h.webPrincipal(r).Actor(), id, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
