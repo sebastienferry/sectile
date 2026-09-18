@@ -46,3 +46,20 @@ The toolbar SHALL place the step-closing control before the `Next: <skill>` cont
 - **GIVEN** a narrow supported desktop window
 - **WHEN** the toolbar renders both controls
 - **THEN** they stay inside the window without overlapping the task title, and remain keyboard-operable.
+
+## MODIFIED Requirements
+
+### Requirement: Contextual next step in the execution toolbar
+The desktop SHALL show the selected task's current stage and next agentic step for its console, based on current server task state rather than the selected execution's skill. The launch action SHALL sit in the execution toolbar immediately after the control that ends the execution, so the toolbar reads in the order the user acts, and its status text SHALL remain below the TTY.
+
+#### Scenario: Actionable workflow stage
+- **GIVEN** a selected task at new, clarified, specified or implemented stage
+- **WHEN** current task and configured project skills are available
+- **THEN** the toolbar offers Clarify, Specify, Implement or Review and create PR respectively, right after the control that ends the execution
+- **AND** the footer shows the task key, its stage and its readiness message.
+
+#### Scenario: No action available
+- **GIVEN** no selected task, a reviewed or finished task, or unavailable task/project metadata or required skill
+- **WHEN** the console renders
+- **THEN** the footer explains the state without an enabled launch action in the toolbar
+- **AND** reviewed tasks indicate that human merge is pending.

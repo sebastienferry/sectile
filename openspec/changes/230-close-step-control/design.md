@@ -67,3 +67,20 @@ sibling is `#stop`; the reorder invalidates it and it must be updated to the new
 order. `desktop/tests/task-closure.ui.cjs` exercises the unchanged behaviour and
 must keep passing as is. Desktop UI tests load `dist/index.html`, so
 `npx vite build` runs before them.
+
+## Reconciling the pending changes on the same controls
+
+Two changes merged into `main` but not yet archived describe these exact
+controls, and this change contradicts both. Their requirements are restated
+here rather than left to rot:
+
+- `154-desktop-close-button` requires the execution stop control to show a
+  *cross*. This change supersedes that with the completion mark in the
+  affirmative accent, keeping intact what 154 actually protects: a glyph
+  distinct from the agent stop control's disconnect mark, and an accessible
+  name that still describes stopping the execution.
+- `157-desktop-app-ux` requires the launch action to sit *immediately before*
+  the stop control. This change puts it immediately after, which is the order
+  the user acts in: close the current step, then launch the next one. The rest
+  of 157 — the action living in the toolbar, the status staying below the TTY —
+  is unchanged.

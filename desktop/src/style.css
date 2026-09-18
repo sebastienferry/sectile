@@ -27,7 +27,6 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 /* Closing the current step and launching the next one are adjacent controls:
    the green/blue split keeps them from reading as the same action. */
 #stop{color:#80e6ce;background:#20342f;border-color:#49796e}
-#stop:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
 #next-step:focus-visible,#retry-next-step:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
 #workspace{overflow:hidden}
 #toolbar{flex-shrink:0;overflow-x:auto;gap:8px}
