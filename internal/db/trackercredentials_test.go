@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"tasks/internal/models"
 	"tasks/internal/trackerapi"
@@ -284,5 +285,35 @@ func TestClientWithoutResolverIsUnchanged(t *testing.T) {
 	client := &trackerapi.Client{GithubURL: "https://api.github.com", GithubToken: "env"}
 	if client.For("any") != client {
 		t.Fatal("For must return the client itself when nothing resolves")
+	}
+}
+
+// A check is interactive: somebody is waiting for this one answer. A site that
+// never answers must not hold them for the sixty seconds the tracker client
+// allows its other calls.
+func TestACredentialCheckGivesUpAfterFiveSeconds(t *testing.T) {
+	if credentialCheckTimeout > 10*time.Second {
+		t.Fatalf("a person waits for this answer: %v is too long", credentialCheckTimeout)
+	}
+	silent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer silent.Close()
+
+	database := testDB(t)
+	database.trackers.HTTP = silent.Client()
+
+	started := time.Now()
+	_, err := database.CheckTrackerCredentials(context.Background(), "jira", silent.URL, "ada@example.com", "token")
+	elapsed := time.Since(started)
+
+	if err == nil {
+		t.Fatal("a site that never answers must be reported, not awaited")
+	}
+	if !strings.Contains(err.Error(), "secondes") {
+		t.Errorf("the message must say the instance did not answer in time: %v", err)
+	}
+	if elapsed > credentialCheckTimeout+2*time.Second {
+		t.Errorf("the check waited %v, past its own deadline", elapsed)
 	}
 }

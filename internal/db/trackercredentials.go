@@ -2,11 +2,13 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"tasks/internal/models"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
+	"time"
 )
 
 // keptToken applies the write-only rule shared by every tracker credential: the
@@ -108,12 +110,31 @@ func withoutProjectTokens(p *models.Project) *models.Project {
 	return p
 }
 
+// credentialCheckTimeout bounds a credential check. Somebody is waiting in
+// front of the screen for this one answer, so the generic sixty seconds of the
+// tracker client is far too long: a site that has not answered in five seconds
+// is not going to make the wait worthwhile, and a wrong host never answers at
+// all.
+const credentialCheckTimeout = 5 * time.Second
+
 // CheckTrackerCredentials authenticates connection parameters against the
 // instance and answers with the account they belong to. An empty URL or token
 // falls back to what is already resolved for the server, so the setup screen can
 // re-check a stored credential it never received back. The e-mail only matters
 // to Jira, which authenticates the account rather than a bare token.
 func (d *DB) CheckTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, credentialCheckTimeout)
+	defer cancel()
+	account, err := d.checkTrackerCredentials(ctx, trackerName, apiURL, email, token)
+	if errors.Is(err, context.DeadlineExceeded) {
+		// The deadline is ours, so the message says what it means rather than
+		// leaving "context deadline exceeded" in front of somebody.
+		return "", fmt.Errorf("l'instance n'a pas répondu en %d secondes : vérifiez l'adresse du site", int(credentialCheckTimeout.Seconds()))
+	}
+	return account, err
+}
+
+func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
 	client := d.tracker("")
 	switch strings.ToLower(strings.TrimSpace(trackerName)) {
 	case "github":
