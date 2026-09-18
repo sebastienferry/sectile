@@ -22,6 +22,7 @@
 - [x] 4.2 **…** menu (`aria-haspopup="menu"`, `role="menu"`, `role="menuitem"`): Pickup when available, other server skills, Discussion (no skill), Custom instructions…; closes on selection, Escape and focus-out; not disabled by an active execution.
 - [x] 4.3 Custom instructions inline row: textarea (`aria-label="Custom instructions"`), `modeSelect(document, 'Execution mode for <key>')`, **Launch**, `role=status`; refuse an empty prompt with `Enter custom instructions.`; submit with `launchModeOverride(mode.value)`.
 - [x] 4.4 On success write `Execution submitted for <key>` to the pane status and call `refresh()` without closing the pane; on failure show the error and re-enable the control.
+- [x] 4.6 Dismiss the row menu on Escape and on an outside pointer press whatever holds focus, filter row state with `hiddenRun`, and carry the disabled **Run** explanation on its cell since a disabled control receives no pointer events.
 - [x] 4.5 In `render()`, update run-state glyphs and **Run** disabled state of visible rows in place from `runs`, without rebuilding the table.
 
 ## 5. Styles

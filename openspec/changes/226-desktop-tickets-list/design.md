@@ -158,6 +158,21 @@ Rejected: putting **Tasks list** in the header toolbar. The header is the local
 agent's controls; #225 owns the project actions bar, and the palette is where
 the app already collects global actions.
 
+### Menu dismissal is bound to the opener, not only the menu
+The row menu is a popup, so Escape and an outside press must dismiss it. Focus
+can sit on the opener rather than inside the menu — opening it on an
+unconfigured project leaves every item disabled and focus on the button — and a
+handler bound to the menu alone never sees those events, which would let the
+window-level Escape close the whole pane instead. The dismissal is therefore
+bound to the opener as well, and an outside pointer press is watched while the
+menu is open.
+
+### The row reflects only the executions the sidebar shows
+Row state filters `runs` with `hiddenRun`, the same predicate the sidebar uses,
+so an execution the user archived does not reappear here. `hiddenRun` never
+hides an active run, so archiving cannot silently re-enable **Run** on a task
+that is still executing.
+
 ### Data refresh and stale responses
 `openTickets` keeps a `generation` counter like today so a slow response cannot
 overwrite a newer one or another project's pane. The task list is fetched on

@@ -200,9 +200,17 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   empty=false;configured=false;await search.click();await expect(rows).toHaveCount(4)
   await page.getByText('Configure a local repository before launching tasks.',{exact:true}).waitFor()
   for(const button of await page.locator('.ticket-run').all())assert.equal(await button.isDisabled(),true)
-  await page.getByRole('button',{name:'More actions for #1',exact:true}).click()
+  const disabledMenu=page.getByRole('button',{name:'More actions for #1',exact:true})
+  await disabledMenu.click()
   for(const item of await page.getByRole('menuitem').all())assert.equal(await item.isDisabled(),true)
-  await page.keyboard.press('Escape');await expect(page.getByRole('menu')).toBeHidden()
+  // Every item is disabled, so focus stays on the opener: Escape must still
+  // dismiss the menu and leave the pane open, and an outside press must too.
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toBeHidden();await expect(pane).toBeVisible()
+  await expect(disabledMenu).toBeFocused()
+  await disabledMenu.click();await expect(page.getByRole('menu')).toBeVisible()
+  await page.locator('.tickets-toolbar h2').click()
+  await expect(page.getByRole('menu')).toBeHidden();await expect(pane).toBeVisible()
   // Escape closes the pane and returns to the console view.
   await page.keyboard.press('Escape');await expect(pane).toBeHidden()
   await expect(page.locator('#workspace article')).toBeVisible()

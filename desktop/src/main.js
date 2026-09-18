@@ -950,10 +950,30 @@ function ticketRow(view,task){
  const more=document.createElement('button');more.type='button';more.className='ticket-more';more.textContent='…'
  more.setAttribute('aria-haspopup','menu');more.setAttribute('aria-expanded','false');more.setAttribute('aria-label','More actions for '+key)
  const menu=document.createElement('div');menu.className='ticket-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Actions for '+key);menu.hidden=true
- const entry={task,row,state,run,more,menu}
- const closeMenu=(focusOpener=false)=>{if(menu.hidden)return;menu.hidden=true;more.setAttribute('aria-expanded','false');if(focusOpener)more.focus()}
- const openMenu=()=>{menu.hidden=false;more.setAttribute('aria-expanded','true');menu.querySelector('[role=menuitem]:not(:disabled)')?.focus()}
+ const entry={task,row,state,run,more,menu,actions}
+ // The menu is a popup, so it must swallow the gestures that dismiss a popup.
+ // Focus can sit on the opener rather than inside the menu - a mouse click on a
+ // project with no launchable skill leaves it there - and the menu's own
+ // handlers never see the event then, so the dismissal is bound to both and an
+ // outside pointer press is watched while the menu is open.
+ let dismiss=null
+ const closeMenu=(focusOpener=false)=>{
+  if(menu.hidden)return
+  menu.hidden=true;more.setAttribute('aria-expanded','false')
+  if(dismiss){document.removeEventListener('pointerdown',dismiss,true);dismiss=null}
+  if(focusOpener)more.focus()
+ }
+ const openMenu=()=>{
+  menu.hidden=false;more.setAttribute('aria-expanded','true')
+  dismiss=event=>{if(!menu.contains(event.target)&&event.target!==more)closeMenu()}
+  document.addEventListener('pointerdown',dismiss,true)
+  menu.querySelector('[role=menuitem]:not(:disabled)')?.focus()
+ }
  more.onclick=()=>{menu.hidden?openMenu():closeMenu()}
+ more.onkeydown=event=>{
+  if(event.key==='Escape'&&!menu.hidden){event.preventDefault();event.stopPropagation();closeMenu(true)}
+  else if(event.key==='ArrowDown'&&menu.hidden){event.preventDefault();openMenu()}
+ }
  const skills=view.info.server?.skills||[]
  const items=[]
  if(skills.some(item=>item.id==='pickup'))items.push({label:'Pickup (full chain)',skillId:'pickup'})
@@ -990,7 +1010,7 @@ function ticketRow(view,task){
 // itself stays, so a poll cannot move focus or close an open menu.
 function updateTicketRow(view,entry){
  const {task,run,state}=entry,key=task.key||task.id
- const executions=runs.filter(item=>item.taskId===task.id&&item.projectId===view.projectID&&!freeConsole(item))
+ const executions=runs.filter(item=>item.taskId===task.id&&item.projectId===view.projectID&&!freeConsole(item)&&!hiddenRun(item))
  const representative=executions.find(activeRun)||[...executions].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0]
  if(representative)renderRunState(state,representative)
  else{state.innerHTML='';state.title='';state.removeAttribute('aria-label');delete state.dataset.runState}
@@ -1001,6 +1021,10 @@ function updateTicketRow(view,entry){
  else{run.textContent='Run';delete run.dataset.skillId}
  run.disabled=!chosen||active||pending
  run.title=!chosen?step.message:active?'An execution is active on this task':pending?'Submitting execution…':'Launch '+chosen.label+' on '+key
+ // Chromium delivers no pointer events to a disabled control, so its own title
+ // would never appear: the cell carries the explanation while it is unusable.
+ if(run.disabled)entry.actions.title=run.title
+ else entry.actions.removeAttribute('title')
 }
 function renderTicketRows(){
  const view=ticketsView
