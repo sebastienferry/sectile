@@ -593,3 +593,40 @@ func TestJiraBaseURLNormalisation(t *testing.T) {
 		}
 	}
 }
+
+// A headless deployment configures Jira through the environment rather than the
+// setup screen, and the interface has to say so instead of showing an empty
+// field on a server that is in fact configured.
+func TestJiraCredentialsComeFromTheEnvironmentWhenNothingIsStored(t *testing.T) {
+	for _, name := range []string{"SECTILE_JIRA_URL", "SECTILE_JIRA_EMAIL", "SECTILE_JIRA_TOKEN", "SECTILE_TRACKER_TOKEN", "JIRA_API_TOKEN"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("SECTILE_JIRA_URL", "acme.atlassian.net")
+	t.Setenv("SECTILE_JIRA_EMAIL", "ada@example.com")
+	t.Setenv("JIRA_API_TOKEN", "from-ci")
+	c := NewClient()
+	if c.JiraURL != "https://acme.atlassian.net" || c.JiraEmail != "ada@example.com" || c.JiraToken != "from-ci" {
+		t.Fatalf("environment not read: %q %q %q", c.JiraURL, c.JiraEmail, c.JiraToken)
+	}
+
+	// The provider-specific name wins, so a deployment serving two trackers
+	// cannot hand one provider's credential to another.
+	t.Setenv("SECTILE_TRACKER_TOKEN", "generic")
+	if NewClient().JiraToken != "generic" {
+		t.Error("the tracker-agnostic name must outrank the provider convention")
+	}
+	t.Setenv("SECTILE_JIRA_TOKEN", "jira-specific")
+	if NewClient().JiraToken != "jira-specific" {
+		t.Error("the Jira-specific name must win")
+	}
+
+	// A stored credential still wins over the environment.
+	resolved := NewClient()
+	resolved.Resolve = func(string) Credentials {
+		return Credentials{JiraURL: "https://other.atlassian.net", JiraEmail: "stored@example.com", JiraToken: "stored"}
+	}
+	got := resolved.For("p1")
+	if got.JiraURL != "https://other.atlassian.net" || got.JiraEmail != "stored@example.com" || got.JiraToken != "stored" {
+		t.Fatalf("stored configuration must win: %q %q %q", got.JiraURL, got.JiraEmail, got.JiraToken)
+	}
+}
