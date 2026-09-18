@@ -10,6 +10,7 @@ import {
   saveBlockedReason,
   scopesFor,
   sealingConsequence,
+  SEALING_INVITATION,
   storedFor,
   trackerFields,
   type CredentialScope,
@@ -183,8 +184,8 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             </div>
             {kind.siteIsPersonal && (
               <span className="text-[9.5px] text-[var(--text-muted)] block mt-1 leading-relaxed">
-                Votre compte appartient à cette instance : le site voyage avec votre jeton, et les
-                projets que vous posez sur ce tracker le reprennent.
+                Votre compte appartient à cette instance. Les projets que vous posez sur ce
+                tracker la reprennent.
               </span>
             )}
           </div>
@@ -227,7 +228,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
 
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              Jeton d'API
+              Personal Access Token
             </label>
             <div className="relative">
               <input
@@ -288,6 +289,9 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                   Phrase de scellement (facultative)
                 </label>
+                <span className="text-[10px] text-[var(--text-secondary)] block mb-1 leading-relaxed">
+                  {SEALING_INVITATION}
+                </span>
                 <div className="relative">
                   <input
                     type="password"

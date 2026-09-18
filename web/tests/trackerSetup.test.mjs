@@ -9,6 +9,7 @@ import {
   saveBlockedReason,
   scopesFor,
   sealingConsequence,
+  SEALING_INVITATION,
   storedFor,
   trackerFields,
 } from '../src/lib/trackers.ts'
@@ -98,18 +99,20 @@ test('every tracker with a server adapter can be set on a project', () => {
   assert.equal(PROJECT_TRACKERS.every(t => t.label.trim().length > 0), true)
 })
 
-test('the screen states what sealing costs, at the moment of the choice', () => {
-  // A sealed token cannot be opened by the server alone, so nothing running
-  // without its owner can use it. Saying it afterwards would be too late.
-  assert.match(sealingConsequence(true), /phrase/)
-  assert.match(sealingConsequence(true), /file de fond/)
-  assert.match(sealingConsequence(false), /clé du serveur/)
+test('the screen says what sealing asks of you, not how it works', () => {
+  // What a reader can act on: they will have to unseal. A key and a cipher
+  // teach them nothing, so neither appears.
+  assert.match(SEALING_INVITATION, /desceller pour agir sur les tâches/)
+  assert.match(sealingConsequence(true), /desceller/)
   assert.notEqual(sealingConsequence(true), sealingConsequence(false))
+  for (const text of [SEALING_INVITATION, sealingConsequence(true), sealingConsequence(false)]) {
+    assert.doesNotMatch(text, /chiffr|clé du serveur|base de données/i)
+  }
 })
 
 test('a personal credential reads as absent, stored, sealed or locked', () => {
-  assert.match(credentialState(undefined), /jeton du serveur/)
-  assert.match(credentialState({ tracker: 'jira', sealed: false, unlocked: true }), /clé du serveur/)
-  assert.match(credentialState({ tracker: 'jira', sealed: true, unlocked: true }), /déverrouillé/)
-  assert.match(credentialState({ tracker: 'jira', sealed: true, unlocked: false }), /verrouillé/)
+  assert.match(credentialState(undefined), /ne partiront pas/)
+  assert.match(credentialState({ tracker: 'jira', sealed: false, unlocked: true }), /sous votre compte/)
+  assert.match(credentialState({ tracker: 'jira', sealed: true, unlocked: true }), /descellé/)
+  assert.match(credentialState({ tracker: 'jira', sealed: true, unlocked: false }), /descellez/)
 })

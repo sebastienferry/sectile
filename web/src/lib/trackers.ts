@@ -40,7 +40,7 @@ export const TRACKERS: TrackerFields[] = [
     wantsEmail: true,
     projectLabel: 'Clé du projet par défaut',
     projectPlaceholder: 'PE',
-    tokenHint: "À créer sur id.atlassian.com, section jetons d'API. Il s'authentifie avec votre e-mail Atlassian, pas seul.",
+    tokenHint: "À créer sur id.atlassian.com, section jetons d'API. Il s'utilise avec votre e-mail Atlassian, jamais seul.",
     personalOnly: true,
     siteIsPersonal: true,
   },
@@ -52,7 +52,7 @@ export const TRACKERS: TrackerFields[] = [
     wantsEmail: false,
     projectLabel: 'Dépôt par défaut',
     projectPlaceholder: 'organisation/depot',
-    tokenHint: 'Jeton personnel (PAT) avec la portée repo.',
+    tokenHint: 'Personal Access Token avec la portée repo.',
   },
   {
     id: 'gitlab',
@@ -62,7 +62,7 @@ export const TRACKERS: TrackerFields[] = [
     wantsEmail: false,
     projectLabel: 'Projet par défaut',
     projectPlaceholder: 'groupe/projet',
-    tokenHint: 'Jeton personnel avec la portée api.',
+    tokenHint: 'Personal Access Token avec la portée api.',
   },
 ]
 
@@ -188,21 +188,27 @@ export interface StoredUserCredential {
 }
 
 /**
- * Ce que le scellement change, dit au moment du choix plutôt qu'après coup.
- * Une phrase de scellement rend le jeton illisible par le serveur seul, donc
- * inutilisable par tout ce qui tourne sans son propriétaire.
+ * L'invitation à sceller, dite en termes de ce que la personne y gagne et de ce
+ * qu'elle devra faire. Ce qui se passe sous le capot, clé et chiffrement, ne lui
+ * apprend rien d'actionnable et n'a donc pas sa place ici.
  */
+export const SEALING_INVITATION =
+  'Par mesure de protection de votre identité, vous pouvez sceller votre jeton. Vous devrez alors le desceller pour agir sur les tâches.'
+
+/** Ce que le choix change, dit au moment où il se fait. */
 export function sealingConsequence(sealed: boolean): string {
   return sealed
-    ? "Scellé : personne ne peut l'ouvrir sans votre phrase, pas même le serveur. Les écritures parties en file de fond échoueront tant que vous ne l'aurez pas déverrouillé."
-    : "Chiffré avec la clé du serveur, qui vit hors de la base. Une copie de la base ne le livre pas, et il reste utilisable par les écritures de fond."
+    ? 'Scellé : vous seul pouvez l’ouvrir, et vous devrez le desceller à chaque session pour agir sur les tâches.'
+    : 'Non scellé : vos actions partent sans rien vous demander.'
 }
 
 /** L'état d'un accès personnel, en une phrase, pour l'écran. */
 export function credentialState(credential?: StoredUserCredential): string {
-  if (!credential) return "Aucun accès personnel : vos écritures partent avec le jeton du serveur."
-  if (!credential.sealed) return 'Enregistré et chiffré avec la clé du serveur.'
-  return credential.unlocked ? 'Scellé et déverrouillé pour cette session.' : 'Scellé et verrouillé : saisissez votre phrase pour le déverrouiller.'
+  if (!credential) return "Aucun jeton enregistré : vos actions sur les tâches ne partiront pas."
+  if (!credential.sealed) return 'Enregistré. Vos actions partent sous votre compte.'
+  return credential.unlocked
+    ? 'Scellé, descellé pour cette session.'
+    : 'Scellé et verrouillé : descellez-le pour agir sur les tâches.'
 }
 
 /**
