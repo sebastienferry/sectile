@@ -25,10 +25,10 @@ export interface TrackerFields {
    */
   personalOnly?: boolean
   /**
-   * Le site vient de la configuration globale et du projet, pas de la fiche
-   * personnelle : une équipe partage une instance, chacun y a son compte.
+   * Le site fait partie de l'accès personnel : un compte Atlassian appartient
+   * à un site, donc la personne, son instance et son jeton voyagent ensemble.
    */
-  siteFromServer?: boolean
+  siteIsPersonal?: boolean
 }
 
 export const TRACKERS: TrackerFields[] = [
@@ -42,7 +42,7 @@ export const TRACKERS: TrackerFields[] = [
     projectPlaceholder: 'PE',
     tokenHint: "À créer sur id.atlassian.com, section jetons d'API. Il s'authentifie avec votre e-mail Atlassian, pas seul.",
     personalOnly: true,
-    siteFromServer: true,
+    siteIsPersonal: true,
   },
   {
     id: 'github',
@@ -151,8 +151,6 @@ export function storedFor(settings: StoredSettings, tracker: TrackerKind) {
 export function canCheck(tracker: TrackerKind, values: { siteUrl?: string; email?: string }): boolean {
   const fields = trackerFields(tracker)
   if (!fields.wantsEmail) return true
-  // Le site vient du serveur pour ce tracker : seul l'e-mail manque ici.
-  if (fields.siteFromServer) return Boolean(values.email?.trim())
   return Boolean(values.siteUrl?.trim()) && Boolean(values.email?.trim())
 }
 
@@ -164,10 +162,8 @@ export function canCheck(tracker: TrackerKind, values: { siteUrl?: string; email
 export function saveBlockedReason(tracker: TrackerKind, values: { siteUrl?: string; email?: string }, checked: boolean): string {
   if (checked) return ''
   if (!canCheck(tracker, values)) {
-    const fields = trackerFields(tracker)
-    if (fields.siteFromServer) return "Renseignez l'e-mail de votre compte, puis vérifiez les accès."
-    return fields.wantsEmail
-      ? "Renseignez le site et l'e-mail du compte, puis vérifiez les accès."
+    return trackerFields(tracker).wantsEmail
+      ? "Renseignez votre site et l'e-mail de votre compte, puis vérifiez les accès."
       : 'Renseignez les accès, puis vérifiez-les.'
   }
   return "Vérifiez les accès : l'enregistrement se débloque une fois que l'instance les a acceptés."
@@ -184,6 +180,7 @@ export type CredentialScope = 'server' | 'personal'
 /** Un accès personnel déjà enregistré, tel que l'API le décrit : jamais le jeton. */
 export interface StoredUserCredential {
   tracker: string
+  siteUrl?: string
   email?: string
   sealed: boolean
   unlocked: boolean

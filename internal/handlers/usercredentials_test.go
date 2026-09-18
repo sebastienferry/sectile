@@ -35,7 +35,7 @@ func TestPersonalCredentialRoutesNeverReturnAToken(t *testing.T) {
 		return w
 	}
 
-	w := store(`{"tracker":"jira","email":"ada@example.com","token":"ATATT-secret"}`)
+	w := store(`{"tracker":"jira","siteUrl":"https://acme.atlassian.net","email":"ada@example.com","token":"ATATT-secret"}`)
 	if w.Code != http.StatusOK {
 		t.Fatalf("store: %d %s", w.Code, w.Body)
 	}
@@ -45,6 +45,7 @@ func TestPersonalCredentialRoutesNeverReturnAToken(t *testing.T) {
 	var payload struct {
 		Credentials []struct {
 			Tracker  string `json:"tracker"`
+			SiteURL  string `json:"siteUrl"`
 			Email    string `json:"email"`
 			Sealed   bool   `json:"sealed"`
 			Unlocked bool   `json:"unlocked"`
@@ -53,12 +54,12 @@ func TestPersonalCredentialRoutesNeverReturnAToken(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if len(payload.Credentials) != 1 || payload.Credentials[0].Tracker != "jira" || payload.Credentials[0].Email != "ada@example.com" || payload.Credentials[0].Sealed {
+	if len(payload.Credentials) != 1 || payload.Credentials[0].Tracker != "jira" || payload.Credentials[0].SiteURL != "https://acme.atlassian.net" || payload.Credentials[0].Email != "ada@example.com" || payload.Credentials[0].Sealed {
 		t.Fatalf("stored credential: %+v", payload.Credentials)
 	}
 
 	// Sealing it changes what is reported, still without the token.
-	if w := store(`{"tracker":"jira","token":"ATATT-secret","passphrase":"open sesame"}`); w.Code != http.StatusOK || strings.Contains(w.Body.String(), "ATATT-secret") {
+	if w := store(`{"tracker":"jira","siteUrl":"https://acme.atlassian.net","token":"ATATT-secret","passphrase":"open sesame"}`); w.Code != http.StatusOK || strings.Contains(w.Body.String(), "ATATT-secret") {
 		t.Fatalf("seal: %d %s", w.Code, w.Body)
 	}
 

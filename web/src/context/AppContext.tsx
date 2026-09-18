@@ -118,7 +118,7 @@ interface AppContextType {
   /** Les accès personnels de la personne connectée, jetons exclus. */
   userCredentials: StoredUserCredential[]
   refreshUserCredentials: () => Promise<void>
-  saveUserCredential: (params: { tracker: string; email?: string; token: string; passphrase?: string }) => Promise<boolean>
+  saveUserCredential: (params: { tracker: string; siteUrl?: string; email?: string; token: string; passphrase?: string }) => Promise<boolean>
   unlockUserCredential: (tracker: string, passphrase: string) => Promise<boolean>
   clearUserCredential: (tracker: string) => Promise<boolean>
   /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
@@ -1103,7 +1103,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   )
 
   const saveUserCredential = useCallback(
-    (params: { tracker: string; email?: string; token: string; passphrase?: string }) =>
+    (params: { tracker: string; siteUrl?: string; email?: string; token: string; passphrase?: string }) =>
       userCredentialCall('', 'PUT', params, 'Accès personnel non enregistré'),
     [userCredentialCall]
   )

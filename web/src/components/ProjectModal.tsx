@@ -127,6 +127,8 @@ export const ProjectModal: React.FC = () => {
     deleteProject,
     fetchProjectIssueTypes,
     setIsTrackerSetupOpen,
+    userCredentials,
+    refreshUserCredentials,
     settings,
     t,
   } = useApp()
@@ -181,6 +183,12 @@ export const ProjectModal: React.FC = () => {
   // Section 5: Tracker (Type, URL, Clef, Mapping)
   const [issueTracker, setIssueTracker] = useState<IssueTracker>('local')
   const [trackerUrl, setTrackerUrl] = useState('')
+
+  // L'instance d'un projet Jira part de celle de la personne : il faut donc
+  // connaître ses accès avant qu'elle ne choisisse le tracker.
+  useEffect(() => {
+    void refreshUserCredentials()
+  }, [refreshUserCredentials])
   const [githubRepo, setGithubRepo] = useState('')
   // Paramètres de connexion propres au projet. Vides, ce sont ceux de la
   // configuration utilisateur qui s'appliquent : un projet n'en a besoin que
@@ -1001,11 +1009,13 @@ export const ProjectModal: React.FC = () => {
                     const newTrk = e.target.value as IssueTracker
                     setIssueTracker(newTrk)
                     fetchDetectedStatuses(newTrk)
-                    // L'instance est une configuration du serveur : un projet
-                    // Jira part de celle-ci plutôt que de la faire retaper.
-                    // Une valeur déjà saisie ici n'est pas écrasée.
-                    if (newTrk === 'jira' && !trackerUrl.trim() && settings.jiraUrl?.trim()) {
-                      setTrackerUrl(settings.jiraUrl.trim())
+                    // Le projet part de l'instance de la personne, celle que
+                    // porte son accès personnel, et retombe sur celle du
+                    // serveur. Une valeur déjà saisie ici n'est pas écrasée.
+                    if (newTrk === 'jira' && !trackerUrl.trim()) {
+                      const mine = userCredentials.find(c => c.tracker === 'jira')?.siteUrl?.trim()
+                      const inherited = mine || settings.jiraUrl?.trim()
+                      if (inherited) setTrackerUrl(inherited)
                     }
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
@@ -1274,9 +1284,9 @@ export const ProjectModal: React.FC = () => {
                 <div className={issueTracker === 'local' ? 'col-span-2' : ''}>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                     {issueTracker === 'jira' ? 'URL Jira (base)' : 'URL du Tracker'}
-                    {issueTracker === 'jira' && settings.jiraUrl?.trim() && trackerUrl.trim() === settings.jiraUrl.trim() ? (
+                    {issueTracker === 'jira' && trackerUrl.trim() && trackerUrl.trim() === userCredentials.find(c => c.tracker === 'jira')?.siteUrl?.trim() ? (
                       <span className="ml-1 font-normal normal-case text-[9px] text-[var(--text-muted)]">
-                        reprise du serveur
+                        reprise de votre accès
                       </span>
                     ) : null}
                   </label>

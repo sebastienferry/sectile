@@ -141,14 +141,15 @@ Tokens are write-only: the API never returns one. It reports `githubTokenSet` /
 stored and the server environment supplies one. Saving with an empty token field
 keeps the stored token; sending the sentinel `__clear__` deletes it.
 
-**A Jira credential is personal, and only personal.** The site URL is server
-configuration (`SECTILE_JIRA_URL`, mirrored onto each project, which prefills
-it when Jira is selected); the token belongs to whoever uses it, and is stored
-from their own profile. No server-wide Jira token appears in the interface: an
-optional `SECTILE_JIRA_TOKEN` stays available for unattended work, and nothing
-more. An operation somebody asked for either carries their own token or is
-refused, because writing it under the server account would put a name on it
-that nobody chose.
+**A Jira credential is personal, and only personal.** An Atlassian account
+belongs to a site, so the site, the account e-mail and the token travel
+together: all three are stored from the person's own profile, in *Connecter
+votre tracker*. A project put on Jira prefills its tracker URL from the
+instance of whoever creates it. No server-wide Jira credential appears in the
+interface at all; the `SECTILE_JIRA_*` variables remain only as a fallback for
+unattended work. An operation somebody asked for either carries their own token
+or is refused, because writing it under the server account would put a name on
+it that nobody chose.
 
 **A tracker credential can be personal.** On Jira a comment, an assignment and
 a transition are attributed to the account whose token made the call, so a

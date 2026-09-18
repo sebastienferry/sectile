@@ -651,16 +651,17 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 	resetJiraFieldCache()
 
 	c := &Client{HTTP: server.Client(), JiraURL: server.URL, JiraEmail: "service@example.com", JiraToken: "service-token"}
-	c.ResolveUser = func(userID, tracker string) (string, string, error) {
+	c.ResolveUser = func(userID, tracker string) (string, string, string, error) {
 		switch {
 		case tracker != "jira":
-			return "", "", nil
+			return "", "", "", nil
 		case userID == "ada":
-			return "ada@example.com", "ada-token", nil
+			// Ada's account lives on her own site, which travels with her token.
+			return server.URL, "ada@example.com", "ada-token", nil
 		case userID == "locked":
-			return "", "", fmt.Errorf("credential is sealed: its owner must unlock it")
+			return "", "", "", fmt.Errorf("credential is sealed: its owner must unlock it")
 		}
-		return "", "", nil
+		return "", "", "", nil
 	}
 	adapter := NewJiraAdapter(c)
 	project := jiraProject()

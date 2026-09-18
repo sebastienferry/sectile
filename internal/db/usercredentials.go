@@ -29,6 +29,9 @@ import (
 // everything except the token.
 type UserCredential struct {
 	Tracker string `json:"tracker"`
+	// SiteURL belongs to the credential because an Atlassian account belongs to
+	// a site: the person, their instance and their token travel together.
+	SiteURL string `json:"siteUrl,omitempty"`
 	Email   string `json:"email,omitempty"`
 	// Sealed says the credential needs its owner's passphrase; Unlocked says
 	// the passphrase was supplied in this server's lifetime.
@@ -83,6 +86,7 @@ func (d *DB) ensureUserCredentialsTable() {
 	_, _ = d.conn.Exec(`CREATE TABLE IF NOT EXISTS user_tracker_credentials (
 		user_id TEXT NOT NULL,
 		tracker TEXT NOT NULL,
+		site_url TEXT NOT NULL DEFAULT '',
 		email TEXT NOT NULL DEFAULT '',
 		record BLOB NOT NULL,
 		sealed INTEGER NOT NULL DEFAULT 0,
@@ -91,13 +95,17 @@ func (d *DB) ensureUserCredentialsTable() {
 		updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		PRIMARY KEY (user_id, tracker)
 	);`)
+	// The site moved into the credential once it became clear an account
+	// belongs to an instance. Additive, and refused on a fresh database, like
+	// every other migration here.
+	_, _ = d.conn.Exec(`ALTER TABLE user_tracker_credentials ADD COLUMN site_url TEXT NOT NULL DEFAULT '';`)
 }
 
 // SetUserTrackerCredential stores one person's token for one tracker. An empty
 // passphrase keeps it openable by the server, which is what lets it be used
 // without its owner present; a passphrase seals it, and the passphrase itself
 // is never stored in any form.
-func (d *DB) SetUserTrackerCredential(userID, tracker, email, token, passphrase string) error {
+func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, passphrase string) error {
 	userID = strings.TrimSpace(userID)
 	tracker = strings.ToLower(strings.TrimSpace(tracker))
 	token = strings.TrimSpace(token)
@@ -137,15 +145,16 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, email, token, passphrase 
 	defer d.mu.Unlock()
 	d.ensureUserCredentialsTable()
 	if _, err := d.conn.Exec(`
-		INSERT INTO user_tracker_credentials (user_id, tracker, email, record, sealed, salt, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO user_tracker_credentials (user_id, tracker, site_url, email, record, sealed, salt, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, tracker) DO UPDATE SET
+			site_url = excluded.site_url,
 			email = excluded.email,
 			record = excluded.record,
 			sealed = excluded.sealed,
 			salt = excluded.salt,
 			updated_at = excluded.updated_at
-	`, userID, tracker, strings.TrimSpace(email), record, sealedValue, salt, now, now); err != nil {
+	`, userID, tracker, strings.TrimSpace(siteURL), strings.TrimSpace(email), record, sealedValue, salt, now, now); err != nil {
 		return err
 	}
 	// Storing it again replaces the key it was sealed with, so any key held
@@ -217,7 +226,7 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 	}
 	d.mu.RLock()
 	d.ensureUserCredentialsTable()
-	rows, err := d.conn.Query(`SELECT tracker, email, sealed, updated_at FROM user_tracker_credentials WHERE user_id = ? ORDER BY tracker`, userID)
+	rows, err := d.conn.Query(`SELECT tracker, site_url, email, sealed, updated_at FROM user_tracker_credentials WHERE user_id = ? ORDER BY tracker`, userID)
 	d.mu.RUnlock()
 	if err != nil {
 		return nil, err
@@ -228,7 +237,7 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 	for rows.Next() {
 		var credential UserCredential
 		var sealed int
-		if err := rows.Scan(&credential.Tracker, &credential.Email, &sealed, &credential.UpdatedAt); err != nil {
+		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &sealed, &credential.UpdatedAt); err != nil {
 			continue
 		}
 		credential.Sealed = sealed == 1
@@ -245,39 +254,39 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 // userTrackerCredential opens one person's token for one tracker. It answers
 // ErrNoUserCredential when there is none, and ErrCredentialLocked when the
 // owner sealed it and has not unlocked it in this server's lifetime.
-func (d *DB) userTrackerCredential(userID, tracker string) (email string, token string, err error) {
+func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, email string, token string, err error) {
 	userID = strings.TrimSpace(userID)
 	tracker = strings.ToLower(strings.TrimSpace(tracker))
 	if userID == "" || tracker == "" {
-		return "", "", ErrNoUserCredential
+		return "", "", "", ErrNoUserCredential
 	}
 
 	d.mu.RLock()
 	d.ensureUserCredentialsTable()
 	var record []byte
 	var sealed int
-	scanErr := d.conn.QueryRow(`SELECT email, record, sealed FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&email, &record, &sealed)
+	scanErr := d.conn.QueryRow(`SELECT site_url, email, record, sealed FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&siteURL, &email, &record, &sealed)
 	d.mu.RUnlock()
 	if scanErr == sql.ErrNoRows {
-		return "", "", ErrNoUserCredential
+		return "", "", "", ErrNoUserCredential
 	}
 	if scanErr != nil {
-		return "", "", scanErr
+		return "", "", "", scanErr
 	}
 
 	key := d.serverKey
 	if sealed == 1 {
 		held, ok := d.unlocked.get(unlockKey(userID, tracker))
 		if !ok {
-			return "", "", ErrCredentialLocked
+			return "", "", "", ErrCredentialLocked
 		}
 		key = held
 	}
 	token, err = secrets.Open(key, secrets.Binding{UserID: userID, Tracker: tracker}, record)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return email, token, nil
+	return siteURL, email, token, nil
 }
 
 // UserTrackerCredentialsFor resolves the connection parameters of one acting
@@ -285,13 +294,13 @@ func (d *DB) userTrackerCredential(userID, tracker string) (email string, token 
 // what it resolved for the server. A locked credential is an error rather than
 // a silent fallback: writing under the service account while the person
 // believes they act as themselves would misattribute the work.
-func (d *DB) UserTrackerCredentialsFor(userID, tracker string) (email string, token string, err error) {
-	email, token, err = d.userTrackerCredential(userID, tracker)
+func (d *DB) UserTrackerCredentialsFor(userID, tracker string) (siteURL string, email string, token string, err error) {
+	siteURL, email, token, err = d.userTrackerCredential(userID, tracker)
 	switch {
 	case errors.Is(err, ErrNoUserCredential):
-		return "", "", nil
+		return "", "", "", nil
 	case err != nil:
-		return "", "", err
+		return "", "", "", err
 	}
-	return email, token, nil
+	return siteURL, email, token, nil
 }

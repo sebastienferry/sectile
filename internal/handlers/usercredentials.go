@@ -37,6 +37,9 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 	case action == "" && (r.Method == http.MethodPut || r.Method == http.MethodPost):
 		var req struct {
 			Tracker string `json:"tracker"`
+			// SiteURL belongs here because an Atlassian account belongs to a
+			// site: one person's instance is not a server-wide setting.
+			SiteURL string `json:"siteUrl"`
 			Email   string `json:"email"`
 			Token   string `json:"token"`
 			// Passphrase seals the credential. Empty leaves it openable by the
@@ -48,7 +51,7 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, "Payload illisible : "+err.Error())
 			return
 		}
-		if err := h.db.SetUserTrackerCredential(userID, req.Tracker, req.Email, req.Token, req.Passphrase); err != nil {
+		if err := h.db.SetUserTrackerCredential(userID, req.Tracker, req.SiteURL, req.Email, req.Token, req.Passphrase); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}

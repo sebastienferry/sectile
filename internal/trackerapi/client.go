@@ -54,7 +54,7 @@ type Client struct {
 	// credential behind a passphrase and have not unlocked it: writing under the
 	// server account while somebody believes they act as themselves would
 	// misattribute the work, so the caller has to fail instead.
-	ResolveUser func(userID, tracker string) (email string, token string, err error)
+	ResolveUser func(userID, tracker string) (siteURL string, email string, token string, err error)
 }
 
 // ForActingUser is For, with the acting user's own credentials substituted
@@ -66,7 +66,7 @@ func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool
 	if resolved == nil || resolved.ResolveUser == nil || strings.TrimSpace(userID) == "" {
 		return resolved, false, nil
 	}
-	email, token, err := resolved.ResolveUser(userID, tracker)
+	siteURL, email, token, err := resolved.ResolveUser(userID, tracker)
 	if err != nil {
 		return nil, false, err
 	}
@@ -79,6 +79,11 @@ func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool
 		personal.JiraToken = token
 		if email != "" {
 			personal.JiraEmail = email
+		}
+		// An Atlassian account belongs to a site, so the instance travels with
+		// the credential rather than with the server.
+		if siteURL != "" {
+			personal.JiraURL = jiraBaseURL(siteURL)
 		}
 	case "github":
 		personal.GithubToken = token

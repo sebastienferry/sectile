@@ -63,6 +63,12 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
 
   const mine = userCredentials.find(c => c.tracker === tracker)
 
+  // Le site enregistré avec l'accès personnel est celui de la personne : il
+  // reprend la main sur la valeur serveur dès qu'il existe.
+  useEffect(() => {
+    if (mine?.siteUrl && !siteUrl.trim()) setSiteUrl(mine.siteUrl)
+  }, [mine?.siteUrl, siteUrl])
+
   const selectTracker = (next: TrackerKind) => {
     const values = storedFor(settings, next)
     setTracker(next)
@@ -98,7 +104,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
     setIsSaving(true)
     const saved =
       scope === 'personal'
-        ? await saveUserCredential({ tracker, email, token, passphrase })
+        ? await saveUserCredential({ tracker, siteUrl, email, token, passphrase })
         : await saveTrackerCredentials(credentials())
     setIsSaving(false)
     if (saved) {
@@ -161,32 +167,27 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             </div>
           </div>
 
-          {kind.siteFromServer ? (
-            <div className="p-2.5 rounded-xl bg-[var(--bg-tertiary)]/60 border border-[var(--border-color)] text-[10.5px] text-[var(--text-secondary)] leading-relaxed">
-              <span className="font-semibold text-[var(--text-primary)]">{kind.siteLabel} : </span>
-              {settings.jiraUrl?.trim() || 'non configuré sur le serveur'}
-              <span className="block text-[var(--text-muted)] mt-0.5">
-                L'instance est une configuration du serveur, reprise par les projets. Vous n'y
-                apportez que votre compte.
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+              {kind.siteLabel}
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={siteUrl}
+                onChange={e => setSiteUrl(e.target.value)}
+                placeholder={kind.sitePlaceholder}
+                className={fieldClass}
+              />
+              <Globe size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
+            </div>
+            {kind.siteIsPersonal && (
+              <span className="text-[9.5px] text-[var(--text-muted)] block mt-1 leading-relaxed">
+                Votre compte appartient à cette instance : le site voyage avec votre jeton, et les
+                projets que vous posez sur ce tracker le reprennent.
               </span>
-            </div>
-          ) : (
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                {kind.siteLabel}
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={siteUrl}
-                  onChange={e => setSiteUrl(e.target.value)}
-                  placeholder={kind.sitePlaceholder}
-                  className={fieldClass}
-                />
-                <Globe size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-              </div>
-            </div>
-          )}
+            )}
+          </div>
 
           {kind.wantsEmail && (
             <div>

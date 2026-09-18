@@ -9,7 +9,7 @@ import (
 
 func TestAPersonalTokenIsStoredEncryptedAndComesBack(t *testing.T) {
 	database := testDB(t)
-	if err := database.SetUserTrackerCredential("u1", "jira", "ada@example.com", "ATATT-secret", ""); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "ada@example.com", "ATATT-secret", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -22,9 +22,9 @@ func TestAPersonalTokenIsStoredEncryptedAndComesBack(t *testing.T) {
 		t.Fatal("the token must not be stored in clear")
 	}
 
-	email, token, err := database.userTrackerCredential("u1", "jira")
-	if err != nil || email != "ada@example.com" || token != "ATATT-secret" {
-		t.Fatalf("round trip: %q %q %v", email, token, err)
+	site, email, token, err := database.userTrackerCredential("u1", "jira")
+	if err != nil || site != "https://acme.atlassian.net" || email != "ada@example.com" || token != "ATATT-secret" {
+		t.Fatalf("round trip: %q %q %q %v", site, email, token, err)
 	}
 }
 
@@ -32,10 +32,10 @@ func TestAPersonalTokenIsStoredEncryptedAndComesBack(t *testing.T) {
 // hands over nothing.
 func TestAStolenRowDoesNotServeAnotherUser(t *testing.T) {
 	database := testDB(t)
-	if err := database.SetUserTrackerCredential("victim", "jira", "victim@example.com", "victim-token", ""); err != nil {
+	if err := database.SetUserTrackerCredential("victim", "jira", "https://acme.atlassian.net", "victim@example.com", "victim-token", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.SetUserTrackerCredential("thief", "jira", "thief@example.com", "thief-token", ""); err != nil {
+	if err := database.SetUserTrackerCredential("thief", "jira", "https://acme.atlassian.net", "thief@example.com", "thief-token", ""); err != nil {
 		t.Fatal(err)
 	}
 	// Somebody with write access to the database moves the victim's ciphertext
@@ -47,41 +47,41 @@ func TestAStolenRowDoesNotServeAnotherUser(t *testing.T) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := database.userTrackerCredential("thief", "jira"); !errors.Is(err, secrets.ErrWrongKey) {
+	if _, _, _, err := database.userTrackerCredential("thief", "jira"); !errors.Is(err, secrets.ErrWrongKey) {
 		t.Fatalf("the stolen row must not open: %v", err)
 	}
 	// The victim still works.
-	if _, token, err := database.userTrackerCredential("victim", "jira"); err != nil || token != "victim-token" {
+	if _, _, token, err := database.userTrackerCredential("victim", "jira"); err != nil || token != "victim-token" {
 		t.Fatalf("the owner keeps their credential: %q %v", token, err)
 	}
 }
 
 func TestASealedTokenNeedsItsPassphrase(t *testing.T) {
 	database := testDB(t)
-	if err := database.SetUserTrackerCredential("u1", "jira", "ada@example.com", "sealed-token", "open sesame"); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "ada@example.com", "sealed-token", "open sesame"); err != nil {
 		t.Fatal(err)
 	}
 	// Storing it leaves it unlocked for the session that stored it: the person
 	// just typed the passphrase.
-	if _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
+	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
 		t.Fatalf("just stored: %q %v", token, err)
 	}
 
 	// A restart forgets every derived key.
 	database.LockUserTrackerCredential("u1", "jira")
-	if _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+	if _, _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
 		t.Fatalf("a sealed credential must be locked again: %v", err)
 	}
 	if err := database.UnlockUserTrackerCredential("u1", "jira", "wrong"); !errors.Is(err, secrets.ErrWrongKey) {
 		t.Fatalf("a wrong passphrase must be refused: %v", err)
 	}
-	if _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+	if _, _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
 		t.Fatal("a failed unlock must leave it locked")
 	}
 	if err := database.UnlockUserTrackerCredential("u1", "jira", "open sesame"); err != nil {
 		t.Fatal(err)
 	}
-	if _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
+	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "sealed-token" {
 		t.Fatalf("after unlocking: %q %v", token, err)
 	}
 }
@@ -91,7 +91,7 @@ func TestASealedTokenNeedsItsPassphrase(t *testing.T) {
 // cannot defeat.
 func TestTheServerKeyDoesNotOpenASealedToken(t *testing.T) {
 	database := testDB(t)
-	if err := database.SetUserTrackerCredential("u1", "jira", "", "sealed-token", "passphrase"); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "", "sealed-token", "passphrase"); err != nil {
 		t.Fatal(err)
 	}
 	database.LockUserTrackerCredential("u1", "jira")
@@ -107,10 +107,10 @@ func TestTheServerKeyDoesNotOpenASealedToken(t *testing.T) {
 
 func TestReplacingACredentialRetiresTheKeyItWasSealedWith(t *testing.T) {
 	database := testDB(t)
-	if err := database.SetUserTrackerCredential("u1", "jira", "", "first", "old passphrase"); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "", "first", "old passphrase"); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.SetUserTrackerCredential("u1", "jira", "", "second", ""); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "", "second", ""); err != nil {
 		t.Fatal(err)
 	}
 	// Now unsealed: the server opens it, and the old passphrase is meaningless.
@@ -118,17 +118,17 @@ func TestReplacingACredentialRetiresTheKeyItWasSealedWith(t *testing.T) {
 	if err != nil || len(credentials) != 1 || credentials[0].Sealed {
 		t.Fatalf("credential state: %+v %v", credentials, err)
 	}
-	if _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "second" {
+	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "second" {
 		t.Fatalf("the replacement must be what is served: %q %v", token, err)
 	}
 }
 
 func TestListingCredentialsNeverCarriesAToken(t *testing.T) {
 	database := testDB(t)
-	if err := database.SetUserTrackerCredential("u1", "jira", "ada@example.com", "ATATT-secret", ""); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "ada@example.com", "ATATT-secret", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := database.SetUserTrackerCredential("u1", "github", "", "gh-secret", "phrase"); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "github", "https://acme.atlassian.net", "", "gh-secret", "phrase"); err != nil {
 		t.Fatal(err)
 	}
 	database.LockUserTrackerCredential("u1", "github")
@@ -157,13 +157,13 @@ func TestListingCredentialsNeverCarriesAToken(t *testing.T) {
 
 func TestClearingRemovesTheCredentialAndItsKey(t *testing.T) {
 	database := testDB(t)
-	if err := database.SetUserTrackerCredential("u1", "jira", "", "token", "phrase"); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "", "token", "phrase"); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.ClearUserTrackerCredential("u1", "jira"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrNoUserCredential) {
+	if _, _, _, err := database.userTrackerCredential("u1", "jira"); !errors.Is(err, ErrNoUserCredential) {
 		t.Fatalf("a cleared credential must be gone: %v", err)
 	}
 	if err := database.UnlockUserTrackerCredential("u1", "jira", "phrase"); !errors.Is(err, ErrNoUserCredential) {
@@ -178,7 +178,7 @@ func TestStoringRefusesWhatItCannotAttribute(t *testing.T) {
 		{"u1", "", "token"},
 		{"u1", "jira", "   "},
 	} {
-		if err := database.SetUserTrackerCredential(testCase.user, testCase.tracker, "", testCase.token, ""); err == nil {
+		if err := database.SetUserTrackerCredential(testCase.user, testCase.tracker, "", "", testCase.token, ""); err == nil {
 			t.Errorf("%+v must be refused", testCase)
 		}
 	}
@@ -188,14 +188,14 @@ func TestStoringRefusesWhatItCannotAttribute(t *testing.T) {
 // normal answer, a locked one is an error the caller must surface.
 func TestResolutionDistinguishesAbsentFromLocked(t *testing.T) {
 	database := testDB(t)
-	if email, token, err := database.UserTrackerCredentialsFor("u1", "jira"); err != nil || email != "" || token != "" {
-		t.Fatalf("no credential must resolve to nothing, without an error: %q %q %v", email, token, err)
+	if site, email, token, err := database.UserTrackerCredentialsFor("u1", "jira"); err != nil || site != "" || email != "" || token != "" {
+		t.Fatalf("no credential must resolve to nothing, without an error: %q %q %q %v", site, email, token, err)
 	}
-	if err := database.SetUserTrackerCredential("u1", "jira", "ada@example.com", "token", "phrase"); err != nil {
+	if err := database.SetUserTrackerCredential("u1", "jira", "https://acme.atlassian.net", "ada@example.com", "token", "phrase"); err != nil {
 		t.Fatal(err)
 	}
 	database.LockUserTrackerCredential("u1", "jira")
-	if _, _, err := database.UserTrackerCredentialsFor("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
+	if _, _, _, err := database.UserTrackerCredentialsFor("u1", "jira"); !errors.Is(err, ErrCredentialLocked) {
 		t.Fatalf("a locked credential must be reported: %v", err)
 	}
 }
