@@ -1446,7 +1446,12 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
 	verified := ""
 	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
+		// A check is the one call somebody waits in front of, so how long it
+		// actually took is worth knowing: it separates a slow instance from a
+		// slow screen, which look identical from a chair.
+		started := time.Now()
 		account, err := h.db.CheckTrackerCredentials(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), trackerName, req.SiteURL, req.Email, req.Token)
+		log.Printf("[TrackerSetup] vérification %s en %s", trackerName, time.Since(started).Round(time.Millisecond))
 		if err != nil {
 			// Nothing is persisted on a failed check: the user configuration
 			// keeps the parameters that were working.
