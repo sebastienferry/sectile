@@ -116,7 +116,7 @@ func resolveDBPath(explicit string) (path string, origin string) {
 // this port".
 func alreadyServing(baseURL string) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Get(baseURL + "/api/health")
+	resp, err := client.Get(baseURL + handlers.HealthPath)
 	if err != nil {
 		return false
 	}
@@ -187,7 +187,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	// API Routes
-	mux.HandleFunc("/api/health", h.HandleHealth)
+	mux.HandleFunc(handlers.HealthPath, h.HandleHealth)
 	mux.HandleFunc("/api/cli-status", h.HandleCliStatus)
 	mux.HandleFunc("/api/git-status", h.HandleGitStatus)
 	mux.HandleFunc("/api/git/status", h.HandleGitStatus)

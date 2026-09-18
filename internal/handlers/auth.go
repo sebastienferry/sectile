@@ -14,6 +14,12 @@ import (
 
 const sessionCookie = "sectile_session"
 
+// HealthPath is the server's liveness route. The route registration, the
+// session guard and the "am I already serving?" probe all read it here: the
+// three held the same literal separately once, drifted, and a load balancer
+// polling a guarded path took the whole deployment out.
+const HealthPath = "/api/health"
+
 // SetIdentityProvider installs the provider the server signs people in
 // against. Without one the local e-mail sign-in identifies people.
 func (h *Handler) SetIdentityProvider(provider *auth.Provider) {
@@ -213,19 +219,24 @@ func (h *Handler) HandleCurrentUser(w http.ResponseWriter, r *http.Request) {
 // own device credential, sign-in cannot require being signed in, and the
 // interface itself must load in order to offer the sign-in button.
 func publicPath(path string) bool {
-	// /api/me is the identity probe and nothing else: the interface has to be
-	// able to ask who is signed in before it can sign anyone in. What hangs
-	// below it is not public, personal tracker credentials least of all, so it
-	// is matched exactly rather than as a prefix.
-	if strings.TrimSuffix(path, "/") == "/api/me" {
+	// Two probes have to answer before anyone is signed in: /api/me, which the
+	// interface asks to know who it is talking to, and /api/health, which is
+	// what a load balancer polls and which holds no session. What hangs below
+	// either is not public, personal tracker credentials least of all, so both
+	// are matched exactly rather than as a prefix.
+	switch strings.TrimSuffix(path, "/") {
+	case "/api/me", HealthPath:
 		return true
 	}
+	// "/health" is not listed here: it is the agent's own route, on the agent's
+	// own mux, and naming it on this side once made /api/health look covered
+	// when it was not. A path outside /api/ and /ws/ is public by the rule
+	// below anyway.
 	for _, prefix := range []string{
 		"/auth/",
 		"/api/v1/agent/",
 		"/mcp",
 		"/ws/agent-connect",
-		"/health",
 	} {
 		if strings.HasPrefix(path, prefix) {
 			return true

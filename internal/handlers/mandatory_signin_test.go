@@ -129,7 +129,7 @@ func TestRequireSessionRefusesAnonymousAndServesPublicPaths(t *testing.T) {
 		t.Fatalf("anonymous /api/tasks = %d (served=%v), want 401", rec.Code, served)
 	}
 
-	for _, path := range []string{"/api/me", "/auth/signin", "/api/v1/agent/poll", "/mcp", "/health", "/index.html"} {
+	for _, path := range []string{"/api/me", "/api/health", "/auth/signin", "/api/v1/agent/poll", "/mcp", "/index.html"} {
 		served = false
 		rec := httptest.NewRecorder()
 		guard.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))

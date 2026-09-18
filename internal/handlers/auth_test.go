@@ -81,6 +81,9 @@ func TestOnlyIntendedPathsBypassTheSessionGuard(t *testing.T) {
 		"/api/v1/agent/pair", "/api/v1/agent/config", "/api/v1/agent/projects",
 		"/mcp",
 		"/ws/agent-connect",
+		// The server's liveness route, the one cmd/server registers and the one
+		// a load balancer polls. "/health" is the agent's, on another mux.
+		"/api/health",
 		"/health",
 		"/", "/index.html", "/assets/app.js",
 	}
@@ -98,6 +101,8 @@ func TestOnlyIntendedPathsBypassTheSessionGuard(t *testing.T) {
 		// tracker credential is the last thing that should answer without a
 		// session.
 		"/api/me/tracker-credentials", "/api/me/tracker-credentials/unlock",
+		// Both probes are matched exactly: nothing below them is public.
+		"/api/health/details",
 	}
 	for _, path := range guarded {
 		if publicPath(path) {
