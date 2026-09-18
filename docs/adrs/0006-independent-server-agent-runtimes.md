@@ -14,8 +14,9 @@ while every workstation is offline.
 Build `sectile-server` and `sectile-agent` from independent command packages.
 The server owns persisted state, UI/API/MCP services and native HTTP tracker
 adapters. GitHub and Linear use explicit server credentials; neither depends on
-CLI login state. Jira metadata is preserved, but its unsupported integration is
-not expanded by this change.
+CLI login state. Jira was preserved as metadata only by this change; the Jira
+Cloud REST adapter that reinstated it (ticket #180) follows the same rule, with
+no workstation CLI.
 
 The agent owns repositories, worktrees, skill/configuration writes, provider
 processes, PR commands and consoles. Electron bundles only this executable.

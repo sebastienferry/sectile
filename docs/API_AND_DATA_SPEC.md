@@ -151,8 +151,9 @@ CREATE TABLE IF NOT EXISTS settings (
 ### 2.1.1 Teams API
 
 A work item may carry a team, and it is never mandatory: a project can hold
-tickets with no team at all. Existing team/member metadata remains readable.
-Jira team refresh is unsupported in this baseline.
+tickets with no team at all. Team refresh reads the members from the project's
+own tracker, for the trackers that have teams; a tracker without them answers an
+explicit unsupported-capability error.
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
@@ -195,13 +196,32 @@ and the tracker's own refusal when it fails.
 | `GET` | `/api/projects/{id}/spec-framework-status` | Per-framework SDD status for this project (see 2.5). |
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
 
+### 2.3.1 Personal Tracker Credentials API
+
+A tracker credential may be personal, so a write carries the name of whoever
+made it. The routes act on the signed-in caller only: the user comes from the
+session, never from the payload, and no answer ever carries a token.
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, sealed, unlocked. |
+| `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. |
+| `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. `404` when there is none to forget. |
+| `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. `409` when the credential is not sealed. |
+| `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |
+
+Stored in `user_tracker_credentials`, encrypted with AES-256-GCM and bound to
+`(user_id, tracker)` as additional authenticated data. The key is the server key
+held outside the database, or one derived from the owner's passphrase with
+Argon2id. A wrong passphrase and a missing record answer the same way.
+
 ### 2.4 Tracker Synchronization API
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/sync/all` | (none) | Queues a sync of every configured project across all trackers. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
-| `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Reports unsupported Jira synchronization. |
+| `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Queues a Jira project sync. |
 
 All four return `{message, activity}`; the work runs on the background job queue
 and its progress is readable through the Activities API.

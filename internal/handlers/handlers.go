@@ -342,7 +342,7 @@ func (h *Handler) HandleSyncAll(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	activity, err := h.db.EnqueueSync("all", "", req.ProjectID)
+	activity, err := h.db.EnqueueSyncAs(h.webSessionUser(r), "all", "", req.ProjectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -366,7 +366,7 @@ func (h *Handler) HandleSyncGithub(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
-	activity, err := h.db.EnqueueSync("github", req.Repo, req.ProjectID)
+	activity, err := h.db.EnqueueSyncAs(h.webSessionUser(r), "github", req.Repo, req.ProjectID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -378,8 +378,31 @@ func (h *Handler) HandleSyncGithub(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleSyncJira queues a Jira synchronisation, like the GitHub one: the job
+// resolves the project's adapter and imports its work items.
+//
+//	POST /api/sync/jira {projectKey, projectId}
 func (h *Handler) HandleSyncJira(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusBadRequest, "Le support de Jira a été retiré. Utilisez GitHub.")
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	var req struct {
+		ProjectKey string `json:"projectKey"`
+		ProjectID  string `json:"projectId"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	activity, err := h.db.EnqueueSyncAs(h.webSessionUser(r), "jira", req.ProjectKey, req.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":  "Synchronisation Jira ajoutée à la file d'attente",
+		"activity": activity,
+	})
 }
 
 // HandleSpecFrameworkStatus reports whether GitHub Spec Kit / OpenSpec are
@@ -637,7 +660,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		activity, err := h.db.MoveTasksToEpic(id, req.TaskIDs, req.TargetEpicKey, req.NewEpicTitle, req.Fields)
+		activity, err := h.db.MoveTasksToEpic(h.actingContext(r), id, req.TaskIDs, req.TargetEpicKey, req.NewEpicTitle, req.Fields)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -654,7 +677,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/projects/{id}/issue-types: the work item types the
 	// project's tracker exposes, for the picker in the project settings.
 	if len(parts) >= 2 && parts[1] == "issue-types" && r.Method == http.MethodGet {
-		types, err := h.db.ListProjectIssueTypes(id)
+		types, err := h.db.ListProjectIssueTypesAs(h.actingContext(r), id)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -675,7 +698,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		activity, err := h.db.SetTasksTeam(id, req.TaskIDs, req.TeamID, req.TeamName)
+		activity, err := h.db.SetTasksTeam(h.actingContext(r), id, req.TaskIDs, req.TeamID, req.TeamName)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -700,7 +723,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		activity, err := h.db.SetTasksSprint(id, req.TaskIDs, req.SprintID, req.SprintName)
+		activity, err := h.db.SetTasksSprint(h.actingContext(r), id, req.TaskIDs, req.SprintID, req.SprintName)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -726,7 +749,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, pending)
 			return
 		case http.MethodPost:
-			activity, err := h.db.EnqueueTrackerOp(db.TrackerOp{
+			activity, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
 				Kind:      db.TrackerOpPushHorizons,
 				ProjectID: id,
 			})
@@ -883,7 +906,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			labelNote := ""
 			if req.Horizon != nil {
 				labelNote = "label roadmap en file d'attente"
-				if _, err := h.db.EnqueueTrackerOp(db.TrackerOp{
+				if _, err := h.db.EnqueueTrackerOp(h.actingContext(r), db.TrackerOp{
 					Kind:      db.TrackerOpEpicHorizon,
 					ProjectID: id,
 					TaskKey:   key,
@@ -921,7 +944,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/projects/{id}/boards: the tracker's boards, for the picker
 	if len(parts) >= 2 && parts[1] == "boards" && r.Method == http.MethodGet {
-		boards, err := h.db.ListProjectTrackerBoards(id)
+		boards, err := h.db.ListProjectTrackerBoardsAs(h.actingContext(r), id)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -937,7 +960,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			BoardID string `json:"boardId"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		proj, err := h.db.ImportProjectBoardColumns(id, req.BoardID)
+		proj, err := h.db.ImportProjectBoardColumns(h.actingContext(r), id, req.BoardID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1170,7 +1193,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		statuses, err := h.db.DetectTrackerStatuses(target, tracker, repo)
+		// `tracker` is the tracker name here, so the package is spelled out.
+		statuses, err := h.db.DetectTrackerStatuses(h.actingContext(r), target, tracker, repo)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1373,7 +1397,9 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		task, err := h.db.CreateTask(req)
+		// The creation carries whoever asked for it, so a tracker that
+		// attributes it to an account uses theirs when they stored one.
+		task, err := h.db.CreateTaskAs(h.actingContext(r), req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1394,8 +1420,9 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 // Checking before saving is the point: a wrong site or a stale token never
 // reaches the settings, and the answer names what is wrong instead of leaving a
 // sync to fail later with nothing to show. `tracker` selects the fields that
-// matter: GitHub and GitLab are checked against the instance and persisted here;
-// the Jira path keeps the behaviour it had, which persists nothing.
+// matter: GitHub, GitLab and Jira are checked against the instance and
+// persisted here. storeTokenInFile is accepted for older clients and ignored:
+// no file store exists, the token goes to the user configuration.
 func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1415,11 +1442,16 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tracker := strings.ToLower(strings.TrimSpace(req.Tracker))
+	trackerName := strings.ToLower(strings.TrimSpace(req.Tracker))
 	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
 	verified := ""
-	if tracker == "github" || tracker == "gitlab" {
-		account, err := h.db.CheckTrackerCredentials(r.Context(), tracker, req.SiteURL, req.Token)
+	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
+		// A check is the one call somebody waits in front of, so how long it
+		// actually took is worth knowing: it separates a slow instance from a
+		// slow screen, which look identical from a chair.
+		started := time.Now()
+		account, err := h.db.CheckTrackerCredentials(h.actingContext(r), trackerName, req.SiteURL, req.Email, req.Token)
+		log.Printf("[TrackerSetup] vérification %s en %s", trackerName, time.Since(started).Round(time.Millisecond))
 		if err != nil {
 			// Nothing is persisted on a failed check: the user configuration
 			// keeps the parameters that were working.
@@ -1434,8 +1466,8 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if tracker == "github" || tracker == "gitlab" {
-		settings, err := h.db.SaveTrackerCredentials(tracker, req.SiteURL, req.Project, req.Token)
+	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
+		settings, err := h.db.SaveTrackerCredentials(trackerName, req.SiteURL, req.Project, req.Email, req.Token)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1510,7 +1542,7 @@ func (h *Handler) HandleTeams(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
-		teams, err := h.db.SearchTrackerTeams(r.URL.Query().Get("projectId"), r.URL.Query().Get("q"))
+		teams, err := h.db.SearchTrackerTeamsAs(h.actingContext(r), r.URL.Query().Get("projectId"), r.URL.Query().Get("q"))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1563,7 +1595,7 @@ func (h *Handler) HandleTeams(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "L'identifiant de l'équipe est requis : il n'arrive qu'avec une synchronisation Jira")
 			return
 		}
-		team, err := h.db.RefreshTeamMembersNow(req.ProjectID, req.TeamID)
+		team, err := h.db.RefreshTeamMembersNowAs(h.actingContext(r), req.ProjectID, req.TeamID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -1750,7 +1782,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if req.WithComments || strings.Contains(req.Prompt, "--with-comments") {
-			comments, err := h.db.GetTaskComments(id)
+			comments, err := h.db.GetTaskCommentsAs(h.actingContext(r), id)
 			if err == nil && len(comments) > 0 {
 				var commentStr strings.Builder
 				commentStr.WriteString("\n\n---\nTask Comments Context:\n")
@@ -1883,7 +1915,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Comment body is required")
 			return
 		}
-		if err := h.db.AddTaskComment(id, req.Body); err != nil {
+		if err := h.db.AddTaskCommentAs(h.actingContext(r), id, req.Body); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -1949,14 +1981,14 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// pouvoir basculer vite d'un chantier à l'autre.
 	if subAction == "pin" && (r.Method == http.MethodPost || r.Method == http.MethodDelete) {
 		if r.Method == http.MethodDelete {
-			if err := h.db.SetTaskPinned(id, false); err != nil {
+			if err := h.db.SetTaskPinnedBy(h.webPrincipal(r).Actor(), id, false); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
 			writeJSON(w, http.StatusOK, map[string]interface{}{"pinned": false})
 			return
 		}
-		pinned, err := h.db.ToggleTaskPinned(id)
+		pinned, err := h.db.ToggleTaskPinnedBy(h.webPrincipal(r).Actor(), id)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2224,7 +2256,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		// L'écriture part dans la file d'activités : la réponse porte l'activité
 		// à suivre, pas un ticket déjà modifié.
-		task, activity, err := h.db.SetTaskMacro(id, key)
+		task, activity, err := h.db.SetTaskMacro(h.actingContext(r), id, key)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2245,7 +2277,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		task, activity, err := h.db.SetTaskTeam(id, req.TeamID, req.TeamName)
+		task, activity, err := h.db.SetTaskTeam(h.actingContext(r), id, req.TeamID, req.TeamName)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2265,7 +2297,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		task, activity, err := h.db.SetTaskSprint(id, req.SprintID, req.SprintName)
+		task, activity, err := h.db.SetTaskSprint(h.actingContext(r), id, req.SprintID, req.SprintName)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2278,7 +2310,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// With no query it answers the ticket's team; typing searches the instance,
 	// which is what allows assigning someone outside the team.
 	if subAction == "assignable" && r.Method == http.MethodGet {
-		people, err := h.db.SearchAssignableUsers(id, r.URL.Query().Get("q"))
+		people, err := h.db.SearchAssignableUsersAs(h.actingContext(r), id, r.URL.Query().Get("q"))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2291,7 +2323,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if subAction == "comments" {
 		switch r.Method {
 		case http.MethodGet:
-			comments, err := h.db.GetTaskComments(id)
+			comments, err := h.db.GetTaskCommentsAs(h.actingContext(r), id)
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
@@ -2306,7 +2338,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "Invalid comment payload: "+err.Error())
 				return
 			}
-			comments, err := h.db.PostTaskCommentBy(h.webPrincipal(r).Actor(), id, req.Body)
+			comments, err := h.db.PostTaskCommentAs(r.Context(), h.webPrincipal(r).Actor(), id, req.Body)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -2332,7 +2364,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid payload: "+err.Error())
 			return
 		}
-		task, activity, err := h.db.MoveTaskToTrackerStatus(id, req.Status)
+		task, activity, err := h.db.MoveTaskToTrackerStatus(h.actingContext(r), id, req.Status)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2440,7 +2472,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid request payload: "+err.Error())
 			return
 		}
-		task, err := h.db.UpdateTask(id, req)
+		task, err := h.db.UpdateTaskBy(h.webPrincipal(r).Actor(), id, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

@@ -46,6 +46,9 @@ const (
 	CapLabels Capability = "labels"
 	// CapComment posts a comment.
 	CapComment Capability = "comment"
+	// CapBoard reads the project's structure: boards, columns, statuses and
+	// issue types.
+	CapBoard Capability = "board"
 )
 
 // CapabilityLabel names an operation in the language the interface speaks, for
@@ -76,6 +79,8 @@ func CapabilityLabel(c Capability) string {
 		return "la modification des labels"
 	case CapComment:
 		return "les commentaires"
+	case CapBoard:
+		return "la lecture du board"
 	}
 	return string(c)
 }
@@ -172,4 +177,56 @@ func Has(list []Capability, c Capability) bool {
 		}
 	}
 	return false
+}
+
+// The acting user travels in the context rather than in every signature: every
+// TicketingSystem method already takes one, and a tracker credential is
+// personal on the trackers where a write is attributed to the token's account.
+//
+// A context that names nobody is the normal case for background work, and it
+// resolves to the server-wide credential. That is deliberate: the queue has no
+// acting user to speak of until one is recorded on the job itself.
+
+type actingUserKey struct{}
+
+// WithActingUser marks the context with whoever asked for the operation.
+func WithActingUser(ctx context.Context, userID string) context.Context {
+	if strings.TrimSpace(userID) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, actingUserKey{}, strings.TrimSpace(userID))
+}
+
+// ActingUser reports who asked, or an empty string when nobody did.
+func ActingUser(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	user, _ := ctx.Value(actingUserKey{}).(string)
+	return user
+}
+
+// The project travels the same way, and for the same reason: half of the write
+// side of TicketingSystem takes a work item key and nothing else, so an adapter
+// asked to move a card to a sprint has no way to learn which project it belongs
+// to. Without it, a project overriding its tracker site had its reads on one
+// instance and its writes on another.
+
+type projectKey struct{}
+
+// WithProject marks the context with the project the operation concerns.
+func WithProject(ctx context.Context, projectID string) context.Context {
+	if strings.TrimSpace(projectID) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, projectKey{}, strings.TrimSpace(projectID))
+}
+
+// Project reports which project the operation concerns, or an empty string.
+func Project(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	id, _ := ctx.Value(projectKey{}).(string)
+	return id
 }

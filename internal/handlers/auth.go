@@ -213,9 +213,15 @@ func (h *Handler) HandleCurrentUser(w http.ResponseWriter, r *http.Request) {
 // own device credential, sign-in cannot require being signed in, and the
 // interface itself must load in order to offer the sign-in button.
 func publicPath(path string) bool {
+	// /api/me is the identity probe and nothing else: the interface has to be
+	// able to ask who is signed in before it can sign anyone in. What hangs
+	// below it is not public, personal tracker credentials least of all, so it
+	// is matched exactly rather than as a prefix.
+	if strings.TrimSuffix(path, "/") == "/api/me" {
+		return true
+	}
 	for _, prefix := range []string{
 		"/auth/",
-		"/api/me",
 		"/api/v1/agent/",
 		"/mcp",
 		"/ws/agent-connect",

@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +20,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/secrets"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
@@ -28,6 +31,11 @@ type SkillJob struct {
 	ProjectID  string
 	SkillID    string
 	Prompt     string
+	// ActingUser is whoever asked for the work, carried onto the queue so a
+	// tracker credential belonging to a person can still be resolved once the
+	// request that started it is gone. Empty means nobody asked, which is what
+	// a timer does, and resolves to the server credential.
+	ActingUser string
 	// Mode is the execution mode already resolved by ResolveSkillMode. The
 	// agent applies it; it never re-reads project settings to decide, so a
 	// stale agent configuration cannot open a window inside a full chain run.
@@ -100,9 +108,19 @@ func (l *ProjectLimiter) Release(projectID string) {
 }
 
 type DB struct {
-	agentOperations  AgentOperations
-	trackers         *trackerapi.Client
-	trackerRegistry  *tracker.Registry
+	agentOperations AgentOperations
+	trackers        *trackerapi.Client
+	trackerRegistry *tracker.Registry
+	// serverKey opens the credentials a user did not seal behind a passphrase.
+	// It lives outside the database, so a copy of the database alone is useless.
+	// serverKeyErr says it could not be read, in which case it must never be
+	// used: a zero key is a valid AES key, and encrypting under it would be
+	// worse than refusing.
+	serverKey    secrets.Key
+	serverKeyErr error
+	// unlocked holds the keys derived from sealing passphrases, for this
+	// server's lifetime only.
+	unlocked         unlockedKeys
 	prEvidenceLookup func(string, string) (trackerapi.PullRequest, error)
 	conn             *sql.DB
 	mu               sync.RWMutex
@@ -114,6 +132,9 @@ type DB struct {
 	cancelMu          sync.Mutex
 	postBackListeners []PostBackListener
 	postBackMu        sync.RWMutex
+	// jobs counts the queue work in flight, so Close can wait for it instead of
+	// pulling the database out from under a write.
+	jobs inFlightJobs
 }
 
 func NewDB(dbPath string) (*DB, error) {
@@ -126,7 +147,19 @@ func NewDB(dbPath string) (*DB, error) {
 	conn.SetMaxIdleConns(10)
 
 	trackerClient := trackerapi.NewClient()
+	// The key sits beside the database: an operator who backs one up without the
+	// other ends up with a copy that opens nothing.
+	//
+	// It is not required to serve: a deployment on a read-only volume, or one
+	// that never stores a personal credential, must still start. Only the
+	// operations that need the key refuse, and they say why.
+	serverKey, serverKeyErr := secrets.ServerKey(filepath.Dir(dbPath))
+	if serverKeyErr != nil {
+		log.Printf("⚠️  Clé de chiffrement indisponible (%v) : les accès tracker personnels non scellés seront refusés. Définissez %s pour la fournir.", serverKeyErr, secrets.KeyEnvVar)
+	}
 	db := &DB{
+		serverKey:       serverKey,
+		serverKeyErr:    serverKeyErr,
 		conn:            conn,
 		trackers:        trackerClient,
 		trackerRegistry: trackerapi.NewDefaultRegistry(trackerClient),
@@ -137,6 +170,8 @@ func NewDB(dbPath string) (*DB, error) {
 	// The client resolves its credentials through the store, which is the only
 	// component able to read the settings and the project override.
 	trackerClient.Resolve = db.trackerCredentials
+	// And the acting user's own credential, where they stored one.
+	trackerClient.ResolveUser = db.UserTrackerCredentialsFor
 	if err := db.initIdentitySchema(); err != nil {
 		return nil, err
 	}
@@ -146,6 +181,7 @@ func NewDB(dbPath string) (*DB, error) {
 	if err := db.initSchema(); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
+	db.ensureUserCredentialsTable()
 
 	// Start background queue worker
 	go db.startQueueWorker()
@@ -157,7 +193,50 @@ func NewDB(dbPath string) (*DB, error) {
 	return db, nil
 }
 
+// inFlightJobs counts the queue work that is waiting or running. A
+// sync.WaitGroup cannot do this job: its Add was called by the worker
+// goroutine, which races Close's Wait every time the counter sits at zero, and
+// the race detector fails the whole package on it. An atomic counter has no
+// such rule, and counting from the moment a job is queued rather than from the
+// moment it starts closes the window where a job admitted to the queue just as
+// the drain observed zero would run against a connection already closed.
+type inFlightJobs struct{ running atomic.Int64 }
+
+func (f *inFlightJobs) begin() { f.running.Add(1) }
+func (f *inFlightJobs) end()   { f.running.Add(-1) }
+
+// drain waits until nothing is queued or running, and reports whether it got
+// there before the bound expired.
+func (f *inFlightJobs) drain(bound time.Duration) bool {
+	deadline := time.Now().Add(bound)
+	for f.running.Load() > 0 {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return true
+}
+
+// enqueueJob puts one job in the queue, counting it in flight from here so a
+// shutdown waits for work that is queued and not yet started. A full queue is
+// handed to a goroutine rather than blocking the HTTP request that caused it.
+func (d *DB) enqueueJob(job SkillJob) {
+	d.jobs.begin()
+	select {
+	case d.jobQueue <- job:
+	default:
+		go func() { d.jobQueue <- job }()
+	}
+}
+
+// Close waits for the queue work already running before closing the database.
+// Those jobs write, and closing under them turns an ordinary write into
+// "database is closed"; in a test it also races the temporary directory's own
+// cleanup, which then fails on a directory that is not empty. The wait is
+// bounded so one stuck job cannot hold a shutdown open.
 func (d *DB) Close() error {
+	d.jobs.drain(5 * time.Second)
 	return d.conn.Close()
 }
 
@@ -1915,7 +1994,17 @@ func SetWorkflowLabel(existingLabels []string, targetLabel string) []string {
 	return result
 }
 
+// CreateTask creates a work item with no acting user, which is what background
+// and machine callers do: the remote creation then uses the server credential.
 func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
+	return d.CreateTaskAs(context.Background(), req)
+}
+
+// CreateTaskAs creates a work item on behalf of whoever the context names. On a
+// tracker that attributes a creation to the account its token belongs to, this
+// is what puts the person's own name on the ticket they just created rather
+// than a shared service account.
+func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*models.Task, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -2005,7 +2094,7 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 	// Remote creation requires confirmation from the server HTTP adapter.
 	ts, tsErr := d.TrackerForProject(proj)
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
-		created, err := ts.CreateIssue(context.Background(), tracker.CreateIssueRequest{
+		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
 			Project:     proj,
 			Title:       req.Title,
 			Description: req.Description,
@@ -2203,7 +2292,14 @@ func (d *DB) CloneTask(taskID string, req models.CloneTaskRequest) (*models.Task
 	return d.CreateTask(createReq)
 }
 
+// UpdateTask edits a work item with no acting user, for callers who have none.
 func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, error) {
+	return d.UpdateTaskBy(Actor{}, id, req)
+}
+
+// UpdateTaskBy edits a work item on behalf of whoever asked. The tracker write
+// it queues then goes out under their own credential.
+func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) (*models.Task, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -2409,7 +2505,7 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
 	if req.Status != nil || req.Labels != nil || req.Title != nil || req.Description != nil || req.Priority != nil || req.TrackerStatus != nil {
-		d.enqueueTrackerUpdateUnsafe(existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
+		d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
 			Title:       req.Title != nil,
 			Description: req.Description != nil,
 			Priority:    req.Priority != nil,
@@ -2427,7 +2523,7 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 				}
 			}
 		}
-		if _, opErr := d.enqueueTrackerOpUnsafe(TrackerOp{
+		if _, opErr := d.enqueueTrackerOpUnsafe(tracker.WithActingUser(context.Background(), actor.ID), TrackerOp{
 			Kind:       TrackerOpSetSprint,
 			ProjectID:  existing.ProjectID,
 			TaskID:     existing.ID,
@@ -2440,15 +2536,15 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 		}
 	}
 
-	// L'assignation ne peut pas voyager avec la synchro des champs : acli n'a pas
-	// de --assignee, et Jira n'assigne que par identifiant de compte. Elle part
-	// donc comme écriture dédiée, dans la même file d'activités.
+	// L'assignation ne voyage pas avec la synchro des champs : Jira n'assigne
+	// que par identifiant de compte, jamais par nom affiché. Elle part donc
+	// comme écriture dédiée, dans la même file d'activités.
 	if newAssignee := strings.TrimSpace(existing.Assignee); newAssignee != oldAssignee && existing.Source == "jira" {
 		accountID := ""
 		if req.AssigneeAccountID != nil {
 			accountID = strings.TrimSpace(*req.AssigneeAccountID)
 		}
-		if _, opErr := d.enqueueTrackerOpUnsafe(TrackerOp{
+		if _, opErr := d.enqueueTrackerOpUnsafe(tracker.WithActingUser(context.Background(), actor.ID), TrackerOp{
 			Kind:         TrackerOpAssign,
 			ProjectID:    existing.ProjectID,
 			TaskID:       existing.ID,
@@ -3380,6 +3476,8 @@ func (d *DB) GetAvailableSkills() []models.Skill {
 func (d *DB) startQueueWorker() {
 	for job := range d.jobQueue {
 		go func(j SkillJob) {
+			// Counted in from enqueueJob, counted out here whatever happens.
+			defer d.jobs.end()
 			projID := j.ProjectID
 			if projID == "" && j.TaskID != "" {
 				d.mu.RLock()
@@ -3539,7 +3637,50 @@ func (d *DB) processSkillJob(job SkillJob) {
 	_, _ = d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch',status=?,summary=?,error=?,completed_at=? WHERE id=?", status, summary, errorText, time.Now(), job.ActivityID)
 }
 
+// trackerDisplayName spells a tracker for the activity log.
+func trackerDisplayName(name string) string {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "github":
+		return "GitHub"
+	case "gitlab":
+		return "GitLab"
+	case "jira":
+		return "Jira"
+	case "":
+		return "tracker"
+	}
+	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+// afterTrackerSync follows an import with what the tracker can tell about the
+// project's structure: the teams met on the work items and the board columns
+// and sprints, when the tracker has them. Neither failure undoes the import.
+func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, tasks []models.Task) []string {
+	if proj == nil || ts == nil {
+		return nil
+	}
+	var steps []string
+	if ts.Supports(tracker.CapTeam) {
+		if note, err := d.RefreshProjectTeamMembers(ctx, proj.ID, tasks); err != nil {
+			steps = append(steps, fmt.Sprintf("⚠️ Équipes : %v", err))
+		} else {
+			steps = append(steps, "4. Équipes : "+note)
+		}
+	}
+	if ts.Supports(tracker.CapBoard) && strings.TrimSpace(proj.BoardID) != "" {
+		if note, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
+			steps = append(steps, fmt.Sprintf("⚠️ Board : %v", err))
+		} else {
+			steps = append(steps, "5. Board : "+note)
+		}
+	}
+	return steps
+}
+
 func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.Settings) {
+	// Whoever asked travels with the job: a personal tracker credential cannot
+	// be resolved from a request that ended long before the worker picked it up.
+	ctx = tracker.WithActingUser(ctx, job.ActingUser)
 	var steps []string
 	var summary string
 	var outputLines []string
@@ -3547,11 +3688,6 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 	var totalImported int
 
 	switch {
-	case job.SkillID == "sync_jira":
-		hasError = true
-		summary = "Support Jira retiré"
-		outputLines = append(outputLines, "Le support de Jira a été retiré de Sectile. Utilisez GitHub.")
-
 	case job.SkillID == "sync_all":
 		steps = append(steps, "1. Starting global multi-tracker synchronization...")
 		outputLines = append(outputLines, "### 🌐 Global Synchronization\n")
@@ -3600,6 +3736,8 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 				if impErr := d.ImportOrUpdateTasks(syncTasks); impErr != nil {
 					hasError = true
 					steps = append(steps, fmt.Sprintf("⚠️ %s: écriture locale échouée: %v", tName, impErr))
+				} else {
+					steps = append(steps, d.afterTrackerSync(ctx, &p, ts, syncTasks)...)
 				}
 				steps = append(steps, fmt.Sprintf("✅ %s (%s): %d issues imported", tName, p.Name, len(syncTasks)))
 				outputLines = append(outputLines, fmt.Sprintf("✅ %s (%s): %d issues synced", tName, p.Name, len(syncTasks)))
@@ -3687,6 +3825,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 				outputLines = append(outputLines, "**Error:** "+impErr.Error())
 			} else {
 				steps = append(steps, "3. Local database updated successfully")
+				steps = append(steps, d.afterTrackerSync(ctx, proj, ts, tasks)...)
 			}
 			totalImported = len(tasks)
 			summary = fmt.Sprintf("%d %s issues synchronized successfully", len(tasks), trackerTitle)
@@ -3738,20 +3877,20 @@ type TrackerFieldChanges struct {
 }
 
 func (d *DB) enqueueTrackerUpdateUnsafe(task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
+	d.enqueueTrackerUpdateAsUnsafe("", task, status, labels, removedLabels, changed)
+}
+
+// enqueueTrackerUpdateAsUnsafe queues the same write on behalf of whoever asked
+// for it. A tracker whose credential belongs to a person can then resolve
+// theirs when the worker picks the job up, long after the request ended.
+func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
 	if task == nil {
 		return
 	}
 
 	proj, _ := d.getProjectByIDUnsafe(task.ProjectID)
-	tracker := task.Source
-	if proj != nil && proj.IssueTracker != "" && tracker == "" {
-		tracker = proj.IssueTracker
-	}
-
-	isGithub := tracker == "github" || task.Source == "github" || strings.HasPrefix(task.Key, "#") || strings.HasPrefix(task.Key, "gh-") || strings.HasPrefix(task.Key, "GH-")
-	isJira := tracker == "jira" || task.Source == "jira"
-
-	if !isGithub && !isJira {
+	ts, err := d.TrackerRegistry().ForTask(task, proj)
+	if err != nil || ts == nil || ts.Name() == "local" || !ts.Supports(tracker.CapUpdate) {
 		return
 	}
 
@@ -3785,35 +3924,19 @@ func (d *DB) enqueueTrackerUpdateUnsafe(task *models.Task, status *models.Status
 		changesSummary = append(changesSummary, fmt.Sprintf("Labels retirés : -%s", strings.Join(removedLabels, ", -")))
 	}
 
-	if isJira {
-		trackerName = "Jira"
-		jiraKey := ""
-		if proj != nil && proj.JiraProject != "" {
-			jiraKey = proj.JiraProject
-		}
-		initialSteps = []string{
-			fmt.Sprintf("Mise à jour du ticket Jira [%s] (projet %s)", task.Key, jiraKey),
-			fmt.Sprintf("Statut cible : %s | Étape IA : %s", stStr, activeStage),
-		}
-		if len(changesSummary) > 0 {
-			initialSteps = append(initialSteps, strings.Join(changesSummary, " | "))
-		}
-		initialSteps = append(initialSteps, "Poussée dans la file d'attente d'exécution...")
-	} else {
-		trackerName = "GitHub"
-		repo := ""
-		if proj != nil && proj.GithubRepo != "" {
-			repo = proj.GithubRepo
-		}
-		initialSteps = []string{
-			fmt.Sprintf("Mise à jour issue GitHub [%s] (%s)", task.Key, repo),
-			fmt.Sprintf("Statut cible : %s | Étape IA : %s", stStr, activeStage),
-		}
-		if len(changesSummary) > 0 {
-			initialSteps = append(initialSteps, strings.Join(changesSummary, " | "))
-		}
-		initialSteps = append(initialSteps, "Poussée dans la file d'attente d'exécution...")
+	trackerName = trackerDisplayName(ts.Name())
+	target := ""
+	if proj != nil {
+		target = firstNonEmpty(proj.GithubRepo, proj.JiraProject, proj.GitlabProject)
 	}
+	initialSteps = []string{
+		fmt.Sprintf("Mise à jour du ticket %s [%s] (%s)", trackerName, task.Key, target),
+		fmt.Sprintf("Statut cible : %s | Étape IA : %s", stStr, activeStage),
+	}
+	if len(changesSummary) > 0 {
+		initialSteps = append(initialSteps, strings.Join(changesSummary, " | "))
+	}
+	initialSteps = append(initialSteps, "Poussée dans la file d'attente d'exécution...")
 
 	actionTitle := fmt.Sprintf("Sync %s : %s", trackerName, task.Key)
 	if activeStage != "" {
@@ -3847,6 +3970,7 @@ func (d *DB) enqueueTrackerUpdateUnsafe(task *models.Task, status *models.Status
 		ActivityID:      activityID,
 		TaskID:          task.ID,
 		SkillID:         "tracker_update",
+		ActingUser:      actorID,
 		Prompt:          stStr,
 		RemovedLabels:   removedLabels,
 		TrackerStatus:   strings.TrimSpace(task.TrackerStatus),
@@ -3855,16 +3979,13 @@ func (d *DB) enqueueTrackerUpdateUnsafe(task *models.Task, status *models.Status
 		SyncPriority:    changed.Priority,
 	}
 
-	select {
-	case d.jobQueue <- job:
-	default:
-		go func() {
-			d.jobQueue <- job
-		}()
-	}
+	d.enqueueJob(job)
 }
 
 func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
+	// Whoever asked travels with the job: their credential is what the tracker
+	// attributes the write to.
+	ctx = tracker.WithActingUser(ctx, job.ActingUser)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(job.TaskID)
 	settings, _ := d.getSettingsUnsafe()
@@ -3934,7 +4055,7 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	ts, tsErr := d.TrackerForTask(task)
 	if tsErr == nil && ts != nil && ts.Supports(tracker.CapUpdate) {
 		steps = append(steps, fmt.Sprintf("Exécution: mise à jour %s pour %s (statut: %s, labels: %v)", ts.Name(), task.Key, syncStatus, task.Labels))
-		err := ts.UpdateIssue(context.Background(), tracker.UpdateIssueRequest{
+		err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
 			Project:       proj,
 			Task:          task,
 			Key:           task.Key,
@@ -3956,7 +4077,7 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 			if ts.Supports(tracker.CapGet) {
 				// Rsync local (two-way unit sync): fetch fresh remote state from tracker and update SQLite
 				steps = append(steps, fmt.Sprintf("Synchronisation retour unitaire (rsync local) depuis %s...", ts.Name()))
-				if _, syncErr := d.SyncSingleTask(task.ID); syncErr != nil {
+				if _, syncErr := d.SyncSingleTaskAs(ctx, task.ID); syncErr != nil {
 					steps = append(steps, fmt.Sprintf("⚠️ Rsync local partiel : %v", syncErr))
 				} else {
 					steps = append(steps, "✅ Rsync local terminé : état distant réaligné en base locale")
@@ -3989,7 +4110,14 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 }
 
 // SyncSingleTask pulls the single authoritative issue state from the remote tracker and writes it to SQLite.
+// SyncSingleTask re-reads one work item with no acting user.
 func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
+	return d.SyncSingleTaskAs(context.Background(), taskID)
+}
+
+// SyncSingleTaskAs re-reads it on behalf of whoever asked, so a personal
+// tracker credential can be resolved for the read.
+func (d *DB) SyncSingleTaskAs(ctx context.Context, taskID string) (*models.Task, error) {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	settings, _ := d.getSettingsUnsafe()
@@ -4016,7 +4144,7 @@ func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
 	var syncedTask *models.Task
 	ts, tsErr := d.TrackerForTask(task)
 	if tsErr == nil && ts != nil && ts.Supports(tracker.CapGet) {
-		syncedTask, err = ts.GetIssue(context.Background(), tracker.GetIssueRequest{
+		syncedTask, err = ts.GetIssue(ctx, tracker.GetIssueRequest{
 			Project: proj,
 			Key:     task.Key,
 		})
@@ -4112,7 +4240,17 @@ func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
 	d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("✅ Ticket %s synchronisé avec succès", syncedTask.Key)}, fmt.Sprintf("Synchronisation de %s effectuée avec succès", syncedTask.Key), nil)
 }
 
+// EnqueueSync queues a synchronisation nobody in particular asked for, so it
+// runs with the server credential.
 func (d *DB) EnqueueSync(syncType string, param string, projectID string) (*models.TaskActivity, error) {
+	return d.EnqueueSyncAs("", syncType, param, projectID)
+}
+
+// EnqueueSyncAs queues a synchronisation on behalf of whoever asked. On a
+// tracker whose credential is personal, this is what lets the work reach the
+// site at all: the queue outlives the request, and the token belongs to the
+// person rather than to the server.
+func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, projectID string) (*models.TaskActivity, error) {
 	d.mu.RLock()
 	settings, _ := d.getSettingsUnsafe()
 	var proj *models.Project
@@ -4197,13 +4335,14 @@ func (d *DB) EnqueueSync(syncType string, param string, projectID string) (*mode
 	d.mu.Unlock()
 
 	// Push job to worker queue
-	d.jobQueue <- SkillJob{
+	d.enqueueJob(SkillJob{
 		ActivityID: activityID,
 		TaskID:     targetTaskID,
 		ProjectID:  projectID,
 		SkillID:    syncType,
 		Prompt:     param,
-	}
+		ActingUser: userID,
+	})
 
 	return &act, nil
 }
@@ -4336,7 +4475,7 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 			stopStage = chainStopStage[0]
 		}
 	}
-	d.jobQueue <- SkillJob{
+	d.enqueueJob(SkillJob{
 		ActivityID:     activityID,
 		TaskID:         task.ID,
 		ProjectID:      task.ProjectID,
@@ -4345,7 +4484,7 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 		Mode:           d.resolveTaskSkillMode(task.ProjectID, targetSkill.ID, modeOverride),
 		Model:          strings.TrimSpace(modelOverride),
 		ChainStopStage: stopStage,
-	}
+	})
 
 	return task, &act, nil
 }
@@ -4737,7 +4876,16 @@ func (d *DB) ClearCompletedActivities() (int, error) {
 	return int(affected), nil
 }
 
+// AddTaskComment posts to the tracker with no acting user, for callers who
+// have none.
 func (d *DB) AddTaskComment(taskID string, body string) error {
+	return d.AddTaskCommentAs(context.Background(), taskID, body)
+}
+
+// AddTaskCommentAs posts on behalf of whoever the context names. On a tracker
+// that attributes a comment to the account behind the token, this is what puts
+// the person's own name on what they wrote.
+func (d *DB) AddTaskCommentAs(ctx context.Context, taskID string, body string) error {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	var proj *models.Project
@@ -4754,7 +4902,7 @@ func (d *DB) AddTaskComment(taskID string, body string) error {
 	if err != nil {
 		return err
 	}
-	return ts.AddComment(context.Background(), tracker.AddCommentRequest{
+	return ts.AddComment(ctx, tracker.AddCommentRequest{
 		Project: proj,
 		Key:     task.Key,
 		Body:    body,
@@ -5695,7 +5843,56 @@ func (d *DB) InitProjectGit(projectID string) (*models.ProjectGitInitResult, err
 	return &result, err
 }
 
-func (d *DB) DetectTrackerStatuses(projectID, tracker, githubRepo string) ([]models.DetectedStatus, error) {
+// remoteTrackerStatuses asks the project's tracker for its own statuses, for the
+// trackers that have them. It runs before DetectTrackerStatuses takes the read
+// lock on purpose: this is an HTTP call, and holding the lock across it would
+// stall every writer for as long as the instance takes to answer. A tracker
+// without the notion, or an unreachable one, simply adds nothing.
+func (d *DB) remoteTrackerStatuses(ctx context.Context, projectID, trackerName string) []models.DetectedStatus {
+	if trackerName == "github" || trackerName == "local" || trackerName == "" {
+		return nil
+	}
+	proj, _ := d.GetProjectByID(projectID)
+	if proj == nil {
+		proj = &models.Project{IssueTracker: trackerName}
+	}
+	ts, err := d.TrackerForProject(proj)
+	if err != nil || !ts.Supports(tracker.CapBoard) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+	statuses, err := ts.ListStatuses(ctx, tracker.ProjectRequest{Project: proj})
+	if err != nil {
+		log.Printf("[statuses] %s n'a pas répondu ses statuts: %v", trackerName, err)
+		return nil
+	}
+	out := make([]models.DetectedStatus, 0, len(statuses))
+	for _, st := range statuses {
+		sType := "unstarted"
+		switch strings.ToLower(st.Category) {
+		case "done":
+			sType = "completed"
+		case "indeterminate":
+			sType = "started"
+		case "new":
+			sType = "backlog"
+		}
+		out = append(out, models.DetectedStatus{ID: st.Name, Name: st.Name, Type: sType, Source: trackerName})
+	}
+	return out
+}
+
+func (d *DB) DetectTrackerStatuses(ctx context.Context, projectID, trackerName, githubRepo string) ([]models.DetectedStatus, error) {
+	// The project row decides which tracker answers, so the name is resolved
+	// first when the caller did not give one.
+	if trackerName == "" && projectID != "" && projectID != "detect-statuses" {
+		if proj, _ := d.GetProjectByID(projectID); proj != nil {
+			trackerName = proj.IssueTracker
+		}
+	}
+	remote := d.remoteTrackerStatuses(ctx, projectID, trackerName)
+
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -5724,8 +5921,8 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, githubRepo string) ([]mod
 	// 1. If projectID provided, load project info
 	if projectID != "" && projectID != "detect-statuses" {
 		if proj, _ := d.getProjectByIDUnsafe(projectID); proj != nil {
-			if tracker == "" {
-				tracker = proj.IssueTracker
+			if trackerName == "" {
+				trackerName = proj.IssueTracker
 			}
 			if githubRepo == "" {
 				githubRepo = proj.GithubRepo
@@ -5751,13 +5948,14 @@ func (d *DB) DetectTrackerStatuses(projectID, tracker, githubRepo string) ([]mod
 	}
 
 	// 4. If tracker is github, add github states
-	if tracker == "github" {
+	if trackerName == "github" {
 		addStatus("open", "unstarted", "#3fb950", "github")
 		addStatus("closed", "completed", "#8250df", "github")
 	}
 
-	if tracker == "jira" {
-		return nil, fmt.Errorf("Jira synchronization is not supported by this version")
+	// The statuses the tracker itself named, read before the lock was taken.
+	for _, st := range remote {
+		addStatus(st.Name, st.Type, "", trackerName)
 	}
 
 	// 5. Standard fallback presets if list is short or empty

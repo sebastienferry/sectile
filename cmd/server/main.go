@@ -243,6 +243,8 @@ func main() {
 	// temporary mode of a team that has not connected its identity provider yet.
 	mux.HandleFunc("/auth/local", h.HandleLocalSignIn)
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
+	mux.HandleFunc("/api/me/tracker-credentials", h.HandleUserTrackerCredentials)
+	mux.HandleFunc("/api/me/tracker-credentials/", h.HandleUserTrackerCredentials)
 	// The admin's users view: list accounts and change roles.
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)

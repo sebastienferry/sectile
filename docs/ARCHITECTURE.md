@@ -183,8 +183,9 @@ paginate lists and follow redirects within the same origin while preserving the
 request method. Redirect chains are bounded; redirects and pagination to another
 origin are rejected. Missing
 credentials, non-success HTTP responses and GraphQL errors propagate to the
-activity instead of marking an unconfirmed write successful. Jira metadata remains
-readable; Jira synchronization is unsupported in this baseline.
+activity instead of marking an unconfirmed write successful. A Jira refusal
+carries the site's own error messages, which is what names a mandatory field the
+instance adds to a creation.
 
 Background skill jobs dispatch to the matching agent. Their launch activity is
 separate from the remote execution record and its MCP workflow results. A launch

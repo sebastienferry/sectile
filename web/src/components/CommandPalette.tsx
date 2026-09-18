@@ -214,7 +214,7 @@ export const CommandPalette: React.FC = () => {
       title: `🔷 Synchroniser Jira${currentProject?.jiraProject ? ` (${currentProject.jiraProject})` : ''}`,
       icon: <RefreshCw size={16} className="text-blue-400" />,
       shortcut: 'J',
-      keywords: ['jira', 'atlassian', 'acli', 'synchroniser', 'sync', 'tickets', 'workitem'],
+      keywords: ['jira', 'atlassian', 'synchroniser', 'sync', 'tickets', 'workitem'],
       action: () => {
         setIsCommandPaletteOpen(false)
         syncJira(currentProject?.jiraProject)

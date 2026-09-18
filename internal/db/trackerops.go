@@ -98,7 +98,8 @@ type TrackerOp struct {
 // EnqueueTrackerOp records the activity and hands the write to the worker. The
 // returned activity is what the caller shows: the operation itself has not run
 // yet.
-func (d *DB) EnqueueTrackerOp(op TrackerOp) (*models.TaskActivity, error) {
+func (d *DB) EnqueueTrackerOp(ctx context.Context, op TrackerOp) (*models.TaskActivity, error) {
+	op.UserID = actingUserFor(ctx, op.UserID)
 	act, job, err := buildTrackerOpJob(op)
 	if err != nil {
 		return nil, err
@@ -118,7 +119,8 @@ func (d *DB) EnqueueTrackerOp(op TrackerOp) (*models.TaskActivity, error) {
 // enqueueTrackerOpUnsafe is the same, for a caller already holding the write
 // lock. UpdateTask is one: it writes the local state and queues the tracker
 // write in the same critical section.
-func (d *DB) enqueueTrackerOpUnsafe(op TrackerOp) (*models.TaskActivity, error) {
+func (d *DB) enqueueTrackerOpUnsafe(ctx context.Context, op TrackerOp) (*models.TaskActivity, error) {
+	op.UserID = actingUserFor(ctx, op.UserID)
 	act, job, err := buildTrackerOpJob(op)
 	if err != nil {
 		return nil, err
@@ -130,16 +132,20 @@ func (d *DB) enqueueTrackerOpUnsafe(op TrackerOp) (*models.TaskActivity, error) 
 	return act, nil
 }
 
-func (d *DB) pushTrackerOpJob(job SkillJob) {
-	select {
-	case d.jobQueue <- job:
-	default:
-		// File pleine : la remise en file dans une goroutine évite de bloquer la
-		// requête HTTP, comme le fait déjà la synchro des champs.
-		go func() {
-			d.jobQueue <- job
-		}()
+// actingUserFor keeps whoever the caller already named, and otherwise takes the
+// person the context names. A queued write is attributed to the account behind
+// the token it goes out with, so an operation that loses its author on the way
+// to the queue is signed by the server — which is exactly what a personal
+// credential exists to prevent.
+func actingUserFor(ctx context.Context, current string) string {
+	if strings.TrimSpace(current) != "" {
+		return current
 	}
+	return tracker.ActingUser(ctx)
+}
+
+func (d *DB) pushTrackerOpJob(job SkillJob) {
+	d.enqueueJob(job)
 }
 
 func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
@@ -289,6 +295,13 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		return
 	}
 	op := *job.Op
+	// The operation carries who asked for it, so a tracker whose credential is
+	// personal can resolve theirs instead of the server's. An operation the
+	// server queued itself names nobody and keeps the server credential.
+	ctx = tracker.WithActingUser(ctx, op.UserID)
+	// And the project it concerns: a project may override the tracker site, and
+	// a write resolved without it goes to the instance of another project.
+	ctx = tracker.WithProject(ctx, op.ProjectID)
 	steps := []string{}
 
 	var output string
@@ -298,21 +311,21 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 	case TrackerOpAssign:
 		output, err = d.runAssignOp(ctx, op, &steps)
 	case TrackerOpSetParent:
-		output, err = d.runSetParentOp(op, &steps)
+		output, err = d.runSetParentOp(ctx, op, &steps)
 	case TrackerOpMoveToEpic:
-		output, err = d.runMoveToEpicOp(op, &steps)
+		output, err = d.runMoveToEpicOp(ctx, op, &steps)
 	case TrackerOpEpicHorizon:
-		output, err = d.runEpicHorizonOp(op, &steps)
+		output, err = d.runEpicHorizonOp(ctx, op, &steps)
 	case TrackerOpPushHorizons:
-		output, err = d.runPushHorizonsOp(op, &steps)
+		output, err = d.runPushHorizonsOp(ctx, op, &steps)
 	case TrackerOpTransition:
-		output, err = d.runTransitionOp(op, &steps)
+		output, err = d.runTransitionOp(ctx, op, &steps)
 	case TrackerOpStage:
-		output, err = d.runStageOp(op, &steps)
+		output, err = d.runStageOp(ctx, op, &steps)
 	case TrackerOpSetTeam:
-		output, err = d.runSetTeamOp(op, &steps)
+		output, err = d.runSetTeamOp(ctx, op, &steps)
 	case TrackerOpSetSprint:
-		output, err = d.runSetSprintOp(op, &steps)
+		output, err = d.runSetSprintOp(ctx, op, &steps)
 	default:
 		err = fmt.Errorf("opération tracker inconnue : %s", op.Kind)
 	}
@@ -438,7 +451,7 @@ func (d *DB) runAssignOp(ctx context.Context, op TrackerOp, steps *[]string) (st
 	return fmt.Sprintf("%s assigné à %s", task.Key, who), nil
 }
 
-func (d *DB) runSetParentOp(op TrackerOp, steps *[]string) (string, error) {
+func (d *DB) runSetParentOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	task, err := d.applyTaskEpic(op.TaskID, op.EpicKey, steps)
 	if err != nil {
 		return "", err
@@ -449,7 +462,7 @@ func (d *DB) runSetParentOp(op TrackerOp, steps *[]string) (string, error) {
 	return fmt.Sprintf("%s rattaché à l'épic %s", task.Key, strings.ToUpper(strings.TrimSpace(op.EpicKey))), nil
 }
 
-func (d *DB) runMoveToEpicOp(op TrackerOp, steps *[]string) (string, error) {
+func (d *DB) runMoveToEpicOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	if len(op.TaskIDs) == 0 {
 		return "", fmt.Errorf("aucun ticket sélectionné")
 	}
@@ -488,7 +501,7 @@ func (d *DB) runMoveToEpicOp(op TrackerOp, steps *[]string) (string, error) {
 	return output, nil
 }
 
-func (d *DB) runSetSprintOp(op TrackerOp, steps *[]string) (string, error) {
+func (d *DB) runSetSprintOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	ids := op.TaskIDs
 	if len(ids) == 0 && strings.TrimSpace(op.TaskID) != "" {
 		ids = []string{op.TaskID}
@@ -521,7 +534,7 @@ func (d *DB) runSetSprintOp(op TrackerOp, steps *[]string) (string, error) {
 		return "", fmt.Errorf("aucun ticket à déplacer sur un tracker qui gère les sprints")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	if err := writer.SetSprint(ctx, op.SprintID, keys); err != nil {
 		return "", err
@@ -537,7 +550,7 @@ func (d *DB) runSetSprintOp(op TrackerOp, steps *[]string) (string, error) {
 	return fmt.Sprintf("%d ticket(s) déplacé(s) vers %s", len(keys), target), nil
 }
 
-func (d *DB) runSetTeamOp(op TrackerOp, steps *[]string) (string, error) {
+func (d *DB) runSetTeamOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	ids := op.TaskIDs
 	if len(ids) == 0 && strings.TrimSpace(op.TaskID) != "" {
 		ids = []string{op.TaskID}
@@ -554,7 +567,7 @@ func (d *DB) runSetTeamOp(op TrackerOp, steps *[]string) (string, error) {
 		label = "aucune équipe"
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
 	// Le champ Team s'écrit ticket par ticket : contrairement au sprint, aucune
@@ -595,7 +608,7 @@ func (d *DB) runSetTeamOp(op TrackerOp, steps *[]string) (string, error) {
 	return output, nil
 }
 
-func (d *DB) runTransitionOp(op TrackerOp, steps *[]string) (string, error) {
+func (d *DB) runTransitionOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	task, err := d.GetTaskByID(op.TaskID)
 	if err != nil || task == nil {
 		return "", fmt.Errorf("tâche introuvable")
@@ -656,7 +669,7 @@ func (d *DB) runTransitionOp(op TrackerOp, steps *[]string) (string, error) {
 			}
 
 			if ts.Supports(tracker.CapUpdate) {
-				if err := ts.UpdateIssue(context.Background(), tracker.UpdateIssueRequest{
+				if err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
 					Project:       projObj,
 					Task:          task,
 					Key:           task.Key,
@@ -676,7 +689,7 @@ func (d *DB) runTransitionOp(op TrackerOp, steps *[]string) (string, error) {
 		return fmt.Sprintf("%s déplacé vers « %s » en local", task.Key, op.TargetStatus), nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	if err := writer.Transition(ctx, task.Key, op.TargetStatus); err != nil {
 		return "", err
@@ -685,7 +698,7 @@ func (d *DB) runTransitionOp(op TrackerOp, steps *[]string) (string, error) {
 	return fmt.Sprintf("%s transitionné vers « %s »", task.Key, op.TargetStatus), nil
 }
 
-func (d *DB) runStageOp(op TrackerOp, steps *[]string) (string, error) {
+func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	task, err := d.GetTaskByID(op.TaskID)
 	if err != nil || task == nil {
 		return "", fmt.Errorf("tâche introuvable")
@@ -708,7 +721,7 @@ func (d *DB) runStageOp(op TrackerOp, steps *[]string) (string, error) {
 
 	// 1. Transition if writer supports it and we have a target status
 	if writer != nil && writer.Supports(tracker.CapTransition) && op.TargetStatus != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		if err := writer.Transition(ctx, task.Key, op.TargetStatus); err != nil {
 			*steps = append(*steps, fmt.Sprintf("⚠️ Transition tracker %s échouée (%v), statut gardé en local", op.TargetStatus, err))
@@ -726,7 +739,7 @@ func (d *DB) runStageOp(op TrackerOp, steps *[]string) (string, error) {
 		}
 		if ts.Supports(tracker.CapUpdate) {
 			proj, _ := d.GetProjectByID(task.ProjectID)
-			if err := ts.UpdateIssue(context.Background(), tracker.UpdateIssueRequest{
+			if err := ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
 				Project:       proj,
 				Task:          task,
 				Key:           task.Key,
@@ -768,7 +781,7 @@ func (d *DB) runStageOp(op TrackerOp, steps *[]string) (string, error) {
 	return fmt.Sprintf("%s passé à l'étape « %s » [%s]", task.Key, cleanStage, targetLabel), nil
 }
 
-func (d *DB) runEpicHorizonOp(op TrackerOp, steps *[]string) (string, error) {
+func (d *DB) runEpicHorizonOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	note, err := d.PushEpicHorizonLabel(op.ProjectID, op.EpicKey, op.Horizon)
 	if err != nil {
 		return "", err
@@ -777,7 +790,7 @@ func (d *DB) runEpicHorizonOp(op TrackerOp, steps *[]string) (string, error) {
 	return note, nil
 }
 
-func (d *DB) runPushHorizonsOp(op TrackerOp, steps *[]string) (string, error) {
+func (d *DB) runPushHorizonsOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
 	pushed, failures, err := d.PushPendingHorizons(op.ProjectID)
 	if err != nil {
 		return "", err

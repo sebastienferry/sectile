@@ -1,7 +1,9 @@
 package db
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -126,12 +128,106 @@ func (d *DB) storeTeamMembers(teamID string, members []models.TeamMember) error 
 //
 // A failure on one team is not fatal for the others, and no team at all is not
 // an error either: a project may simply not use the field.
-func (d *DB) RefreshProjectTeamMembers(projectID string, tasks []models.Task) (string, error) {
-	return "aucune équipe à rafraîchir", nil
+func (d *DB) RefreshProjectTeamMembers(ctx context.Context, projectID string, tasks []models.Task) (string, error) {
+	teams := d.registerTeamsFromTasks(projectID, tasks)
+	if len(teams) == 0 {
+		return "aucune équipe portée par les tickets, rien à rafraîchir", nil
+	}
+
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return "", err
+	}
+	if !ts.Supports(tracker.CapTeam) {
+		return "", tracker.Unsupported(ts.Name(), tracker.CapTeam)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
+	defer cancel()
+
+	people := 0
+	refreshed := 0
+	var failures []string
+	for _, team := range teams {
+		members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: team.ID})
+		if err != nil {
+			// The team stays, its members unknown: a sync never fails on this.
+			failures = append(failures, fmt.Sprintf("%s: %v", team.Name, err))
+			log.Printf("[teams] membres de %s (%s) non lus: %v", team.Name, team.ID, err)
+			continue
+		}
+		for i := range members {
+			members[i].TeamName = team.Name
+		}
+		if err := d.storeTeamMembers(team.ID, members); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", team.Name, err))
+			continue
+		}
+		refreshed++
+		people += len(members)
+	}
+
+	note := fmt.Sprintf("%d équipe(s) rafraîchie(s), %d personne(s)", refreshed, people)
+	if len(failures) > 0 {
+		note += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
+	}
+	return note, nil
 }
 
+// RefreshTeamMembersNow re-reads one team on demand, for the refresh button of
+// the team view.
+// RefreshTeamMembersNow runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) RefreshTeamMembersNow(projectID string, teamID string) (*models.TrackerTeam, error) {
-	return nil, fmt.Errorf("rafraîchissement d'équipe Jira non supporté")
+	return d.RefreshTeamMembersNowAs(context.Background(), projectID, teamID)
+}
+
+// RefreshTeamMembersNowAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) RefreshTeamMembersNowAs(ctx context.Context, projectID string, teamID string) (*models.TrackerTeam, error) {
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return nil, fmt.Errorf("identifiant d'équipe manquant")
+	}
+
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapTeam) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapTeam)
+	}
+
+	d.mu.Lock()
+	d.ensureTeamsTables()
+	name := ""
+	_ = d.conn.QueryRow("SELECT name FROM teams WHERE id = ?", teamID).Scan(&name)
+	d.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
+	defer cancel()
+
+	members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: teamID})
+	if err != nil {
+		return nil, err
+	}
+	for i := range members {
+		members[i].TeamName = name
+	}
+	if err := d.storeTeamMembers(teamID, members); err != nil {
+		return nil, err
+	}
+
+	teams, err := d.ListProjectTeams(projectID, true)
+	if err != nil {
+		return nil, err
+	}
+	for i := range teams {
+		if teams[i].ID == teamID {
+			return &teams[i], nil
+		}
+	}
+	return &models.TrackerTeam{ID: teamID, Name: name, MemberCount: len(members), Members: members}, nil
 }
 
 // ListProjectTeams returns the teams carried by the project's work items, with
@@ -422,7 +518,15 @@ func (d *DB) GetTeamWorkload(projectID string, teamName string) (*models.TeamWor
 // of the ticket's own team come first with no query at all, because that is the
 // answer in the overwhelming majority of cases; typing then searches the whole
 // instance, which is what makes assigning outside the team possible.
+// SearchAssignableUsers runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) SearchAssignableUsers(taskIDOrKey string, query string) ([]models.TeamMember, error) {
+	return d.SearchAssignableUsersAs(context.Background(), taskIDOrKey, query)
+}
+
+// SearchAssignableUsersAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) SearchAssignableUsersAs(ctx context.Context, taskIDOrKey string, query string) ([]models.TeamMember, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("tâche non trouvée")
@@ -436,19 +540,56 @@ func (d *DB) SearchAssignableUsers(taskIDOrKey string, query string) ([]models.T
 		}
 	}
 
-	return []models.TeamMember{}, nil
+	// Typed, or no team known: ask the tracker who the work item accepts.
+	ts, err := d.TrackerForTask(task)
+	if err != nil || ts == nil || !ts.Supports(tracker.CapAssign) {
+		return []models.TeamMember{}, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
+	defer cancel()
+	people, err := ts.SearchAssignable(ctx, task.Key, query, 20)
+	if err != nil {
+		if tracker.IsUnsupported(err) {
+			return []models.TeamMember{}, nil
+		}
+		return nil, err
+	}
+	members := make([]models.TeamMember, 0, len(people))
+	for _, p := range people {
+		members = append(members, models.TeamMember{AccountID: p.ID, DisplayName: p.DisplayName, Email: p.Email, AvatarURL: p.AvatarURL, Active: p.Active, TeamName: task.Team, TeamID: task.TeamID})
+	}
+	return members, nil
 }
 
 // SearchTrackerTeams looks up the teams of the instance by name.
+// SearchTrackerTeams runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) SearchTrackerTeams(projectID string, query string) ([]models.TrackerTeam, error) {
-	return []models.TrackerTeam{}, nil
+	return d.SearchTrackerTeamsAs(context.Background(), projectID, query)
+}
+
+// SearchTrackerTeamsAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) SearchTrackerTeamsAs(ctx context.Context, projectID string, query string) ([]models.TrackerTeam, error) {
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapTeam) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapTeam)
+	}
+	// The caller's context, not a blank one: it names who is searching, and
+	// shadowing it here sent the search out under the server's credential.
+	ctx, cancel := context.WithTimeout(ctx, teamsAPITimeout)
+	defer cancel()
+	return ts.SearchTeams(ctx, tracker.TeamSearchRequest{Project: proj, Query: query})
 }
 
 // SetTasksTeam records the team locally on a batch of work items and queues the
 // tracker write. The team is optional, so an empty teamID is a valid instruction:
 // it clears the field. One activity carries the whole batch, which is what makes
 // triage usable on fifty tickets.
-func (d *DB) SetTasksTeam(projectID string, taskIDs []string, teamID string, teamName string) (*models.TaskActivity, error) {
+func (d *DB) SetTasksTeam(ctx context.Context, projectID string, taskIDs []string, teamID string, teamName string) (*models.TaskActivity, error) {
 	if len(taskIDs) == 0 {
 		return nil, fmt.Errorf("aucun ticket sélectionné")
 	}
@@ -493,7 +634,7 @@ func (d *DB) SetTasksTeam(projectID string, taskIDs []string, teamID string, tea
 		singleID = resolved[0]
 	}
 
-	return d.EnqueueTrackerOp(TrackerOp{
+	return d.EnqueueTrackerOp(ctx, TrackerOp{
 		Kind:      TrackerOpSetTeam,
 		ProjectID: projectID,
 		TaskID:    singleID,
@@ -505,13 +646,13 @@ func (d *DB) SetTasksTeam(projectID string, taskIDs []string, teamID string, tea
 }
 
 // SetTaskTeam is the single work item case, which is what the ticket panel uses.
-func (d *DB) SetTaskTeam(taskIDOrKey string, teamID string, teamName string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) SetTaskTeam(ctx context.Context, taskIDOrKey string, teamID string, teamName string) (*models.Task, *models.TaskActivity, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche non trouvée")
 	}
 
-	activity, err := d.SetTasksTeam(task.ProjectID, []string{task.ID}, teamID, teamName)
+	activity, err := d.SetTasksTeam(ctx, task.ProjectID, []string{task.ID}, teamID, teamName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -526,7 +667,7 @@ func (d *DB) SetTaskTeam(taskIDOrKey string, teamID string, teamName string) (*m
 // SetTasksSprint records the sprint locally and queues the tracker write, for one
 // work item or for a batch. Sprint membership belongs to the tracker's Agile API,
 // so the same rule as everywhere applies: local first, tracker in the queue.
-func (d *DB) SetTasksSprint(projectID string, taskIDs []string, sprintID string, sprintName string) (*models.TaskActivity, error) {
+func (d *DB) SetTasksSprint(ctx context.Context, projectID string, taskIDs []string, sprintID string, sprintName string) (*models.TaskActivity, error) {
 	if len(taskIDs) == 0 {
 		return nil, fmt.Errorf("aucun ticket sélectionné")
 	}
@@ -573,7 +714,7 @@ func (d *DB) SetTasksSprint(projectID string, taskIDs []string, sprintID string,
 		singleID = resolved[0]
 	}
 
-	return d.EnqueueTrackerOp(TrackerOp{
+	return d.EnqueueTrackerOp(ctx, TrackerOp{
 		Kind:       TrackerOpSetSprint,
 		ProjectID:  projectID,
 		TaskID:     singleID,
@@ -585,13 +726,13 @@ func (d *DB) SetTasksSprint(projectID string, taskIDs []string, sprintID string,
 }
 
 // SetTaskSprint is the single work item case, which is what the ticket panel uses.
-func (d *DB) SetTaskSprint(taskIDOrKey string, sprintID string, sprintName string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) SetTaskSprint(ctx context.Context, taskIDOrKey string, sprintID string, sprintName string) (*models.Task, *models.TaskActivity, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, nil, fmt.Errorf("tâche non trouvée")
 	}
 
-	activity, err := d.SetTasksSprint(task.ProjectID, []string{task.ID}, sprintID, sprintName)
+	activity, err := d.SetTasksSprint(ctx, task.ProjectID, []string{task.ID}, sprintID, sprintName)
 	if err != nil {
 		return nil, nil, err
 	}

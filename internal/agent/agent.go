@@ -299,7 +299,7 @@ func Run(args []string) {
 			return
 		}
 		child := exec.Command(binary, os.Args[1:]...)
-		child.Env = os.Environ()
+		child.Env = runner.SanitizedEnviron()
 		child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 		if err := child.Start(); err != nil {
 			log.Printf("[Agent] Restart failed: %v", err)

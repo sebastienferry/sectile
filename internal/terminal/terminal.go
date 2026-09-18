@@ -142,7 +142,7 @@ func (m *Manager) GetOrCreateSession(sessionID string, cwd string, envVars map[s
 	cmd.Dir = workDir
 
 	// Prepare environment
-	env := os.Environ()
+	env := runner.SanitizedEnviron()
 	customPath := runner.GetDynamicCustomPath()
 	separator := string(os.PathListSeparator)
 	foundPath := false

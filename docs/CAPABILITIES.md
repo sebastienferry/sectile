@@ -58,13 +58,20 @@ See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md).
 
 ## 2. Issue Tracker Abstraction Layer
 
-The server owns native GitHub REST/GraphQL adapters. It
-synchronizes, creates and updates issues and comments using explicit server
-credentials, even with all local agents offline. GitHub also supports milestone
-operations and issue transfer. Local tasks stay in SQLite. Jira metadata remains
-readable, but Jira synchronization is unsupported in this baseline.
+The server owns native GitHub REST/GraphQL and Jira Cloud REST adapters. It
+synchronizes, creates and updates issues and comments using explicit
+credentials, even with all local agents offline. A credential may belong to the
+person who asked for the operation rather than to the server, and it travels
+with the work all the way through the background queue: on a tracker that
+attributes a write to the account behind the token, that is what puts the right
+name on it. Jira accepts nothing else. GitHub also supports milestone
+operations and issue transfer. Jira additionally exposes what a board is made of
+— boards, columns, sprints, statuses, issue types, epics and teams — through the
+read side of the ticketing abstraction, and writes sprint, team and epic. Local
+tasks stay in SQLite.
 
-Projects specify `githubRepo` (`owner/repository`).
+Projects specify `githubRepo` (`owner/repository`) or `jiraProject` (the Jira
+project key) with `trackerUrl` (the site).
 Workstation CLI credentials and local repository paths are never used by the
 server. Remote writes remain queued and their actual HTTP/API failures appear
 in Activities. See [server credential configuration](../README.md#server-tracker-credentials).
@@ -141,7 +148,8 @@ as an activity (`skillId: install_spec_framework`).
 Prerequisites are the user's responsibility and are reported rather than
 installed silently: Spec Kit needs `uv` (`curl -LsSf https://astral.sh/uv/install.sh | sh`),
 OpenSpec needs Node.js. The CLI status panel surfaces `uv`, `specify` and
-`openspec` alongside `git`, `gh` and `acli`.
+`openspec` alongside `git` and `gh`. Trackers need no CLI at all: the server
+reaches them over HTTP.
 
 Note: OpenSpec is a Spec-Driven Design workflow, unrelated to **OpenFeature**
 (a feature-flag standard). Earlier builds stored `openfeature` as a spec

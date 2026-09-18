@@ -67,7 +67,7 @@ func (r *Runner) runCommand(ctx context.Context, dir string, name string, args .
 	}
 
 	// Inherit and extend PATH dynamically to include ~/.local/bin and Homebrew paths
-	env := os.Environ()
+	env := SanitizedEnviron()
 	customPath := GetDynamicCustomPath()
 	foundPath := false
 	for i, e := range env {
@@ -178,15 +178,6 @@ func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
 
 	return results
 }
-
-// -------------------------------------------------------------
-// JIRA CLI (acli) INTEGRATION
-// -------------------------------------------------------------
-
-// jiraSearchFields is the exact set of fields acli accepts for
-// 'jira workitem search --fields'. Notably 'created' and 'updated' are
-// rejected by the CLI, so task timestamps fall back to the import time.
-const jiraSearchFields = "key,summary,description,status,priority,assignee,labels,issuetype"
 
 // NormalizeIssueTypes cleans a configured list of work item types.
 func NormalizeIssueTypes(types []string) []string { return models.NormalizeIssueTypes(types) }
@@ -1040,7 +1031,7 @@ func (r *Runner) OpenInEditor(editorCmd string, targetPath string) error {
 	}
 
 	cmd := exec.Command(bin, args...)
-	cmd.Env = append(os.Environ(), "PATH="+prefixedPath())
+	cmd.Env = append(SanitizedEnviron(), "PATH="+prefixedPath())
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to open in '%s': %w", editorCmd, err)

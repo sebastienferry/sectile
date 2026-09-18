@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"tasks/internal/agentexec"
 	"tasks/internal/agenthttp"
+	"tasks/internal/runner"
 	"time"
 
 	"tasks/internal/agentconfig"
@@ -195,7 +195,7 @@ func (d *agentDaemon) postRunOutput(taskRef, runID, chunk string) {
 // commandEnv turns the run environment into the form exec expects, inheriting
 // the agent's own environment so the provider CLI finds its PATH and credentials.
 func commandEnv(envVars map[string]string) []string {
-	env := append([]string{}, os.Environ()...)
+	env := runner.SanitizedEnviron()
 	for key, value := range envVars {
 		env = append(env, fmt.Sprintf("%s=%s", key, value))
 	}

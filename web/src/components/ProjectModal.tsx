@@ -44,6 +44,7 @@ import type {
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { AIModelField } from './AIModelField'
 import { isValidModel } from '../lib/aiModels'
+import { PROJECT_TRACKERS } from '../lib/trackers'
 
 type ProjectTab = 'general' | 'agent' | 'workflow' | 'tracker' | 'skills'
 
@@ -126,6 +127,8 @@ export const ProjectModal: React.FC = () => {
     deleteProject,
     fetchProjectIssueTypes,
     setIsTrackerSetupOpen,
+    userCredentials,
+    refreshUserCredentials,
     settings,
     t,
   } = useApp()
@@ -180,6 +183,12 @@ export const ProjectModal: React.FC = () => {
   // Section 5: Tracker (Type, URL, Clef, Mapping)
   const [issueTracker, setIssueTracker] = useState<IssueTracker>('local')
   const [trackerUrl, setTrackerUrl] = useState('')
+
+  // L'instance d'un projet Jira part de celle de la personne : il faut donc
+  // connaître ses accès avant qu'elle ne choisisse le tracker.
+  useEffect(() => {
+    void refreshUserCredentials()
+  }, [refreshUserCredentials])
   const [githubRepo, setGithubRepo] = useState('')
   // Paramètres de connexion propres au projet. Vides, ce sont ceux de la
   // configuration utilisateur qui s'appliquent : un projet n'en a besoin que
@@ -1000,11 +1009,22 @@ export const ProjectModal: React.FC = () => {
                     const newTrk = e.target.value as IssueTracker
                     setIssueTracker(newTrk)
                     fetchDetectedStatuses(newTrk)
+                    // Le projet part de l'instance de la personne, celle que
+                    // porte son accès personnel, et retombe sur celle du
+                    // serveur. Une valeur déjà saisie ici n'est pas écrasée.
+                    if (newTrk === 'jira' && !trackerUrl.trim()) {
+                      const mine = userCredentials.find(c => c.tracker === 'jira')?.siteUrl?.trim()
+                      const inherited = mine || settings.jiraUrl?.trim()
+                      if (inherited) setTrackerUrl(inherited)
+                    }
                   }}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium cursor-pointer"
                 >
-                  <option value="local">Sectile (Local)</option>
-                  <option value="github">GitHub Issues</option>
+                  {PROJECT_TRACKERS.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1202,7 +1222,7 @@ export const ProjectModal: React.FC = () => {
                       <Key size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
                     </div>
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      Passée à <code className="text-cyan-400">acli jira workitem --project</code>. La CLI Atlassian doit être authentifiée (<code className="text-cyan-400">acli jira auth login</code>).
+                      Le projet interrogé par la synchronisation REST. Le site, l'e-mail et le jeton se configurent dans <em>Connecter votre tracker</em>.
                     </span>
                   </div>
                 )}
@@ -1264,6 +1284,11 @@ export const ProjectModal: React.FC = () => {
                 <div className={issueTracker === 'local' ? 'col-span-2' : ''}>
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                     {issueTracker === 'jira' ? 'URL Jira (base)' : 'URL du Tracker'}
+                    {issueTracker === 'jira' && trackerUrl.trim() && trackerUrl.trim() === userCredentials.find(c => c.tracker === 'jira')?.siteUrl?.trim() ? (
+                      <span className="ml-1 font-normal normal-case text-[9px] text-[var(--text-muted)]">
+                        reprise de votre accès
+                      </span>
+                    ) : null}
                   </label>
                   <div className="relative">
                     <input

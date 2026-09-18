@@ -417,9 +417,8 @@ actions, and choose **Quick add task** or **Tasks list**. Enter runs the first
 matching action. The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.
 The server creates the task using its project tracker configuration.
-GitHub and Linear creation must succeed remotely; errors do not silently create
-a local fallback. Local projects remain local. Jira remote creation is not
-implemented and returns an explicit error. Creation does not start an execution;
+GitHub and Jira creation must succeed remotely; errors do not silently create
+a local fallback. Local projects remain local. Creation does not start an execution;
 the success screen offers a separate **Launch task** action.
 
 The task launcher excludes finished tasks, including the finished workflow

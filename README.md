@@ -13,8 +13,9 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 
 - **Server-side tracker integration**:
   - GitHub REST supports synchronization, issue creation, updates and comments without an online agent.
+  - Jira Cloud REST supports the same, plus the sprint, team and epic fields GitHub does not have, over the account's API token.
   - Configure explicit server credentials and repository/team identifiers. CLI login state is not used by the server.
-  - Local tasks remain in SQLite. Jira metadata remains readable, but this baseline does not implement Jira synchronization or mutations.
+  - Local tasks remain in SQLite.
   - Tracker queues expose actual API errors in Activities.
 
 - 📐 **Frameworks Spec-Driven Design installables (Spec Kit & OpenSpec)** :
@@ -146,6 +147,47 @@ Tokens are write-only: the API never returns one. It reports `githubTokenSet` /
 `gitlabTokenSet` / `jiraApiTokenSet` instead, plus `...FromEnv` when no token is
 stored and the server environment supplies one. Saving with an empty token field
 keeps the stored token; sending the sentinel `__clear__` deletes it.
+
+**A Jira credential is personal, and only personal.** An Atlassian account
+belongs to a site, so the site, the account e-mail and the token travel
+together: all three are stored from the person's own profile, in *Connecter
+votre tracker*. A project put on Jira prefills its tracker URL from the
+instance of whoever creates it. No server-wide Jira credential appears in the
+interface at all; the `SECTILE_JIRA_*` variables remain only as a fallback for
+unattended work. An operation somebody asked for either carries their own token
+or is refused, because writing it under the server account would put a name on
+it that nobody chose.
+
+**A tracker credential can be personal.** On Jira a comment, an assignment and
+a transition are attributed to the account whose token made the call, so a
+shared token makes the whole team sign as one integration account. *Profil >
+Trackers* therefore holds one zone per tracker Sectile can drive. Jira accepts
+only a personal credential; GitHub accepts either, and falls back to the server
+token where nobody stored one. A personal token is encrypted with AES-256-GCM,
+bound to its owner and to its tracker, with the key held outside the database
+(`SECTILE_SECRET_KEY`, or a 0600 file beside it — `secret.key`, which belongs
+in no backup the database is in). A row moved from one user to another stops
+opening. The server starts without the key and refuses only what would need it.
+
+Optionally, a **sealing passphrase** derives the key instead, through Argon2id,
+and is never stored. Nothing can then open that token without its owner, the
+server included. The cost is stated in the screen at the moment of the choice:
+Sectile writes to trackers from a background queue, and a sealed token is
+unusable there until its owner unlocks it. A locked credential fails the
+operation rather than falling back to the server token, which would write under
+a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credentials-are-sealed.md).
+
+The background queue carries whoever asked: a sync, a field update and every
+tracker operation record the acting user on the job, and the worker puts them
+back before resolving a credential. Only work nobody asked for — the auto-sync
+timer — names nobody and keeps the server credential.
+
+Jira asks for the site (`mon-org.atlassian.net`), the account e-mail and an
+Atlassian API token, which authenticate as `email:token`. Its environment
+fallbacks are `SECTILE_JIRA_URL`, `SECTILE_JIRA_EMAIL` and `SECTILE_JIRA_TOKEN`,
+then `SECTILE_TRACKER_TOKEN` and `JIRA_API_TOKEN`. A project overrides the site
+through its `trackerUrl`; the e-mail and the token stay global, one Atlassian
+token being valid on every site of the account.
 
 GitLab parameters can be stored, but no GitLab ticketing adapter is registered
 yet: a project whose tracker is GitLab still fails with the tracker registry's
@@ -806,9 +848,9 @@ for the only configured project, or for a project you pick when several apply.
 For **Quick add task**: The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.
 The server creates the task using its project tracker configuration.
-GitHub creation must succeed remotely; errors do not silently create
-a local fallback. Local projects remain local. Jira remote creation is not
-implemented and returns an explicit error. Creation does not start an execution;
+GitHub and Jira creation must succeed remotely; errors do not silently create
+a local fallback, and the site's own refusal is quoted, so a mandatory field it
+requires is readable. Local projects remain local. Creation does not start an execution;
 the success screen offers a separate **Launch task** action.
 
 Task IDs in the desktop sidebar and in the Tickets pane open the task directly on the configured Sectile server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.

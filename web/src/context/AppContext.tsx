@@ -42,6 +42,7 @@ import type {
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
+import type { StoredUserCredential } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import {
   INTERNAL_STATUS_BY_STAGE,
@@ -114,6 +115,12 @@ interface AppContextType {
   setIsTrackerSetupOpen: (open: boolean) => void
   /** Vérifie des accès tracker sans rien enregistrer. */
   checkTrackerCredentials: (params: TrackerCredentials) => Promise<TrackerCheck>
+  /** Les accès personnels de la personne connectée, jetons exclus. */
+  userCredentials: StoredUserCredential[]
+  refreshUserCredentials: () => Promise<void>
+  saveUserCredential: (params: { tracker: string; siteUrl?: string; email?: string; token: string; passphrase?: string }) => Promise<boolean>
+  unlockUserCredential: (tracker: string, passphrase: string) => Promise<boolean>
+  clearUserCredential: (tracker: string) => Promise<boolean>
   /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
   saveTrackerCredentials: (params: TrackerCredentials) => Promise<boolean>
   /**
@@ -1059,6 +1066,60 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     fetchTaskFacets()
   }, [fetchTaskFacets, tasks.length])
+
+  const [userCredentials, setUserCredentials] = useState<StoredUserCredential[]>([])
+
+  // Les accès personnels ne transitent jamais avec le jeton : l'API renvoie
+  // seulement ce qu'elle sait d'eux, et cet état ne sert qu'à l'afficher.
+  const refreshUserCredentials = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/me/tracker-credentials`)
+      if (!res.ok) return
+      const data = await res.json().catch(() => ({}))
+      setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
+    } catch {
+      // Un serveur injoignable n'est pas une absence d'accès : on garde l'état.
+    }
+  }, [])
+
+  const userCredentialCall = useCallback(
+    async (path: string, method: string, body?: unknown, failure?: string, success?: string): Promise<boolean> => {
+      try {
+        const res = await fetch(`${API_BASE}/me/tracker-credentials${path}`, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(data.error || failure || 'Opération refusée')
+        setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
+        if (success) addToast({ type: 'success', title: success })
+        return true
+      } catch (err: any) {
+        addToast({ type: 'error', title: failure || 'Accès personnel', description: err.message })
+        return false
+      }
+    },
+    []
+  )
+
+  const saveUserCredential = useCallback(
+    (params: { tracker: string; siteUrl?: string; email?: string; token: string; passphrase?: string }) =>
+      userCredentialCall('', 'PUT', params, 'Accès personnel non enregistré'),
+    [userCredentialCall]
+  )
+
+  const unlockUserCredential = useCallback(
+    (tracker: string, passphrase: string) =>
+      userCredentialCall('/unlock', 'POST', { tracker, passphrase }, 'Déverrouillage refusé', 'Jeton descellé'),
+    [userCredentialCall]
+  )
+
+  const clearUserCredential = useCallback(
+    (tracker: string) =>
+      userCredentialCall(`?tracker=${encodeURIComponent(tracker)}`, 'DELETE', undefined, 'Suppression refusée', 'Accès oublié'),
+    [userCredentialCall]
+  )
 
   const checkTrackerCredentials = useCallback(
     async (params: TrackerCredentials): Promise<TrackerCheck> => {
@@ -3175,6 +3236,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isTrackerSetupOpen,
         setIsTrackerSetupOpen,
         checkTrackerCredentials,
+        userCredentials,
+        refreshUserCredentials,
+        saveUserCredential,
+        unlockUserCredential,
+        clearUserCredential,
         saveTrackerCredentials,
         sourceFilter,
         setSourceFilter,

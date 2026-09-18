@@ -9,15 +9,17 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/trackerapi"
 )
 
 // Boucle de synchronisation de fond.
 //
-// Une passe complète d'un projet Jira coûte une requête par tranche de cent
-// tickets: quatorze pour un projet de mille quatre cents. La répéter toutes les
-// minutes serait à la fois inutile et grossier envers l'instance. La boucle lit
-// donc uniquement ce qui a bougé, par une JQL bornée sur `updated`, ce qui tient
-// en une seule requête et répond le plus souvent zéro ticket.
+// Une passe complète d'un projet coûte une requête par tranche de cent tickets:
+// quatorze pour un projet de mille quatre cents. La répéter toutes les minutes
+// serait à la fois inutile et grossier envers l'instance. La boucle met donc en
+// file une relecture unitaire de chaque ticket non terminé du projet, par le
+// GetIssue de son tracker; la lecture incrémentale par JQL bornée sur `updated`
+// que la fenêtre ci-dessous calcule n'est pas encore branchée sur l'adaptateur.
 //
 // Trois garde-fous complètent cela: une seule passe à la fois par projet, un
 // recul progressif quand l'instance répond qu'elle en a assez (429), et une
@@ -156,9 +158,8 @@ func (d *DB) runAutoSyncPassGuarded(settings *models.Settings) {
 	d.runAutoSyncPass(settings)
 }
 
-// runAutoSyncPass reads what changed on every Jira project that can be read over
-// REST, and writes it locally. Projects without an API token are skipped rather
-// than falling back on acli, which cannot read incrementally.
+// runAutoSyncPass queues a re-read of every unfinished work item of every
+// project that opted in, through the project's own tracker.
 func (d *DB) runAutoSyncPass(settings *models.Settings) {
 	defer func() {
 		d.auto.mu.Lock()
@@ -257,6 +258,9 @@ func (d *DB) autoSyncWindow(projectID string) int {
 func isRateLimited(err error) bool {
 	if err == nil {
 		return false
+	}
+	if trackerapi.IsRateLimited(err) {
+		return true
 	}
 	msg := err.Error()
 	return strings.Contains(msg, "429") || strings.Contains(strings.ToLower(msg), "rate limit")

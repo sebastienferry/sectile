@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // Board columns are Jira-like: a column is a name plus the tracker statuses it
@@ -18,22 +20,71 @@ import (
 
 const boardAPITimeout = 60 * time.Second
 
+// trackerReaderFor resolves a project and the tracker that answers for it. The
+// caller then asks the tracker whether it has the notion at hand, so a project
+// on a tracker without boards gets a limit named, not a failure.
+func (d *DB) trackerReaderFor(projectID string) (tracker.TicketingSystem, *models.Project, error) {
+	proj, err := d.GetProjectByID(projectID)
+	if err != nil || proj == nil {
+		return nil, nil, fmt.Errorf("projet non trouvé")
+	}
+	ts, err := d.TrackerForProject(proj)
+	if err != nil {
+		return nil, proj, err
+	}
+	return ts, proj, nil
+}
+
 // ListProjectTrackerBoards returns the tracker boards attached to a project.
+// ListProjectTrackerBoards runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) ListProjectTrackerBoards(projectID string) ([]models.TrackerBoard, error) {
-	return []models.TrackerBoard{}, nil
+	return d.ListProjectTrackerBoardsAs(context.Background(), projectID)
+}
+
+// ListProjectTrackerBoardsAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) ListProjectTrackerBoardsAs(ctx context.Context, projectID string) ([]models.TrackerBoard, error) {
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapBoard) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
+	}
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+	return ts.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
 }
 
 // ListProjectIssueTypes returns the work item types the project's tracker
 // exposes, for the settings that pick which ones are imported.
+// ListProjectIssueTypes runs with no acting user, which is what an unattended caller
+// does: a tracker whose credential is personal then uses the server one.
 func (d *DB) ListProjectIssueTypes(projectID string) ([]string, error) {
-	return []string{}, nil
+	return d.ListProjectIssueTypesAs(context.Background(), projectID)
+}
+
+// ListProjectIssueTypesAs runs on behalf of whoever asked, so a personal tracker
+// credential can be resolved for the call.
+func (d *DB) ListProjectIssueTypesAs(ctx context.Context, projectID string) ([]string, error) {
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapBoard) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
+	}
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+	return ts.ListIssueTypes(ctx, tracker.ProjectRequest{Project: proj})
 }
 
 // ImportProjectBoardColumns retains a board for the project then refreshes from
 // it. Le bouton « Détecter » et la synchro doivent donner le même résultat, donc
 // les deux passent par la même fusion : elle préserve les statuts affectés à la
 // main et les colonnes masquées, et ramène les sprints avec leur état.
-func (d *DB) ImportProjectBoardColumns(projectID string, boardID string) (*models.Project, error) {
+func (d *DB) ImportProjectBoardColumns(ctx context.Context, projectID string, boardID string) (*models.Project, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
 		return nil, fmt.Errorf("projet non trouvé")
@@ -53,7 +104,7 @@ func (d *DB) ImportProjectBoardColumns(projectID string, boardID string) (*model
 		}
 	}
 
-	if _, err := d.SyncProjectBoardColumns(proj.ID); err != nil {
+	if _, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
 		return nil, err
 	}
 	return d.GetProjectByID(proj.ID)
@@ -153,7 +204,7 @@ func (d *DB) GetProjectTrackerStatuses(projectID string) ([]string, error) {
 // dropped in; the tracker call runs in the activity queue, where a refusal stays
 // readable instead of being lost in an expired request. The returned task is the
 // local state, the returned activity is the transition to follow.
-func (d *DB) MoveTaskToTrackerStatus(taskIDOrKey string, statusName string) (*models.Task, *models.TaskActivity, error) {
+func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, statusName string) (*models.Task, *models.TaskActivity, error) {
 	statusName = strings.TrimSpace(statusName)
 	if statusName == "" {
 		return nil, nil, fmt.Errorf("statut cible manquant")
@@ -193,7 +244,7 @@ func (d *DB) MoveTaskToTrackerStatus(taskIDOrKey string, statusName string) (*mo
 		return nil, nil, execErr
 	}
 
-	activity, opErr := d.EnqueueTrackerOp(TrackerOp{
+	activity, opErr := d.EnqueueTrackerOp(ctx, TrackerOp{
 		Kind:         TrackerOpTransition,
 		ProjectID:    task.ProjectID,
 		TaskID:       task.ID,
@@ -218,10 +269,154 @@ func (d *DB) MoveTaskToTrackerStatus(taskIDOrKey string, statusName string) (*mo
 // the tracker maps nowhere, such as a workflow status absent from the board,
 // therefore stays where the user put it.
 //
-// Called at the end of a Jira sync, so the board follows the tracker without a
-// manual import.
-func (d *DB) SyncProjectBoardColumns(projectID string) (string, error) {
-	return "", nil
+// Called at the end of a sync on a tracker with boards, so the board follows
+// the tracker without a manual import.
+func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (string, error) {
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return "", err
+	}
+	if !ts.Supports(tracker.CapBoard) {
+		return "", tracker.Unsupported(ts.Name(), tracker.CapBoard)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+
+	boardID := strings.TrimSpace(proj.BoardID)
+	if boardID == "" {
+		// No board chosen yet: the first scrum board of the project is the one
+		// that carries columns worth mirroring.
+		boards, err := ts.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+		if err != nil {
+			return "", err
+		}
+		for _, b := range boards {
+			if strings.EqualFold(b.Type, "scrum") {
+				boardID = b.ID
+				break
+			}
+		}
+		if boardID == "" && len(boards) > 0 {
+			boardID = boards[0].ID
+		}
+		if boardID == "" {
+			return "", fmt.Errorf("aucun board sur le projet %s", proj.Name)
+		}
+	}
+
+	remote, err := ts.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
+	if err != nil {
+		return "", err
+	}
+
+	// Statuses the tracker assigns, so a manual assignment cannot duplicate one.
+	claimed := map[string]bool{}
+	for _, col := range remote {
+		for _, st := range col.Statuses {
+			claimed[strings.ToLower(st)] = true
+		}
+	}
+
+	previousByName := map[string][]string{}
+	// Hiding a column is the user's display choice: it survives a re-read of
+	// the board, which only knows names, order and statuses.
+	previousHidden := map[string]bool{}
+	for _, col := range proj.TrackerColumns {
+		previousByName[strings.ToLower(col.Name)] = col.Statuses
+		previousHidden[strings.ToLower(col.Name)] = col.Hidden
+	}
+
+	merged := make([]models.TrackerColumn, 0, len(remote))
+	for _, col := range remote {
+		statuses := append([]string{}, col.Statuses...)
+		seen := map[string]bool{}
+		for _, st := range statuses {
+			seen[strings.ToLower(st)] = true
+		}
+		for _, st := range previousByName[strings.ToLower(col.Name)] {
+			key := strings.ToLower(st)
+			if seen[key] || claimed[key] {
+				continue
+			}
+			statuses = append(statuses, st)
+			seen[key] = true
+		}
+		merged = append(merged, models.TrackerColumn{Name: col.Name, Statuses: statuses, Hidden: previousHidden[strings.ToLower(col.Name)]})
+	}
+
+	// Columns the user created and the tracker does not know are kept at the end
+	// rather than silently dropped: they may hold statuses nothing else claims.
+	remoteNames := map[string]bool{}
+	for _, col := range remote {
+		remoteNames[strings.ToLower(col.Name)] = true
+	}
+	for _, col := range proj.TrackerColumns {
+		if remoteNames[strings.ToLower(col.Name)] {
+			continue
+		}
+		kept := []string{}
+		for _, st := range col.Statuses {
+			if !claimed[strings.ToLower(st)] {
+				kept = append(kept, st)
+			}
+		}
+		if len(kept) > 0 {
+			merged = append(merged, models.TrackerColumn{Name: col.Name, Statuses: kept, Hidden: col.Hidden})
+		}
+	}
+
+	// Stage assignments are keyed by column name: drop the ones whose column
+	// disappeared, keep the rest untouched.
+	names := map[string]bool{}
+	for _, col := range merged {
+		names[col.Name] = true
+	}
+	stages := map[string][]string{}
+	for stage, cols := range proj.StageColumns {
+		kept := []string{}
+		for _, c := range cols {
+			if names[c] {
+				kept = append(kept, c)
+			}
+		}
+		if len(kept) > 0 {
+			stages[stage] = kept
+		}
+	}
+
+	// The sprints follow at the same time: their state is what separates NOW
+	// (active sprint) from NEXT (future sprint) in the roadmap.
+	sprints := proj.Sprints
+	sprintErr := tracker.Unsupported(ts.Name(), tracker.CapSprint)
+	if ts.Supports(tracker.CapSprint) {
+		var remoteSprints []models.TrackerSprint
+		remoteSprints, sprintErr = ts.ListSprints(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
+		if sprintErr == nil {
+			sprints = remoteSprints
+		}
+	}
+
+	if _, err := d.UpdateProject(proj.ID, models.UpdateProjectRequest{
+		BoardID:        &boardID,
+		TrackerColumns: &merged,
+		StageColumns:   &stages,
+		Sprints:        &sprints,
+	}); err != nil {
+		return "", err
+	}
+
+	note := fmt.Sprintf("%d colonnes du board %s reprises", len(merged), boardID)
+	if sprintErr == nil {
+		active := 0
+		for _, sp := range sprints {
+			if sp.State == "active" {
+				active++
+			}
+		}
+		note = fmt.Sprintf("%s, %d sprints (%d actifs)", note, len(sprints), active)
+	}
+	return note, nil
 }
 
 // Le mapping du projet fait le lien entre statut du tracker, colonne et étape du

@@ -165,7 +165,14 @@ func TestImportOrUpdateTasksPinnedSync(t *testing.T) {
 		t.Fatalf("ImportOrUpdateTasks failed: %v", err)
 	}
 
-	task, err := database.GetTaskByID("sync-task-1")
+	// A synced work item takes the identity its tracker gives it, whatever the
+	// importer proposed: jira-<KEY> here, the default project being nameless.
+	jira, _ := database.TrackerRegistry().Get("jira")
+	taskID := jira.FormatTaskID("default", "JIRA-101", "sync-task-1")
+	if taskID != "jira-JIRA-101" {
+		t.Fatalf("unexpected canonical identity %q", taskID)
+	}
+	task, err := database.GetTaskByID(taskID)
 	if err != nil || task == nil {
 		t.Fatalf("GetTaskByID failed: %v", err)
 	}
@@ -184,7 +191,7 @@ func TestImportOrUpdateTasksPinnedSync(t *testing.T) {
 		t.Fatalf("ImportOrUpdateTasks (update) failed: %v", err)
 	}
 
-	task, _ = database.GetTaskByID("sync-task-1")
+	task, _ = database.GetTaskByID(taskID)
 	if task.Pinned {
 		t.Errorf("expected task to no longer be Pinned after remote unpin")
 	}
