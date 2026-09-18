@@ -9,6 +9,7 @@ test('console next step rechecks task state, guards active history and handles f
  const runs=()=>[
   {id:'old',taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:'clarify',status:'completed'},
   {id:'other',taskId:'task-b',taskKey:'#2',projectId:'project-a',skill:'clarify',status:'completed'},
+  // One run per launch, each with its own id: the renderer only treats a launch as started once a run it had not seen appears.
   ...launches.map((launch,index)=>({id:'new-'+index,taskId:'task-a',taskKey:'#1',projectId:'project-a',skill:launch.skillID,status:active&&index===launches.length-1?'queued':'completed'}))
  ]
  const server=http.createServer((req,res)=>{
