@@ -56,6 +56,12 @@ epics both read and written.
   (boards, columns, sprints, statuses, issue types, epics, teams and their
   members) through `TicketingSystem`, so the server never names a tracker to
   fetch them.
+- `personal-tracker-credentials`: a tracker credential belongs to the person who
+  uses it, stored encrypted and bound to its owner, optionally sealed behind a
+  passphrase only they know, and carried to the tracker by whoever asked for the
+  operation. Added during implementation, once it became clear that a shared
+  token makes a whole team sign as one integration account on a tracker that
+  attributes its writes.
 
 ### Modified Capabilities
 None: no `openspec/specs/` entry covers the tracker abstraction yet.
@@ -74,6 +80,9 @@ loop keeps its per-task `GetIssue`); pull-request and merge-request handling.
   token pagination, `CheckJira`), new `jira.go`, `jira_mapping.go`,
   `jira_fields.go`, `jira_teams.go`, `adf.go` and their tests; `adapters.go`
   (registration).
+- `internal/secrets` (new), `internal/db/usercredentials.go` (new),
+  `internal/handlers/usercredentials.go` (new), and the acting user carried in
+  `context.Context` through `internal/tracker`.
 - `internal/db/trackercredentials.go`, `db.go` (`processSyncJob`,
   `EnqueueSync`, project status listing, `enqueueTrackerUpdateUnsafe` wording),
   `board.go`, `teams.go`, `autosync.go` header comment.

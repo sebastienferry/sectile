@@ -39,3 +39,13 @@
 - [x] 6.3 Write ADR `0013-labels-carry-the-stage-on-jira.md`: labels as the stage carrier, transitions on close only, the rejected status-driven alternative.
 - [x] 6.4 Update `.agents/MEMORY.md` §2 (the `jira` adapter, the read side, the ADF subset, the gateway teams path as a known soft dependency).
 - [x] 6.5 Run `make test`, `gofmt` check and the web tests; record the output in the implementation report. Run `cmd/server/runtime_boundary_test.go` explicitly.
+
+## 7. Personal tracker credentials (added during implementation)
+- [x] 7.1 Add `internal/secrets`: AES-256-GCM sealing bound to `(user id, tracker)`, a server key from `SECTILE_SECRET_KEY` or a 0600 file beside the database, and an Argon2id passphrase mode; tests including a record moved between owners.
+- [x] 7.2 Add `user_tracker_credentials` with the site, e-mail, encrypted record, sealed flag and salt, plus store, clear, unlock, lock and resolve.
+- [x] 7.3 Carry the acting user in `context.Context` (`tracker.WithActingUser`), resolve the personal credential in `trackerapi.Client.ForActingUser`, and refuse a Jira operation a person asked for without their own token.
+- [x] 7.4 Carry the acting user onto queued work: `SkillJob.ActingUser` for syncs and field updates, `TrackerOp.UserID` for operations, and put it back into the context in each worker.
+- [x] 7.5 Add `/api/me/tracker-credentials` with its listing, store, delete, unlock and lock, guarded by the session; keep `/api/me` an exact public path.
+- [x] 7.6 Add the Trackers tab with one activatable zone per tracker, sharing its form with the first-run connection screen.
+- [x] 7.7 Start without the key, refusing only the operations that need it, and document the variable in the server image.
+- [x] 7.8 Write ADR 0014 and update the README, the API specification and the project memory.
