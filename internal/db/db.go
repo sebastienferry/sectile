@@ -123,6 +123,9 @@ type DB struct {
 	cancelMu          sync.Mutex
 	postBackListeners []PostBackListener
 	postBackMu        sync.RWMutex
+	// jobs counts the queue work in flight, so Close can wait for it instead of
+	// pulling the database out from under a write.
+	jobs sync.WaitGroup
 }
 
 func NewDB(dbPath string) (*DB, error) {
@@ -175,7 +178,21 @@ func NewDB(dbPath string) (*DB, error) {
 	return db, nil
 }
 
+// Close waits for the queue work already running before closing the database.
+// Those jobs write, and closing under them turns an ordinary write into
+// "database is closed"; in a test it also races the temporary directory's own
+// cleanup, which then fails on a directory that is not empty. The wait is
+// bounded so one stuck job cannot hold a shutdown open.
 func (d *DB) Close() error {
+	drained := make(chan struct{})
+	go func() {
+		d.jobs.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+	}
 	return d.conn.Close()
 }
 
@@ -3374,7 +3391,9 @@ func (d *DB) GetAvailableSkills() []models.Skill {
 
 func (d *DB) startQueueWorker() {
 	for job := range d.jobQueue {
+		d.jobs.Add(1)
 		go func(j SkillJob) {
+			defer d.jobs.Done()
 			projID := j.ProjectID
 			if projID == "" && j.TaskID != "" {
 				d.mu.RLock()
