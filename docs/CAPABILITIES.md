@@ -222,11 +222,20 @@ outranks a bare model, whatever level that bare model sits on.
 
 A launch adds a fourth and most specific level. The task detail view's launcher
 and the task card's `...` menu both offer the models configured for the task
-project's provider, and a model picked there governs that run alone: it outranks
-every configured level, the workstation override included, and nothing is written
-back to any setting. The model the configured levels resolve is the default on
-both surfaces, and choosing it sends no override at all, so a launch nobody
-touched builds the same command line as before.
+project's provider, and a model picked there outranks every configured level,
+the workstation override included, without writing anything back to a setting.
+The model the configured levels resolve is the default on both surfaces, and
+keeping it sends no override at all, so a launch nobody touched builds the same
+command line as before.
+
+The two surfaces differ in how long the choice lasts. In the detail view the
+selector applies to the launches made from that view. On a card the submenu is a
+selection the card keeps: one model is ticked, picking another starts nothing,
+and the card shows it in four characters at most right before its action
+buttons. Every launch started from that card then uses it, the full chain
+included, which from a card is a single `pickup` run. The selection is kept per
+task and survives a reload; a model the project's engine no longer offers is
+ignored, and the card falls back to the configured one.
 
 Neither launch surface accepts free text. The models each provider may run are a
 global setting, `aiProviderModels`, edited in the AI engine section of the

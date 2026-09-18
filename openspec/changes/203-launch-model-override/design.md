@@ -75,12 +75,20 @@ is marked as current; picking it sends no override. The remaining entries are
 the models configured for the task project's provider, minus the current one
 when it is already among them.
 
-- **Card menu** (`TaskCard.tsx:322`, the shared `modeActions` fragment): an
-  `Advance with model…` entry opening a nested list, each row launching the next
-  step under that model in the configured execution mode. The card is made of
-  one-click entries, so a nested list is the only shape that fits; the submenu
-  does not multiply the mode entries by the model entries, and a user who wants
-  to depart from both picks them in the detail view.
+- **Card menu** (`TaskCard.tsx`, the shared `modeActions` fragment): an entry
+  opening a nested list that *selects* rather than launches. One row is ticked,
+  picking another only changes what the card retains, and the card announces it
+  in four characters at most right before its action buttons. Every control of
+  the card then uses it. Separating the choice from the launch is what makes a
+  model usable with the controls that already exist, instead of duplicating each
+  of them per model; it also lets the full chain carry the model, since from a
+  card that chain is a single `pickup` run.
+
+  The selection is remembered per task in `localStorage`
+  (`web/src/lib/launchModel.ts`), like the board display mode: it describes how
+  the user wants to work on that ticket, not a single click. A selection the
+  project's provider no longer offers is ignored, so changing a project's engine
+  or trimming its list cannot launch a model that is no longer on the list.
 - **Detail view** (`TaskDetailModal.tsx:1463`): a `<select>` beside the existing
   mode selector, defaulting to the current model, applying to the interactive,
   autonomous and configured-mode buttons of every skill row alike.

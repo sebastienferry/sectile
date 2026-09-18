@@ -2425,9 +2425,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // lieu de laisser la précédence décider, sinon elle ouvrirait un terminal
     // que personne ne regarde. Le pas suivant lancé seul, lui, accepte la
     // surcharge ponctuelle.
-    // Une chaîne complète ne prend aucune surcharge de modèle : elle relance
-    // chaque pas depuis l'enregistrement du précédent.
-    const activity = await runSkill(taskId,skillId,undefined,{mode:auto ? 'autonomous' : mode, model:auto ? undefined : model})
+    // La chaîne complète lancée depuis une carte est un seul run de la skill
+    // pickup, qui parcourt le workflow lui-même : le modèle retenu vaut donc
+    // pour toute la chaîne, comme pour un pas isolé.
+    const activity = await runSkill(taskId,skillId,undefined,{mode:auto ? 'autonomous' : mode, model})
     return activity ? {mode:'remote',skillId} : null
   }
 
