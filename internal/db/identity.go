@@ -96,6 +96,12 @@ func (d *DB) initIdentitySchema() error {
 	// sign in becomes the first admin, exactly as on a fresh installation.
 	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member';`)
 	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN last_sign_in DATETIME;`)
+	// display_name is rewritten at every sign-in by UpsertUser, from the
+	// provider's claim or, for a local account, from the e-mail address. A name
+	// its owner chose therefore cannot live there: the next sign-in would erase
+	// it. chosen_name holds the choice and wins the read; empty means no choice,
+	// so an account that never renamed itself reads exactly as it did before.
+	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN chosen_name TEXT NOT NULL DEFAULT '';`)
 	return nil
 }
 
@@ -413,7 +419,10 @@ func (u User) Name() string {
 
 // userColumns is the one column list every read of `users` shares, so a new
 // column is added here and scanned in scanUser rather than in each query.
-const userColumns = `id, subject, email, display_name, role, created_at, last_sign_in`
+// DisplayName resolves to the name its owner chose, falling back to the one the
+// sign-in supplied: every reader of a user therefore shows the chosen name
+// without knowing the column exists.
+const userColumns = `id, subject, email, COALESCE(NULLIF(chosen_name, ''), display_name), role, created_at, last_sign_in`
 
 type userScanner interface {
 	Scan(dest ...any) error

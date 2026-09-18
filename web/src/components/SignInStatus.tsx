@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { LogIn, LogOut, ShieldAlert, UserRound } from 'lucide-react'
+import { Check, LogIn, LogOut, ShieldAlert, UserRound } from 'lucide-react'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useAgentStatus } from '../hooks/useAgentStatus'
 import { describeRole, describeSignInMode } from '../lib/session'
@@ -11,7 +11,7 @@ import { describeRole, describeSignInMode } from '../lib/session'
  * for anything.
  */
 export function SignInStatus({ projects }: { projects?: { id: string; name: string }[] }) {
-  const { user, reload } = useCurrentUser()
+  const { user, reload, rename } = useCurrentUser()
   const { agents } = useAgentStatus()
   const [status, setStatus] = useState('')
 
@@ -24,6 +24,21 @@ export function SignInStatus({ projects }: { projects?: { id: string; name: stri
     if (!user) return
     setMine(agents.filter(agent => agent.userId === user.userId).map(agent => projectName(agent.projectId)))
   }, [agents, user, projectName])
+
+  // The field shows what the person typed, and the account's name until they
+  // type anything. Deriving it rather than seeding it through an effect means
+  // no render can overwrite a word in progress, and a saved name needs no
+  // reseeding: dropping the draft is enough.
+  const [draft, setDraft] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  async function saveName() {
+    setSaving(true)
+    const failure = await rename((draft ?? '').trim())
+    setSaving(false)
+    if (!failure) setDraft(null)
+    setStatus(failure || 'Display name saved.')
+  }
 
   async function signOut() {
     try {
@@ -65,6 +80,32 @@ export function SignInStatus({ projects }: { projects?: { id: string; name: stri
               </span>
             </p>
           )}
+          <div className="space-y-1.5">
+            <label htmlFor="display-name" className="block text-[11px] font-medium text-[var(--text-secondary)]">
+              Display name
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="display-name"
+                type="text"
+                value={draft ?? user.displayName ?? ''}
+                maxLength={80}
+                onChange={event => setDraft(event.target.value)}
+                className="flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-[var(--text-primary)] focus:border-[var(--accent-color)] focus:outline-none"
+              />
+              <button
+                type="button"
+                onClick={() => void saveName()}
+                disabled={saving || draft === null || draft.trim() === (user.displayName || '')}
+                className="flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-3 py-2 hover:bg-[var(--bg-hover)] disabled:opacity-40"
+              >
+                <Check size={14} /> Save
+              </button>
+            </div>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              Your name on this board. Clear it to go back to your e-mail address.
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => void signOut()}
