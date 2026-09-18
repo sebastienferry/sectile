@@ -974,7 +974,14 @@ function ticketRow(view,task){
  run.onclick=()=>{if(run.dataset.skillId)submitTicketLaunch(view,entry,run.dataset.skillId,'','').catch(()=>{})}
  actions.append(run,more,menu)
  const stageCell=cell('ticket-stage',taskStage(task));if(task.trackerStatus)stageCell.title='Tracker status: '+task.trackerStatus
- row.append(stateCell,cell('ticket-key',key),titleCell,stageCell,priorityCell,prCell,actions)
+ // The key opens the task in Sectile, the same gesture the sidebar task number
+ // offers, so the identity means the same thing on both surfaces.
+ const keyCell=cell('ticket-key')
+ const keyLink=document.createElement('button');keyLink.type='button';keyLink.className='task-number';keyLink.textContent=key
+ keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
+ keyLink.onclick=()=>api.openTask(task.id).catch(error)
+ keyCell.append(keyLink)
+ row.append(stateCell,keyCell,titleCell,stageCell,priorityCell,prCell,actions)
  view.rows.set(task.id,entry)
  updateTicketRow(view,entry)
  return row
@@ -1159,14 +1166,50 @@ sidebarHandle.onlostpointercapture=()=>document.body.classList.remove('resizing-
 sidebarHandle.onkeydown=event=>{if(event.key==='ArrowLeft'||event.key==='ArrowRight'){event.preventDefault();sidebarWidth(document.querySelector('aside').getBoundingClientRect().width+(event.key==='ArrowRight'?20:-20))}}
 document.querySelector('#toggle-sidebar').innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16m7-12-4 4 4 4"/></svg>'
 
+// The palette is a list of actions rather than a hardcoded one, so adding a
+// command is a row and not another hidden-state to maintain by hand.
+const COMMANDS=[
+ {label:'Quick add task',run:()=>quickAdd()},
+ {label:'Tasks list',run:()=>openTicketsFromPalette()}
+]
+// The tickets list needs a project. The selected one answers that, and a single
+// configured project answers it too; otherwise the palette asks rather than
+// guessing which project the user meant.
+async function openTicketsFromPalette(){
+ if(!projects.length){
+  try{await loadProjects()}catch(err){showDialog('Tasks list');paragraph(err.message);return}
+ }
+ const known=projects.filter(project=>!hiddenProject(project.id))
+ const chosen=known.find(project=>project.id===selectedProject)||(known.length===1?known[0]:null)
+ if(chosen){openTickets(chosen.id);return}
+ showDialog('Tasks list')
+ if(!known.length){paragraph('Add a project before browsing its tasks.');return}
+ paragraph('Choose the project whose tasks you want to browse.')
+ for(const project of known){
+  const button=document.createElement('button');button.className='discovered-project';button.textContent=project.name
+  button.onclick=()=>openTickets(project.id)
+  dialogBody.append(button)
+ }
+ dialogBody.querySelector('.discovered-project')?.focus()
+}
 function openCommandPalette(){
  showDialog('Commands')
  const filter=document.createElement('input');filter.placeholder='Search actions…';filter.setAttribute('aria-label','Search commands')
- const quick=document.createElement('button');quick.className='discovered-project';quick.textContent='Quick add task'
- quick.onclick=()=>quickAdd()
- filter.oninput=()=>{quick.hidden=!('quick add task'.includes(filter.value.toLowerCase()))}
- filter.onkeydown=event=>{if(event.key==='Enter'&&!quick.hidden){event.preventDefault();quickAdd()}}
- dialogBody.append(filter,quick);filter.focus()
+ const buttons=COMMANDS.map(command=>{
+  const button=document.createElement('button');button.className='discovered-project';button.textContent=command.label
+  button.onclick=()=>command.run()
+  return button
+ })
+ filter.oninput=()=>{
+  const text=filter.value.trim().toLowerCase()
+  for(const [index,button] of buttons.entries())button.hidden=!COMMANDS[index].label.toLowerCase().includes(text)
+ }
+ filter.onkeydown=event=>{
+  if(event.key!=='Enter')return
+  const first=buttons.find(button=>!button.hidden)
+  if(first){event.preventDefault();first.click()}
+ }
+ dialogBody.append(filter,...buttons);filter.focus()
 }
 document.querySelector('#command-palette').onclick=openCommandPalette
 window.addEventListener('keydown',event=>{

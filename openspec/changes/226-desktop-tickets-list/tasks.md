@@ -13,6 +13,7 @@
 ## 3. Table rendering
 - [x] 3.1 Render heading `Tickets · <project name>`, a **Close** button, the search form (`Search server tasks` textbox, **Search** button), a `role=status` line and the `<table class="tickets-table">` with caption.
 - [x] 3.2 Render sortable headers Key, Title, Stage, Priority as `<button class="sort-header">` inside `<th aria-sort>`, plus plain PR and actions headers; wire clicks to `nextSort` and re-render rows in place.
+- [x] 3.5 Make the key cell a control that opens the task in Sectile through `api.openTask`, reusing the sidebar `.task-number` presentation, and add a command-palette **Tasks list** action that opens the pane for the selected project, the only configured project, or a project the user picks.
 - [x] 3.3 Render rows keyed by `task.id`: run-state cell, key, one-line title with `title` attribute, `taskStage` label (tracker status as its tooltip when present), priority word with coloured dot, PR icon reusing the sidebar glyph and external-open handler.
 - [x] 3.4 Keep loading (`Loading open tasks…`, `aria-busy`), empty (`No open tasks in this project` / `No matching open tasks`), error (`role=alert`, `Could not load open tasks: … Use Search to retry.`) and unconfigured (`Configure a local repository before launching tasks.`) messages, and the `generation` guard against stale responses.
 

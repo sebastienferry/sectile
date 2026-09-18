@@ -44,6 +44,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
  let app
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  await app.evaluate(({shell})=>{globalThis.opened=[];shell.openExternal=async url=>{globalThis.opened.push(url)}})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   const open=name=>page.getByRole('button',{name:'Open tasks in Project '+name,exact:true})
   const pane=page.locator('#tickets-pane'),rows=page.locator('.ticket-row'),query=page.getByRole('textbox',{name:'Search server tasks'})
@@ -53,6 +54,15 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   const sortOf=column=>page.locator('.tickets-table th[data-column="'+column+'"]').getAttribute('aria-sort')
   const heading=page.getByRole('button',{name:'▾ Project A',exact:true})
   await heading.waitFor()
+  // The command palette offers the list too; with no project selected it asks which one.
+  await page.keyboard.press('Control+k')
+  await page.getByRole('textbox',{name:'Search commands'}).fill('tasks')
+  await expect(page.getByRole('button',{name:'Quick add task',exact:true})).toBeHidden()
+  await page.getByRole('button',{name:'Tasks list',exact:true}).click()
+  await page.getByText('Choose the project whose tasks you want to browse.',{exact:true}).waitFor()
+  await page.getByRole('button',{name:'Project B',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'Tickets · Project B',exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'Close tickets',exact:true}).click()
   await page.mouse.move(700,400)
   await expect(open('A')).toHaveCSS('opacity','0')
   await heading.hover()
@@ -77,6 +87,13 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(rows.nth(0).locator('.ticket-stage')).toHaveText('specified')
   await expect(rows.nth(0).getByRole('button',{name:'Open PR #42 for #2',exact:true})).toBeVisible()
   await expect(rows.nth(1).locator('.ticket-title')).toHaveText('First open task')
+  // The key opens that task in Sectile, like the sidebar task number.
+  await page.getByRole('button',{name:'Open #1 in Sectile',exact:true}).click()
+  await expect.poll(()=>app.evaluate(()=>globalThis.opened)).toEqual(['http://example.test/?task=a1'])
+  await page.getByRole('button',{name:'Open #9 in Sectile',exact:true}).focus()
+  await page.keyboard.press('Enter')
+  await expect.poll(()=>app.evaluate(()=>globalThis.opened)).toEqual(['http://example.test/?task=a1','http://example.test/?task=a9'])
+  assert.equal(launches.length,0)
   // The next step is resolved per row; a skill the project lacks disables Run with the reason.
   const runFirst=page.getByRole('button',{name:'Run: Clarify',exact:true}).first()
   await expect(runFirst).toBeEnabled()
@@ -189,6 +206,11 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   // Escape closes the pane and returns to the console view.
   await page.keyboard.press('Escape');await expect(pane).toBeHidden()
   await expect(page.locator('#workspace article')).toBeVisible()
+  // With a project already selected the palette opens its list without asking.
+  await page.keyboard.press('Control+k')
+  await page.getByRole('button',{name:'Tasks list',exact:true}).click()
+  await expect(page.getByRole('heading',{name:'Tickets · Project A',exact:true})).toBeVisible()
+  await page.getByRole('button',{name:'Close tickets',exact:true}).click()
   await page.getByRole('button',{name:'▸ Project A',exact:true}).waitFor()
   // The icon fits alongside the existing project controls at minimum width.
   await page.getByRole('separator',{name:'Resize sidebar'}).focus()

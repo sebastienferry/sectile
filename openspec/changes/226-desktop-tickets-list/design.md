@@ -141,6 +141,23 @@ Rejected: launching Pickup from **Run**. Pickup runs the whole chain; the
 toolbar's **Next** convention is one step at a time, and the list should not
 default to more than the toolbar does.
 
+### The key opens the task, the palette opens the list
+The key cell holds a button reusing the sidebar's `.task-number` presentation and
+`api.openTask(task.id)` (`main.js:294` area, sidebar row), so the identity means
+the same thing on both surfaces and the desktop keeps a single way to reach a
+task in Sectile.
+
+`openCommandPalette` (`main.js`) hardcoded its single **Quick add task** button
+and filtered it against a literal string. It becomes a `COMMANDS` list so a new
+action is a row rather than another hidden-state to maintain, and **Tasks list**
+joins it. That action needs a project: the selected one answers it, a single
+configured project answers it too, and otherwise the palette asks with the same
+`.discovered-project` buttons the new-task chooser uses rather than guessing.
+
+Rejected: putting **Tasks list** in the header toolbar. The header is the local
+agent's controls; #225 owns the project actions bar, and the palette is where
+the app already collects global actions.
+
 ### Data refresh and stale responses
 `openTickets` keeps a `generation` counter like today so a slow response cannot
 overwrite a newer one or another project's pane. The task list is fetched on

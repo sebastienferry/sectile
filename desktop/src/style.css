@@ -103,6 +103,9 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .tickets-table th[aria-sort=ascending] .sort-header,.tickets-table th[aria-sort=descending] .sort-header{color:#80e6ce}
 .sort-arrow{font-size:9px;min-width:1ch}
 .ticket-state{width:16px}.ticket-key{color:#9eaec4;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ticket-key .task-number{border:0;background:none;padding:0;font:inherit;color:inherit;cursor:pointer}
+.ticket-key .task-number:hover{color:#d8e0ec;text-decoration:underline}
+.ticket-key .task-number:focus-visible{outline:2px solid #62d3be;outline-offset:2px}
 .ticket-title{width:100%;max-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ticket-stage,.ticket-priority{white-space:nowrap;color:#b8c9dd}
 .priority-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:#5b6b7e;vertical-align:middle}

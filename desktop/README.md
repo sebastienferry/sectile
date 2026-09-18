@@ -312,14 +312,18 @@ configuration**. Server metadata and skill content remain read-only.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
 open server tasks in the **Tickets** pane, which takes the console's place the
-way **Agent logs** does; the **+** menu's **Run an existing ticket** opens the
-same pane. **Close tickets** or Escape returns to the selected execution and
+way **Agent logs** does; the **+** menu's **Run an existing ticket** and the
+command palette's **Tasks list** action open the same pane. **Tasks list** uses
+the selected project, or the only configured one, and otherwise asks which
+project to browse. **Close tickets** or Escape returns to the selected execution and
 puts focus back on the icon that opened the pane. The list loads immediately,
 even when the project is collapsed. Search by title or task key to narrow it;
 submit an empty search to restore all open tasks. Finished tasks are excluded.
 
 The pane is a table with one row per task: execution state, **Key**, **Title**,
 **Stage**, **Priority**, a pull request icon when one is linked, and actions.
+Activate a row's key to open that task in Sectile, the same gesture the sidebar
+task number offers.
 Rows are ordered by priority descending (urgent, high, medium, low, then
 unknown) and, within a priority, by task identity ascending with natural
 numeric comparison, so `#9` precedes `#100` and `PROJ-9` precedes `PROJ-10`.
@@ -406,8 +410,9 @@ to assistive technology. Toolbar controls wrap at narrow window widths.
 
 ### Desktop Quick add
 
-Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette and choose
-**Quick add task**. The selected project's identity is prefilled; without a
+Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette, search its
+actions, and choose **Quick add task** or **Tasks list**. Enter runs the first
+matching action. The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.
 The server creates the task using its project tracker configuration.
 GitHub and Linear creation must succeed remotely; errors do not silently create

@@ -14,6 +14,12 @@ Each desktop sidebar project row SHALL offer an accessible icon action for brows
 - **WHEN** the user chooses to run an existing ticket
 - **THEN** the same tickets pane opens for that project.
 
+#### Scenario: Command palette entry point
+- **GIVEN** the command palette
+- **WHEN** the user runs its tickets-list action
+- **THEN** the pane opens for the selected project, or for the only configured project when none is selected
+- **AND** when several projects could apply and none is selected, the user is asked which project to browse instead of one being guessed.
+
 #### Scenario: Closing the pane
 - **GIVEN** the tickets pane is open
 - **WHEN** the user activates its close control or presses Escape with no dialog open
@@ -45,6 +51,12 @@ The tickets pane SHALL load the selected project's unfinished tasks without requ
 - **WHEN** its row renders
 - **THEN** the row shows the task key, its title on one line with the full title available on hover and to assistive technology, its workflow stage label, its priority
 - **AND** a pull request icon that opens the pull request externally without changing the selected execution.
+
+#### Scenario: Open a listed task in Sectile
+- **GIVEN** a listed task
+- **WHEN** the user activates its key, by pointer or keyboard
+- **THEN** that task opens in Sectile externally
+- **AND** no execution is submitted and the pane keeps its rows and selection.
 
 ### Requirement: Explicit task pickup
 Each listed task SHALL offer a primary action that launches the task's next workflow step and a secondary menu that launches any other server-provided skill, a discussion console or custom instructions, all through the existing execution flow. Opening the pane, sorting or searching alone SHALL submit no execution.
