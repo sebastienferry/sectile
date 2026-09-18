@@ -26,8 +26,10 @@ type fakeTracker struct {
 	calls     []string
 	// syncedAs and readAs record who the work ran as, which is what decides
 	// whether a personal tracker credential can be resolved at all.
-	syncedAs string
-	readAs   string
+	syncedAs    string
+	readAs      string
+	commentedAs string
+	comments    []models.TaskComment
 }
 
 func newFakeTracker() *fakeTracker {
@@ -36,7 +38,7 @@ func newFakeTracker() *fakeTracker {
 			TrackerName: "jira",
 			Capabilities: []tracker.Capability{
 				tracker.CapSync, tracker.CapGet, tracker.CapUpdate, tracker.CapBoard,
-				tracker.CapTeam, tracker.CapSprint, tracker.CapEpic,
+				tracker.CapTeam, tracker.CapSprint, tracker.CapEpic, tracker.CapComment,
 			},
 		},
 		members: map[string][]models.TeamMember{},
@@ -62,6 +64,18 @@ func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	f.record("sync")
 	f.syncedAs = tracker.ActingUser(ctx)
 	return append([]models.Task{}, f.tasks...), nil
+}
+
+func (f *fakeTracker) AddComment(ctx context.Context, req tracker.AddCommentRequest) error {
+	f.record("comment")
+	f.commentedAs = tracker.ActingUser(ctx)
+	f.comments = append(f.comments, models.TaskComment{ID: "c1", Author: "Ada", Body: req.Body, Source: "jira"})
+	return nil
+}
+
+func (f *fakeTracker) GetComments(ctx context.Context, req tracker.GetCommentsRequest) ([]models.TaskComment, error) {
+	f.record("getcomments")
+	return f.comments, nil
 }
 
 func (f *fakeTracker) ListBoards(ctx context.Context, req tracker.BoardsRequest) ([]models.TrackerBoard, error) {
@@ -311,5 +325,32 @@ func TestADirectReadCarriesTheActingUser(t *testing.T) {
 	}
 	if fake.readAs != "" {
 		t.Fatalf("an unattended read must name nobody, got %q", fake.readAs)
+	}
+}
+
+// Posting a comment is the clearest case of all: on a tracker that shows an
+// author, it has to be the person who wrote it, not the server.
+func TestACommentIsPostedUnderItsAuthorsCredential(t *testing.T) {
+	fake := newFakeTracker()
+	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
+	database, project := jiraTestDB(t, fake)
+
+	activity := models.TaskActivity{ID: "sync-for-comment", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := database.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := database.GetSettings()
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
+
+	taskID := "jira-" + project.ID + "-PE-1"
+	comments, err := database.PostTaskCommentBy(Actor{ID: "u-ada", Name: "Ada"}, taskID, "Written by Ada")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fake.commentedAs != "u-ada" {
+		t.Fatalf("the comment must go out as its author, got %q", fake.commentedAs)
+	}
+	if len(comments) != 1 || comments[0].Body != "Written by Ada" {
+		t.Fatalf("comments: %+v", comments)
 	}
 }

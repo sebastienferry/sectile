@@ -1910,7 +1910,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Comment body is required")
 			return
 		}
-		if err := h.db.AddTaskComment(id, req.Body); err != nil {
+		if err := h.db.AddTaskCommentAs(tracker.WithActingUser(r.Context(), h.webSessionUser(r)), id, req.Body); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -2333,7 +2333,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "Invalid comment payload: "+err.Error())
 				return
 			}
-			comments, err := h.db.PostTaskCommentBy(h.webPrincipal(r).Actor(), id, req.Body)
+			comments, err := h.db.PostTaskCommentAs(r.Context(), h.webPrincipal(r).Actor(), id, req.Body)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return

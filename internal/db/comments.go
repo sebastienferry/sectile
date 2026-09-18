@@ -125,9 +125,16 @@ func (d *DB) PostTaskComment(taskIDOrKey string, body string) ([]models.TaskComm
 }
 
 // PostTaskCommentBy is PostTaskComment attributed to a user. A local comment is
-// signed with the actor's name and keeps their id; a tracker comment is posted
-// under the tracker credential, which is the only author the tracker knows.
+// signed with the actor's name and keeps their id; a tracker comment goes out
+// under that person's own credential, so the tracker shows them as the author
+// rather than a shared account.
 func (d *DB) PostTaskCommentBy(actor Actor, taskIDOrKey string, body string) ([]models.TaskComment, error) {
+	return d.PostTaskCommentAs(context.Background(), actor, taskIDOrKey, body)
+}
+
+// PostTaskCommentAs is PostTaskCommentBy with the caller's own context, which
+// carries deadlines and cancellation as well as the acting user.
+func (d *DB) PostTaskCommentAs(ctx context.Context, actor Actor, taskIDOrKey string, body string) ([]models.TaskComment, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
 		return nil, fmt.Errorf("commentaire vide")
@@ -161,9 +168,12 @@ func (d *DB) PostTaskCommentBy(actor Actor, taskIDOrKey string, body string) ([]
 		return d.getLocalComments(task.ID)
 	}
 
-	// AddTaskComment routes to the task's own tracker by source.
-	if err := d.AddTaskComment(task.ID, body); err != nil {
+	// The write and the re-read both run as the actor: the tracker credential
+	// is theirs, and a comment posted under the server account would carry a
+	// name nobody chose.
+	ctx = tracker.WithActingUser(ctx, actor.ID)
+	if err := d.AddTaskCommentAs(ctx, task.ID, body); err != nil {
 		return nil, err
 	}
-	return d.GetTaskComments(task.ID)
+	return d.GetTaskCommentsAs(ctx, task.ID)
 }

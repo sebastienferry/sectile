@@ -4817,7 +4817,16 @@ func (d *DB) ClearCompletedActivities() (int, error) {
 	return int(affected), nil
 }
 
+// AddTaskComment posts to the tracker with no acting user, for callers who
+// have none.
 func (d *DB) AddTaskComment(taskID string, body string) error {
+	return d.AddTaskCommentAs(context.Background(), taskID, body)
+}
+
+// AddTaskCommentAs posts on behalf of whoever the context names. On a tracker
+// that attributes a comment to the account behind the token, this is what puts
+// the person's own name on what they wrote.
+func (d *DB) AddTaskCommentAs(ctx context.Context, taskID string, body string) error {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	var proj *models.Project
@@ -4834,7 +4843,7 @@ func (d *DB) AddTaskComment(taskID string, body string) error {
 	if err != nil {
 		return err
 	}
-	return ts.AddComment(context.Background(), tracker.AddCommentRequest{
+	return ts.AddComment(ctx, tracker.AddCommentRequest{
 		Project: proj,
 		Key:     task.Key,
 		Body:    body,
