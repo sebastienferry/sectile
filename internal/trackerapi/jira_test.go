@@ -153,7 +153,7 @@ func TestJiraSyncPaginatesAndMapsWorkItems(t *testing.T) {
 	]`)
 	site.on("GET", "/rest/api/3/search/jql", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if !strings.Contains(q.Get("jql"), `project = PE AND issuetype IN ("Story", "Bug") ORDER BY updated DESC`) {
+		if !strings.Contains(q.Get("jql"), `project = "PE" AND issuetype IN ("Story", "Bug") ORDER BY updated DESC`) {
 			t.Errorf("jql: %s", q.Get("jql"))
 		}
 		if !strings.Contains(q.Get("fields"), "customfield_10020") || !strings.Contains(q.Get("fields"), "parent") {

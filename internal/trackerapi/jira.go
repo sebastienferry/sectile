@@ -713,6 +713,9 @@ func (j *JiraAdapter) ListBoards(ctx context.Context, req tracker.BoardsRequest)
 	}
 	query := url.Values{}
 	query.Set("projectKeyOrId", key)
+	// Only the board kinds whose columns and sprints mean something here, as the
+	// design says: without the filter the site also returns its simple boards.
+	query.Set("type", "scrum,kanban")
 	c, err := j.forProject(ctx, req.Project)
 	if err != nil {
 		return nil, err

@@ -241,8 +241,11 @@ func jiraProjectKey(p *models.Project) string {
 }
 
 // jiraJQL builds the project query, restricted to the configured issue types.
+// The project key is quoted like the types: it comes from configuration rather
+// than from a stranger, but a key derived from a slug can land on a JQL reserved
+// word, and the site then answers a parse error that names nothing useful.
 func jiraJQL(projectKey string, issueTypes []string, extra string) string {
-	jql := "project = " + projectKey
+	jql := `project = "` + strings.ReplaceAll(strings.TrimSpace(projectKey), `"`, `\"`) + `"`
 	var quoted []string
 	for _, t := range issueTypes {
 		if t = strings.TrimSpace(t); t != "" {

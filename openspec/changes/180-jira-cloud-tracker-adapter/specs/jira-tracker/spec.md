@@ -79,8 +79,11 @@ by page until the site reports the last page. Each imported task SHALL carry
 `source: jira`, the Jira key as `key`, `jira-<projectID>-<KEY>` as `id`, the
 site's `/browse/<KEY>` URL, its labels, its Jira status name as tracker status,
 its priority mapped by name (`Highest`/`High` → high, `Medium` → medium,
-`Low`/`Lowest` → low), its assignee's account id, its parent key, title and
-type, its sprint and its team when the site exposes those fields.
+`Low`/`Lowest` → low), its assignee's display name, its parent key, title and
+type, its sprint and its team when the site exposes those fields. The name
+rather than the account id: a task holds one assignee field, shared with every
+other tracker, and it is what the board shows. Assigning resolves the name back
+to an account id through the project's known members.
 
 #### Scenario: Import a paginated project
 - **GIVEN** a Jira project of 250 work items
@@ -194,6 +197,13 @@ Assigning a work item SHALL send the assignee's account id, or clear the
 assignee when the id is empty. Searching assignable people SHALL query the
 site for the work item and return account id, display name, e-mail, avatar and
 active state.
+
+#### Scenario: An imported assignee is displayed and can be assigned again
+- **GIVEN** a work item assigned on the site
+- **WHEN** it is imported
+- **THEN** the task shows the person's display name
+- **AND** assigning that same name again resolves to their account id through
+  the project's known members.
 
 #### Scenario: Assign by account id
 - **GIVEN** an account id returned by an assignable search

@@ -204,10 +204,10 @@ session, never from the payload, and no answer ever carries a token.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, e-mail, sealed, unlocked. |
-| `PUT` | `/api/me/tracker-credentials` | `{tracker, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. |
-| `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. |
-| `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. |
+| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, sealed, unlocked. |
+| `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. |
+| `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. `404` when there is none to forget. |
+| `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. `409` when the credential is not sealed. |
 | `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |
 
 Stored in `user_tracker_credentials`, encrypted with AES-256-GCM and bound to

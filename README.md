@@ -160,12 +160,14 @@ it that nobody chose.
 
 **A tracker credential can be personal.** On Jira a comment, an assignment and
 a transition are attributed to the account whose token made the call, so a
-shared token makes the whole team sign as one integration account. *Connecter
-votre tracker* therefore offers to store a token **for the server** or **for
-you only**. A personal token is encrypted with AES-256-GCM, bound to its owner
-and to its tracker, with the key held outside the database
-(`SECTILE_SECRET_KEY`, or a 0600 file beside it). A row moved from one user to
-another stops opening.
+shared token makes the whole team sign as one integration account. *Profil >
+Trackers* therefore holds one zone per tracker Sectile can drive. Jira accepts
+only a personal credential; GitHub accepts either, and falls back to the server
+token where nobody stored one. A personal token is encrypted with AES-256-GCM,
+bound to its owner and to its tracker, with the key held outside the database
+(`SECTILE_SECRET_KEY`, or a 0600 file beside it — `secret.key`, which belongs
+in no backup the database is in). A row moved from one user to another stops
+opening. The server starts without the key and refuses only what would need it.
 
 Optionally, a **sealing passphrase** derives the key instead, through Argon2id,
 and is never stored. Nothing can then open that token without its owner, the
@@ -175,8 +177,10 @@ unusable there until its owner unlocks it. A locked credential fails the
 operation rather than falling back to the server token, which would write under
 a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credentials-are-sealed.md).
 
-The background queue still uses the server credential: it carries no acting
-user yet, which is ticket #237's work.
+The background queue carries whoever asked: a sync, a field update and every
+tracker operation record the acting user on the job, and the worker puts them
+back before resolving a credential. Only work nobody asked for — the auto-sync
+timer — names nobody and keeps the server credential.
 
 Jira asks for the site (`mon-org.atlassian.net`), the account e-mail and an
 Atlassian API token, which authenticate as `email:token`. Its environment

@@ -59,8 +59,12 @@ See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md).
 ## 2. Issue Tracker Abstraction Layer
 
 The server owns native GitHub REST/GraphQL and Jira Cloud REST adapters. It
-synchronizes, creates and updates issues and comments using explicit server
-credentials, even with all local agents offline. GitHub also supports milestone
+synchronizes, creates and updates issues and comments using explicit
+credentials, even with all local agents offline. A credential may belong to the
+person who asked for the operation rather than to the server, and it travels
+with the work all the way through the background queue: on a tracker that
+attributes a write to the account behind the token, that is what puts the right
+name on it. Jira accepts nothing else. GitHub also supports milestone
 operations and issue transfer. Jira additionally exposes what a board is made of
 — boards, columns, sprints, statuses, issue types, epics and teams — through the
 read side of the ticketing abstraction, and writes sprint, team and epic. Local
