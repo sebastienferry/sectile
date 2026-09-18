@@ -103,6 +103,19 @@ and SHALL never make the session wait on the network.
 - **THEN** the attempt is abandoned after a bounded delay
 - **AND** the invocation succeeds
 
+#### Scenario: The payload never arrives
+- **GIVEN** a standard input that delivers nothing and is never closed
+- **WHEN** the hook runs
+- **THEN** the wait is abandoned after a bounded delay
+- **AND** the invocation succeeds
+
+#### Scenario: The session is interrupted while the hook runs
+- **GIVEN** a hook invocation that receives the interrupt, hang-up or terminate
+  signal sent to the session's process group
+- **WHEN** the signal arrives
+- **THEN** the invocation still succeeds
+- **AND** the session is not told a hook failed
+
 #### Scenario: The payload cannot be read
 - **GIVEN** a payload that is empty, or not JSON, or names no event
 - **WHEN** the hook runs

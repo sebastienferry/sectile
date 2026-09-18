@@ -6,6 +6,7 @@
 - [x] 1.3 Implement the launched-session branch: `SECTILE_RUN_ID` plus `SECTILE_LOOPBACK_URL` (falling back to `SECTILE_AGENT_URL`) plus `SECTILE_AGENT_TOKEN` → `POST <loopback>/control/runs/<id>/waiting` with `{"waiting":<bool>}` and the bearer token, and no session alert afterwards.
 - [x] 1.4 Implement the unlaunched-session branch: read `<home>/.taskflow/agent-connection.json`, take `url` and `token`, `POST <url>/desktop/session-alert` with `{"session":…,"state":…}`; name the session with `filepath.Base` of `cwd`, falling back to `Claude Code`, and encode the body with `json.Marshal`.
 - [x] 1.5 Dispatch `sectile-hook` in `cmd/agent/main.go`, beside `pair`, `mcp` and `agent-exec`, without `log.Fatal`.
+- [x] 1.6 Carry over the two guards the script had and the port would otherwise lose: ignore `SIGHUP`, `SIGINT` and `SIGTERM` (the script trapped them and exited 0; Go's default is a non-zero death, which Claude Code reads as a failed hook), and bound the read of stdin, which nothing else would free once the signals are ignored.
 
 ## 2. Registration
 - [x] 2.1 In `internal/agentconfig/hooks.go`, add `claudeHookSubcommand = "sectile-hook"` and `claudeHookCommand(executable, goos string) string` quoting the executable for `cmd.exe` on `windows` and for POSIX `sh` elsewhere.

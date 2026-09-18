@@ -29,8 +29,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -50,6 +52,12 @@ const fallbackSessionName = "Claude Code"
 // never make a session wait on the network.
 const reportTimeout = 2 * time.Second
 
+// payloadTimeout bounds the wait on stdin. Claude Code writes the payload and
+// closes the pipe, so this is never reached in practice; it exists because a
+// hook that blocked on a pipe nobody closed would freeze the turn, and the
+// signals that would otherwise free it are ignored below.
+const payloadTimeout = 5 * time.Second
+
 // hookPayload is the part of a Claude Code hook payload this hook reads. Three
 // fields decide the whole report; everything else in the payload is ignored.
 type hookPayload struct {
@@ -62,8 +70,14 @@ type hookPayload struct {
 // Claude Code passes the payload on stdin and reads the exit code back, so a
 // flag parser's usage message would be read as the hook's answer.
 func Run() {
-	payload, err := io.ReadAll(os.Stdin)
-	if err != nil {
+	// A hook is a child of the session's process group, so a Ctrl-C in the
+	// console reaches it too. The script this replaced trapped HUP, INT and
+	// TERM and exited 0 for exactly that reason: a hook killed by a signal
+	// exits non-zero, which Claude Code reads as a failed hook. Go's default
+	// is to die on those signals, so they are ignored instead.
+	signal.Ignore(syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM)
+	payload := readPayload(os.Stdin, payloadTimeout)
+	if payload == nil {
 		return
 	}
 	// os.UserHomeDir reads USERPROFILE on Windows and $HOME elsewhere, so the
@@ -73,6 +87,26 @@ func Run() {
 		home = ""
 	}
 	Report(payload, os.Getenv, home)
+}
+
+// readPayload reads the whole payload, or gives up. The read runs in a
+// goroutine the process simply abandons: there is nothing to clean up in a
+// program whose next act is to exit.
+func readPayload(stdin io.Reader, budget time.Duration) []byte {
+	read := make(chan []byte, 1)
+	go func() {
+		raw, err := io.ReadAll(stdin)
+		if err != nil {
+			raw = nil
+		}
+		read <- raw
+	}()
+	select {
+	case raw := <-read:
+		return raw
+	case <-time.After(budget):
+		return nil
+	}
 }
 
 // Report reads one hook payload and makes the single report it calls for. The

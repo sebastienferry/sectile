@@ -412,6 +412,39 @@ func TestAnUnusableConnectionFileIsIgnored(t *testing.T) {
 	}
 }
 
+// blockingReader never delivers and never ends, which is the pipe nobody
+// closed.
+type blockingReader struct{ release chan struct{} }
+
+func (r blockingReader) Read([]byte) (int, error) {
+	<-r.release
+	return 0, io.EOF
+}
+
+// Claude Code writes the payload and closes the pipe. A hook that trusted that
+// absolutely would freeze the turn if it ever stopped being true, and the
+// signals that would otherwise free it are ignored.
+func TestAPayloadThatNeverArrivesIsGivenUpOn(t *testing.T) {
+	reader := blockingReader{release: make(chan struct{})}
+	defer close(reader.release)
+	start := time.Now()
+	if got := readPayload(reader, 50*time.Millisecond); got != nil {
+		t.Fatalf("a payload appeared out of a reader that delivers none: %q", got)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("the read was abandoned after %s, long past its budget", elapsed)
+	}
+}
+
+// The ordinary case: the payload arrives and is returned whole.
+func TestAPayloadIsReadWhole(t *testing.T) {
+	payload := `{"hook_event_name":"Stop","cwd":"/tmp/w"}`
+	got := readPayload(strings.NewReader(payload), time.Second)
+	if string(got) != payload {
+		t.Fatalf("the payload came back as %q", got)
+	}
+}
+
 func mustJSON(t *testing.T, value string) string {
 	t.Helper()
 	raw, err := json.Marshal(value)
