@@ -2,7 +2,7 @@
 EXE := $(if $(filter windows,$(shell go env GOOS)),.exe,)
 # electron/runtime.cjs resolves the agent under this name, packaged or not.
 DESKTOP_AGENT := desktop/bin/sectile-agent$(EXE)
-.PHONY: help build-all build-server build-agent build-app build-app-package build-release \
+.PHONY: help build-all build-server build-agent build-app build-app-package build-release image \
         all build server server-build agent agent-build binary-build desktop desktop-build desktop-package build-desktop build-desktop-package release \
         web-deps desktop-deps start serve run fmt-check test clean reset-db
 
@@ -112,6 +112,11 @@ build-release: web-deps ## Cross-compile every binary into dist/
 	done
 	@echo "Binaries in dist/:"
 	@ls -lh dist/ | tail -n +2 | awk '{print "  " $$9 " (" $$5 ")"}'
+
+# The server as a container: web build and Go build both happen inside the
+# image (see Dockerfile), so this needs Docker and nothing else.
+image: ## Build the server container image (sectile-server:local)
+	docker build -t sectile-server:local .
 
 # Repartir d'une base vide. Les trois fichiers comptent : supprimer tasks.db en
 # laissant tasks.db-wal fait revenir les données au démarrage suivant, SQLite

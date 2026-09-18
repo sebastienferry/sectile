@@ -219,6 +219,27 @@ The product remains **Sectile**. Database lookup, `.taskflow/` configuration,
 or deleted. Local CLI credentials remain available to agent-side coding and PR
 commands; configure the server credentials separately.
 
+### Container image and GitLab CI
+
+`Dockerfile` builds the server as a static binary with the web interface
+embedded, on a distroless non-root base. Everything it writes goes under
+`/data` (`DB_PATH=/data/tasks.db`, plus the data directory resolved through
+`XDG_CONFIG_HOME=/data/config`), so mount a persistent volume there:
+
+```sh
+docker build -t sectile-server .        # or: make image
+docker run -p 8090:8090 -v sectile-data:/data sectile-server
+```
+
+The GitHub repository is pull-mirrored into GitLab, where `.gitlab-ci.yml`
+runs the Go, web and desktop test suites on every mirrored branch and tag,
+then publishes two things: the server image
+(`<registry>/server:<pipeline>-<ref-slug>`, plus `latest` on `main` and the
+tag name on a tag) and the cross-compiled `sectile-server-*` /
+`sectile-agent-*` binaries, uploaded to the project's Generic Package Registry
+under the package `sectile` with the same version string. The agent is never
+part of the image: it runs on workstations, next to the coding CLIs.
+
 ## 📚 Documentation Technique Complète
 
 Une suite documentaire complète pour développeurs et LLMs est disponible dans le dossier [`/docs`](./docs) :
