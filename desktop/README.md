@@ -316,7 +316,9 @@ way **Agent logs** does; the **+** menu's **Run an existing ticket** and the
 command palette's **Tasks list** action open the same pane. **Tasks list** uses
 the selected project, or the only configured one, and otherwise asks which
 project to browse. **Close tickets** or Escape returns to the selected execution and
-puts focus back on the icon that opened the pane. The list loads immediately,
+puts focus back on the control that opened the pane, or on that project's
+list icon when the opener is gone. Selecting an execution, or losing the local
+agent, closes the pane as well. The list loads immediately,
 even when the project is collapsed. Search by title or task key to narrow it;
 submit an empty search to restore all open tasks. Finished tasks are excluded.
 
