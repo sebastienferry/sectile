@@ -430,9 +430,14 @@ after the search must be reopened on the server first.
 The status line beneath the task console shows its current server workflow stage.
 The action itself sits in the console toolbar, right after the green control that
 ends the current execution and before **Retry**: use
-**Next: Clarify**, **Next: Specify**, **Next: Implement**, or
-**Next: Review and create PR** to launch one step with the project's current
-configuration. Historical consoles use the task's current state too. The action
+**Next: Clarify**, **Next: Specify**, **Next: Implement**, **Next: Adjust** or
+**Next: Create PR** to launch one step with the project's current
+configuration. After implementation, the desktop offers **Next: Adjust** when
+the task already records a pull request and **Next: Create PR** when it records
+none; the latter launches the skill that owns pull request creation in the
+project (implementation by default, specification when the project creates its
+pull request there), which records the link and unlocks **Next: Adjust**.
+Historical consoles use the task's current state too. The action
 is disabled while that task has an active execution or a launch is pending.
 The desktop rechecks state before submission; if the next step changed, review
 the updated button and click again. Metadata failures offer **Retry**.
