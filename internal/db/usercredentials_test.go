@@ -1,10 +1,18 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
-	"tasks/internal/secrets"
 	"testing"
+	"time"
+
+	"tasks/internal/models"
+	"tasks/internal/secrets"
+	"tasks/internal/tracker"
 )
 
 func TestAPersonalTokenIsStoredEncryptedAndComesBack(t *testing.T) {
@@ -221,5 +229,54 @@ func TestAMissingServerKeyBlocksOnlyWhatNeedsIt(t *testing.T) {
 	}
 	if _, _, token, err := database.userTrackerCredential("u1", "jira"); err != nil || token != "token" {
 		t.Fatalf("a sealed credential must still open: %q %v", token, err)
+	}
+}
+
+// A task created on a Jira project by a signed-in person goes through the real
+// adapter, which resolves their personal token from inside CreateTaskAs — a
+// path that already holds the store's write lock. Resolving it used to take the
+// read lock there, and sync.RWMutex is not re-entrant: the call never returned
+// and the lock was never given back, wedging every other request until the
+// server was restarted. The test bounds itself because a deadlock has no other
+// symptom than never finishing.
+func TestCreatingAThirdPartyTaskDoesNotWedgeTheStore(t *testing.T) {
+	instance := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/rest/api/3/issue") && r.Method == http.MethodPost:
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "1", "key": "PE-1"})
+		default:
+			_ = json.NewEncoder(w).Encode(map[string]any{})
+		}
+	}))
+	defer instance.Close()
+
+	database := testDB(t)
+	database.trackers.HTTP = instance.Client()
+	if err := database.SetUserTrackerCredential("u-ada", "jira", instance.URL, "ada@example.com", "tok", ""); err != nil {
+		t.Fatal(err)
+	}
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Jira", IssueTracker: "jira", JiraProject: "PE", TrackerUrl: instance.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		ctx := tracker.WithActingUser(context.Background(), "u-ada")
+		_, err := database.CreateTaskAs(ctx, models.CreateTaskRequest{Title: "Ticket", ProjectID: project.ID})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("creation refused: %v", err)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("creating the task never returned: the store is deadlocked on its own lock")
+	}
+
+	// And the store still answers, which a held write lock would prevent.
+	if _, err := database.GetProjects(); err != nil {
+		t.Fatalf("the store stayed locked: %v", err)
 	}
 }

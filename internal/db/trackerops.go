@@ -131,15 +131,7 @@ func (d *DB) enqueueTrackerOpUnsafe(op TrackerOp) (*models.TaskActivity, error) 
 }
 
 func (d *DB) pushTrackerOpJob(job SkillJob) {
-	select {
-	case d.jobQueue <- job:
-	default:
-		// File pleine : la remise en file dans une goroutine évite de bloquer la
-		// requête HTTP, comme le fait déjà la synchro des champs.
-		go func() {
-			d.jobQueue <- job
-		}()
-	}
+	d.enqueueJob(job)
 }
 
 func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {

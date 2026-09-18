@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -133,7 +134,7 @@ type DB struct {
 	postBackMu        sync.RWMutex
 	// jobs counts the queue work in flight, so Close can wait for it instead of
 	// pulling the database out from under a write.
-	jobs sync.WaitGroup
+	jobs inFlightJobs
 }
 
 func NewDB(dbPath string) (*DB, error) {
@@ -180,6 +181,7 @@ func NewDB(dbPath string) (*DB, error) {
 	if err := db.initSchema(); err != nil {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
+	db.ensureUserCredentialsTable()
 
 	// Start background queue worker
 	go db.startQueueWorker()
@@ -191,21 +193,50 @@ func NewDB(dbPath string) (*DB, error) {
 	return db, nil
 }
 
+// inFlightJobs counts the queue work that is waiting or running. A
+// sync.WaitGroup cannot do this job: its Add was called by the worker
+// goroutine, which races Close's Wait every time the counter sits at zero, and
+// the race detector fails the whole package on it. An atomic counter has no
+// such rule, and counting from the moment a job is queued rather than from the
+// moment it starts closes the window where a job admitted to the queue just as
+// the drain observed zero would run against a connection already closed.
+type inFlightJobs struct{ running atomic.Int64 }
+
+func (f *inFlightJobs) begin() { f.running.Add(1) }
+func (f *inFlightJobs) end()   { f.running.Add(-1) }
+
+// drain waits until nothing is queued or running, and reports whether it got
+// there before the bound expired.
+func (f *inFlightJobs) drain(bound time.Duration) bool {
+	deadline := time.Now().Add(bound)
+	for f.running.Load() > 0 {
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	return true
+}
+
+// enqueueJob puts one job in the queue, counting it in flight from here so a
+// shutdown waits for work that is queued and not yet started. A full queue is
+// handed to a goroutine rather than blocking the HTTP request that caused it.
+func (d *DB) enqueueJob(job SkillJob) {
+	d.jobs.begin()
+	select {
+	case d.jobQueue <- job:
+	default:
+		go func() { d.jobQueue <- job }()
+	}
+}
+
 // Close waits for the queue work already running before closing the database.
 // Those jobs write, and closing under them turns an ordinary write into
 // "database is closed"; in a test it also races the temporary directory's own
 // cleanup, which then fails on a directory that is not empty. The wait is
 // bounded so one stuck job cannot hold a shutdown open.
 func (d *DB) Close() error {
-	drained := make(chan struct{})
-	go func() {
-		d.jobs.Wait()
-		close(drained)
-	}()
-	select {
-	case <-drained:
-	case <-time.After(5 * time.Second):
-	}
+	d.jobs.drain(5 * time.Second)
 	return d.conn.Close()
 }
 
@@ -3444,9 +3475,9 @@ func (d *DB) GetAvailableSkills() []models.Skill {
 
 func (d *DB) startQueueWorker() {
 	for job := range d.jobQueue {
-		d.jobs.Add(1)
 		go func(j SkillJob) {
-			defer d.jobs.Done()
+			// Counted in from enqueueJob, counted out here whatever happens.
+			defer d.jobs.end()
 			projID := j.ProjectID
 			if projID == "" && j.TaskID != "" {
 				d.mu.RLock()
@@ -3948,13 +3979,7 @@ func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, sta
 		SyncPriority:    changed.Priority,
 	}
 
-	select {
-	case d.jobQueue <- job:
-	default:
-		go func() {
-			d.jobQueue <- job
-		}()
-	}
+	d.enqueueJob(job)
 }
 
 func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
@@ -4310,14 +4335,14 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 	d.mu.Unlock()
 
 	// Push job to worker queue
-	d.jobQueue <- SkillJob{
+	d.enqueueJob(SkillJob{
 		ActivityID: activityID,
 		TaskID:     targetTaskID,
 		ProjectID:  projectID,
 		SkillID:    syncType,
 		Prompt:     param,
 		ActingUser: userID,
-	}
+	})
 
 	return &act, nil
 }
@@ -4450,7 +4475,7 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 			stopStage = chainStopStage[0]
 		}
 	}
-	d.jobQueue <- SkillJob{
+	d.enqueueJob(SkillJob{
 		ActivityID:     activityID,
 		TaskID:         task.ID,
 		ProjectID:      task.ProjectID,
@@ -4459,7 +4484,7 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 		Mode:           d.resolveTaskSkillMode(task.ProjectID, targetSkill.ID, modeOverride),
 		Model:          strings.TrimSpace(modelOverride),
 		ChainStopStage: stopStage,
-	}
+	})
 
 	return task, &act, nil
 }

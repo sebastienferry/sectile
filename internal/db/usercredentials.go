@@ -82,6 +82,10 @@ func unlockKey(userID, tracker string) string {
 	return strings.TrimSpace(userID) + "\x00" + strings.ToLower(strings.TrimSpace(tracker))
 }
 
+// ensureUserCredentialsTable creates the table and applies its one additive
+// migration. It is called once, while the schema is being built: doing it on
+// every read issued DDL under a read lock, and put a CREATE and an
+// always-failing ALTER in front of every single tracker call.
 func (d *DB) ensureUserCredentialsTable() {
 	_, _ = d.conn.Exec(`CREATE TABLE IF NOT EXISTS user_tracker_credentials (
 		user_id TEXT NOT NULL,
@@ -149,7 +153,6 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.ensureUserCredentialsTable()
 	if _, err := d.conn.Exec(`
 		INSERT INTO user_tracker_credentials (user_id, tracker, site_url, email, record, sealed, salt, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -178,7 +181,6 @@ func (d *DB) ClearUserTrackerCredential(userID, tracker string) error {
 	tracker = strings.ToLower(strings.TrimSpace(tracker))
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.ensureUserCredentialsTable()
 	if _, err := d.conn.Exec(`DELETE FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker); err != nil {
 		return err
 	}
@@ -195,7 +197,6 @@ func (d *DB) UnlockUserTrackerCredential(userID, tracker, passphrase string) err
 	tracker = strings.ToLower(strings.TrimSpace(tracker))
 
 	d.mu.RLock()
-	d.ensureUserCredentialsTable()
 	var record, salt []byte
 	var sealed int
 	err := d.conn.QueryRow(`SELECT record, sealed, salt FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&record, &sealed, &salt)
@@ -231,7 +232,6 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 		return []UserCredential{}, nil
 	}
 	d.mu.RLock()
-	d.ensureUserCredentialsTable()
 	rows, err := d.conn.Query(`SELECT tracker, site_url, email, sealed, updated_at FROM user_tracker_credentials WHERE user_id = ? ORDER BY tracker`, userID)
 	d.mu.RUnlock()
 	if err != nil {
@@ -260,6 +260,12 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 // userTrackerCredential opens one person's token for one tracker. It answers
 // ErrNoUserCredential when there is none, and ErrCredentialLocked when the
 // owner sealed it and has not unlocked it in this server's lifetime.
+//
+// It takes no lock of its own, on purpose and like trackerCredentials: the
+// tracker client resolves a credential from paths that already hold d.mu, and
+// sync.RWMutex is not re-entrant. Taking the read lock here deadlocked the
+// whole store on the first task a signed-in person created on a Jira project,
+// and never gave the write lock back.
 func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, email string, token string, err error) {
 	userID = strings.TrimSpace(userID)
 	tracker = strings.ToLower(strings.TrimSpace(tracker))
@@ -267,12 +273,9 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 		return "", "", "", ErrNoUserCredential
 	}
 
-	d.mu.RLock()
-	d.ensureUserCredentialsTable()
 	var record []byte
 	var sealed int
 	scanErr := d.conn.QueryRow(`SELECT site_url, email, record, sealed FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&siteURL, &email, &record, &sealed)
-	d.mu.RUnlock()
 	if scanErr == sql.ErrNoRows {
 		return "", "", "", ErrNoUserCredential
 	}
