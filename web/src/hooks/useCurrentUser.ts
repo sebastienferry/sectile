@@ -6,6 +6,12 @@ interface CurrentUserState {
   loading: boolean
   error: string
   reload: () => Promise<void>
+  /**
+   * Renames the signed-in account. It resolves to the server's message when the
+   * name was refused, and to an empty string when it was taken: the caller
+   * shows one line either way rather than throwing at the person.
+   */
+  rename: (displayName: string) => Promise<string>
 }
 
 /**
@@ -31,7 +37,25 @@ export function useCurrentUser(): CurrentUserState {
     }
   }, [])
 
+  const rename = useCallback(async (displayName: string) => {
+    try {
+      const res = await fetch('/api/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName }),
+      })
+      // The answer is the profile itself, so a successful rename needs no
+      // second read: the account section updates from what came back.
+      const body = await res.json().catch(() => null)
+      if (!res.ok) return body?.error || `HTTP ${res.status}`
+      setUser(body)
+      return ''
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Could not save the display name.'
+    }
+  }, [])
+
   useEffect(() => { void reload() }, [reload])
 
-  return { user, loading, error, reload }
+  return { user, loading, error, reload, rename }
 }

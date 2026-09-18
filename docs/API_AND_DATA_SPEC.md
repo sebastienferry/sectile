@@ -196,6 +196,19 @@ and the tracker's own refusal when it fails.
 | `GET` | `/api/projects/{id}/spec-framework-status` | Per-framework SDD status for this project (see 2.5). |
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
 
+### 2.3.0 Current Account API
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/me` | (none) | Who is signed in, the sign-in mode and the role. Public: it is what the interface asks before anyone is signed in. |
+| `PATCH` | `/api/me` | `{displayName}` | Renames the calling account and answers the same body as the `GET`. The account comes from the session, never from the payload, so no route renames another one. `401` without a session, `400` above 80 characters or on a line break. An empty name clears the choice and hands the account back to the name its sign-in supplies. |
+
+The chosen name lives in `users.chosen_name`, not in `users.display_name`: the
+latter is rewritten at every sign-in from the provider's claim, or from the
+e-mail address for a local account, so a chosen name stored there would be
+erased at the next visit. Every read of a user resolves
+`COALESCE(NULLIF(chosen_name, ''), display_name)`.
+
 ### 2.3.1 Personal Tracker Credentials API
 
 A tracker credential may be personal, so a write carries the name of whoever
