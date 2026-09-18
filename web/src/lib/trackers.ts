@@ -236,6 +236,31 @@ export function scopesFor(tracker: TrackerKind): CredentialScope[] {
 }
 
 /**
+ * Un projet posé sur un tracker distant sans accès ne ramènera rien : autant le
+ * dire à la création plutôt qu'après une synchronisation vide.
+ *
+ * Où chercher l'accès dépend du tracker, et c'est ce qui manquait : Jira n'a
+ * plus d'accès serveur du tout dans l'interface, donc interroger les réglages
+ * globaux répondait « rien de configuré » quoi que la personne ait enregistré
+ * dans son profil. L'écran de connexion se rouvrait à chaque projet Jira créé
+ * ou modifié, même pour quelqu'un dont le jeton fonctionnait.
+ */
+export function needsCredentialsFor(
+  tracker: IssueTracker | string,
+  settings: StoredSettings,
+  mine: StoredUserCredential[]
+): boolean {
+  const kind = String(tracker)
+  if (kind === 'local' || kind === '') return false
+  if (trackerFields(kind as TrackerKind)?.personalOnly) {
+    return !mine.some(c => c.tracker === kind)
+  }
+  const stored = storedFor(settings, kind as TrackerKind)
+  if (mine.some(c => c.tracker === kind)) return false
+  return !stored.tokenIsSet && !stored.tokenFromEnv
+}
+
+/**
  * Ce qu'un accès déjà enregistré remet dans le formulaire. Le site et l'e-mail
  * en font partie : sans eux, l'écran redemande à la personne ce qu'elle a déjà
  * donné, et le bouton de vérification reste gris faute d'un champ obligatoire.

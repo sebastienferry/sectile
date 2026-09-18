@@ -205,7 +205,7 @@ session, never from the payload, and no answer ever carries a token.
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, sealed, unlocked. |
-| `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. |
+| `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. An empty `token` keeps the stored one, so the site, the e-mail and the sealing can change on their own; a sealed credential must be unlocked for that. |
 | `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. `404` when there is none to forget. |
 | `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. `409` when the credential is not sealed. |
 | `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |

@@ -44,7 +44,7 @@ import type {
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { AIModelField } from './AIModelField'
 import { isValidModel } from '../lib/aiModels'
-import { PROJECT_TRACKERS } from '../lib/trackers'
+import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 
 type ProjectTab = 'general' | 'agent' | 'workflow' | 'tracker' | 'skills'
 
@@ -419,9 +419,7 @@ export const ProjectModal: React.FC = () => {
       // rien : autant le dire maintenant, plutôt qu'après une synchronisation
       // vide. L'écran se ferme sans rien remplir, la configuration pouvant venir
       // plus tard depuis les réglages.
-      const needsCredentials =
-        issueTracker === 'jira' && !settings.jiraUrl?.trim() && !settings.jiraApiTokenSet
-      if (needsCredentials) {
+      if (needsCredentialsFor(issueTracker, settings, userCredentials)) {
         setIsTrackerSetupOpen(true)
       }
     } finally {

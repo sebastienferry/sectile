@@ -307,3 +307,48 @@ func TestAnActionOnNothingIsRefusedRatherThanReportedDone(t *testing.T) {
 		t.Fatalf("forgetting a stored credential: %v", err)
 	}
 }
+
+// The screen says "already configured, leave empty to keep it" over a token it
+// never receives back. Demanding it again made every other change impossible to
+// save: the site, the e-mail and the sealing could not be touched without
+// retyping a secret the person may no longer have.
+func TestSavingWithNoTokenKeepsTheStoredOne(t *testing.T) {
+	database := testDB(t)
+	if err := database.SetUserTrackerCredential("u-ada", "jira", "https://acme.atlassian.net", "ada@example.com", "ATATT-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only the site changes.
+	if err := database.SetUserTrackerCredential("u-ada", "jira", "https://other.atlassian.net", "ada@example.com", "", ""); err != nil {
+		t.Fatalf("saving without retyping the token: %v", err)
+	}
+	site, email, token, err := database.userTrackerCredential("u-ada", "jira")
+	if err != nil || token != "ATATT-secret" {
+		t.Fatalf("the stored token must survive: %q %v", token, err)
+	}
+	if site != "https://other.atlassian.net" || email != "ada@example.com" {
+		t.Fatalf("the rest must have changed: %q %q", site, email)
+	}
+
+	// Sealing an existing credential without retyping it works too, and the
+	// token that comes back out is still the same one.
+	if err := database.SetUserTrackerCredential("u-ada", "jira", "https://other.atlassian.net", "ada@example.com", "", "open sesame"); err != nil {
+		t.Fatalf("sealing without retyping the token: %v", err)
+	}
+	if _, _, token, err = database.userTrackerCredential("u-ada", "jira"); err != nil || token != "ATATT-secret" {
+		t.Fatalf("the sealed token must still be the stored one: %q %v", token, err)
+	}
+
+	// Locked, it cannot be read to be written again, and says so rather than
+	// failing on "the token is required".
+	database.LockUserTrackerCredential("u-ada", "jira")
+	err = database.SetUserTrackerCredential("u-ada", "jira", "https://other.atlassian.net", "ada@example.com", "", "")
+	if err == nil || !strings.Contains(err.Error(), "scellé") {
+		t.Fatalf("a locked credential must say to unseal it: %v", err)
+	}
+
+	// And with nothing stored at all, the token really is required.
+	if err := database.SetUserTrackerCredential("u-bob", "jira", "https://acme.atlassian.net", "bob@example.com", "", ""); err == nil {
+		t.Fatal("a first credential needs its token")
+	}
+}
