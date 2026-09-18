@@ -60,6 +60,12 @@ type desktopRun struct {
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
 	// captured output read-only instead of reporting a missing console.
 	Headless bool `json:"headless,omitempty"`
+	// Trace marks a headless run whose engine is reporting what it does as it
+	// does it. The desktop attaches to it read-only rather than answering the
+	// selection with the notice it shows for a run that has nothing to watch.
+	// An agent that cannot trace sends nothing here, and that notice is what its
+	// runs keep showing.
+	Trace bool `json:"trace,omitempty"`
 	// WaitingSince is set while the session is blocked on the user. The desktop
 	// reads it to raise its notification and to mark the run in its list.
 	WaitingSince time.Time `json:"waitingSince,omitzero"`
@@ -244,6 +250,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := run.desktop
+	trace := run.trace
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
 		d.queue.mu.Unlock()
@@ -267,6 +274,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !exists {
+			// A run with no console can still have something to watch: an
+			// autonomous run reports what it is doing, and the desktop attaches
+			// to that trace over this same route rather than opening a second
+			// kind of connection for it.
+			if trace != nil {
+				serveRunTrace(w, r, trace)
+				return
+			}
 			http.Error(w, "Console is not ready", 409)
 			return
 		}

@@ -31,6 +31,19 @@ Rejected: a `StreamReasoning` setting like Taskativ's. It doubles the states a r
 decision the user actually wants to make, and the failure it protects against — the flags on an
 engine that cannot read them — is already prevented by the engine check.
 
+### D1bis — A run is traced when its command line asks for the stream
+The supervisor has to know whether the output it is about to read is a stream of
+JSON objects or an answer. It reads that off the command line that is about to
+run (`commandReadsReasoning`), not from the provider: the decision was made while
+building that line, through branches a configured template and a dedicated
+autonomous command leave early, so asking the provider again at the far end would
+answer for a branch that was not taken. It also makes the right answer for a
+template that asks for the stream itself — its output *is* that stream.
+
+Rejected: threading a boolean back through `headlessCommandLine`,
+`modeCommandLine`, `launchCommandLine` and `dispatchCommand`. Four signatures and
+their call sites changed to carry a fact the artefact already states.
+
 ### D2 — The parser is a port, in `internal/runner`
 `internal/runner/reasoning.go` is Taskativ's file, kept as it is: the same three event kinds, the
 same ordered `toolDetailKeys`, the same clamping, the same rule that a line it cannot read yields

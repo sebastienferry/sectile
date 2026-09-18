@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"fmt"
@@ -50,7 +51,9 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	// than split in two.
 	cmd.Stderr = cmd.Stdout
 
-	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model)
+	// Whether this run is traced is read off the command line that is about to
+	// run: it is the line that decides what its standard output will be.
+	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model, commandReadsReasoning(fullLine))
 	if err := cmd.Start(); err != nil {
 		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", err.Error())
 		return err
@@ -63,7 +66,10 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 // registerHeadlessRun records the run the way the PTY path does, minus the
 // session: an autonomous run has no terminal to attach to, and the desktop must
 // not present it as an execution whose console is missing.
-func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch, provider, model string) *controlledRun {
+//
+// traced says the engine was asked for its reasoning stream, so the run gets the
+// trace the desktop attaches to in place of a console.
+func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch, provider, model string, traced bool) *controlledRun {
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	if d.queue.runs == nil {
@@ -75,12 +81,19 @@ func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Di
 		d.queue.runs[payload.RunID] = run
 	}
 	run.taskID = taskRef
+	if traced && run.trace == nil {
+		run.trace = newRunTrace()
+		// The pane is attached to before the engine has said anything. One line
+		// says what it is looking at, so an empty trace reads as a run starting
+		// rather than as a console that failed to open.
+		run.trace.write(traceLine(traceDim + "Autonomous execution · read-only trace" + traceReset))
+	}
 	run.desktop = desktopRun{
 		CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt,
 		ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID,
 		Skill: payload.SkillID, Directory: workDir, Branch: branch, Status: "running",
 		Provider: provider, Model: model,
-		Headless: true,
+		Headless: true, Trace: run.trace != nil,
 	}
 	return run
 }
@@ -92,6 +105,16 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	var mu sync.Mutex
 	var pending bytes.Buffer
 
+	// The run's trace, read once under the queue lock like every other field of
+	// the run. Nil means the engine was not asked for its reasoning, and this
+	// run's output is read byte by byte as it always was.
+	d.queue.mu.Lock()
+	var trace *runTrace
+	if run != nil {
+		trace = run.trace
+	}
+	d.queue.mu.Unlock()
+
 	flush := func() {
 		mu.Lock()
 		chunk := pending.String()
@@ -102,9 +125,19 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 		}
 	}
 
+	record := func(text string) {
+		mu.Lock()
+		pending.WriteString(text)
+		mu.Unlock()
+	}
+
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		if trace != nil {
+			readTracedOutput(trace, output, record)
+			return
+		}
 		buf := make([]byte, 4096)
 		for {
 			n, err := output.Read(buf)
@@ -154,13 +187,79 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	d.finishHeadlessRun(taskRef, runID, run, status, note)
 }
 
+// readTracedOutput reads the output of a run whose engine was asked for its
+// reasoning stream, and sends each line where it belongs: the events to the
+// trace the desktop watches, and to the task activity exactly what the activity
+// received before the stream existed.
+//
+// Lines are read with a bufio.Reader and not a bufio.Scanner: one object of the
+// stream can carry a whole tool result and go past the scanner's 64 KB token
+// ceiling, which would end the reading for the size of what the engine said
+// rather than for anything wrong.
+func readTracedOutput(trace *runTrace, output io.Reader, record func(string)) {
+	reader := bufio.NewReader(output)
+	for {
+		line, err := reader.ReadString('\n')
+		if line != "" {
+			routeTracedLine(trace, strings.TrimRight(line, "\r\n"), record)
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// routeTracedLine places one line of a traced run.
+//
+// The result message carries the answer, which is what the engine printed on its
+// own before it was asked for a stream, so that is what the activity receives.
+// Anything the parser showed belongs to the trace alone. What is left is the
+// interesting case: standard error shares this pipe, so a missing binary, a
+// crash or a shell error arrives here as plain text, and that is where a failed
+// run explains itself — it goes to the activity untouched.
+func routeTracedLine(trace *runTrace, line string, record func(string)) {
+	events, result, done := runner.ParseReasoningLine(line)
+	for _, event := range events {
+		trace.publish(event)
+	}
+	switch {
+	case done:
+		if strings.TrimSpace(result) != "" {
+			record(result + "\n")
+		}
+	case len(events) > 0 || isStreamFrame(line):
+		// Shown in the trace, or protocol the reader had nothing to show for:
+		// either way it is not the activity's business.
+	case strings.TrimSpace(line) == "":
+	default:
+		record(line + "\n")
+	}
+}
+
+// isStreamFrame says whether a line the parser showed nothing for is still part
+// of the engine's protocol — the session banner, a user message carrying a tool
+// result, the tail of a stream cut mid-object — as opposed to a diagnostic
+// printed beside it. Only the second kind is worth recording on the task.
+func isStreamFrame(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "{") && strings.Contains(trimmed, `"type":`)
+}
+
 func (d *agentDaemon) finishHeadlessRun(taskRef, runID string, run *controlledRun, status, note string) {
 	d.queue.mu.Lock()
+	var trace *runTrace
 	if run != nil {
 		run.desktop.Status = status
 		run.once.Do(func() { close(run.exited) })
+		// Read under the lock, like every other field of the run, and closed
+		// outside it: closing wakes the watchers, and they have no business
+		// waiting on the queue.
+		trace = run.trace
 	}
 	d.queue.mu.Unlock()
+	// The run is over: a watcher sees the trace end rather than a socket left
+	// open on a process that exited. What it showed stays readable.
+	trace.close()
 	if runID == "" {
 		return
 	}

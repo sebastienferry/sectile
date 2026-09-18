@@ -32,7 +32,7 @@ func TestInteractiveCommandLineIsUnchanged(t *testing.T) {
 
 func TestHeadlessCommandLineCoversAttestedProviders(t *testing.T) {
 	cases := map[string]string{
-		"claude": "claude -p --permission-mode bypassPermissions 'do the thing'",
+		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose 'do the thing'",
 		"codex":  "codex exec 'do the thing'",
 		"vibe":   "vibe -p --auto-approve 'do the thing'",
 	}

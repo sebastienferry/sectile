@@ -74,6 +74,11 @@ type controlledRun struct {
 	canceled bool
 	exited   chan struct{}
 	once     sync.Once
+	// trace is what a headless run showed while it worked, for the desktop to
+	// attach to. It is nil for a run whose engine was not asked for its
+	// reasoning stream, which is every interactive run and every engine whose
+	// stream format is not attested.
+	trace *runTrace
 	// relay serialises the waiting reports sent to the server for this run, so
 	// two reports in quick succession cannot cross on the wire.
 	relay sync.Mutex

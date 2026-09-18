@@ -119,7 +119,7 @@ func TestDispatchCommandResolvesPerSkillModel(t *testing.T) {
 // unattended run silently falls back to the CLI default.
 func TestHeadlessCommandLineCarriesTheModel(t *testing.T) {
 	for provider, want := range map[string]string{
-		"claude": "claude -p --permission-mode bypassPermissions --model M 'do it'",
+		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose --model M 'do it'",
 		"codex":  "codex exec --model M 'do it'",
 		"vibe":   "vibe -p --auto-approve 'do it'",
 	} {
@@ -133,11 +133,11 @@ func TestHeadlessCommandLineCarriesTheModel(t *testing.T) {
 	}
 }
 
-// With no model configured an autonomous line is byte for byte the one built
-// before this change.
+// With no model configured an autonomous line carries nothing but its mode
+// flags, the reasoning options of an engine that streams, and the prompt.
 func TestHeadlessCommandLineUnchangedWithoutModel(t *testing.T) {
 	for provider, want := range map[string]string{
-		"claude": "claude -p --permission-mode bypassPermissions 'do it'",
+		"claude": "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose 'do it'",
 		"codex":  "codex exec 'do it'",
 		"vibe":   "vibe -p --auto-approve 'do it'",
 	} {
