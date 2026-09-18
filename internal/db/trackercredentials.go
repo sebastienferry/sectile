@@ -40,6 +40,9 @@ func (d *DB) trackerCredentials(projectID string) trackerapi.Credentials {
 			GitlabURL:     settings.GitlabUrl,
 			GitlabProject: settings.GitlabProject,
 			GitlabToken:   settings.GitlabToken,
+			JiraURL:       settings.JiraUrl,
+			JiraEmail:     settings.JiraEmail,
+			JiraToken:     settings.JiraAPIToken,
 		}
 	}
 	if strings.TrimSpace(projectID) == "" {
@@ -54,6 +57,11 @@ func (d *DB) trackerCredentials(projectID string) trackerapi.Credentials {
 	overrideWith(&cred.GitlabURL, proj.GitlabUrl)
 	overrideWith(&cred.GitlabProject, proj.GitlabProject)
 	overrideWith(&cred.GitlabToken, proj.GitlabToken)
+	// A project overrides the Jira site only: one Atlassian API token is valid
+	// on every site of the account, so the e-mail and token stay global.
+	if strings.EqualFold(strings.TrimSpace(proj.IssueTracker), "jira") {
+		overrideWith(&cred.JiraURL, proj.TrackerUrl)
+	}
 	return cred
 }
 
@@ -81,6 +89,7 @@ func (d *DB) withoutTrackerTokens(s *models.Settings) *models.Settings {
 	if d != nil && d.trackers != nil {
 		s.GithubTokenFromEnv = !s.GithubTokenSet && d.trackers.GithubToken != ""
 		s.GitlabTokenFromEnv = !s.GitlabTokenSet && d.trackers.GitlabToken != ""
+		s.JiraAPITokenFromEnv = !s.JiraAPITokenSet && d.trackers.JiraToken != ""
 	}
 	s.JiraAPIToken, s.GithubToken, s.GitlabToken = "", "", ""
 	return s
@@ -101,14 +110,17 @@ func withoutProjectTokens(p *models.Project) *models.Project {
 // CheckTrackerCredentials authenticates connection parameters against the
 // instance and answers with the account they belong to. An empty URL or token
 // falls back to what is already resolved for the server, so the setup screen can
-// re-check a stored credential it never received back.
-func (d *DB) CheckTrackerCredentials(ctx context.Context, tracker, apiURL, token string) (string, error) {
+// re-check a stored credential it never received back. The e-mail only matters
+// to Jira, which authenticates the account rather than a bare token.
+func (d *DB) CheckTrackerCredentials(ctx context.Context, tracker, apiURL, email, token string) (string, error) {
 	client := d.tracker("")
 	switch strings.ToLower(strings.TrimSpace(tracker)) {
 	case "github":
 		return client.CheckGithub(ctx, firstNonEmpty(apiURL, client.GithubURL), firstNonEmpty(token, client.GithubToken))
 	case "gitlab":
 		return client.CheckGitlab(ctx, firstNonEmpty(apiURL, client.GitlabURL), firstNonEmpty(token, client.GitlabToken))
+	case "jira":
+		return client.CheckJira(ctx, firstNonEmpty(apiURL, client.JiraURL), firstNonEmpty(email, client.JiraEmail), firstNonEmpty(token, client.JiraToken))
 	default:
 		return "", fmt.Errorf("aucune vérification de connexion pour le tracker %q", tracker)
 	}
@@ -116,14 +128,24 @@ func (d *DB) CheckTrackerCredentials(ctx context.Context, tracker, apiURL, token
 
 // SaveTrackerCredentials stores one tracker's connection parameters in the user
 // configuration. The empty-means-unchanged and clear-sentinel rules of
-// UpdateSettings apply, so the caller may leave the token out.
-func (d *DB) SaveTrackerCredentials(tracker, apiURL, project, token string) (*models.Settings, error) {
+// UpdateSettings apply, so the caller may leave the token out. For Jira,
+// project is the default project key and email the account e-mail.
+func (d *DB) SaveTrackerCredentials(tracker, apiURL, project, email, token string) (*models.Settings, error) {
 	current, err := d.GetSettings()
 	if err != nil {
 		return nil, err
 	}
 	update := *current
 	switch strings.ToLower(strings.TrimSpace(tracker)) {
+	case "jira":
+		update.JiraUrl = strings.TrimSpace(apiURL)
+		update.JiraAPIToken = strings.TrimSpace(token)
+		if strings.TrimSpace(email) != "" {
+			update.JiraEmail = strings.TrimSpace(email)
+		}
+		if strings.TrimSpace(project) != "" {
+			update.JiraProject = strings.ToUpper(strings.TrimSpace(project))
+		}
 	case "github":
 		update.GithubApiUrl = strings.TrimSpace(apiURL)
 		update.GithubToken = strings.TrimSpace(token)

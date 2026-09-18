@@ -2,50 +2,7 @@ import React, { useState } from 'react'
 import { Check, Key, Globe, Mail, Loader2, ShieldCheck, X, AlertCircle, FolderGit2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { TrackerCredentials } from '../types'
-
-/** Ce que chaque tracker demande. Un seul écran, trois jeux de champs. */
-type TrackerKind = TrackerCredentials['tracker']
-
-const TRACKERS: {
-  id: TrackerKind
-  label: string
-  siteLabel: string
-  sitePlaceholder: string
-  /** Jira s'authentifie avec un e-mail ; GitHub et GitLab non. */
-  wantsEmail: boolean
-  projectLabel?: string
-  projectPlaceholder?: string
-  tokenHint: string
-}[] = [
-  {
-    id: 'jira',
-    label: 'Jira',
-    siteLabel: 'Site Jira',
-    sitePlaceholder: 'mon-org.atlassian.net',
-    wantsEmail: true,
-    tokenHint: "À créer sur id.atlassian.com, section jetons d'API.",
-  },
-  {
-    id: 'github',
-    label: 'GitHub',
-    siteLabel: "URL de l'API GitHub",
-    sitePlaceholder: 'https://api.github.com',
-    wantsEmail: false,
-    projectLabel: 'Dépôt par défaut',
-    projectPlaceholder: 'organisation/depot',
-    tokenHint: 'Jeton personnel (PAT) avec la portée repo.',
-  },
-  {
-    id: 'gitlab',
-    label: 'GitLab',
-    siteLabel: "URL de l'API GitLab",
-    sitePlaceholder: 'https://gitlab.com/api/v4',
-    wantsEmail: false,
-    projectLabel: 'Projet par défaut',
-    projectPlaceholder: 'groupe/projet',
-    tokenHint: 'Jeton personnel avec la portée api.',
-  },
-]
+import { TRACKERS, canCheck, initialTracker, storedFor, trackerFields, type TrackerKind } from '../lib/trackers'
 
 /**
  * Premier démarrage : ce qu'il faut savoir avant que quoi que ce soit fonctionne.
@@ -62,39 +19,21 @@ const TRACKERS: {
 export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const { checkTrackerCredentials, saveTrackerCredentials, settings, addToast } = useApp()
 
-  const initial: TrackerKind = settings.issueTracker === 'github' ? 'github' : 'jira'
+  const initial = initialTracker(settings.issueTracker)
   const [tracker, setTracker] = useState<TrackerKind>(initial)
-  const kind = TRACKERS.find(t => t.id === tracker) ?? TRACKERS[0]
+  const kind = trackerFields(tracker)
+  const stored = storedFor(settings, tracker)
 
-  const storedSite = (t: TrackerKind) =>
-    t === 'jira' ? settings.jiraUrl || '' : t === 'github' ? settings.githubApiUrl || '' : settings.gitlabUrl || ''
-  const storedProject = (t: TrackerKind) =>
-    t === 'github' ? settings.githubRepo || '' : t === 'gitlab' ? settings.gitlabProject || '' : ''
-  const tokenIsSet =
-    tracker === 'jira'
-      ? settings.jiraApiTokenSet
-      : tracker === 'github'
-        ? settings.githubTokenSet
-        : settings.gitlabTokenSet
-  const tokenFromEnv =
-    tracker === 'jira'
-      ? settings.jiraApiTokenFromEnv
-      : tracker === 'github'
-        ? settings.githubTokenFromEnv
-        : settings.gitlabTokenFromEnv
-
-  const [siteUrl, setSiteUrl] = useState(storedSite(initial))
-  const [project, setProject] = useState(storedProject(initial))
+  const [siteUrl, setSiteUrl] = useState(storedFor(settings, initial).siteUrl)
+  const [project, setProject] = useState(storedFor(settings, initial).project)
   const [email, setEmail] = useState(settings.jiraEmail || '')
   const [token, setToken] = useState('')
-  // Le fichier hors base n'existe que pour Jira : rien ne l'écrit encore pour
-  // les autres, l'afficher promettrait ce que le serveur ne fait pas.
-  const [storeInFile, setStoreInFile] = useState(true)
 
   const selectTracker = (next: TrackerKind) => {
+    const values = storedFor(settings, next)
     setTracker(next)
-    setSiteUrl(storedSite(next))
-    setProject(storedProject(next))
+    setSiteUrl(values.siteUrl)
+    setProject(values.project)
     setToken('')
     setCheck(null)
   }
@@ -108,14 +47,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
     projects?: { id: string; name: string }[]
   } | null>(null)
 
-  const credentials = (): TrackerCredentials => ({
-    tracker,
-    siteUrl,
-    project,
-    email,
-    token,
-    storeTokenInFile: tracker === 'jira' && storeInFile,
-  })
+  const credentials = (): TrackerCredentials => ({ tracker, siteUrl, project, email, token })
 
   const runCheck = async () => {
     setIsChecking(true)
@@ -131,10 +63,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       addToast({
         type: 'success',
         title: `${kind.label} configuré`,
-        description:
-          tracker === 'jira' && storeInFile
-            ? 'Le jeton est écrit dans le fichier de configuration, hors de la base.'
-            : 'Le jeton est enregistré dans la configuration utilisateur.',
+        description: 'Le jeton est enregistré dans la configuration utilisateur.',
       })
       onClose()
     }
@@ -249,9 +178,9 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
                 value={token}
                 onChange={e => setToken(e.target.value)}
                 placeholder={
-                  tokenIsSet
+                  stored.tokenIsSet
                     ? 'Déjà configuré, laissez vide pour le garder'
-                    : tokenFromEnv
+                    : stored.tokenFromEnv
                       ? "Fourni par l'environnement du serveur, laissez vide pour le garder"
                       : 'Collez le jeton'
                 }
@@ -261,25 +190,9 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             </div>
             <span className="text-[9.5px] text-[var(--text-muted)] block mt-1">
               {kind.tokenHint}
-              {tokenFromEnv && ' Un jeton vient déjà de l’environnement du serveur ; celui saisi ici prime.'}
+              {stored.tokenFromEnv && ' Un jeton vient déjà de l’environnement du serveur ; celui saisi ici prime.'}
             </span>
           </div>
-
-          {tracker === 'jira' && (
-          <label className="flex items-start gap-2 text-[10.5px] text-[var(--text-secondary)] cursor-pointer">
-            <input
-              type="checkbox"
-              checked={storeInFile}
-              onChange={e => setStoreInFile(e.target.checked)}
-              className="mt-0.5 accent-[var(--accent-color)]"
-            />
-            <span>
-              Écrire le jeton dans un fichier de configuration plutôt que dans la base. La base est
-              un fichier qu'on copie et qu'on sauvegarde ; le fichier de configuration, lui, est
-              celui qu'on sait ne pas transmettre.
-            </span>
-          </label>
-          )}
 
           {check && (
             <div
@@ -327,7 +240,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             <button
               type="button"
               onClick={runCheck}
-              disabled={isChecking || (kind.wantsEmail && (!siteUrl.trim() || !email.trim()))}
+              disabled={isChecking || !canCheck(tracker, { siteUrl, email })}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
             >
               {isChecking ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}

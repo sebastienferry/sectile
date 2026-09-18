@@ -13,8 +13,9 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
 
 - **Server-side tracker integration**:
   - GitHub REST supports synchronization, issue creation, updates and comments without an online agent.
+  - Jira Cloud REST supports the same, plus the sprint, team and epic fields GitHub does not have, over the account's API token.
   - Configure explicit server credentials and repository/team identifiers. CLI login state is not used by the server.
-  - Local tasks remain in SQLite. Jira metadata remains readable, but this baseline does not implement Jira synchronization or mutations.
+  - Local tasks remain in SQLite.
   - Tracker queues expose actual API errors in Activities.
 
 - 📐 **Frameworks Spec-Driven Design installables (Spec Kit & OpenSpec)** :
@@ -139,6 +140,13 @@ Tokens are write-only: the API never returns one. It reports `githubTokenSet` /
 `gitlabTokenSet` / `jiraApiTokenSet` instead, plus `...FromEnv` when no token is
 stored and the server environment supplies one. Saving with an empty token field
 keeps the stored token; sending the sentinel `__clear__` deletes it.
+
+Jira asks for the site (`mon-org.atlassian.net`), the account e-mail and an
+Atlassian API token, which authenticate as `email:token`. Its environment
+fallbacks are `SECTILE_JIRA_URL`, `SECTILE_JIRA_EMAIL` and `SECTILE_JIRA_TOKEN`,
+then `SECTILE_TRACKER_TOKEN` and `JIRA_API_TOKEN`. A project overrides the site
+through its `trackerUrl`; the e-mail and the token stay global, one Atlassian
+token being valid on every site of the account.
 
 GitLab parameters can be stored, but no GitLab ticketing adapter is registered
 yet: a project whose tracker is GitLab still fails with the tracker registry's
@@ -733,9 +741,9 @@ Press **Cmd+K** (macOS) or **Ctrl+K** to open the command palette and choose
 **Quick add task**. The selected project's identity is prefilled; without a
 selection, choose a project explicitly. Enter a title and optional description.
 The server creates the task using its project tracker configuration.
-GitHub creation must succeed remotely; errors do not silently create
-a local fallback. Local projects remain local. Jira remote creation is not
-implemented and returns an explicit error. Creation does not start an execution;
+GitHub and Jira creation must succeed remotely; errors do not silently create
+a local fallback, and the site's own refusal is quoted, so a mandatory field it
+requires is readable. Local projects remain local. Creation does not start an execution;
 the success screen offers a separate **Launch task** action.
 
 Task IDs in the desktop sidebar open the task directly on the configured Sectile server. Server links use `?task=<task-primary-key>` and open task details independently of board filters.

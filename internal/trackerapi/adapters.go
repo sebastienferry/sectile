@@ -8,11 +8,12 @@ import (
 	"tasks/internal/tracker"
 )
 
-// NewDefaultRegistry constructs a tracker.Registry populated with Github and
-// Local adapters using the given tracker API client.
+// NewDefaultRegistry constructs a tracker.Registry populated with the GitHub,
+// Jira and Local adapters using the given tracker API client.
 func NewDefaultRegistry(client *Client) *tracker.Registry {
 	reg := tracker.NewRegistry()
 	reg.Register("github", NewGithubAdapter(client))
+	reg.Register("jira", NewJiraAdapter(client))
 	reg.Register("local", tracker.NewLocalAdapter())
 	return reg
 }

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,12 +32,17 @@ const (
 type Credentials struct {
 	GithubURL, GithubToken                string
 	GitlabURL, GitlabProject, GitlabToken string
+	// Jira Cloud authenticates with the account e-mail and an API token; the URL
+	// is the site itself (https://acme.atlassian.net), the API prefixes are
+	// added per call.
+	JiraURL, JiraEmail, JiraToken string
 }
 
 type Client struct {
 	HTTP                                  *http.Client
 	GithubURL, GithubToken                string
 	GitlabURL, GitlabProject, GitlabToken string
+	JiraURL, JiraEmail, JiraToken         string
 	// Resolve returns the credentials stored for one project, by project id, an
 	// empty id meaning "no project". It is injected by the store, which is the
 	// only component able to read both the settings and the project row; the
@@ -61,6 +67,9 @@ func NewClient() *Client {
 		GitlabURL:     strings.TrimRight(gl, "/"),
 		GitlabProject: os.Getenv("SECTILE_GITLAB_PROJECT"),
 		GitlabToken:   trackerToken("SECTILE_GITLAB_TOKEN", "GITLAB_TOKEN"),
+		JiraURL:       jiraBaseURL(os.Getenv("SECTILE_JIRA_URL")),
+		JiraEmail:     strings.TrimSpace(os.Getenv("SECTILE_JIRA_EMAIL")),
+		JiraToken:     trackerToken("SECTILE_JIRA_TOKEN", "JIRA_API_TOKEN"),
 	}
 }
 
@@ -93,7 +102,33 @@ func (c *Client) For(projectID string) *Client {
 	if cred.GitlabToken != "" {
 		resolved.GitlabToken = cred.GitlabToken
 	}
+	if cred.JiraURL != "" {
+		resolved.JiraURL = jiraBaseURL(cred.JiraURL)
+	}
+	if cred.JiraEmail != "" {
+		resolved.JiraEmail = strings.TrimSpace(cred.JiraEmail)
+	}
+	if cred.JiraToken != "" {
+		resolved.JiraToken = cred.JiraToken
+	}
 	return &resolved
+}
+
+// HTTPError is a refusal by the tracker. The message stays the generic one, so
+// no response body reaches a log or an activity by accident; adapters that know
+// their tracker's error shape read Body themselves and quote only what they
+// recognise.
+type HTTPError struct {
+	Status int
+	Body   []byte
+}
+
+func (e *HTTPError) Error() string { return fmt.Sprintf("tracker returned HTTP %d", e.Status) }
+
+// IsRateLimited reports whether the tracker asked to be left alone (HTTP 429).
+func IsRateLimited(err error) bool {
+	var httpErr *HTTPError
+	return errors.As(err, &httpErr) && httpErr.Status == http.StatusTooManyRequests
 }
 
 // trackerToken resolves one provider's credential. The provider-specific variable
@@ -152,7 +187,7 @@ func (c *Client) request(ctx context.Context, method, endpoint, token string, pa
 		return nil, nil, err
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return nil, res.Header, fmt.Errorf("tracker returned HTTP %d", res.StatusCode)
+		return nil, res.Header, &HTTPError{Status: res.StatusCode, Body: raw}
 	}
 	return raw, res.Header, nil
 }

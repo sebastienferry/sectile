@@ -231,7 +231,7 @@ export interface Project {
   gitlabProject?: string
   gitlabToken?: string
   gitlabTokenSet?: boolean
-  /** Jira project key used as `acli --project`, e.g. "PE". */
+  /** Jira project key the sync queries on, e.g. "PE". */
   jiraProject?: string
   issueTracker: IssueTracker
   /** Tracker project URL, or the Jira base URL (e.g. https://acme.atlassian.net). */
@@ -617,7 +617,7 @@ export interface TrackerCredentials {
   /**
    * GitLab n'est pas dans `IssueTracker` : ses paramètres se configurent, mais
    * aucun adaptateur GitLab n'est enregistré, donc un projet ne peut pas encore
-   * le choisir comme tracker.
+   * le choisir comme tracker. Jira et GitHub, eux, en ont un.
    */
   tracker: IssueTracker | 'gitlab'
   siteUrl: string
@@ -625,7 +625,6 @@ export interface TrackerCredentials {
   project?: string
   email?: string
   token?: string
-  storeTokenInFile?: boolean
 }
 
 export interface TrackerCheck {

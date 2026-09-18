@@ -46,6 +46,9 @@ const (
 	CapLabels Capability = "labels"
 	// CapComment posts a comment.
 	CapComment Capability = "comment"
+	// CapBoard reads the project's structure: boards, columns, statuses and
+	// issue types.
+	CapBoard Capability = "board"
 )
 
 // CapabilityLabel names an operation in the language the interface speaks, for
@@ -76,6 +79,8 @@ func CapabilityLabel(c Capability) string {
 		return "la modification des labels"
 	case CapComment:
 		return "les commentaires"
+	case CapBoard:
+		return "la lecture du board"
 	}
 	return string(c)
 }

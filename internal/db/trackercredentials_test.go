@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -169,6 +170,15 @@ func TestCheckTrackerCredentials(t *testing.T) {
 	var seen string
 	instance := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = r.Header.Get("Authorization")
+		if r.URL.Path == "/rest/api/3/myself" {
+			// Jira authenticates the account: Basic e-mail:token.
+			if seen != "Basic "+base64.StdEncoding.EncodeToString([]byte("ada@example.com:good-token")) {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"accountId": "a1", "displayName": "Ada"})
+			return
+		}
 		if seen != "Bearer good-token" {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
@@ -180,18 +190,21 @@ func TestCheckTrackerCredentials(t *testing.T) {
 	database := testDB(t)
 	database.trackers.HTTP = instance.Client()
 
-	account, err := database.CheckTrackerCredentials(context.Background(), "github", instance.URL, "good-token")
+	account, err := database.CheckTrackerCredentials(context.Background(), "github", instance.URL, "", "good-token")
 	if err != nil || account != "octocat" {
 		t.Fatalf("check: %q %v", account, err)
 	}
-	if account, err = database.CheckTrackerCredentials(context.Background(), "gitlab", instance.URL, "good-token"); err != nil || account != "octocat" {
+	if account, err = database.CheckTrackerCredentials(context.Background(), "gitlab", instance.URL, "", "good-token"); err != nil || account != "octocat" {
 		t.Fatalf("gitlab check: %q %v", account, err)
 	}
-	if _, err = database.CheckTrackerCredentials(context.Background(), "github", instance.URL, "wrong-token"); err == nil {
+	if _, err = database.CheckTrackerCredentials(context.Background(), "github", instance.URL, "", "wrong-token"); err == nil {
 		t.Fatal("a wrong credential must be refused")
 	}
-	if _, err = database.CheckTrackerCredentials(context.Background(), "jira", instance.URL, "good-token"); err == nil {
-		t.Fatal("only GitHub and GitLab are checked here")
+	if account, err = database.CheckTrackerCredentials(context.Background(), "jira", instance.URL, "ada@example.com", "good-token"); err != nil || account != "Ada" {
+		t.Fatalf("jira check: %q %v", account, err)
+	}
+	if _, err = database.CheckTrackerCredentials(context.Background(), "jira", instance.URL, "ada@example.com", "wrong-token"); err == nil {
+		t.Fatal("a wrong Jira credential must be refused")
 	}
 }
 
@@ -202,7 +215,7 @@ func TestSaveTrackerCredentialsKeepsTheRestOfTheConfiguration(t *testing.T) {
 	if _, err := database.UpdateSettings(models.Settings{Theme: "light", JiraAPIToken: "jira-secret"}); err != nil {
 		t.Fatal(err)
 	}
-	saved, err := database.SaveTrackerCredentials("gitlab", "https://gitlab.example/api/v4", "group/app", "gl-token")
+	saved, err := database.SaveTrackerCredentials("gitlab", "https://gitlab.example/api/v4", "group/app", "", "gl-token")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,8 +228,15 @@ func TestSaveTrackerCredentialsKeepsTheRestOfTheConfiguration(t *testing.T) {
 	if !saved.JiraAPITokenSet {
 		t.Fatal("saving GitLab parameters dropped the Jira token")
 	}
-	if _, err = database.SaveTrackerCredentials("jira", "https://acme.atlassian.net", "", "x"); err == nil {
-		t.Fatal("this path only stores GitHub and GitLab parameters")
+	jira, err := database.SaveTrackerCredentials("jira", "https://acme.atlassian.net", "pe", "ada@example.com", "jira-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jira.JiraUrl != "https://acme.atlassian.net" || jira.JiraEmail != "ada@example.com" || jira.JiraProject != "PE" || !jira.JiraAPITokenSet {
+		t.Fatalf("jira parameters not persisted: %+v", jira)
+	}
+	if !jira.GitlabTokenSet || jira.Theme != "light" {
+		t.Fatalf("saving Jira parameters touched the rest: %+v", jira)
 	}
 }
 

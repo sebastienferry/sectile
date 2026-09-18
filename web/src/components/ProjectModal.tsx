@@ -1202,7 +1202,7 @@ export const ProjectModal: React.FC = () => {
                       <Key size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
                     </div>
                     <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
-                      Passée à <code className="text-cyan-400">acli jira workitem --project</code>. La CLI Atlassian doit être authentifiée (<code className="text-cyan-400">acli jira auth login</code>).
+                      Le projet interrogé par la synchronisation REST. Le site, l'e-mail et le jeton se configurent dans <em>Connecter votre tracker</em>.
                     </span>
                   </div>
                 )}

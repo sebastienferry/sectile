@@ -289,7 +289,7 @@ export const SyncView: React.FC = () => {
             </div>
 
             <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
-              Synchronise les tickets et anomalies de votre projet Jira via la CLI Atlassian (acli).
+              Synchronise les tickets et anomalies de votre projet Jira via l'API REST Atlassian.
             </p>
           </div>
         )}

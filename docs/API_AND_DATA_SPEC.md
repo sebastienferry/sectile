@@ -151,8 +151,9 @@ CREATE TABLE IF NOT EXISTS settings (
 ### 2.1.1 Teams API
 
 A work item may carry a team, and it is never mandatory: a project can hold
-tickets with no team at all. Existing team/member metadata remains readable.
-Jira team refresh is unsupported in this baseline.
+tickets with no team at all. Team refresh reads the members from the project's
+own tracker, for the trackers that have teams; a tracker without them answers an
+explicit unsupported-capability error.
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
@@ -201,7 +202,7 @@ and the tracker's own refusal when it fails.
 | :--- | :--- | :--- | :--- |
 | `POST` | `/api/sync/all` | (none) | Queues a sync of every configured project across all trackers. |
 | `POST` | `/api/sync/github` | `{repo, projectId}` | Queues a GitHub repository sync. |
-| `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Reports unsupported Jira synchronization. |
+| `POST` | `/api/sync/jira` | `{projectKey, projectId}` | Queues a Jira project sync. |
 
 All four return `{message, activity}`; the work runs on the background job queue
 and its progress is readable through the Activities API.

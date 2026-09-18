@@ -179,15 +179,6 @@ func (r *Runner) CheckCliTools(repoPath string) []models.CliStatus {
 	return results
 }
 
-// -------------------------------------------------------------
-// JIRA CLI (acli) INTEGRATION
-// -------------------------------------------------------------
-
-// jiraSearchFields is the exact set of fields acli accepts for
-// 'jira workitem search --fields'. Notably 'created' and 'updated' are
-// rejected by the CLI, so task timestamps fall back to the import time.
-const jiraSearchFields = "key,summary,description,status,priority,assignee,labels,issuetype"
-
 // NormalizeIssueTypes cleans a configured list of work item types.
 func NormalizeIssueTypes(types []string) []string { return models.NormalizeIssueTypes(types) }
 

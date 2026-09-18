@@ -378,8 +378,31 @@ func (h *Handler) HandleSyncGithub(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleSyncJira queues a Jira synchronisation, like the GitHub one: the job
+// resolves the project's adapter and imports its work items.
+//
+//	POST /api/sync/jira {projectKey, projectId}
 func (h *Handler) HandleSyncJira(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusBadRequest, "Le support de Jira a été retiré. Utilisez GitHub.")
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	var req struct {
+		ProjectKey string `json:"projectKey"`
+		ProjectID  string `json:"projectId"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	activity, err := h.db.EnqueueSync("jira", req.ProjectKey, req.ProjectID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"message":  "Synchronisation Jira ajoutée à la file d'attente",
+		"activity": activity,
+	})
 }
 
 // HandleSpecFrameworkStatus reports whether GitHub Spec Kit / OpenSpec are
@@ -1394,8 +1417,9 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 // Checking before saving is the point: a wrong site or a stale token never
 // reaches the settings, and the answer names what is wrong instead of leaving a
 // sync to fail later with nothing to show. `tracker` selects the fields that
-// matter: GitHub and GitLab are checked against the instance and persisted here;
-// the Jira path keeps the behaviour it had, which persists nothing.
+// matter: GitHub, GitLab and Jira are checked against the instance and
+// persisted here. storeTokenInFile is accepted for older clients and ignored:
+// no file store exists, the token goes to the user configuration.
 func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1418,8 +1442,8 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	tracker := strings.ToLower(strings.TrimSpace(req.Tracker))
 	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
 	verified := ""
-	if tracker == "github" || tracker == "gitlab" {
-		account, err := h.db.CheckTrackerCredentials(r.Context(), tracker, req.SiteURL, req.Token)
+	if tracker == "github" || tracker == "gitlab" || tracker == "jira" {
+		account, err := h.db.CheckTrackerCredentials(r.Context(), tracker, req.SiteURL, req.Email, req.Token)
 		if err != nil {
 			// Nothing is persisted on a failed check: the user configuration
 			// keeps the parameters that were working.
@@ -1434,8 +1458,8 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if tracker == "github" || tracker == "gitlab" {
-		settings, err := h.db.SaveTrackerCredentials(tracker, req.SiteURL, req.Project, req.Token)
+	if tracker == "github" || tracker == "gitlab" || tracker == "jira" {
+		settings, err := h.db.SaveTrackerCredentials(tracker, req.SiteURL, req.Project, req.Email, req.Token)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

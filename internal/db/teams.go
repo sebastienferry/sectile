@@ -1,7 +1,9 @@
 package db
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -127,11 +129,97 @@ func (d *DB) storeTeamMembers(teamID string, members []models.TeamMember) error 
 // A failure on one team is not fatal for the others, and no team at all is not
 // an error either: a project may simply not use the field.
 func (d *DB) RefreshProjectTeamMembers(projectID string, tasks []models.Task) (string, error) {
-	return "aucune équipe à rafraîchir", nil
+	teams := d.registerTeamsFromTasks(projectID, tasks)
+	if len(teams) == 0 {
+		return "aucune équipe portée par les tickets, rien à rafraîchir", nil
+	}
+
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return "", err
+	}
+	if !ts.Supports(tracker.CapTeam) {
+		return "", tracker.Unsupported(ts.Name(), tracker.CapTeam)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), teamsAPITimeout)
+	defer cancel()
+
+	people := 0
+	refreshed := 0
+	var failures []string
+	for _, team := range teams {
+		members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: team.ID})
+		if err != nil {
+			// The team stays, its members unknown: a sync never fails on this.
+			failures = append(failures, fmt.Sprintf("%s: %v", team.Name, err))
+			log.Printf("[teams] membres de %s (%s) non lus: %v", team.Name, team.ID, err)
+			continue
+		}
+		for i := range members {
+			members[i].TeamName = team.Name
+		}
+		if err := d.storeTeamMembers(team.ID, members); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", team.Name, err))
+			continue
+		}
+		refreshed++
+		people += len(members)
+	}
+
+	note := fmt.Sprintf("%d équipe(s) rafraîchie(s), %d personne(s)", refreshed, people)
+	if len(failures) > 0 {
+		note += fmt.Sprintf(", %d échec(s) : %s", len(failures), strings.Join(failures, " | "))
+	}
+	return note, nil
 }
 
+// RefreshTeamMembersNow re-reads one team on demand, for the refresh button of
+// the team view.
 func (d *DB) RefreshTeamMembersNow(projectID string, teamID string) (*models.TrackerTeam, error) {
-	return nil, fmt.Errorf("rafraîchissement d'équipe Jira non supporté")
+	teamID = strings.TrimSpace(teamID)
+	if teamID == "" {
+		return nil, fmt.Errorf("identifiant d'équipe manquant")
+	}
+
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapTeam) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapTeam)
+	}
+
+	d.mu.Lock()
+	d.ensureTeamsTables()
+	name := ""
+	_ = d.conn.QueryRow("SELECT name FROM teams WHERE id = ?", teamID).Scan(&name)
+	d.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), teamsAPITimeout)
+	defer cancel()
+
+	members, err := ts.TeamMembers(ctx, tracker.TeamRequest{Project: proj, TeamID: teamID})
+	if err != nil {
+		return nil, err
+	}
+	for i := range members {
+		members[i].TeamName = name
+	}
+	if err := d.storeTeamMembers(teamID, members); err != nil {
+		return nil, err
+	}
+
+	teams, err := d.ListProjectTeams(projectID, true)
+	if err != nil {
+		return nil, err
+	}
+	for i := range teams {
+		if teams[i].ID == teamID {
+			return &teams[i], nil
+		}
+	}
+	return &models.TrackerTeam{ID: teamID, Name: name, MemberCount: len(members), Members: members}, nil
 }
 
 // ListProjectTeams returns the teams carried by the project's work items, with
@@ -436,12 +524,39 @@ func (d *DB) SearchAssignableUsers(taskIDOrKey string, query string) ([]models.T
 		}
 	}
 
-	return []models.TeamMember{}, nil
+	// Typed, or no team known: ask the tracker who the work item accepts.
+	ts, err := d.TrackerForTask(task)
+	if err != nil || ts == nil || !ts.Supports(tracker.CapAssign) {
+		return []models.TeamMember{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), teamsAPITimeout)
+	defer cancel()
+	people, err := ts.SearchAssignable(ctx, task.Key, query, 20)
+	if err != nil {
+		if tracker.IsUnsupported(err) {
+			return []models.TeamMember{}, nil
+		}
+		return nil, err
+	}
+	members := make([]models.TeamMember, 0, len(people))
+	for _, p := range people {
+		members = append(members, models.TeamMember{AccountID: p.ID, DisplayName: p.DisplayName, Email: p.Email, AvatarURL: p.AvatarURL, Active: p.Active, TeamName: task.Team, TeamID: task.TeamID})
+	}
+	return members, nil
 }
 
 // SearchTrackerTeams looks up the teams of the instance by name.
 func (d *DB) SearchTrackerTeams(projectID string, query string) ([]models.TrackerTeam, error) {
-	return []models.TrackerTeam{}, nil
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapTeam) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapTeam)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), teamsAPITimeout)
+	defer cancel()
+	return ts.SearchTeams(ctx, tracker.TeamSearchRequest{Project: proj, Query: query})
 }
 
 // SetTasksTeam records the team locally on a batch of work items and queues the

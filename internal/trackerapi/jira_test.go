@@ -1,0 +1,595 @@
+package trackerapi
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"tasks/internal/models"
+	"tasks/internal/tracker"
+	"testing"
+)
+
+// jiraSite is a fake Jira Cloud site: handlers keyed by "METHOD /path", every
+// request recorded, Basic auth checked on every call.
+type jiraSite struct {
+	t        *testing.T
+	mu       sync.Mutex
+	routes   map[string]http.HandlerFunc
+	requests []recordedRequest
+	server   *httptest.Server
+}
+
+type recordedRequest struct {
+	Method string
+	Path   string
+	Query  string
+	Body   string
+}
+
+func newJiraSite(t *testing.T) *jiraSite {
+	t.Helper()
+	resetJiraFieldCache()
+	site := &jiraSite{t: t, routes: map[string]http.HandlerFunc{}}
+	site.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		site.mu.Lock()
+		site.requests = append(site.requests, recordedRequest{r.Method, r.URL.Path, r.URL.RawQuery, string(body)})
+		site.mu.Unlock()
+		want := "Basic " + base64.StdEncoding.EncodeToString([]byte("ada@example.com:jira-secret"))
+		if r.Header.Get("Authorization") != want {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprint(w, `{"errorMessages":["bad credentials"]}`)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if handler, ok := site.routes[r.Method+" "+r.URL.Path]; ok {
+			r.Body = io.NopCloser(strings.NewReader(string(body)))
+			handler(w, r)
+			return
+		}
+		// Field discovery is asked by most reads; a site with no custom field
+		// answers an empty list.
+		if r.Method == "GET" && r.URL.Path == "/rest/api/3/field" {
+			fmt.Fprint(w, `[]`)
+			return
+		}
+		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	t.Cleanup(site.server.Close)
+	return site
+}
+
+func (s *jiraSite) on(method, path string, handler http.HandlerFunc) {
+	s.routes[method+" "+path] = handler
+}
+
+func (s *jiraSite) reply(method, path, body string) {
+	s.on(method, path, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) })
+}
+
+func (s *jiraSite) client() *Client {
+	return &Client{HTTP: s.server.Client(), JiraURL: s.server.URL, JiraEmail: "ada@example.com", JiraToken: "jira-secret"}
+}
+
+func (s *jiraSite) adapter() *JiraAdapter { return NewJiraAdapter(s.client()) }
+
+func (s *jiraSite) calls(method, path string) []recordedRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []recordedRequest
+	for _, r := range s.requests {
+		if r.Method == method && r.Path == path {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func jiraProject() *models.Project {
+	return &models.Project{ID: "p1", Slug: "pe", IssueTracker: "jira", JiraProject: "PE"}
+}
+
+func TestJiraAdapterSatisfiesTheAbstraction(t *testing.T) {
+	var ts tracker.TicketingSystem = NewJiraAdapter(&Client{})
+	for _, c := range []tracker.Capability{tracker.CapCreate, tracker.CapGet, tracker.CapUpdate, tracker.CapDelete, tracker.CapSync, tracker.CapComment, tracker.CapLabels, tracker.CapAssign, tracker.CapTransition, tracker.CapSprint, tracker.CapTeam, tracker.CapEpic, tracker.CapBoard} {
+		if !ts.Supports(c) {
+			t.Errorf("jira should support %q", c)
+		}
+	}
+	reg := NewDefaultRegistry(&Client{})
+	if resolved, err := reg.ForTask(&models.Task{Source: "jira", Key: "PE-7"}, nil); err != nil || resolved.Name() != "jira" {
+		t.Fatalf("a jira-sourced task must resolve to the jira adapter: %v %v", resolved, err)
+	}
+	if resolved, err := reg.ForProject(jiraProject()); err != nil || resolved.Name() != "jira" {
+		t.Fatalf("a jira project must resolve to the jira adapter: %v %v", resolved, err)
+	}
+	// GitHub gained nothing it does not have.
+	gh, _ := reg.Get("github")
+	if gh.Supports(tracker.CapBoard) {
+		t.Error("github must not claim boards")
+	}
+	if _, err := gh.ListBoards(context.Background(), tracker.BoardsRequest{}); !tracker.IsUnsupported(err) {
+		t.Errorf("github boards: %v", err)
+	}
+}
+
+func TestJiraFormatTaskID(t *testing.T) {
+	j := NewJiraAdapter(&Client{})
+	for in, want := range map[string]string{"PE-12": "jira-p1-PE-12", "pe-12": "jira-p1-PE-12", "jira-p1-PE-12": "jira-p1-PE-12"} {
+		if got := j.FormatTaskID("p1", in, ""); got != want {
+			t.Errorf("FormatTaskID(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := j.FormatTaskID("", "PE-3", ""); got != "jira-PE-3" {
+		t.Errorf("no project: %q", got)
+	}
+}
+
+func TestJiraRefusesToWorkWithoutCredentials(t *testing.T) {
+	site := newJiraSite(t)
+	c := site.client()
+	c.JiraToken = ""
+	_, err := NewJiraAdapter(c).GetIssue(context.Background(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
+	if err == nil || !strings.Contains(err.Error(), "token") {
+		t.Fatalf("expected a credential error, got %v", err)
+	}
+	if len(site.requests) != 0 {
+		t.Fatalf("no network call is allowed without credentials: %v", site.requests)
+	}
+}
+
+func TestJiraSyncPaginatesAndMapsWorkItems(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/api/3/field", `[
+		{"id":"customfield_10020","name":"Sprint","schema":{"type":"array","custom":"com.pyxis.greenhopper.jira:gh-sprint"}},
+		{"id":"customfield_10001","name":"Team","schema":{"type":"team","custom":"com.atlassian.jira.plugin.system.customfieldtypes:atlassian-team"}}
+	]`)
+	site.on("GET", "/rest/api/3/search/jql", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if !strings.Contains(q.Get("jql"), `project = PE AND issuetype IN ("Story", "Bug") ORDER BY updated DESC`) {
+			t.Errorf("jql: %s", q.Get("jql"))
+		}
+		if !strings.Contains(q.Get("fields"), "customfield_10020") || !strings.Contains(q.Get("fields"), "parent") {
+			t.Errorf("fields: %s", q.Get("fields"))
+		}
+		if q.Get("nextPageToken") == "page2" {
+			fmt.Fprint(w, `{"issues":[{"key":"PE-3","fields":{"summary":"Closed one","status":{"name":"Done","statusCategory":{"key":"done"}},"labels":[]}}],"isLast":true}`)
+			return
+		}
+		fmt.Fprint(w, `{"issues":[
+			{"key":"PE-1","fields":{"summary":"Build it","description":{"type":"doc","version":1,"content":[{"type":"paragraph","content":[{"type":"text","text":"Body"}]}]},
+			 "status":{"name":"In Progress","statusCategory":{"key":"indeterminate"}},"priority":{"name":"Highest"},
+			 "assignee":{"accountId":"acc-1","displayName":"Ada"},"labels":["specified","team-x"],"issuetype":{"name":"Story"},
+			 "parent":{"key":"PE-10","fields":{"summary":"Big epic","issuetype":{"name":"Epic"}}},
+			 "created":"2026-08-25T09:12:33.000+0200","updated":"2026-09-01T10:00:00.000+0200",
+			 "customfield_10020":[{"name":"Sprint 1","state":"closed"},{"name":"Sprint 2","state":"active"}],
+			 "customfield_10001":{"id":"team-uuid-67","name":"Platform"}}},
+			{"key":"PE-2","fields":{"summary":"No label","status":{"name":"To Do","statusCategory":{"key":"new"}},"priority":{"name":"Low"},"labels":[]}}
+		],"nextPageToken":"page2","isLast":false}`)
+	})
+	proj := jiraProject()
+	proj.IssueTypes = []string{"Story", "Bug"}
+	tasks, err := site.adapter().SyncIssues(context.Background(), tracker.SyncRequest{Project: proj})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 3 || len(site.calls("GET", "/rest/api/3/search/jql")) != 2 {
+		t.Fatalf("expected 3 tasks over 2 pages, got %d tasks, %d calls", len(tasks), len(site.calls("GET", "/rest/api/3/search/jql")))
+	}
+	first := tasks[0]
+	if first.Key != "PE-1" || first.Source != "jira" || first.Status != models.StatusToImplement || first.TrackerStatus != "In Progress" ||
+		first.Priority != models.PriorityUrgent || first.Assignee != "Ada" || first.Description != "Body" || first.IssueType != "Story" ||
+		first.ParentKey != "PE-10" || first.ParentTitle != "Big epic" || first.ParentType != "Epic" || first.Sprint != "Sprint 2" ||
+		first.Team != "Platform" || first.TeamID != "team-uuid-67" || first.ExternalURL == nil || !strings.HasSuffix(*first.ExternalURL, "/browse/PE-1") ||
+		first.TrackerCreatedAt == nil || first.TrackerUpdatedAt == nil {
+		t.Fatalf("first task mapped wrong: %+v", first)
+	}
+	if tasks[1].Status != models.StatusToClarify || tasks[1].Priority != models.PriorityLow {
+		t.Fatalf("unlabelled open item: %+v", tasks[1])
+	}
+	if tasks[2].Status != models.StatusFinished {
+		t.Fatalf("done category must be finished: %+v", tasks[2])
+	}
+	if id := site.adapter().FormatTaskID(proj.ID, tasks[0].Key, tasks[0].ID); id != "jira-p1-PE-1" {
+		t.Fatalf("identity: %s", id)
+	}
+}
+
+func TestJiraSyncWorksOnASiteWithoutSprintAndTeamFields(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/api/3/search/jql", `{"issues":[{"key":"PE-1","fields":{"summary":"Only","status":{"name":"To Do","statusCategory":{"key":"new"}}}}],"isLast":true}`)
+	tasks, err := site.adapter().SyncIssues(context.Background(), tracker.SyncRequest{Project: jiraProject()})
+	if err != nil || len(tasks) != 1 || tasks[0].Sprint != "" || tasks[0].Team != "" {
+		t.Fatalf("sync without custom fields: %v %+v", err, tasks)
+	}
+}
+
+func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
+	site := newJiraSite(t)
+	var created map[string]any
+	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&created)
+		fields := created["fields"].(map[string]any)
+		if _, ok := fields["customfield_10011"]; !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"errorMessages":[],"errors":{"customfield_10011":"Epic Type is required."}}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
+	})
+	site.reply("GET", "/rest/api/3/issue/PE-42", `{"key":"PE-42","fields":{"summary":"New","status":{"name":"To Do","statusCategory":{"key":"new"}},"labels":["new"]}}`)
+
+	proj := jiraProject()
+	proj.IssueTypes = []string{"Story"}
+	_, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: proj, Title: "New", Description: "# Heading\n\nBody", ParentKey: "pe-10"})
+	if err == nil || !strings.Contains(err.Error(), "Epic Type") {
+		t.Fatalf("the site's refusal must be quoted: %v", err)
+	}
+	fields := created["fields"].(map[string]any)
+	if fields["issuetype"].(map[string]any)["name"] != "Story" || fields["project"].(map[string]any)["key"] != "PE" || fields["parent"].(map[string]any)["key"] != "PE-10" {
+		t.Fatalf("creation fields: %#v", fields)
+	}
+	if fields["description"].(map[string]any)["type"] != "doc" {
+		t.Fatalf("description must be ADF: %#v", fields["description"])
+	}
+
+	task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: proj, Title: "New", Fields: map[string]string{"customfield_10011": "10200"}})
+	if err != nil || task.Key != "PE-42" || task.Source != "jira" || task.Status != models.StatusToClarify {
+		t.Fatalf("created task: %+v %v", task, err)
+	}
+	if fields := created["fields"].(map[string]any); fields["customfield_10011"].(map[string]any)["id"] != "10200" {
+		t.Fatalf("mandatory field: %#v", fields)
+	}
+
+	// No configured type and no request type: Task.
+	proj.IssueTypes = nil
+	_, _ = site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: proj, Title: "Bare", Fields: map[string]string{"customfield_10011": "10200"}})
+	if created["fields"].(map[string]any)["issuetype"].(map[string]any)["name"] != "Task" {
+		t.Fatalf("type fallback: %#v", created["fields"])
+	}
+}
+
+func TestJiraUpdateMovesLabelsWithoutTouchingTheStatus(t *testing.T) {
+	site := newJiraSite(t)
+	var put map[string]any
+	site.on("PUT", "/rest/api/3/issue/PE-7", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&put)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	status := models.StatusToImplement
+	err := site.adapter().UpdateIssue(context.Background(), tracker.UpdateIssueRequest{
+		Project: jiraProject(), Key: "PE-7", Status: &status,
+		Labels: []string{"specified", "keep"}, RemovedLabels: []string{"clarified"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := put["fields"]; ok {
+		t.Fatalf("an untouched title and description must not travel: %#v", put)
+	}
+	ops, _ := json.Marshal(put["update"].(map[string]any)["labels"])
+	for _, want := range []string{`{"add":"keep"}`, `{"add":"specified"}`, `{"remove":"clarified"}`} {
+		if !strings.Contains(string(ops), want) {
+			t.Errorf("label ops %s miss %s", ops, want)
+		}
+	}
+	if calls := site.calls("GET", "/rest/api/3/issue/PE-7/transitions"); len(calls) != 0 {
+		t.Fatal("a stage change must not look at transitions")
+	}
+}
+
+func TestJiraFinishingRunsTheDoneTransition(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/api/3/issue/PE-7/transitions", `{"transitions":[
+		{"id":"11","name":"Review","to":{"name":"In Review","statusCategory":{"key":"indeterminate"}}},
+		{"id":"31","name":"Close Issue","to":{"name":"Done","statusCategory":{"key":"done"}}}
+	]}`)
+	var posted map[string]any
+	site.on("POST", "/rest/api/3/issue/PE-7/transitions", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&posted)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	site.on("PUT", "/rest/api/3/issue/PE-7", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+
+	finished := models.StatusFinished
+	if err := site.adapter().UpdateIssue(context.Background(), tracker.UpdateIssueRequest{Project: jiraProject(), Key: "PE-7", Status: &finished, Labels: []string{"finished"}}); err != nil {
+		t.Fatal(err)
+	}
+	if posted["transition"].(map[string]any)["id"] != "31" {
+		t.Fatalf("the done-category transition must run: %#v", posted)
+	}
+
+	posted = nil
+	if err := site.adapter().DeleteIssue(context.Background(), tracker.DeleteIssueRequest{Project: jiraProject(), Key: "PE-7", CloseOnly: true}); err != nil {
+		t.Fatal(err)
+	}
+	if posted["transition"].(map[string]any)["id"] != "31" {
+		t.Fatalf("deleting closes: %#v", posted)
+	}
+
+	// A named target picks by status name, case-insensitively.
+	posted = nil
+	if err := site.adapter().Transition(context.Background(), "PE-7", "in review"); err != nil {
+		t.Fatal(err)
+	}
+	if posted["transition"].(map[string]any)["id"] != "11" {
+		t.Fatalf("named transition: %#v", posted)
+	}
+}
+
+func TestJiraFinishingWithoutADoneTransitionFails(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/api/3/issue/PE-8/transitions", `{"transitions":[{"id":"21","name":"Start","to":{"name":"In Progress","statusCategory":{"key":"indeterminate"}}}]}`)
+	site.reply("GET", "/rest/api/3/issue/PE-8", `{"key":"PE-8","fields":{"status":{"name":"To Do","statusCategory":{"key":"new"}}}}`)
+	err := site.adapter().DeleteIssue(context.Background(), tracker.DeleteIssueRequest{Project: jiraProject(), Key: "PE-8"})
+	if err == nil || !strings.Contains(err.Error(), "PE-8") || !strings.Contains(err.Error(), "In Progress") {
+		t.Fatalf("the refusal must name the work item and the available transitions: %v", err)
+	}
+	if len(site.calls("POST", "/rest/api/3/issue/PE-8/transitions")) != 0 {
+		t.Fatal("nothing must be transitioned")
+	}
+}
+
+func TestJiraCommentsRoundTripThroughADF(t *testing.T) {
+	site := newJiraSite(t)
+	var posted map[string]any
+	site.on("POST", "/rest/api/3/issue/PE-1/comment", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&posted)
+		fmt.Fprint(w, `{"id":"100"}`)
+	})
+	site.reply("GET", "/rest/api/3/issue/PE-1/comment", `{"total":1,"comments":[{"id":"100","author":{"displayName":"Ada"},"created":"2026-09-18T06:00:00.000+0200",
+		"body":{"type":"doc","version":1,"content":[{"type":"heading","attrs":{"level":2},"content":[{"type":"text","text":"Report"}]},{"type":"bulletList","content":[{"type":"listItem","content":[{"type":"paragraph","content":[{"type":"text","text":"one"}]}]}]}]}}]}`)
+
+	j := site.adapter()
+	if err := j.AddComment(context.Background(), tracker.AddCommentRequest{Project: jiraProject(), Key: "PE-1", Body: "## Report\n\n- one"}); err != nil {
+		t.Fatal(err)
+	}
+	body := posted["body"].(map[string]any)
+	if body["type"] != "doc" {
+		t.Fatalf("comment body must be ADF: %#v", body)
+	}
+	comments, err := j.GetComments(context.Background(), tracker.GetCommentsRequest{Project: jiraProject(), Key: "PE-1"})
+	if err != nil || len(comments) != 1 {
+		t.Fatalf("comments: %v %+v", err, comments)
+	}
+	if comments[0].Author != "Ada" || comments[0].Source != "jira" || comments[0].CreatedAt == nil || comments[0].Body != "## Report\n\n- one" {
+		t.Fatalf("comment mapped wrong: %+v", comments[0])
+	}
+	if err := j.AddComment(context.Background(), tracker.AddCommentRequest{Key: "PE-1", Body: "  "}); err == nil {
+		t.Fatal("an empty comment is refused before any call")
+	}
+}
+
+func TestJiraSprintMovesInBatchesOfFifty(t *testing.T) {
+	site := newJiraSite(t)
+	var sizes []int
+	site.on("POST", "/rest/agile/1.0/sprint/77/issue", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Issues []string `json:"issues"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		sizes = append(sizes, len(body.Issues))
+		w.WriteHeader(http.StatusNoContent)
+	})
+	site.on("POST", "/rest/agile/1.0/backlog/issue", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	keys := make([]string, 60)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("pe-%d", i+1)
+	}
+	if err := site.adapter().SetSprint(context.Background(), "77", keys); err != nil {
+		t.Fatal(err)
+	}
+	if len(sizes) != 2 || sizes[0] != 50 || sizes[1] != 10 {
+		t.Fatalf("batches: %v", sizes)
+	}
+	if err := site.adapter().SetSprint(context.Background(), "", []string{"PE-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(site.calls("POST", "/rest/agile/1.0/backlog/issue")) != 1 {
+		t.Fatal("an empty sprint id moves to the backlog")
+	}
+}
+
+func TestJiraTeamsSearchMembersAndWrite(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/api/3/jql/autocompletedata/suggestions", `{"results":[{"value":"team-1","displayName":"<b>Plat</b>form"},{"value":"","displayName":"ghost"}]}`)
+	site.reply("GET", "/_edge/tenant_info", `{"cloudId":"cloud-9"}`)
+	site.on("GET", "/gateway/api/v4/teams/team-1/members", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("siteId") != "cloud-9" {
+			t.Errorf("siteId: %s", r.URL.RawQuery)
+		}
+		if r.URL.Query().Get("after") == "c1" {
+			fmt.Fprint(w, `{"entities":[{"membershipId":{"memberId":"acc-2"},"state":"FULL_MEMBER"}],"cursor":null}`)
+			return
+		}
+		fmt.Fprint(w, `{"entities":[{"membershipId":{"memberId":"acc-1"},"state":"FULL_MEMBER"},{"membershipId":{"memberId":"acc-9"},"state":"INVITED"}],"cursor":"c1"}`)
+	})
+	site.on("GET", "/rest/api/3/user/bulk", func(w http.ResponseWriter, r *http.Request) {
+		if ids := r.URL.Query()["accountId"]; len(ids) != 2 {
+			t.Errorf("accountIds: %v", ids)
+		}
+		fmt.Fprint(w, `{"values":[{"accountId":"acc-1","displayName":"Ada","emailAddress":"ada@example.com","active":true,"accountType":"atlassian","avatarUrls":{"48x48":"https://a/48"}},
+			{"accountId":"acc-2","displayName":"Bot","active":true,"accountType":"app"}]}`)
+	})
+	site.reply("GET", "/rest/api/3/field", `[{"id":"customfield_10001","name":"Team","schema":{"type":"team","custom":"x:atlassian-team"}}]`)
+	var puts []map[string]any
+	site.on("PUT", "/rest/api/3/issue/PE-1", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		puts = append(puts, body)
+		if len(puts) == 1 {
+			// The bare id is refused on this site; the object form is accepted.
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"errors":{"customfield_10001":"expected an object"}}`)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	j := site.adapter()
+	teams, err := j.SearchTeams(context.Background(), tracker.TeamSearchRequest{Project: jiraProject(), Query: "plat"})
+	if err != nil || len(teams) != 1 || teams[0].ID != "team-1" || teams[0].Name != "Platform" {
+		t.Fatalf("teams: %v %+v", err, teams)
+	}
+	members, err := j.TeamMembers(context.Background(), tracker.TeamRequest{Project: jiraProject(), TeamID: "team-1"})
+	if err != nil || len(members) != 1 || members[0].AccountID != "acc-1" || members[0].DisplayName != "Ada" || members[0].TeamID != "team-1" || members[0].AvatarURL != "https://a/48" {
+		t.Fatalf("members (invited and app accounts dropped): %v %+v", err, members)
+	}
+	if err := j.SetTeam(context.Background(), "PE-1", "team-1"); err != nil {
+		t.Fatal(err)
+	}
+	if len(puts) != 2 || puts[1]["fields"].(map[string]any)["customfield_10001"].(map[string]any)["id"] != "team-1" {
+		t.Fatalf("team write must retry with the object form: %#v", puts)
+	}
+}
+
+func TestJiraTeamMembersFailureIsAnError(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("GET", "/_edge/tenant_info", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) })
+	if _, err := site.adapter().TeamMembers(context.Background(), tracker.TeamRequest{TeamID: "team-1"}); err == nil {
+		t.Fatal("an unreachable members endpoint must be reported, the caller decides to degrade")
+	}
+}
+
+func TestJiraReadSideBoardsColumnsSprintsStatusesTypes(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/agile/1.0/board", `{"values":[{"id":5,"name":"PE board","type":"scrum"}],"isLast":true}`)
+	site.reply("GET", "/rest/agile/1.0/board/5/configuration", `{"columnConfig":{"columns":[{"name":"To Do","statuses":[{"id":"1"}]},{"name":"Empty","statuses":[]},{"name":"Done","statuses":[{"id":"3"},{"id":"4"}]}]}}`)
+	site.reply("GET", "/rest/api/3/status", `[{"id":"1","name":"To Do"},{"id":"3","name":"Done"},{"id":"4","name":"Closed"}]`)
+	site.reply("GET", "/rest/agile/1.0/board/5/sprint", `{"values":[{"id":9,"name":"Sprint 9","state":"active","startDate":"2026-09-01","endDate":"2026-09-14"}],"isLast":true}`)
+	site.reply("GET", "/rest/api/3/project/PE/statuses", `[{"statuses":[{"id":"1","name":"To Do","statusCategory":{"key":"new"}},{"id":"3","name":"Done","statusCategory":{"key":"done"}}]},{"statuses":[{"id":"1","name":"To Do","statusCategory":{"key":"new"}}]}]`)
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes", `{"values":[{"id":"10001","name":"Story","subtask":false},{"id":"10003","name":"Sub-task","subtask":true},{"id":"10000","name":"Epic","subtask":false}],"isLast":true}`)
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10000", `{"values":[
+		{"fieldId":"summary","name":"Summary","required":true},
+		{"fieldId":"customfield_10011","name":"Epic Type","required":true,"hasDefaultValue":false,"allowedValues":[{"id":"1","value":"Feature"},{"id":"2","value":"Tech"}]},
+		{"fieldId":"customfield_10099","name":"Defaulted","required":true,"hasDefaultValue":true}
+	],"isLast":true}`)
+	site.reply("GET", "/rest/api/3/search/jql", `{"issues":[{"key":"PE-10","fields":{"summary":"Big epic","issuetype":{"name":"Epic"},"status":{"name":"To Do","statusCategory":{"key":"new"}}}}],"isLast":true}`)
+
+	j := site.adapter()
+	ctx := context.Background()
+	proj := jiraProject()
+	boards, err := j.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+	if err != nil || len(boards) != 1 || boards[0].ID != "5" || boards[0].Type != "scrum" {
+		t.Fatalf("boards: %v %+v", err, boards)
+	}
+	columns, err := j.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: "5"})
+	if err != nil || len(columns) != 2 || columns[1].Name != "Done" || len(columns[1].Statuses) != 2 || columns[1].Statuses[1] != "Closed" {
+		t.Fatalf("columns (empty one dropped, ids resolved): %v %+v", err, columns)
+	}
+	proj.BoardID = "5"
+	sprints, err := j.ListSprints(ctx, tracker.BoardRequest{Project: proj})
+	if err != nil || len(sprints) != 1 || sprints[0].ID != "9" || sprints[0].State != "active" {
+		t.Fatalf("sprints: %v %+v", err, sprints)
+	}
+	statuses, err := j.ListStatuses(ctx, tracker.ProjectRequest{Project: proj})
+	if err != nil || len(statuses) != 2 || statuses[1].Category != "done" {
+		t.Fatalf("statuses (deduplicated): %v %+v", err, statuses)
+	}
+	types, err := j.ListIssueTypes(ctx, tracker.ProjectRequest{Project: proj})
+	if err != nil || strings.Join(types, ",") != "Epic,Story" {
+		t.Fatalf("issue types (sub-tasks out, sorted): %v %v", err, types)
+	}
+	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Project: proj, IssueType: "Epic"})
+	if err != nil || len(required) != 1 || required[0].Name != "Epic Type" || len(required[0].Options) != 2 || required[0].Options[1].Value != "Tech" {
+		t.Fatalf("required fields: %v %+v", err, required)
+	}
+	epics, err := j.ListEpics(ctx, tracker.ProjectRequest{Project: proj})
+	if err != nil || len(epics) != 1 || epics[0].Key != "PE-10" {
+		t.Fatalf("epics: %v %+v", err, epics)
+	}
+	if jql := site.calls("GET", "/rest/api/3/search/jql")[0].Query; !strings.Contains(jql, "issuetype+%3D+Epic") {
+		t.Fatalf("epic query: %s", jql)
+	}
+}
+
+func TestJiraAssignAndParentAndLabels(t *testing.T) {
+	site := newJiraSite(t)
+	var assignee map[string]any
+	site.on("PUT", "/rest/api/3/issue/PE-1/assignee", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&assignee)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	var put map[string]any
+	site.on("PUT", "/rest/api/3/issue/PE-1", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&put)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	site.reply("GET", "/rest/api/3/user/assignable/search", `[{"accountId":"acc-1","displayName":"Ada","active":true,"accountType":"atlassian"}]`)
+
+	j := site.adapter()
+	ctx := context.Background()
+	if err := j.Assign(ctx, "PE-1", "acc-1"); err != nil || assignee["accountId"] != "acc-1" {
+		t.Fatalf("assign: %v %#v", err, assignee)
+	}
+	if err := j.Assign(ctx, "PE-1", ""); err != nil || assignee["accountId"] != nil {
+		t.Fatalf("unassign sends null: %v %#v", err, assignee)
+	}
+	if err := j.SetParent(ctx, "PE-1", "pe-10"); err != nil || put["fields"].(map[string]any)["parent"].(map[string]any)["key"] != "PE-10" {
+		t.Fatalf("parent: %v %#v", err, put)
+	}
+	if err := j.SetParent(ctx, "PE-1", ""); err != nil || put["fields"].(map[string]any)["parent"] != nil {
+		t.Fatalf("detach sends null: %v %#v", err, put)
+	}
+	if err := j.UpdateLabels(ctx, "PE-1", []string{"a"}, []string{"b"}); err != nil || len(put["update"].(map[string]any)["labels"].([]any)) != 2 {
+		t.Fatalf("labels: %v %#v", err, put)
+	}
+	people, err := j.SearchAssignable(ctx, "PE-1", "ad", 5)
+	if err != nil || len(people) != 1 || people[0].ID != "acc-1" {
+		t.Fatalf("assignable: %v %+v", err, people)
+	}
+	if err := j.Assign(ctx, "#12", "acc-1"); err == nil {
+		t.Fatal("a GitHub-shaped key must be refused")
+	}
+}
+
+func TestJiraRateLimitAndCredentialRefusalsAreReadable(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("GET", "/rest/api/3/issue/PE-1", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+	_, err := site.adapter().GetIssue(context.Background(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
+	if !IsRateLimited(err) {
+		t.Fatalf("429 must be recognised as a rate limit: %v", err)
+	}
+	c := site.client()
+	c.JiraToken = "wrong"
+	_, err = NewJiraAdapter(c).GetIssue(context.Background(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
+	if err == nil || !strings.Contains(err.Error(), "credentials") || strings.Contains(err.Error(), "wrong") {
+		t.Fatalf("a 401 names the credentials without echoing them: %v", err)
+	}
+}
+
+func TestCheckJiraAnswersWithTheAccount(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/api/3/myself", `{"accountId":"acc-1","displayName":"Ada Lovelace"}`)
+	name, err := site.client().CheckJira(context.Background(), site.server.URL+"/rest/api/3/", "ada@example.com", "jira-secret")
+	if err != nil || name != "Ada Lovelace" {
+		t.Fatalf("check: %q %v", name, err)
+	}
+	if _, err := site.client().CheckJira(context.Background(), site.server.URL, "ada@example.com", "nope"); err == nil {
+		t.Fatal("a wrong token must be refused")
+	}
+}
+
+func TestJiraBaseURLNormalisation(t *testing.T) {
+	for in, want := range map[string]string{
+		"acme.atlassian.net":                          "https://acme.atlassian.net",
+		"https://acme.atlassian.net/":                 "https://acme.atlassian.net",
+		"https://acme.atlassian.net/browse/PE-1":      "https://acme.atlassian.net",
+		"https://acme.atlassian.net/rest/api/3/issue": "https://acme.atlassian.net",
+		"":                           "",
+		"http://localhost:8080/jira": "http://localhost:8080",
+	} {
+		if got := jiraBaseURL(in); got != want {
+			t.Errorf("jiraBaseURL(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -752,9 +752,9 @@ type Settings struct {
 	GithubRepo    string            `json:"githubRepo"`   // e.g. "owner/repo"
 	JiraProject   string            `json:"jiraProject"`  // e.g. "PE"
 	JiraUrl       string            `json:"jiraUrl"`
-	// JiraEmail / JiraAPIToken authenticate the Jira REST calls that fetch the
-	// fields acli cannot return (Sprint and Team are custom fields, and acli's
-	// --fields only accepts a fixed allow-list). Basic auth over HTTPS.
+	// JiraEmail / JiraAPIToken authenticate every Jira REST call: Jira Cloud
+	// takes Basic auth over HTTPS, base64(email:token), so the e-mail is part
+	// of the credential and not a display name.
 	JiraEmail string `json:"jiraEmail"`
 	// JiraAPIToken never leaves the server: the API responses carry the two
 	// flags below instead, so the token cannot be read back by anything that
