@@ -427,8 +427,10 @@ default file and its legacy private connection file.
 The server project supplies the `useWorktrees` default, which **Inherit worktrees
 from server** restores in the desktop project settings. Parallel executions
 (1 to 5) are workstation-owned: the server neither stores nor supplies a value,
-the desktop app is the only surface that sets one, and a project without a local
-value runs a single execution at a time.
+and a project without a local value runs a single execution at a time. The
+desktop project settings and the `sectile-agent config` command are the two
+surfaces that set it; both write the workstation settings file directly and
+enforce the same ceiling, and neither involves the server.
 Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json

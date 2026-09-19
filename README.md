@@ -789,8 +789,19 @@ it closes having advanced the stage, until the stop stage. Merging stays manual.
 The server project supplies the `useWorktrees` default, which **Inherit worktrees
 from server** restores in the desktop project settings. Parallel executions
 (1 to 10, set with a slider) are workstation-owned: the server neither stores nor
-supplies a value, the desktop app is the only surface that sets one, and a
-project without a local value runs a single execution at a time.
+supplies a value, and a project without a local value runs a single execution at
+a time. Two surfaces set it, both writing the same file and enforcing the same
+ceiling: the desktop project settings, and `sectile-agent config` for a
+workstation that runs the agent without the desktop app.
+
+```bash
+sectile-agent config                                        # show every project's stored value
+sectile-agent config --project <project-id> --parallelism 3 # run three executions for that project
+```
+
+A running agent needs no restart: the limit is read from the file when an
+execution enters the queue, so it applies to the next submission. Executions
+already queued keep the limit they were admitted with.
 Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
 
 ```json
