@@ -440,8 +440,13 @@ Then start the workstation agent in an existing clone, with its key:
 
 ```sh
 sectile-agent pair --url https://sectile.example.com --code '<pairing code>'
+sectile-agent init --provider <provider>    # bootstrap MCP and skills locally
 sectile-agent --url https://sectile.example.com --project '<project-id>' --repo /path/to/clone
 ```
+
+You can also run `sectile-agent init --provider <provider>` anytime to bootstrap
+MCP registration and install managed skills for a specific provider locally
+without launching the background daemon.
 
 `SECTILE_SERVER_TOKEN`, the former shared agent credential, is still accepted
 for one release with a startup warning; a server without it that has issued no

@@ -238,4 +238,3 @@ func TestTaskAndFacetsScopingHTTP(t *testing.T) {
 		t.Fatalf("expected facets.Total=1 for user1, got %d", facets.Total)
 	}
 }
-
