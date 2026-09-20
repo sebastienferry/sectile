@@ -7,6 +7,7 @@ packager({
  name: 'Sectile',
  out: path.resolve(__dirname, '../release'),
  overwrite: true,
+ icon: path.resolve(__dirname, '../assets/icon'),
  extraResource: path.resolve(__dirname, '../bin', agentName()),
  ignore: /^\/(bin|tests|release[^/]*)(\/|$)/,
 }).then(paths => console.log(paths.join('\n'))).catch(error => {
