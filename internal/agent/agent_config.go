@@ -244,6 +244,12 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if overrides.Terminal != "" {
 		local.Terminal = overrides.Terminal
 	}
+	if local.Terminals == nil {
+		local.Terminals = map[string]string{}
+	}
+	for id, terminal := range overrides.Terminals {
+		local.Terminals[id] = terminal
+	}
 	if local.Skills == nil {
 		local.Skills = map[string]string{}
 	}

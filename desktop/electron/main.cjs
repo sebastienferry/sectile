@@ -176,6 +176,8 @@ ipcMain.handle('launch-console',(_,projectId,provider)=>api('/desktop/consoles',
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',mode?{taskID,skillID,prompt,mode}:{taskID,skillID,prompt}))
+ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
+ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
 ipcMain.handle('open-board',async()=>{
  const status=await api('/desktop/status')
  if(!status.connected)throw Error('Server disconnected')

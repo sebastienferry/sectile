@@ -28,6 +28,7 @@ type Overrides struct {
 	AIModel                     string            `json:"aiModel,omitempty"`
 	AISkillModels               map[string]string `json:"aiSkillModels,omitempty"`
 	Terminal                    string            `json:"terminal"`
+	Terminals                   map[string]string `json:"terminals,omitempty"`
 	Skills                      map[string]string `json:"skills"`
 }
 
@@ -77,6 +78,9 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 	}
 	if overrides.Terminal != "" {
 		c.ExternalTerminalCommand = overrides.Terminal
+	}
+	if projectTerminal, ok := overrides.Terminals[c.ProjectID]; ok && strings.TrimSpace(projectTerminal) != "" {
+		c.ExternalTerminalCommand = strings.TrimSpace(projectTerminal)
 	}
 	model := overrides.AIModel
 	if projectModel, ok := overrides.AIModels[c.ProjectID]; ok && strings.TrimSpace(projectModel) != "" {

@@ -304,3 +304,39 @@ func TestProjectAIProviderAndModelOverrides(t *testing.T) {
 		t.Fatalf("expected claude with custom command, got provider=%q cmd=%q", effectiveWithCmd.AIProvider, effectiveWithCmd.AICommandTemplate)
 	}
 }
+
+func TestTerminalOverridesPrecedence(t *testing.T) {
+	c1 := Config{ProjectID: "proj-1", ExternalTerminalCommand: "pty"}
+	c2 := Config{ProjectID: "proj-2", ExternalTerminalCommand: "pty"}
+
+	// Fallback to server setting when overrides are empty
+	base := ApplyOverrides(c1, Overrides{})
+	if base.ExternalTerminalCommand != "pty" {
+		t.Fatalf("expected 'pty', got %q", base.ExternalTerminalCommand)
+	}
+
+	// Workstation terminal override takes effect
+	withGlobal := ApplyOverrides(c1, Overrides{Terminal: "terminal"})
+	if withGlobal.ExternalTerminalCommand != "terminal" {
+		t.Fatalf("expected 'terminal', got %q", withGlobal.ExternalTerminalCommand)
+	}
+
+	// Project terminal override takes precedence over workstation terminal override
+	withProject := ApplyOverrides(c1, Overrides{
+		Terminal:  "terminal",
+		Terminals: map[string]string{"proj-1": "ghostty"},
+	})
+	if withProject.ExternalTerminalCommand != "ghostty" {
+		t.Fatalf("expected 'ghostty', got %q", withProject.ExternalTerminalCommand)
+	}
+
+	// Another project without override falls back to workstation terminal
+	withOtherProject := ApplyOverrides(c2, Overrides{
+		Terminal:  "terminal",
+		Terminals: map[string]string{"proj-1": "ghostty"},
+	})
+	if withOtherProject.ExternalTerminalCommand != "terminal" {
+		t.Fatalf("expected 'terminal', got %q", withOtherProject.ExternalTerminalCommand)
+	}
+}
+

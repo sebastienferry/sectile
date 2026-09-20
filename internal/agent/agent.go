@@ -80,6 +80,7 @@ type agentDaemon struct {
 	prepareMu sync.Mutex
 	done      chan struct{}
 	contract  contractState
+	launchTerminalFn func(terminalApp, sessionID string) error
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
