@@ -3414,3 +3414,8 @@ export const useApp = () => {
   }
   return context
 }
+
+export const useOptionalApp = () => {
+  return useContext(AppContext)
+}
+

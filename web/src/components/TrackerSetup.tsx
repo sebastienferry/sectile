@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { TRACKERS, initialTracker, type TrackerKind } from '../lib/trackers'
+import { getTrackers, initialTracker, type TrackerKind } from '../lib/trackers'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
 
 /**
@@ -14,8 +14,9 @@ import { TrackerCredentialForm } from './TrackerCredentialForm'
  * aussi. Deux écrans qui demandent la même chose ont déjà divergé une fois.
  */
 export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { settings, refreshUserCredentials } = useApp()
+  const { settings, refreshUserCredentials, t } = useApp()
   const [tracker, setTracker] = useState<TrackerKind>(initialTracker(settings.issueTracker))
+  const trackers = getTrackers(t)
 
   useEffect(() => {
     void refreshUserCredentials()
@@ -26,17 +27,16 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
       <div className="relative w-full max-w-lg rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col max-h-[calc(var(--app-h)*0.9)]">
         <div className="flex items-start justify-between px-5 py-4 border-b border-[var(--border-color)]">
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-[var(--text-primary)]">Connecter votre tracker</h2>
+            <h2 className="text-sm font-bold text-[var(--text-primary)]">{t.trackerCredentials.setup.title}</h2>
             <p className="text-[11px] text-[var(--text-secondary)] mt-0.5 leading-relaxed">
-              Sans ces valeurs, la synchronisation ne ramène rien et aucune écriture ne part. Elles
-              sont vérifiées auprès de l'instance avant d'être enregistrées.
+              {t.trackerCredentials.setup.description}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] cursor-pointer shrink-0"
-            title="Configurer plus tard"
+            title={t.trackerCredentials.setup.closeTitle}
           >
             <X size={16} />
           </button>
@@ -45,21 +45,21 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
         <div className="p-5 space-y-3 overflow-y-auto">
           <div>
             <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              Tracker
+              {t.trackerCredentials.setup.trackerLabel}
             </label>
             <div className="flex items-center gap-1.5">
-              {TRACKERS.map(t => (
+              {trackers.map(item => (
                 <button
-                  key={t.id}
+                  key={item.id}
                   type="button"
-                  onClick={() => setTracker(t.id)}
+                  onClick={() => setTracker(item.id)}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold border cursor-pointer ${
-                    t.id === tracker
+                    item.id === tracker
                       ? 'accent-bg text-white border-transparent'
                       : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                   }`}
                 >
-                  {t.label}
+                  {item.label}
                 </button>
               ))}
             </div>
@@ -76,7 +76,7 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
             onClick={onClose}
             className="px-3 py-1.5 rounded-xl text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
           >
-            Plus tard
+            {t.trackerCredentials.setup.later}
           </button>
         </div>
       </div>

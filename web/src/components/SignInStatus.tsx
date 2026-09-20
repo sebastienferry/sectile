@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Check, LogIn, LogOut } from 'lucide-react'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useApp } from '../context/AppContext'
 import { describeRole } from '../lib/session'
 
 interface SignInStatusProps {
@@ -15,6 +16,7 @@ interface SignInStatusProps {
  */
 export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }: SignInStatusProps = {}) {
   const { user, reload, rename } = useCurrentUser()
+  const { t } = useApp()
   const [status, setStatus] = useState('')
   const [draftName, setDraftName] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -25,7 +27,7 @@ export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }:
     const failure = await rename((draftName ?? '').trim())
     setSaving(false)
     if (!failure) setDraftName(null)
-    setStatus(failure || 'Nom d\'affichage enregistré.')
+    setStatus(failure || t.account.saved)
   }
 
   async function signOut() {
@@ -34,7 +36,7 @@ export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }:
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       window.location.assign('/')
     } catch {
-      setStatus('Could not sign out.')
+      setStatus(t.account.couldNotSignOut)
     }
   }
 
@@ -74,14 +76,14 @@ export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }:
               onClick={() => void signOut()}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] px-3 py-1.5 font-medium text-[var(--text-secondary)] hover:text-red-400 hover:border-red-400/40 hover:bg-red-500/5 transition-colors cursor-pointer shrink-0"
             >
-              <LogOut size={13} /> Se déconnecter
+              <LogOut size={13} /> {t.account.signOut}
             </button>
           </div>
 
           {/* Display Name Edit Form */}
           <div className="space-y-2 pt-3 border-t border-[var(--border-color)]">
             <label htmlFor="account-display-name" className="block text-[11px] font-medium text-[var(--text-secondary)]">
-              Nom d'affichage (Display Name)
+              {t.account.displayName}
             </label>
             <div className="flex gap-2">
               <input
@@ -90,7 +92,7 @@ export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }:
                 maxLength={80}
                 value={draftName ?? user.displayName ?? ''}
                 onChange={event => setDraftName(event.target.value)}
-                placeholder="Votre nom ou pseudo sur ce tableau..."
+                placeholder={t.account.displayNamePlaceholder}
                 className="flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-[var(--text-primary)] focus:border-[var(--accent-color)] focus:outline-none"
               />
               <button
@@ -99,23 +101,20 @@ export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }:
                 disabled={saving || draftName === null || draftName.trim() === (user.displayName || '')}
                 className="flex items-center gap-1 rounded-xl border border-[var(--border-color)] px-3.5 py-2 hover:bg-[var(--bg-hover)] disabled:opacity-40 font-medium transition-colors cursor-pointer"
               >
-                <Check size={14} /> Enregistrer
+                <Check size={14} /> {t.account.save}
               </button>
             </div>
-            <p className="text-[11px] text-[var(--text-muted)]">
-              Votre nom tel qu'il apparaît sur les tâches, assignations, commentaires et activités. Effacez-le pour réutiliser votre e-mail.
-            </p>
           </div>
         </>
       ) : (
         <div className="text-center py-4 space-y-3">
-          <p className="text-[var(--text-muted)]">Vous n'êtes pas connecté.</p>
+          <p className="text-[var(--text-muted)]">{t.account.notSignedIn}</p>
           <a
             href={`/signin?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
             className="inline-flex items-center gap-1.5 rounded-lg accent-bg text-white px-4 py-2 font-medium"
             onClick={() => void reload()}
           >
-            <LogIn size={14} /> Se connecter
+            <LogIn size={14} /> {t.account.signIn}
           </a>
         </div>
       )}

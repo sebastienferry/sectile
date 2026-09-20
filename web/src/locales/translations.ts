@@ -247,6 +247,26 @@ export interface TranslationSchema {
     ai: {
       title: string
       engine: string
+      defaultEngine: string
+      proposedModelsFor?: string
+      proposedModelsGroup?: string
+      noModelsConfigured?: string
+      addModelPlaceholder?: string
+      addModelButton?: string
+      addModelAria?: string
+      removeModelAria?: string
+      engineIgnoresModelNotice?: string
+      modelTemplatePlaceholderNotice?: string
+      providerIgnoresModel?: string
+      invalidModelIdentifier?: string
+      defaultModel: string
+      defaultModelPlaceholder?: string
+      customModelOption?: string
+      quickSelect?: string
+      cliParametersTitle?: string
+      cmdInteractive?: string
+      cmdAutonomous?: string
+      fastPresets?: string
       engineDesc: string
       cmdTemplate: string
       repoPath: string
@@ -259,6 +279,20 @@ export interface TranslationSchema {
       promptHandoff: string
       promptCreatePr?: string
       cliStatusTitle: string
+      availableVariables?: string
+      executedCommand?: string
+      modeInteractive?: string
+      modeAutonomous?: string
+      mcpConfigWithoutAgent?: string
+      mcpConnectDirectlyDesc?: string
+      mcpConnectDirectlyWorkflow?: string
+      mcpKeyRequired?: string
+      mcpKeyRequiredDesc?: string
+      mcpGenerateKey?: string
+      mcpCopy?: string
+      mcpCopied?: string
+      mcpQuickCliCommand?: string
+      mcpOrInConfig?: string
     }
     tracker: {
       title: string
@@ -268,6 +302,114 @@ export interface TranslationSchema {
     }
     save: string
     reseedBtn: string
+  }
+  account: {
+    signOut: string
+    displayName: string
+    displayNamePlaceholder: string
+    save: string
+    notSignedIn: string
+    signIn: string
+    saved: string
+    couldNotSignOut: string
+  }
+  trackerCredentials: {
+    description: string
+    masterPassphraseTitle: string
+    statusLocked: string
+    statusActive: string
+    statusNotConfigured: string
+    passphraseDescription: string
+    lock: string
+    locking: string
+    unlockPrompt: string
+    unlockPlaceholder: string
+    unlockAll: string
+    unlocking: string
+    operationalBanner: string
+    changePassphrase: string
+    cancelChangePassphrase: string
+    changePassphrasePrompt: string
+    newPassphrasePlaceholder: string
+    apply: string
+    applying: string
+    definePassphrasePrompt: string
+    definePassphrasePlaceholder: string
+    sealMyTokens: string
+    toastUpdatedTitle: string
+    toastUpdatedDesc: string
+    toastRemovedTitle: string
+    toastRemovedDesc: string
+    toastErrorTitle: string
+    toastErrorDefault: string
+    states: {
+      none: string
+      unsealed: string
+      unlocked: string
+      locked: string
+    }
+    sealingInvitation: string
+    sealingConsequences: {
+      sealed: string
+      unsealed: string
+    }
+    trackers: {
+      jira: {
+        siteLabel: string
+        sitePlaceholder: string
+        projectLabel: string
+        projectPlaceholder: string
+        tokenHint: string
+      }
+      github: {
+        siteLabel: string
+        sitePlaceholder: string
+        projectLabel: string
+        projectPlaceholder: string
+        tokenHint: string
+      }
+      gitlab: {
+        siteLabel: string
+        sitePlaceholder: string
+        projectLabel: string
+        projectPlaceholder: string
+        tokenHint: string
+      }
+    }
+    saveBlockedReasons: {
+      wantsEmail: string
+      default: string
+      needCheck: string
+    }
+    form: {
+      accountEmail: string
+      accountEmailPlaceholder: string
+      personalAccessToken: string
+      tokenPlaceholderSet: string
+      tokenPlaceholderEnv: string
+      tokenPlaceholderEmpty: string
+      siteIsPersonalNotice: string
+      lockedNoticeSuffix: string
+      sealedUnlockedNotice: string
+      willBeSealedNotice: string
+      connectedAs: string
+      forgetAccess: string
+      forgetConfirm: string
+      verify: string
+      save: string
+      saveTitleReady: string
+      saveTitleNotChecked: string
+      configuredTitle: string
+      saveErrorTitle: string
+      checkErrorDefault: string
+    }
+    setup: {
+      title: string
+      description: string
+      closeTitle: string
+      trackerLabel: string
+      later: string
+    }
   }
   activities: {
     title: string
@@ -587,7 +729,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     profileModal: {
       title: 'Configuration & Paramètres',
-      subtitle: 'Personnalisez le moteur IA (agy, claude, codex), GitHub/Jira et l\'apparence',
+      subtitle: 'Compte, apparence et configuration des outils',
       tabs: {
         appearance: 'Apparence & Profil',
         aiConfig: 'Moteur IA & Prompts',
@@ -637,8 +779,28 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       ai: {
         title: 'Moteur IA & Exécution Shell',
-        engine: 'Agent IA sélectionné',
-        engineDesc: 'Choisissez l\'outil CLI qui exécutera les skills en arrière-plan',
+        engine: 'Moteur Agentic IA par défaut',
+        defaultEngine: 'Moteur Agentic IA par défaut',
+        proposedModelsFor: 'Modèles proposés pour',
+        proposedModelsGroup: 'Modèles proposés',
+        noModelsConfigured: 'Aucun modèle : rien ne sera proposé au lancement.',
+        addModelPlaceholder: 'Ajouter un modèle...',
+        addModelButton: 'Ajouter ce modèle',
+        addModelAria: 'Ajouter un modèle pour {target}',
+        removeModelAria: 'Retirer {model} de {target}',
+        engineIgnoresModelNotice: 'Ce moteur ignore le modèle sauf si sa commande porte le marqueur {model}.',
+        modelTemplatePlaceholderNotice: 'Le modèle est appliqué via le marqueur {model} dans la commande.',
+        providerIgnoresModel: '{provider} n\'accepte pas de sélection de modèle : la valeur est ignorée.',
+        invalidModelIdentifier: 'Identifiant invalide : lettres, chiffres et . _ - : @ / uniquement, sans espace.',
+        defaultModel: 'Modèle par défaut',
+        defaultModelPlaceholder: 'Défaut du CLI',
+        customModelOption: 'Autre modèle (saisie libre)...',
+        quickSelect: 'Sélection rapide :',
+        cliParametersTitle: 'CLI & Commandes : {provider}',
+        cmdInteractive: 'Commande interactive',
+        cmdAutonomous: 'Commande autonome (headless)',
+        fastPresets: 'Modèles de commande rapides :',
+        engineDesc: 'Configurez le moteur d\'intelligence artificielle par défaut, les modèles et les commandes CLI d\'exécution des skills.',
         cmdTemplate: 'Template de commande Shell CLI',
         repoPath: 'Répertoire du projet cible (CWD)',
         repoPathDesc: 'Emplacement du repo dans lequel l\'agent exécutera les commandes',
@@ -650,6 +812,20 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         promptHandoff: 'Prompt /handoff-issue (Clôture & handoff)',
         promptCreatePr: 'Prompt legacy de création de PR (obsolète)',
         cliStatusTitle: 'Statut des CLI Locales',
+        availableVariables: 'Variables disponibles :',
+        executedCommand: 'Commande exécutée',
+        modeInteractive: 'Interactif',
+        modeAutonomous: 'Autonome',
+        mcpConfigWithoutAgent: 'Configuration MCP sans agent local',
+        mcpConnectDirectlyDesc: "Pour connecter directement votre CLI ou IDE au serveur MCP Sectile sans passer par l'agent local (",
+        mcpConnectDirectlyWorkflow: "). Le moteur accède directement aux outils de gestion des tâches et de suivi du workflow.",
+        mcpKeyRequired: 'Clé requise :',
+        mcpKeyRequiredDesc: "Remplacez {placeholder} par une clé d'API.",
+        mcpGenerateKey: 'Générer une clé',
+        mcpCopy: 'Copier',
+        mcpCopied: 'Copié !',
+        mcpQuickCliCommand: 'Commande rapide ({engine}) :',
+        mcpOrInConfig: 'Ou dans',
       },
       tracker: {
         title: 'Intégration Issue Tracker',
@@ -659,6 +835,114 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       save: 'Enregistrer la configuration',
       reseedBtn: 'Réinitialiser le jeu de test démo',
+    },
+    account: {
+      signOut: 'Se déconnecter',
+      displayName: 'Nom d\'affichage',
+      displayNamePlaceholder: 'Votre nom sur ce tableau...',
+      save: 'Enregistrer',
+      notSignedIn: 'Vous n\'êtes pas connecté.',
+      signIn: 'Se connecter',
+      saved: 'Nom d\'affichage enregistré.',
+      couldNotSignOut: 'Impossible de se déconnecter.',
+    },
+    trackerCredentials: {
+      description: 'Vos accès personnels aux trackers. Les jetons saisis sont strictement individuels et protégés par votre compte.',
+      masterPassphraseTitle: 'Phrase de scellement unique',
+      statusLocked: 'Verrouillée',
+      statusActive: 'Active',
+      statusNotConfigured: 'Non configurée',
+      passphraseDescription: "Une seule phrase protège l'ensemble de vos jetons de trackers. Elle est demandée pour déverrouiller vos accès à chaque session.",
+      lock: 'Verrouiller',
+      locking: 'Verrouillage...',
+      unlockPrompt: 'Saisissez votre phrase de scellement unique pour déverrouiller tous vos jetons :',
+      unlockPlaceholder: 'Phrase de scellement unique',
+      unlockAll: 'Déverrouiller tous les jetons',
+      unlocking: 'Déverrouillage...',
+      operationalBanner: 'Vos accès aux trackers sont opérationnels pour cette session.',
+      changePassphrase: 'Modifier la phrase',
+      cancelChangePassphrase: 'Annuler',
+      changePassphrasePrompt: 'Entrez une nouvelle phrase pour re-sceller tous vos jetons, ou laissez vide pour retirer le scellement :',
+      newPassphrasePlaceholder: 'Nouvelle phrase de scellement (ou vide pour retirer)',
+      apply: 'Appliquer',
+      applying: 'Application...',
+      definePassphrasePrompt: 'Définissez ici votre phrase de scellement unique. Tout jeton enregistré ci-dessous sera scellé avec celle-ci :',
+      definePassphrasePlaceholder: 'Définir une phrase de scellement unique',
+      sealMyTokens: 'Sceller mes jetons',
+      toastUpdatedTitle: 'Phrase de scellement mise à jour',
+      toastUpdatedDesc: 'Tous vos jetons sont désormais protégés par cette phrase unique.',
+      toastRemovedTitle: 'Scellement retiré',
+      toastRemovedDesc: 'Vos jetons sont désormais chiffrés par le serveur.',
+      toastErrorTitle: 'Mise à jour impossible',
+      toastErrorDefault: 'Erreur lors de la mise à jour des jetons',
+      states: {
+        none: 'Aucun jeton enregistré : vos actions sur les tâches ne partiront pas.',
+        unsealed: 'Enregistré. Vos actions partent sous votre compte.',
+        unlocked: 'Scellé, descellé pour cette session.',
+        locked: 'Scellé et verrouillé : descellez-le pour agir sur les tâches.',
+      },
+      sealingInvitation: 'Par mesure de protection de votre identité, vous pouvez définir une phrase de scellement unique pour tous vos jetons. Vous devrez la saisir pour agir sur les tâches.',
+      sealingConsequences: {
+        sealed: 'Scellé : vous seul pouvez l’ouvrir avec votre phrase de scellement unique pour cette session.',
+        unsealed: 'Non scellé : vos actions partent sans rien vous demander.',
+      },
+      trackers: {
+        jira: {
+          siteLabel: 'Site Jira',
+          sitePlaceholder: 'mon-org.atlassian.net',
+          projectLabel: 'Clé du projet par défaut',
+          projectPlaceholder: 'PE',
+          tokenHint: "À créer sur id.atlassian.com, section jetons d'API. Il s'utilise avec votre e-mail Atlassian, jamais seul.",
+        },
+        github: {
+          siteLabel: "URL de l'API GitHub",
+          sitePlaceholder: 'https://api.github.com',
+          projectLabel: 'Dépôt par défaut',
+          projectPlaceholder: 'organisation/depot',
+          tokenHint: 'Personal Access Token avec la portée repo.',
+        },
+        gitlab: {
+          siteLabel: "URL de l'API GitLab",
+          sitePlaceholder: 'https://gitlab.com/api/v4',
+          projectLabel: 'Projet par défaut',
+          projectPlaceholder: 'groupe/projet',
+          tokenHint: 'Personal Access Token avec la portée api.',
+        },
+      },
+      saveBlockedReasons: {
+        wantsEmail: "Renseignez votre site et l'e-mail de votre compte, puis vérifiez les accès.",
+        default: 'Renseignez les accès, puis vérifiez-les.',
+        needCheck: "Vérifiez les accès : l'enregistrement se débloque une fois que l'instance les a acceptés.",
+      },
+      form: {
+        accountEmail: "E-mail du compte",
+        accountEmailPlaceholder: "prenom.nom@exemple.com",
+        personalAccessToken: "Personal Access Token",
+        tokenPlaceholderSet: "Déjà configuré, laissez vide pour le garder",
+        tokenPlaceholderEnv: "Fourni par l'environnement du serveur",
+        tokenPlaceholderEmpty: "Collez le jeton",
+        siteIsPersonalNotice: "Votre compte appartient à cette instance. Les projets que vous posez sur ce tracker la reprennent.",
+        lockedNoticeSuffix: " — déverrouillez vos jetons dans la section ci-dessus.",
+        sealedUnlockedNotice: "Jeton scellé avec votre phrase unique (déverrouillé).",
+        willBeSealedNotice: "Ce jeton sera automatiquement scellé avec la phrase unique active définie plus haut.",
+        connectedAs: "Connecté comme",
+        forgetAccess: "Oublier mon accès",
+        forgetConfirm: "Oublier votre accès {tracker} ? Vous devrez saisir votre jeton à nouveau.",
+        verify: "Vérifier",
+        save: "Enregistrer",
+        saveTitleReady: "Enregistrer ces accès",
+        saveTitleNotChecked: "Vérifiez d'abord les accès",
+        configuredTitle: "{tracker} configuré",
+        saveErrorTitle: "Enregistrement impossible",
+        checkErrorDefault: "Vérification impossible",
+      },
+      setup: {
+        title: "Connecter votre tracker",
+        description: "Sans ces valeurs, la synchronisation ne ramène rien et aucune écriture ne part. Elles sont vérifiées auprès de l'instance avant d'être enregistrées.",
+        closeTitle: "Configurer plus tard",
+        trackerLabel: "Tracker",
+        later: "Plus tard",
+      },
     },
     activities: {
       title: 'Activités & File d\'attente',
@@ -976,7 +1260,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     profileModal: {
       title: 'Configuration & Settings',
-      subtitle: 'Configure AI engine (agy, claude, codex), GitHub/Jira and appearance',
+      subtitle: 'Account, appearance, and tool configuration',
       tabs: {
         appearance: 'Appearance & Profile',
         aiConfig: 'AI Engine & Prompts',
@@ -1026,8 +1310,28 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       ai: {
         title: 'AI Engine & Shell Execution',
-        engine: 'Selected AI Agent',
-        engineDesc: 'Choose the CLI tool that will execute skills in the background',
+        engine: 'Default Agentic AI Engine',
+        defaultEngine: 'Default Agentic AI Engine',
+        proposedModelsFor: 'Proposed models for',
+        proposedModelsGroup: 'Proposed models',
+        noModelsConfigured: 'No models: nothing will be proposed at launch.',
+        addModelPlaceholder: 'Add a model...',
+        addModelButton: 'Add this model',
+        addModelAria: 'Add a model for {target}',
+        removeModelAria: 'Remove {model} from {target}',
+        engineIgnoresModelNotice: 'This engine ignores the model unless its command contains the {model} marker.',
+        modelTemplatePlaceholderNotice: 'The model is applied via the {model} placeholder in the command.',
+        providerIgnoresModel: '{provider} does not accept a model selection: the value is ignored.',
+        invalidModelIdentifier: 'Invalid identifier: letters, numbers and . _ - : @ / only, no spaces.',
+        defaultModel: 'Default Model',
+        defaultModelPlaceholder: 'CLI default',
+        customModelOption: 'Other model (free text)...',
+        quickSelect: 'Quick select:',
+        cliParametersTitle: 'CLI & Commands: {provider}',
+        cmdInteractive: 'Interactive command',
+        cmdAutonomous: 'Autonomous command (headless)',
+        fastPresets: 'Quick command presets:',
+        engineDesc: 'Configure the default artificial intelligence engine, models, and CLI command execution for skills.',
         cmdTemplate: 'Shell CLI Command Template',
         repoPath: 'Target Project Directory (CWD)',
         repoPathDesc: 'Workspace directory where the agent will run commands',
@@ -1039,6 +1343,20 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         promptHandoff: 'Prompt /handoff-issue',
         promptCreatePr: 'Legacy adjustment prompt',
         cliStatusTitle: 'Local CLI Tools Status',
+        availableVariables: 'Available variables:',
+        executedCommand: 'Executed command',
+        modeInteractive: 'Interactive',
+        modeAutonomous: 'Autonomous',
+        mcpConfigWithoutAgent: 'MCP configuration without local agent',
+        mcpConnectDirectlyDesc: 'To connect your CLI or IDE directly to the Sectile MCP server without going through the local agent (',
+        mcpConnectDirectlyWorkflow: '). The engine accesses task management and workflow tracking tools directly.',
+        mcpKeyRequired: 'Key required:',
+        mcpKeyRequiredDesc: 'Replace {placeholder} with an API key.',
+        mcpGenerateKey: 'Generate a key',
+        mcpCopy: 'Copy',
+        mcpCopied: 'Copied!',
+        mcpQuickCliCommand: 'Quick command ({engine}):',
+        mcpOrInConfig: 'Or in',
       },
       tracker: {
         title: 'Issue Tracker Integration',
@@ -1048,6 +1366,114 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       save: 'Save Configuration',
       reseedBtn: 'Reset Demo Dataset',
+    },
+    account: {
+      signOut: 'Sign out',
+      displayName: 'Display name',
+      displayNamePlaceholder: 'Your name on this board...',
+      save: 'Save',
+      notSignedIn: 'You are not signed in.',
+      signIn: 'Sign in',
+      saved: 'Display name saved.',
+      couldNotSignOut: 'Could not sign out.',
+    },
+    trackerCredentials: {
+      description: 'Your personal tracker credentials. Entered tokens are strictly individual and protected by your account.',
+      masterPassphraseTitle: 'Master sealing passphrase',
+      statusLocked: 'Locked',
+      statusActive: 'Active',
+      statusNotConfigured: 'Not configured',
+      passphraseDescription: 'A single passphrase protects all your tracker tokens. It is requested to unlock your access for each session.',
+      lock: 'Lock',
+      locking: 'Locking...',
+      unlockPrompt: 'Enter your master sealing passphrase to unlock all your tokens:',
+      unlockPlaceholder: 'Master sealing passphrase',
+      unlockAll: 'Unlock all tokens',
+      unlocking: 'Unlocking...',
+      operationalBanner: 'Your tracker credentials are operational for this session.',
+      changePassphrase: 'Change passphrase',
+      cancelChangePassphrase: 'Cancel',
+      changePassphrasePrompt: 'Enter a new passphrase to re-seal all your tokens, or leave blank to remove sealing:',
+      newPassphrasePlaceholder: 'New sealing passphrase (or leave blank to remove)',
+      apply: 'Apply',
+      applying: 'Applying...',
+      definePassphrasePrompt: 'Set your master sealing passphrase here. Any token saved below will be sealed with it:',
+      definePassphrasePlaceholder: 'Set a master sealing passphrase',
+      sealMyTokens: 'Seal my tokens',
+      toastUpdatedTitle: 'Sealing passphrase updated',
+      toastUpdatedDesc: 'All your tokens are now protected by this unique passphrase.',
+      toastRemovedTitle: 'Sealing removed',
+      toastRemovedDesc: 'Your tokens are now encrypted by the server.',
+      toastErrorTitle: 'Update failed',
+      toastErrorDefault: 'Error updating tokens',
+      states: {
+        none: 'No token saved: your task actions will not be dispatched.',
+        unsealed: 'Saved. Your actions are dispatched under your account.',
+        unlocked: 'Sealed, unlocked for this session.',
+        locked: 'Sealed and locked: unlock it to act on tasks.',
+      },
+      sealingInvitation: 'To protect your identity, you can define a master sealing passphrase for all your tokens. You will need to enter it to act on tasks.',
+      sealingConsequences: {
+        sealed: 'Sealed: only you can open it with your master sealing passphrase for this session.',
+        unsealed: 'Unsealed: your actions will be performed without prompting.',
+      },
+      trackers: {
+        jira: {
+          siteLabel: 'Jira site',
+          sitePlaceholder: 'my-org.atlassian.net',
+          projectLabel: 'Default project key',
+          projectPlaceholder: 'e.g. MKTG',
+          tokenHint: 'Create at id.atlassian.com, API tokens section. Used with your Atlassian email, never alone.',
+        },
+        github: {
+          siteLabel: 'GitHub API URL',
+          sitePlaceholder: 'https://api.github.com',
+          projectLabel: 'Default repository',
+          projectPlaceholder: 'organization/repo',
+          tokenHint: 'Personal Access Token with repo scope.',
+        },
+        gitlab: {
+          siteLabel: 'GitLab API URL',
+          sitePlaceholder: 'https://gitlab.com/api/v4',
+          projectLabel: 'Default project',
+          projectPlaceholder: 'group/project',
+          tokenHint: 'Personal Access Token with api scope.',
+        },
+      },
+      saveBlockedReasons: {
+        wantsEmail: 'Enter your site and account email, then verify credentials.',
+        default: 'Enter credentials, then verify them.',
+        needCheck: 'Verify credentials: saving unlocks once accepted by the instance.',
+      },
+      form: {
+        accountEmail: 'Account email',
+        accountEmailPlaceholder: 'firstname.lastname@example.com',
+        personalAccessToken: 'Personal Access Token',
+        tokenPlaceholderSet: 'Already configured, leave blank to keep',
+        tokenPlaceholderEnv: 'Provided by server environment',
+        tokenPlaceholderEmpty: 'Paste token',
+        siteIsPersonalNotice: 'Your account belongs to this instance. Projects configured with this tracker will inherit it.',
+        lockedNoticeSuffix: ' — unlock your tokens in the section above.',
+        sealedUnlockedNotice: 'Token sealed with your master passphrase (unlocked).',
+        willBeSealedNotice: 'This token will automatically be sealed with the active master passphrase defined above.',
+        connectedAs: 'Connected as',
+        forgetAccess: 'Forget my access',
+        forgetConfirm: 'Forget your {tracker} access? You will need to enter your token again.',
+        verify: 'Verify',
+        save: 'Save',
+        saveTitleReady: 'Save these credentials',
+        saveTitleNotChecked: 'Verify credentials first',
+        configuredTitle: '{tracker} configured',
+        saveErrorTitle: 'Failed to save',
+        checkErrorDefault: 'Verification failed',
+      },
+      setup: {
+        title: 'Connect your tracker',
+        description: 'Without these values, synchronization fetches nothing and no writes are dispatched. They are verified with the instance before being saved.',
+        closeTitle: 'Configure later',
+        trackerLabel: 'Tracker',
+        later: 'Later',
+      },
     },
     activities: {
       title: 'Activities & Execution Queue',

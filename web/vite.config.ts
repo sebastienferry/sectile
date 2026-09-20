@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  envDir: '..',
+  envPrefix: ['VITE_', 'SECTILE_PRESET_'],
   plugins: [react(), tailwindcss()],
   build: {
     // La compilation sort dans le paquet Go qui l'embarque : go:embed ne sait

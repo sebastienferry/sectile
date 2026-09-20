@@ -40,9 +40,10 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
     userCredentials,
     saveUserCredential,
     clearUserCredential,
+    t,
   } = useApp()
 
-  const kind = trackerFields(tracker)
+  const kind = trackerFields(tracker, t)
   const serverStored = storedFor(settings, tracker)
   const mine = userCredentials.find(c => c.tracker === tracker)
   const stored = { ...serverStored, tokenIsSet: Boolean(mine), tokenFromEnv: false }
@@ -68,14 +69,14 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
     if (prefill.email !== email) setEmail(prefill.email)
   }, [mine, siteUrl, email])
 
-  const blockedReason = saveBlockedReason(tracker, { siteUrl, email }, Boolean(check?.ok))
+  const blockedReason = saveBlockedReason(tracker, { siteUrl, email }, Boolean(check?.ok), t)
 
   const runCheck = async () => {
     setIsChecking(true)
     try {
       setCheck(await checkTrackerCredentials({ tracker, siteUrl, email, token }))
     } catch (err) {
-      setCheck({ ok: false, error: err instanceof Error ? err.message : 'Vérification impossible' })
+      setCheck({ ok: false, error: err instanceof Error ? err.message : t.trackerCredentials.form.checkErrorDefault })
     } finally {
       setIsChecking(false)
     }
@@ -89,7 +90,7 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
     } catch (err) {
       addToast({
         type: 'error',
-        title: 'Enregistrement impossible',
+        title: t.trackerCredentials.form.saveErrorTitle,
         description: err instanceof Error ? err.message : String(err),
       })
     } finally {
@@ -98,8 +99,8 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
     if (!saved) return
     addToast({
       type: 'success',
-      title: `${kind.label} configuré`,
-      description: sealingConsequence(Boolean(passphrase.trim())),
+      title: t.trackerCredentials.form.configuredTitle.replace('{tracker}', kind.label),
+      description: sealingConsequence(Boolean(passphrase.trim()), t),
     })
     setToken('')
     setCheck(null)
@@ -107,7 +108,7 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
   }
 
   const forget = async () => {
-    if (!confirm(`Oublier votre accès ${kind.label} ? Vous devrez saisir votre jeton à nouveau.`)) return
+    if (!confirm(t.trackerCredentials.form.forgetConfirm.replace('{tracker}', kind.label))) return
     if (await clearUserCredential(tracker)) {
       setToken('')
       setSiteUrl('')
@@ -132,7 +133,7 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
         </div>
         {kind.siteIsPersonal && (
           <span className="text-[9.5px] text-[var(--text-muted)] block mt-1 leading-relaxed">
-            Votre compte appartient à cette instance. Les projets que vous posez sur ce tracker la reprennent.
+            {t.trackerCredentials.form.siteIsPersonalNotice}
           </span>
         )}
       </div>
@@ -140,10 +141,16 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
       {kind.wantsEmail && (
         <div>
           <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            E-mail du compte
+            {t.trackerCredentials.form.accountEmail}
           </label>
           <div className="relative">
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="prenom.nom@exemple.com" className={fieldClass} />
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder={t.trackerCredentials.form.accountEmailPlaceholder}
+              className={fieldClass}
+            />
             <Mail size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
           </div>
         </div>
@@ -151,7 +158,7 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
 
       <div>
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-          Personal Access Token
+          {t.trackerCredentials.form.personalAccessToken}
         </label>
         <div className="relative">
           <input
@@ -160,7 +167,13 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
             name={`tracker-token-${tracker}`}
             value={token}
             onChange={e => setToken(e.target.value)}
-            placeholder={stored.tokenIsSet ? 'Déjà configuré, laissez vide pour le garder' : stored.tokenFromEnv ? "Fourni par l'environnement du serveur" : 'Collez le jeton'}
+            placeholder={
+              stored.tokenIsSet
+                ? t.trackerCredentials.form.tokenPlaceholderSet
+                : stored.tokenFromEnv
+                  ? t.trackerCredentials.form.tokenPlaceholderEnv
+                  : t.trackerCredentials.form.tokenPlaceholderEmpty
+            }
             className={fieldClass}
           />
           <Key size={13} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
@@ -172,17 +185,20 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
         locked ? (
           <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-500 flex items-center gap-2">
             <Lock size={13} className="shrink-0" />
-            <span>{credentialState(mine)} — déverrouillez vos jetons dans la section ci-dessus.</span>
+            <span>
+              {credentialState(mine, t)}
+              {t.trackerCredentials.form.lockedNoticeSuffix}
+            </span>
           </div>
         ) : (
           <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-[11px] text-emerald-400 flex items-center gap-2">
             <LockOpen size={13} className="shrink-0" />
-            <span>Jeton scellé avec votre phrase unique (déverrouillé).</span>
+            <span>{t.trackerCredentials.form.sealedUnlockedNotice}</span>
           </div>
         )
       ) : passphrase.trim() ? (
         <span className="text-[9.5px] text-[var(--text-muted)] block leading-relaxed">
-          Ce jeton sera automatiquement scellé avec la phrase unique active définie plus haut.
+          {t.trackerCredentials.form.willBeSealedNotice}
         </span>
       ) : null}
 
@@ -198,7 +214,7 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
           {check.ok ? (
             <span className="flex items-center gap-1.5 font-bold">
               <ShieldCheck size={13} />
-              Connecté comme {check.account}
+              {t.trackerCredentials.form.connectedAs} {check.account}
             </span>
           ) : (
             <span className="flex items-start gap-1.5">
@@ -212,7 +228,7 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
       <div className="flex items-center justify-between gap-2">
         {mine ? (
           <button type="button" onClick={forget} className="text-[10px] text-[var(--text-muted)] hover:text-[var(--status-danger)] cursor-pointer">
-            Oublier mon accès
+            {t.trackerCredentials.form.forgetAccess}
           </button>
         ) : (
           <span className="text-[9.5px] text-[var(--text-muted)] leading-tight pr-1">{blockedReason}</span>
@@ -225,17 +241,17 @@ export const TrackerCredentialForm: React.FC<TrackerCredentialFormProps> = ({
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
           >
             {isChecking ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-            Vérifier
+            {t.trackerCredentials.form.verify}
           </button>
           <button
             type="button"
             onClick={save}
             disabled={isSaving || !check?.ok}
-            title={check?.ok ? 'Enregistrer ces accès' : "Vérifiez d'abord les accès"}
+            title={check?.ok ? t.trackerCredentials.form.saveTitleReady : t.trackerCredentials.form.saveTitleNotChecked}
             className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow-xs hover:opacity-90 disabled:opacity-40 cursor-pointer"
           >
             {isSaving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-            Enregistrer
+            {t.trackerCredentials.form.save}
           </button>
         </div>
       </div>
