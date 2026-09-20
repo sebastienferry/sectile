@@ -51,6 +51,15 @@ type createTaskInput struct {
 	ParentKey   string   `json:"parentKey,omitempty"`
 }
 
+type updateTaskInput struct {
+	TaskKey     string    `json:"taskKey"`
+	Title       *string   `json:"title,omitempty"`
+	Description *string   `json:"description,omitempty"`
+	Priority    *string   `json:"priority,omitempty"`
+	IssueType   *string   `json:"issueType,omitempty"`
+	Labels      *[]string `json:"labels,omitempty"`
+}
+
 type startRunInput struct {
 	TaskKey string `json:"taskKey"`
 	Skill   string `json:"skill"`
@@ -268,6 +277,90 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			Labels:                in.Labels,
 			IssueType:             strings.TrimSpace(in.IssueType),
 			ParentKey:             strings.TrimSpace(in.ParentKey),
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, map[string]any{"task": task}, nil
+	})
+	mcp.AddTool(s, &mcp.Tool{Name: "update_task", Description: "Update mutable descriptive fields of an existing task (title, description, priority, issueType, labels). Disallows modifying workflow status, stage, branch or pull requests. Synchronizes updates to external trackers when supported.", InputSchema: map[string]any{
+		"type": "object", "additionalProperties": false, "required": []string{"taskKey"},
+		"properties": map[string]any{
+			"taskKey":     map[string]any{"type": "string", "minLength": 1, "description": "Task key (e.g. #241) or full ID."},
+			"title":       map[string]any{"type": "string", "minLength": 1, "description": "New task title."},
+			"description": map[string]any{"type": "string", "description": "New task description. Provide empty string to clear."},
+			"priority":    map[string]any{"type": "string", "enum": []string{"low", "medium", "high", "urgent"}, "description": "Task priority."},
+			"issueType":   map[string]any{"type": "string", "description": "Project issue type, for example Task or Bug."},
+			"labels":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Custom labels. The task's workflow stage label is preserved."},
+		},
+	}}, func(ctx context.Context, req *mcp.CallToolRequest, in updateTaskInput) (*mcp.CallToolResult, any, error) {
+		taskKey := strings.TrimSpace(in.TaskKey)
+		if taskKey == "" {
+			return nil, nil, fmt.Errorf("taskKey is required")
+		}
+		if in.Title == nil && in.Description == nil && in.Priority == nil && in.IssueType == nil && in.Labels == nil {
+			return nil, nil, fmt.Errorf("at least one mutable field (title, description, priority, issueType, labels) must be provided")
+		}
+		if in.Title != nil && strings.TrimSpace(*in.Title) == "" {
+			return nil, nil, fmt.Errorf("title cannot be empty")
+		}
+		existing, err := database.GetTaskByID(taskKey)
+		if err != nil {
+			return nil, nil, err
+		}
+		if existing == nil {
+			return nil, nil, fmt.Errorf("task not found: %s", taskKey)
+		}
+
+		var title *string
+		if in.Title != nil {
+			t := strings.TrimSpace(*in.Title)
+			title = &t
+		}
+		var desc *string
+		if in.Description != nil {
+			desc = in.Description
+		}
+		var prio *models.Priority
+		if in.Priority != nil {
+			p := models.Priority(strings.TrimSpace(*in.Priority))
+			prio = &p
+		}
+		var issueType *string
+		if in.IssueType != nil {
+			it := strings.TrimSpace(*in.IssueType)
+			issueType = &it
+		}
+		var labels *[]string
+		if in.Labels != nil {
+			currentStage := ""
+			for _, l := range existing.Labels {
+				clean := strings.ToLower(strings.TrimLeft(strings.TrimSpace(l), "#"))
+				for _, wl := range []string{"untouched", "new", "clarified", "specified", "implemented", "reviewed", "finished", "closed"} {
+					if clean == wl {
+						currentStage = clean
+						break
+					}
+				}
+				if currentStage != "" {
+					break
+				}
+			}
+			if currentStage == "" {
+				currentStage = db.GetStageLabelForStatus(existing.Status)
+			}
+			sanitized := db.SetWorkflowLabel(*in.Labels, "#"+currentStage)
+			labels = &sanitized
+		}
+
+		caller := callerOf(resolve, req)
+		actor := db.Actor{ID: caller.UserID, Name: caller.Name}
+		task, err := database.UpdateTaskBy(actor, existing.ID, models.UpdateTaskRequest{
+			Title:       title,
+			Description: desc,
+			Priority:    prio,
+			IssueType:   issueType,
+			Labels:      labels,
 		})
 		if err != nil {
 			return nil, nil, err

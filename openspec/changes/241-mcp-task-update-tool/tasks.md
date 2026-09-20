@@ -1,0 +1,31 @@
+# Tasks
+
+- [x] Add `updateTaskInput` struct and register `update_task` in `internal/taskmcp/server.go`:
+  - [x] Define input schema with `taskKey` (required), and optional `title`, `description`, `priority`, `issueType`, and `labels`.
+  - [x] Enforce validation: require `taskKey`, require at least one mutable field, reject blank `title`.
+  - [x] Filter out workflow stage labels from incoming `labels` and retain the task's current workflow stage label.
+  - [x] Resolve caller principal via `callerOf(resolve, req)` and delegate to `database.UpdateTaskBy`.
+  - [x] Return `map[string]any{"task": task}` on success.
+- [x] Update the stdio proxy in `internal/agentmcp/mcp.go`:
+  - [x] Add `"update_task"` to the canonical tool name whitelist in the proxy loop.
+  - [x] Update the catalog size check from 9 to 10 canonical tools.
+- [x] Update the MCP naming contract and integration tests:
+  - [x] Add `"update_task"` with valid test arguments to `internal/mcptest/contract.go`.
+  - [x] Update catalog size assertion in `internal/mcptest/contract.go` to 10.
+  - [x] Add execution check for `update_task` and verify rejection of legacy `"sectile_update_task"`.
+  - [x] Update catalog size assertions in `internal/handlers/mcp_test.go` and `internal/agent/agent_config_test.go` from 9 to 10.
+- [x] Add unit tests in `internal/taskmcp/server_test.go`:
+  - [x] Successful update of title and description.
+  - [x] Successful clearing of description using empty string.
+  - [x] Successful update of priority, issueType, and custom labels.
+  - [x] Retention of workflow stage label when custom labels are updated.
+  - [x] Rejection of missing `taskKey`.
+  - [x] Rejection when no mutable fields are provided.
+  - [x] Rejection of blank `title`.
+  - [x] Rejection of non-existent `taskKey`.
+  - [x] Caller attribution and tracker sync queueing verification.
+- [x] Update documentation:
+  - [x] Update canonical tool lists and descriptions in `README.md`, `docs/ARCHITECTURE.md`, and `docs/contracts/server-agent-v1.md`.
+- [x] Verify test suite:
+  - [x] Run `go test ./internal/taskmcp/... ./internal/agentmcp/... ./internal/mcptest/... ./internal/handlers/... ./internal/agent/...`.
+  - [x] Run full project test suite (`go test ./...`).

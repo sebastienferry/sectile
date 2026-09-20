@@ -252,6 +252,15 @@ that cannot create remotely fails the call instead of leaving a ticket that exis
 only locally. The new task enters the workflow at its first stage; no argument
 places it at a later one.
 
+`update_task` updates mutable descriptive fields of an existing task (`title`,
+`description`, `priority`, `issueType`, `labels`) and returns the updated task.
+`taskKey` is required and matches either the task's primary ID or its key. At least
+one mutable field must be provided, and `title` cannot be empty. `description` can
+be cleared by providing an empty string. The task's workflow stage and status cannot
+be altered here; incoming stage labels are stripped and the task's existing stage
+label is preserved. Updates are attributed to the authenticated caller and enqueue
+tracker synchronization under that caller's identity.
+
 `get_project_context` returns project identity, execution settings, specification
 framework, pull-request creation stage and skill references (`id`, `directory`,
 `command`), plus `skillDirectories`, the directories the agent writes skill files
@@ -633,7 +642,7 @@ Messages explain recovery without returning subprocess output or source contents
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
-`finish_run` and `create_task`. The former `sectile_` names are unsupported on both
+`finish_run`, `create_task` and `update_task`. The former `sectile_` names are unsupported on both
 transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 

@@ -4026,6 +4026,7 @@ func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, sta
 		Steps:     initialSteps,
 		Prompt:    "",
 		CreatedAt: now,
+		UserID:    strings.TrimSpace(actorID),
 	}
 
 	_ = d.addTaskActivityDirect(act)

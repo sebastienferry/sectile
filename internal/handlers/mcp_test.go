@@ -46,7 +46,7 @@ func TestMCPToolsEndToEnd(t *testing.T) {
 	defer session.Close()
 	mcptest.AssertNaming(t, ctx, session, database, task, connect)
 	list, err := session.ListTools(ctx, nil)
-	if err != nil || len(list.Tools) != 9 {
+	if err != nil || len(list.Tools) != 10 {
 		t.Fatalf("tools = %+v, %v", list, err)
 	}
 	call := func(name string, args any, wantError bool) *mcp.CallToolResult {
