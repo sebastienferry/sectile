@@ -1,0 +1,2 @@
+- The state of the branch against the default branch.
+- What the implementation and review steps reported, so the handover matches reality.

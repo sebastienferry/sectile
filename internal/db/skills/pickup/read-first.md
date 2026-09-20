@@ -1,0 +1,3 @@
+- The ticket: key, title, description, parent macro, and tracker comments.
+- The project's code and existing patterns.
+- The project SDD framework (OpenSpec or Spec Kit).

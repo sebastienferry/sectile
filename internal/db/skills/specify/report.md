@@ -1,0 +1,3 @@
+- The files written, with their paths.
+- The work branch.
+- Requirements that are still open, and what they block.

@@ -1,0 +1,4 @@
+- The handover.
+- The acceptance checklist, as checkboxes.
+- What was cleaned locally, and what could not be, with the reason.
+- Follow-up tickets worth creating.

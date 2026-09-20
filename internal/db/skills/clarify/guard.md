@@ -1,0 +1,5 @@
+- Do not transition new → clarified while any product question or decision remains open.
+- Do not invent answers to essential product questions in unattended runs; record them and ask.
+- Do not write production code or start the technical specification at this stage.
+- Do not discard previous round sections when writing Round N; append each round chronologically.
+- Do not switch branches or create a new branch: reuse the assigned feat/<n> branch.

@@ -1,0 +1,3 @@
+- The list of tickets in the batch.
+- The project's code and existing patterns.
+- The project SDD framework.
