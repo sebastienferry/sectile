@@ -927,54 +927,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [])
 
-  const toggleProjectBookmark = useCallback(async (projectId: string): Promise<boolean> => {
-    let newStatus = false
-    setProjects(prev =>
-      prev.map(p => {
-        if (p.id === projectId || p.slug === projectId) {
-          newStatus = !p.bookmarked
-          return { ...p, bookmarked: newStatus }
-        }
-        return p
-      })
-    )
-
-    if (!newStatus) {
-      setSelectedProjectIdState(prev => {
-        if (prev === projectId) {
-          const remaining = projects.find(p => p.id !== projectId && p.bookmarked)
-          return remaining ? remaining.id : 'all'
-        }
-        return prev
-      })
-    }
-
-    try {
-      const res = await fetch(`${API_BASE}/me/project-bookmarks/${projectId}/toggle`, {
-        method: 'POST',
-      })
-      if (res.ok) {
-        const data = await res.json()
-        const serverStatus = data.bookmarked
-        setProjects(prev =>
-          prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: serverStatus } : p))
-        )
-        return serverStatus
-      } else {
-        setProjects(prev =>
-          prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: !newStatus } : p))
-        )
-        return !newStatus
-      }
-    } catch (err) {
-      console.error('Failed to toggle bookmark', err)
-      setProjects(prev =>
-        prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: !newStatus } : p))
-      )
-      return !newStatus
-    }
-  }, [projects])
-
   const fetchActivities = useCallback(async () => {
     try {
       const params = new URLSearchParams()
@@ -1129,6 +1081,62 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   useEffect(() => {
     fetchTaskFacets()
   }, [fetchTaskFacets, tasks.length])
+
+  const toggleProjectBookmark = useCallback(
+    async (projectId: string): Promise<boolean> => {
+      let newStatus = false
+      setProjects(prev =>
+        prev.map(p => {
+          if (p.id === projectId || p.slug === projectId) {
+            newStatus = !p.bookmarked
+            return { ...p, bookmarked: newStatus }
+          }
+          return p
+        })
+      )
+
+      if (!newStatus) {
+        setSelectedProjectIdState(prev => {
+          const isCurrent =
+            prev === projectId ||
+            projects.some(p => (p.id === projectId || p.slug === projectId) && (p.id === prev || p.slug === prev))
+          if (isCurrent) {
+            const remaining = projects.find(p => p.id !== projectId && p.slug !== projectId && p.bookmarked)
+            return remaining ? remaining.id : 'all'
+          }
+          return prev
+        })
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/me/project-bookmarks/${projectId}/toggle`, {
+          method: 'POST',
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const serverStatus = data.bookmarked
+          setProjects(prev =>
+            prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: serverStatus } : p))
+          )
+          fetchTasks()
+          fetchTaskFacets()
+          return serverStatus
+        } else {
+          setProjects(prev =>
+            prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: !newStatus } : p))
+          )
+          return !newStatus
+        }
+      } catch (err) {
+        console.error('Failed to toggle bookmark', err)
+        setProjects(prev =>
+          prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: !newStatus } : p))
+        )
+        return !newStatus
+      }
+    },
+    [projects, fetchTasks, fetchTaskFacets]
+  )
 
   const [userCredentials, setUserCredentials] = useState<StoredUserCredential[]>([])
 

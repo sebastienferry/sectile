@@ -402,6 +402,7 @@ func (d *DB) initSchema() error {
 			PRIMARY KEY (user_id, project_id)
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_user_project_bookmarks_user ON user_project_bookmarks (user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_user_project_bookmarks_project ON user_project_bookmarks (project_id);`,
 	}
 
 	for _, query := range queries {
