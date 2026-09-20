@@ -1,15 +1,19 @@
 # GitLab CI for the GitLab mirror of github.com/sebastienferry/sectile.
 #
-# The repository is developed on GitHub and pull-mirrored into GitLab, so there
-# are no GitLab merge requests: every mirrored branch and tag gets a pipeline of
-# its own (see `workflow` below), and what it produces is named after the
-# pipeline and the ref rather than after an MR.
+# The repository is developed on GitHub and pull-mirrored into GitLab, so the
+# pipeline knows nothing of pull requests: every mirrored branch and tag gets a
+# pipeline of its own (see `workflow` below), and what it produces is named
+# after the pipeline and the ref. The GitLab merge requests that do exist on the
+# mirror only spawn test environments (see the preview tag below).
 #
 # Two things come out of a green pipeline:
 #   - the server image, built by kaniko from ./Dockerfile and pushed to this
 #     project's container registry as <registry>/server:<iid>-<ref-slug>
 #     (plus <tag> on a tag and `latest` on the default branch). argocd-sp
-#     deploys it (apps/sectile).
+#     deploys it (apps/sectile). A branch other than the default one also gets
+#     server:preview-<commit sha>: argocd-sp's testenv feature deploys that tag
+#     for every merge request labelled `testenv` on the mirror, one ephemeral
+#     board per merge request, at the head commit of its source branch.
 #   - the workstation binaries, cross-compiled for every supported OS/arch and
 #     uploaded to this project's Generic Package Registry under the package
 #     `sectile`, version <iid>-<ref-slug> (or the tag). `sectile-agent-*` is
@@ -201,7 +205,11 @@ publish:image:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
       variables:
         DOCKER_IMAGE_EXTRA_NAMES: "${SERVER_IMAGE}:latest"
+    # The tag the argocd-sp test environments pull: the pullRequest generator
+    # knows the merge request's head sha, not the pipeline iid.
     - if: $CI_COMMIT_BRANCH
+      variables:
+        DOCKER_IMAGE_EXTRA_NAMES: "${SERVER_IMAGE}:preview-${CI_COMMIT_SHA}"
 
 publish:binaries:
   stage: publish
