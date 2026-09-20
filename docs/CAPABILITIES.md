@@ -93,8 +93,15 @@ flowchart LR
 ```
 
 ### Stage 1: Clarification (`clarify-issue` / `/clarify`)
-- **Objective**: Identifies functional gaps, edge cases, and architectural ambiguities.
-- **Output**: Records settled scope and reversible technical assumptions. Only essential product decisions or unavailable dependencies block an unattended run; the presence of a PTY does not itself require interactive questions.
+- **Objective**: Resolves functional gaps, edge cases, and architectural ambiguities through an iterative feedback loop between the agent and the work item owner (analogous to how `adjust-issue` iterates on code reviews).
+- **Rounds & Reports**: Clarification executes in numbered rounds (Round 1, Round N). Findings are stored in `docs/clarifications/<n>.md` on the assigned work branch (`feat/<n>`), with dated sections `## Round N - answers from the owner (<date>)` appended as feedback arrives. Each round commits incrementally with `docs(spec): clarify #<n> (round <r>)`.
+- **Exit Condition & Transition Guard**: Clarification ends only when the owner explicitly confirms that the clarification is satisfactory (or zero open product questions remain in unattended pickup). A task must **never** be transitioned `new → clarified` while any product question or decision remains open.
+- **Interactive vs. Unattended Execution**:
+  - *Interactive*: In a session with the owner present, the agent asks blocking questions directly and records answers in the next round.
+  - *Unattended*: The agent records ambiguities, posts essential product questions to the ticket via `add_comment`, and terminates the run without transitioning.
+  - *Autonomous Pickup* (`pickup-issue` / `pickup-issues`): Advances to specification only when zero product questions remain open; halts and posts blockers if any product question requires human decision.
+- **Activity Lifecycle**: Each round is an independent Sectile run (`start_run` / `finish_run`), and thread history is preserved via `add_comment` and `get_task`.
+- **Reference Case**: See ticket #180 (rounds 1 and 2 in `docs/clarifications/180.md`).
 
 ### Workflow completion
 

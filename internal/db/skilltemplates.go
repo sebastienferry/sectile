@@ -59,43 +59,59 @@ var StageSkills = []StageSkill{
 		Command:     "/clarify-issue",
 		FromStage:   "new",
 		ToStage:     "clarified",
-		Description: "Résout les ambiguïtés réversibles et identifie les décisions indispensables.",
+		Description: "Résout les ambiguïtés réversibles et mène des rounds d'échange jusqu'à confirmation du cadrage.",
 		Icon:        "HelpCircle",
 		Color:       "amber",
 		Steps: []string{
 			"Lecture du ticket et du code concerné",
-			"Détection des ambiguïtés et des dépendances",
-			"Questions de cadrage et options recommandées",
-			"Label 'clarified' et transition posés par Sectile",
+			"Itération en rounds (Round 1, Round N) consignés dans docs/clarifications/<n>.md",
+			"Questions bloquantes posées à l'interlocuteur ou en commentaire de ticket",
+			"Arrêt sans transition tant que des choix produit restent ouverts",
+			"Label 'clarified' et transition posés uniquement après confirmation",
 		},
 		title:           "Clarify Issue",
-		frontmatterDesc: "Analyse a ticket against the code, surface what is genuinely undecided, and ask the few questions that unblock specification.",
-		goal: `Turn a vague ticket into a decided one. You are looking for the decisions that
-would be expensive to reverse later, not for a list of everything unknown.`,
-		readFirst: `- The ticket: title, description, comments, parent epic if there is one.
+		frontmatterDesc: "Analyse a ticket against the code, iterate in clarification rounds, and resolve open questions until the owner confirms satisfaction.",
+		goal: `Turn an ambiguous ticket into a settled specification baseline. Clarification is an
+iterative dialogue with the work item's owner: execute in rounds until the owner
+explicitly confirms that the clarification is satisfactory.`,
+		readFirst: `- The ticket: title, description, comments via get_task, parent epic if present.
+- The existing clarification report if one exists: docs/clarifications/<n>.md on the assigned work branch.
 - The code the change would touch. Name the files you actually read.
 - Neighbouring features that already solve a similar problem in this codebase.`,
-		stepsBody: `1. Restate the request in two sentences, including what you believe is out of scope.
-2. List the ambiguities you found, worst first. An ambiguity is worth listing only
-   if two readings lead to different code.
-3. Name the critical dependencies: other services, other teams, migrations, data
-   you do not have.
-4. Resolve reversible choices using existing code and project conventions. Record
-   the choice and rationale; do not ask questions merely to fill a quota.
-   Ask only when an essential product decision changes acceptance criteria or an
-   unavailable dependency prevents progress. In an unattended run, report the
-   concrete blocker and the decision needed; do not invent settled requirements.
-   A TTY alone does not make a run interactive: follow the invocation's mode.
-5. Persist the settled scope and assumptions in the report for specification.`,
+		stepsBody: `1. Re-read the assigned branch and worktree. If docs/clarifications/<n>.md already exists,
+   this run continues an existing clarification into Round N. If not, this is Round 1.
+2. In Round 1:
+   a. Restate the request in two sentences, including what is out of scope.
+   b. List ambiguities, worst first. Only list an ambiguity if two readings lead to different code.
+   c. Name critical dependencies: other services, migrations, missing data, third-party limits.
+   d. Resolve reversible technical choices using existing code and project conventions.
+   e. Formulate essential product questions that alter acceptance criteria, with your recommended option.
+   f. Write docs/clarifications/<n>.md, commit with docs(spec): clarify #<n> (round 1).
+   g. Ask the questions (interactively in-session if the owner is present; as a ticket discussion
+      comment via add_comment when unattended).
+3. In Round N (follow-up after owner answers):
+   a. Read the owner's answers from the interactive prompt or ticket comments via get_task.
+   b. Append a dated section: "## Round N - answers from the owner (<date>)" to docs/clarifications/<n>.md.
+   c. Explicitly record settled choices and any reversed prior assumptions.
+   d. Address newly surfaced ambiguities or dependencies.
+   e. Commit updates with docs(spec): clarify #<n> (round N).
+   f. If follow-up product questions remain, ask them and stop without transitioning.
+4. Exit condition:
+   Rounds continue until the owner confirms that the clarification is satisfactory (or zero open
+   product questions remain in unattended pickup). Never transition new → clarified while product
+   questions remain open.
+5. Persist the settled scope, decisions, and assumptions in the report before concluding.`,
 		guardTitle: "Do not",
-		guard: `- Do not write production code at this stage, and do not start the specification.
-- Do not invent an answer to your own question and move on without stating your assumption.
-- Do not pad the list to reach five questions.`,
-		report: `- Restated request and scope.
-- Ambiguities, worst first.
-- Critical dependencies.
-- Numbered questions with your recommended option.
-- Settled scope and assumptions.`,
+		guard: `- Do not transition new → clarified while any product question or decision remains open.
+- Do not invent answers to essential product questions in unattended runs; record them and ask.
+- Do not write production code or start the technical specification at this stage.
+- Do not discard previous round sections when writing Round N; append each round chronologically.
+- Do not switch branches or create a new branch: reuse the assigned feat/<n> branch.`,
+		report: `- The report path: docs/clarifications/<n>.md.
+- Current round number and whether the exit condition was met.
+- Settled decisions and reversed assumptions.
+- Numbered open questions (if any) and who is expected to answer them.
+- Stage transition status (applied or blocked awaiting answers).`,
 	},
 	{
 		ID:          "specify",
@@ -561,6 +577,8 @@ func renderTicketTransitionContract(s StageSkill) string {
 	b.WriteString("- **Standalone invocation**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.\n")
 	if s.ID == "pickup" || s.ID == "pickup_issues" {
 		b.WriteString("Record clarified, specified and implemented after each corresponding step. After PR verification, record reviewed with the PR URL. For a batch, use the same actual branch and combined PR URL for every completed ticket; never mark unfinished work reviewed.\n")
+	} else if s.ID == "clarify" {
+		b.WriteString("Transition new → clarified only when the exit condition is met: the owner confirms the clarification is satisfactory (or zero product questions remain open in unattended pickup). Never transition new → clarified while any product question or decision remains open.\n")
 	} else {
 		fmt.Fprintf(&b, "Transition %s → %s only when this step is complete.\n", s.FromStage, s.ToStage)
 		if s.ID == "adjust" {
