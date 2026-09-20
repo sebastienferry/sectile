@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -481,3 +482,114 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 		t.Fatalf("expected false override flags after reset: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
 	}
 }
+
+func TestDesktopTaskTransitionAndCapabilities(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+
+	var forwardedBody map[string]string
+	var forwardedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
+			_ = json.NewEncoder(w).Encode(agentconfig.Config{
+				SchemaVersion: agentconfig.Version,
+				ProjectID:     "project-1",
+			})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/tasks/") && strings.HasSuffix(r.URL.Path, "/stage") && r.Method == http.MethodPost {
+			forwardedPath = r.URL.Path
+			_ = json.NewDecoder(r.Body).Decode(&forwardedBody)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"success":true,"stage":"reviewed"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	d := &agentDaemon{
+		repoRoot: root,
+		loopback: loopbackServer{desktopToken: "private"},
+		link:     serverLink{serverURL: srv.URL, token: "device-token"},
+	}
+
+	doReq := func(method, path string, body any) *httptest.ResponseRecorder {
+		var rdr io.Reader
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			rdr = bytes.NewReader(raw)
+		}
+		req := httptest.NewRequest(method, path, rdr)
+		req.Header.Set("Authorization", "Bearer private")
+		w := httptest.NewRecorder()
+		d.desktopHandler(w, req)
+		return w
+	}
+
+	// 1. GET /desktop/status includes "transition-stage" capability
+	statusResp := doReq("GET", "/desktop/status", nil)
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("GET /desktop/status returned %d: %s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusData struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusData); err != nil {
+		t.Fatal(err)
+	}
+	hasTransitionStage := false
+	for _, cap := range statusData.Capabilities {
+		if cap == "transition-stage" {
+			hasTransitionStage = true
+			break
+		}
+	}
+	if !hasTransitionStage {
+		t.Fatalf("expected transition-stage capability, got %v", statusData.Capabilities)
+	}
+
+	// 2. Validation failures (400 Bad Request)
+	// Missing taskId
+	w := doReq("POST", "/desktop/tasks/transition?projectId=project-1", map[string]string{
+		"stage": "reviewed",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing taskId, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Missing stage
+	w = doReq("POST", "/desktop/tasks/transition?projectId=project-1", map[string]string{
+		"taskId": "task-abc",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing stage, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Missing projectId
+	w = doReq("POST", "/desktop/tasks/transition", map[string]string{
+		"taskId": "task-abc",
+		"stage":  "reviewed",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing projectId, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 3. Valid transition request succeeds and forwards to server
+	w = doReq("POST", "/desktop/tasks/transition?projectId=project-1", map[string]string{
+		"taskId": "task-abc",
+		"stage":  "reviewed",
+		"note":   "Code declared as reviewed from desktop app",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid transition, got %d: %s", w.Code, w.Body.String())
+	}
+	if forwardedPath != "/api/tasks/task-abc/stage" {
+		t.Fatalf("expected forwarded path /api/tasks/task-abc/stage, got %s", forwardedPath)
+	}
+	if forwardedBody["stage"] != "reviewed" || forwardedBody["note"] != "Code declared as reviewed from desktop app" {
+		t.Fatalf("unexpected forwarded payload: %v", forwardedBody)
+	}
+}
+

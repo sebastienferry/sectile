@@ -1,5 +1,5 @@
 const stages=['new','clarified','specified','implemented','reviewed','finished']
-const skills={new:['clarify','Clarify'],clarified:['specify','Specify'],specified:['implement','Implement'],implemented:implementedStep}
+const skills={new:['clarify','Clarify'],clarified:['specify','Specify'],specified:['implement','Implement'],implemented:implementedStep,reviewed:['handoff','Handoff']}
 
 // An implemented task is adjusted once it records a pull request. Without one, the
 // pull request is recovered through the owner the project configured for its
@@ -20,7 +20,6 @@ export function taskStage(task){
 export function nextTaskStep(task,project){
  const stage=taskStage(task)
  if(stage==='finished')return {stage,message:'Task finished'}
- if(stage==='reviewed')return {stage,message:'Awaiting human merge'}
  const next=skills[stage]
  if(!next)return {stage,message:'No next step for this workflow state'}
  const [skillId,label]=typeof next==='function'?next(task,project):next

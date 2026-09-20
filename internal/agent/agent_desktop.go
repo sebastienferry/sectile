@@ -104,7 +104,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -147,6 +147,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/run-result" && r.Method == http.MethodGet {
 		d.desktopRunResult(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/tasks/transition" {
+		d.desktopTaskTransition(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/tasks" {
@@ -822,6 +826,54 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 	}
 	body := mustJSON(models.CreateTaskRequest{ProjectID: input.ProjectID, Title: strings.TrimSpace(input.Title), Description: input.Description, RequireRemoteCreation: true})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks", strings.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	response, err := agenthttp.Client(d.link.token).Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	defer response.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(response.Body, 1<<20))
+}
+
+func (d *agentDaemon) desktopTaskTransition(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	var input struct {
+		ProjectID string `json:"projectId"`
+		TaskID    string `json:"taskId"`
+		Stage     string `json:"stage"`
+		Note      string `json:"note"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&input) != nil {
+		http.Error(w, "Invalid request body", 400)
+		return
+	}
+	projectID := r.URL.Query().Get("projectId")
+	if projectID == "" {
+		projectID = input.ProjectID
+	}
+	if projectID == "" || strings.TrimSpace(input.TaskID) == "" || strings.TrimSpace(input.Stage) == "" {
+		http.Error(w, "Project, task, and stage required", 400)
+		return
+	}
+	if _, err := d.fetchConfig(r.Context(), projectID, ""); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	body := mustJSON(map[string]string{
+		"stage": strings.TrimSpace(input.Stage),
+		"note":  input.Note,
+	})
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(input.TaskID)+"/stage", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
