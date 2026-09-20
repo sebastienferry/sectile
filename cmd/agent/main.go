@@ -45,6 +45,11 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "render-skills", "skills":
+			if err := agent.RenderSkills(args[1:]); err != nil {
+				log.Fatal(err)
+			}
+			return
 		}
 	}
 	agent.Run(args)
