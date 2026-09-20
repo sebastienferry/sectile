@@ -24,7 +24,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><details id="advanced-credential"><summary>Advanced: connect with an API key instead</summary><label>API key<input name="token" type="password" autocomplete="off" placeholder="sectile_…"></label></details><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
@@ -441,6 +441,31 @@ async function offerClosure(run){
   confirm.disabled=true;notice.textContent='Launching the closing skill…'
   try{await api.launchServerTask(run.projectId,run.taskId,step.skillId,'');dialog.close();await refresh()}
   catch(err){notice.textContent=err.message;confirm.disabled=false}
+ }
+}
+async function confirmDeclareReviewed(projectId,task){
+ const key=task.key||task.id
+ showDialog('Declare '+key+' as reviewed?')
+ paragraph('This transitions the task to #reviewed and proposes Handoff after human merge.')
+ const confirm=document.createElement('button')
+ confirm.textContent='Confirm'
+ const notice=document.createElement('p')
+ notice.setAttribute('role','status')
+ dialogBody.append(confirm,notice)
+ confirm.focus()
+ confirm.onclick=async()=>{
+  confirm.disabled=true
+  notice.textContent='Declaring code as reviewed…'
+  try{
+   await api.transitionStage(projectId,task.id,'reviewed','Code declared as reviewed from desktop app')
+   dialog.close()
+   await refreshNextStep()
+   await refresh()
+   if(ticketsOpen&&ticketsView?.projectID===projectId&&ticketsView.load)await ticketsView.load()
+  }catch(err){
+   notice.textContent=err.message
+   confirm.disabled=false
+  }
  }
 }
 function flushSidebar(){if(pendingRender&&!sidebarBusy())render()}
@@ -1020,6 +1045,7 @@ async function openTickets(projectID,initialQuery=''){
   }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
   finally{if(isCurrent())list.setAttribute('aria-busy','false')}
  }
+ view.load=load
  search.onsubmit=event=>{event.preventDefault();load()}
  await load()
 }
@@ -1111,10 +1137,18 @@ function ticketRow(view,task){
  const items=[]
  if(skills.some(item=>item.id==='pickup'))items.push({label:'Pickup (full chain)',skillId:'pickup'})
  for(const item of skills)if(item.id!=='pickup')items.push({label:item.command||item.id,skillId:item.id})
+ if(taskStage(task)==='implemented'){
+  items.push({label:'Declare code as reviewed…',transition:'reviewed'})
+ }
  items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Custom instructions…',compose:true})
  for(const item of items){
   const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!view.info.configured
-  button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else submitTicketLaunch(view,entry,item.skillId,'','').catch(()=>{})}
+  if(item.transition==='reviewed'){
+   entry.declareReviewed=button
+   button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
+  }else{
+   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else submitTicketLaunch(view,entry,item.skillId,'','').catch(()=>{})}
+  }
   menu.append(button)
  }
  menu.onkeydown=event=>{
@@ -1150,6 +1184,7 @@ function updateTicketRow(view,entry){
  const step=nextTaskStep(task,view.info)
  const chosen=step.skillId?step:closingStep(task,view.info)
  const active=executions.some(activeRun),pending=view.submitting.has(task.id)
+ if(entry.declareReviewed)entry.declareReviewed.disabled=!view.info.configured||active||pending
  if(chosen){run.textContent='Run: '+chosen.label;run.dataset.skillId=chosen.skillId}
  else{run.textContent='Run';delete run.dataset.skillId}
  const hadFocus=document.activeElement===run
@@ -1418,8 +1453,9 @@ function isFinishedTask(task){
 
 function currentTaskRun(){return runs.find(run=>run.id===selected)}
 function renderNextStep(){
- const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),retry=document.querySelector('#retry-next-step')
+ const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),markReviewed=document.querySelector('#mark-reviewed'),retry=document.querySelector('#retry-next-step')
  button.hidden=true;button.disabled=true;retry.hidden=true
+ if(markReviewed){markReviewed.hidden=true;markReviewed.disabled=true}
  if(!run){status.textContent='Select a task to see its next step';return}
  if(freeConsole(run)){status.textContent='Free agent console · '+(run.cancelRequested?'Stopping':run.status);return}
  const key=taskKey(run)
@@ -1433,6 +1469,10 @@ function renderNextStep(){
  const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?'Execution in progress':nextStepErrors.get(key)||step.message
  status.textContent=(nextStepData.task.key||run.taskKey||run.taskId)+' · '+step.stage+' · '+message
  if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
+ if(markReviewed&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){
+  markReviewed.hidden=false
+  markReviewed.disabled=busy||pending
+ }
 }
 new ResizeObserver(resize).observe(document.querySelector('#task-status'))
 new ResizeObserver(resize).observe(document.querySelector('#toolbar'))
@@ -1476,6 +1516,12 @@ document.querySelector('#next-step').onclick=async()=>{
    if(launched)select(launched)
   }
  }catch(err){nextStepErrors.set(key,'Could not launch next step: '+err.message)}finally{submittingSteps.delete(key);renderNextStep()}
+}
+document.querySelector('#mark-reviewed').onclick=()=>{
+ const run=currentTaskRun()
+ if(run&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){
+  confirmDeclareReviewed(run.projectId,nextStepData.task)
+ }
 }
 
 async function openAgentConsole(projectID,previousProvider){

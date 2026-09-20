@@ -204,6 +204,14 @@ ipcMain.handle('create-task',async(_,input)=>{
  if(!status.capabilities?.includes('create-task'))throw Error('The running local agent is outdated. Stop it, then start the rebuilt agent before creating a task. Closing the desktop alone does not restart the agent.')
  return api('/desktop/create-task','POST',input)
 })
+ipcMain.handle('transition-stage',async(_,{projectId,taskId,stage,note})=>{
+ if(!projectId||!taskId||!stage)throw Error('Project, task, and stage required')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('transition-stage')){
+  throw Error('The running local agent does not support stage transitions. Update and restart the agent.')
+ }
+ return api('/desktop/tasks/transition?projectId='+encodeURIComponent(projectId),'POST',{taskId,stage,note})
+})
 ipcMain.handle('project',(_,id)=>api('/desktop/project?id='+encodeURIComponent(id)))
 ipcMain.handle('deploy-project',(_,id,action)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))
