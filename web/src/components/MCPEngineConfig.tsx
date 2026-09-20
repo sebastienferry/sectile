@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { Check, Copy, ExternalLink, Network, Terminal, Code2 } from 'lucide-react'
+import { Antigravity, Claude, OpenAI, Cursor } from '@lobehub/icons'
 import type { AIProvider } from '../types'
 import { useOptionalApp } from '../context/AppContext'
 import { translations } from '../locales/translations'
@@ -42,7 +43,9 @@ export const MCPEngineConfig: React.FC<MCPEngineConfigProps> = ({
     }
   }
 
-  const claudeCliCmd = `claude mcp add sectile ${serverOrigin}/mcp --header "Authorization: Bearer <VOTRE_CLE_WORKSTATION>"`
+  const keyPlaceholder = aiT?.mcpKeyPlaceholder || '<YOUR_WORKSTATION_KEY>'
+
+  const claudeCliCmd = `claude mcp add sectile ${serverOrigin}/mcp --header "Authorization: Bearer ${keyPlaceholder}"`
 
   const claudeJsonConfig = `{
   "mcpServers": {
@@ -50,40 +53,39 @@ export const MCPEngineConfig: React.FC<MCPEngineConfigProps> = ({
       "type": "http",
       "url": "${serverOrigin}/mcp",
       "headers": {
-        "Authorization": "Bearer <VOTRE_CLE_WORKSTATION>"
+        "Authorization": "Bearer ${keyPlaceholder}"
       }
     }
   }
 }`
 
-  const agyCliCmd = `agy mcp add --env SECTILE_AGENT_TOKEN="<VOTRE_CLE_WORKSTATION>" sectile sectile mcp --url "${serverOrigin}"`
+  const agyCliCmd = `agy mcp add --env SECTILE_AGENT_TOKEN="${keyPlaceholder}" sectile sectile-agent mcp --url "${serverOrigin}"`
 
-  const agyCliHttpCmd = `agy mcp add --header "Authorization: Bearer <VOTRE_CLE_WORKSTATION>" sectile "${serverOrigin}/mcp"`
+  const agyCliHttpCmd = `agy mcp add --header "Authorization: Bearer ${keyPlaceholder}" sectile "${serverOrigin}/mcp"`
 
   const agyJsonConfig = `{
   "mcpServers": {
     "sectile": {
-      "command": "sectile",
+      "command": "sectile-agent",
       "args": ["mcp", "--url", "${serverOrigin}"],
       "env": {
-        "SECTILE_AGENT_TOKEN": "<VOTRE_CLE_WORKSTATION>"
+        "SECTILE_AGENT_TOKEN": "${keyPlaceholder}"
       }
     }
   }
 }`
 
-
   const codexTomlConfig = `[mcp_servers.sectile]
-command = "sectile"
+command = "sectile-agent"
 args = ["mcp", "--url", "${serverOrigin}"]
-env = { SECTILE_AGENT_TOKEN = "<VOTRE_CLE_WORKSTATION>" }`
+env = { SECTILE_AGENT_TOKEN = "${keyPlaceholder}" }`
 
   const cursorJsonConfig = `{
   "mcpServers": {
     "sectile": {
       "url": "${serverOrigin}/mcp",
       "headers": {
-        "Authorization": "Bearer <VOTRE_CLE_WORKSTATION>"
+        "Authorization": "Bearer ${keyPlaceholder}"
       }
     }
   }
@@ -98,13 +100,10 @@ env = { SECTILE_AGENT_TOKEN = "<VOTRE_CLE_WORKSTATION>" }`
             <span className="text-xs font-bold text-[var(--text-primary)]">
               {aiT?.mcpConfigWithoutAgent || 'Configuration MCP sans agent local'}
             </span>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9.5px] font-semibold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
-              Streamable HTTP & Stdio
-            </span>
           </div>
           <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
             {aiT?.mcpConnectDirectlyDesc || "Pour connecter directement votre CLI ou IDE au serveur MCP Sectile sans passer par l'agent local ("}
-            <code className="px-1 py-0.5 rounded bg-[var(--bg-secondary)] font-mono text-[10px]">sectile agent</code>
+            <code className="px-1 py-0.5 rounded bg-[var(--bg-secondary)] font-mono text-[10px]">sectile-agent</code>
             {aiT?.mcpConnectDirectlyWorkflow || "). Le moteur accède directement aux outils de gestion des tâches et de suivi du workflow."}
           </p>
         </div>
@@ -118,11 +117,11 @@ env = { SECTILE_AGENT_TOKEN = "<VOTRE_CLE_WORKSTATION>" }`
             {aiT?.mcpKeyRequiredDesc ? (
               <>
                 {aiT.mcpKeyRequiredDesc.split('{placeholder}')[0]}
-                <code className="text-amber-400 font-mono text-[10px]">&lt;VOTRE_CLE_WORKSTATION&gt;</code>
+                <code className="text-amber-400 font-mono text-[10px]">{keyPlaceholder}</code>
                 {aiT.mcpKeyRequiredDesc.split('{placeholder}')[1]}
               </>
             ) : (
-              <>Remplacez <code className="text-amber-400 font-mono text-[10px]">&lt;VOTRE_CLE_WORKSTATION&gt;</code> par une clé d'API.</>
+              <>Remplacez <code className="text-amber-400 font-mono text-[10px]">{keyPlaceholder}</code> par une clé d'API.</>
             )}
           </span>
         </div>
@@ -140,50 +139,29 @@ env = { SECTILE_AGENT_TOKEN = "<VOTRE_CLE_WORKSTATION>" }`
 
       {/* Engine selector buttons */}
       <div className="flex items-center gap-1.5 pt-1 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setActiveEngine('claude')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-            activeEngine === 'claude'
-              ? 'accent-bg text-white border-transparent shadow-xs'
-              : 'bg-[var(--bg-secondary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-          }`}
-        >
-          🟣 Claude Code
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveEngine('agy')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-            activeEngine === 'agy'
-              ? 'accent-bg text-white border-transparent shadow-xs'
-              : 'bg-[var(--bg-secondary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-          }`}
-        >
-          🚀 Antigravity (agy)
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveEngine('codex')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-            activeEngine === 'codex'
-              ? 'accent-bg text-white border-transparent shadow-xs'
-              : 'bg-[var(--bg-secondary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-          }`}
-        >
-          🤖 Codex CLI
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveEngine('cursor')}
-          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-            activeEngine === 'cursor'
-              ? 'accent-bg text-white border-transparent shadow-xs'
-              : 'bg-[var(--bg-secondary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-          }`}
-        >
-          ⚡ Cursor / HTTP
-        </button>
+        {[
+          { id: 'claude' as const, label: 'Claude Code', icon: <Claude size={13} className="shrink-0" /> },
+          { id: 'agy' as const, label: 'Antigravity (agy)', icon: <Antigravity size={13} className="shrink-0" /> },
+          { id: 'codex' as const, label: 'Codex CLI', icon: <OpenAI size={13} className="shrink-0" /> },
+          { id: 'cursor' as const, label: 'Cursor / HTTP', icon: <Cursor size={13} className="shrink-0" /> },
+        ].map(engine => {
+          const isActive = activeEngine === engine.id
+          return (
+            <button
+              key={engine.id}
+              type="button"
+              onClick={() => setActiveEngine(engine.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer shrink-0 ${
+                isActive
+                  ? 'accent-bg text-white border-transparent shadow-xs'
+                  : 'bg-[var(--bg-secondary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              <span className="shrink-0 flex items-center justify-center">{engine.icon}</span>
+              <span>{engine.label}</span>
+            </button>
+          )
+        })}
       </div>
 
       {/* Claude Code Snippets */}

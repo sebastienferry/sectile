@@ -21,10 +21,13 @@ import {
   UserRound,
   Monitor,
   Workflow,
+  Kanban,
+  List,
+  ZoomIn,
 } from 'lucide-react'
-import { useApp } from '../context/AppContext'
-import { LocalAgentSetup } from './LocalAgentSetup'
-import { ApiKeysPanel } from './ApiKeys'
+import { useApp, UI_SCALE_OPTIONS } from '../context/AppContext'
+import { SectileDesktopPanel, HeadlessCliAgentPanel } from './LocalAgentSetup'
+import { WorkstationsPanel, DirectMcpPanel } from './ApiKeys'
 import { TrackerCredentialsTab } from './TrackerCredentialsTab'
 import { SignInStatus } from './SignInStatus'
 import { MCPEngineConfig } from './MCPEngineConfig'
@@ -66,6 +69,7 @@ export const ProfileModal: React.FC = () => {
   const [density, setDensity] = useState<Density>(settings.density)
   const [defaultView, setDefaultView] = useState<ViewMode>(settings.defaultView)
   const [detailMode, setDetailMode] = useState<DetailMode>(settings.detailMode || 'panel')
+  const [uiScale, setUiScale] = useState<number>(settings.uiScale || 100)
 
   // Agentic AI & CLI Configuration
   const [aiProvider, setAiProvider] = useState<AIProvider>(settings.aiProvider || 'agy')
@@ -81,6 +85,7 @@ export const ProfileModal: React.FC = () => {
   const [promptImplement, setPromptImplement] = useState(settings.promptImplement || '')
   const [promptAdjust, setPromptAdjust] = useState(settings.promptAdjust || '')
   const [promptHandoff, setPromptHandoff] = useState(settings.promptHandoff || '')
+  const [devicesVersion, setDevicesVersion] = useState(0)
 
   useEffect(() => {
     if (isProfileOpen) {
@@ -89,6 +94,7 @@ export const ProfileModal: React.FC = () => {
       setDensity(settings.density)
       setDefaultView(settings.defaultView)
       setDetailMode(settings.detailMode || 'panel')
+      setUiScale(settings.uiScale || 100)
       setAiProvider(settings.aiProvider || 'agy')
       setAiCommandTemplate(settings.aiCommandTemplate || '')
       setAiCommandAutonomous(settings.aiCommandTemplateAutonomous || '')
@@ -116,11 +122,10 @@ export const ProfileModal: React.FC = () => {
 
   if (!isProfileOpen) return null
 
-
   const densities: { id: Density; label: string; desc: string }[] = [
-    { id: 'compact', label: 'Compact', desc: '13px font, padding réduit' },
-    { id: 'standard', label: 'Standard', desc: '14px font, équilibre optimal' },
-    { id: 'comfortable', label: 'Confortable', desc: '15px font, grands espacements' },
+    { id: 'compact', label: language === 'fr' ? 'Compact' : 'Compact', desc: t.profileModal.densityDesc?.compact || '13px font, padding réduit' },
+    { id: 'standard', label: language === 'fr' ? 'Standard' : 'Standard', desc: t.profileModal.densityDesc?.standard || '14px font, équilibre optimal' },
+    { id: 'comfortable', label: language === 'fr' ? 'Confortable' : 'Comfortable', desc: t.profileModal.densityDesc?.comfortable || '15px font, grands espacements' },
   ]
 
   const handleProviderSelect = (provider: typeof AI_PROVIDERS[0]) => {
@@ -148,6 +153,7 @@ export const ProfileModal: React.FC = () => {
       density,
       defaultView,
       detailMode,
+      uiScale,
       aiProvider,
       aiCommandTemplate: aiCommandTemplate.trim(),
       aiCommandTemplateAutonomous: aiCommandAutonomous.trim(),
@@ -165,12 +171,12 @@ export const ProfileModal: React.FC = () => {
   }
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; iconColor: string }[] = [
-    { id: 'account', label: 'Account', icon: <UserRound size={15} />, iconColor: 'text-[var(--text-secondary)]' },
-    { id: 'appearance', label: 'Apparence', icon: <Palette size={15} />, iconColor: 'text-purple-400' },
-    { id: 'trackers', label: 'Trackers', icon: <KeyRound size={15} />, iconColor: 'text-emerald-400' },
-    { id: 'aiEngine', label: 'Moteur Agentic IA', icon: <Bot size={15} />, iconColor: 'text-indigo-400' },
-    { id: 'sdd', label: 'Compétences & SDD', icon: <Workflow size={15} />, iconColor: 'text-blue-400' },
-    { id: 'workstations', label: 'Workstations & Agent', icon: <Monitor size={15} />, iconColor: 'text-cyan-400' },
+    { id: 'account', label: t.profileModal.tabs.account, icon: <UserRound size={15} />, iconColor: 'text-[var(--text-secondary)]' },
+    { id: 'appearance', label: t.profileModal.tabs.appearance, icon: <Palette size={15} />, iconColor: 'text-purple-400' },
+    { id: 'trackers', label: t.profileModal.tabs.trackers, icon: <KeyRound size={15} />, iconColor: 'text-emerald-400' },
+    { id: 'aiEngine', label: t.profileModal.tabs.aiEngine, icon: <Bot size={15} />, iconColor: 'text-indigo-400' },
+    { id: 'sdd', label: t.profileModal.tabs.sdd, icon: <Workflow size={15} />, iconColor: 'text-blue-400' },
+    { id: 'workstations', label: t.profileModal.tabs.workstations, icon: <Monitor size={15} />, iconColor: 'text-cyan-400' },
   ]
 
   return (
@@ -234,10 +240,6 @@ export const ProfileModal: React.FC = () => {
                 )
               })}
             </nav>
-
-            <div className="pt-3 border-t border-[var(--border-color)]/60 px-2 text-[10px] text-[var(--text-muted)]">
-              <span>Sectile Preferences</span>
-            </div>
           </div>
 
           {/* Right Scrollable Content Pane */}
@@ -318,6 +320,48 @@ export const ProfileModal: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Default View (Board vs List) */}
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    {t.profileModal.defaultView}
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDefaultView('board')}
+                      className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${defaultView === 'board'
+                        ? 'bg-[var(--accent-light)] border-[var(--accent-color)] accent-text ring-2 ring-[var(--accent-glow)]'
+                        : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+                        }`}
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-[var(--bg-secondary)] flex items-center justify-center text-sky-400 border border-[var(--border-color)] shrink-0">
+                        <Kanban size={18} />
+                      </div>
+                      <div className="truncate">
+                        <div className="font-bold text-xs">{t.profileModal.defaultViews?.board || 'Tableau (Kanban)'}</div>
+                        <div className="text-[10px] text-[var(--text-muted)] opacity-80">{t.nav.board}</div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setDefaultView('list')}
+                      className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${defaultView === 'list'
+                        ? 'bg-[var(--accent-light)] border-[var(--accent-color)] accent-text ring-2 ring-[var(--accent-glow)]'
+                        : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+                        }`}
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-[var(--bg-secondary)] flex items-center justify-center text-emerald-400 border border-[var(--border-color)] shrink-0">
+                        <List size={18} />
+                      </div>
+                      <div className="truncate">
+                        <div className="font-bold text-xs">{t.profileModal.defaultViews?.list || 'Liste détaillée'}</div>
+                        <div className="text-[10px] text-[var(--text-muted)] opacity-80">{t.nav.list}</div>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
                 {/* Story Detail Mode (Right Panel vs Modal) */}
                 <div className="space-y-2">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
@@ -337,7 +381,9 @@ export const ProfileModal: React.FC = () => {
                       </div>
                       <div className="truncate">
                         <div className="font-bold text-xs">{t.profileModal.detailModes.panel}</div>
-                        <div className="text-[10px] text-[var(--text-muted)] opacity-80">Glissement latéral à droite</div>
+                        <div className="text-[10px] text-[var(--text-muted)] opacity-80">
+                          {t.profileModal.detailModeDesc?.panel || 'Glissement latéral à droite'}
+                        </div>
                       </div>
                     </button>
 
@@ -354,7 +400,9 @@ export const ProfileModal: React.FC = () => {
                       </div>
                       <div className="truncate">
                         <div className="font-bold text-xs">{t.profileModal.detailModes.modal}</div>
-                        <div className="text-[10px] text-[var(--text-muted)] opacity-80">Boîte de dialogue au centre</div>
+                        <div className="text-[10px] text-[var(--text-muted)] opacity-80">
+                          {t.profileModal.detailModeDesc?.modal || 'Boîte de dialogue au centre'}
+                        </div>
                       </div>
                     </button>
                   </div>
@@ -386,11 +434,33 @@ export const ProfileModal: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Default Code Editor */}
-
-
-                {/* Default External Terminal */}
-
+                {/* Interface Scaling (UI Scale / Zoom) */}
+                <div className="space-y-2">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
+                    <ZoomIn size={13} className="text-indigo-400" />
+                    <span>{t.profileModal.uiScale || 'Échelle de l\'interface'}</span>
+                  </label>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {UI_SCALE_OPTIONS.map(opt => {
+                      const isSelected = (uiScale || 100) === opt
+                      const scaleKey = `s${opt}` as keyof NonNullable<typeof t.profileModal.uiScales>
+                      const label = t.profileModal.uiScales?.[scaleKey] || `${opt}%`
+                      return (
+                        <button
+                          key={opt}
+                          type="button"
+                          onClick={() => setUiScale(opt)}
+                          className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer font-medium text-xs ${isSelected
+                            ? 'bg-[var(--accent-light)] border-[var(--accent-color)] accent-text shadow-xs font-bold'
+                            : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+                            }`}
+                        >
+                          <div>{label}</div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
 
               </div>
             )}
@@ -415,6 +485,8 @@ export const ProfileModal: React.FC = () => {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {AI_PROVIDERS.map(p => {
                       const isSelected = aiProvider === p.id
+                      const label = p.id === 'custom' ? (t.profileModal.ai.customProviderLabel || p.label) : p.label
+                      const sub = p.id === 'custom' ? (t.profileModal.ai.customProviderSub || p.sub) : p.sub
                       return (
                         <button
                           key={p.id}
@@ -424,9 +496,10 @@ export const ProfileModal: React.FC = () => {
                             ? 'bg-indigo-500/15 border-indigo-500 text-white ring-2 ring-indigo-500/30 shadow-xs'
                             : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
                             }`}
+                          title={sub}
                         >
                           <span className="shrink-0 flex items-center justify-center">{p.icon}</span>
-                          <span className="truncate">{p.label}</span>
+                          <span className="truncate">{label}</span>
                         </button>
                       )
                     })}
@@ -488,13 +561,27 @@ export const ProfileModal: React.FC = () => {
                         <span className="font-semibold text-[var(--text-secondary)]">
                           {t.profileModal.ai.availableVariables || 'Variables disponibles :'}
                         </span>
-                        <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{prompt}'}</code>
-                        <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueKey}'}</code>
-                        <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{issueTitle}'}</code>
-                        <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{branchName}'}</code>
-                        <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{repoPath}'}</code>
-                        <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{model}'}</code>
-                        <code className="bg-[var(--bg-primary)] text-indigo-400 border border-[var(--border-color)] px-1 py-0.5 rounded text-[9.5px] font-mono">{'{mode:AUTONOMOUS|INTERACTIVE}'}</code>
+                        {[
+                          '{prompt}',
+                          '{issueKey}',
+                          '{issueTitle}',
+                          '{branchName}',
+                          '{repoPath}',
+                          '{model}',
+                          '{mode:AUTONOMOUS|INTERACTIVE}',
+                        ].map(token => (
+                          <button
+                            key={token}
+                            type="button"
+                            onClick={() => {
+                              setAiCommandTemplate(prev => prev ? `${prev} ${token}` : token)
+                            }}
+                            title={`+ ${token}`}
+                            className="bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-indigo-400 hover:text-indigo-300 border border-[var(--border-color)] px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer transition-colors"
+                          >
+                            {token}
+                          </button>
+                        ))}
                       </div>
                       <CommandModePreview
                         provider={aiProvider}
@@ -541,24 +628,18 @@ export const ProfileModal: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <Workflow size={18} className="text-blue-400" />
                     <h4 className="text-sm font-bold text-[var(--text-primary)]">
-                      Framework Spec-Driven Design (SDD)
+                      {t.profileModal.sdd?.title || 'Framework Spec-Driven Design (SDD)'}
                     </h4>
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9.5px] font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30">
-                      Contract-First
-                    </span>
                   </div>
                   <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                    Le Spec-Driven Design garantit qu'une spécification claire, structurée et vérifiable est rédigée et validée avant toute génération de code par les agents d'IA.
+                    {t.profileModal.sdd?.subtitle || "Le Spec-Driven Design garantit qu'une spécification claire, structurée et vérifiable est rédigée et validée avant toute génération de code par les agents d'IA."}
                   </p>
                 </div>
 
                 {/* Framework Choice */}
                 <div className="space-y-2">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
-                    <span>Framework par défaut du projet</span>
-                    <span className="text-[10px] text-blue-400 font-mono font-bold">
-                      {specFramework === 'openspec' ? 'OpenSpec' : 'GitHub Spec Kit'}
-                    </span>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    <span>{t.profileModal.sdd?.defaultFramework || 'Framework par défaut du projet'}</span>
                   </label>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -576,10 +657,10 @@ export const ProfileModal: React.FC = () => {
                           <span className="text-xl">📑</span>
                           <div>
                             <div className="font-bold text-xs text-[var(--text-primary)]">
-                              GitHub Spec Kit
+                              {t.profileModal.sdd?.speckitTitle || 'GitHub Spec Kit'}
                             </div>
                             <span className="text-[10px] font-mono text-blue-400">
-                              CLI specify
+                              {t.profileModal.sdd?.speckitSubtitle || 'CLI specify'}
                             </span>
                           </div>
                         </div>
@@ -591,11 +672,11 @@ export const ProfileModal: React.FC = () => {
                       </div>
 
                       <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                        Convention standard GitHub : structure modulaire dans <code className="px-1 py-0.5 rounded bg-[var(--bg-secondary)] font-mono text-[10px]">.specify/</code> et <code className="px-1 py-0.5 rounded bg-[var(--bg-secondary)] font-mono text-[10px]">specs/</code> (<code className="font-mono text-[10px]">spec.md</code>, <code className="font-mono text-[10px]">plan.md</code>, <code className="font-mono text-[10px]">tasks.md</code>).
+                        {t.profileModal.sdd?.speckitDesc || "Convention standard GitHub : structure modulaire dans .specify/ et specs/ (spec.md, plan.md, tasks.md)."}
                       </p>
 
-                      <div className="pt-2 border-t border-[var(--border-color)]/60 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
-                        <span>Commandes : /specify-issue, /code-issue</span>
+                      <div className="pt-2 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
+                        <span>{t.profileModal.sdd?.speckitCommands || 'Commandes : /specify-issue, /code-issue'}</span>
                         <span className="px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] font-mono">.specify/</span>
                       </div>
                     </button>
@@ -614,10 +695,10 @@ export const ProfileModal: React.FC = () => {
                           <span className="text-xl">🚩</span>
                           <div>
                             <div className="font-bold text-xs text-[var(--text-primary)]">
-                              OpenSpec
+                              {t.profileModal.sdd?.openspecTitle || 'OpenSpec'}
                             </div>
                             <span className="text-[10px] font-mono text-emerald-400">
-                              CLI openspec
+                              {t.profileModal.sdd?.openspecSubtitle || 'CLI openspec'}
                             </span>
                           </div>
                         </div>
@@ -629,11 +710,11 @@ export const ProfileModal: React.FC = () => {
                       </div>
 
                       <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                        Spécification formelle par deltas et exigences vérifiables. Les propositions de changements sont validées et revues avant l'écriture de code.
+                        {t.profileModal.sdd?.openspecDesc || "Spécification formelle par deltas et exigences vérifiables. Les propositions de changements sont validées et revues avant l'écriture de code."}
                       </p>
 
-                      <div className="pt-2 border-t border-[var(--border-color)]/60 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
-                        <span>Commandes : openspec propose, validate</span>
+                      <div className="pt-2 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
+                        <span>{t.profileModal.sdd?.openspecCommands || 'Commandes : openspec propose, validate'}</span>
                         <span className="px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] font-mono">openspec/</span>
                       </div>
                     </button>
@@ -646,7 +727,7 @@ export const ProfileModal: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <Workflow size={15} className="text-blue-400" />
                       <span className="text-xs font-bold text-[var(--text-primary)]">
-                        Cycle de vie SDD dans Sectile
+                        {t.profileModal.sdd?.lifecycleTitle || 'Cycle de vie SDD dans Sectile'}
                       </span>
                     </div>
                     <button
@@ -656,46 +737,46 @@ export const ProfileModal: React.FC = () => {
                       }}
                       className="text-[10.5px] text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer flex items-center gap-1"
                     >
-                      <span>Personnaliser les prompts</span>
+                      <span>{t.profileModal.sdd?.customizePrompts || 'Personnaliser les prompts'}</span>
                       <span>↓</span>
                     </button>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-[10.5px]">
                     <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-                      <div className="font-bold text-sky-400">1. Clarifier</div>
+                      <div className="font-bold text-sky-400">{t.profileModal.sdd?.steps.clarify || '1. Clarifier'}</div>
                       <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/clarify-issue</div>
                     </div>
                     <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-                      <div className="font-bold text-blue-400">2. Spécifier</div>
+                      <div className="font-bold text-blue-400">{t.profileModal.sdd?.steps.specify || '2. Spécifier'}</div>
                       <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/specify-issue</div>
                     </div>
                     <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-                      <div className="font-bold text-indigo-400">3. Coder</div>
+                      <div className="font-bold text-indigo-400">{t.profileModal.sdd?.steps.code || '3. Coder'}</div>
                       <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/code-issue</div>
                     </div>
                     <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-                      <div className="font-bold text-purple-400">4. Ajuster</div>
+                      <div className="font-bold text-purple-400">{t.profileModal.sdd?.steps.adjust || '4. Ajuster'}</div>
                       <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/adjust-issue</div>
                     </div>
                     <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-                      <div className="font-bold text-emerald-400">5. Clôturer</div>
+                      <div className="font-bold text-emerald-400">{t.profileModal.sdd?.steps.handoff || '5. Clôturer'}</div>
                       <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/handoff-issue</div>
                     </div>
                   </div>
                 </div>
 
                 {/* SECTION: PERSONNALISATION DES PROMPTS DES SKILLS */}
-                <div id="skill-prompts-section" className="pt-4 border-t border-[var(--border-color)]/60 space-y-4">
+                <div id="skill-prompts-section" className="space-y-4 pt-1">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <FileCode size={16} className="text-amber-400" />
                       <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
-                        Personnalisation des Prompts par Compétence
+                        {t.profileModal.sdd?.promptsSectionTitle || 'Personnalisation des Prompts par Compétence'}
                       </h4>
                     </div>
                     <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                      Personnalisez les invites (prompts) envoyées au CLI Agentic pour chaque étape du workflow SDD. Si laissé vide, les invites par défaut sont utilisées.
+                      {t.profileModal.sdd?.promptsSectionDesc || 'Personnalisez les invites (prompts) envoyées au CLI Agentic pour chaque étape du workflow SDD. Si laissé vide, les invites par défaut sont utilisées.'}
                     </p>
                   </div>
 
@@ -704,15 +785,15 @@ export const ProfileModal: React.FC = () => {
                     <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-amber-400">
                         <HelpCircle size={13} />
-                        <span>Prompt de Cadrage (/clarify-issue)</span>
+                        <span>{t.profileModal.sdd?.prompts.clarify.label || 'Prompt de Cadrage (/clarify-issue)'}</span>
                       </span>
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono">Défaut : /clarify-issue {'{issueKey}'} tracked on {'{tracker}'} in {'{repo}'}</span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">{t.profileModal.sdd?.prompts.clarify.hint || 'Défaut : /clarify-issue {issueKey} tracked on {tracker} in {repo}'}</span>
                     </label>
                     <textarea
                       value={promptClarify}
                       onChange={e => setPromptClarify(e.target.value)}
                       rows={3}
-                      placeholder="/clarify-issue {issueKey} tracked on {tracker} in {repo}"
+                      placeholder={t.profileModal.sdd?.prompts.clarify.placeholder || '/clarify-issue {issueKey} tracked on {tracker} in {repo}'}
                       className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-amber-500 transition-all resize-y"
                     />
                   </div>
@@ -722,15 +803,15 @@ export const ProfileModal: React.FC = () => {
                     <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-blue-400">
                         <FileCode size={13} />
-                        <span>Prompt de Spécification (/specify-issue)</span>
+                        <span>{t.profileModal.sdd?.prompts.specify.label || 'Prompt de Spécification (/specify-issue)'}</span>
                       </span>
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono">Spécification Spec Kit / OpenSpec</span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">{t.profileModal.sdd?.prompts.specify.hint || 'Spécification Spec Kit / OpenSpec'}</span>
                     </label>
                     <textarea
                       value={promptSpecify}
                       onChange={e => setPromptSpecify(e.target.value)}
                       rows={3}
-                      placeholder='Tu es le Product Owner pour {issueKey}. Rédige la spécification selon le framework SDD configuré...'
+                      placeholder={t.profileModal.sdd?.prompts.specify.placeholder || 'Tu es le Product Owner pour {issueKey}. Rédige la spécification selon le framework SDD configuré...'}
                       className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-blue-500 transition-all resize-y"
                     />
                   </div>
@@ -740,15 +821,15 @@ export const ProfileModal: React.FC = () => {
                     <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-indigo-400">
                         <Flame size={13} />
-                        <span>Prompt d'Implémentation (/code-issue)</span>
+                        <span>{t.profileModal.sdd?.prompts.implement.label || "Prompt d'Implémentation (/code-issue)"}</span>
                       </span>
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono">Développement & Tests</span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">{t.profileModal.sdd?.prompts.implement.hint || 'Développement & Tests'}</span>
                     </label>
                     <textarea
                       value={promptImplement}
                       onChange={e => setPromptImplement(e.target.value)}
                       rows={3}
-                      placeholder='Tu es le développeur senior pour {issueKey}. Implémente le code dans {repoPath}...'
+                      placeholder={t.profileModal.sdd?.prompts.implement.placeholder || 'Tu es le développeur senior pour {issueKey}. Implémente le code dans {repoPath}...'}
                       className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-indigo-500 transition-all resize-y"
                     />
                   </div>
@@ -758,15 +839,15 @@ export const ProfileModal: React.FC = () => {
                     <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-purple-400">
                         <ShieldCheck size={13} />
-                        <span>Prompt d'Ajustement & Revue (/adjust-issue)</span>
+                        <span>{t.profileModal.sdd?.prompts.adjust.label || "Prompt d'Ajustement & Revue (/adjust-issue)"}</span>
                       </span>
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono">Revue de code & màj PR</span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">{t.profileModal.sdd?.prompts.adjust.hint || 'Revue de code & màj PR'}</span>
                     </label>
                     <textarea
                       value={promptAdjust}
                       onChange={e => setPromptAdjust(e.target.value)}
                       rows={3}
-                      placeholder='Tu es le reviewer senior pour {issueKey}. Revois les changements, applique les correctifs et mets à jour la PR...'
+                      placeholder={t.profileModal.sdd?.prompts.adjust.placeholder || 'Tu es le reviewer senior pour {issueKey}. Revois les changements, applique les correctifs et mets à jour la PR...'}
                       className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-purple-500 transition-all resize-y"
                     />
                   </div>
@@ -776,15 +857,15 @@ export const ProfileModal: React.FC = () => {
                     <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
                       <span className="flex items-center gap-1.5 text-emerald-400">
                         <CheckCircle2 size={13} />
-                        <span>Prompt de Clôture & Handoff (/handoff-issue)</span>
+                        <span>{t.profileModal.sdd?.prompts.handoff.label || 'Prompt de Clôture & Handoff (/handoff-issue)'}</span>
                       </span>
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono">Documentation & Nettoyage local</span>
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono">{t.profileModal.sdd?.prompts.handoff.hint || 'Documentation & Nettoyage local'}</span>
                     </label>
                     <textarea
                       value={promptHandoff}
                       onChange={e => setPromptHandoff(e.target.value)}
                       rows={3}
-                      placeholder='Tu es responsable de la clôture pour {issueKey}. Vérifie la fusion, rédige le rapport de handoff et nettoie le worktree...'
+                      placeholder={t.profileModal.sdd?.prompts.handoff.placeholder || 'Tu es responsable de la clôture pour {issueKey}. Vérifie la fusion, rédige le rapport de handoff et nettoie le worktree...'}
                       className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-emerald-500 transition-all resize-y"
                     />
                   </div>
@@ -795,11 +876,20 @@ export const ProfileModal: React.FC = () => {
             {/* TAB: WORKSTATIONS & AGENT */}
             {activeTab === 'workstations' && (
               <div className="space-y-6 animate-in fade-in duration-150">
-                <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-                  Gérez vos machines de développement appairées, les clés de signature des agents et la configuration de l'agent local.
-                </p>
-                <ApiKeysPanel />
-                <LocalAgentSetup />
+                {/* 1. Workstations (Pairing & Connected Machines) */}
+                <WorkstationsPanel
+                  refreshTrigger={devicesVersion}
+                  onDeviceChange={() => setDevicesVersion(v => v + 1)}
+                />
+
+                {/* 2. Sectile Desktop App */}
+                <SectileDesktopPanel />
+
+                {/* 3. Direct MCP Integration (AI Provider Desktop Apps) */}
+                <DirectMcpPanel onKeyCreated={() => setDevicesVersion(v => v + 1)} />
+
+                {/* 4. Headless Local Agent (CLI) */}
+                <HeadlessCliAgentPanel />
               </div>
             )}
           </div>
