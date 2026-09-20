@@ -43,8 +43,10 @@ import type {
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { AIModelField } from './AIModelField'
-import { isValidModel } from '../lib/aiModels'
+import { isValidModel, providerModels } from '../lib/aiModels'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
+import { Antigravity, Claude, OpenAI } from '@lobehub/icons'
+import { MCPEngineConfig } from './MCPEngineConfig'
 
 type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
 
@@ -63,22 +65,14 @@ const TABS: {
 
 // An empty template is the right default: the agent then runs the command line
 // it attests for each execution mode. Only a custom CLI must spell one out.
-const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: string; icon: string }[] = [
-  { id: 'agy', label: 'AGY CLI (Google Antigravity)', sub: 'Agent autonome DeepMind & outils natifs', defaultCmd: '', icon: '🤖' },
-  { id: 'claude', label: 'Claude Code CLI (Anthropic)', sub: 'Agent Terminal Claude Code', defaultCmd: '', icon: '🧠' },
-  { id: 'codex', label: 'Codex', sub: 'Codex CLI', defaultCmd: '', icon: '💻' },
-  { id: 'custom', label: 'Commande Personnalisée', sub: 'Modèle de commande arbitraire', defaultCmd: `/path/to/custom-cli {mode:-p|-i} '{prompt}'`, icon: '⚙️' },
+const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: string; icon: React.ReactNode }[] = [
+  { id: 'agy', label: 'Antigravity', sub: 'Google Deepmind AGY CLI', defaultCmd: '', icon: <Antigravity size={16} /> },
+  { id: 'claude', label: 'Claude', sub: 'Anthropic Claude Code CLI', defaultCmd: '', icon: <Claude size={16} /> },
+  { id: 'codex', label: 'ChatGPT', sub: 'OpenAI Codex CLI', defaultCmd: '', icon: <OpenAI size={16} /> },
+  { id: 'custom', label: 'CLI Personnalisé', sub: 'Binaire ou script custom', defaultCmd: `/path/to/custom-cli {mode:-p|-i} '{prompt}'`, icon: <Terminal size={16} className="text-indigo-400" /> },
 ]
 
 import { COMMAND_PRESETS } from '../lib/commandPresets'
-
-// The agents Sectile can install its skills and MCP registration for, beyond the
-// one that runs the tasks. Providers without a skill convention are not listed.
-const SETUP_PROVIDERS: { id: string; label: string; sub: string; icon: string }[] = [
-  { id: 'claude', label: 'Claude Code', sub: '~/.claude/skills et registre MCP', icon: '🧠' },
-  { id: 'codex', label: 'Codex', sub: '~/.codex/skills et config.toml', icon: '💻' },
-  { id: 'agy', label: 'Antigravity', sub: '~/.agy/skills et registre MCP', icon: '🤖' },
-]
 
 const AVAILABLE_ICONS = [
   { name: 'Folder', Icon: Folder, label: 'Dossier' },
@@ -155,7 +149,6 @@ export const ProjectModal: React.FC = () => {
   const [aiModel, setAiModel] = useState('')
   const [aiSkillModels, setAiSkillModels] = useState<Record<string, string>>({})
   const [useCustomAgent, setUseCustomAgent] = useState(false)
-  const [setupProviders, setSetupProviders] = useState<string[]>([])
   const [useWorktrees, setUseWorktrees] = useState(true)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
@@ -244,7 +237,6 @@ export const ProjectModal: React.FC = () => {
       setAiCommandAutonomous(editingProject.aiCommandTemplateAutonomous || '')
       setAiModel(editingProject.aiModel || '')
       setAiSkillModels(editingProject.aiSkillModels || {})
-      setSetupProviders(editingProject.setupProviders || [])
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setUseWorktrees(editingProject.useWorktrees !== false)
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
@@ -288,7 +280,6 @@ export const ProjectModal: React.FC = () => {
       setUseCustomAgent(false)
       setAiProvider('')
       setAiCommandTemplate('')
-      setSetupProviders([])
       setSpecFramework(settings.specFramework || 'speckit')
       setUseWorktrees(true)
       setAutoSyncEnabled(false)
@@ -386,7 +377,7 @@ export const ProjectModal: React.FC = () => {
         // au lieu de conserver silencieusement celle qui est enregistrée.
         aiModel: useCustomAgent ? aiModel.trim() : '',
         aiSkillModels,
-        setupProviders,
+        setupProviders: [],
         specFramework,
         useWorktrees,
         autoSyncEnabled,
@@ -766,44 +757,38 @@ export const ProjectModal: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3.5 animate-in fade-in duration-150">
+                <div className="space-y-4 animate-in fade-in duration-150">
                   {/* Select AI Provider */}
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                      Fournisseur de l'Agent IA
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
+                      <Bot size={14} className="text-indigo-400" />
+                      <span>{t?.profileModal?.ai?.defaultEngine || "Fournisseur de l'Agent IA"}</span>
                     </label>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {AI_PROVIDERS.map(p => {
                         const isSel = (aiProvider || settings.aiProvider) === p.id
+                        const label = p.id === 'custom' ? (t?.profileModal?.ai?.customProviderLabel || p.label) : p.label
+                        const sub = p.id === 'custom' ? (t?.profileModal?.ai?.customProviderSub || p.sub) : p.sub
                         return (
                           <button
                             key={p.id}
                             type="button"
                             onClick={() => {
                               setAiProvider(p.id)
-                              // A template written for another CLI cannot serve
-                              // this one; a hand-written one is left alone.
                               if (aiCommandTemplate.trim() === '' || COMMAND_PRESETS.some(preset => preset.cmd !== '' && preset.cmd === aiCommandTemplate)) {
                                 setAiCommandTemplate(p.defaultCmd)
                                 setAiCommandAutonomous('')
                               }
                             }}
-                            className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                            className={`px-3 py-2 rounded-xl border text-left transition-all cursor-pointer text-xs font-semibold flex items-center gap-2.5 truncate ${
                               isSel
-                                ? 'bg-[var(--accent-light)] border-[var(--accent-color)] shadow-xs'
-                                : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/50'
+                                ? 'bg-indigo-500/15 border-indigo-500 text-white ring-2 ring-indigo-500/30 shadow-xs'
+                                : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)] hover:text-[var(--text-primary)]'
                             }`}
+                            title={sub}
                           >
-                            <span className="text-lg">{p.icon}</span>
-                            <div className="min-w-0 flex-1">
-                              <span className={`text-xs font-bold block truncate ${isSel ? 'accent-text' : 'text-[var(--text-primary)]'}`}>
-                                {p.label}
-                              </span>
-                              <span className="text-[10px] text-[var(--text-muted)] block truncate">
-                                {p.sub}
-                              </span>
-                            </div>
-                            {isSel && <Check size={14} className="text-[var(--accent-color)] shrink-0 mt-0.5" />}
+                            <span className="shrink-0 flex items-center justify-center">{p.icon}</span>
+                            <span className="truncate">{label}</span>
                           </button>
                         )
                       })}
@@ -815,136 +800,119 @@ export const ProjectModal: React.FC = () => {
                     commandTemplate={aiCommandTemplate}
                     value={aiModel}
                     onChange={setAiModel}
+                    availableModels={providerModels(settings, aiProvider || settings.aiProvider)}
                     placeholder={settings.aiModel ? `Hérite du global : ${settings.aiModel}` : (t?.profileModal?.ai?.defaultModelPlaceholder || 'Défaut du CLI')}
                     label="Modèle du projet"
                   />
 
-                  {/* AI Command Line Template */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                        Commande interactive
-                      </label>
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                        Token requis : <code className="text-amber-400 font-bold">{'{prompt}'}</code>
+                  {/* Command Line / CLI Parameters Section */}
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
+                      <Terminal size={14} className="text-indigo-400" />
+                      <span>
+                        {(t?.profileModal?.ai?.cliParametersTitle || 'CLI & Commandes : {provider}')
+                          .replace('{provider}', AI_PROVIDERS.find(p => p.id === (aiProvider || settings.aiProvider))?.label || (aiProvider || settings.aiProvider).toUpperCase())}
                       </span>
-                    </div>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={aiCommandTemplate}
-                        onChange={e => setAiCommandTemplate(e.target.value)}
-                        placeholder={`claude --model {model} '{prompt}'`}
-                        className="w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Terminal size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
-
-                    <label className="block mt-2 mb-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                      Commande autonome (headless)
                     </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={aiCommandAutonomous}
-                        onChange={e => setAiCommandAutonomous(e.target.value)}
-                        placeholder={`claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`}
-                        className="w-full pl-8 pr-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Terminal size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
 
-                    {/* Presets */}
-                    <div className="flex items-center flex-wrap gap-1.5 mt-2">
-                      <span className="text-[10px] text-[var(--text-muted)] mr-1 font-semibold">Presets :</span>
-                      {COMMAND_PRESETS.map(pr => (
-                        <button
-                          key={pr.cmd}
-                          type="button"
-                          onClick={() => { setAiCommandTemplate(pr.cmd); setAiCommandAutonomous(pr.autonomous) }}
-                          className="px-2 py-0.5 rounded-lg text-[10px] font-mono bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)] transition-colors cursor-pointer"
-                        >
-                          {pr.label}
-                        </button>
-                      ))}
-                    </div>
+                    <div className="space-y-3 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
+                      <div className="space-y-1.5">
+                        <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                          {t?.profileModal?.ai?.cmdInteractive || 'Commande interactive'}
+                        </label>
+                        <input
+                          type="text"
+                          value={aiCommandTemplate}
+                          onChange={e => setAiCommandTemplate(e.target.value)}
+                          placeholder={`Ex : claude --model {model} '{prompt}'`}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
+                        />
+                        <label className="block pt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                          {t?.profileModal?.ai?.cmdAutonomous || 'Commande autonome (headless)'}
+                        </label>
+                        <input
+                          type="text"
+                          value={aiCommandAutonomous}
+                          onChange={e => setAiCommandAutonomous(e.target.value)}
+                          placeholder={`Ex : claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`}
+                          className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
+                        />
+                        <div className="flex flex-wrap items-center gap-1 text-[10.5px] text-[var(--text-muted)] leading-relaxed pt-1">
+                          <Info size={12} className="text-indigo-400 shrink-0" />
+                          <span className="font-semibold text-[var(--text-secondary)]">
+                            {t?.profileModal?.ai?.availableVariables || 'Variables disponibles :'}
+                          </span>
+                          {[
+                            '{prompt}',
+                            '{issueKey}',
+                            '{issueTitle}',
+                            '{branchName}',
+                            '{repoPath}',
+                            '{model}',
+                            '{mode:AUTONOMOUS|INTERACTIVE}',
+                          ].map(token => (
+                            <button
+                              key={token}
+                              type="button"
+                              onClick={() => {
+                                setAiCommandTemplate(prev => prev ? `${prev} ${token}` : token)
+                              }}
+                              title={`+ ${token}`}
+                              className="bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-indigo-400 hover:text-indigo-300 border border-[var(--border-color)] px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer transition-colors"
+                            >
+                              {token}
+                            </button>
+                          ))}
+                        </div>
+                        <CommandModePreview
+                          provider={aiProvider || settings.aiProvider}
+                          template={aiCommandTemplate}
+                          model={aiModel || settings.aiModel || ''}
+                          autonomousTemplate={aiCommandAutonomous}
+                        />
+                      </div>
 
-                    {/* Variable tokens guide */}
-                    <div className="p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] mt-2 flex items-center flex-wrap gap-2 text-[10px] text-[var(--text-muted)]">
-                      <span className="font-bold text-[var(--text-secondary)]">
-                        {t?.profileModal?.ai?.availableVariables || 'Variables disponibles :'}
-                      </span>
-                      {['{prompt}', '{issueKey}', '{issueTitle}', '{repoPath}', '{branchName}', '{model}', '{mode:AUTONOMOUS|INTERACTIVE}'].map(tag => (
-                        <span key={tag} className="font-mono bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded text-[var(--text-primary)] border border-[var(--border-color)]">
-                          {tag}
-                        </span>
-                      ))}
+                      {/* Fast Preset buttons */}
+                      <div className="pt-2 border-t border-[var(--border-color)]">
+                        <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-bold mb-1.5">
+                          {t?.profileModal?.ai?.fastPresets || 'Modèles de commande rapides :'}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {COMMAND_PRESETS.map(preset => (
+                            <button
+                              key={preset.label}
+                              type="button"
+                              onClick={() => { setAiCommandTemplate(preset.cmd); setAiCommandAutonomous(preset.autonomous) }}
+                              className="px-2 py-1 bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)] text-[10.5px] rounded-lg font-mono transition-colors cursor-pointer"
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                    <p className="mt-2 text-[10.5px] text-[var(--text-muted)] leading-relaxed">
-                      Champs vides : le fournisseur fournit les deux commandes. La commande
-                      autonome laissée vide renvoie les lancements headless sur la commande
-                      interactive, qui doit alors porter le
-                      marqueur <code className="font-mono">{'{mode:…|…}'}</code>.
-                    </p>
-                    <CommandModePreview
-                      provider={aiProvider || settings.aiProvider}
-                      template={aiCommandTemplate}
-                      model={aiModel || settings.aiModel || ''}
-                      autonomousTemplate={aiCommandAutonomous}
-                    />
                   </div>
                 </div>
               )}
 
-              {/* Agents the local agent installs skills and the MCP registration for. */}
-              <div className="p-3.5 rounded-xl border border-[var(--border-color)]">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Agents à configurer
-                </label>
-                <p className="text-xs text-[var(--text-muted)] mb-3">
-                  Les compétences et l'enregistrement MCP sont installés dans la configuration utilisateur de chaque agent coché.
-                  L'agent qui exécute les tâches est toujours configuré, qu'il soit coché ou non.
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {SETUP_PROVIDERS.map(p => {
-                    const checked = setupProviders.includes(p.id)
-                    return (
-                      <label
-                        key={p.id}
-                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
-                          checked
-                            ? 'bg-[var(--accent-light)] border-[var(--accent-color)] shadow-xs'
-                            : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/50'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={e =>
-                            setSetupProviders(current =>
-                              e.target.checked ? [...current, p.id] : current.filter(id => id !== p.id)
-                            )
-                          }
-                          className="mt-0.5"
-                        />
-                        <span className="text-lg">{p.icon}</span>
-                        <div className="min-w-0 flex-1">
-                          <span className={`text-xs font-bold block truncate ${checked ? 'accent-text' : 'text-[var(--text-primary)]'}`}>
-                            {p.label}
-                          </span>
-                          <span className="text-[10px] text-[var(--text-muted)] block truncate">{p.sub}</span>
-                        </div>
-                      </label>
-                    )
-                  })}
-                </div>
-              </div>
+              {/* Direct MCP Configuration without local agent */}
+              <MCPEngineConfig
+                selectedProvider={(aiProvider || settings.aiProvider) as AIProvider}
+              />
 
               {/* Server execution defaults; local agents can override these values. */}
-              <div className="p-3.5 rounded-xl border border-[var(--border-color)]">
-                <h3>Local agent execution defaults</h3>
-                <p className="text-xs text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
-                <label className="flex items-center gap-2 mt-3"><input type="checkbox" checked={useWorktrees} onChange={e=>setUseWorktrees(e.target.checked)} />Use a worktree for each task</label>
+              <div className="p-3.5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-tertiary)]/70">
+                <h4 className="text-xs font-bold text-[var(--text-primary)]">Local agent execution defaults</h4>
+                <p className="text-[11px] text-[var(--text-muted)]">Inherited by local agents unless overridden in the companion app.</p>
+                <label className="flex items-center gap-2 mt-2.5 text-xs text-[var(--text-secondary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={useWorktrees}
+                    onChange={e => setUseWorktrees(e.target.checked)}
+                    className="rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                  />
+                  <span>Use a worktree for each task</span>
+                </label>
               </div>
 
             </div>

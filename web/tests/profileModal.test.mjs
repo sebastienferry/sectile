@@ -24,8 +24,8 @@ test('profile tabs are fully localized in French and English', () => {
   assert.equal(translations.fr.profileModal.tabs.trackers, 'Identifiants Trackers')
   assert.equal(translations.en.profileModal.tabs.trackers, 'Tracker Credentials')
 
-  assert.equal(translations.fr.profileModal.tabs.aiEngine, 'Moteur IA & CLI')
-  assert.equal(translations.en.profileModal.tabs.aiEngine, 'AI Engine & CLI')
+  assert.equal(translations.fr.profileModal.tabs.aiEngine, 'Paramètres de l\'agent')
+  assert.equal(translations.en.profileModal.tabs.aiEngine, 'Agent settings')
 
   assert.equal(translations.fr.profileModal.tabs.sdd, 'Compétences & SDD')
   assert.equal(translations.en.profileModal.tabs.sdd, 'Skills & SDD')
