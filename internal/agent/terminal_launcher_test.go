@@ -141,4 +141,13 @@ func TestBuildTerminalLaunchCustomTemplates(t *testing.T) {
 	if launch3.Name != "kitty" || launch3.Args[0] != "-e" {
 		t.Errorf("unexpected kitty launch: %s %v", launch3.Name, launch3.Args)
 	}
+
+	// Preserves casing for custom command paths and arguments
+	launch4, err := BuildTerminalLaunch("darwin", "/Applications/CustomTerm.app/Contents/MacOS/CustomTerm -T 'Sectile' -e {command}", exe, sessionID, url, token)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if launch4.Name != "/Applications/CustomTerm.app/Contents/MacOS/CustomTerm" {
+		t.Errorf("expected preserved casing, got: %s", launch4.Name)
+	}
 }

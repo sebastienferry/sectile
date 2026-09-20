@@ -75,11 +75,11 @@ type agentDaemon struct {
 	link serverLink
 	// terminal is which native terminal consoles open in, and the PTY manager
 	// that runs them.
-	terminal  terminalChoice
-	repoRoot  string
-	prepareMu sync.Mutex
-	done      chan struct{}
-	contract  contractState
+	terminal         terminalChoice
+	repoRoot         string
+	prepareMu        sync.Mutex
+	done             chan struct{}
+	contract         contractState
 	launchTerminalFn func(terminalApp, sessionID string) error
 }
 

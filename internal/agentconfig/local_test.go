@@ -339,4 +339,3 @@ func TestTerminalOverridesPrecedence(t *testing.T) {
 		t.Fatalf("expected 'terminal', got %q", withOtherProject.ExternalTerminalCommand)
 	}
 }
-

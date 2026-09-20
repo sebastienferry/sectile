@@ -17,9 +17,11 @@ type TerminalLaunch struct {
 
 // BuildTerminalLaunch constructs the execution command for the target terminal emulator.
 func BuildTerminalLaunch(goos, terminalApp, exePath, sessionID, loopbackURL, token string) (TerminalLaunch, error) {
-	terminalApp = strings.ToLower(strings.TrimSpace(terminalApp))
-	if terminalApp == "" {
-		terminalApp = detectDefaultTerminal()
+	rawTerminalApp := strings.TrimSpace(terminalApp)
+	appKey := strings.ToLower(rawTerminalApp)
+	if appKey == "" {
+		rawTerminalApp = detectDefaultTerminal()
+		appKey = strings.ToLower(rawTerminalApp)
 	}
 
 	attachArgs := []string{"attach", "--session", sessionID}
@@ -34,7 +36,7 @@ func BuildTerminalLaunch(goos, terminalApp, exePath, sessionID, loopbackURL, tok
 
 	switch goos {
 	case "darwin":
-		switch terminalApp {
+		switch appKey {
 		case "ghostty":
 			// If ghostty CLI is available in PATH, launch directly with ghostty -e
 			if _, err := exec.LookPath("ghostty"); err == nil {
@@ -60,11 +62,11 @@ func BuildTerminalLaunch(goos, terminalApp, exePath, sessionID, loopbackURL, tok
 			}
 			return TerminalLaunch{Name: "open", Args: []string{"-a", "Terminal", script}, ScriptPath: script}, nil
 		default:
-			return buildCustomTerminalLaunch(terminalApp, exePath, sessionID, attachArgs, fullAttachCmd)
+			return buildCustomTerminalLaunch(rawTerminalApp, exePath, sessionID, attachArgs, fullAttachCmd)
 		}
 
 	case "windows":
-		switch terminalApp {
+		switch appKey {
 		case "wt", "windows-terminal", "wt.exe":
 			args := append([]string{"-w", "0", "nt", exePath}, attachArgs...)
 			return TerminalLaunch{Name: "wt.exe", Args: args}, nil
@@ -72,11 +74,11 @@ func BuildTerminalLaunch(goos, terminalApp, exePath, sessionID, loopbackURL, tok
 			args := append([]string{"/c", "start", exePath}, attachArgs...)
 			return TerminalLaunch{Name: "cmd.exe", Args: args}, nil
 		default:
-			return buildCustomTerminalLaunch(terminalApp, exePath, sessionID, attachArgs, fullAttachCmd)
+			return buildCustomTerminalLaunch(rawTerminalApp, exePath, sessionID, attachArgs, fullAttachCmd)
 		}
 
 	default: // Linux and other POSIX
-		switch terminalApp {
+		switch appKey {
 		case "x-terminal-emulator", "terminal":
 			args := append([]string{"-e", exePath}, attachArgs...)
 			return TerminalLaunch{Name: "x-terminal-emulator", Args: args}, nil
@@ -85,9 +87,9 @@ func BuildTerminalLaunch(goos, terminalApp, exePath, sessionID, loopbackURL, tok
 			return TerminalLaunch{Name: "gnome-terminal", Args: args}, nil
 		case "kitty", "alacritty":
 			args := append([]string{"-e", exePath}, attachArgs...)
-			return TerminalLaunch{Name: terminalApp, Args: args}, nil
+			return TerminalLaunch{Name: appKey, Args: args}, nil
 		default:
-			return buildCustomTerminalLaunch(terminalApp, exePath, sessionID, attachArgs, fullAttachCmd)
+			return buildCustomTerminalLaunch(rawTerminalApp, exePath, sessionID, attachArgs, fullAttachCmd)
 		}
 	}
 }
@@ -178,7 +180,9 @@ func (d *agentDaemon) launchExternalTerminal(terminalApp, sessionID string) erro
 
 	// Detach process so agent doesn't hold zombie references
 	go func() {
-		_ = cmd.Wait()
+		if err := cmd.Wait(); err != nil && launch.ScriptPath != "" {
+			_ = os.Remove(launch.ScriptPath)
+		}
 	}()
 
 	return nil

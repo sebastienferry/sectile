@@ -187,4 +187,3 @@ func TestSettingsTerminalAndTerminalsRoundTrip(t *testing.T) {
 		t.Fatalf("expected Terminal 'ghostty', got %q", reloaded.Terminal)
 	}
 }
-
