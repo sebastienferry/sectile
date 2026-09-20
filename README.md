@@ -61,6 +61,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
   - `Backlog` ➔ `À clarifier` ➔ `Spécifié` ➔ `En cours` ➔ `À valider` ➔ `Terminé` avec compteurs en temps réel.
   - Bascule des vues (`Tableau Kanban` / `Vue Liste`).
   - Filtres rapides (`Mes tâches`, `Priorité Haute`, `Étiquettes/Tags`) et filtre par source (`GitHub`, `Jira`, `Local`).
+  - **User project bookmarks & dropdown search**: Personal project bookmarks with star toggles, dropdown project search across shared workspaces, and "All projects" board/facets filtered strictly to bookmarked projects. Bookmarked projects are also prioritized in task creation, clone, and detail modals.
   - Repli / Dépli fluide de la barre latérale.
 
 - 👤 **Profil & Ergonomie Personnalisée** :

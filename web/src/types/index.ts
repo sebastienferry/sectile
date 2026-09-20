@@ -246,6 +246,7 @@ export interface Project {
   /** Tracker project URL, or the Jira base URL (e.g. https://acme.atlassian.net). */
   trackerUrl?: string
   isDefault: boolean
+  bookmarked?: boolean
   taskCount?: number
   skillOverrides?: Record<string, string>
   setupProviders?: string[]

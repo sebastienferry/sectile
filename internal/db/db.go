@@ -395,6 +395,14 @@ func (d *DB) initSchema() error {
 		`CREATE INDEX IF NOT EXISTS idx_activities_task ON task_activities(task_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_activities_status ON task_activities(status);`,
 		`CREATE INDEX IF NOT EXISTS idx_activities_created ON task_activities(created_at DESC);`,
+		`CREATE TABLE IF NOT EXISTS user_project_bookmarks (
+			user_id TEXT NOT NULL,
+			project_id TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (user_id, project_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_user_project_bookmarks_user ON user_project_bookmarks (user_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_user_project_bookmarks_project ON user_project_bookmarks (project_id);`,
 	}
 
 	for _, query := range queries {
@@ -991,11 +999,29 @@ type TaskFacetValue struct {
 	Count int    `json:"count"`
 }
 
+func projectScope(projectID, userID string) (string, []interface{}) {
+	if projectID != "" && projectID != "all" {
+		return "(project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))", []interface{}{projectID, projectID, projectID}
+	}
+	if strings.TrimSpace(userID) != "" {
+		return "(project_id IN (SELECT project_id FROM user_project_bookmarks WHERE user_id = ?) OR project_id IN (SELECT slug FROM projects WHERE id IN (SELECT project_id FROM user_project_bookmarks WHERE user_id = ?)))", []interface{}{userID, userID}
+	}
+	return "", nil
+}
+
 // GetTaskFacets returns the sprints and teams found on the tasks of a project,
 // or of the whole board when projectID is empty. The values must come from a
 // dedicated query rather than from the filtered task list, otherwise selecting
 // a sprint would empty the very dropdown it was picked from.
 func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
+	return d.GetTaskFacetsForUser("", projectID)
+}
+
+func (d *DB) GetTaskFacetsForUser(userID, projectID string) (*TaskFacets, error) {
+	if userID != "" && (projectID == "" || projectID == "all") {
+		_ = d.EnsureDefaultBookmark(userID)
+	}
+
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
@@ -1011,16 +1037,16 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 		Labels:          []TaskFacetValue{},
 	}
 
-	for _, column := range []string{"sprint", "team"} {
-		query := fmt.Sprintf("SELECT DISTINCT %s FROM tasks WHERE %s != ''", column, column)
-		args := []interface{}{}
-		if projectID != "" {
-			query += " AND (project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))"
-			args = append(args, projectID, projectID, projectID)
-		}
-		query += fmt.Sprintf(" ORDER BY %s DESC", column)
+	scopeCond, scopeArgs := projectScope(projectID, userID)
+	scopeSQL := ""
+	if scopeCond != "" {
+		scopeSQL = " AND " + scopeCond
+	}
 
-		rows, err := d.conn.Query(query, args...)
+	for _, column := range []string{"sprint", "team"} {
+		query := fmt.Sprintf("SELECT DISTINCT %s FROM tasks WHERE %s != ''%s ORDER BY %s DESC", column, column, scopeSQL, column)
+
+		rows, err := d.conn.Query(query, scopeArgs...)
 		if err != nil {
 			return facets, err
 		}
@@ -1044,15 +1070,8 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 
 	// Les personnes sont triées par nom : un ordre décroissant sur une colonne
 	// texte n'a de sens que pour un sprint, dont le nom porte le numéro.
-	assigneeQuery := "SELECT assignee, COUNT(*) FROM tasks WHERE TRIM(assignee) != ''"
-	unassignedQuery := "SELECT COUNT(*) FROM tasks WHERE TRIM(assignee) = ''"
-	scopeArgs := []interface{}{}
-	if projectID != "" {
-		scope := " AND (project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))"
-		assigneeQuery += scope
-		unassignedQuery += scope
-		scopeArgs = append(scopeArgs, projectID, projectID, projectID)
-	}
+	assigneeQuery := "SELECT assignee, COUNT(*) FROM tasks WHERE TRIM(assignee) != ''" + scopeSQL
+	unassignedQuery := "SELECT COUNT(*) FROM tasks WHERE TRIM(assignee) = ''" + scopeSQL
 	assigneeQuery += " GROUP BY assignee ORDER BY COUNT(*) DESC, assignee ASC"
 
 	if rows, err := d.conn.Query(assigneeQuery, scopeArgs...); err == nil {
@@ -1073,13 +1092,8 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 	// Macros / Milestones
 	macroCounts := make(map[string]int)
 	macroTitles := make(map[string]string)
-	macroQuery := "SELECT parent_key, parent_title, COUNT(*) FROM tasks WHERE TRIM(parent_key) != '' OR TRIM(parent_title) != ''"
-	noMacroQuery := "SELECT COUNT(*) FROM tasks WHERE TRIM(parent_key) = '' AND TRIM(parent_title) = ''"
-	if projectID != "" {
-		scope := " AND (project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))"
-		macroQuery += scope
-		noMacroQuery += scope
-	}
+	macroQuery := "SELECT parent_key, parent_title, COUNT(*) FROM tasks WHERE (TRIM(parent_key) != '' OR TRIM(parent_title) != '')" + scopeSQL
+	noMacroQuery := "SELECT COUNT(*) FROM tasks WHERE TRIM(parent_key) = '' AND TRIM(parent_title) = ''" + scopeSQL
 	macroQuery += " GROUP BY parent_key, parent_title ORDER BY COUNT(*) DESC"
 
 	if rows, err := d.conn.Query(macroQuery, scopeArgs...); err == nil {
@@ -1110,9 +1124,9 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 	// Scan macros table for existing macros
 	macroTableQuery := "SELECT key, title FROM macros WHERE 1=1"
 	macroArgs := []interface{}{}
-	if projectID != "" {
-		macroTableQuery += " AND (project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))"
-		macroArgs = append(macroArgs, projectID, projectID, projectID)
+	if scopeCond != "" {
+		macroTableQuery += " AND " + scopeCond
+		macroArgs = append(macroArgs, scopeArgs...)
 	}
 	if rows, err := d.conn.Query(macroTableQuery, macroArgs...); err == nil {
 		for rows.Next() {
@@ -1147,10 +1161,7 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 		return facets.Macros[i].Key < facets.Macros[j].Key
 	})
 
-	statusQuery := "SELECT tracker_status, COUNT(*) FROM tasks WHERE TRIM(tracker_status) != ''"
-	if projectID != "" {
-		statusQuery += " AND (project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))"
-	}
+	statusQuery := "SELECT tracker_status, COUNT(*) FROM tasks WHERE TRIM(tracker_status) != ''" + scopeSQL
 	statusQuery += " GROUP BY tracker_status ORDER BY COUNT(*) DESC, tracker_status ASC"
 
 	if rows, err := d.conn.Query(statusQuery, scopeArgs...); err == nil {
@@ -1170,10 +1181,7 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 	// Statut interne et tracker d'origine : deux regroupements simples, comptés
 	// sur le même périmètre que le reste.
 	for _, column := range []string{"status", "source", "issue_type"} {
-		countQuery := fmt.Sprintf("SELECT %s, COUNT(*) FROM tasks WHERE TRIM(%s) != ''", column, column)
-		if projectID != "" {
-			countQuery += " AND (project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))"
-		}
+		countQuery := fmt.Sprintf("SELECT %s, COUNT(*) FROM tasks WHERE TRIM(%s) != ''%s", column, column, scopeSQL)
 		countQuery += fmt.Sprintf(" GROUP BY %s ORDER BY COUNT(*) DESC", column)
 
 		rows, err := d.conn.Query(countQuery, scopeArgs...)
@@ -1204,10 +1212,7 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 	// Les labels sont stockés en JSON dans une colonne : ils se comptent en
 	// mémoire, sur les seules valeurs, ce qui reste négligeable à l'échelle d'un
 	// projet.
-	labelQuery := "SELECT labels FROM tasks WHERE labels != '' AND labels != '[]'"
-	if projectID != "" {
-		labelQuery += " AND (project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))"
-	}
+	labelQuery := "SELECT labels FROM tasks WHERE labels != '' AND labels != '[]'" + scopeSQL
 	labelCounts := map[string]int{}
 	if rows, err := d.conn.Query(labelQuery, scopeArgs...); err == nil {
 		for rows.Next() {
@@ -1238,8 +1243,8 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 	})
 
 	totalQuery := "SELECT COUNT(*) FROM tasks"
-	if projectID != "" {
-		totalQuery += " WHERE (project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))"
+	if scopeCond != "" {
+		totalQuery += " WHERE " + scopeCond
 	}
 	_ = d.conn.QueryRow(totalQuery, scopeArgs...).Scan(&facets.Total)
 
@@ -1250,15 +1255,23 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 // pinned tickets, which is the fastest way back to the two or three chantiers in
 // flight when the board carries three hundred.
 func (d *DB) GetTasks(query, status, priority, label, projectID, sprint, team, assignee, macro string, trackerStatuses, issueTypes []string, pinnedOnly bool) ([]models.Task, error) {
+	return d.GetTasksForUser("", query, status, priority, label, projectID, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+}
+
+func (d *DB) GetTasksForUser(userID, query, status, priority, label, projectID, sprint, team, assignee, macro string, trackerStatuses, issueTypes []string, pinnedOnly bool) ([]models.Task, error) {
+	if userID != "" && (projectID == "" || projectID == "all") {
+		_ = d.EnsureDefaultBookmark(userID)
+	}
+
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
 	var conditions []string
 	var args []interface{}
 
-	if projectID != "" && projectID != "all" {
-		conditions = append(conditions, "(project_id = ? OR project_id = (SELECT slug FROM projects WHERE id = ?) OR project_id = (SELECT id FROM projects WHERE slug = ?))")
-		args = append(args, projectID, projectID, projectID)
+	if scopeCond, scopeArgs := projectScope(projectID, userID); scopeCond != "" {
+		conditions = append(conditions, scopeCond)
+		args = append(args, scopeArgs...)
 	}
 
 	if pinnedOnly {
@@ -5406,14 +5419,41 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	return projects, nil
 }
 
-func (d *DB) GetProjects() ([]models.Project, error) {
+func (d *DB) GetProjectsForUser(userID string) ([]models.Project, error) {
+	userID = strings.TrimSpace(userID)
+	if userID != "" {
+		_ = d.EnsureDefaultBookmark(userID)
+	}
+
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+
 	projects, err := d.getProjectsUnsafe()
+	if err != nil {
+		return nil, err
+	}
+
+	var bookmarks map[string]bool
+	if userID != "" {
+		bookmarks, err = d.getUserProjectBookmarksMapUnsafe(userID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	for i := range projects {
+		if bookmarks != nil && bookmarks[projects[i].ID] {
+			projects[i].Bookmarked = true
+		} else {
+			projects[i].Bookmarked = false
+		}
 		withoutProjectTokens(&projects[i])
 	}
-	return projects, err
+	return projects, nil
+}
+
+func (d *DB) GetProjects() ([]models.Project, error) {
+	return d.GetProjectsForUser("")
 }
 
 func (d *DB) GetProjectByID(id string) (*models.Project, error) {
@@ -5853,6 +5893,7 @@ func (d *DB) DeleteProject(id string) error {
 		defaultProjID = "default"
 	}
 	_, _ = d.conn.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID)
+	_, _ = d.conn.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID)
 	_, err = d.conn.Exec("DELETE FROM projects WHERE id = ?", p.ID)
 	return err
 }

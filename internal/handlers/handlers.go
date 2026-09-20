@@ -464,7 +464,7 @@ func (h *Handler) HandleSkills(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		projects, err := h.db.GetProjects()
+		projects, err := h.db.GetProjectsForUser(h.webSessionUser(r))
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -490,6 +490,10 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if userID := h.webSessionUser(r); userID != "" && project != nil {
+			_ = h.db.BookmarkProject(userID, project.ID)
+			project.Bookmarked = true
 		}
 		writeJSON(w, http.StatusCreated, project)
 
@@ -1379,7 +1383,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		// en cours quand le board en porte trois cents.
 		pinnedOnly := r.URL.Query().Get("pinned") == "1" || r.URL.Query().Get("pinned") == "true"
 
-		tasks, err := h.db.GetTasks(q, status, priority, label, projectID, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+		tasks, err := h.db.GetTasksForUser(h.webSessionUser(r), q, status, priority, label, projectID, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1503,7 +1507,7 @@ func (h *Handler) HandleTaskFacets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	facets, err := h.db.GetTaskFacets(r.URL.Query().Get("projectId"))
+	facets, err := h.db.GetTaskFacetsForUser(h.webSessionUser(r), r.URL.Query().Get("projectId"))
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
