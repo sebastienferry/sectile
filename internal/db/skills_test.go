@@ -45,6 +45,33 @@ func TestGeneratedSkillContracts(t *testing.T) {
 				if stage.FromStage != "" && stage.Scope != "macro" && (strings.Contains(content, "sectile stage") || strings.Contains(content, "curl --")) {
 					t.Fatal("workflow skill must use native MCP tools")
 				}
+				if stage.ID == "clarify" {
+					for _, required := range []string{
+						"docs/clarifications/",
+						"docs(spec):",
+						"Round 1",
+						"Round N",
+						"satisfactory",
+						"Never transition new → clarified while",
+					} {
+						if !strings.Contains(content, required) {
+							t.Fatalf("clarify skill content is missing %q", required)
+						}
+					}
+					command := db.RenderSkillCommand(stage, framework)
+					for _, required := range []string{
+						"docs/clarifications/",
+						"docs(spec):",
+						"Round 1",
+						"Round N",
+						"satisfactory",
+						"Never transition new → clarified while",
+					} {
+						if !strings.Contains(command, required) {
+							t.Fatalf("clarify skill command is missing %q", required)
+						}
+					}
+				}
 			})
 		}
 	}
@@ -185,6 +212,43 @@ func TestRefineMacroSkillTemplate(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Expected ProjectSkillTemplates(%s) to include 'refine_macro'", fw)
+		}
+	}
+}
+
+func TestClarifySkillRoundLoopInvariants(t *testing.T) {
+	skill, ok := db.StageSkillByID("clarify")
+	if !ok {
+		t.Fatal("clarify skill missing from catalogue")
+	}
+	if skill.Command != "/clarify-issue" {
+		t.Fatalf("expected command /clarify-issue, got %q", skill.Command)
+	}
+	for _, fw := range []string{"speckit", "openspec"} {
+		content := db.RenderSkillContent(skill, fw)
+		command := db.RenderSkillCommand(skill, fw)
+
+		for _, doc := range []string{content, command} {
+			for _, required := range []string{
+				"docs/clarifications/<n>.md",
+				"docs(spec): clarify #<n> (round 1)",
+				"docs(spec): clarify #<n> (round N)",
+				"Round 1",
+				"Round N",
+				"## Round N - answers from the owner (<date>)",
+				"satisfactory",
+				"add_comment",
+				"get_task",
+				"Never transition new → clarified while",
+			} {
+				if !strings.Contains(doc, required) {
+					t.Errorf("framework %s missing expected invariant %q", fw, required)
+				}
+			}
+		}
+
+		if !strings.Contains(command, "## Ticket\n$ARGUMENTS") {
+			t.Errorf("framework %s command missing $ARGUMENTS placeholder", fw)
 		}
 	}
 }
