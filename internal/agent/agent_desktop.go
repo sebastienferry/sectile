@@ -385,6 +385,10 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ProjectID                   string  `json:"projectId"`
 		Path                        string  `json:"path"`
+		AIProvider                  *string `json:"aiProvider"`
+		AIModel                     *string `json:"aiModel"`
+		InheritAIProvider           bool    `json:"inheritAiProvider"`
+		InheritAIModel              bool    `json:"inheritAiModel"`
 		AICommandTemplate           *string `json:"aiCommandTemplate"`
 		AICommandTemplateAutonomous *string `json:"aiCommandTemplateAutonomous"`
 		InheritCommand              bool    `json:"inheritCommand"`
@@ -416,8 +420,59 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if input.AIProvider != nil && !input.InheritAIProvider {
+		provider := strings.TrimSpace(*input.AIProvider)
+		if err := agentconfig.ValidProvider(provider); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if provider == "custom" {
+			cmd := ""
+			if input.AICommandTemplate != nil && !input.InheritCommand {
+				cmd = strings.TrimSpace(*input.AICommandTemplate)
+			} else if !input.InheritCommand {
+				cmd = overrides.Commands[input.ProjectID]
+			}
+			if !strings.Contains(cmd, "{prompt}") {
+				http.Error(w, "Custom provider requires a command template containing {prompt}", 400)
+				return
+			}
+		}
+	}
+	if input.AIModel != nil && !input.InheritAIModel {
+		if err := agentconfig.ValidModel(*input.AIModel); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
 	if overrides.Projects == nil {
 		overrides.Projects = map[string]string{}
+	}
+	if input.InheritAIProvider {
+		delete(overrides.AIProviders, input.ProjectID)
+	} else if input.AIProvider != nil {
+		provider := strings.TrimSpace(*input.AIProvider)
+		if provider == "" {
+			delete(overrides.AIProviders, input.ProjectID)
+		} else {
+			if overrides.AIProviders == nil {
+				overrides.AIProviders = map[string]string{}
+			}
+			overrides.AIProviders[input.ProjectID] = provider
+		}
+	}
+	if input.InheritAIModel {
+		delete(overrides.AIModels, input.ProjectID)
+	} else if input.AIModel != nil {
+		model := strings.TrimSpace(*input.AIModel)
+		if model == "" {
+			delete(overrides.AIModels, input.ProjectID)
+		} else {
+			if overrides.AIModels == nil {
+				overrides.AIModels = map[string]string{}
+			}
+			overrides.AIModels[input.ProjectID] = model
+		}
 	}
 	// The two commands are overridden together: a workstation that pins only the
 	// interactive one would keep running the server's headless command beside it,
@@ -520,6 +575,9 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	delete(settings.Worktrees, id)
 	delete(settings.Parallelism, id)
 	delete(settings.Commands, id)
+	delete(settings.CommandsAutonomous, id)
+	delete(settings.AIProviders, id)
+	delete(settings.AIModels, id)
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -586,7 +644,22 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		effective := agentconfig.ApplyOverrides(config, overrides)
 		_, worktreeOverride := overrides.Worktrees[id]
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"server": config, "monoRepo": project.MonoRepo, "path": root, "useWorktrees": effective.UseWorktrees, "configured": mappingErr == nil, "aiCommandTemplate": effective.AICommandTemplate, "aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous, "commandOverride": overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "", "worktreeOverride": worktreeOverride, "parallelism": agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides)})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"server":                      config,
+			"monoRepo":                    project.MonoRepo,
+			"path":                        root,
+			"useWorktrees":                effective.UseWorktrees,
+			"configured":                  mappingErr == nil,
+			"aiCommandTemplate":           effective.AICommandTemplate,
+			"aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous,
+			"commandOverride":             overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "",
+			"worktreeOverride":            worktreeOverride,
+			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
+			"aiProvider":                  effective.AIProvider,
+			"aiModel":                     effective.AIModel,
+			"aiProviderOverride":          overrides.AIProviders[id] != "",
+			"aiModelOverride":             overrides.AIModels[id] != "",
+		})
 		return
 	}
 	if mappingErr != nil {
