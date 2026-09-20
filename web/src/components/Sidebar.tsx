@@ -682,7 +682,7 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Roadmap : NOW / NEXT / FUTURE"
+              title={t.nav.roadmapTooltip}
             >
               <Map size={15} className="shrink-0 text-amber-400" />
               {!sidebarCollapsed && <span className="truncate">{t.nav.roadmap}</span>}
@@ -696,7 +696,7 @@ export const Sidebar: React.FC = () => {
                   ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
-              title="Timeline Sprints"
+              title={t.nav.timelineTooltip}
             >
               <Clock size={15} className="shrink-0 text-blue-400" />
               {!sidebarCollapsed && <span className="truncate">{t.nav.timeline}</span>}

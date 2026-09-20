@@ -17,7 +17,11 @@ test('navigation roadmap and timeline views are localized in French and English'
 
   assert.equal(translations.fr.nav.roadmap, 'Roadmap')
   assert.equal(translations.en.nav.roadmap, 'Roadmap')
+  assert.equal(translations.fr.nav.roadmapTooltip, 'Roadmap : NOW / NEXT / FUTURE')
+  assert.equal(translations.en.nav.roadmapTooltip, 'Roadmap: NOW / NEXT / FUTURE')
 
   assert.equal(translations.fr.nav.timeline, 'Timeline')
   assert.equal(translations.en.nav.timeline, 'Timeline')
+  assert.equal(translations.fr.nav.timelineTooltip, 'Timeline Sprints')
+  assert.equal(translations.en.nav.timelineTooltip, 'Sprint Timeline')
 })
