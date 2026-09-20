@@ -952,11 +952,35 @@ export const TaskDetailModal: React.FC = () => {
             }}
             className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
           >
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.issueTracker || 'local'})
-              </option>
-            ))}
+            {(() => {
+              const bookmarked = projects.filter(p => p.bookmarked)
+              const others = projects.filter(p => !p.bookmarked)
+              if (bookmarked.length > 0 && others.length > 0) {
+                return (
+                  <>
+                    <optgroup label="Favoris">
+                      {bookmarked.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.issueTracker || 'local'})
+                        </option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="Autres projets">
+                      {others.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({p.issueTracker || 'local'})
+                        </option>
+                      ))}
+                    </optgroup>
+                  </>
+                )
+              }
+              return projects.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.issueTracker || 'local'})
+                </option>
+              ))
+            })()}
           </select>
         </div>
 

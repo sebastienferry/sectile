@@ -60,6 +60,7 @@ interface AppContextType {
   createProject: (data: Partial<Project>) => Promise<Project | null>
   updateProject: (id: string, updates: Partial<Project>) => Promise<Project | null>
   deleteProject: (id: string) => Promise<boolean>
+  toggleProjectBookmark: (projectId: string) => Promise<boolean>
   fetchProjects: () => Promise<void>
   isProjectModalOpen: boolean
   setIsProjectModalOpen: (open: boolean) => void
@@ -887,29 +888,36 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const projectList = data || []
         setProjects(projectList)
 
-        // Ensure a valid project is actively selected, preserving 'all' or active project with tasks
+        // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
         setSelectedProjectIdState(prev => {
           if (prev === 'all') {
             return 'all'
           }
-          if (prev && projectList.some(p => p.id === prev || p.slug === prev)) {
+          if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
             return prev
           }
           try {
             const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
             if (stored === 'all') return 'all'
-            if (stored && projectList.some(p => p.id === stored || p.slug === stored)) {
+            if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
               return stored
             }
           } catch {}
 
-          // Prioritize project with tasks or 'all'
-          const projWithTasks = projectList.find(p => (p.taskCount || 0) > 0)
-          if (projWithTasks) {
+          // Prioritize bookmarked project with tasks, or any bookmarked project, or 'all'
+          const bookmarkedWithTasks = projectList.find(p => p.bookmarked && (p.taskCount || 0) > 0)
+          if (bookmarkedWithTasks) {
             try {
-              localStorage.setItem('sectile_selected_project_id', projWithTasks.id)
+              localStorage.setItem('sectile_selected_project_id', bookmarkedWithTasks.id)
             } catch {}
-            return projWithTasks.id
+            return bookmarkedWithTasks.id
+          }
+          const anyBookmarked = projectList.find(p => p.bookmarked)
+          if (anyBookmarked) {
+            try {
+              localStorage.setItem('sectile_selected_project_id', anyBookmarked.id)
+            } catch {}
+            return anyBookmarked.id
           }
           return 'all'
         })
@@ -918,6 +926,54 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       console.warn('Failed to load projects', err)
     }
   }, [])
+
+  const toggleProjectBookmark = useCallback(async (projectId: string): Promise<boolean> => {
+    let newStatus = false
+    setProjects(prev =>
+      prev.map(p => {
+        if (p.id === projectId || p.slug === projectId) {
+          newStatus = !p.bookmarked
+          return { ...p, bookmarked: newStatus }
+        }
+        return p
+      })
+    )
+
+    if (!newStatus) {
+      setSelectedProjectIdState(prev => {
+        if (prev === projectId) {
+          const remaining = projects.find(p => p.id !== projectId && p.bookmarked)
+          return remaining ? remaining.id : 'all'
+        }
+        return prev
+      })
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/me/project-bookmarks/${projectId}/toggle`, {
+        method: 'POST',
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const serverStatus = data.bookmarked
+        setProjects(prev =>
+          prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: serverStatus } : p))
+        )
+        return serverStatus
+      } else {
+        setProjects(prev =>
+          prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: !newStatus } : p))
+        )
+        return !newStatus
+      }
+    } catch (err) {
+      console.error('Failed to toggle bookmark', err)
+      setProjects(prev =>
+        prev.map(p => (p.id === projectId || p.slug === projectId ? { ...p, bookmarked: !newStatus } : p))
+      )
+      return !newStatus
+    }
+  }, [projects])
 
   const fetchActivities = useCallback(async () => {
     try {
@@ -3000,12 +3056,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  const bookmarkedProjectIds = React.useMemo(() => {
+    const set = new Set<string>()
+    for (const p of projects) {
+      if (p.bookmarked) {
+        set.add(p.id)
+        if (p.slug) set.add(p.slug)
+      }
+    }
+    return set
+  }, [projects])
+
   // Filter tasks by active source filter (all / github / jira / local)
   // then by the active parent (epic or parent story), when one is selected.
   const filteredTasks = React.useMemo(() => {
     let out = sourceFilter === 'all'
-      ? tasksInProject(tasks, selectedProjectId)
-      : tasksInProject(tasks, selectedProjectId).filter(t => (t.source || 'local') === sourceFilter)
+      ? tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds)
+      : tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds).filter(t => (t.source || 'local') === sourceFilter)
     if (parentFilter) {
       if (parentFilter === '__no_macro__' || parentFilter === 'none') {
         out = out.filter(t => !t.parentKey && !t.parentTitle)
@@ -3014,7 +3081,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return out
-  }, [tasks, sourceFilter, parentFilter, selectedProjectId])
+  }, [tasks, sourceFilter, parentFilter, selectedProjectId, bookmarkedProjectIds])
 
   // A project can rename any workflow skill through `skillOverrides`
   // (skillId -> custom label). Every place that shows a skill name goes through
@@ -3204,6 +3271,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         createProject,
         updateProject,
         deleteProject,
+        toggleProjectBookmark,
         fetchProjects,
         isProjectModalOpen,
         setIsProjectModalOpen,

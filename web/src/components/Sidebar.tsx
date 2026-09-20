@@ -29,6 +29,8 @@ import {
   Settings2,
   FileCode2,
   Shield,
+  Search,
+  Star,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -118,6 +120,7 @@ export const Sidebar: React.FC = () => {
     currentProject,
     setIsProjectModalOpen,
     setEditingProject,
+    toggleProjectBookmark,
     activities,
     activeJobCount,
     activeView,
@@ -150,17 +153,32 @@ export const Sidebar: React.FC = () => {
   const { user: currentUser } = useCurrentUser()
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
+  const [projectSearch, setProjectSearch] = useState('')
   const projectDropdownRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (projectDropdownRef.current && !projectDropdownRef.current.contains(e.target as Node)) {
         setIsProjectDropdownOpen(false)
+        setProjectSearch('')
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  const displayedProjects = React.useMemo(() => {
+    const q = projectSearch.trim().toLowerCase()
+    if (!q) {
+      return projects.filter(p => p.bookmarked)
+    }
+    return projects.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      p.slug.toLowerCase().includes(q) ||
+      (p.description && p.description.toLowerCase().includes(q)) ||
+      (p.repoPath && p.repoPath.toLowerCase().includes(q))
+    )
+  }, [projects, projectSearch])
 
   /**
    * Les compteurs viennent des facettes du serveur, qui ignorent les filtres et
@@ -362,12 +380,28 @@ export const Sidebar: React.FC = () => {
                   <span className="font-mono text-[9px]">{projects.length} projets</span>
                 </div>
 
+                {/* Search Input */}
+                <div className="px-1.5 py-1">
+                  <div className="relative flex items-center">
+                    <Search size={12} className="absolute left-2.5 text-[var(--text-muted)] pointer-events-none" />
+                    <input
+                      type="text"
+                      value={projectSearch}
+                      onChange={e => setProjectSearch(e.target.value)}
+                      placeholder="Rechercher un projet..."
+                      className="w-full pl-7 pr-2 py-1 text-xs rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-color)]"
+                      onClick={e => e.stopPropagation()}
+                    />
+                  </div>
+                </div>
+
                 {/* All Projects Option */}
                 <button
                   type="button"
                   onClick={() => {
                     setSelectedProjectId('all')
                     setIsProjectDropdownOpen(false)
+                    setProjectSearch('')
                   }}
                   className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-all cursor-pointer ${
                     selectedProjectId === 'all'
@@ -388,57 +422,80 @@ export const Sidebar: React.FC = () => {
 
                 {/* Project List */}
                 <div className="max-h-48 overflow-y-auto space-y-0.5">
-                  {projects.map(p => {
-                    const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
-                    return (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          setSelectedProjectId(p.id)
-                          setIsProjectDropdownOpen(false)
-                        }}
-                        className={`group/item w-full flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition-all ${
-                          isSel
-                            ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
-                            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div
-                            className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
-                            style={accentBadgeStyle(p.color)}
-                          >
-                            {renderProjectIcon(p.icon, 12)}
+                  {displayedProjects.length === 0 ? (
+                    <div className="px-2 py-3 text-center text-xs text-[var(--text-muted)]">
+                      {projectSearch.trim() ? 'Aucun projet trouvé' : 'Aucun projet favori'}
+                    </div>
+                  ) : (
+                    displayedProjects.map(p => {
+                      const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => {
+                            setSelectedProjectId(p.id)
+                            setIsProjectDropdownOpen(false)
+                            setProjectSearch('')
+                          }}
+                          className={`group/item w-full flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition-all ${
+                            isSel
+                              ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
+                              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div
+                              className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+                              style={accentBadgeStyle(p.color)}
+                            >
+                              {renderProjectIcon(p.icon, 12)}
+                            </div>
+                            <div className="flex flex-col min-w-0">
+                              <span className="truncate">{p.name}</span>
+                              <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
+                                {p.repoPath ? p.repoPath.split('/').pop() : ''}
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex flex-col min-w-0">
-                            <span className="truncate">{p.name}</span>
-                            <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
-                              {p.repoPath ? p.repoPath.split('/').pop() : ''}
-                            </span>
-                          </div>
-                        </div>
 
-                        <div className="flex items-center gap-1">
-                          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--bg-primary)] text-[var(--text-muted)]">
-                            {p.taskCount || 0}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setEditingProject(p)
-                              setIsProjectModalOpen(true)
-                              setIsProjectDropdownOpen(false)
-                            }}
-                            className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
-                            title="Configurer ce projet"
-                          >
-                            <Settings2 size={12} />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                await toggleProjectBookmark(p.id)
+                              }}
+                              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                                p.bookmarked
+                                  ? 'text-amber-400 hover:text-amber-500'
+                                  : 'text-[var(--text-muted)] hover:text-amber-400 opacity-0 group-hover/item:opacity-100'
+                              }`}
+                              title={p.bookmarked ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                            >
+                              <Star size={12} className={p.bookmarked ? 'fill-current' : ''} />
+                            </button>
+                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--bg-primary)] text-[var(--text-muted)]">
+                              {p.taskCount || 0}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                setEditingProject(p)
+                                setIsProjectModalOpen(true)
+                                setIsProjectDropdownOpen(false)
+                                setProjectSearch('')
+                              }}
+                              className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
+                              title="Configurer ce projet"
+                            >
+                              <Settings2 size={12} />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
+                      )
+                    })
+                  )}
                 </div>
 
                 <div className="my-1 border-t border-[var(--border-color)]"></div>
