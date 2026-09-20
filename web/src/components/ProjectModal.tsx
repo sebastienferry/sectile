@@ -70,18 +70,7 @@ const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: st
   { id: 'custom', label: 'Commande Personnalisée', sub: 'Modèle de commande arbitraire', defaultCmd: `/path/to/custom-cli {mode:-p|-i} '{prompt}'`, icon: '⚙️' },
 ]
 
-// A preset fills both fields at once, since the two commands of one CLI are
-// written together. An empty pair hands both modes back to the provider.
-const COMMAND_PRESETS: { label: string; cmd: string; autonomous: string }[] = [
-  { label: 'Défaut du fournisseur', cmd: '', autonomous: '' },
-  {
-    label: 'Claude',
-    cmd: `claude --model {model} '{prompt}'`,
-    autonomous: `claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`,
-  },
-  { label: 'AGY', cmd: `agy -i '{prompt}'`, autonomous: `agy -p --dangerously-skip-permissions '{prompt}'` },
-  { label: 'Codex', cmd: `codex --model {model} '{prompt}'`, autonomous: `codex exec --model {model} '{prompt}'` },
-]
+import { COMMAND_PRESETS } from '../lib/commandPresets'
 
 // The agents Sectile can install its skills and MCP registration for, beyond the
 // one that runs the tasks. Providers without a skill convention are not listed.
@@ -826,7 +815,7 @@ export const ProjectModal: React.FC = () => {
                     commandTemplate={aiCommandTemplate}
                     value={aiModel}
                     onChange={setAiModel}
-                    placeholder={settings.aiModel ? `Hérite du global : ${settings.aiModel}` : 'Défaut du CLI (ex : claude-opus-5)'}
+                    placeholder={settings.aiModel ? `Hérite du global : ${settings.aiModel}` : (t?.profileModal?.ai?.defaultModelPlaceholder || 'Défaut du CLI')}
                     label="Modèle du projet"
                   />
 
@@ -882,7 +871,9 @@ export const ProjectModal: React.FC = () => {
 
                     {/* Variable tokens guide */}
                     <div className="p-2.5 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] mt-2 flex items-center flex-wrap gap-2 text-[10px] text-[var(--text-muted)]">
-                      <span className="font-bold text-[var(--text-secondary)]">Variables disponibles :</span>
+                      <span className="font-bold text-[var(--text-secondary)]">
+                        {t?.profileModal?.ai?.availableVariables || 'Variables disponibles :'}
+                      </span>
                       {['{prompt}', '{issueKey}', '{issueTitle}', '{repoPath}', '{branchName}', '{model}', '{mode:AUTONOMOUS|INTERACTIVE}'].map(tag => (
                         <span key={tag} className="font-mono bg-[var(--bg-tertiary)] px-1.5 py-0.5 rounded text-[var(--text-primary)] border border-[var(--border-color)]">
                           {tag}

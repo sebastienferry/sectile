@@ -151,9 +151,11 @@ export const TaskDetailModal: React.FC = () => {
   const configuredLaunchModel = resolveConfiguredModel(taskProject || undefined, settings)
   const activeTemplate = taskProject?.aiCommandTemplate || settings.aiCommandTemplate || ''
   const launchModelNotice = templateGovernsCommand(activeProvider, activeTemplate)
-    ? "Le modèle de ligne de commande pilote l'exécution : le modèle n'est appliqué que via le marqueur {model}."
+    ? (t?.profileModal?.ai?.modelTemplatePlaceholderNotice || "Le modèle est appliqué via le marqueur {model} dans la commande.")
     : !providerTakesModel(activeProvider)
-      ? `${activeProvider.toUpperCase()} n'accepte pas de sélection de modèle : la valeur est ignorée.`
+      ? (t?.profileModal?.ai?.providerIgnoresModel
+          ? t.profileModal.ai.providerIgnoresModel.replace('{provider}', activeProvider.toUpperCase())
+          : `${activeProvider.toUpperCase()} n'accepte pas de sélection de modèle : la valeur est ignorée.`)
       : ''
 
 

@@ -10,7 +10,7 @@ import {
   Check,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { PERSONAL_TRACKERS, credentialState, type TrackerKind } from '../lib/trackers'
+import { personalTrackers, credentialState, type TrackerKind } from '../lib/trackers'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
 
 /**
@@ -26,6 +26,7 @@ export const TrackerCredentialsTab: React.FC = () => {
     lockAllUserCredentials,
     saveUserCredential,
     addToast,
+    t,
   } = useApp()
 
   const [open, setOpen] = useState<TrackerKind | null>(null)
@@ -83,17 +84,19 @@ export const TrackerCredentialsTab: React.FC = () => {
       setNewPassphraseInput('')
       addToast({
         type: 'success',
-        title: targetPhrase.trim() ? 'Phrase de scellement mise à jour' : 'Scellement retiré',
+        title: targetPhrase.trim()
+          ? t.trackerCredentials.toastUpdatedTitle
+          : t.trackerCredentials.toastRemovedTitle,
         description: targetPhrase.trim()
-          ? 'Tous vos jetons sont désormais protégés par cette phrase unique.'
-          : 'Vos jetons sont désormais chiffrés par le serveur.',
+          ? t.trackerCredentials.toastUpdatedDesc
+          : t.trackerCredentials.toastRemovedDesc,
       })
       await refreshUserCredentials()
     } catch (err: any) {
       addToast({
         type: 'error',
-        title: 'Mise à jour impossible',
-        description: err?.message || 'Erreur lors de la mise à jour des jetons',
+        title: t.trackerCredentials.toastErrorTitle,
+        description: err?.message || t.trackerCredentials.toastErrorDefault,
       })
     } finally {
       setIsApplying(false)
@@ -103,7 +106,7 @@ export const TrackerCredentialsTab: React.FC = () => {
   return (
     <div className="space-y-4 animate-in fade-in duration-150">
       <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-        Vos accès personnels aux trackers. Les jetons saisis sont strictement individuels et protégés par votre compte.
+        {t.trackerCredentials.description}
       </p>
 
       {/* Section Globale Dédiée : Phrase de scellement unique */}
@@ -112,23 +115,25 @@ export const TrackerCredentialsTab: React.FC = () => {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <KeyRound size={15} className="text-[var(--accent-color)]" />
-              <span className="text-xs font-bold text-[var(--text-primary)]">Phrase de scellement unique</span>
+              <span className="text-xs font-bold text-[var(--text-primary)]">
+                {t.trackerCredentials.masterPassphraseTitle}
+              </span>
               {anyLocked ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-500 border border-amber-500/30">
-                  <Lock size={10} /> Verrouillée
+                  <Lock size={10} /> {t.trackerCredentials.statusLocked}
                 </span>
               ) : allUnlocked ? (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  <LockOpen size={10} /> Active
+                  <LockOpen size={10} /> {t.trackerCredentials.statusActive}
                 </span>
               ) : (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--bg-secondary)] text-[var(--text-muted)] border border-[var(--border-color)]">
-                  Non configurée
+                  {t.trackerCredentials.statusNotConfigured}
                 </span>
               )}
             </div>
             <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-              Une seule phrase protège l'ensemble de vos jetons de trackers. Elle est demandée pour déverrouiller vos accès à chaque session.
+              {t.trackerCredentials.passphraseDescription}
             </p>
           </div>
           {allUnlocked && (
@@ -138,7 +143,7 @@ export const TrackerCredentialsTab: React.FC = () => {
               disabled={isLocking}
               className="px-2.5 py-1 rounded-lg text-xs font-medium border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-amber-400 hover:border-amber-400/40 cursor-pointer shrink-0"
             >
-              {isLocking ? 'Verrouillage...' : 'Verrouiller'}
+              {isLocking ? t.trackerCredentials.locking : t.trackerCredentials.lock}
             </button>
           )}
         </div>
@@ -147,7 +152,7 @@ export const TrackerCredentialsTab: React.FC = () => {
         {anyLocked && (
           <div className="pt-2 border-t border-[var(--border-color)]/60 space-y-2">
             <p className="text-[11px] text-amber-400 font-medium">
-              Saisissez votre phrase de scellement unique pour déverrouiller tous vos jetons :
+              {t.trackerCredentials.unlockPrompt}
             </p>
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
@@ -156,7 +161,7 @@ export const TrackerCredentialsTab: React.FC = () => {
                   autoComplete="new-password"
                   value={unlockPhrase}
                   onChange={e => setUnlockPhrase(e.target.value)}
-                  placeholder="Phrase de scellement unique"
+                  placeholder={t.trackerCredentials.unlockPlaceholder}
                   className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                   onKeyDown={e => {
                     if (e.key === 'Enter') void handleUnlockAll()
@@ -170,7 +175,7 @@ export const TrackerCredentialsTab: React.FC = () => {
                 disabled={isUnlocking || !unlockPhrase.trim()}
                 className="px-3.5 py-1.5 rounded-lg text-xs font-semibold accent-bg text-white shadow-xs hover:opacity-90 disabled:opacity-40 cursor-pointer shrink-0"
               >
-                {isUnlocking ? 'Déverrouillage...' : 'Déverrouiller tous les jetons'}
+                {isUnlocking ? t.trackerCredentials.unlocking : t.trackerCredentials.unlockAll}
               </button>
             </div>
           </div>
@@ -181,20 +186,22 @@ export const TrackerCredentialsTab: React.FC = () => {
           <div className="pt-2 border-t border-[var(--border-color)]/60 space-y-2">
             <div className="flex items-center justify-between text-[11px]">
               <span className="text-emerald-400 font-medium flex items-center gap-1.5">
-                <Check size={13} /> Vos accès aux trackers sont opérationnels pour cette session.
+                <Check size={13} /> {t.trackerCredentials.operationalBanner}
               </span>
               <button
                 type="button"
                 onClick={() => setShowChangePassphrase(!showChangePassphrase)}
                 className="text-[10.5px] text-[var(--text-muted)] hover:text-[var(--text-primary)] underline cursor-pointer"
               >
-                {showChangePassphrase ? 'Annuler' : 'Modifier la phrase'}
+                {showChangePassphrase
+                  ? t.trackerCredentials.cancelChangePassphrase
+                  : t.trackerCredentials.changePassphrase}
               </button>
             </div>
             {showChangePassphrase && (
               <div className="p-2.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-2">
                 <span className="text-[10px] text-[var(--text-muted)] block">
-                  Entrez une nouvelle phrase pour re-sceller tous vos jetons, ou laissez vide pour retirer le scellement :
+                  {t.trackerCredentials.changePassphrasePrompt}
                 </span>
                 <div className="flex items-center gap-2">
                   <input
@@ -202,7 +209,7 @@ export const TrackerCredentialsTab: React.FC = () => {
                     autoComplete="new-password"
                     value={newPassphraseInput}
                     onChange={e => setNewPassphraseInput(e.target.value)}
-                    placeholder="Nouvelle phrase de scellement (ou vide pour retirer)"
+                    placeholder={t.trackerCredentials.newPassphrasePlaceholder}
                     className="flex-1 px-2.5 py-1.5 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                   />
                   <button
@@ -211,7 +218,7 @@ export const TrackerCredentialsTab: React.FC = () => {
                     disabled={isApplying}
                     className="px-3 py-1.5 rounded-lg text-xs font-semibold accent-bg text-white shadow-xs hover:opacity-90 disabled:opacity-40 cursor-pointer shrink-0"
                   >
-                    {isApplying ? 'Application...' : 'Appliquer'}
+                    {isApplying ? t.trackerCredentials.applying : t.trackerCredentials.apply}
                   </button>
                 </div>
               </div>
@@ -223,7 +230,7 @@ export const TrackerCredentialsTab: React.FC = () => {
         {!anySealed && (
           <div className="pt-2 border-t border-[var(--border-color)]/60 space-y-2">
             <span className="text-[10.5px] text-[var(--text-muted)] block">
-              Définissez ici votre phrase de scellement unique. Tout jeton enregistré ci-dessous sera scellé avec celle-ci :
+              {t.trackerCredentials.definePassphrasePrompt}
             </span>
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
@@ -232,7 +239,7 @@ export const TrackerCredentialsTab: React.FC = () => {
                   autoComplete="new-password"
                   value={sharedPassphrase}
                   onChange={e => setSharedPassphrase(e.target.value)}
-                  placeholder="Définir une phrase de scellement unique"
+                  placeholder={t.trackerCredentials.definePassphrasePlaceholder}
                   className="w-full pl-8 pr-3 py-1.5 text-xs rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
                 />
                 <Lock size={13} className="absolute left-2.5 top-2 text-[var(--accent-color)]" />
@@ -244,7 +251,7 @@ export const TrackerCredentialsTab: React.FC = () => {
                   disabled={isApplying}
                   className="px-3 py-1.5 rounded-lg text-xs font-semibold accent-bg text-white shadow-xs hover:opacity-90 disabled:opacity-40 cursor-pointer shrink-0"
                 >
-                  {isApplying ? 'Application...' : 'Sceller mes jetons'}
+                  {isApplying ? t.trackerCredentials.applying : t.trackerCredentials.sealMyTokens}
                 </button>
               )}
             </div>
@@ -254,7 +261,7 @@ export const TrackerCredentialsTab: React.FC = () => {
 
       {/* Liste des Trackers */}
       <div className="space-y-2">
-        {PERSONAL_TRACKERS.map(kind => {
+        {personalTrackers(t).map(kind => {
           const mine = userCredentials.find(c => c.tracker === kind.id)
           const isOpen = open === kind.id
           const locked = Boolean(mine?.sealed && !mine.unlocked)
@@ -284,7 +291,7 @@ export const TrackerCredentialsTab: React.FC = () => {
                 )}
                 <span className="text-xs font-bold text-[var(--text-primary)]">{kind.label}</span>
                 <span className="text-[10px] text-[var(--text-muted)] truncate flex-1 text-right">
-                  {mine?.email || credentialState(mine)}
+                  {mine?.email || credentialState(mine, t)}
                 </span>
               </button>
 

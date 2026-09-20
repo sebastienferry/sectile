@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { translations } from '../src/locales/translations.ts'
 import {
   PERSONAL_TRACKERS,
   PROJECT_TRACKERS,
@@ -13,8 +14,10 @@ import {
   scopesFor,
   sealingConsequence,
   SEALING_INVITATION,
+  sealingInvitation,
   storedFor,
   trackerFields,
+  getTrackers,
 } from '../src/lib/trackers.ts'
 
 test('the three trackers are offered, Jira asking for an account e-mail', () => {
@@ -165,3 +168,89 @@ test('a project only asks for credentials the person does not already have', () 
   // A local project needs nothing.
   assert.equal(needsCredentialsFor('local', noServer, []), false)
 })
+
+test('tracker credentials translations are complete and localized states format correctly', () => {
+  assert.ok(translations.fr.trackerCredentials.masterPassphraseTitle)
+  assert.ok(translations.en.trackerCredentials.masterPassphraseTitle)
+  assert.notEqual(
+    translations.fr.trackerCredentials.masterPassphraseTitle,
+    translations.en.trackerCredentials.masterPassphraseTitle
+  )
+
+  const mine = { tracker: 'jira', sealed: true, unlocked: false }
+  const defaultState = credentialState(mine)
+  const frState = credentialState(mine, translations.fr)
+  const enState = credentialState(mine, translations.en)
+
+  assert.equal(defaultState, translations.fr.trackerCredentials.states.locked)
+  assert.equal(frState, translations.fr.trackerCredentials.states.locked)
+  assert.equal(enState, translations.en.trackerCredentials.states.locked)
+  assert.match(enState, /Sealed and locked/)
+
+  assert.equal(sealingConsequence(true, translations.fr), translations.fr.trackerCredentials.sealingConsequences.sealed)
+  assert.equal(sealingConsequence(true, translations.en), translations.en.trackerCredentials.sealingConsequences.sealed)
+  assert.match(sealingConsequence(true, translations.en), /Sealed: only you can open it/)
+  assert.match(sealingConsequence(false, translations.en), /Unsealed: your actions will be performed/)
+
+  assert.equal(sealingInvitation(translations.en), translations.en.trackerCredentials.sealingInvitation)
+  assert.match(sealingInvitation(translations.en), /master sealing passphrase/)
+
+  // Localized tracker fields
+  assert.equal(trackerFields('jira', translations.fr).tokenHint, "À créer sur id.atlassian.com, section jetons d'API. Il s'utilise avec votre e-mail Atlassian, jamais seul.")
+  assert.equal(trackerFields('jira', translations.en).tokenHint, 'Create at id.atlassian.com, API tokens section. Used with your Atlassian email, never alone.')
+  assert.equal(trackerFields('jira', translations.en).projectPlaceholder, 'e.g. MKTG')
+  assert.equal(trackerFields('github', translations.en).siteLabel, 'GitHub API URL')
+  assert.equal(trackerFields('github', translations.fr).siteLabel, "URL de l'API GitHub")
+  assert.equal(trackerFields('gitlab', translations.en).siteLabel, 'GitLab API URL')
+  assert.equal(trackerFields('gitlab', translations.fr).siteLabel, "URL de l'API GitLab")
+  assert.equal(trackerFields('gitlab', translations.en).projectLabel, 'Default project')
+  assert.equal(trackerFields('gitlab', translations.fr).projectLabel, 'Projet par défaut')
+
+  const enTrackers = getTrackers(translations.en)
+  const frTrackers = getTrackers(translations.fr)
+  assert.equal(enTrackers.length, 3)
+  assert.equal(frTrackers.length, 3)
+  assert.equal(enTrackers.find(t => t.id === 'github')?.siteLabel, 'GitHub API URL')
+  assert.equal(frTrackers.find(t => t.id === 'github')?.siteLabel, "URL de l'API GitHub")
+
+  // Form and setup translations
+  assert.ok(translations.fr.trackerCredentials.form.accountEmail)
+  assert.ok(translations.en.trackerCredentials.form.accountEmail)
+  assert.equal(translations.fr.trackerCredentials.form.accountEmail, 'E-mail du compte')
+  assert.equal(translations.en.trackerCredentials.form.accountEmail, 'Account email')
+  assert.equal(translations.fr.trackerCredentials.setup.title, 'Connecter votre tracker')
+  assert.equal(translations.en.trackerCredentials.setup.title, 'Connect your tracker')
+
+  // Localized save blocked reason
+  assert.match(saveBlockedReason('jira', {}, false, translations.fr), /Renseignez votre site/)
+  assert.match(saveBlockedReason('jira', {}, false, translations.en), /Enter your site/)
+  assert.match(saveBlockedReason('jira', { siteUrl: 'a', email: 'b' }, false, translations.en), /Verify credentials/)
+})
+
+test('profile AI and MCP configuration translations are complete in French and English', () => {
+  const frAi = translations.fr.profileModal.ai
+  const enAi = translations.en.profileModal.ai
+
+  // Variables disponibles
+  assert.equal(frAi.availableVariables, 'Variables disponibles :')
+  assert.equal(enAi.availableVariables, 'Available variables:')
+
+  // Commande exécutée
+  assert.equal(frAi.executedCommand, 'Commande exécutée')
+  assert.equal(enAi.executedCommand, 'Executed command')
+
+  // Modes
+  assert.equal(frAi.modeInteractive, 'Interactif')
+  assert.equal(enAi.modeInteractive, 'Interactive')
+  assert.equal(frAi.modeAutonomous, 'Autonome')
+  assert.equal(enAi.modeAutonomous, 'Autonomous')
+
+  // MCP sans agent local
+  assert.equal(frAi.mcpConfigWithoutAgent, 'Configuration MCP sans agent local')
+  assert.equal(enAi.mcpConfigWithoutAgent, 'MCP configuration without local agent')
+
+  // Pour connecter directement...
+  assert.match(frAi.mcpConnectDirectlyDesc || '', /Pour connecter directement votre CLI ou IDE/)
+  assert.match(enAi.mcpConnectDirectlyDesc || '', /To connect your CLI or IDE directly/)
+})
+

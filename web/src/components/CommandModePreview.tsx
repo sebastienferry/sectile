@@ -1,4 +1,6 @@
 import { commandPreview } from '../lib/commandTemplate'
+import { useOptionalApp } from '../context/AppContext'
+import { translations, type TranslationSchema } from '../locales/translations'
 
 /**
  * The two command lines a launch produces, side by side.
@@ -13,22 +15,28 @@ export function CommandModePreview({
   template,
   model,
   autonomousTemplate = '',
+  t: customT,
 }: {
   provider: string
   template: string
   model: string
   /** The command written for headless launches, when one is configured. */
   autonomousTemplate?: string
+  t?: TranslationSchema
 }) {
+  const app = useOptionalApp()
+  const t = customT || app?.t || translations.fr
+  const aiT = t?.profileModal?.ai
+
   const modes: { label: string; autonomous: boolean }[] = [
-    { label: 'Interactif', autonomous: false },
-    { label: 'Autonome', autonomous: true },
+    { label: aiT?.modeInteractive || 'Interactif', autonomous: false },
+    { label: aiT?.modeAutonomous || 'Autonome', autonomous: true },
   ]
 
   return (
     <div className="mt-2 rounded-xl border border-[var(--border-color)] bg-[var(--bg-primary)] p-2.5 space-y-1.5">
       <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-        Commande exécutée
+        {aiT?.executedCommand || 'Commande exécutée'}
       </div>
       {modes.map(mode => {
         const preview = commandPreview(provider, template, model, mode.autonomous, autonomousTemplate)
