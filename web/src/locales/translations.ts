@@ -198,7 +198,12 @@ export interface TranslationSchema {
     title: string
     subtitle: string
     tabs: {
+      account: string
       appearance: string
+      trackers: string
+      aiEngine: string
+      sdd: string
+      workstations: string
       aiConfig: string
       tracker: string
     }
@@ -224,9 +229,29 @@ export interface TranslationSchema {
       standard: string
       comfortable: string
     }
+    densityDesc?: {
+      compact: string
+      standard: string
+      comfortable: string
+    }
     defaultView: string
+    defaultViews?: {
+      board: string
+      list: string
+    }
+    uiScale?: string
+    uiScales?: {
+      s90: string
+      s100: string
+      s112: string
+      s125: string
+    }
     detailMode: string
     detailModes: {
+      modal: string
+      panel: string
+    }
+    detailModeDesc?: {
       modal: string
       panel: string
     }
@@ -244,6 +269,7 @@ export interface TranslationSchema {
       'neon-green': string
       'neon-amber': string
     }
+    sectilePreferences?: string
     ai: {
       title: string
       engine: string
@@ -288,11 +314,122 @@ export interface TranslationSchema {
       mcpConnectDirectlyWorkflow?: string
       mcpKeyRequired?: string
       mcpKeyRequiredDesc?: string
+      mcpKeyPlaceholder?: string
       mcpGenerateKey?: string
       mcpCopy?: string
       mcpCopied?: string
       mcpQuickCliCommand?: string
       mcpOrInConfig?: string
+      customProviderLabel?: string
+      customProviderSub?: string
+    }
+    sdd?: {
+      title: string
+      subtitle: string
+      contractBadge: string
+      defaultFramework: string
+      speckitTitle: string
+      speckitSubtitle: string
+      speckitDesc: string
+      speckitCommands: string
+      openspecTitle: string
+      openspecSubtitle: string
+      openspecDesc: string
+      openspecCommands: string
+      lifecycleTitle: string
+      customizePrompts: string
+      steps: {
+        clarify: string
+        specify: string
+        code: string
+        adjust: string
+        handoff: string
+      }
+      promptsSectionTitle: string
+      promptsSectionDesc: string
+      prompts: {
+        clarify: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+        specify: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+        implement: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+        adjust: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+        handoff: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+      }
+    }
+    workstations?: {
+      desc: string
+      title?: string
+      badge?: string
+      pairBtn?: string
+      workingBtn?: string
+      singleUseNotice?: string
+      onWorkstationTitle?: string
+      terminalStep?: string
+      desktopStep?: string
+      pairedListTitle?: string
+      noWorkstations?: string
+      lastSeen?: string
+      renewBtn?: string
+      renewNever?: string
+      revokeBtn?: string
+      sharedTokenWarning?: string
+      // Direct MCP
+      directMcpTitle?: string
+      directMcpBadge?: string
+      directMcpDesc?: string
+      labelInput?: string
+      labelPlaceholder?: string
+      expiresInput?: string
+      ttl90?: string
+      ttl30?: string
+      ttl365?: string
+      ttl0?: string
+      createKeyBtn?: string
+      keyCreatedSuccess?: string
+      copyKeyBtn?: string
+      copiedKey?: string
+      desktopConfigsTitle?: string
+      tabClaude?: string
+      tabAgy?: string
+      tabCodex?: string
+      tabCursor?: string
+      copyConfigBtn?: string
+      copiedConfig?: string
+      // Local Execution
+      localExecTitle?: string
+      desktopAppTitle?: string
+      desktopAppBadge?: string
+      desktopAppDesc?: string
+      desktopStep1?: string
+      desktopStep2?: string
+      desktopStep3?: string
+      headlessCliTitle?: string
+      headlessCliBadge?: string
+      headlessCliDesc?: string
+      serverUrlLabel?: string
+      urlInvalidAlert?: string
+      copyCommandBtn?: string
+      copiedCommand?: string
+      cliPrereqNotice?: string
     }
     tracker: {
       title: string
@@ -731,7 +868,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       title: 'Configuration & Paramètres',
       subtitle: 'Compte, apparence et configuration des outils',
       tabs: {
-        appearance: 'Apparence & Profil',
+        account: 'Compte',
+        appearance: 'Apparence',
+        trackers: 'Identifiants Trackers',
+        aiEngine: 'Moteur IA & CLI',
+        sdd: 'Compétences & SDD',
+        workstations: 'Workstations & Agent',
         aiConfig: 'Moteur IA & Prompts',
         tracker: 'GitHub & Jira',
       },
@@ -757,11 +899,31 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         standard: 'Standard (Équilibrée)',
         comfortable: 'Confortable (Espaces généreux)',
       },
+      densityDesc: {
+        compact: '13px font, padding réduit',
+        standard: '14px font, équilibre optimal',
+        comfortable: '15px font, grands espacements',
+      },
       defaultView: 'Vue par défaut',
+      defaultViews: {
+        board: 'Tableau (Kanban)',
+        list: 'Liste détaillée',
+      },
+      uiScale: 'Échelle de l\'interface',
+      uiScales: {
+        s90: '90% (Compact)',
+        s100: '100% (Défaut)',
+        s112: '112% (Agrandie)',
+        s125: '125% (Large)',
+      },
       detailMode: 'Affichage des détails de tâche',
       detailModes: {
         modal: 'Modale centrée',
         panel: 'Panneau latéral droit (Right Panel)',
+      },
+      detailModeDesc: {
+        panel: 'Glissement latéral à droite',
+        modal: 'Boîte de dialogue au centre',
       },
       accents: {
         indigo: 'Indigo Royal',
@@ -777,6 +939,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         'neon-green': '🟢 Matrix Green Néon',
         'neon-amber': '✨ Laser Gold Néon',
       },
+      sectilePreferences: 'Préférences Sectile',
       ai: {
         title: 'Moteur IA & Exécution Shell',
         engine: 'Moteur Agentic IA par défaut',
@@ -821,11 +984,122 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         mcpConnectDirectlyWorkflow: "). Le moteur accède directement aux outils de gestion des tâches et de suivi du workflow.",
         mcpKeyRequired: 'Clé requise :',
         mcpKeyRequiredDesc: "Remplacez {placeholder} par une clé d'API.",
+        mcpKeyPlaceholder: '<VOTRE_CLE_WORKSTATION>',
         mcpGenerateKey: 'Générer une clé',
         mcpCopy: 'Copier',
         mcpCopied: 'Copié !',
         mcpQuickCliCommand: 'Commande rapide ({engine}) :',
         mcpOrInConfig: 'Ou dans',
+        customProviderLabel: 'CLI Personnalisé',
+        customProviderSub: 'Binaire ou script custom',
+      },
+      sdd: {
+        title: 'Framework Spec-Driven Design (SDD)',
+        subtitle: 'Le Spec-Driven Design garantit qu\'une spécification claire, structurée et vérifiable est rédigée et validée avant toute génération de code par les agents d\'IA.',
+        contractBadge: 'Contract-First',
+        defaultFramework: 'Framework par défaut du projet',
+        speckitTitle: 'GitHub Spec Kit',
+        speckitSubtitle: 'CLI specify',
+        speckitDesc: 'Convention standard GitHub : structure modulaire dans .specify/ et specs/ (spec.md, plan.md, tasks.md).',
+        speckitCommands: 'Commandes : /specify-issue, /code-issue',
+        openspecTitle: 'OpenSpec',
+        openspecSubtitle: 'CLI openspec',
+        openspecDesc: 'Spécification formelle par deltas et exigences vérifiables. Les propositions de changements sont validées et revues avant l\'écriture de code.',
+        openspecCommands: 'Commandes : openspec propose, validate',
+        lifecycleTitle: 'Cycle de vie SDD dans Sectile',
+        customizePrompts: 'Personnaliser les prompts',
+        steps: {
+          clarify: '1. Clarifier',
+          specify: '2. Spécifier',
+          code: '3. Coder',
+          adjust: '4. Ajuster',
+          handoff: '5. Clôturer',
+        },
+        promptsSectionTitle: 'Personnalisation des Prompts par Compétence',
+        promptsSectionDesc: 'Personnalisez les invites (prompts) envoyées au CLI Agentic pour chaque étape du workflow SDD. Si laissé vide, les invites par défaut sont utilisées.',
+        prompts: {
+          clarify: {
+            label: 'Prompt de Cadrage (/clarify-issue)',
+            hint: 'Défaut : /clarify-issue {issueKey} tracked on {tracker} in {repo}',
+            placeholder: '/clarify-issue {issueKey} tracked on {tracker} in {repo}',
+          },
+          specify: {
+            label: 'Prompt de Spécification (/specify-issue)',
+            hint: 'Spécification Spec Kit / OpenSpec',
+            placeholder: 'Tu es le Product Owner pour {issueKey}. Rédige la spécification selon le framework SDD configuré...',
+          },
+          implement: {
+            label: 'Prompt d\'Implémentation (/code-issue)',
+            hint: 'Développement & Tests',
+            placeholder: 'Tu es le développeur senior pour {issueKey}. Implémente le code dans {repoPath}...',
+          },
+          adjust: {
+            label: 'Prompt d\'Ajustement & Revue (/adjust-issue)',
+            hint: 'Revue de code & màj PR',
+            placeholder: 'Tu es le reviewer senior pour {issueKey}. Revois les changements, applique les correctifs et mets à jour la PR...',
+          },
+          handoff: {
+            label: 'Prompt de Clôture & Handoff (/handoff-issue)',
+            hint: 'Documentation & Nettoyage local',
+            placeholder: 'Tu es responsable de la clôture pour {issueKey}. Vérifie la fusion, rédige le rapport de handoff et nettoie le worktree...',
+          },
+        },
+      },
+      workstations: {
+        desc: 'Gérez vos machines de développement appairées, les clés de signature des agents et la configuration de l\'agent local.',
+        title: 'Machines de travail',
+        badge: 'Appairage & Équipements',
+        pairBtn: 'Appairer une machine',
+        workingBtn: 'Opération en cours…',
+        singleUseNotice: 'Usage unique. Non réutilisable une fois expiré.',
+        onWorkstationTitle: 'Sur la machine de travail',
+        terminalStep: 'Dans un terminal :',
+        desktopStep: 'Ou dans Sectile Desktop :',
+        pairedListTitle: 'Machines connectées',
+        noWorkstations: 'Aucune machine n\'est actuellement appairée.',
+        lastSeen: 'vu pour la dernière fois',
+        renewBtn: 'Prolonger',
+        renewNever: 'Permanent',
+        revokeBtn: 'Révoquer',
+        sharedTokenWarning: 'Ce serveur s\'exécute toujours avec SECTILE_SERVER_TOKEN, obsolète et retiré à la prochaine version. Appairez vos machines et supprimez la variable d\'environnement.',
+        // Direct MCP
+        directMcpTitle: 'Intégration MCP Directe',
+        directMcpBadge: 'Apps IA Desktop',
+        directMcpDesc: 'Connectez des applications d\'IA desktop (Cursor, Claude Desktop, Antigravity, etc.) directement au endpoint MCP (/mcp) de Sectile sans exécuter de démon local.',
+        labelInput: 'Nom du client',
+        labelPlaceholder: 'Ex: Claude Desktop sur MacBook Pro…',
+        expiresInput: 'Expiration',
+        ttl90: 'dans 90 jours',
+        ttl30: 'dans 30 jours',
+        ttl365: 'dans 1 an',
+        ttl0: 'jamais',
+        createKeyBtn: 'Créer une clé API',
+        keyCreatedSuccess: 'Clé générée pour {label}. Copiez-la maintenant : elle ne sera plus jamais affichée.',
+        copyKeyBtn: 'Copier la clé',
+        copiedKey: 'Clé API copiée dans le presse-papier.',
+        desktopConfigsTitle: 'Exemples de configuration Desktop',
+        tabClaude: 'Claude Desktop',
+        tabAgy: 'Antigravity',
+        tabCodex: 'Codex / ChatGPT',
+        tabCursor: 'Cursor',
+        copyConfigBtn: 'Copier la config JSON',
+        copiedConfig: 'Configuration copiée dans le presse-papier.',
+        // Local Execution
+        localExecTitle: 'Exécution Locale',
+        desktopAppTitle: 'Application Sectile Desktop',
+        desktopAppBadge: 'Compagnon GUI',
+        desktopAppDesc: 'Application de bureau complète avec terminaux PTY natifs, streaming temps réel des journaux et gestion visuelle des espaces de travail.',
+        desktopStep1: 'Lancez Sectile Desktop sur votre machine.',
+        desktopStep2: 'Configurez l\'adresse du serveur sur :',
+        desktopStep3: 'Saisissez le code d\'appairage temporaire généré ci-dessus.',
+        headlessCliTitle: 'Agent CLI Headless',
+        headlessCliBadge: 'Démon d\'arrière-plan',
+        headlessCliDesc: 'Runner léger exécutant les tâches autonomes directement dans votre terminal ou votre infrastructure CI/CD.',
+        serverUrlLabel: 'URL du serveur Sectile',
+        urlInvalidAlert: 'Veuillez saisir une URL HTTP ou HTTPS valide sans identifiants ni paramètres.',
+        copyCommandBtn: 'Copier la commande',
+        copiedCommand: 'Commande copiée.',
+        cliPrereqNotice: 'Nécessite le binaire sectile-agent dans votre variable PATH et une machine appairée une première fois.',
       },
       tracker: {
         title: 'Intégration Issue Tracker',
@@ -1262,7 +1536,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       title: 'Configuration & Settings',
       subtitle: 'Account, appearance, and tool configuration',
       tabs: {
-        appearance: 'Appearance & Profile',
+        account: 'Account',
+        appearance: 'Appearance',
+        trackers: 'Tracker Credentials',
+        aiEngine: 'AI Engine & CLI',
+        sdd: 'Skills & SDD',
+        workstations: 'Workstations & Agent',
         aiConfig: 'AI Engine & Prompts',
         tracker: 'GitHub & Jira',
       },
@@ -1288,11 +1567,31 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         standard: 'Standard (Balanced)',
         comfortable: 'Comfortable (Spacious)',
       },
+      densityDesc: {
+        compact: '13px font, reduced padding',
+        standard: '14px font, optimal balance',
+        comfortable: '15px font, spacious padding',
+      },
       defaultView: 'Default View',
+      defaultViews: {
+        board: 'Board (Kanban)',
+        list: 'Detailed List',
+      },
+      uiScale: 'Interface Scale',
+      uiScales: {
+        s90: '90% (Compact)',
+        s100: '100% (Default)',
+        s112: '112% (Enlarged)',
+        s125: '125% (Large)',
+      },
       detailMode: 'Story Detail View Style',
       detailModes: {
         modal: 'Centered Modal',
         panel: 'Right Sliding Panel (Drawer)',
+      },
+      detailModeDesc: {
+        panel: 'Right-side sliding panel',
+        modal: 'Centered modal dialog',
       },
       accents: {
         indigo: 'Royal Indigo',
@@ -1308,6 +1607,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         'neon-green': '🟢 Matrix Neon Green',
         'neon-amber': '✨ Laser Gold Neon',
       },
+      sectilePreferences: 'Sectile Preferences',
       ai: {
         title: 'AI Engine & Shell Execution',
         engine: 'Default Agentic AI Engine',
@@ -1352,11 +1652,122 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         mcpConnectDirectlyWorkflow: '). The engine accesses task management and workflow tracking tools directly.',
         mcpKeyRequired: 'Key required:',
         mcpKeyRequiredDesc: 'Replace {placeholder} with an API key.',
+        mcpKeyPlaceholder: '<YOUR_WORKSTATION_KEY>',
         mcpGenerateKey: 'Generate a key',
         mcpCopy: 'Copy',
         mcpCopied: 'Copied!',
         mcpQuickCliCommand: 'Quick command ({engine}):',
         mcpOrInConfig: 'Or in',
+        customProviderLabel: 'Custom CLI',
+        customProviderSub: 'Custom binary or script',
+      },
+      sdd: {
+        title: 'Spec-Driven Design (SDD) Framework',
+        subtitle: 'Spec-Driven Design ensures a clear, structured, and verifiable specification is drafted and reviewed before any code generation by AI agents.',
+        contractBadge: 'Contract-First',
+        defaultFramework: 'Default project framework',
+        speckitTitle: 'GitHub Spec Kit',
+        speckitSubtitle: 'CLI specify',
+        speckitDesc: 'Standard GitHub convention: modular structure in .specify/ and specs/ (spec.md, plan.md, tasks.md).',
+        speckitCommands: 'Commands: /specify-issue, /code-issue',
+        openspecTitle: 'OpenSpec',
+        openspecSubtitle: 'CLI openspec',
+        openspecDesc: 'Formal specification with deltas and verifiable requirements. Change proposals are reviewed and verified before writing code.',
+        openspecCommands: 'Commands: openspec propose, validate',
+        lifecycleTitle: 'SDD Lifecycle in Sectile',
+        customizePrompts: 'Customize prompts',
+        steps: {
+          clarify: '1. Clarify',
+          specify: '2. Specify',
+          code: '3. Code',
+          adjust: '4. Adjust',
+          handoff: '5. Handoff',
+        },
+        promptsSectionTitle: 'Custom Prompts per Skill',
+        promptsSectionDesc: 'Customize instructions sent to the Agentic CLI for each step of the SDD workflow. When left blank, default prompts are used.',
+        prompts: {
+          clarify: {
+            label: 'Clarify Prompt (/clarify-issue)',
+            hint: 'Default: /clarify-issue {issueKey} tracked on {tracker} in {repo}',
+            placeholder: '/clarify-issue {issueKey} tracked on {tracker} in {repo}',
+          },
+          specify: {
+            label: 'Specification Prompt (/specify-issue)',
+            hint: 'Spec Kit / OpenSpec specification',
+            placeholder: 'You are the Product Owner for {issueKey}. Write the specification following the configured SDD framework...',
+          },
+          implement: {
+            label: 'Implementation Prompt (/code-issue)',
+            hint: 'Development & tests',
+            placeholder: 'You are the senior developer for {issueKey}. Implement the code in {repoPath}...',
+          },
+          adjust: {
+            label: 'Adjustment & Review Prompt (/adjust-issue)',
+            hint: 'Code review & PR update',
+            placeholder: 'You are the senior reviewer for {issueKey}. Review the changes, address feedback and update the PR...',
+          },
+          handoff: {
+            label: 'Closing & Handoff Prompt (/handoff-issue)',
+            hint: 'Documentation & local cleanup',
+            placeholder: 'You are responsible for closing {issueKey}. Verify the branch merge, write the handoff report and clean the worktree...',
+          },
+        },
+      },
+      workstations: {
+        desc: 'Manage your paired development workstations, agent signing keys, and local agent configuration.',
+        title: 'Workstations',
+        badge: 'Pairing & Devices',
+        pairBtn: 'Pair a workstation',
+        workingBtn: 'Working…',
+        singleUseNotice: 'Single use. Non-reusable once expired.',
+        onWorkstationTitle: 'On the workstation',
+        terminalStep: 'In a terminal:',
+        desktopStep: 'Or in Sectile Desktop:',
+        pairedListTitle: 'Connected Machines',
+        noWorkstations: 'No workstation is paired yet.',
+        lastSeen: 'last seen',
+        renewBtn: 'Renew',
+        renewNever: 'Never expires',
+        revokeBtn: 'Revoke',
+        sharedTokenWarning: 'This server still runs with SECTILE_SERVER_TOKEN, which is deprecated and will be removed in the next release. Pair your workstations and drop the variable.',
+        // Direct MCP
+        directMcpTitle: 'Direct MCP Integration',
+        directMcpBadge: 'AI Desktop Apps',
+        directMcpDesc: 'Connect AI desktop applications (Cursor, Claude Desktop, Antigravity, etc.) directly to Sectile\'s MCP endpoint (/mcp) via an API key without running a local agent daemon.',
+        labelInput: 'Client Label',
+        labelPlaceholder: 'e.g. Claude Desktop on MacBook Pro…',
+        expiresInput: 'Expiration',
+        ttl90: 'in 90 days',
+        ttl30: 'in 30 days',
+        ttl365: 'in 1 year',
+        ttl0: 'never',
+        createKeyBtn: 'Create an API Key',
+        keyCreatedSuccess: 'API key generated for {label}. Copy it now: it will never be displayed again.',
+        copyKeyBtn: 'Copy Key',
+        copiedKey: 'API key copied to clipboard.',
+        desktopConfigsTitle: 'Desktop App Configurations',
+        tabClaude: 'Claude Desktop',
+        tabAgy: 'Antigravity',
+        tabCodex: 'Codex / ChatGPT',
+        tabCursor: 'Cursor',
+        copyConfigBtn: 'Copy JSON Config',
+        copiedConfig: 'Configuration copied to clipboard.',
+        // Local Execution
+        localExecTitle: 'Local Execution',
+        desktopAppTitle: 'Sectile Desktop App',
+        desktopAppBadge: 'GUI Companion',
+        desktopAppDesc: 'Full desktop application with native PTY terminals, live log streaming, and visual workspace management.',
+        desktopStep1: 'Launch Sectile Desktop on your workstation.',
+        desktopStep2: 'Set server address to:',
+        desktopStep3: 'Enter the temporary pairing code generated above.',
+        headlessCliTitle: 'Headless CLI Agent',
+        headlessCliBadge: 'Background Daemon',
+        headlessCliDesc: 'Lightweight background runner executing autonomous tasks directly in your terminal or CI/CD pipeline.',
+        serverUrlLabel: 'Sectile Server URL',
+        urlInvalidAlert: 'Enter a valid HTTP or HTTPS server URL without credentials or query parameters.',
+        copyCommandBtn: 'Copy Command',
+        copiedCommand: 'Command copied.',
+        cliPrereqNotice: 'Requires the sectile-agent binary in your PATH and a workstation paired once.',
       },
       tracker: {
         title: 'Issue Tracker Integration',
