@@ -1,0 +1,3 @@
+- PR URL and branch.
+- Scope of the change and validation results.
+- Confirmation that the task workflow stage was preserved.

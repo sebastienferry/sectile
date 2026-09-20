@@ -1,52 +1,42 @@
 package db
 
 import (
+	"bytes"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
+	"text/template"
 
 	"tasks/internal/models"
 )
 
+//go:embed skills/*
+var embeddedSkillsFS embed.FS
+
 // The skills of the agentic workflow, one per step, in stage order.
 //
-// Before, five templates each lived their own life: the last stage had none and
-// ran on a free prompt, and nothing told the agent who moves the ticket. Here a
-// single table describes the steps and a single renderer produces the SKILL.md
-// files, so the five read alike and carry the same contract.
-//
-// The files are written in English on purpose: the agents reason on them, and
-// the repositories they land in are read by people who do not all speak French.
-// The Sectile interface stays in French.
+// All prose lives in markdown fragments under internal/db/skills/ embedded with
+// go:embed. StageSkill holds strictly the metadata needed by the catalogue,
+// router, UI, and template assembly.
 type StageSkill struct {
-	ID        string // internal id, shared by the catalogue and the job queue
-	Name      string
-	DirName   string // skill directory, which is also the slash command
-	Command   string
-	FromStage string
-	ToStage   string
-	Scope     string // "task" (default) or "macro"
-	// Mode is the built-in execution mode of the skill: interactive when the
-	// skill only means something with a human answering in the terminal, unset
-	// when the skill has no opinion and the project default decides.
+	ID          string // internal id, shared by the catalogue and the job queue
+	Name        string
+	DirName     string // skill directory, which is also the slash command
+	Command     string
+	FromStage   string
+	ToStage     string
+	Scope       string // "task" (default) or "macro"
 	Mode        string
 	Description string // shown in the Sectile interface, in French
 	Icon        string
 	Color       string
 	Steps       []string // the step list the interface displays
 
-	// Body of the SKILL.md. The renderer adds the header, the stage line and the
-	// contract with Sectile. title is the English heading of the file, kept
-	// apart from Name, which the French interface displays.
-	title           string
-	frontmatterDesc string
-	goal            string
-	readFirst       string
-	stepsBody       string
-	guardTitle      string
-	guard           string
-	report          string
+	Title           string
+	FrontmatterDesc string
+	GuardTitle      string
 }
 
 // StageSkills is the unified set: one skill per workflow step. Standalone
@@ -69,49 +59,9 @@ var StageSkills = []StageSkill{
 			"Arrêt sans transition tant que des choix produit restent ouverts",
 			"Label 'clarified' et transition posés uniquement après confirmation",
 		},
-		title:           "Clarify Issue",
-		frontmatterDesc: "Analyse a ticket against the code, iterate in clarification rounds, and resolve open questions until the owner confirms satisfaction.",
-		goal: `Turn an ambiguous ticket into a settled specification baseline. Clarification is an
-iterative dialogue with the work item's owner: execute in rounds until the owner
-explicitly confirms that the clarification is satisfactory.`,
-		readFirst: `- The ticket: title, description, comments via get_task, parent epic if present.
-- The existing clarification report if one exists: docs/clarifications/<n>.md on the assigned work branch.
-- The code the change would touch. Name the files you actually read.
-- Neighbouring features that already solve a similar problem in this codebase.`,
-		stepsBody: `1. Re-read the assigned branch and worktree. If docs/clarifications/<n>.md already exists,
-   this run continues an existing clarification into Round N. If not, this is Round 1.
-2. In Round 1:
-   a. Restate the request in two sentences, including what is out of scope.
-   b. List ambiguities, worst first. Only list an ambiguity if two readings lead to different code.
-   c. Name critical dependencies: other services, migrations, missing data, third-party limits.
-   d. Resolve reversible technical choices using existing code and project conventions.
-   e. Formulate essential product questions that alter acceptance criteria, with your recommended option.
-   f. Write docs/clarifications/<n>.md, commit with docs(spec): clarify #<n> (round 1).
-   g. Ask the questions (interactively in-session if the owner is present; as a ticket discussion
-      comment via add_comment when unattended).
-3. In Round N (follow-up after owner answers):
-   a. Read the owner's answers from the interactive prompt or ticket comments via get_task.
-   b. Append a dated section: "## Round N - answers from the owner (<date>)" to docs/clarifications/<n>.md.
-   c. Explicitly record settled choices and any reversed prior assumptions.
-   d. Address newly surfaced ambiguities or dependencies.
-   e. Commit updates with docs(spec): clarify #<n> (round N).
-   f. If follow-up product questions remain, ask them and stop without transitioning.
-4. Exit condition:
-   Rounds continue until the owner confirms that the clarification is satisfactory (or zero open
-   product questions remain in unattended pickup). Never transition new → clarified while product
-   questions remain open.
-5. Persist the settled scope, decisions, and assumptions in the report before concluding.`,
-		guardTitle: "Do not",
-		guard: `- Do not transition new → clarified while any product question or decision remains open.
-- Do not invent answers to essential product questions in unattended runs; record them and ask.
-- Do not write production code or start the technical specification at this stage.
-- Do not discard previous round sections when writing Round N; append each round chronologically.
-- Do not switch branches or create a new branch: reuse the assigned feat/<n> branch.`,
-		report: `- The report path: docs/clarifications/<n>.md.
-- Current round number and whether the exit condition was met.
-- Settled decisions and reversed assumptions.
-- Numbered open questions (if any) and who is expected to answer them.
-- Stage transition status (applied or blocked awaiting answers).`,
+		Title:           "Clarify Issue",
+		FrontmatterDesc: "Analyse a ticket against the code, iterate in clarification rounds, and resolve open questions until the owner confirms satisfaction.",
+		GuardTitle:      "Do not",
 	},
 	{
 		ID:          "specify",
@@ -129,19 +79,9 @@ explicitly confirms that the clarification is satisfactory.`,
 			"Rédaction de la spécification et de la checklist",
 			"Label 'specified' et transition posés par Sectile",
 		},
-		title:           "Specify Issue",
-		frontmatterDesc: "Write the executable specification of a ticket in the project's Spec-Driven Design framework, before any code.",
-		goal: `Produce a specification another engineer could implement without asking you
-anything. Behaviour and acceptance criteria first, implementation choices second,
-and the two kept in separate files.`,
-		// readFirst et stepsBody dépendent du cadre du projet : voir specifyFrameworkBody.
-		guardTitle: "Do not",
-		guard: `- Do not decide what the clarification left open. Mark it as open and say so.
-- Do not describe implementation inside the behaviour file.
-- Do not start implementing, even the easy part.`,
-		report: `- The files written, with their paths.
-- The work branch.
-- Requirements that are still open, and what they block.`,
+		Title:           "Specify Issue",
+		FrontmatterDesc: "Write the executable specification of a ticket in the project's Spec-Driven Design framework, before any code.",
+		GuardTitle:      "Do not",
 	},
 	{
 		ID:          "implement",
@@ -159,31 +99,9 @@ and the two kept in separate files.`,
 			"Construction, analyse statique et tests au vert",
 			"Label 'implemented' et transition posés par Sectile",
 		},
-		title:           "Implement Code",
-		frontmatterDesc: "Implement the ticket from its specification and prove it works with the project's own build, linters and tests.",
-		goal: `Ship the change described by the specification, in code that reads like the code
-already there, with the project's checks green.`,
-		readFirst: `- The specification and its task checklist. It is the contract, follow its order.
-- The surrounding code: naming, error handling, comment density, test style. Match it.
-- How this project builds and tests. Find the real commands, do not assume them.`,
-		stepsBody: `1. Reuse the assigned worktree and branch, including a shared batch branch. Never implement on the default branch.
-2. Work through the checklist in small steps, each one leaving the tree buildable.
-3. Add the tests that cover the new behaviour and its edge cases, not just the
-   happy path. A change with no test needs a stated reason.
-4. Run build, static analysis and tests. Fix until green, and quote the real output.
-5. Re-read your own diff before finishing, as a reviewer would.`,
-		guardTitle: "Recovery and blockers",
-		guard: `- Repair routine technical issues and update design/tasks when the implementation
-  needs to change while preserving acceptance criteria. Continue after documenting why.
-- Establish whether a failing test predates the change. Fix failures in scope; report
-  unrelated failures with baseline evidence. Never hide them or mark checks green.
-- Stop only for an essential product decision, an unavailable dependency after
-  bounded recovery attempts, or work that materially expands the requested scope.
-- Preserve the work branch, completed checklist items and remaining next action so
-  a retry can resume instead of starting over.`,
-		report: `- What changed, file by file, and why.
-- The real output of build, linters and tests, remaining failures included.
-- What you deliberately left out, and what it would take to finish it.`,
+		Title:           "Implement Code",
+		FrontmatterDesc: "Implement the ticket from its specification and prove it works with the project's own build, linters and tests.",
+		GuardTitle:      "Recovery and blockers",
 	},
 	{
 		ID:          "adjust",
@@ -201,35 +119,9 @@ already there, with the project's checks green.`,
 			"Update the existing pull request and verify readiness; human merge",
 			"Label 'reviewed' et transition posés par Sectile",
 		},
-		title:           "Adjust Existing Pull Request",
-		frontmatterDesc: "Review the branch like a peer would, fix what the review finds, then update the existing merge request and leave the merge to the user.",
-		goal: `Hand a reviewer a branch that is already worth reading: the obvious problems
-found and fixed, the risky parts pointed out, the test plan written down.`,
-		readFirst: `- The full diff of the branch against the default branch. All of it, not the summary.
-- The specification, to check that what was asked is what was built.
-- The current remote default branch: fetch the remote and identify its configured
-  default branch before reviewing or publishing.`,
-		stepsBody: `1. Verify a matching PR exists for the task repository and branch before changing files: open, or already merged by the human. Record its URL. If missing, stop and recover through the configured creation owner (specify or implement). Never create a PR during adjustment, and never push onto a merged PR — review the merged state and report it. Read available PR feedback; retrieval failure is a blocker, not absence of feedback.
-   Fetch the remote (` + tick + `git fetch origin` + tick + `) and compare the work branch with the
-   remote default branch (normally ` + tick + `origin/main` + tick + `; use the repository's configured default when different).
-   Integrate missing base commits before the final review: prefer rebase when the branch is private, or merge when
-   repository policy or shared-branch state requires it. Resolve conflicts and do not continue until the working tree is clean.
-2. Review the complete resulting diff against the specification for correctness, side effects, security, and edge cases with no test. Address actionable feedback and record dispositions. No human feedback is required.
-3. Update documentation affected by the change. Fix what the review finds, now. A known defect belongs in the code, not in the
-   description of the merge request.
-4. Re-run build, static analysis and tests after integrating the default branch and on the final state.
-5. Commit with a conventional message: type, scope, and why the change exists.
-6. Push the branch and update the same existing merge request: summary, test plan, and the specific
-   places where you want a reviewer's eyes.
-   If rebasing an already-pushed branch, use ` + tick + `git push --force-with-lease` + tick + `, never an unguarded force push.
-7. Verify the same PR is open and contains the pushed final commit, update its description and check evidence, then mark it ready. If any check, feedback retrieval, push or readiness verification fails, preserve work and report the blocker. If the repository has no remote, stop.`,
-		guardTitle: "Do not",
-		guard: `- Do not merge, do not approve, do not close the ticket. That is the user's call.
-- Do not create a PR. Do not mark a PR ready on a red build. Report the failure instead.
-- Do not complete adjustment on a branch known to be behind the remote default branch.`,
-		report: `- What the review found, and which findings you fixed.
-- The merge request URL, or why there is none.
-- The test plan a reviewer can replay, as a checklist.`,
+		Title:           "Adjust Existing Pull Request",
+		FrontmatterDesc: "Review the branch like a peer would, fix what the review finds, then update the existing merge request and leave the merge to the user.",
+		GuardTitle:      "Do not",
 	},
 	{
 		ID:          "handoff",
@@ -247,31 +139,9 @@ found and fixed, the risky parts pointed out, the test plan written down.`,
 			"Nettoyage du worktree et de la branche locale",
 			"Label 'finished' et transition posés par Sectile",
 		},
-		title:           "Handoff and Close",
-		frontmatterDesc: "Close the ticket properly: confirm the merge, write the handover and the acceptance checklist, then clean the local workspace.",
-		goal: `Leave two things behind: a handover a colleague can act on without asking you,
-and a local workspace with nothing stale in it.`,
-		readFirst: `- The state of the branch against the default branch.
-- What the implementation and review steps reported, so the handover matches reality.`,
-		stepsBody: `1. Confirm the ticket's branch is actually merged into the default branch. If it is
-   not, stop, say so, and clean nothing.
-2. Write the handover: what shipped, what changed for the user, what is still open.
-3. Write the acceptance checklist as checkboxes, each item something a human can
-   verify in the running product.
-4. Confirm documentation shipped with the change. If a correction is still needed,
-   record it as follow-up work; do not create uncommitted edits just before cleanup.
-5. Turn any remaining follow-up into a separate ticket to create, rather than a
-   paragraph nobody will read.
-6. Clean up locally only after checking for uncommitted or unpushed work and other
-   tickets sharing this worktree. Preserve a shared batch worktree until every ticket
-   is handed off. Remove only an unused, clean worktree and its confirmed merged branch.`,
-		guardTitle: "Do not",
-		guard: `- Do not delete anything remote: no remote branch, no tag, no release.
-- Do not clean up while the merge is unconfirmed.`,
-		report: `- The handover.
-- The acceptance checklist, as checkboxes.
-- What was cleaned locally, and what could not be, with the reason.
-- Follow-up tickets worth creating.`,
+		Title:           "Handoff and Close",
+		FrontmatterDesc: "Close the ticket properly: confirm the merge, write the handover and the acceptance checklist, then clean the local workspace.",
+		GuardTitle:      "Do not",
 	},
 	{
 		ID:              "create_pr",
@@ -282,21 +152,9 @@ and a local workspace with nothing stale in it.`,
 		Icon:            "GitPullRequest",
 		Color:           "purple",
 		Steps:           []string{"Inspect the branch and existing pull requests", "Run the required checks", "Create or update the pull request without changing the workflow stage"},
-		title:           "Create PR",
-		frontmatterDesc: "Create or reuse a pull request for the current task branch without advancing its workflow stage.",
-		goal:            "Publish the current task branch as a reviewable pull request. This is a standalone utility, outside the five-stage agentic workflow.",
-		readFirst:       "- The task, specification, repository instructions, current branch, diff and existing pull requests.",
-		stepsBody: `1. Reuse the assigned worktree and branch. Inspect the complete diff and verify the target repository and base branch.
-2. Run git fetch origin and reconcile the remote default branch (for example origin/main). Do not publish while behind the remote default branch. Preserve shared history; prefer rebase when the branch is private, and use git push --force-with-lease only when an authorized private-branch rebase requires it. Run the repository's required build, lint and tests. Fix findings before publishing and record the results.
-3. Commit and push the authorized changes. Look up the matching open PR for this branch before creating one; reuse it if present.
-4. Create a draft PR if none exists, or update the existing PR description with the final scope and validation. Preserve its existing draft/ready state.
-5. Verify the remote PR URL and head commit. Report the PR URL and evidence without transitioning the task.`,
-		guardTitle: "Do not",
-		guard: `- Do not advance workflow stages, mark the task reviewed, merge, approve or clean up the worktree.
-- Do not create duplicate PRs or publish with failing checks.`,
-		report: `- PR URL and branch.
-- Scope of the change and validation results.
-- Confirmation that the task workflow stage was preserved.`,
+		Title:           "Create PR",
+		FrontmatterDesc: "Create or reuse a pull request for the current task branch without advancing its workflow stage.",
+		GuardTitle:      "Do not",
 	},
 	{
 		ID:          "pickup",
@@ -315,21 +173,9 @@ and a local workspace with nothing stale in it.`,
 			"Adjust the complete diff and existing PR after earlier-stage creation",
 			"Mise à jour à chaque étape via le handler local Sectile",
 		},
-		title:           "Pickup Issue (Auto-Pilot to PR)",
-		frontmatterDesc: "Pick a ticket and autonomously execute all development steps up to Pull Request creation.",
-		goal: `Autonomously take a ticket from its current stage through clarification, specification,
-implementation, and testing, all the way to opening a clean Pull Request, updating each stage via Sectile.`,
-		readFirst: `- The ticket: key, title, description, parent macro, and tracker comments.
-- The project's code and existing patterns.
-- The project SDD framework (OpenSpec or Spec Kit).`,
-		guardTitle: "Do not",
-		guard: `- Do not merge into the default branch (merging is reserved for the human user).
-- Do not push or open a PR if the test suite is failing.
-- Follow the managed or standalone transition contract for the invocation.`,
-		report: `- The created Pull Request URL.
-- The work branch and files modified.
-- The test results demonstrating that build, lint, and tests pass.
-- Summary of settled scope and key architectural decisions.`,
+		Title:           "Pickup Issue (Auto-Pilot to PR)",
+		FrontmatterDesc: "Pick a ticket and autonomously execute all development steps up to Pull Request creation.",
+		GuardTitle:      "Do not",
 	},
 	{
 		ID:          "rewrite_story",
@@ -346,25 +192,9 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 			"Reformulation au format User Story + Contexte + Critères d'acceptation",
 			"Aperçu et confirmation par l'utilisateur",
 		},
-		title:           "Rewrite Story",
-		frontmatterDesc: "Reformat a story or task description into structured markdown, optionally incorporating task comments.",
-		goal:            `Reformat a task's title, description, and optional comments into a clean GitHub-Flavored Markdown specification (User Story: As a..., I want..., So that... + Context + Acceptance Criteria + Notes).`,
-		readFirst: `- The task: title, description, and task comments (if requested or passed as context).
-- Standard GitHub-Flavored Markdown (GFM) formatting guidelines.`,
-		stepsBody: `1. Inspect the task title, raw description, and comments (if provided).
-2. Extract the core intent, user value, technical context, and acceptance criteria.
-3. Generate a structured GFM document containing:
-   - **User Story**: As a <role>, I want <feature>, So that <benefit>.
-   - **Context**: Problem background and technical overview.
-   - **Acceptance Criteria**: Checkbox list (- [ ]) of verifiable functional & non-functional requirements.
-   - **Notes**: Extra technical details or risks mentioned in comments.
-4. Output the reformatted markdown directly for preview and user confirmation.`,
-		guardTitle: "Do not",
-		guard: `- Do not mutate task title, status, priority, assignee, branch, or pull request.
-- Do not delete or overwrite task comments.
-- Do not invent artificial requirements not implied by the description or comments.`,
-		report: `- The reformatted GFM description preview.
-- List of comment points integrated into acceptance criteria (if any).`,
+		Title:           "Rewrite Story",
+		FrontmatterDesc: "Reformat a story or task description into structured markdown, optionally incorporating task comments.",
+		GuardTitle:      "Do not",
 	},
 	{
 		ID:          "refine_macro",
@@ -384,17 +214,9 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 			"Structuration du plan d'action selon le cadre SDD (SpecKit ou OpenSpec)",
 			"Génération des items MacroTodo et découpage des tickets Sectile prêts à être créés",
 		},
-		title:           "Refine Macro",
-		frontmatterDesc: "Interactively clarify macro framing text with the user and break it down into structured todos and Sectile tickets.",
-		goal:            `Transform high-level macro framing text into an actionable, structured todo list and concrete Sectile tickets, interactively clarifying ambiguities with the user when framing text is vague.`,
-		guardTitle:      "Do not",
-		guard: `- Do not generate tasks blindly when framing text is vague without asking clarification questions.
-- Do not overwrite existing todos or tasks without user confirmation in the UI.
-- Do not mutate external tracker issues directly without user trigger.`,
-		report: `- Clarification Q&A summary (if framing was vague).
-- Structured list of proposed MacroTodo items.
-- Proposed Sectile tickets breakdown (Title, IssueType, Description).
-- Rationale behind the task breakdown.`,
+		Title:           "Refine Macro",
+		FrontmatterDesc: "Interactively clarify macro framing text with the user and break it down into structured todos and Sectile tickets.",
+		GuardTitle:      "Do not",
 	},
 	{
 		ID:          "pickup_issues",
@@ -412,17 +234,9 @@ implementation, and testing, all the way to opening a clean Pull Request, updati
 			"Exécution des tests complets du projet",
 			"Création d'une unique Pull Request combinée pour le lot",
 		},
-		title:           "Batch Pickup Issues (Single Worktree & Combined PR)",
-		frontmatterDesc: "Batch process a list of selected board tickets sequentially in autonomy inside a single dedicated worktree, producing one combined Pull Request covered by tests and lints.",
-		goal:            `Autonomously process a batch of tickets selected from the board sequentially in the exact order provided inside a single dedicated batch worktree.`,
-		readFirst: `- The list of tickets in the batch.
-- The project's code and existing patterns.
-- The project SDD framework.`,
-		guardTitle: "Do not",
-		guard: `- Do not create separate branches or PRs per ticket.
-- Do not merge into default branch (merging is reserved for human user).`,
-		report: `- The created Pull Request URL.
-- Summary of processed tickets and test results.`,
+		Title:           "Batch Pickup Issues (Single Worktree & Combined PR)",
+		FrontmatterDesc: "Batch process a list of selected board tickets sequentially in autonomy inside a single dedicated worktree, producing one combined Pull Request covered by tests and lints.",
+		GuardTitle:      "Do not",
 	},
 }
 
@@ -449,7 +263,41 @@ func StageSkillByID(skillID string) (StageSkill, bool) {
 	return StageSkill{}, false
 }
 
-const tick = "`"
+func readSkillFragment(skillID, name, framework string) string {
+	framework = strings.ToLower(strings.TrimSpace(framework))
+	if framework != "" {
+		path := filepath.Join("skills", skillID, name+"."+framework+".md")
+		if data, err := embeddedSkillsFS.ReadFile(path); err == nil {
+			return string(data)
+		}
+	}
+	path := filepath.Join("skills", skillID, name+".md")
+	data, err := embeddedSkillsFS.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func readContractFragment(name string) string {
+	data, err := embeddedSkillsFS.ReadFile(filepath.Join("skills", "contracts", name+".md"))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func executeContractTemplate(tmplStr string, data any) string {
+	t, err := template.New("contract").Parse(tmplStr)
+	if err != nil {
+		return ""
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, data); err != nil {
+		return ""
+	}
+	return buf.String()
+}
 
 // JSON strings are valid YAML scalars, including colons, quotes and newlines.
 func skillYAMLString(value string) string {
@@ -477,86 +325,24 @@ func refineMacroFrameworkName(specFramework string) string {
 	return "Refine Macro (Spec-Driven Design)"
 }
 
-func refineMacroFrameworkBody(specFramework string) (readFirst, steps string) {
-	readFirst = `- The macro title and framing description.
-- The active project SDD framework (SpecKit or OpenSpec).
-- Existing macro todos and child tasks to avoid duplicating completed work.`
-
-	steps = `1. Inspect the macro title and high-level framing description.
-2. **Evaluate framing completeness**:
-   - If the framing description is empty, under 2 sentences, or lacks clear technical boundaries/acceptance criteria, formulate 3 to 5 numbered clarification questions and ask the user directly in this interactive terminal session before generating tasks.
-3. **Decompose & Break Down**:
-   - Once answered or if framing text is detailed, group action items according to the selected SDD framework:
-     - **SpecKit SDD**: Group into User Stories ([US-x]) and Feature Modules ([FEAT-x]).
-     - **OpenSpec SDD**: Group into Capabilities ([CAP-x]) and Change Proposals ([CHANGE-x]).
-4. Output the generated checklist of actionable todos AND proposed Sectile tickets (Title, IssueType: Story/Task/Bug, Description) for bulk ticket creation.`
-
-	return readFirst, steps
-}
-
-// specifyFrameworkBody produces the specification instructions, supporting explicit
-// {sdd_framework} parameterization (openspec / speckit) as well as auto-detection.
-func specifyFrameworkBody(specFramework string) (readFirst, steps string) {
-	readFirst = `- The clarification outcome on the ticket: the decisions are already made, apply them.
-- Select the SDD framework in order: explicit {sdd_framework} or --framework=<name>,
-  then the project-configured framework, then repository detection:
-  - If ` + tick + `openspec/` + tick + ` exists -> use OpenSpec SDD.
-  - If ` + tick + `.specify/` + tick + ` or ` + tick + `specs/` + tick + ` exists -> use Spec Kit SDD.
-- Ensure the project SDD directory is initialized before writing specifications.`
-
-	steps = `1. Reuse the assigned worktree and branch (including a shared batch branch). Only create <KEY>-<title-slug> when no work branch is assigned. Preserve existing work; never write on the default branch.
-2. Select the SDD framework from {sdd_framework} argument, flag, or project detection:
-
-   **If using OpenSpec SDD:**
-   - Create change directory ` + tick + `openspec/changes/<KEY>-<title-slug>/` + tick + `
-   - Write ` + tick + `proposal.md` + tick + ` (problem, value, in/out scope)
-   - Write ` + tick + `design.md` + tick + ` (technical decisions, rejected alternatives)
-   - Write ` + tick + `tasks.md` + tick + ` (ordered implementation checklist)
-   - Write ` + tick + `specs/<capability>/spec.md` + tick + ` (requirements with Given/When/Then)
-   - Validate with ` + tick + `openspec validate <change-id> --strict` + tick + `
-
-   **If using Spec Kit SDD:**
-   - Write ` + tick + `specs/<KEY>-<title-slug>/spec.md` + tick + ` (prioritised user stories, functional requirements, Given/When/Then)
-   - Write ` + tick + `plan.md` + tick + ` (stack, architecture, data contracts, target files)
-   - Write ` + tick + `tasks.md` + tick + ` (ordered implementation checklist with test plan)
-   - Use ` + tick + `/speckit.specify` + tick + `, ` + tick + `/speckit.plan` + tick + `, ` + tick + `/speckit.tasks` + tick + ` if available.`
-
-	if framework := strings.ToLower(strings.TrimSpace(specFramework)); framework == "openspec" || framework == "speckit" {
-		readFirst = "- Project-configured SDD framework: " + framework + ". Use it unless the invocation explicitly overrides it.\n" + readFirst
-	}
-	return readFirst, steps
-}
-
 // renderTaskAccessContract keeps task access consistent across skills and commands.
 func renderTaskAccessContract() string {
-	return `## Sectile task access
-- Use the local Sectile agent's exposed task-management interface first for ticket reads, updates, comments, creation, and workflow results. Discover its actual tools or documented commands from the session/project context; do not invent an endpoint or launch another agent daemon as a substitute.
-- Resolve the project against its repository, then verify the task's full ID and external URL. A bare key such as #47 can match another project's ticket. Use the full task ID for mutations and an explicit project ID for creation.
-- If the local agent interface is unavailable or fails after a bounded attempt, use http://localhost:8090 as a temporary fallback. Record the missing capability or error, check for an existing bug in the same project, and register or update that bug when authorized. If reporting is unavailable or not authorized, preserve the report locally and state what remains pending. Do not bypass Sectile by writing directly to its database or remote tracker.
-- For a managed run, submit only through its supplied result contract and let Sectile validate and synchronize the result. An active run without a usable completion contract is a reportable integration failure. Preserve the artifacts and report the blocked transition; do not cancel the activity, forge launch/completion status, or use another endpoint to evade result validation.
-- This routing does not authorize mutations excluded by the skill or user request. Verify each mutation's response and report partial success explicitly.
-
-`
+	return strings.TrimRight(readContractFragment("task-access"), "\n") + "\n\n"
 }
 
 // renderSessionTitleContract names the agent session after the work item it runs
-// on, so a board of parallel sessions stays readable. The instruction states the
-// outcome and not a Claude Code specific tool: every agent applies it with
-// whatever renaming capability it has.
+// on, so a board of parallel sessions stays readable.
 func renderSessionTitleContract(s StageSkill) string {
 	item := "ticket"
 	if s.Scope == "macro" {
 		item = "macro"
 	}
-	var b strings.Builder
-	b.WriteString("## Session title\n")
-	fmt.Fprintf(&b, "- As soon as the %s is identified, and before doing the work, rename the current session to `<%s ID> - <%s title>`, for example `#47 - Remove the parallelism setting`. Keep that title for the whole run.\n", item, item, item)
-	if s.ID == "pickup_issues" {
-		b.WriteString("- For a batch, name the session after the first ticket followed by the remaining count, for example `#47 (+2) - Remove the parallelism setting`.\n")
-	}
-	b.WriteString("- This applies to every agent, not only Claude Code: use whatever session renaming capability the running agent exposes, be it a session title tool, a rename command or the host session API. Discover it from the session context instead of assuming a name.\n")
-	b.WriteString("- If no renaming capability is available, skip the rename silently and continue. It never blocks, delays or replaces the work of the skill.\n\n")
-	return b.String()
+	tmpl := readContractFragment("session-title")
+	res := executeContractTemplate(tmpl, map[string]any{
+		"Item": item,
+		"ID":   s.ID,
+	})
+	return strings.TrimRight(res, "\n") + "\n\n"
 }
 
 // renderTicketTransitionContract generates the autonomous ticket transition instructions
@@ -566,78 +352,62 @@ func renderTicketTransitionContract(s StageSkill) string {
 	if s.Scope == "macro" {
 		return ""
 	}
-	var b strings.Builder
-	b.WriteString("## Execution and ticket state\n")
-	b.WriteString("- **Managed Sectile run**: When the invocation supplies a result-file contract, follow it. Sectile validates the result and owns transitions and tracker reports. Do not also call stage/postback APIs or edit tracker labels.\n")
-	b.WriteString("- **Remote execution indicator (standalone only)**: Before doing work, call start_run with the full task primary key and skill name. If SECTILE_RUN_ID or a launch runId is supplied, reuse it. Keep the returned activity ID as runId. Nested skills reuse the outer run; only the owner finishes it. Call finish_run with taskKey, runId, status (completed, failed or canceled), and a note when the entire invocation ends, including errors or stopping for user input. Intermediate stage transitions do not finish an enclosing pickup run. A batch tracks each task separately. Never start a run merely to read a task.\n")
-	if s.FromStage == "" {
-		return b.String()
-	}
-
-	b.WriteString("- **Standalone invocation**: Read live context with `get_task` and `get_project_context`. After verifying each completed step, invoke `transition_stage` with the task key, completed stage, structured report note and actual branch. Check the tool result for errors before continuing.\n")
-	if s.ID == "pickup" || s.ID == "pickup_issues" {
-		b.WriteString("Record clarified, specified and implemented after each corresponding step. After PR verification, record reviewed with the PR URL. For a batch, use the same actual branch and combined PR URL for every completed ticket; never mark unfinished work reviewed.\n")
-	} else if s.ID == "clarify" {
-		b.WriteString("Transition new → clarified only when the exit condition is met: the owner confirms the clarification is satisfactory (or zero product questions remain open in unattended pickup). Never transition new → clarified while any product question or decision remains open.\n")
-	} else {
-		fmt.Fprintf(&b, "Transition %s → %s only when this step is complete.\n", s.FromStage, s.ToStage)
-		if s.ID == "adjust" {
-			b.WriteString("Include prUrl with the verified pull request URL.\n")
-		}
-	}
-	// Un ticket porte plusieurs PR : l'agent doit savoir qu'une PR de suite sur la
-	// même branche est légitime, sinon il croit la transition définitivement close.
-	b.WriteString("A task holds an ordered set of pull requests, `prUrl` being its current one. A pull request on a branch the task already used is a legitimate follow-up and is appended, even when the recorded one is merged; a pull request on an unrelated branch is refused, and its links are corrected from the task detail view rather than by forging evidence.\n")
-	b.WriteString("Use `add_comment` for an authorized ticket discussion update. Managed runs must not also invoke transition/comment tools for reports owned by Sectile. If MCP is unavailable, preserve work and report the pending transition; do not silently write to a different server or database.\n")
-	b.WriteString("Reuse the assigned worktree and actual branch. Never merge or delete remote objects. Keep work available for review and retry until confirmed handoff.\n")
-	return b.String()
+	tmpl := readContractFragment("transition")
+	res := executeContractTemplate(tmpl, map[string]any{
+		"FromStage": s.FromStage,
+		"ToStage":   s.ToStage,
+		"ID":        s.ID,
+	})
+	return strings.TrimRight(res, "\n") + "\n"
 }
 
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs
 // cannot silently omit a validation rule added to a standalone step.
 func renderPickupSteps(specFramework string, batch bool) string {
 	var b strings.Builder
-	b.WriteString("1. Inspect the current ticket state AND existing artifacts. Reuse assigned branches, specifications, checklist progress and PRs. Verify completed work before skipping it.\n")
-	if batch {
-		b.WriteString("2. Use one dedicated worktree and branch for the ordered batch. Run clarification, specification and implementation for each ticket in order. If one blocks, preserve the batch and report completed tickets and the next action; never include unfinished work as completed.\n3. Once all tickets are implemented, run adjustment and final checks across the whole batch and update the ONE combined PR created during the configured earlier stage.\n")
-	} else {
-		b.WriteString("2. Reuse or create a dedicated worktree and work branch. Continue through the stages below from the first incomplete stage to a verified PR.\n")
-	}
-	b.WriteString("Stop before merge. Stage-local boundaries apply while that stage is active; after its requirements are met, continue to the next stage without asking for routine confirmation.\n")
+	tmpl := readContractFragment("pickup-header")
+	header := executeContractTemplate(tmpl, map[string]any{
+		"Batch": batch,
+	})
+	b.WriteString(strings.TrimRight(header, "\n") + "\n")
+
 	for _, id := range []string{"clarify", "specify", "implement", "adjust"} {
 		step, _ := StageSkillByID(id)
-		readFirst, body := step.readFirst, step.stepsBody
-		if id == "specify" {
-			readFirst, body = specifyFrameworkBody(specFramework)
-		}
-		fmt.Fprintf(&b, "\n### %s\n%s\n\n%s\n\n%s\n\nReport and persist before continuing:\n%s\n", step.title, readFirst, body, step.guard, step.report)
+		title := step.Title
+		readFirst := readSkillFragment(id, "read-first", specFramework)
+		steps := readSkillFragment(id, "steps", specFramework)
+		guard := readSkillFragment(id, "guard", "")
+		report := readSkillFragment(id, "report", "")
+		fmt.Fprintf(&b, "\n### %s\n%s\n\n%s\n\n%s\n\nReport and persist before continuing:\n%s\n", title, readFirst, steps, guard, report)
 	}
 	return b.String()
 }
 
 // RenderSkillContent builds the SKILL.md of one skill.
 func RenderSkillContent(s StageSkill, specFramework string) string {
-	name := s.title
+	name := s.Title
 	if name == "" {
 		name = s.Name
 	}
-	readFirst := s.readFirst
-	steps := s.stepsBody
+	readFirst := readSkillFragment(s.ID, "read-first", specFramework)
+	steps := readSkillFragment(s.ID, "steps", specFramework)
 	if s.ID == "specify" {
 		name = specifyFrameworkName(specFramework)
-		readFirst, steps = specifyFrameworkBody(specFramework)
 	}
 	if s.ID == "refine_macro" {
 		name = refineMacroFrameworkName(specFramework)
-		readFirst, steps = refineMacroFrameworkBody(specFramework)
 	}
 
 	if s.ID == "pickup" || s.ID == "pickup_issues" {
 		steps = renderPickupSteps(specFramework, s.ID == "pickup_issues")
 	}
 
+	goal := readSkillFragment(s.ID, "goal", "")
+	guard := readSkillFragment(s.ID, "guard", "")
+	report := readSkillFragment(s.ID, "report", "")
+
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, skillYAMLString(s.frontmatterDesc))
+	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, skillYAMLString(s.FrontmatterDesc))
 	fmt.Fprintf(&b, "# %s\n\n", name)
 	if s.FromStage != "" && s.Scope != "macro" {
 		fmt.Fprintf(&b, "Stage: %s -> %s.", s.FromStage, s.ToStage)
@@ -650,21 +420,25 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	b.WriteString("\n\n")
 	b.WriteString(renderTaskAccessContract())
 	b.WriteString(renderSessionTitleContract(s))
-	fmt.Fprintf(&b, "## Goal\n%s\n\n", s.goal)
+	fmt.Fprintf(&b, "## Goal\n%s\n\n", goal)
 	if readFirst != "" {
 		fmt.Fprintf(&b, "## Read first\n%s\n\n", readFirst)
 	}
 	if steps != "" {
 		fmt.Fprintf(&b, "## Steps\n%s\n\n", steps)
 	}
-	if s.guard != "" {
-		fmt.Fprintf(&b, "## %s\n%s\n\n", s.guardTitle, s.guard)
+	if guard != "" {
+		guardTitle := s.GuardTitle
+		if guardTitle == "" {
+			guardTitle = "Do not"
+		}
+		fmt.Fprintf(&b, "## %s\n%s\n\n", guardTitle, guard)
 	}
 	if contract := renderTicketTransitionContract(s); contract != "" {
-		fmt.Fprintf(&b, "## Report\n%s\n\n", s.report)
+		fmt.Fprintf(&b, "## Report\n%s\n\n", report)
 		b.WriteString(contract)
 	} else {
-		fmt.Fprintf(&b, "## Report\n%s\n", s.report)
+		fmt.Fprintf(&b, "## Report\n%s\n", report)
 	}
 	return b.String()
 }
@@ -696,7 +470,6 @@ func SkillDirsFor(root, dirName string) []string {
 	dirs := make([]string, 0, len(models.SkillAgentDirs))
 	for _, agent := range models.SkillAgentDirs {
 		if agent == "" {
-			// La convention agnostique, a la racine : .skills/<nom>
 			dirs = append(dirs, filepath.Join(root, ".skills", dirName))
 			continue
 		}
@@ -706,13 +479,6 @@ func SkillDirsFor(root, dirName string) []string {
 }
 
 // SkillCommandPath is where a skill's slash command lives for Claude Code.
-//
-// Une skill et une commande ne sont pas la même chose : une skill sous
-// .claude/skills/<nom>/SKILL.md est choisie par le modèle quand il la juge
-// pertinente, alors qu'une commande sous .claude/commands/<nom>.md est
-// invocable par « /<nom> ». Sectile appelle ses étapes par leur commande, donc
-// il faut écrire les deux, sinon « claude -p "/clarify-issue PROJ-123" » se
-// contente de recopier le texte.
 func SkillCommandPath(root, dirName string) string {
 	return filepath.Join(root, ".claude", "commands", dirName+".md")
 }
@@ -722,8 +488,6 @@ func SkillCommandPath(root, dirName string) string {
 func RenderSkillCommand(s StageSkill, specFramework string) string {
 	body := RenderSkillContent(s, specFramework)
 
-	// Le frontmatter d'une skill porte name et description ; celui d'une commande
-	// porte description et argument-hint. On retire le premier pour écrire le bon.
 	if strings.HasPrefix(body, "---\n") {
 		if end := strings.Index(body[4:], "\n---\n"); end >= 0 {
 			body = body[4+end+5:]
@@ -732,7 +496,7 @@ func RenderSkillCommand(s StageSkill, specFramework string) string {
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "description: %s\n", skillYAMLString(s.frontmatterDesc))
+	fmt.Fprintf(&b, "description: %s\n", skillYAMLString(s.FrontmatterDesc))
 	hint := "<TICKET-KEY> [contexte]"
 	if s.Scope == "macro" {
 		hint = "<MACRO-KEY> [contexte]"

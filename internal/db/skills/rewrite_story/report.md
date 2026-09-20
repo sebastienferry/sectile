@@ -1,0 +1,2 @@
+- The reformatted GFM description preview.
+- List of comment points integrated into acceptance criteria (if any).

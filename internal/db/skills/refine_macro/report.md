@@ -1,0 +1,4 @@
+- Clarification Q&A summary (if framing was vague).
+- Structured list of proposed MacroTodo items.
+- Proposed Sectile tickets breakdown (Title, IssueType, Description).
+- Rationale behind the task breakdown.

@@ -1,0 +1,1 @@
+- The task, specification, repository instructions, current branch, diff and existing pull requests.

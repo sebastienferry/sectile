@@ -1,0 +1,3 @@
+- What the review found, and which findings you fixed.
+- The merge request URL, or why there is none.
+- The test plan a reviewer can replay, as a checklist.

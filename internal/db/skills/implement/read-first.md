@@ -1,0 +1,3 @@
+- The specification and its task checklist. It is the contract, follow its order.
+- The surrounding code: naming, error handling, comment density, test style. Match it.
+- How this project builds and tests. Find the real commands, do not assume them.

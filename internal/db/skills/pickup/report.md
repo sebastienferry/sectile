@@ -1,0 +1,4 @@
+- The created Pull Request URL.
+- The work branch and files modified.
+- The test results demonstrating that build, lint, and tests pass.
+- Summary of settled scope and key architectural decisions.

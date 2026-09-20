@@ -592,4 +592,3 @@ func TestDesktopTaskTransitionAndCapabilities(t *testing.T) {
 		t.Fatalf("unexpected forwarded payload: %v", forwardedBody)
 	}
 }
-

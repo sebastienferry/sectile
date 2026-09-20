@@ -1,0 +1,2 @@
+- Do not create separate branches or PRs per ticket.
+- Do not merge into default branch (merging is reserved for human user).
