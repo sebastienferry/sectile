@@ -8,6 +8,8 @@ import {
   Columns,
   ListFilter,
   Activity,
+  Map,
+  Clock,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -670,6 +672,34 @@ export const Sidebar: React.FC = () => {
             >
               <Columns size={15} className="shrink-0 text-emerald-400" />
               {!sidebarCollapsed && <span className="truncate">Board</span>}
+            </button>
+
+            {/* 5a. Roadmap */}
+            <button
+              onClick={() => setActiveView('roadmap')}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                activeView === 'roadmap'
+                  ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Roadmap : NOW / NEXT / FUTURE"
+            >
+              <Map size={15} className="shrink-0 text-amber-400" />
+              {!sidebarCollapsed && <span className="truncate">{t.nav.roadmap}</span>}
+            </button>
+
+            {/* 5b. Timeline */}
+            <button
+              onClick={() => setActiveView('timeline')}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                activeView === 'timeline'
+                  ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Timeline Sprints"
+            >
+              <Clock size={15} className="shrink-0 text-blue-400" />
+              {!sidebarCollapsed && <span className="truncate">{t.nav.timeline}</span>}
             </button>
 
             {/* 6. Activités */}

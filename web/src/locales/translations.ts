@@ -14,6 +14,8 @@ export interface TranslationSchema {
     views: string
     board: string
     list: string
+    roadmap: string
+    timeline: string
     activities: string
     sync: string
     filters: string
@@ -685,6 +687,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       views: 'Vues',
       board: 'Board',
       list: 'Backlog',
+      roadmap: 'Roadmap',
+      timeline: 'Timeline',
       activities: 'Activités',
       sync: 'Synchro',
       filters: 'Filtres rapides',
@@ -1353,6 +1357,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       views: 'Views',
       board: 'Board',
       list: 'Backlog',
+      roadmap: 'Roadmap',
+      timeline: 'Timeline',
       activities: 'Activities',
       sync: 'Sync',
       filters: 'Quick Filters',
