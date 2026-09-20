@@ -5,6 +5,8 @@ import {
   Columns,
   ListFilter,
   Activity,
+  Map,
+  Clock,
   Sun,
   Moon,
   Globe,
@@ -177,6 +179,28 @@ export const CommandPalette: React.FC = () => {
       keywords: ['backlog', 'liste', 'list', 'table', 'lignes', 'taches', 'tasks', 'vue'],
       action: () => {
         setActiveView('list')
+        setIsCommandPaletteOpen(false)
+      },
+    },
+    {
+      id: 'switch_roadmap',
+      title: '🗺️ Vue Roadmap (Macros : NOW / NEXT / FUTURE)',
+      icon: <Map size={16} className="text-emerald-400" />,
+      shortcut: 'R',
+      keywords: ['roadmap', 'macros', 'macro', 'horizon', 'now', 'next', 'future', 'vue', 'plan'],
+      action: () => {
+        setActiveView('roadmap')
+        setIsCommandPaletteOpen(false)
+      },
+    },
+    {
+      id: 'switch_timeline',
+      title: '⏱️ Vue Timeline Sprints',
+      icon: <Clock size={16} className="text-blue-400" />,
+      shortcut: 'TL',
+      keywords: ['timeline', 'sprint', 'sprints', 'planning', 'vue', 'horizons', 'duree', 'chronologie'],
+      action: () => {
+        setActiveView('timeline')
         setIsCommandPaletteOpen(false)
       },
     },
