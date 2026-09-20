@@ -319,3 +319,289 @@ func TestCreateTaskFailsRatherThanFilingLocally(t *testing.T) {
 		t.Fatalf("local project creation refused: %v", err)
 	}
 }
+
+func TestUpdateTaskFields(t *testing.T) {
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	task, err := database.CreateTask(models.CreateTaskRequest{
+		ProjectID:   "default",
+		Title:       "Initial title",
+		Description: "Initial description",
+		Priority:    models.PriorityLow,
+		IssueType:   "Task",
+		Labels:      []string{"init"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clarifiedStatus := models.StatusClarified
+	task, err = database.UpdateTask(task.ID, models.UpdateTaskRequest{
+		Status: &clarifiedStatus,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Update title and description
+	res, err := call(t, database, "update_task", map[string]any{
+		"taskKey":     task.ID,
+		"title":       "Updated title",
+		"description": "Updated description",
+	})
+	if err != nil {
+		t.Fatalf("update_task failed: %v", err)
+	}
+	taskMap, _ := res["task"].(map[string]any)
+	if taskMap == nil || taskMap["title"] != "Updated title" || taskMap["description"] != "Updated description" {
+		t.Fatalf("unexpected task result: %v", res)
+	}
+	reread, err := database.GetTaskByID(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.Title != "Updated title" || reread.Description != "Updated description" {
+		t.Fatalf("database not updated: title=%q desc=%q", reread.Title, reread.Description)
+	}
+	if reread.Status != models.StatusClarified {
+		t.Fatalf("status unexpectedly changed: %s", reread.Status)
+	}
+
+	// 2. Clear description with empty string
+	res, err = call(t, database, "update_task", map[string]any{
+		"taskKey":     task.ID,
+		"description": "",
+	})
+	if err != nil {
+		t.Fatalf("update_task clear desc failed: %v", err)
+	}
+	taskMap, _ = res["task"].(map[string]any)
+	if taskMap == nil || taskMap["description"] != "" {
+		t.Fatalf("description not cleared in result: %v", res)
+	}
+	reread, err = database.GetTaskByID(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.Description != "" {
+		t.Fatalf("description not cleared in db: %q", reread.Description)
+	}
+
+	// 3. Update priority, issueType, and custom labels
+	res, err = call(t, database, "update_task", map[string]any{
+		"taskKey":   task.ID,
+		"priority":  "urgent",
+		"issueType": "Bug",
+		"labels":    []any{"backend", "db"},
+	})
+	if err != nil {
+		t.Fatalf("update_task priority/issueType/labels failed: %v", err)
+	}
+	reread, err = database.GetTaskByID(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.Priority != models.PriorityUrgent || reread.IssueType != "Bug" {
+		t.Fatalf("priority or issueType not updated: prio=%s issueType=%s", reread.Priority, reread.IssueType)
+	}
+	hasBackend, hasDb, hasClarified := false, false, false
+	for _, l := range reread.Labels {
+		if l == "backend" {
+			hasBackend = true
+		}
+		if l == "db" {
+			hasDb = true
+		}
+		if l == "#clarified" {
+			hasClarified = true
+		}
+	}
+	if !hasBackend || !hasDb || !hasClarified {
+		t.Fatalf("labels not updated properly with workflow stage retention: %v", reread.Labels)
+	}
+
+	// 4. Custom labels update strips foreign workflow stage label (#specified) and retains current (#clarified)
+	res, err = call(t, database, "update_task", map[string]any{
+		"taskKey": task.Key,
+		"labels":  []any{"frontend", "urgent", "#specified"},
+	})
+	if err != nil {
+		t.Fatalf("update_task foreign stage labels failed: %v", err)
+	}
+	reread, err = database.GetTaskByID(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hasFrontend, hasUrgent, hasSpecified := false, false, false
+	hasClarified = false
+	for _, l := range reread.Labels {
+		if l == "frontend" {
+			hasFrontend = true
+		}
+		if l == "urgent" {
+			hasUrgent = true
+		}
+		if l == "#clarified" {
+			hasClarified = true
+		}
+		if l == "#specified" || l == "specified" {
+			hasSpecified = true
+		}
+	}
+	if !hasFrontend || !hasUrgent || !hasClarified || hasSpecified {
+		t.Fatalf("stage label was not filtered or current stage was not preserved: %v", reread.Labels)
+	}
+	if reread.Status != models.StatusClarified {
+		t.Fatalf("status was modified: %s", reread.Status)
+	}
+}
+
+func TestUpdateTaskValidation(t *testing.T) {
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	task, err := database.CreateTask(models.CreateTaskRequest{
+		ProjectID: "default",
+		Title:     "Validation task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name    string
+		args    map[string]any
+		wantErr string
+	}{
+		{
+			name:    "missing taskKey",
+			args:    map[string]any{"title": "Valid"},
+			wantErr: "taskKey",
+		},
+		{
+			name:    "blank taskKey",
+			args:    map[string]any{"taskKey": "   ", "title": "Valid"},
+			wantErr: "taskKey is required",
+		},
+		{
+			name:    "no mutable fields provided",
+			args:    map[string]any{"taskKey": task.ID},
+			wantErr: "at least one mutable field (title, description, priority, issueType, labels) must be provided",
+		},
+		{
+			name:    "blank title",
+			args:    map[string]any{"taskKey": task.ID, "title": "   "},
+			wantErr: "title cannot be empty",
+		},
+		{
+			name:    "empty title",
+			args:    map[string]any{"taskKey": task.ID, "title": ""},
+			wantErr: "title",
+		},
+		{
+			name:    "non-existent taskKey",
+			args:    map[string]any{"taskKey": "#99999", "title": "Valid"},
+			wantErr: "task not found: #99999",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := call(t, database, "update_task", tt.args)
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestUpdateTaskCallerAttributionAndTrackerSync(t *testing.T) {
+	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":42,"title":"Remote task","state":"open","html_url":"https://github.com/acme/app/issues/42"}`))
+	}))
+	defer tracker.Close()
+	t.Setenv("SECTILE_GITHUB_API_URL", tracker.URL)
+	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
+
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	project, err := database.CreateProject(models.CreateProjectRequest{
+		Name:         "Tracker project",
+		IssueTracker: "github",
+		GithubRepo:   "acme/app",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := database.CreateTask(models.CreateTaskRequest{
+		ProjectID: project.ID,
+		Title:     "Remote task",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	caller := Caller{UserID: "usr_alice", Name: "Alice"}
+	srv := httptest.NewServer(mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server {
+			return NewServerWithCallers(database, nil, func(header http.Header) (Caller, bool) {
+				return caller, true
+			})
+		},
+		&mcp.StreamableHTTPOptions{JSONResponse: true},
+	))
+	defer srv.Close()
+
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	res, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "update_task",
+		Arguments: map[string]any{
+			"taskKey": task.ID,
+			"title":   "Title updated by Alice",
+		},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("update_task failed: %v, %v", res, err)
+	}
+
+	activities, err := database.GetTaskActivities(task.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range activities {
+		t.Logf("Activity: id=%s skill=%s action=%s userId=%q", a.ID, a.SkillID, a.Action, a.UserID)
+	}
+	var trackerUpdate *models.TaskActivity
+	for i := len(activities) - 1; i >= 0; i-- {
+		if activities[i].SkillID == "tracker_update" {
+			trackerUpdate = &activities[i]
+			break
+		}
+	}
+	if trackerUpdate == nil {
+		t.Fatal("no tracker_update activity queued")
+	}
+	if trackerUpdate.UserID != "usr_alice" {
+		t.Fatalf("expected tracker_update activity attributed to usr_alice, got %q", trackerUpdate.UserID)
+	}
+}
