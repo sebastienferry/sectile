@@ -167,17 +167,24 @@ export const Sidebar: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const displayedProjects = React.useMemo(() => {
+  const { searchBookmarked, searchOthers } = React.useMemo(() => {
     const q = projectSearch.trim().toLowerCase()
     if (!q) {
-      return projects.filter(p => p.bookmarked)
+      return {
+        searchBookmarked: projects.filter(p => p.bookmarked),
+        searchOthers: [],
+      }
     }
-    return projects.filter(p =>
+    const matches = projects.filter(p =>
       p.name.toLowerCase().includes(q) ||
       p.slug.toLowerCase().includes(q) ||
       (p.description && p.description.toLowerCase().includes(q)) ||
       (p.repoPath && p.repoPath.toLowerCase().includes(q))
     )
+    return {
+      searchBookmarked: matches.filter(p => p.bookmarked),
+      searchOthers: matches.filter(p => !p.bookmarked),
+    }
   }, [projects, projectSearch])
 
   /**
@@ -395,7 +402,175 @@ export const Sidebar: React.FC = () => {
                   </div>
                 </div>
 
-                {/* All Projects Option */}
+                {/* Project List: Bookmarked projects at the top */}
+                <div className="max-h-48 overflow-y-auto space-y-0.5 mt-1">
+                  {searchBookmarked.length === 0 && searchOthers.length === 0 ? (
+                    <div className="px-2 py-3 text-center text-xs text-[var(--text-muted)]">
+                      {projectSearch.trim() ? 'Aucun projet trouvé' : 'Aucun projet favori'}
+                    </div>
+                  ) : (
+                    <>
+                      {searchBookmarked.length > 0 && (
+                        <div className="space-y-0.5">
+                          {projectSearch.trim() && searchOthers.length > 0 && (
+                            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1">
+                              <Star size={10} className="text-amber-400 fill-current" />
+                              <span>Favoris</span>
+                            </div>
+                          )}
+                          {searchBookmarked.map(p => {
+                            const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
+                            return (
+                              <div
+                                key={p.id}
+                                onClick={() => {
+                                  setSelectedProjectId(p.id)
+                                  setIsProjectDropdownOpen(false)
+                                  setProjectSearch('')
+                                }}
+                                className={`group/item w-full flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition-all ${
+                                  isSel
+                                    ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
+                                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div
+                                    className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+                                    style={accentBadgeStyle(p.color)}
+                                  >
+                                    {renderProjectIcon(p.icon, 12)}
+                                  </div>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="truncate">{p.name}</span>
+                                    <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
+                                      {p.repoPath ? p.repoPath.split('/').pop() : ''}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      await toggleProjectBookmark(p.id)
+                                    }}
+                                    className={`p-1 rounded-md transition-colors cursor-pointer ${
+                                      p.bookmarked
+                                        ? 'text-amber-400 hover:text-amber-500'
+                                        : 'text-[var(--text-muted)] hover:text-amber-400 opacity-0 group-hover/item:opacity-100'
+                                    }`}
+                                    title={p.bookmarked ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                                  >
+                                    <Star size={12} className={p.bookmarked ? 'fill-current' : ''} />
+                                  </button>
+                                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--bg-primary)] text-[var(--text-muted)]">
+                                    {p.taskCount || 0}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setEditingProject(p)
+                                      setIsProjectModalOpen(true)
+                                      setIsProjectDropdownOpen(false)
+                                      setProjectSearch('')
+                                    }}
+                                    className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
+                                    title="Configurer ce projet"
+                                  >
+                                    <Settings2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      {searchOthers.length > 0 && (
+                        <div className="space-y-0.5 mt-1.5">
+                          <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                            Autres projets
+                          </div>
+                          {searchOthers.map(p => {
+                            const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
+                            return (
+                              <div
+                                key={p.id}
+                                onClick={() => {
+                                  setSelectedProjectId(p.id)
+                                  setIsProjectDropdownOpen(false)
+                                  setProjectSearch('')
+                                }}
+                                className={`group/item w-full flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition-all ${
+                                  isSel
+                                    ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
+                                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <div
+                                    className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
+                                    style={accentBadgeStyle(p.color)}
+                                  >
+                                    {renderProjectIcon(p.icon, 12)}
+                                  </div>
+                                  <div className="flex flex-col min-w-0">
+                                    <span className="truncate">{p.name}</span>
+                                    <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
+                                      {p.repoPath ? p.repoPath.split('/').pop() : ''}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={async (e) => {
+                                      e.stopPropagation()
+                                      await toggleProjectBookmark(p.id)
+                                    }}
+                                    className={`p-1 rounded-md transition-colors cursor-pointer ${
+                                      p.bookmarked
+                                        ? 'text-amber-400 hover:text-amber-500'
+                                        : 'text-[var(--text-muted)] hover:text-amber-400 opacity-0 group-hover/item:opacity-100'
+                                    }`}
+                                    title={p.bookmarked ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                                  >
+                                    <Star size={12} className={p.bookmarked ? 'fill-current' : ''} />
+                                  </button>
+                                  <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--bg-primary)] text-[var(--text-muted)]">
+                                    {p.taskCount || 0}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      setEditingProject(p)
+                                      setIsProjectModalOpen(true)
+                                      setIsProjectDropdownOpen(false)
+                                      setProjectSearch('')
+                                    }}
+                                    className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
+                                    title="Configurer ce projet"
+                                  >
+                                    <Settings2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                <div className="my-1 border-t border-[var(--border-color)]"></div>
+
+                {/* All Projects Option (Below bookmarks) */}
                 <button
                   type="button"
                   onClick={() => {
@@ -417,86 +592,6 @@ export const Sidebar: React.FC = () => {
                   </div>
                   <span className="text-[10px] font-mono opacity-75">{counts.all}</span>
                 </button>
-
-                <div className="my-1 border-t border-[var(--border-color)]"></div>
-
-                {/* Project List */}
-                <div className="max-h-48 overflow-y-auto space-y-0.5">
-                  {displayedProjects.length === 0 ? (
-                    <div className="px-2 py-3 text-center text-xs text-[var(--text-muted)]">
-                      {projectSearch.trim() ? 'Aucun projet trouvé' : 'Aucun projet favori'}
-                    </div>
-                  ) : (
-                    displayedProjects.map(p => {
-                      const isSel = selectedProjectId === p.id || selectedProjectId === p.slug
-                      return (
-                        <div
-                          key={p.id}
-                          onClick={() => {
-                            setSelectedProjectId(p.id)
-                            setIsProjectDropdownOpen(false)
-                            setProjectSearch('')
-                          }}
-                          className={`group/item w-full flex items-center justify-between p-2 rounded-xl text-xs cursor-pointer transition-all ${
-                            isSel
-                              ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
-                              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <div
-                              className="w-5 h-5 rounded-md flex items-center justify-center shrink-0"
-                              style={accentBadgeStyle(p.color)}
-                            >
-                              {renderProjectIcon(p.icon, 12)}
-                            </div>
-                            <div className="flex flex-col min-w-0">
-                              <span className="truncate">{p.name}</span>
-                              <span className="text-[9px] text-[var(--text-muted)] font-mono truncate max-w-[120px]">
-                                {p.repoPath ? p.repoPath.split('/').pop() : ''}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              onClick={async (e) => {
-                                e.stopPropagation()
-                                await toggleProjectBookmark(p.id)
-                              }}
-                              className={`p-1 rounded-md transition-colors cursor-pointer ${
-                                p.bookmarked
-                                  ? 'text-amber-400 hover:text-amber-500'
-                                  : 'text-[var(--text-muted)] hover:text-amber-400 opacity-0 group-hover/item:opacity-100'
-                              }`}
-                              title={p.bookmarked ? 'Retirer des favoris' : 'Ajouter aux favoris'}
-                            >
-                              <Star size={12} className={p.bookmarked ? 'fill-current' : ''} />
-                            </button>
-                            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--bg-primary)] text-[var(--text-muted)]">
-                              {p.taskCount || 0}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setEditingProject(p)
-                                setIsProjectModalOpen(true)
-                                setIsProjectDropdownOpen(false)
-                                setProjectSearch('')
-                              }}
-                              className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-primary)] opacity-0 group-hover/item:opacity-100 transition-opacity cursor-pointer"
-                              title="Configurer ce projet"
-                            >
-                              <Settings2 size={12} />
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
 
                 <div className="my-1 border-t border-[var(--border-color)]"></div>
 
