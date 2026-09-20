@@ -284,6 +284,8 @@ func (d *DB) initSchema() error {
 			prompt_clarify TEXT NOT NULL DEFAULT '',
 			prompt_specify TEXT NOT NULL DEFAULT '',
 			prompt_implement TEXT NOT NULL DEFAULT '',
+			prompt_adjust TEXT NOT NULL DEFAULT '',
+			prompt_handoff TEXT NOT NULL DEFAULT '',
 			prompt_create_pr TEXT NOT NULL DEFAULT '',
 			prompt_pick TEXT NOT NULL DEFAULT '',
 			editor_command TEXT NOT NULL DEFAULT 'code',
@@ -535,6 +537,8 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_clarify TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_specify TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_implement TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_adjust TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_handoff TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_create_pr TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_pick TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN editor_command TEXT NOT NULL DEFAULT 'code';")
@@ -2584,7 +2588,7 @@ func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 	var s models.Settings
 	var aiModel, aiSkillModelsJSON, aiProviderModelsJSON sql.NullString
-	var detMode, aiProv, aiCmd, aiCmdAuto, repoP, issTrk, ghRepo, jiraProj, jiraUrl, jiraMail, jiraTok, pClar, pSpec, pImpl, pPR, pPick, editCmd, specFw sql.NullString
+	var detMode, aiProv, aiCmd, aiCmdAuto, repoP, issTrk, ghRepo, jiraProj, jiraUrl, jiraMail, jiraTok, pClar, pSpec, pImpl, pAdj, pHandoff, pPR, pPick, editCmd, specFw sql.NullString
 	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 	var uiScale sql.NullInt64
 	var autoSyncEnabled, autoSyncInterval sql.NullInt64
@@ -2593,7 +2597,7 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 		SELECT id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar,
 		       ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token,
 		       github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token,
-		       prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at
+		       prompt_clarify, prompt_specify, prompt_implement, prompt_adjust, prompt_handoff, prompt_create_pr, prompt_pick, editor_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at
 		FROM settings WHERE id = 1
 	`).Scan(
 		&s.ID,
@@ -2627,6 +2631,8 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 		&pClar,
 		&pSpec,
 		&pImpl,
+		&pAdj,
+		&pHandoff,
 		&pPR,
 		&pPick,
 		&editCmd,
@@ -2692,6 +2698,12 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 	}
 	if pImpl.Valid {
 		s.PromptImplement = pImpl.String
+	}
+	if pAdj.Valid {
+		s.PromptAdjust = pAdj.String
+	}
+	if pHandoff.Valid {
+		s.PromptHandoff = pHandoff.String
 	}
 	if pPR.Valid {
 		s.PromptCreatePR = pPR.String
@@ -3046,7 +3058,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 
 	var s models.Settings
 	var aiModel, aiSkillModelsJSON, aiProviderModelsJSON sql.NullString
-	var detMode, aiProv, aiCmd, aiCmdAuto, repoP, issTrk, ghRepo, jiraProj, jiraUrl, jiraMail, jiraTok, pClar, pSpec, pImpl, pPR, pPick, specFw, extTerm sql.NullString
+	var detMode, aiProv, aiCmd, aiCmdAuto, repoP, issTrk, ghRepo, jiraProj, jiraUrl, jiraMail, jiraTok, pClar, pSpec, pImpl, pAdj, pHandoff, pPR, pPick, specFw, extTerm sql.NullString
 	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 	var uiScale sql.NullInt64
 	var autoSyncEnabled, autoSyncInterval sql.NullInt64
@@ -3055,7 +3067,7 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 		SELECT id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar,
 		       ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token,
 		       github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token,
-		       prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at
+		       prompt_clarify, prompt_specify, prompt_implement, prompt_adjust, prompt_handoff, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at
 		FROM settings WHERE id = 1
 	`).Scan(
 		&s.ID,
@@ -3089,6 +3101,8 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 		&pClar,
 		&pSpec,
 		&pImpl,
+		&pAdj,
+		&pHandoff,
 		&pPR,
 		&pPick,
 		&s.EditorCommand,
@@ -3121,6 +3135,8 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 				PromptClarify:     "",
 				PromptSpecify:     "",
 				PromptImplement:   "",
+				PromptAdjust:      "",
+				PromptHandoff:     "",
 				PromptCreatePR:    "",
 				PromptPick:        "",
 				EditorCommand:     "code",
@@ -3192,6 +3208,12 @@ func (d *DB) GetSettings() (*models.Settings, error) {
 	}
 	if pImpl.Valid {
 		s.PromptImplement = pImpl.String
+	}
+	if pAdj.Valid {
+		s.PromptAdjust = pAdj.String
+	}
+	if pHandoff.Valid {
+		s.PromptHandoff = pHandoff.String
 	}
 	if pPR.Valid {
 		s.PromptCreatePR = pPR.String
@@ -3301,7 +3323,15 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 		if s.PromptImplement == "" {
 			s.PromptImplement = current.PromptImplement
 		}
-		if s.PromptCreatePR == "" {
+		if s.PromptAdjust == "" {
+			s.PromptAdjust = current.PromptAdjust
+		}
+		if s.PromptHandoff == "" {
+			s.PromptHandoff = current.PromptHandoff
+		}
+		if s.PromptAdjust != "" {
+			s.PromptCreatePR = ""
+		} else if s.PromptCreatePR == "" {
 			s.PromptCreatePR = current.PromptCreatePR
 		}
 		if s.PromptPick == "" {
@@ -3374,8 +3404,8 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 
 	now := time.Now()
 	_, err := d.conn.Exec(`
-		INSERT INTO settings (id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, prompt_clarify, prompt_specify, prompt_implement, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at)
-		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO settings (id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, prompt_clarify, prompt_specify, prompt_implement, prompt_adjust, prompt_handoff, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at)
+		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			theme = excluded.theme,
 			accent_color = excluded.accent_color,
@@ -3407,6 +3437,8 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 			prompt_clarify = excluded.prompt_clarify,
 			prompt_specify = excluded.prompt_specify,
 			prompt_implement = excluded.prompt_implement,
+			prompt_adjust = excluded.prompt_adjust,
+			prompt_handoff = excluded.prompt_handoff,
 			prompt_create_pr = excluded.prompt_create_pr,
 			prompt_pick = excluded.prompt_pick,
 			editor_command = excluded.editor_command,
@@ -3416,7 +3448,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 			auto_sync_enabled = excluded.auto_sync_enabled,
 			auto_sync_interval_sec = excluded.auto_sync_interval_sec,
 			updated_at = excluded.updated_at
-	`, s.Theme, s.AccentColor, s.Language, s.Density, s.DefaultView, s.DetailMode, s.UserName, s.UserEmail, s.UserAvatar, s.AIProvider, s.AICommandTemplate, s.AICommandTemplateAutonomous, s.AIModel, string(settingsSkillModelsBytes), string(settingsProviderModelsBytes), s.RepoPath, s.IssueTracker, s.GithubRepo, s.JiraProject, s.JiraUrl, s.JiraEmail, s.JiraAPIToken, s.GithubApiUrl, s.GithubToken, s.GitlabUrl, s.GitlabProject, s.GitlabToken, s.PromptClarify, s.PromptSpecify, s.PromptImplement, s.PromptCreatePR, s.PromptPick, s.EditorCommand, s.ExternalTerminalCommand, s.SpecFramework, s.UIScale, autoSyncEnabledInt, s.AutoSyncIntervalSec, now)
+	`, s.Theme, s.AccentColor, s.Language, s.Density, s.DefaultView, s.DetailMode, s.UserName, s.UserEmail, s.UserAvatar, s.AIProvider, s.AICommandTemplate, s.AICommandTemplateAutonomous, s.AIModel, string(settingsSkillModelsBytes), string(settingsProviderModelsBytes), s.RepoPath, s.IssueTracker, s.GithubRepo, s.JiraProject, s.JiraUrl, s.JiraEmail, s.JiraAPIToken, s.GithubApiUrl, s.GithubToken, s.GitlabUrl, s.GitlabProject, s.GitlabToken, s.PromptClarify, s.PromptSpecify, s.PromptImplement, s.PromptAdjust, s.PromptHandoff, s.PromptCreatePR, s.PromptPick, s.EditorCommand, s.ExternalTerminalCommand, s.SpecFramework, s.UIScale, autoSyncEnabledInt, s.AutoSyncIntervalSec, now)
 
 	if err != nil {
 		return nil, err
@@ -5071,8 +5103,12 @@ func applySkillCommandOverride(settings *models.Settings, proj *models.Project, 
 			settings.PromptImplement = cmd + " {issueKey}"
 		}
 	case "adjust", "review":
-		if settings.PromptCreatePR == "" {
-			settings.PromptCreatePR = cmd + " {issueKey}"
+		if settings.PromptAdjust == "" && settings.PromptCreatePR == "" {
+			settings.PromptAdjust = cmd + " {issueKey}"
+		}
+	case "handoff":
+		if settings.PromptHandoff == "" {
+			settings.PromptHandoff = cmd + " {issueKey}"
 		}
 	case "pick":
 		if settings.PromptPick == "" {

@@ -84,8 +84,8 @@ test('a blocked save says why, rather than greying a button in silence', () => {
 test('a tracker that attributes its writes is personal only', () => {
   // The server token stays a configuration fallback, never a box in the screen.
   assert.deepEqual(scopesFor('jira'), ['personal'])
-  assert.deepEqual(scopesFor('github'), ['server', 'personal'])
-  assert.deepEqual(scopesFor('gitlab'), ['server', 'personal'])
+  assert.deepEqual(scopesFor('github'), ['personal'])
+  assert.deepEqual(scopesFor('gitlab'), ['personal'])
   // The site belongs to the person, not to the server: an Atlassian account is
   // tied to its instance.
   assert.equal(trackerFields('jira').siteIsPersonal, true)
@@ -105,8 +105,8 @@ test('every tracker with a server adapter can be set on a project', () => {
 test('the screen says what sealing asks of you, not how it works', () => {
   // What a reader can act on: they will have to unseal. A key and a cipher
   // teach them nothing, so neither appears.
-  assert.match(SEALING_INVITATION, /desceller pour agir sur les tâches/)
-  assert.match(sealingConsequence(true), /desceller/)
+  assert.match(SEALING_INVITATION, /agir sur les tâches/)
+  assert.match(sealingConsequence(true), /phrase de scellement unique/)
   assert.notEqual(sealingConsequence(true), sealingConsequence(false))
   for (const text of [SEALING_INVITATION, sealingConsequence(true), sealingConsequence(false)]) {
     assert.doesNotMatch(text, /chiffr|clé du serveur|base de données/i)

@@ -806,7 +806,9 @@ type Settings struct {
 	PromptClarify           string    `json:"promptClarify"`
 	PromptSpecify           string    `json:"promptSpecify"`
 	PromptImplement         string    `json:"promptImplement"`
-	PromptCreatePR          string    `json:"promptCreatePr"`
+	PromptAdjust            string    `json:"promptAdjust"`
+	PromptHandoff           string    `json:"promptHandoff"`
+	PromptCreatePR          string    `json:"promptCreatePr,omitempty"`
 	PromptPick              string    `json:"promptPick"`
 	EditorCommand           string    `json:"editorCommand"`                     // "code", "cursor", "zed", "subl", etc.
 	ExternalTerminalCommand string    `json:"externalTerminalCommand,omitempty"` // e.g. "Terminal", "iTerm", "Ghostty", "alacritty", "kitty"

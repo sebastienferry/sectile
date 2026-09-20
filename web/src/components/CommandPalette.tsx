@@ -18,8 +18,10 @@ import {
   ShieldCheck,
   Layers,
   Download,
+  Shield,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentTextStyle } from '../lib/accents'
 
 export const CommandPalette: React.FC = () => {
@@ -34,6 +36,7 @@ export const CommandPalette: React.FC = () => {
     setActiveView,
     setIsQuickAddOpen,
     setIsProfileOpen,
+    setIsAdminOpen,
     setSelectedTask,
     settings,
     updateSettings,
@@ -46,6 +49,8 @@ export const CommandPalette: React.FC = () => {
     addToast,
     t,
   } = useApp()
+
+  const { user: currentUser } = useCurrentUser()
 
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -197,7 +202,16 @@ export const CommandPalette: React.FC = () => {
         setIsCommandPaletteOpen(false)
       },
     },
-    ...[],
+    ...(currentUser?.role === 'admin' ? [{
+      id: 'open_admin',
+      title: '🛡️ Administration (utilisateurs et rôles)',
+      icon: <Shield size={16} className="text-amber-400" />,
+      keywords: ['admin', 'administration', 'utilisateurs', 'roles', 'users'],
+      action: () => {
+        setIsCommandPaletteOpen(false)
+        setIsAdminOpen(true)
+      },
+    }] : []),
     {
       id: 'sync_now',
       title: '🚀 Lancer la synchronisation du projet actif',
@@ -311,6 +325,21 @@ export const CommandPalette: React.FC = () => {
         setIsProfileOpen(true)
       },
     },
+    ...(currentUser?.role === 'admin'
+      ? [
+          {
+            id: 'open_admin',
+            title: 'Administration : Utilisateurs & Rôles',
+            icon: <Shield size={16} className="text-amber-400" />,
+            shortcut: 'A',
+            keywords: ['admin', 'administration', 'users', 'utilisateurs', 'roles', 'membres', 'comptes'],
+            action: () => {
+              setIsCommandPaletteOpen(false)
+              setIsAdminOpen(true)
+            },
+          },
+        ]
+      : []),
   ]
 
   // Dynamic Skill Actions

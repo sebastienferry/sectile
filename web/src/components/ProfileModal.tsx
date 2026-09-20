@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import {
   X,
-  User,
-  Mail,
   Palette,
   Sun,
   Moon,
@@ -16,17 +14,20 @@ import {
   FileCode,
   HelpCircle,
   Flame,
-  GitPullRequest,
+  ShieldCheck,
+  CheckCircle2,
   Info,
   KeyRound,
+  UserRound,
+  Monitor,
+  Workflow,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { LocalAgentSetup } from './LocalAgentSetup'
 import { ApiKeysPanel } from './ApiKeys'
 import { TrackerCredentialsTab } from './TrackerCredentialsTab'
 import { SignInStatus } from './SignInStatus'
-import { UsersPanel } from './UsersPanel'
-import { useCurrentUser } from '../hooks/useCurrentUser'
+import { MCPEngineConfig } from './MCPEngineConfig'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
 import { AIModelField } from './AIModelField'
 import { ProviderModelsField } from './ProviderModelsField'
@@ -34,7 +35,7 @@ import { CommandModePreview } from './CommandModePreview'
 import { commandPreview } from '../lib/commandTemplate'
 import { isValidModel } from '../lib/aiModels'
 
-type SettingsTab = 'appearance' | 'trackers' | 'agentic' | 'prompts'
+type SettingsTab = 'account' | 'appearance' | 'trackers' | 'aiEngine' | 'sdd' | 'workstations'
 
 // A provider with no template runs the command lines the agent attests for each
 // execution mode, so selecting one clears the field rather than pinning a single
@@ -65,19 +66,12 @@ export const ProfileModal: React.FC = () => {
     setIsProfileOpen,
     settings,
     updateSettings,
-    projects,
     t,
   } = useApp()
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance')
-  // The signed-in identity is what the account section shows. Signing in is
-  // mandatory (ADR 0015), so there is always an account behind the profile.
-  const { user: currentUser } = useCurrentUser()
-  const hasAccount = !!currentUser?.signedIn
+  const [activeTab, setActiveTab] = useState<SettingsTab>('account')
 
-  // Appearance & User
-  const [userName, setUserName] = useState(settings.userName)
-  const [userEmail, setUserEmail] = useState(settings.userEmail)
+  // Appearance
   const [theme, setTheme] = useState<Theme>(settings.theme)
   const [language, setLanguage] = useState<Language>(settings.language)
   const [density, setDensity] = useState<Density>(settings.density)
@@ -96,12 +90,11 @@ export const ProfileModal: React.FC = () => {
   const [promptClarify, setPromptClarify] = useState(settings.promptClarify || '')
   const [promptSpecify, setPromptSpecify] = useState(settings.promptSpecify || '')
   const [promptImplement, setPromptImplement] = useState(settings.promptImplement || '')
-  const [promptCreatePr, setPromptCreatePr] = useState(settings.promptCreatePr || '')
+  const [promptAdjust, setPromptAdjust] = useState(settings.promptAdjust || '')
+  const [promptHandoff, setPromptHandoff] = useState(settings.promptHandoff || '')
 
   useEffect(() => {
     if (isProfileOpen) {
-      setUserName(settings.userName)
-      setUserEmail(settings.userEmail)
       setTheme(settings.theme)
       setLanguage(settings.language)
       setDensity(settings.density)
@@ -116,7 +109,8 @@ export const ProfileModal: React.FC = () => {
       setPromptClarify(settings.promptClarify || '')
       setPromptSpecify(settings.promptSpecify || '')
       setPromptImplement(settings.promptImplement || '')
-      setPromptCreatePr(settings.promptCreatePr || '')
+      setPromptAdjust(settings.promptAdjust || '')
+      setPromptHandoff(settings.promptHandoff || '')
     }
   }, [isProfileOpen, settings])
 
@@ -158,8 +152,8 @@ export const ProfileModal: React.FC = () => {
   const handleSave = async () => {
     if (!modelIsValid) return
     await updateSettings({
-      userName: userName.trim(),
-      userEmail: userEmail.trim(),
+      userName: settings.userName,
+      userEmail: settings.userEmail,
       theme,
       language,
       density,
@@ -174,14 +168,34 @@ export const ProfileModal: React.FC = () => {
       promptClarify: promptClarify.trim(),
       promptSpecify: promptSpecify.trim(),
       promptImplement: promptImplement.trim(),
-      promptCreatePr: promptCreatePr.trim(),
+      promptAdjust: promptAdjust.trim(),
+      promptHandoff: promptHandoff.trim(),
+      promptCreatePr: '',
     })
     setIsProfileOpen(false)
   }
 
+  const tabs: { id: SettingsTab; label: string; icon: React.ReactNode; iconColor: string }[] = [
+    { id: 'account', label: 'Account', icon: <UserRound size={15} />, iconColor: 'text-[var(--text-secondary)]' },
+    { id: 'appearance', label: 'Apparence', icon: <Palette size={15} />, iconColor: 'text-purple-400' },
+    { id: 'trackers', label: 'Trackers', icon: <KeyRound size={15} />, iconColor: 'text-emerald-400' },
+    { id: 'aiEngine', label: 'Moteur Agentic IA', icon: <Bot size={15} />, iconColor: 'text-indigo-400' },
+    { id: 'sdd', label: 'Compétences & SDD', icon: <Workflow size={15} />, iconColor: 'text-blue-400' },
+    { id: 'workstations', label: 'Workstations & Agent', icon: <Monitor size={15} />, iconColor: 'text-cyan-400' },
+  ]
+
   return (
-    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col max-h-[calc(var(--app-h)*0.92)]">
+    <div
+      className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+      onClick={e => {
+        if (e.target === e.currentTarget) setIsProfileOpen(false)
+      }}
+    >
+      <div
+        className="relative w-[960px] h-[650px] max-w-[calc(var(--app-w)-32px)] max-h-[calc(var(--app-h)-32px)] rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+        role="dialog"
+        aria-modal="true"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30 shrink-0">
           <div className="flex items-center gap-2.5">
@@ -193,11 +207,12 @@ export const ProfileModal: React.FC = () => {
                 {t.profileModal.title}
               </h3>
               <p className="text-[11px] text-[var(--text-muted)]">
-                Profil utilisateur d'un côté, réglages des agents de l'autre
+                Compte, apparence et configuration des outils
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={() => setIsProfileOpen(false)}
             className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
           >
@@ -205,106 +220,50 @@ export const ProfileModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Tab Navigation Header */}
-        <div className="flex items-center gap-4 px-6 pt-3 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] shrink-0 text-xs font-semibold">
-          <button
-            type="button"
-            onClick={() => setActiveTab('appearance')}
-            className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-              activeTab === 'appearance'
-                ? 'border-[var(--accent-color)] accent-text font-bold'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Palette size={14} />
-            <span>Profil & Apparence</span>
-          </button>
+        {/* Modal 2-Column Body: Left Sidebar Tabs + Right Content Area */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Left Sidebar Navigation */}
+          <div className="w-56 shrink-0 border-r border-[var(--border-color)] bg-[var(--bg-tertiary)]/25 p-3 flex flex-col justify-between overflow-y-auto">
+            <nav className="space-y-1">
+              {tabs.map(tab => {
+                const isActive = activeTab === tab.id
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
+                      isActive
+                        ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]/60'
+                    }`}
+                  >
+                    <span className={isActive ? 'accent-text' : tab.iconColor}>
+                      {tab.icon}
+                    </span>
+                    <span className="truncate">{tab.label}</span>
+                  </button>
+                )
+              })}
+            </nav>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('trackers')}
-            className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-              activeTab === 'trackers'
-                ? 'border-emerald-400 text-emerald-400 font-bold'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <KeyRound size={14} className="text-emerald-400" />
-            <span>Trackers</span>
-          </button>
+            <div className="pt-3 border-t border-[var(--border-color)]/60 px-2 text-[10px] text-[var(--text-muted)]">
+              <span>Sectile Preferences</span>
+            </div>
+          </div>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('agentic')}
-            className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-              activeTab === 'agentic'
-                ? 'border-indigo-400 text-indigo-400 font-bold'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <Bot size={14} className="text-indigo-400" />
-            <span>Agent & Workstations</span>
-          </button>
+          {/* Right Scrollable Content Pane */}
+          <div className="flex-1 min-w-0 p-6 overflow-y-auto space-y-6 text-xs">
+            {/* TAB 1: ACCOUNT */}
+            {activeTab === 'account' && (
+              <div className="space-y-6 animate-in fade-in duration-150">
+                <SignInStatus />
+              </div>
+            )}
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('prompts')}
-            className={`pb-2.5 flex items-center gap-1.5 border-b-2 transition-all cursor-pointer ${
-              activeTab === 'prompts'
-                ? 'border-amber-400 text-amber-400 font-bold'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            <FileCode size={14} className="text-amber-400" />
-            <span>Prompts des Skills</span>
-          </button>
-        </div>
-
-        {/* Modal Form Body */}
-        <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
-          {/* TAB 1: APPEARANCE & PROFILE */}
+          {/* TAB 2: APPEARANCE */}
           {activeTab === 'appearance' && (
             <div className="space-y-6 animate-in fade-in duration-150">
-              <SignInStatus projects={projects} />
-              {currentUser?.role === 'admin' && <UsersPanel currentUserId={currentUser.userId} />}
-              {/* User info: the legacy free-text identity, retired once accounts exist */}
-              <div className={`space-y-3 ${hasAccount ? 'hidden' : ''}`}>
-                <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                  <User size={13} className="text-cyan-400" />
-                  <span>{t.profileModal.userSection}</span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
-                      {t.profileModal.name}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        value={userName}
-                        onChange={e => setUserName(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <User size={14} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-medium text-[var(--text-secondary)] mb-1">
-                      {t.profileModal.email}
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="email"
-                        value={userEmail}
-                        onChange={e => setUserEmail(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Mail size={14} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
-                    </div>
-                  </div>
-                </div>
-              </div>
 
               {/* Theme & Language */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -458,11 +417,13 @@ export const ProfileModal: React.FC = () => {
           {/* TAB 2: TRACKER CREDENTIALS, one activatable zone per tracker */}
           {activeTab === 'trackers' && <TrackerCredentialsTab />}
 
-          {/* TAB 3: AGENT SETTINGS (workstations, local agent, CLI) */}
-          {activeTab === 'agentic' && (
+          {/* TAB 4: MOTEUR AGENTIC IA */}
+          {activeTab === 'aiEngine' && (
             <div className="space-y-6 animate-in fade-in duration-150">
-              <ApiKeysPanel />
-              <LocalAgentSetup />
+              <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                Configurez le moteur d'intelligence artificielle par défaut, les modèles et les commandes CLI d'exécution des skills.
+              </p>
+
               {/* Agentic CLI Provider Selection */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -599,141 +560,286 @@ export const ProfileModal: React.FC = () => {
                 </div>
               </div>
 
-              {/* Spec-Driven Design Framework Selection */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                    <FileCode size={14} className="text-blue-400" />
-                    <span>Framework Spec-Driven Design par défaut</span>
-                  </label>
-                  <span className="text-[10px] text-blue-400 font-mono font-bold">
-                    {specFramework === 'openspec' ? 'OpenSpec' : 'Spec Kit'}
+              {/* Direct MCP Configuration without local agent */}
+              <MCPEngineConfig
+                selectedProvider={aiProvider}
+                onNavigateToWorkstations={() => setActiveTab('workstations')}
+              />
+            </div>
+          )}
+
+          {/* TAB: SPEC-DRIVEN DESIGN (SDD) */}
+          {activeTab === 'sdd' && (
+            <div className="space-y-6 animate-in fade-in duration-150">
+              {/* Header Description */}
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Workflow size={18} className="text-blue-400" />
+                  <h4 className="text-sm font-bold text-[var(--text-primary)]">
+                    Framework Spec-Driven Design (SDD)
+                  </h4>
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9.5px] font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                    Contract-First
                   </span>
                 </div>
+                <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                  Le Spec-Driven Design garantit qu'une spécification claire, structurée et vérifiable est rédigée et validée avant toute génération de code par les agents d'IA.
+                </p>
+              </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {/* Framework Choice */}
+              <div className="space-y-2">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
+                  <span>Framework par défaut du projet</span>
+                  <span className="text-[10px] text-blue-400 font-mono font-bold">
+                    {specFramework === 'openspec' ? 'OpenSpec' : 'GitHub Spec Kit'}
+                  </span>
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* GitHub Spec Kit Card */}
                   <button
                     type="button"
                     onClick={() => setSpecFramework('speckit')}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                    className={`p-4 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-3 ${
                       specFramework === 'speckit'
                         ? 'bg-blue-500/15 border-blue-500 text-white ring-2 ring-blue-500/30 shadow-xs'
                         : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
                     }`}
                   >
-                    <span className="text-base">📑</span>
-                    <div className="truncate flex-1">
-                      <div className="font-bold text-xs flex items-center justify-between">
-                        <span>GitHub Spec Kit</span>
-                        {specFramework === 'speckit' && <Check size={14} className="text-blue-400" />}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">📑</span>
+                        <div>
+                          <div className="font-bold text-xs text-[var(--text-primary)]">
+                            GitHub Spec Kit
+                          </div>
+                          <span className="text-[10px] font-mono text-blue-400">
+                            CLI specify
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-[10px] text-[var(--text-muted)] mt-0.5">CLI specify : .specify/ + specs/ (spec.md, plan.md, tasks.md)</div>
+                      {specFramework === 'speckit' && (
+                        <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                          <Check size={13} />
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                      Convention standard GitHub : structure modulaire dans <code className="px-1 py-0.5 rounded bg-[var(--bg-secondary)] font-mono text-[10px]">.specify/</code> et <code className="px-1 py-0.5 rounded bg-[var(--bg-secondary)] font-mono text-[10px]">specs/</code> (<code className="font-mono text-[10px]">spec.md</code>, <code className="font-mono text-[10px]">plan.md</code>, <code className="font-mono text-[10px]">tasks.md</code>).
+                    </p>
+
+                    <div className="pt-2 border-t border-[var(--border-color)]/60 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
+                      <span>Commandes : /specify-issue, /code-issue</span>
+                      <span className="px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] font-mono">.specify/</span>
                     </div>
                   </button>
 
+                  {/* OpenSpec Card */}
                   <button
                     type="button"
                     onClick={() => setSpecFramework('openspec')}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-start gap-2.5 ${
+                    className={`p-4 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between gap-3 ${
                       specFramework === 'openspec'
                         ? 'bg-emerald-500/15 border-emerald-500 text-white ring-2 ring-emerald-500/30 shadow-xs'
                         : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
                     }`}
                   >
-                    <span className="text-base">🚩</span>
-                    <div className="truncate flex-1">
-                      <div className="font-bold text-xs flex items-center justify-between">
-                        <span>OpenSpec</span>
-                        {specFramework === 'openspec' && <Check size={14} className="text-emerald-400" />}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">🚩</span>
+                        <div>
+                          <div className="font-bold text-xs text-[var(--text-primary)]">
+                            OpenSpec
+                          </div>
+                          <span className="text-[10px] font-mono text-emerald-400">
+                            CLI openspec
+                          </span>
+                        </div>
                       </div>
-                      <div className="text-[10px] text-[var(--text-muted)] mt-0.5">CLI openspec : propositions de changement et deltas de specs validés avant code</div>
+                      {specFramework === 'openspec' && (
+                        <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                          <Check size={13} />
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                      Spécification formelle par deltas et exigences vérifiables. Les propositions de changements sont validées et revues avant l'écriture de code.
+                    </p>
+
+                    <div className="pt-2 border-t border-[var(--border-color)]/60 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
+                      <span>Commandes : openspec propose, validate</span>
+                      <span className="px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] font-mono">openspec/</span>
                     </div>
                   </button>
+                </div>
+              </div>
+
+              {/* SDD Pipeline Lifecycle in Sectile */}
+              <div className="p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Workflow size={15} className="text-blue-400" />
+                    <span className="text-xs font-bold text-[var(--text-primary)]">
+                      Cycle de vie SDD dans Sectile
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      document.getElementById('skill-prompts-section')?.scrollIntoView({ behavior: 'smooth' })
+                    }}
+                    className="text-[10.5px] text-indigo-400 hover:text-indigo-300 font-semibold cursor-pointer flex items-center gap-1"
+                  >
+                    <span>Personnaliser les prompts</span>
+                    <span>↓</span>
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-center text-[10.5px]">
+                  <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+                    <div className="font-bold text-sky-400">1. Clarifier</div>
+                    <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/clarify-issue</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+                    <div className="font-bold text-blue-400">2. Spécifier</div>
+                    <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/specify-issue</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+                    <div className="font-bold text-indigo-400">3. Coder</div>
+                    <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/code-issue</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+                    <div className="font-bold text-purple-400">4. Ajuster</div>
+                    <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/adjust-issue</div>
+                  </div>
+                  <div className="p-2 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)]">
+                    <div className="font-bold text-emerald-400">5. Clôturer</div>
+                    <div className="text-[9.5px] font-mono text-[var(--text-muted)] mt-0.5">/handoff-issue</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION: PERSONNALISATION DES PROMPTS DES SKILLS */}
+              <div id="skill-prompts-section" className="pt-4 border-t border-[var(--border-color)]/60 space-y-4">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <FileCode size={16} className="text-amber-400" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                      Personnalisation des Prompts par Compétence
+                    </h4>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                    Personnalisez les invites (prompts) envoyées au CLI Agentic pour chaque étape du workflow SDD. Si laissé vide, les invites par défaut sont utilisées.
+                  </p>
+                </div>
+
+                {/* Clarify Prompt */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-amber-400">
+                      <HelpCircle size={13} />
+                      <span>Prompt de Cadrage (/clarify-issue)</span>
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono">Défaut : /clarify-issue {'{issueKey}'} tracked on {'{tracker}'} in {'{repo}'}</span>
+                  </label>
+                  <textarea
+                    value={promptClarify}
+                    onChange={e => setPromptClarify(e.target.value)}
+                    rows={3}
+                    placeholder="/clarify-issue {issueKey} tracked on {tracker} in {repo}"
+                    className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-amber-500 transition-all resize-y"
+                  />
+                </div>
+
+                {/* Specify Prompt */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-blue-400">
+                      <FileCode size={13} />
+                      <span>Prompt de Spécification (/specify-issue)</span>
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono">Spécification Spec Kit / OpenSpec</span>
+                  </label>
+                  <textarea
+                    value={promptSpecify}
+                    onChange={e => setPromptSpecify(e.target.value)}
+                    rows={3}
+                    placeholder='Tu es le Product Owner pour {issueKey}. Rédige la spécification selon le framework SDD configuré...'
+                    className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-blue-500 transition-all resize-y"
+                  />
+                </div>
+
+                {/* Implement Prompt */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-indigo-400">
+                      <Flame size={13} />
+                      <span>Prompt d'Implémentation (/code-issue)</span>
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono">Développement & Tests</span>
+                  </label>
+                  <textarea
+                    value={promptImplement}
+                    onChange={e => setPromptImplement(e.target.value)}
+                    rows={3}
+                    placeholder='Tu es le développeur senior pour {issueKey}. Implémente le code dans {repoPath}...'
+                    className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-indigo-500 transition-all resize-y"
+                  />
+                </div>
+
+                {/* Adjust Prompt */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-purple-400">
+                      <ShieldCheck size={13} />
+                      <span>Prompt d'Ajustement & Revue (/adjust-issue)</span>
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono">Revue de code & màj PR</span>
+                  </label>
+                  <textarea
+                    value={promptAdjust}
+                    onChange={e => setPromptAdjust(e.target.value)}
+                    rows={3}
+                    placeholder='Tu es le reviewer senior pour {issueKey}. Revois les changements, applique les correctifs et mets à jour la PR...'
+                    className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-purple-500 transition-all resize-y"
+                  />
+                </div>
+
+                {/* Handoff Prompt */}
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-emerald-400">
+                      <CheckCircle2 size={13} />
+                      <span>Prompt de Clôture & Handoff (/handoff-issue)</span>
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)] font-mono">Documentation & Nettoyage local</span>
+                  </label>
+                  <textarea
+                    value={promptHandoff}
+                    onChange={e => setPromptHandoff(e.target.value)}
+                    rows={3}
+                    placeholder='Tu es responsable de la clôture pour {issueKey}. Vérifie la fusion, rédige le rapport de handoff et nettoie le worktree...'
+                    className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-emerald-500 transition-all resize-y"
+                  />
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 3: PROMPTS DES SKILLS */}
-          {activeTab === 'prompts' && (
-            <div className="space-y-5 animate-in fade-in duration-150">
-              <div className="text-[11px] text-[var(--text-muted)] leading-relaxed">
-                Personnalisez les invites (prompts) envoyées au CLI Agentic pour chaque étape du workflow. Si laissé vide, les invites par défaut sont utilisées.
-              </div>
-
-              {/* Clarify Prompt */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-amber-400">
-                    <HelpCircle size={13} />
-                    <span>Prompt de Cadrage (/clarify-issue)</span>
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] font-mono">Défaut : /clarify-issue {'{issueKey}'} tracked on {'{tracker}'} in {'{repo}'}</span>
-                </label>
-                <textarea
-                  value={promptClarify}
-                  onChange={e => setPromptClarify(e.target.value)}
-                  rows={3}
-                  placeholder="/clarify-issue {issueKey} tracked on {tracker} in {repo}"
-                  className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-amber-500 transition-all resize-y"
-                />
-              </div>
-
-              {/* Specify Prompt */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-blue-400">
-                    <FileCode size={13} />
-                    <span>Prompt de Spécification (/specify-issue)</span>
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] font-mono">Spécification Spec Kit / OpenSpec</span>
-                </label>
-                <textarea
-                  value={promptSpecify}
-                  onChange={e => setPromptSpecify(e.target.value)}
-                  rows={3}
-                  placeholder='Tu es le Product Owner pour {issueKey}. Rédige la spécification selon le framework SDD configuré...'
-                  className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-blue-500 transition-all resize-y"
-                />
-              </div>
-
-              {/* Implement Prompt */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-indigo-400">
-                    <Flame size={13} />
-                    <span>Prompt d'Implémentation (/code-issue)</span>
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] font-mono">Développement & Tests</span>
-                </label>
-                <textarea
-                  value={promptImplement}
-                  onChange={e => setPromptImplement(e.target.value)}
-                  rows={3}
-                  placeholder='Tu es le développeur senior pour {issueKey}. Implémente le code dans {repoPath}...'
-                  className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-indigo-500 transition-all resize-y"
-                />
-              </div>
-
-              {/* Create PR Prompt */}
-              <div className="space-y-1.5">
-                <label className="block text-[11px] font-bold text-[var(--text-primary)] flex items-center justify-between">
-                  <span className="flex items-center gap-1.5 text-purple-400">
-                    <GitPullRequest size={13} />
-                    <span>Legacy adjustment prompt (requires reconciliation in Skills)</span>
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] font-mono">Commit, Push & PR / Merge</span>
-                </label>
-                <textarea
-                  value={promptCreatePr}
-                  onChange={e => setPromptCreatePr(e.target.value)}
-                  rows={3}
-                  placeholder='Tu es l ingénieur DevOps pour {issueKey}. Commite sur {branchName} et crée la PR...'
-                  className="w-full p-2.5 text-xs font-mono rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-purple-500 transition-all resize-y"
-                />
-              </div>
+          {/* TAB: WORKSTATIONS & AGENT */}
+          {activeTab === 'workstations' && (
+            <div className="space-y-6 animate-in fade-in duration-150">
+              <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                Gérez vos machines de développement appairées, les clés de signature des agents et la configuration de l'agent local.
+              </p>
+              <ApiKeysPanel />
+              <LocalAgentSetup />
             </div>
           )}
+          </div>
         </div>
 
         {/* Footer */}

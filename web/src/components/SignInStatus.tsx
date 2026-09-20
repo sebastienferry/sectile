@@ -1,43 +1,31 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Check, LogIn, LogOut, ShieldAlert, UserRound } from 'lucide-react'
+import { useState } from 'react'
+import { Check, LogIn, LogOut } from 'lucide-react'
 import { useCurrentUser } from '../hooks/useCurrentUser'
-import { useAgentStatus } from '../hooks/useAgentStatus'
-import { describeRole, describeSignInMode } from '../lib/session'
+import { describeRole } from '../lib/session'
+
+interface SignInStatusProps {
+  projects?: { id: string; name: string }[]
+  onOpenAdmin?: () => void
+}
 
 /**
- * Who is signed in, how this deployment signs people in, what role they hold,
- * and where their agent is registered. Without any sign-in at all the section
- * still shows the mode, so a personal deployment knows why it is never asked
- * for anything.
+ * Merged Account component:
+ * Displays user identity (avatar, initials, display name, email, role),
+ * an inline display name editor, and the sign-out action.
  */
-export function SignInStatus({ projects }: { projects?: { id: string; name: string }[] }) {
+export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }: SignInStatusProps = {}) {
   const { user, reload, rename } = useCurrentUser()
-  const { agents } = useAgentStatus()
   const [status, setStatus] = useState('')
-
-  const projectName = useCallback(
-    (id: string) => projects?.find(project => project.id === id)?.name || id,
-    [projects],
-  )
-  const [mine, setMine] = useState<string[]>([])
-  useEffect(() => {
-    if (!user) return
-    setMine(agents.filter(agent => agent.userId === user.userId).map(agent => projectName(agent.projectId)))
-  }, [agents, user, projectName])
-
-  // The field shows what the person typed, and the account's name until they
-  // type anything. Deriving it rather than seeding it through an effect means
-  // no render can overwrite a word in progress, and a saved name needs no
-  // reseeding: dropping the draft is enough.
-  const [draft, setDraft] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
   async function saveName() {
     setSaving(true)
-    const failure = await rename((draft ?? '').trim())
+    setStatus('')
+    const failure = await rename((draftName ?? '').trim())
     setSaving(false)
-    if (!failure) setDraft(null)
-    setStatus(failure || 'Display name saved.')
+    if (!failure) setDraftName(null)
+    setStatus(failure || 'Nom d\'affichage enregistré.')
   }
 
   async function signOut() {
@@ -52,81 +40,87 @@ export function SignInStatus({ projects }: { projects?: { id: string; name: stri
 
   if (!user) return null
 
-  return (
-    <section className="space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4" aria-labelledby="signin-title">
-      <h3 id="signin-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
-        <UserRound size={16} /> Account
-      </h3>
+  const initials = (user.displayName || user.email || user.userId || 'SF').substring(0, 2).toUpperCase()
 
+  return (
+    <section className="space-y-5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-5 text-xs" aria-labelledby="account-title">
       {user.signedIn ? (
         <>
-          <p className="text-[var(--text-muted)]">
-            Signed in as <span className="font-semibold text-[var(--text-primary)]">{user.displayName || user.email || user.userId}</span>
-            {user.role && <> as <span className="font-semibold text-[var(--text-primary)]">{describeRole(user.role)}</span></>}.
-          </p>
-          <p className="text-[var(--text-muted)]">
-            Sign-in: {describeSignInMode(user.mode)}.
-            {mine.length > 0
-              ? ` Agent registered on ${mine.join(', ')}.`
-              : ' No agent registered on any project.'}
-          </p>
-          {user.mode === 'local' && (
-            <p role="note" className="flex gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">
-              <ShieldAlert size={14} className="mt-0.5 shrink-0 text-amber-400" aria-hidden="true" />
-              <span>
-                The local sign-in identifies people without authenticating them: anyone who types a
-                colleague's address is that colleague. Keep it to a trusted network and connect an
-                identity provider to replace it.
-              </span>
-            </p>
-          )}
-          <div className="space-y-1.5">
-            <label htmlFor="display-name" className="block text-[11px] font-medium text-[var(--text-secondary)]">
-              Display name
+          {/* User Identity Header */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-base accent-bg text-white shadow-md shrink-0">
+                {initials}
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h4 id="account-title" className="font-bold text-sm text-[var(--text-primary)] truncate">
+                    {user.displayName || user.email || user.userId}
+                  </h4>
+                  {user.role && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider bg-amber-500/15 text-amber-500 border border-amber-500/30 shrink-0">
+                      {describeRole(user.role)}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[11px] text-[var(--text-muted)] truncate">
+                  {user.email || user.userId}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] px-3 py-1.5 font-medium text-[var(--text-secondary)] hover:text-red-400 hover:border-red-400/40 hover:bg-red-500/5 transition-colors cursor-pointer shrink-0"
+            >
+              <LogOut size={13} /> Se déconnecter
+            </button>
+          </div>
+
+          {/* Display Name Edit Form */}
+          <div className="space-y-2 pt-3 border-t border-[var(--border-color)]">
+            <label htmlFor="account-display-name" className="block text-[11px] font-medium text-[var(--text-secondary)]">
+              Nom d'affichage (Display Name)
             </label>
             <div className="flex gap-2">
               <input
-                id="display-name"
+                id="account-display-name"
                 type="text"
-                value={draft ?? user.displayName ?? ''}
                 maxLength={80}
-                onChange={event => setDraft(event.target.value)}
-                className="flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-[var(--text-primary)] focus:border-[var(--accent-color)] focus:outline-none"
+                value={draftName ?? user.displayName ?? ''}
+                onChange={event => setDraftName(event.target.value)}
+                placeholder="Votre nom ou pseudo sur ce tableau..."
+                className="flex-1 rounded-xl border border-[var(--border-color)] bg-[var(--bg-tertiary)] px-3 py-2 text-[var(--text-primary)] focus:border-[var(--accent-color)] focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => void saveName()}
-                disabled={saving || draft === null || draft.trim() === (user.displayName || '')}
-                className="flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-3 py-2 hover:bg-[var(--bg-hover)] disabled:opacity-40"
+                disabled={saving || draftName === null || draftName.trim() === (user.displayName || '')}
+                className="flex items-center gap-1 rounded-xl border border-[var(--border-color)] px-3.5 py-2 hover:bg-[var(--bg-hover)] disabled:opacity-40 font-medium transition-colors cursor-pointer"
               >
-                <Check size={14} /> Save
+                <Check size={14} /> Enregistrer
               </button>
             </div>
             <p className="text-[11px] text-[var(--text-muted)]">
-              Your name on this board. Clear it to go back to your e-mail address.
+              Votre nom tel qu'il apparaît sur les tâches, assignations, commentaires et activités. Effacez-le pour réutiliser votre e-mail.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-3 py-2 hover:bg-[var(--bg-hover)]"
-          >
-            <LogOut size={14} /> Sign out
-          </button>
         </>
       ) : (
-        <>
-          <p className="text-[var(--text-muted)]">You are not signed in. Sign-in: {describeSignInMode(user.mode)}.</p>
+        <div className="text-center py-4 space-y-3">
+          <p className="text-[var(--text-muted)]">Vous n'êtes pas connecté.</p>
           <a
             href={`/signin?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`}
-            className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-color)] px-3 py-2 hover:bg-[var(--bg-hover)]"
+            className="inline-flex items-center gap-1.5 rounded-lg accent-bg text-white px-4 py-2 font-medium"
             onClick={() => void reload()}
           >
-            <LogIn size={14} /> Sign in
+            <LogIn size={14} /> Se connecter
           </a>
-        </>
+        </div>
       )}
-      <p role="status" className="text-[var(--text-muted)]">{status}</p>
+
+      {status && <p role="status" className="text-xs font-medium text-[var(--accent-color)]">{status}</p>}
     </section>
   )
 }

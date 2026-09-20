@@ -379,17 +379,24 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 		promptTemplate = `Create or reuse a draft pull request for {issueKey} on {branchName} in {repoPath}. Inspect the diff, run required build, lint and tests, commit and push authorized changes, reuse a matching open PR or create a draft, and report its verified URL. Never advance workflow stages, mark reviewed, merge or clean up the worktree.`
 
 	case "adjust":
-		promptTemplate = `Adjust the existing PR for {issueKey}: {issueTitle}.
+		if strings.TrimSpace(settings.PromptAdjust) != "" {
+			promptTemplate = settings.PromptAdjust
+		} else {
+			promptTemplate = `Adjust the existing PR for {issueKey}: {issueTitle}.
 Repository: {repoPath}. Assigned branch: {branchName}.
 Before modifying files, verify and record the matching task-branch PR: open, or already merged by the human. If missing, stop and use the configured earlier creation stage. Never create or replace a PR here, and never push onto a merged PR.
 Fetch and reconcile the remote default branch, review the complete diff against the specification, retrieve available review feedback, fix findings and record feedback dispositions. Feedback retrieval failure blocks completion; no human comments is valid.
 Run build, lint and tests on the final code; commit and push changes; update the same PR description and evidence and verify it is ready and contains the pushed final commit. Preserve work on any failure. Never merge, approve, close the ticket or clean up the worktree.`
-		if settings.PromptCreatePR != "" {
-			promptTemplate += "\n" + settings.PromptCreatePR
+			if settings.PromptCreatePR != "" {
+				promptTemplate += "\n" + settings.PromptCreatePR
+			}
 		}
 
 	case "handoff":
-		promptTemplate = `Tu es responsable de la clôture propre de la tâche pour Sectile. Le code a été revu et fusionné : il reste à documenter le handoff et à nettoyer.
+		if strings.TrimSpace(settings.PromptHandoff) != "" {
+			promptTemplate = settings.PromptHandoff
+		} else {
+			promptTemplate = `Tu es responsable de la clôture propre de la tâche pour Sectile. Le code a été revu et fusionné : il reste à documenter le handoff et à nettoyer.
 
 Clé : {issueKey}
 Titre : {issueTitle}
@@ -402,6 +409,7 @@ INSTRUCTIONS D'EXÉCUTION OBLIGATOIRES :
 2. Rédige le compte-rendu de handoff : ce qui a été livré, ce qui a été laissé de côté, ce qu'un lecteur doit savoir pour reprendre. Mets à jour la documentation du dépôt si le changement l'exige (README, CHANGELOG, docs).
 3. Nettoie l'espace de travail local : retire le worktree de la tâche s'il existe et supprime la branche locale fusionnée.
 4. Termine par un compte-rendu court : ce qui a été documenté, ce qui a été nettoyé, ce qui reste à faire côté humain.`
+		}
 
 	case "pick":
 		promptTemplate = settings.PromptPick
@@ -1062,7 +1070,9 @@ func settingsPromptOverridden(settings *models.Settings, skillID string) bool {
 	case "implement":
 		return strings.TrimSpace(settings.PromptImplement) != ""
 	case "adjust", "review":
-		return strings.TrimSpace(settings.PromptCreatePR) != ""
+		return strings.TrimSpace(settings.PromptAdjust) != "" || strings.TrimSpace(settings.PromptCreatePR) != ""
+	case "handoff":
+		return strings.TrimSpace(settings.PromptHandoff) != ""
 	}
 	return false
 }

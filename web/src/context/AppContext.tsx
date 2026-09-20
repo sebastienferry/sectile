@@ -120,6 +120,8 @@ interface AppContextType {
   refreshUserCredentials: () => Promise<void>
   saveUserCredential: (params: { tracker: string; siteUrl?: string; email?: string; token: string; passphrase?: string }) => Promise<boolean>
   unlockUserCredential: (tracker: string, passphrase: string) => Promise<boolean>
+  unlockAllUserCredentials: (passphrase: string) => Promise<boolean>
+  lockAllUserCredentials: () => Promise<boolean>
   clearUserCredential: (tracker: string) => Promise<boolean>
   /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
   saveTrackerCredentials: (params: TrackerCredentials) => Promise<boolean>
@@ -214,6 +216,8 @@ interface AppContextType {
   setIsCommandPaletteOpen: (open: boolean) => void
   isProfileOpen: boolean
   setIsProfileOpen: (open: boolean) => void
+  isAdminOpen: boolean
+  setIsAdminOpen: (open: boolean) => void
   settings: UserSettings
   /**
    * `silent` évite le toast de confirmation : un basculement de thème ou
@@ -364,6 +368,8 @@ const defaultSettings: UserSettings = {
   promptClarify: '',
   promptSpecify: '',
   promptImplement: '',
+  promptAdjust: '',
+  promptHandoff: '',
   promptCreatePr: '',
   promptPick: '',
   editorCommand: 'code',
@@ -574,6 +580,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [isAdminOpen, setIsAdminOpen] = useState(false)
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
@@ -1112,6 +1119,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const unlockUserCredential = useCallback(
     (tracker: string, passphrase: string) =>
       userCredentialCall('/unlock', 'POST', { tracker, passphrase }, 'Déverrouillage refusé', 'Jeton descellé'),
+    [userCredentialCall]
+  )
+
+  const unlockAllUserCredentials = useCallback(
+    (passphrase: string) =>
+      userCredentialCall('/unlock', 'POST', { tracker: '', passphrase }, 'Phrase de scellement refusée', 'Tous vos jetons sont déverrouillés'),
+    [userCredentialCall]
+  )
+
+  const lockAllUserCredentials = useCallback(
+    () =>
+      userCredentialCall('/lock', 'POST', { tracker: '' }, 'Verrouillage refusé', 'Tous vos jetons sont verrouillés'),
     [userCredentialCall]
   )
 
@@ -3161,6 +3180,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setSelectedTask(null)
         } else if (selectedActivity) {
           setSelectedActivity(null)
+        } else if (isAdminOpen) {
+          setIsAdminOpen(false)
         } else if (isProfileOpen) {
           setIsProfileOpen(false)
         } else if (searchQuery) {
@@ -3171,7 +3192,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isCommandPaletteOpen, isQuickAddOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, setActiveView])
+  }, [isCommandPaletteOpen, isQuickAddOpen, selectedTask, selectedActivity, isProfileOpen, isAdminOpen, searchQuery, setActiveView])
 
   return (
     <AppContext.Provider
@@ -3240,6 +3261,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         refreshUserCredentials,
         saveUserCredential,
         unlockUserCredential,
+        unlockAllUserCredentials,
+        lockAllUserCredentials,
         clearUserCredential,
         saveTrackerCredentials,
         sourceFilter,
@@ -3275,6 +3298,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsCommandPaletteOpen,
         isProfileOpen,
         setIsProfileOpen,
+        isAdminOpen,
+        setIsAdminOpen,
         settings,
         updateSettings,
         t,

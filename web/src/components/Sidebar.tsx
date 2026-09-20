@@ -28,8 +28,10 @@ import {
   Plus,
   Settings2,
   FileCode2,
+  Shield,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentBadgeStyle } from '../lib/accents'
 import type { Status, TaskSource } from '../types'
 import { SectileLogo } from './SectileLogo'
@@ -133,6 +135,7 @@ export const Sidebar: React.FC = () => {
     sidebarCollapsed,
     setSidebarCollapsed,
     setIsProfileOpen,
+    setIsAdminOpen,
     isSyncing,
     settings,
     teams,
@@ -143,6 +146,8 @@ export const Sidebar: React.FC = () => {
     setTrackerStatusFilters,
     t,
   } = useApp()
+
+  const { user: currentUser } = useCurrentUser()
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
   const projectDropdownRef = useRef<HTMLDivElement>(null)
@@ -740,6 +745,29 @@ export const Sidebar: React.FC = () => {
 
       {/* Footer Profile & Settings */}
       <div className="p-2 border-t border-[var(--sidebar-border)]/50 bg-[var(--accent-light)]/10 backdrop-blur-xs space-y-1">
+        {currentUser?.role === 'admin' && (
+          <button
+            type="button"
+            onClick={() => setIsAdminOpen(true)}
+            className="w-full flex items-center gap-2.5 p-2 rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] transition-colors group text-left cursor-pointer"
+            title="Administration"
+          >
+            <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs bg-amber-500/20 text-amber-500 shadow-xs shrink-0">
+              <Shield size={14} />
+            </div>
+            {!sidebarCollapsed && (
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold truncate text-[var(--text-primary)] flex items-center gap-1.5">
+                  <span>Administration</span>
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-500 font-bold uppercase tracking-wider">Admin</span>
+                </div>
+                <div className="text-[10px] text-[var(--text-muted)] truncate">
+                  Utilisateurs & rôles
+                </div>
+              </div>
+            )}
+          </button>
+        )}
         <button
           onClick={() => setIsProfileOpen(true)}
           className="w-full flex items-center gap-2.5 p-2 rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] transition-colors group text-left cursor-pointer"

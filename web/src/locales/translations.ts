@@ -255,7 +255,9 @@ export interface TranslationSchema {
       promptClarify: string
       promptSpecify: string
       promptImplement: string
-      promptCreatePr: string
+      promptAdjust: string
+      promptHandoff: string
+      promptCreatePr?: string
       cliStatusTitle: string
     }
     tracker: {
@@ -644,7 +646,9 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         promptClarify: 'Prompt /clarify-issue (Cadrage & questions)',
         promptSpecify: 'Prompt /specify-issue (Spécification Spec Kit / OpenSpec)',
         promptImplement: 'Prompt /code-issue (Implémentation & tests)',
-        promptCreatePr: 'Legacy adjustment prompt (reconciliation required)',
+        promptAdjust: 'Prompt /adjust-issue (Ajustement, revue & màj PR)',
+        promptHandoff: 'Prompt /handoff-issue (Clôture & handoff)',
+        promptCreatePr: 'Prompt legacy de création de PR (obsolète)',
         cliStatusTitle: 'Statut des CLI Locales',
       },
       tracker: {
@@ -1031,6 +1035,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         promptClarify: 'Prompt /clarify-issue',
         promptSpecify: 'Prompt /specify-issue',
         promptImplement: 'Prompt /code-issue',
+        promptAdjust: 'Prompt /adjust-issue',
+        promptHandoff: 'Prompt /handoff-issue',
         promptCreatePr: 'Legacy adjustment prompt',
         cliStatusTitle: 'Local CLI Tools Status',
       },

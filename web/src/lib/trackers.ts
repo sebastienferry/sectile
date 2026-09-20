@@ -59,6 +59,7 @@ export const TRACKERS: TrackerFields[] = [
     projectLabel: 'Dépôt par défaut',
     projectPlaceholder: 'organisation/depot',
     tokenHint: 'Personal Access Token avec la portée repo.',
+    personalOnly: true,
   },
   {
     id: 'gitlab',
@@ -69,6 +70,7 @@ export const TRACKERS: TrackerFields[] = [
     projectLabel: 'Projet par défaut',
     projectPlaceholder: 'groupe/projet',
     tokenHint: 'Personal Access Token avec la portée api.',
+    personalOnly: true,
     hasAdapter: false,
   },
 ]
@@ -208,12 +210,12 @@ export interface StoredUserCredential {
  * apprend rien d'actionnable et n'a donc pas sa place ici.
  */
 export const SEALING_INVITATION =
-  'Par mesure de protection de votre identité, vous pouvez sceller votre jeton. Vous devrez alors le desceller pour agir sur les tâches.'
+  'Par mesure de protection de votre identité, vous pouvez définir une phrase de scellement unique pour tous vos jetons. Vous devrez la saisir pour agir sur les tâches.'
 
 /** Ce que le choix change, dit au moment où il se fait. */
 export function sealingConsequence(sealed: boolean): string {
   return sealed
-    ? 'Scellé : vous seul pouvez l’ouvrir, et vous devrez le desceller à chaque session pour agir sur les tâches.'
+    ? 'Scellé : vous seul pouvez l’ouvrir avec votre phrase de scellement unique pour cette session.'
     : 'Non scellé : vos actions partent sans rien vous demander.'
 }
 
@@ -227,23 +229,19 @@ export function credentialState(credential?: StoredUserCredential): string {
 }
 
 /**
- * Pour qui l'écran peut enregistrer ce tracker. Un tracker qui attribue ses
- * écritures à un compte n'accepte que le personnel : son jeton serveur reste
- * un repli de configuration, jamais une case de l'interface.
+ * Dans l'interface utilisateur, tous les jetons saisis sont personnels.
+ * Le jeton serveur n'est configurable que via l'environnement du serveur.
  */
-export function scopesFor(tracker: TrackerKind): CredentialScope[] {
-  return trackerFields(tracker).personalOnly ? ['personal'] : ['server', 'personal']
+export function scopesFor(_tracker: TrackerKind): CredentialScope[] {
+  return ['personal']
 }
 
 /**
  * Un projet posé sur un tracker distant sans accès ne ramènera rien : autant le
  * dire à la création plutôt qu'après une synchronisation vide.
  *
- * Où chercher l'accès dépend du tracker, et c'est ce qui manquait : Jira n'a
- * plus d'accès serveur du tout dans l'interface, donc interroger les réglages
- * globaux répondait « rien de configuré » quoi que la personne ait enregistré
- * dans son profil. L'écran de connexion se rouvrait à chaque projet Jira créé
- * ou modifié, même pour quelqu'un dont le jeton fonctionnait.
+ * Pour Jira, seul un jeton personnel permet d'agir. Pour GitHub, le jeton
+ * personnel ou le jeton d'environnement du serveur permet la synchronisation.
  */
 export function needsCredentialsFor(
   tracker: IssueTracker | string,
@@ -252,11 +250,9 @@ export function needsCredentialsFor(
 ): boolean {
   const kind = String(tracker)
   if (kind === 'local' || kind === '') return false
-  if (trackerFields(kind as TrackerKind)?.personalOnly) {
-    return !mine.some(c => c.tracker === kind)
-  }
-  const stored = storedFor(settings, kind as TrackerKind)
   if (mine.some(c => c.tracker === kind)) return false
+  if (kind === 'jira') return true
+  const stored = storedFor(settings, kind as TrackerKind)
   return !stored.tokenIsSet && !stored.tokenFromEnv
 }
 

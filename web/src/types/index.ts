@@ -609,7 +609,9 @@ export interface UserSettings {
   promptClarify: string
   promptSpecify: string
   promptImplement: string
-  promptCreatePr: string
+  promptAdjust: string
+  promptHandoff: string
+  promptCreatePr?: string
   promptPick: string
   editorCommand: string
   /** Commande ou nom de l'application de terminal externe (ex: "Terminal", "iTerm", "Ghostty"). */

@@ -46,14 +46,19 @@ import { AIModelField } from './AIModelField'
 import { isValidModel } from '../lib/aiModels'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 
-type ProjectTab = 'general' | 'agent' | 'workflow' | 'tracker' | 'skills'
+type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
 
-const TABS: { id: ProjectTab; label: string; icon: React.FC<{ size?: number; className?: string }> }[] = [
-  { id: 'general', label: 'Général', icon: Folder },
-  { id: 'tracker', label: 'Tracker', icon: Sliders },
-  { id: 'agent', label: 'Agent settings', icon: Bot },
-  { id: 'workflow', label: 'Agentic workflow', icon: Workflow },
-  { id: 'skills', label: 'Compétences IA & SDD', icon: Sparkles },
+const TABS: {
+  id: ProjectTab
+  label: string
+  icon: React.FC<{ size?: number; className?: string }>
+  iconColor: string
+}[] = [
+  { id: 'general', label: 'Général', icon: Folder, iconColor: 'text-amber-400' },
+  { id: 'tracker', label: 'Tracker', icon: Sliders, iconColor: 'text-emerald-400' },
+  { id: 'agent', label: 'Agent settings', icon: Bot, iconColor: 'text-indigo-400' },
+  { id: 'workflow', label: 'Agentic workflow', icon: Workflow, iconColor: 'text-blue-400' },
+  { id: 'skills', label: 'Compétences IA & SDD', icon: Sparkles, iconColor: 'text-cyan-400' },
 ]
 
 // An empty template is the right default: the agent then runs the command line
@@ -364,8 +369,8 @@ export const ProjectModal: React.FC = () => {
     })
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleSubmit = async (e?: React.FormEvent) => {
+    e?.preventDefault()
     if (!name.trim() || isSubmitting || !modelsAreValid) return
 
     setIsSubmitting(true)
@@ -442,13 +447,25 @@ export const ProjectModal: React.FC = () => {
   }
 
   return (
-    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150 select-none">
-      <div className="relative w-full max-w-5xl xl:max-w-6xl 2xl:max-w-[1400px] h-[calc(var(--app-h)*0.92)] rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col">
+    <div
+      className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 select-none"
+      onClick={e => {
+        if (e.target === e.currentTarget) {
+          setIsProjectModalOpen(false)
+          setEditingProject(null)
+        }
+      }}
+    >
+      <div
+        className="relative w-[980px] h-[680px] max-w-[calc(var(--app-w)-32px)] max-h-[calc(var(--app-h)-32px)] rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
+        role="dialog"
+        aria-modal="true"
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30 shrink-0">
           <div className="flex items-center gap-2.5">
             <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center border"
+              className="w-8 h-8 rounded-xl flex items-center justify-center border shadow-xs"
               style={accentBadgeStyle(color)}
             >
               <Layers size={16} />
@@ -458,7 +475,7 @@ export const ProjectModal: React.FC = () => {
                 {editingProject ? `Paramètres : ${editingProject.name}` : 'Nouveau Projet'}
               </h3>
               <p className="text-[11px] text-[var(--text-muted)]">
-                {editingProject ? `Project settings, AI provider, tracker and skills` : 'Créez un espace dédié avec son propre dépôt Git, agent IA et tracker'}
+                {editingProject ? 'Project settings, AI provider, tracker and skills' : 'Créez un espace dédié avec son propre dépôt Git, agent IA et tracker'}
               </p>
             </div>
           </div>
@@ -471,53 +488,78 @@ export const ProjectModal: React.FC = () => {
             }}
             className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
           >
-            <X size={18} />
+            <X size={17} />
           </button>
         </div>
 
-        {/* Navigation Tabs Bar */}
-        <div className="flex items-center gap-1 px-6 pt-1.5 border-b border-[var(--border-color)] bg-[var(--bg-secondary)] shrink-0 overflow-x-auto">
-          {TABS.map(tab => {
-            const Icon = tab.icon
-            const isSel = activeTab === tab.id
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 text-xs font-bold border-b-2 transition-all cursor-pointer whitespace-nowrap ${
-                  isSel
-                    ? 'border-[var(--accent-color)] accent-text'
-                    : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--border-color)]'
-                }`}
-              >
-                <Icon size={14} className={isSel ? 'text-[var(--accent-color)]' : 'text-[var(--text-muted)]'} />
-                <span>{tab.label}</span>
-                {tab.id === 'general' && skillsStatus && (
-                  <span className={`w-2 h-2 rounded-full ${skillsStatus.isGitRepo ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                )}
-                {tab.id === 'agent' && useCustomAgent && (
-                  <span className="w-2 h-2 rounded-full bg-[var(--accent-color)]" />
-                )}
-                {tab.id === 'skills' && skillsStatus && (
-                  <span className={`text-[9px] font-mono px-1.5 py-0.2 rounded-full font-bold ${
-                    skillsStatus.installedAll ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
-                  }`}>
-                    {(skillsStatus.skills || []).filter(s => s.installed).length}/5
-                  </span>
-                )}
-                {tab.id === 'tracker' && detectedStatuses.length > 0 && (
-                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-[var(--accent-light)] accent-text font-bold">
-                    {detectedStatuses.length}
-                  </span>
-                )}
-              </button>
-            )
-          })}
-        </div>
+        {/* Modal 2-Column Body: Left Sidebar Tabs + Right Content Area */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Left Sidebar Navigation */}
+          <div className="w-56 shrink-0 border-r border-[var(--border-color)] bg-[var(--bg-tertiary)]/25 p-3 flex flex-col justify-between overflow-y-auto">
+            <nav className="space-y-1">
+              {TABS.map(tab => {
+                const Icon = tab.icon
+                const isActive = activeTab === tab.id
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`w-full flex items-center justify-between gap-2.5 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer text-left ${
+                      isActive
+                        ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]/60'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={isActive ? 'accent-text' : tab.iconColor}>
+                        <Icon size={15} />
+                      </span>
+                      <span className="truncate">{tab.label}</span>
+                    </div>
 
-        {/* Form Body by Tab */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 flex-1 text-xs">
+                    {/* Status Indicators / Badges */}
+                    {tab.id === 'general' && skillsStatus && (
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${skillsStatus.isGitRepo ? 'bg-emerald-400' : 'bg-amber-400'}`}
+                        title={skillsStatus.isGitRepo ? 'Dépôt Git valide' : 'Pas un dépôt Git'}
+                      />
+                    )}
+                    {tab.id === 'agent' && useCustomAgent && (
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0 bg-[var(--accent-color)]"
+                        title="Agent personnalisé actif"
+                      />
+                    )}
+                    {tab.id === 'skills' && skillsStatus && (
+                      <span className={`text-[9.5px] font-mono px-1.5 py-0.5 rounded-full font-bold shrink-0 ${
+                        skillsStatus.installedAll ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                      }`}>
+                        {(skillsStatus.skills || []).filter(s => s.installed).length}/5
+                      </span>
+                    )}
+                    {tab.id === 'tracker' && detectedStatuses.length > 0 && (
+                      <span className="text-[9.5px] font-mono px-1.5 py-0.5 rounded-full bg-[var(--accent-light)] accent-text font-bold shrink-0">
+                        {detectedStatuses.length}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </nav>
+
+            <div className="pt-3 border-t border-[var(--border-color)]/60 px-2 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
+              <span className="truncate font-medium">{editingProject ? editingProject.name : 'Nouveau projet'}</span>
+              {editingProject && (
+                <span className="font-mono text-[9px] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
+                  {editingProject.issueTracker || 'local'}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Right Scrollable Content Pane */}
+          <form id="project-modal-form" onSubmit={handleSubmit} className="flex-1 min-w-0 p-6 overflow-y-auto space-y-6 text-xs">
           {/* ========================================================= */}
           {/* SECTION 1: GÉNÉRAL (Identité, apparence, dépôt Git)        */}
           {/* ========================================================= */}
@@ -1550,10 +1592,11 @@ export const ProjectModal: React.FC = () => {
               </div>
             </div>
           )}
-        </form>
+          </form>
+        </div>
 
         {/* Modal Footer */}
-        <div className="flex items-center justify-between px-6 py-3.5 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 shrink-0">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 shrink-0">
           <div>
             {editingProject && !editingProject.isDefault && (
               <button
