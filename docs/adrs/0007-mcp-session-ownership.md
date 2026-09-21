@@ -70,9 +70,9 @@ becomes an accurate "client disconnected" instead of a stale active indicator. S
 without managed skills, Claude Desktop in particular, appear as connections
 without inventing runs for them.
 
-Leaving stateless mode is the substantive cost. Sessions must be tracked and
-expired, keepalive tuned against clients that idle legitimately, and a zombie
-session must not hold a run indefinitely when a disconnect is never observed. The
+Leaving stateless mode is the substantive cost. Sessions must be tracked, and a
+zombie session must not hold a run indefinitely when a disconnect is never
+observed. The
 `Mcp-Session-Id` header crosses the agent gateway unchanged, so the loopback proxy
 keeps its single responsibility and gains no protocol awareness.
 
@@ -84,3 +84,22 @@ and does not replace the deployment's access controls.
 See [ADR 0001](0001-mcp-and-agent-configuration.md) for the tool catalog and
 transport, and [the interface contract](../contracts/server-agent-v1.md) for the
 gateway boundaries.
+
+## Amendment (2026-09-21, #307)
+
+Silence is no longer read as proof of a dead client. The original consequence
+expired a session that had said nothing for the idle bound, which closed the runs
+it owned; with the stdio bridge and its keepalive gone, a stage that compiles,
+tests or waits for its owner crosses that bound while perfectly alive, and lost
+its run for it.
+
+The transport is now given no session timeout: only an explicit termination, a
+broken connection or the restart sweep ends a session, which is what this ADR
+always meant by a client that went away. Sectile keeps a bound of its own,
+`SECTILE_MCP_SESSION_TIMEOUT`, defaulting to four hours, but crossing it only
+appends one sentence to the runs the session owns — the observation an operator
+needs, without the verdict. A run a disconnection did cancel stays recoverable by
+its owner through `finish_run`, so an accident no longer costs a chain.
+
+The decision itself — a run belongs to the session that started it, and a session
+ending closes it — is unchanged.

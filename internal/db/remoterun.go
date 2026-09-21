@@ -116,6 +116,18 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 	return activity, nil
 }
 
+// NoteRemoteRun appends one sentence to a remote run that is still running. It
+// is how an observation about a run — a silence, so far — reaches the board
+// without pretending to be an outcome: a finished run is never annotated after
+// the fact, and no other field is touched.
+func (d *DB) NoteRemoteRun(runID, note string) error {
+	runID, note = strings.TrimSpace(runID), strings.TrimSpace(note)
+	if runID == "" || note == "" {
+		return fmt.Errorf("runId and note are required")
+	}
+	return d.appendToRunSummary(runID, note, " AND skill_id='remote_run' AND status='running'")
+}
+
 // ErrRunNotYours refuses closing an execution that belongs to somebody else.
 // Reporting a run's outcome is the run's own business: a third party closing it
 // looks exactly like the run ending, hands the workflow back, and leaves the
@@ -164,8 +176,28 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 	if task == nil {
 		return nil, fmt.Errorf("task not found")
 	}
+	// A silence was an observation, not an outcome: the report joins it rather
+	// than erasing the only trace of why the run looked quiet.
+	summary := note
+	if existing, err := d.GetActivityByID(runID); err == nil && existing != nil &&
+		strings.Contains(existing.Summary, models.RunSilencePrefix) {
+		summary = existing.Summary + " — " + note
+	}
 	d.mu.Lock()
-	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary=?, completed_at=?, waiting_since=NULL WHERE id=? AND task_id=? AND skill_id='remote_run' AND status='running'", status, note, time.Now(), runID, task.ID)
+	// A run canceled by a disconnection is still its owner's to report on: the
+	// server decided that outcome in the client's absence, so the client may
+	// correct it. Only an identified caller may, since the server's own closure
+	// path has no identity and must never rewrite an outcome it just recorded.
+	// The note is matched as a prefix because the hand-back appends its own
+	// sentence to it; a cancellation someone typed opens on another text and
+	// stays final.
+	closable := "status='running'"
+	args := []any{status, summary, time.Now(), runID, task.ID}
+	if authorize != nil {
+		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
+		args = append(args, models.RunDisconnectNote+"%")
+	}
+	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary=?, completed_at=?, waiting_since=NULL WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err

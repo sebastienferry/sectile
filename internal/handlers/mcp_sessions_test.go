@@ -257,18 +257,18 @@ func TestMCPSessionsEndpointRejectsWrites(t *testing.T) {
 	}
 }
 
-func TestMCPSessionTimeoutOverride(t *testing.T) {
-	if got := mcpSessionTimeout(); got != defaultMCPSessionTimeout {
-		t.Fatalf("default timeout = %s, want %s", got, defaultMCPSessionTimeout)
+func TestMCPSilenceNoticeOverride(t *testing.T) {
+	if got := mcpSilenceNotice(); got != defaultMCPSilenceNotice {
+		t.Fatalf("default timeout = %s, want %s", got, defaultMCPSilenceNotice)
 	}
 	t.Setenv("SECTILE_MCP_SESSION_TIMEOUT", "90s")
-	if got := mcpSessionTimeout(); got != 90*time.Second {
+	if got := mcpSilenceNotice(); got != 90*time.Second {
 		t.Fatalf("configured timeout = %s, want 90s", got)
 	}
-	// An unusable value must not silently remove the bound on zombie sessions.
+	// An unusable value must not silently remove the silence observation.
 	for _, raw := range []string{"soon", "-1m", "0"} {
 		t.Setenv("SECTILE_MCP_SESSION_TIMEOUT", raw)
-		if got := mcpSessionTimeout(); got != defaultMCPSessionTimeout {
+		if got := mcpSilenceNotice(); got != defaultMCPSilenceNotice {
 			t.Fatalf("timeout for %q = %s, want the default", raw, got)
 		}
 	}

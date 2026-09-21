@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"strings"
 	"time"
 )
@@ -1033,4 +1034,30 @@ func NormalizeSkillID(id string) string {
 	default:
 		return strings.TrimSpace(id)
 	}
+}
+
+// RunDisconnectNote is the summary a run receives when the server closed it
+// because its MCP session ended. It is shared rather than duplicated because
+// two packages read it for opposite reasons: internal/taskmcp writes it when a
+// client vanishes, and internal/db recognizes it to let the run's owner report
+// the outcome it actually reached.
+const RunDisconnectNote = "Client disconnected: the server closed this run when its MCP session ended"
+
+// RunSilencePrefix opens the sentence appended to a run whose session stopped
+// speaking for longer than the configured bound. A silence is an observation,
+// never a verdict: the run keeps running, and the prefix is what lets a later
+// report append itself to the observation instead of erasing it.
+const RunSilencePrefix = "No MCP call for "
+
+// RunSilenceNote describes one silent stretch in the terms an operator reads on
+// the board: how long the client has said nothing, and why that is not a death.
+func RunSilenceNote(silence time.Duration) string {
+	// Rounded to the minute once there is a minute to round, so an operator
+	// reads a duration rather than a timestamp difference.
+	rounded := silence.Round(time.Second)
+	if rounded >= time.Minute {
+		rounded = silence.Round(time.Minute)
+	}
+	return fmt.Sprintf("%s%s: the client may be busy or waiting for input, and this run stays open",
+		RunSilencePrefix, rounded)
 }
