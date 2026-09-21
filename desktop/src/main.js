@@ -16,6 +16,7 @@ import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-li
 import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
 import { runEngine } from './run-engine.mjs'
+import { pollAction } from './agent-poll.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -521,9 +522,9 @@ sidebarList().addEventListener('pointerout',scheduleFlush)
 sidebarList().addEventListener('focusout',scheduleFlush)
 api.connect().then(connected=>{if(connected){ready();refresh()}else{agentUnavailable()}}).catch(error)
 setInterval(async()=>{
- if(restarting)return
- if(document.querySelector('#setup').hidden)refresh()
- else if(document.querySelector('#shutdown').hidden){
+ const action=pollAction({restarting,agentConnected,shutdownVisible:!document.querySelector('#shutdown').hidden})
+ if(action==='refresh')refresh()
+ else if(action==='connect'){
   try{if(await api.connect()){ready();refresh()}}catch{}
  }
 },2000)
