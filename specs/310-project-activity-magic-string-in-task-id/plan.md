@@ -87,6 +87,12 @@ MigrateActivityAttachment(conn *sqlConn) error
 SQLite implements it as the rebuild; PostgreSQL as the `ALTER TABLE`s. The keys of
 the interface stay small and named after *what* is needed, not after the engine.
 
+Neither engine gets a transaction around the whole thing, so each implementation is
+written to be resumed. Its guard is the *last* artefact it produces — the foreign key
+on `project_id` — not the first: a run that stops after adding the column is picked up
+again on the next start-up rather than leaving a table that is half migrated and that
+no later start would look at again.
+
 ### D3 — The DDL migration and the backfill are two separate things
 
 This distinction is the one the clarification insists on, and getting it wrong is the

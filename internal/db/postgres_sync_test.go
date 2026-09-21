@@ -227,3 +227,49 @@ func TestPostgresMigratesLegacyActivityRows(t *testing.T) {
 		t.Error("the project's activity outlived the project")
 	}
 }
+
+// A migration that stopped halfway is picked up again on the next start. The
+// column is not the guard — the foreign key it exists to restore is — so a run
+// interrupted after project_id was added does not leave the table without its
+// constraints for ever.
+func TestPostgresResumesAHalfMigratedTable(t *testing.T) {
+	d := openPostgres(t)
+	dsn := postgresDSN(t)
+
+	for _, stmt := range []string{
+		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'P1', 'p1')`,
+		`DROP TABLE task_activities`,
+		legacyActivitiesTable,
+		// As far as a previous attempt got before failing.
+		`ALTER TABLE task_activities ALTER COLUMN task_id DROP NOT NULL`,
+		`ALTER TABLE task_activities ADD COLUMN project_id TEXT`,
+		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action) VALUES ('a-project', 'sync-p1', 'sync_github', 'Sync', 'Sync')`,
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatalf("seeding the half-migrated table (%s): %v", stmt, err)
+		}
+	}
+	d.Close()
+
+	migrated, err := Open(Config{Driver: DriverPostgres, DSN: dsn})
+	if err != nil {
+		t.Fatalf("reopening the database: %v", err)
+	}
+	t.Cleanup(func() { migrated.Close() })
+
+	var gotTask, gotProject string
+	if err := migrated.conn.QueryRow(
+		`SELECT COALESCE(task_id, ''), COALESCE(project_id, '') FROM task_activities WHERE id = 'a-project'`,
+	).Scan(&gotTask, &gotProject); err != nil {
+		t.Fatalf("reading the activity: %v", err)
+	}
+	if gotTask != "" || gotProject != "p1" {
+		t.Errorf("task_id = %q, project_id = %q, want no task and project p1", gotTask, gotProject)
+	}
+	if _, err := migrated.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action) VALUES ('orphan', 'no-such-task', 's', 'S', 'A')`); err == nil {
+		t.Error("the foreign key was not restored on the second attempt")
+	}
+	if _, err := migrated.conn.Exec(`INSERT INTO task_activities (id, project_id, skill_id, skill_name, action) VALUES ('ghost', 'no-such-project', 's', 'S', 'A')`); err == nil {
+		t.Error("the project foreign key was not restored on the second attempt")
+	}
+}
