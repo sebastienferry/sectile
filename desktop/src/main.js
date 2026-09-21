@@ -597,6 +597,9 @@ document.querySelector('#dismiss-dialog').onclick=()=>dialog.close()
 function showDialog(title){
  closeLogs(false)
  document.querySelector('#dismiss-dialog').textContent='Close settings'
+ // The footer is shared by every dialog, so a control one of them added there
+ // must go before the next one opens.
+ for(const extra of document.querySelectorAll('.dialog-footer .dialog-action'))extra.remove()
  dialogBody.replaceChildren()
  const heading=document.createElement('h2');heading.textContent=title;dialogBody.append(heading)
  if(!dialog.open)dialog.showModal()
@@ -727,61 +730,107 @@ async function openProject(id){
   let config=info.server
   dialogBody.querySelector('h2').textContent=config.projectName
 
-  const tabs=document.createElement('div');tabs.className='project-tabs';tabs.setAttribute('role','tablist')
+  // A single Local panel had grown into one long scroll mixing the repository
+  // path, execution limits and the agent command lines. Categories in a side
+  // navigation name each group and keep the panel they open short, the way the
+  // project modal of the web interface does.
+  const CATEGORIES=[
+   {id:'General',label:'General',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
+   {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
+   {id:'Agent',label:'AI agent',saves:true,icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
+   {id:'Deployment',label:'Deployment',saves:false,icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
+   {id:'Server',label:'Server',saves:false,icon:'<rect x="4" y="5" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 8h.01M8 17h.01"/>'}
+  ]
+  const layout=document.createElement('div');layout.className='settings-layout'
+  const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
+  tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Project settings categories')
+  const content=document.createElement('div');content.className='settings-content'
+  layout.append(tabs,content)
   const panels={}
-  for(const name of ['Local','Deployment','Server']){
-   const tab=document.createElement('button');tab.type='button';tab.textContent=name;tab.setAttribute('role','tab')
-   tab.id='project-tab-'+name;tab.setAttribute('aria-controls','project-panel-'+name)
-   const panel=document.createElement('section');panel.id='project-panel-'+name;panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panels[name]=panel
-   tab.onclick=()=>{for(const [key,value] of Object.entries(panels))value.hidden=key!==name;for(const item of tabs.children)item.setAttribute('aria-selected',String(item===tab))}
-   tab.setAttribute('aria-selected',String(name==='Local'));panel.hidden=name!=='Local';tabs.append(tab)
+  // The categories that store something share one form, so a single save keeps
+  // the whole local configuration consistent whichever one is open.
+  const form=document.createElement('form');form.id='project-local-form'
+  // The save control lives in the dialog footer, so it stays in view whichever
+  // storing category is open and however far its panel scrolls.
+  const save=document.createElement('button');save.textContent='Save local configuration';save.className='dialog-action primary'
+  save.setAttribute('form',form.id)
+  document.querySelector('.dialog-footer').prepend(save)
+  function selectCategory(name){
+   const stores=CATEGORIES.find(category=>category.id===name).saves
+   for(const [key,value] of Object.entries(panels))value.hidden=key!==name
+   form.hidden=!stores;save.hidden=!stores
+   for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
   }
-  dialogBody.append(tabs,...Object.values(panels))
-  const form=document.createElement('form')
-  const label=document.createElement('label');label.textContent='Local repository'
-  const row=document.createElement('div');row.className='repository-picker'
+  for(const category of CATEGORIES){
+   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id
+   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+   tab.id='project-tab-'+category.id;tab.setAttribute('aria-controls','project-panel-'+category.id)
+   const panel=document.createElement('section');panel.id='project-panel-'+category.id
+   panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panels[category.id]=panel
+   tab.onclick=()=>selectCategory(category.id)
+   tabs.append(tab)
+  }
+  dialogBody.append(layout)
+  content.append(form)
+  for(const category of CATEGORIES){
+   if(category.saves)form.append(panels[category.id]);else content.append(panels[category.id])
+  }
+  selectCategory('General')
+  // Every setting reads as one row: its name on the left with the inherited
+  // value in small type beneath, the control that changes it on the right. A
+  // control that needs the whole width takes the stacked variant instead.
+  const RESET_ICON='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4v6h6M4 10a8 8 0 1 1 1 8"/></svg>'
+  function settingRow(name,options,...widgets){
+   const {resetLabel,onReset,stacked}=options||{}
+   const section=document.createElement('section');section.className='setting-row'+(stacked?' stacked':'')
+   const text=document.createElement('div');text.className='setting-text'
+   const line=document.createElement('div');line.className='setting-name'
+   const title=document.createElement('strong');title.textContent=name
+   const hint=document.createElement('p')
+   const control=document.createElement('div');control.className='setting-control'
+   let reset=null
+   if(resetLabel){
+    reset=document.createElement('button');reset.type='button';reset.className='reset-setting'
+    reset.setAttribute('aria-label',resetLabel);reset.title=resetLabel;reset.innerHTML=RESET_ICON
+    if(onReset)reset.onclick=onReset
+   }
+   // A stacked control owns the whole width, so its reset belongs on the name
+   // line rather than beside the control.
+   line.append(title);if(stacked&&reset)line.append(reset)
+   text.append(line,hint)
+   control.append(...widgets);if(!stacked&&reset)control.append(reset)
+   section.append(text,control)
+   return {section,control,hint,reset}
+  }
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
-  row.append(path,browse);label.append(row)
+  const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
+  const repository=settingRow('Local repository',{stacked:true},picker)
   let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
   let parallelism=info.parallelism||1
   const controls={}
-  // A setting without a server default (resetLabel omitted) carries no reset control.
-  function setting(name,values,resetLabel,onSelect,onReset){
-   const section=document.createElement('section');section.className='execution-setting'
-   const heading=document.createElement('div');heading.className='setting-heading'
-   const title=document.createElement('strong');title.textContent=name
-   let reset=null
-   if(resetLabel){
-    reset=document.createElement('button');reset.type='button';reset.className='reset-setting';reset.setAttribute('aria-label',resetLabel);reset.title=resetLabel
-    reset.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4v6h6M4 10a8 8 0 1 1 1 8"/></svg>'
-    reset.onclick=onReset
-   }
-   heading.append(title);if(reset)heading.append(reset)
-   const group=document.createElement('div');group.className='segmented';group.setAttribute('role','group');group.setAttribute('aria-label',name)
-   const buttons=values.map(value=>{const button=document.createElement('button');button.type='button';button.textContent=String(value);button.onclick=()=>onSelect(value);group.append(button);return button})
-   const hint=document.createElement('p');section.append(heading,group,hint)
-   return {section,buttons,hint,reset}
-  }
+  const worktreeGroup=document.createElement('div');worktreeGroup.className='segmented'
+  worktreeGroup.setAttribute('role','group');worktreeGroup.setAttribute('aria-label','Worktrees')
+  const worktreeButtons=['Yes','No'].map(value=>{
+   const button=document.createElement('button');button.type='button';button.textContent=value
+   button.onclick=()=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()}
+   worktreeGroup.append(button);return button
+  })
+  controls.worktrees=settingRow('Worktrees',{resetLabel:'Reset worktrees to server default',onReset:()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()}},worktreeGroup)
+  controls.worktrees.buttons=worktreeButtons
   // A magnitude between 1 and a ceiling, which a segmented control cannot show
-  // without overflowing the dialog once the ceiling grows.
-  function slider(name,max,onSelect){
-   const section=document.createElement('section');section.className='execution-setting'
-   const heading=document.createElement('div');heading.className='setting-heading'
-   const title=document.createElement('strong');title.textContent=name
-   const readout=document.createElement('span');readout.className='slider-value'
-   heading.append(title,readout)
-   const input=document.createElement('input');input.type='range';input.min='1';input.max=String(max);input.step='1'
-   input.className='slider-input';input.setAttribute('aria-label',name)
-   input.oninput=()=>onSelect(Number(input.value))
-   const scale=document.createElement('div');scale.className='slider-scale'
-   for(const mark of [1,Math.round(max/2),max]){const item=document.createElement('span');item.textContent=String(mark);scale.append(item)}
-   const hint=document.createElement('p');section.append(heading,input,scale,hint)
-   return {section,input,readout,hint}
-  }
-  controls.worktrees=setting('Worktrees',['Yes','No'],'Reset worktrees to server default',value=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()},()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()})
-  controls.parallel=slider('Parallel executions',MAX_PARALLELISM,value=>{parallelism=value;update()})
+  // without overflowing the row once the ceiling grows. The readout states the
+  // value, so the slider needs no printed scale beneath it.
+  const parallelInput=document.createElement('input');parallelInput.type='range'
+  parallelInput.min='1';parallelInput.max=String(MAX_PARALLELISM);parallelInput.step='1'
+  parallelInput.className='slider-input';parallelInput.setAttribute('aria-label','Parallel executions')
+  parallelInput.oninput=()=>{parallelism=Number(parallelInput.value);update()}
+  const parallelReadout=document.createElement('span');parallelReadout.className='slider-value'
+  // Parallelism is workstation-owned: no server default, hence no reset control.
+  controls.parallel=settingRow('Parallel executions',null,parallelInput,parallelReadout)
+  controls.parallel.input=parallelInput;controls.parallel.readout=parallelReadout
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
    controls.worktrees.hint.textContent=(inheritWorktrees?'Inherited':'Local override')+' · Server default: '+(config.useWorktrees?'Yes':'No')
@@ -789,20 +838,11 @@ async function openProject(id){
    controls.parallel.input.disabled=!useWorktrees
    controls.parallel.input.value=String(effective)
    controls.parallel.readout.textContent=effective+(effective===1?' execution':' executions')
-   controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Additional executions wait in the local queue.':'Without worktrees, executions are limited to one.'
+   controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Extra executions queue locally.':'Without worktrees, executions are limited to one.'
   }
   update()
   let selectedProvider=info.aiProvider||config.aiProvider||'agy',inheritAiProvider=!info.aiProviderOverride
-  const providerSection=document.createElement('section');providerSection.className='execution-setting'
-  const providerHeading=document.createElement('div');providerHeading.className='setting-heading'
-  const providerTitle=document.createElement('strong');providerTitle.textContent='AI Provider'
-  const providerReset=document.createElement('button');providerReset.type='button';providerReset.className='reset-setting'
-  providerReset.setAttribute('aria-label','Reset AI provider to server default');providerReset.title='Reset AI provider to server default'
-  providerReset.innerHTML=controls.worktrees.reset.innerHTML
-  providerHeading.append(providerTitle,providerReset)
-
   const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
-  providerSelect.style.width='100%';providerSelect.style.marginLeft='0';providerSelect.style.marginTop='7px'
   const PROVIDERS=[
     {id:'agy',label:'AGY CLI (Google Antigravity)'},
     {id:'claude',label:'Claude Code CLI'},
@@ -817,8 +857,8 @@ async function openProject(id){
     providerSelect.append(opt)
   }
   providerSelect.value=selectedProvider
-  const providerHint=document.createElement('p')
-  providerSection.append(providerHeading,providerSelect,providerHint)
+  const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to server default'},providerSelect)
+  const providerReset=providerRow.reset,providerHint=providerRow.hint
   function updateProvider(){
     providerHint.textContent=(inheritAiProvider?'Inherited from server':'Local override')+' · Server default: '+(config.aiProvider||'agy')
     renderCommandPreview()
@@ -831,19 +871,11 @@ async function openProject(id){
   }
 
   let selectedModel=info.aiModel??config.aiModel??'',inheritAiModel=!info.aiModelOverride
-  const modelSection=document.createElement('section');modelSection.className='execution-setting'
-  const modelHeading=document.createElement('div');modelHeading.className='setting-heading'
-  const modelTitle=document.createElement('strong');modelTitle.textContent='AI Model'
-  const modelReset=document.createElement('button');modelReset.type='button';modelReset.className='reset-setting'
-  modelReset.setAttribute('aria-label','Reset AI model to server default');modelReset.title='Reset AI model to server default'
-  modelReset.innerHTML=controls.worktrees.reset.innerHTML
-  modelHeading.append(modelTitle,modelReset)
-
   const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
   modelInput.value=selectedModel
   modelInput.placeholder='Empty: use provider default model'
-  const modelHint=document.createElement('p')
-  modelSection.append(modelHeading,modelInput,modelHint)
+  const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to server default'},modelInput)
+  const modelReset=modelRow.reset,modelHint=modelRow.hint
 
   const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
   function validateModel(val){
@@ -879,15 +911,12 @@ async function openProject(id){
   // The two execution modes run different command lines, so they get one field
   // each. Overriding only the interactive one would leave the server's headless
   // command running beside it, which is not what an override means.
-  const commandLabel=document.createElement('label');commandLabel.textContent='Interactive CLI command'
   const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
   command.value=info.aiCommandTemplate??config.aiCommandTemplate??''
   command.placeholder='Server provider default command'
-  const autonomousLabel=document.createElement('label');autonomousLabel.textContent='Autonomous CLI command (headless)'
   const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
   autonomousCommand.value=info.aiCommandTemplateAutonomous??config.aiCommandTemplateAutonomous??''
   autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
-  const commandHint=document.createElement('p')
   const commandPreviewBox=document.createElement('dl');commandPreviewBox.className='command-preview'
   function renderCommandPreview(){
    commandPreviewBox.replaceChildren()
@@ -898,12 +927,17 @@ async function openProject(id){
     commandPreviewBox.append(term,detail)
    }
   }
-  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Both empty runs the provider default for each mode. Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.';renderCommandPreview()}
+  const placeholderHelp=document.createElement('details');placeholderHelp.className='placeholder-help'
+  const placeholderSummary=document.createElement('summary');placeholderSummary.textContent='Placeholders'
+  const placeholderText=document.createElement('p')
+  placeholderText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
+  placeholderHelp.append(placeholderSummary,placeholderText)
+  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Both empty runs the provider default for each mode.';renderCommandPreview()}
   command.oninput=()=>{inheritCommand=false;commandState()}
   autonomousCommand.oninput=()=>{inheritCommand=false;commandState()}
-  const commandReset=document.createElement('button');commandReset.type='button';commandReset.className='reset-setting'
-  commandReset.setAttribute('aria-label','Reset CLI commands to server defaults');commandReset.title='Reset CLI commands to server defaults';commandReset.innerHTML=controls.worktrees.reset.innerHTML
-  commandReset.onclick=()=>{command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}
+  const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to server defaults',onReset:()=>{command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}},command,placeholderHelp)
+  const commandHint=commandRow.hint
+  const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,commandPreviewBox)
 
   const KNOWN_PRESETS=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'"]
   providerSelect.onchange=()=>{
@@ -922,20 +956,10 @@ async function openProject(id){
 
   updateProvider()
   updateModel()
-  commandState();commandLabel.append(commandReset,command,commandHint)
-  autonomousLabel.append(autonomousCommand,commandPreviewBox)
+  commandState()
 
   let selectedTerminal=info.terminal??config.externalTerminalCommand??'',inheritTerminal=!info.terminalOverride
-  const terminalSection=document.createElement('section');terminalSection.className='execution-setting'
-  const terminalHeading=document.createElement('div');terminalHeading.className='setting-heading'
-  const terminalTitle=document.createElement('strong');terminalTitle.textContent='Terminal emulator'
-  const terminalReset=document.createElement('button');terminalReset.type='button';terminalReset.className='reset-setting'
-  terminalReset.setAttribute('aria-label','Reset terminal emulator to workstation default');terminalReset.title='Reset terminal emulator to workstation default'
-  terminalReset.innerHTML=controls.worktrees.reset.innerHTML
-  terminalHeading.append(terminalTitle,terminalReset)
-
   const terminalSelect=document.createElement('select');terminalSelect.className='terminal-select';terminalSelect.setAttribute('aria-label','Terminal emulator')
-  terminalSelect.style.width='100%';terminalSelect.style.marginLeft='0';terminalSelect.style.marginTop='7px'
   const TERMINALS=[
     {id:'',label:'Auto-detect (Ghostty, iTerm, Terminal)'},
     {id:'ghostty',label:'Ghostty'},
@@ -950,7 +974,6 @@ async function openProject(id){
   const customTerminalInput=document.createElement('input');customTerminalInput.type='text';customTerminalInput.className='custom-terminal-input'
   customTerminalInput.setAttribute('aria-label','Custom terminal command')
   customTerminalInput.placeholder='e.g. alacritty -e {command}'
-  customTerminalInput.style.width='100%';customTerminalInput.style.marginTop='7px'
 
   const standardTerminals=['','ghostty','terminal','iterm']
   if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
@@ -963,8 +986,8 @@ async function openProject(id){
     customTerminalInput.hidden=true
   }
 
-  const terminalHint=document.createElement('p')
-  terminalSection.append(terminalHeading,terminalSelect,customTerminalInput,terminalHint)
+  const terminalRow=settingRow('Terminal emulator',{resetLabel:'Reset terminal emulator to workstation default'},terminalSelect,customTerminalInput)
+  const terminalReset=terminalRow.reset,terminalHint=terminalRow.hint
 
   function updateTerminal(){
     terminalHint.textContent=(inheritTerminal?'Inherited from workstation':'Local override')+' · Default: '+(config.externalTerminalCommand||'Auto-detect')
@@ -998,14 +1021,14 @@ async function openProject(id){
   }
   updateTerminal()
 
-  const save=document.createElement('button');save.textContent='Save local configuration'
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  form.append(label,controls.worktrees.section,controls.parallel.section,providerSection,modelSection,commandLabel,autonomousLabel,terminalSection,save)
-  panels.Local.append(form)
-  const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop'
+  panels.General.append(repository.section)
+  panels.Execution.append(controls.worktrees.section,controls.parallel.section,terminalRow.section)
+  panels.Agent.append(providerRow.section,modelRow.section,commandRow.section,autonomousRow.section)
+  const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
-  if(info.configured||runs.some(run=>run.projectId===id))panels.Local.append(remove)
-  dialogBody.append(notice)
+  if(info.configured||runs.some(run=>run.projectId===id))panels.General.append(remove)
+  content.append(notice)
   const tools=document.createElement('div');tools.className='deployment-actions'
   form.onsubmit=async event=>{
    event.preventDefault()
@@ -1052,7 +1075,7 @@ async function openProject(id){
   }
   renderServer(info.monoRepo)
   const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh from server';reload.className='refresh-project'
-  tabs.before(reload)
+  layout.before(reload)
   reload.onclick=async()=>{
    reload.disabled=true;notice.textContent='Refreshing server settings…'
    try{
