@@ -91,10 +91,19 @@ headless line, not only the shipped presets.
 ### D6. The desktop reads the run's output from the agent, not from the server
 The agent already holds the bytes; it is on the same machine as the desktop, and the desktop
 already speaks to it for status, diffs and results. A new read-only route,
-`GET /desktop/runs/{id}/output?offset=N`, returns the bytes after `offset` and the new offset.
+`GET /desktop/run-output?id=<run-id>&offset=N`, returns the bytes after `offset` and the new
+offset. It is spelled like its sibling `/desktop/run-result` rather than as a nested path,
+which is the shape every other desktop route on the loopback handler already takes.
 `superviseHeadlessRun` keeps an appended transcript on the `controlledRun` alongside what it
 posts, bounded by the same 256 KiB budget as the activity record and truncated head-first with
 a stated marker.
+
+`offset` counts bytes of the run's whole output, not bytes of the transcript still held. The
+two part company at the first truncation: the window slides, and a position expressed in it
+would point at output the pane has already shown. The agent therefore counts the bytes its head
+has lost and reads the position against that count; a reader that has fallen out of the window
+is served what is left, headed by the truncation marker. The marker is served with the window
+rather than stored in it, so it never shifts a position by its own length.
 
 *Rejected:* having the desktop poll the server's activity output. It adds a network hop, a
 second authentication path and the server's own lag for data already present locally.

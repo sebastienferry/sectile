@@ -32,7 +32,8 @@ const headlessTranscriptLimit = 256 * 1024
 
 // headlessTranscriptTruncated stands where the head of a long run was dropped,
 // on the surface that dropped it, so a user reading a shortened transcript knows
-// the run is not what was cut.
+// the run is not what was cut. It heads the output desktopRunOutput serves, and
+// is never part of the transcript itself.
 const headlessTranscriptTruncated = "[agent] earlier output dropped: the local transcript keeps only the last 256 KiB\n"
 
 // pipelinePrefix makes a pipeline report the failure of any of its stages. A
@@ -210,10 +211,17 @@ func (d *agentDaemon) appendHeadlessTranscript(run *controlledRun, chunk string)
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	run.transcript += chunk
-	if len(run.transcript) > headlessTranscriptLimit {
-		run.transcript = headlessTranscriptTruncated + run.transcript[len(run.transcript)-headlessTranscriptLimit:]
-		run.transcriptTruncated = true
+	if len(run.transcript) <= headlessTranscriptLimit {
+		return
 	}
+	// The marker is not stored with the kept bytes: it is not something the run
+	// printed, and counting it as output would offset every later position by
+	// its own length. desktopRunOutput writes it when it serves the window from
+	// the start.
+	kept := run.transcript[len(run.transcript)-headlessTranscriptLimit:]
+	run.dropped += len(run.transcript) - len(kept)
+	run.transcript = kept
+	run.transcriptTruncated = true
 }
 
 func (d *agentDaemon) finishHeadlessRun(taskRef, runID string, run *controlledRun, status, note string) {

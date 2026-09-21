@@ -903,7 +903,6 @@ func desktopTaskFinished(task models.Task) bool {
 	return false
 }
 
-// Resolve the selected execution against server activity, independently of PTY exit.
 // desktopRunOutput serves what a headless run has printed since offset. An
 // autonomous run has no PTY for the console pane to attach to, and the bytes
 // are already here, on the same workstation as the desktop: reading them from
@@ -918,12 +917,20 @@ func (d *agentDaemon) desktopRunOutput(w http.ResponseWriter, r *http.Request) {
 	var next int
 	var truncated, headless bool
 	if !d.queue.read(r.URL.Query().Get("id"), func(run *controlledRun) {
-		// An offset past the end is what a truncated transcript leaves behind;
-		// rewinding to what is left beats reporting nothing at all.
-		if offset < 0 || offset > len(run.transcript) {
-			offset = 0
+		// offset counts bytes of the run's whole output, not bytes of the window
+		// still held: the window slides when the head is dropped, and a reader
+		// that kept counting into it would be handed output it has already shown.
+		local := offset - run.dropped
+		if local < 0 || local > len(run.transcript) {
+			// The reader is behind the window, or past an output the agent no
+			// longer holds. Replaying what is left beats reporting nothing, and
+			// the marker says the head is missing rather than empty.
+			local = 0
+			if run.transcriptTruncated {
+				output = headlessTranscriptTruncated
+			}
 		}
-		output, next = run.transcript[offset:], len(run.transcript)
+		output, next = output+run.transcript[local:], run.dropped+len(run.transcript)
 		truncated, headless, status = run.transcriptTruncated, run.desktop.Headless, run.desktop.Status
 	}) {
 		http.Error(w, "Run not found", 404)
@@ -936,6 +943,7 @@ func (d *agentDaemon) desktopRunOutput(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Resolve the selected execution against server activity, independently of PTY exit.
 func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	var taskID, projectID string

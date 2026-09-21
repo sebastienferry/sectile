@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -77,17 +78,51 @@ func TestHeadlessTranscriptTruncatesItsHeadAndSaysSo(t *testing.T) {
 	d.appendHeadlessTranscript(run, strings.Repeat("a", headlessTranscriptLimit))
 	d.appendHeadlessTranscript(run, "the tail that explains the exit\n")
 
-	if !strings.HasPrefix(run.transcript, headlessTranscriptTruncated) {
-		t.Fatalf("a truncated transcript must open with its marker, got %q", run.transcript[:80])
-	}
 	if !strings.HasSuffix(run.transcript, "the tail that explains the exit\n") {
 		t.Fatal("the tail of the run was dropped instead of its head")
 	}
-	if len(run.transcript) > headlessTranscriptLimit+len(headlessTranscriptTruncated) {
+	if len(run.transcript) > headlessTranscriptLimit {
 		t.Fatalf("transcript = %d bytes, over the budget", len(run.transcript))
 	}
 	_, payload := runOutput(t, d, "?id=run")
 	if payload["truncated"] != true {
 		t.Fatalf("the route must report the truncation, got %v", payload["truncated"])
+	}
+	// The marker is served with the window, not stored in it: counting it as
+	// output would shift every later position by its own length.
+	if !strings.HasPrefix(payload["output"].(string), headlessTranscriptTruncated) {
+		t.Fatalf("a replayed truncated window must open with its marker, got %q", payload["output"])
+	}
+	if want := run.dropped + len(run.transcript); payload["offset"].(float64) != float64(want) {
+		t.Fatalf("offset = %v, want the position in the whole output (%d)", payload["offset"], want)
+	}
+}
+
+// A pane polls with the position it has already read. Truncation slides the
+// window under it, and an index into the kept bytes alone would then hand it
+// output it has already shown: the position counts the run's whole output.
+func TestDesktopRunOutputKeepsItsPlaceAcrossATruncation(t *testing.T) {
+	d := &agentDaemon{loopback: loopbackServer{desktopToken: "private"}}
+	run := &controlledRun{desktop: desktopRun{Status: "running", Headless: true}, exited: make(chan struct{})}
+	d.queue.runs = map[string]*controlledRun{"run": run}
+
+	d.appendHeadlessTranscript(run, strings.Repeat("a", headlessTranscriptLimit))
+	_, payload := runOutput(t, d, "?id=run")
+	read := int(payload["offset"].(float64))
+	if read != headlessTranscriptLimit {
+		t.Fatalf("offset = %d, want the whole output read so far", read)
+	}
+
+	// Enough to push the head out, so the kept window no longer starts at the
+	// beginning of the run.
+	d.appendHeadlessTranscript(run, "tail one\n")
+	d.appendHeadlessTranscript(run, "tail two\n")
+	if run.dropped == 0 {
+		t.Fatal("the head was expected to be dropped")
+	}
+
+	_, payload = runOutput(t, d, "?id=run&offset="+strconv.Itoa(read))
+	if got := payload["output"]; got != "tail one\ntail two\n" {
+		t.Fatalf("output = %q, want only what was printed after the position already read", got)
 	}
 }

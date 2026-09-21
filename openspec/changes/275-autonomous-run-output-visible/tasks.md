@@ -64,3 +64,9 @@
       missing-`jq` refusal and the broken pipeline are Go tests, and the pane is exercised by
       `desktop/tests/headless-console.ui.cjs`. The end-to-end pass is left to the reviewer.
 - [x] 4.4 Re-read the diff as a reviewer.
+- [x] 4.5 Adjustment: rebased onto the current `main` (the branch's #281 base is merged there),
+      and fixed what the re-read found — the console position was an index into the kept
+      transcript, so the first truncation slid the window under the pane and it would have
+      reprinted output already shown. The position now counts the run's whole output, and the
+      truncation marker is served with the window instead of stored in it (D6). Documented the
+      route in `docs/contracts/server-agent-v1.md`.
