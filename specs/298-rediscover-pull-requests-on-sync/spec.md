@@ -214,33 +214,24 @@ automatic pass.
 
 ---
 
-## Open requirements
+## Open requirements — decided
 
-These were not settled by the clarification stage. **The ticket carries no
-clarification outcome: its GitHub discussion holds no comment, although the task
-is labelled `#clarified`.** Each item below is therefore stated as an open
-requirement with a recommended answer; implementation must not silently pick one.
+These were not settled by the clarification stage: the ticket carries no
+clarification outcome although it is labelled `#clarified`. They were put to the
+owner at the start of the implementation stage, on 2026-09-21, and each
+recommendation was accepted. They are decisions now, not options.
 
-- **OPEN-1 — Which GitHub mechanism is authoritative for "the pull requests of this
-  issue".** Candidates: GraphQL `closingIssuesReferences` (only pull requests that
-  *close* the issue), the REST issue timeline (`cross-referenced` and `connected`
-  events, broader but noisier), or `GET /search/issues` on the issue number (cheap,
-  but matches any mention). *Recommendation: GraphQL closing references as the
-  authoritative source, plus the existing branch lookup when a branch is known.*
-  **Blocks**: the whole discovery contract, and how noisy the result is.
-- **OPEN-2 — What happens to a task whose links a human deliberately detached.**
-  Re-attaching on the next sync would undo an explicit gesture; never re-attaching
-  requires remembering the detachment. *Recommendation: record the detachment and
-  suppress automatic rediscovery for that task until a manual rediscovery
-  (US5) is asked for.* **Blocks**: US2's last scenario and whether a column is
-  needed — which in turn decides whether AC5 applies.
-- **OPEN-3 — The bounding rule of decision 7.** Options: discover only for tasks
-  with zero links; only for tasks at or beyond the project's PR creation stage;
-  only once per task unless forced; or on every full sync but not on the 30-second
-  incremental pass. *Recommendation: on tasks with zero links, at or beyond the
-  PR creation stage, at most once per full-sync period.* **Blocks**: the API
-  call budget and the auto-sync rate-limit behaviour.
-- **OPEN-4 — Whether a rediscovered branch may seed `branch_name` when it is
-  empty.** It would make the branch-based lookup work from the next sync onwards,
-  but synchronisation has so far never written that field. *Recommendation: yes,
-  only when it is empty.* **Blocks**: the write path in `plan.md`.
+- **OPEN-1 — Authoritative GitHub mechanism.** *Decision: GraphQL closing
+  references* (`closedByPullRequestsReferences`, closed pull requests included),
+  plus the existing branch lookup when a branch is known. The issue timeline and
+  `search/issues` are rejected as authoritative: both match a mere mention.
+- **OPEN-2 — A task whose links a human detached.** *Decision: remember the
+  detachment.* A `pr_links_detached` flag is raised when an explicit empty set is
+  written through the task detail view, suppresses automatic rediscovery for that
+  task, and is cleared as soon as a link is attached again by any path. A manual
+  rediscovery (US5) ignores the flag.
+- **OPEN-3 — The bounding rule.** *Decision: tasks with zero links, at or beyond
+  the project's `PRCreationStage`, on a full synchronisation only.* The 30-second
+  incremental pass, which re-reads tickets one by one, never discovers.
+- **OPEN-4 — Seeding `branch_name`.** *Decision: yes, only when it is empty*, and
+  in the same statement as the links.

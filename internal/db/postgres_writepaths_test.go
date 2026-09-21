@@ -240,3 +240,42 @@ func TestPostgresMacroFramingComment(t *testing.T) {
 		t.Fatalf("framing_comment = %q", framing)
 	}
 }
+
+// pr_links_detached is the column #298 adds. It is written by the task edit
+// that detaches every link and read by the rediscovery gate, so a PostgreSQL
+// deployment missing it would rediscover what a person removed on purpose —
+// the exact failure mode ADR 0016 warns about for an ALTER-only column.
+func TestPostgresPullRequestDetachmentFlag(t *testing.T) {
+	d := openPostgres(t)
+	seedProjectAndUser(t, d)
+	seedTask(t, d)
+
+	links := []models.TaskPullRequest{{URL: "https://forge/pull/1", Branch: "feat/1"}}
+	if _, err := d.UpdateTask("t1", models.UpdateTaskRequest{PrLinks: &links}); err != nil {
+		t.Fatalf("recording a link: %v", err)
+	}
+	if d.pullRequestLinksDetached("t1") {
+		t.Fatal("recording a link must leave the task attached")
+	}
+
+	empty := []models.TaskPullRequest{}
+	if _, err := d.UpdateTask("t1", models.UpdateTaskRequest{PrLinks: &empty}); err != nil {
+		t.Fatalf("detaching every link: %v", err)
+	}
+	if !d.pullRequestLinksDetached("t1") {
+		t.Fatal("a deliberate detachment was not recorded")
+	}
+
+	// Attaching one again forgets the gesture, through the discovery write path.
+	task, err := d.GetTaskByID("t1")
+	if err != nil || task == nil {
+		t.Fatalf("reading the task back: %v", err)
+	}
+	attached, _, err := d.applyDiscoveredPullRequests(task, links)
+	if err != nil || len(attached) != 1 {
+		t.Fatalf("attaching a rediscovered link: %+v %v", attached, err)
+	}
+	if d.pullRequestLinksDetached("t1") {
+		t.Fatal("attaching a link again must clear the flag")
+	}
+}

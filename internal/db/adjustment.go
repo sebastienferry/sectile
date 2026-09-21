@@ -45,7 +45,7 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 	links := models.AppendPullRequestLink(task.PrLinks, pr.URL, pr.Branch)
 	if len(links) != len(task.PrLinks) {
 		d.mu.Lock()
-		_, err = d.conn.Exec("UPDATE tasks SET pr_url = ?, pr_links = ? WHERE id = ?",
+		_, err = d.conn.Exec("UPDATE tasks SET pr_url = ?, pr_links = ?, pr_links_detached = 0 WHERE id = ?",
 			pullRequestURLValue(links), encodePullRequestLinks(links), task.ID)
 		d.mu.Unlock()
 		if err != nil {

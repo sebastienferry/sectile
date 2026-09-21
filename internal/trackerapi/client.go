@@ -342,14 +342,20 @@ func repository(repo string) (string, error) {
 	return repo, nil
 }
 
+// githubGraphQLEndpoint is the GraphQL entry point of the configured instance:
+// github.com serves it beside the REST root, GitHub Enterprise under /api.
+func (c *Client) githubGraphQLEndpoint() string {
+	if strings.HasSuffix(c.GithubURL, "/api/v3") {
+		return strings.TrimSuffix(c.GithubURL, "/api/v3") + "/api/graphql"
+	}
+	return strings.TrimSuffix(c.GithubURL, "/api/v3") + "/graphql"
+}
+
 func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 	if c.GithubToken == "" {
 		return nil, fmt.Errorf("%s", missingCredential("GitHub"))
 	}
-	endpoint := strings.TrimSuffix(c.GithubURL, "/api/v3") + "/graphql"
-	if strings.HasSuffix(c.GithubURL, "/api/v3") {
-		endpoint = strings.TrimSuffix(c.GithubURL, "/api/v3") + "/api/graphql"
-	}
+	endpoint := c.githubGraphQLEndpoint()
 	var data json.RawMessage
 	if err := c.graphql(context.Background(), endpoint, "Bearer "+c.GithubToken, query, nil, &data); err != nil {
 		return nil, err

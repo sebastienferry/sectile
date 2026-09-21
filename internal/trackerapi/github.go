@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"tasks/internal/models"
@@ -239,11 +240,7 @@ func (c *Client) TransferGithubIssue(source, path string, n int, target, targetP
 			}
 		}
 	}
-	endpoint := strings.TrimSuffix(c.GithubURL, "/api/v3") + "/graphql"
-	if strings.HasSuffix(c.GithubURL, "/api/v3") {
-		endpoint = strings.TrimSuffix(c.GithubURL, "/api/v3") + "/api/graphql"
-	}
-	err = c.graphql(context.Background(), endpoint, "Bearer "+c.GithubToken, `mutation($issue:ID!,$repo:ID!){transferIssue(input:{issueId:$issue,repositoryId:$repo}){issue{number url}}}`, map[string]any{"issue": issue.ID, "repo": repo.ID}, &res)
+	err = c.graphql(context.Background(), c.githubGraphQLEndpoint(), "Bearer "+c.GithubToken, `mutation($issue:ID!,$repo:ID!){transferIssue(input:{issueId:$issue,repositoryId:$repo}){issue{number url}}}`, map[string]any{"issue": issue.ID, "repo": repo.ID}, &res)
 	if err == nil && (res.TransferIssue.Issue.Number < 1 || res.TransferIssue.Issue.URL == "") {
 		err = fmt.Errorf("tracker did not confirm issue transfer")
 	}
@@ -308,6 +305,9 @@ type PullRequest struct {
 	Open   bool
 	Draft  bool
 	Merged bool
+	// CreatedAt orders a set of pull requests the way the task recorded them:
+	// oldest first, so the newest ends up being the current one.
+	CreatedAt time.Time
 }
 
 func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
@@ -328,11 +328,12 @@ func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
 	var merged []mergedPullRequest
 	for _, raw := range pages {
 		var pr struct {
-			URL      string     `json:"html_url"`
-			State    string     `json:"state"`
-			Draft    bool       `json:"draft"`
-			MergedAt *time.Time `json:"merged_at"`
-			Head     struct {
+			URL       string     `json:"html_url"`
+			State     string     `json:"state"`
+			Draft     bool       `json:"draft"`
+			MergedAt  *time.Time `json:"merged_at"`
+			CreatedAt time.Time  `json:"created_at"`
+			Head      struct {
 				Ref string
 				SHA string
 			}
@@ -340,7 +341,7 @@ func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
 		if err = json.Unmarshal(raw, &pr); err != nil {
 			return PullRequest{}, err
 		}
-		found := PullRequest{pr.URL, pr.Head.Ref, pr.Head.SHA, pr.State == "open", pr.Draft, pr.MergedAt != nil}
+		found := PullRequest{URL: pr.URL, Branch: pr.Head.Ref, SHA: pr.Head.SHA, Open: pr.State == "open", Draft: pr.Draft, Merged: pr.MergedAt != nil, CreatedAt: pr.CreatedAt}
 		switch {
 		case found.Open:
 			open = append(open, found)
@@ -366,6 +367,67 @@ func (c *Client) BranchPullRequest(repo, branch string) (PullRequest, error) {
 		return latest.PullRequest, nil
 	}
 	return PullRequest{}, fmt.Errorf("expected one matching open or merged pull request, got %d open and %d merged", len(open), len(merged))
+}
+
+// IssuePullRequests answers the question no branch lookup can: which pull
+// requests belong to this issue. It is what lets an instance that knows nothing
+// but the issue number — a project recreated elsewhere — find the work again.
+//
+// The closing references are the authoritative source (OPEN-1 of the
+// specification). The issue timeline and a text search on the issue number both
+// match a mere mention, and an unrelated pull request quoting "#298" would be
+// attached to it.
+func (c *Client) IssuePullRequests(repo string, issueNumber int) ([]PullRequest, error) {
+	repo, err := repository(repo)
+	if err != nil {
+		return nil, err
+	}
+	if issueNumber < 1 {
+		return nil, fmt.Errorf("issue number is required")
+	}
+	if c.GithubToken == "" {
+		return nil, fmt.Errorf("%s", missingCredential("GitHub"))
+	}
+	parts := strings.Split(repo, "/")
+	var res struct {
+		Repository struct {
+			Issue struct {
+				ClosedByPullRequestsReferences struct {
+					Nodes []struct {
+						URL         string    `json:"url"`
+						HeadRefName string    `json:"headRefName"`
+						CreatedAt   time.Time `json:"createdAt"`
+						State       string    `json:"state"`
+						Merged      bool      `json:"merged"`
+						IsDraft     bool      `json:"isDraft"`
+					}
+				} `json:"closedByPullRequestsReferences"`
+			}
+		}
+	}
+	query := `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){closedByPullRequestsReferences(first:20,includeClosedPrs:true){nodes{url headRefName createdAt state merged isDraft}}}}}`
+	vars := map[string]any{"owner": parts[0], "name": parts[1], "number": issueNumber}
+	if err = c.graphql(context.Background(), c.githubGraphQLEndpoint(), "Bearer "+c.GithubToken, query, vars, &res); err != nil {
+		return nil, err
+	}
+	var found []PullRequest
+	for _, node := range res.Repository.Issue.ClosedByPullRequestsReferences.Nodes {
+		if strings.TrimSpace(node.URL) == "" {
+			continue
+		}
+		found = append(found, PullRequest{
+			URL:       node.URL,
+			Branch:    node.HeadRefName,
+			Open:      strings.EqualFold(node.State, "OPEN"),
+			Draft:     node.IsDraft,
+			Merged:    node.Merged,
+			CreatedAt: node.CreatedAt,
+		})
+	}
+	// Oldest first: the task's set is ordered, and its last link is the current
+	// pull request.
+	sort.SliceStable(found, func(i, j int) bool { return found[i].CreatedAt.Before(found[j].CreatedAt) })
+	return found, nil
 }
 
 // mergedPullRequest keeps the merge date out of PullRequest: the callers reason

@@ -64,6 +64,23 @@ type TicketingSystem interface {
 	RequiredCreateFields(ctx context.Context, req CreateMetaRequest) ([]RequiredField, error)
 }
 
+// PullRequestDiscoverer is the optional read that answers "which pull requests
+// belong to this work item". It is deliberately not part of TicketingSystem and
+// not implemented by BaseTicketingSystem: a tracker that cannot answer must be
+// skipped silently by a synchronisation, not made to fail, so every call site
+// type-asserts it and moves on when the assertion does not hold.
+type PullRequestDiscoverer interface {
+	// IssuePullRequests returns the pull requests attached to one work item,
+	// oldest first, so the last one is the current pull request.
+	IssuePullRequests(ctx context.Context, req IssuePullRequestsRequest) ([]models.TaskPullRequest, error)
+}
+
+// IssuePullRequestsRequest names the work item whose pull requests are read.
+type IssuePullRequestsRequest struct {
+	Project *models.Project
+	Key     string
+}
+
 // CreateIssueRequest holds the parameters needed to create an issue.
 type CreateIssueRequest struct {
 	Project     *models.Project

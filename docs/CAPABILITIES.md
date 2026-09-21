@@ -73,6 +73,18 @@ operations and issue transfer. Jira additionally exposes what a board is made of
 read side of the ticketing abstraction, and writes sprint, team and epic. Local
 tasks stay in SQLite.
 
+GitHub also answers which pull requests belong to an issue, through its closing
+references. A full synchronisation uses it to **rediscover pull requests** a
+local store never recorded, which is what lets a project recreated on a second
+instance come back with its links instead of empty ones. The read is a declared
+capability, so a tracker that cannot answer is skipped silently; discovery is
+additive, never removes or reorders a recorded link, is limited to tasks with no
+link at or beyond the project's pull request creation stage, and its failures
+are warnings on the synchronisation activity rather than synchronisation
+failures. Detaching every link from a task suppresses automatic rediscovery for
+it; a synchronisation triggered on that single task rediscovers anyway. See
+[ADR 0017](adrs/0017-pull-requests-are-rediscovered-on-sync.md).
+
 Projects specify `githubRepo` (`owner/repository`) or `jiraProject` (the Jira
 project key) with `trackerUrl` (the site).
 Workstation CLI credentials and local repository paths are never used by the

@@ -122,7 +122,11 @@ type DB struct {
 	// server's lifetime only.
 	unlocked         unlockedKeys
 	prEvidenceLookup func(string, string) (trackerapi.PullRequest, error)
-	conn             *sqlConn
+	// prDiscoveryLookup stands in for the tracker read that answers which pull
+	// requests belong to an issue, so the discovery step is testable without a
+	// live forge. See internal/db/prdiscovery.go.
+	prDiscoveryLookup func(projectID, key string) ([]models.TaskPullRequest, error)
+	conn              *sqlConn
 	// dialect carries what differs between the engines: placeholder
 	// rebinding, DDL type names, whether the legacy migrations apply. Every
 	// query and all 210 methods below are shared. See docs/adrs/0016.
@@ -433,6 +437,7 @@ func (d *DB) initSchema() error {
 			branch_name TEXT,
 			pr_url TEXT,
 			pr_links TEXT NOT NULL DEFAULT '[]',
+			pr_links_detached INTEGER NOT NULL DEFAULT 0,
 			repo_path TEXT NOT NULL DEFAULT '',
 			sprint TEXT NOT NULL DEFAULT '',
 			team TEXT NOT NULL DEFAULT '',
@@ -708,6 +713,11 @@ func (d *DB) applyLegacyMigrations() {
 	_, _ = d.conn.Exec(`UPDATE tasks
 		SET pr_links = json_array(json_object('url', TRIM(pr_url), 'branch', COALESCE(branch_name, '')))
 		WHERE pr_links = '[]' AND pr_url IS NOT NULL AND TRIM(pr_url) != '';`)
+	// pr_links_detached : un humain a retiré tous les liens depuis la fiche du
+	// ticket. La redécouverte automatique respecte ce geste et se tait, jusqu'à
+	// ce qu'une redécouverte soit demandée explicitement ou qu'un lien soit
+	// rattaché par le workflow. Voir internal/db/prdiscovery.go.
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pr_links_detached INTEGER NOT NULL DEFAULT 0;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN prompt TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN started_at DATETIME;")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN completed_at DATETIME;")
@@ -2660,6 +2670,17 @@ func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		return nil, err
 	}
 
+	// Detaching every link is an explicit gesture, and the synchronisation
+	// remembers it: rediscovery would otherwise put back, a minute later, what
+	// a person just removed. Attaching one again clears the flag.
+	if req.PrLinks != nil || req.PrURL != nil {
+		detached := 0
+		if len(existing.PrLinks) == 0 {
+			detached = 1
+		}
+		_, _ = d.conn.Exec("UPDATE tasks SET pr_links_detached = ? WHERE id = ?", detached, existing.ID)
+	}
+
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
 	if req.Status != nil || req.Labels != nil || req.Title != nil || req.Description != nil || req.Priority != nil || req.TrackerStatus != nil {
 		d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
@@ -3859,6 +3880,10 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 			steps = append(steps, "5. Board : "+note)
 		}
 	}
+	// Pull-request rediscovery runs here rather than in the import: the import
+	// must keep its property of never writing pr_url / pr_links, which is what
+	// protects the links a workflow produced.
+	steps = append(steps, d.rediscoverProjectPullRequests(ctx, proj, ts, tasks)...)
 	return steps
 }
 
@@ -4304,6 +4329,18 @@ func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
 // SyncSingleTaskAs re-reads it on behalf of whoever asked, so a personal
 // tracker credential can be resolved for the read.
 func (d *DB) SyncSingleTaskAs(ctx context.Context, taskID string) (*models.Task, error) {
+	return d.syncSingleTask(ctx, taskID, false)
+}
+
+// ForceSyncSingleTask is the synchronisation a person asked for on one work
+// item. It rediscovers that item's pull requests whatever the bounding rule
+// says, which is how a task missing its link is repaired without waiting for a
+// full pass.
+func (d *DB) ForceSyncSingleTask(ctx context.Context, taskID string) (*models.Task, error) {
+	return d.syncSingleTask(ctx, taskID, true)
+}
+
+func (d *DB) syncSingleTask(ctx context.Context, taskID string, force bool) (*models.Task, error) {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	settings, _ := d.getSettingsUnsafe()
@@ -4359,7 +4396,20 @@ func (d *DB) SyncSingleTaskAs(ctx context.Context, taskID string) (*models.Task,
 		if impErr := d.ImportOrUpdateTasks([]models.Task{*syncedTask}); impErr != nil {
 			return nil, impErr
 		}
-		return d.GetTaskByID(task.ID)
+		imported, readErr := d.GetTaskByID(task.ID)
+		if readErr != nil || imported == nil {
+			return imported, readErr
+		}
+		// Only a rediscovery the person asked for runs here: the background
+		// loop re-reads every unfinished ticket one by one through this path,
+		// and discovering on each of them would cost one tracker call per
+		// ticket per pass.
+		if force {
+			if _, _, err := d.discoverAndApply(ctx, proj, ts, imported); err != nil {
+				log.Printf("[prdiscovery] %s : %v", imported.Key, err)
+			}
+		}
+		return imported, nil
 	}
 
 	return task, nil

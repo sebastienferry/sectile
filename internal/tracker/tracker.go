@@ -49,6 +49,9 @@ const (
 	// CapBoard reads the project's structure: boards, columns, statuses and
 	// issue types.
 	CapBoard Capability = "board"
+	// CapPullRequests reads the pull requests attached to a work item, so a
+	// synchronisation can rediscover links an instance never recorded.
+	CapPullRequests Capability = "pull_requests"
 )
 
 // CapabilityLabel names an operation in the language the interface speaks, for
@@ -81,6 +84,8 @@ func CapabilityLabel(c Capability) string {
 		return "les commentaires"
 	case CapBoard:
 		return "la lecture du board"
+	case CapPullRequests:
+		return "la découverte des pull requests"
 	}
 	return string(c)
 }
