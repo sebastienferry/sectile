@@ -290,6 +290,17 @@ tag name on a tag) and the cross-compiled `sectile-server-*` /
 under the package `sectile` with the same version string. The agent is never
 part of the image: it runs on workstations, next to the coding CLIs.
 
+A merge into `main` promotes itself to dev. Once the image is published, the
+pipeline's `promote:dev` job rewrites the pinned tag in argocd-sp
+(`apps/sectile/dev/values.yml`, `features.main.image.tag`) through the shared
+automerge template and merges that change; ArgoCD deploys from the resulting
+commit, so the pipeline never talks to a cluster. What it pins is the same
+version string the image carries, never a number retyped by hand. Production
+is not promoted: there is none yet. Pinning an older tag by hand in argocd-sp
+therefore only holds until the next merge into `main` — to hold dev back,
+revert here. See
+[ADR 0016](docs/adrs/0016-promotion-automatique-en-dev.md).
+
 A branch other than `main` is also published as `server:preview-<commit sha>`,
 the tag the test environments pull. Those are declared in argocd-sp
 (`apps/sectile/dev`, feature `testenv`): a merge request opened on the GitLab

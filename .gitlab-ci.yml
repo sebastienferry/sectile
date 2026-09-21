@@ -21,6 +21,11 @@
 #     bare-metal installs.
 #
 # Both are gated on the Go, web and desktop test suites.
+#
+# On the default branch a third thing happens: the pipeline promotes the image
+# it just published to dev, by rewriting the pinned tag in argocd-sp and
+# merging that change (see promote:dev). ArgoCD deploys from the commit; this
+# pipeline never talks to a cluster.
 
 include:
   # Shared Go jobs (.go-test, runner tags, module cache); pulls in the kaniko
@@ -28,6 +33,13 @@ include:
   - project: 'smartadserver/templates/jobs/go'
     ref: v5.0.0
     file: '/go.yml'
+
+  # The shared automerge job, which is what moves the pinned tag in argocd-sp.
+  # Pinned to an exact ref on purpose: a floating `ref` would let another
+  # team's release change what this pipeline does to our cluster.
+  - project: 'smartadserver/templates/jobs/argocd'
+    ref: 6.0.1
+    file: '/automerge.yml'
 
 workflow:
   rules:
@@ -38,6 +50,7 @@ stages:
   - test
   - build
   - publish
+  - promote
 
 variables:
   NODE_IMAGE: "node:22"
@@ -237,3 +250,37 @@ publish:binaries:
       variables:
         SECTILE_VERSION: "${CI_COMMIT_TAG}"
     - if: $CI_COMMIT_BRANCH
+
+# ── Promote ───────────────────────────────────────────────────────────────────
+
+# A merge into main promotes itself to dev. The job rewrites the pinned image
+# tag in argocd-sp (`apps/sectile/dev/values.yml`) and merges that change;
+# ArgoCD reads the commit and deploys. Nothing is derived or retyped: what it
+# pins is ${SECTILE_VERSION}, the exact string publish:image built the image
+# with.
+#
+# Why this exists: the tag used to be copied by hand into argocd-sp, which does
+# not fail loudly, it drifts — dev quietly runs something older than main while
+# nobody is looking. See docs/adrs/0016-promotion-automatique-en-dev.md.
+#
+# Dev only. There is no production deployment of sectile to promote, and adding
+# one is a decision rather than a follow-up.
+promote:dev:
+  stage: promote
+  extends: .automerge
+  needs:
+    - job: publish:image
+      artifacts: false
+  # The Go template's `default:` caches the module directory. The automerge
+  # image has no repository to set up and no modules to restore, so the cache
+  # would only be paid for, never used.
+  cache: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  variables:
+    ARGOCD_REPO_URL: "https://gitlab.com/smartadserver/private/shared-platform/argocd-sp.git"
+    PATH_TO_FILE: "apps/sectile/dev/values.yml"
+    # The meta-chart holds the tag under the feature rather than at the root,
+    # so the template's default `.image.tag` would find nothing to rewrite.
+    YQ_QUERY: ".features.main.image.tag"
+    TARGET_IMAGE_TAG: "${SECTILE_VERSION}"
