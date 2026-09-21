@@ -83,6 +83,11 @@ Synchronisation rediscovers pull requests, **issue-anchored and branch-assisted*
 - One extra tracker call per *eligible* task per full pass, and none at all for
   a tracker without the capability or for a task that already holds links.
 - `tasks.pr_links_detached` is declared in the `CREATE TABLE` as well as in the
-  legacy migrations: PostgreSQL never replays the latter (ADR 0016).
+  legacy migrations: PostgreSQL never replays the latter (ADR 0016). A
+  PostgreSQL database created by an earlier version would therefore never gain
+  the column, and every write path naming it would fail, so `initSchema`
+  reconciles it there with an idempotent `ADD COLUMN IF NOT EXISTS`. That is the
+  first column added after PostgreSQL support shipped; the next one takes the
+  same route.
 - The task payload is unchanged: the flag is store-side state, read only by the
   discovery gate.

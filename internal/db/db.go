@@ -524,6 +524,14 @@ func (d *DB) initSchema() error {
 	// docs/adrs/0016.
 	if d.dialect.RunsLegacyMigrations() {
 		d.applyLegacyMigrations()
+	} else {
+		// A PostgreSQL database is created complete, but one created by an
+		// earlier version keeps the schema it was created with: CREATE TABLE IF
+		// NOT EXISTS adds nothing to a table that already exists. A column added
+		// after PostgreSQL support shipped therefore has to be reconciled here,
+		// or every write path naming it fails on an upgraded deployment. The
+		// statement is idempotent, which the SQLite spelling cannot be.
+		_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pr_links_detached INTEGER NOT NULL DEFAULT 0;")
 	}
 
 	// Seed default workspace only if projects table is completely empty
