@@ -472,8 +472,17 @@ func (d *DB) initSchema() error {
 			run_mode TEXT NOT NULL DEFAULT '',
 			launch_stage TEXT NOT NULL DEFAULT '',
 			chain_stop_stage TEXT NOT NULL DEFAULT '',
-			waiting_since DATETIME,
-			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+			waiting_since DATETIME
+			-- No foreign key on task_id, deliberately. An activity is not always
+			-- attached to a ticket: a synchronisation is filed under a synthetic
+			-- "sync-<project>" id, and the queue does the same for work that
+			-- belongs to a project rather than a task. SQLite never enforced the
+			-- constraint — this package does not turn foreign keys on — so those
+			-- rows always went in; PostgreSQL enforces it and rejected them,
+			-- which made a synchronisation run and leave no trace at all.
+			--
+			-- The ON DELETE CASCADE it carried was redundant: deleting a task
+			-- already deletes its activities explicitly (see DeleteTask).
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_position ON tasks(status, position);`,
