@@ -52,3 +52,32 @@ func (sqliteDialect) SecretKeyDir(cfg Config) string { return filepath.Dir(cfg.P
 // RunsLegacyMigrations is true: a SQLite file may have been created by any
 // earlier version, and the additive migrations are what bring it up to date.
 func (sqliteDialect) RunsLegacyMigrations() bool { return true }
+
+// MigrateActivityAttachment rebuilds task_activities: SQLite can neither relax
+// a NOT NULL, nor add a foreign key, nor add a CHECK through ALTER TABLE.
+//
+// The copy runs before the backfill, the opposite of PostgreSQL's order, and it
+// is safe here for the one reason that made the old convention survive so long:
+// this package never turns foreign keys on, so SQLite accepts the "sync-<x>"
+// rows into the new table and the backfill then cleans them in place. The CHECK
+// is enforced from the start, and the copied rows satisfy it — none of them
+// carries a project_id yet.
+func (sqliteDialect) MigrateActivityAttachment(conn *sqlConn, backfill func(*sqlConn) error) error {
+	migrated, err := hasColumn(conn, "task_activities", "project_id")
+	if err != nil || migrated {
+		return err
+	}
+	if _, err := conn.Exec(fmt.Sprintf(`
+		%s
+		INSERT INTO task_activities_new (%s) SELECT %s FROM task_activities;
+		DROP TABLE task_activities;
+		ALTER TABLE task_activities_new RENAME TO task_activities;
+		CREATE INDEX IF NOT EXISTS idx_activities_task ON task_activities(task_id, created_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_activities_project ON task_activities(project_id, created_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_activities_status ON task_activities(status);
+		CREATE INDEX IF NOT EXISTS idx_activities_created ON task_activities(created_at DESC);
+	`, taskActivitiesSchema("task_activities_new"), taskActivityColumns, taskActivityColumns)); err != nil {
+		return fmt.Errorf("rebuilding task_activities: %w", err)
+	}
+	return backfill(conn)
+}

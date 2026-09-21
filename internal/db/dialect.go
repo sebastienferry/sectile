@@ -83,6 +83,17 @@ type dialect interface {
 	// An empty string means the engine has no such directory and the operator
 	// supplies the key through the environment or does without it.
 	SecretKeyDir(cfg Config) string
+	// MigrateActivityAttachment brings an existing task_activities table to the
+	// schema where task_id is nullable and foreign-keyed, project_id carries a
+	// project activity, and no row may hold both. It is a no-op on a table
+	// already at that schema, and on a database created today.
+	//
+	// It takes the backfill rather than running before or after it because the
+	// two engines need it at different moments: SQLite rebuilds the table and
+	// then cleans it, PostgreSQL has to clean between relaxing task_id and
+	// creating the foreign key, which no engine accepts over dirty data. The
+	// backfill itself stays engine-independent.
+	MigrateActivityAttachment(conn *sqlConn, backfill func(*sqlConn) error) error
 	// RunsLegacyMigrations reports whether the repairs written for databases
 	// created by older versions apply. They only ever applied to SQLite files
 	// that predate a schema change; a database created today starts complete.

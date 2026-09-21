@@ -65,3 +65,35 @@ func (postgresDialect) RewriteDDL(stmt string) string { return rewriteDDLTypes(s
 func (postgresDialect) SecretKeyDir(Config) string { return "" }
 
 func (postgresDialect) RunsLegacyMigrations() bool { return false }
+
+// MigrateActivityAttachment walks an existing table to the current schema with
+// ALTER TABLE, cleaning the data in the middle: PostgreSQL validates a foreign
+// key against the rows already there, and every "sync-<x>" identifier would
+// fail it, so the constraint can only be created once the backfill has run.
+func (postgresDialect) MigrateActivityAttachment(conn *sqlConn, backfill func(*sqlConn) error) error {
+	migrated, err := hasColumn(conn, "task_activities", "project_id")
+	if err != nil || migrated {
+		return err
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE task_activities ALTER COLUMN task_id DROP NOT NULL`,
+		`ALTER TABLE task_activities ADD COLUMN project_id TEXT`,
+		`ALTER TABLE task_activities ADD CONSTRAINT task_activities_attachment_check CHECK (task_id IS NULL OR project_id IS NULL)`,
+	} {
+		if _, err := conn.Exec(stmt); err != nil {
+			return fmt.Errorf("preparing task_activities: %w", err)
+		}
+	}
+	if err := backfill(conn); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE task_activities ADD CONSTRAINT task_activities_task_id_fkey FOREIGN KEY (task_id) REFERENCES tasks(id)`,
+		`ALTER TABLE task_activities ADD CONSTRAINT task_activities_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`,
+	} {
+		if _, err := conn.Exec(stmt); err != nil {
+			return fmt.Errorf("restoring the foreign keys of task_activities: %w", err)
+		}
+	}
+	return nil
+}

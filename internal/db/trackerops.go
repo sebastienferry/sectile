@@ -156,11 +156,14 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 	activityID := uuid.New().String()
 	now := time.Now()
 
+	// Une opération de lot n'appartient à aucun ticket : elle est rattachée au
+	// projet, comme le sont les synchros. Elle le disait jusqu'à #310 par un
+	// identifiant fabriqué, « tracker-op-<projet> », logé dans task_id ; c'est
+	// maintenant project_id qui le porte, et les deux s'excluent.
 	taskID := strings.TrimSpace(op.TaskID)
+	projectID := ""
 	if taskID == "" {
-		// Une opération de lot n'appartient à aucun ticket : elle est rattachée
-		// au projet, comme le sont les synchros.
-		taskID = "tracker-op-" + op.ProjectID
+		projectID = strings.TrimSpace(op.ProjectID)
 	}
 
 	var action, summary string
@@ -266,6 +269,7 @@ func buildTrackerOpJob(op TrackerOp) (*models.TaskActivity, SkillJob, error) {
 	act := models.TaskActivity{
 		ID:        activityID,
 		TaskID:    taskID,
+		ProjectID: projectID,
 		TaskKey:   op.TaskKey,
 		SkillID:   "tracker_op",
 		SkillName: "Écriture tracker",

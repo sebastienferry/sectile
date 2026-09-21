@@ -62,6 +62,18 @@ historical replay.** The ~40 additive `ALTER TABLE ADD COLUMN` statements,
 probe all exist to repair databases written by older versions. PostgreSQL has
 no such history.
 
+**A shape change both engines need goes through the seam, as a method named
+after what it achieves.** `MigrateActivityAttachment` (ticket #310) is the first
+of these: SQLite can neither relax a `NOT NULL` nor add a foreign key nor add a
+`CHECK` through `ALTER TABLE`, so it rebuilds the table, while PostgreSQL walks
+it with `ALTER TABLE`. It also takes the data backfill as an argument, because
+the two engines need it at different points of their sequence — PostgreSQL
+validates a foreign key against the rows already there — while the backfill
+itself stays engine-independent, as it must: a PostgreSQL database created since
+PR #304 holds the very rows it repairs, and the legacy block never runs there.
+The alternative, widening `RewriteDDL` into a statement generator, was rejected:
+the keys of the seam stay named after what is needed, not after the engine.
+
 **PostgreSQL backs one server instance, not several.** The job queue, the sync
 loop and the per-project limiter stay in-process.
 

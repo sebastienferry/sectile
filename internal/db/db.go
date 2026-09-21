@@ -456,39 +456,7 @@ func (d *DB) initSchema() error {
 			parent_type TEXT NOT NULL DEFAULT '',
 			UNIQUE(project_id, key)
 		);`,
-		`CREATE TABLE IF NOT EXISTS task_activities (
-			id TEXT PRIMARY KEY,
-			task_id TEXT NOT NULL,
-			skill_id TEXT NOT NULL,
-			skill_name TEXT NOT NULL,
-			action TEXT NOT NULL,
-			status TEXT NOT NULL DEFAULT 'completed',
-			summary TEXT NOT NULL DEFAULT '',
-			output TEXT NOT NULL DEFAULT '',
-			steps TEXT NOT NULL DEFAULT '[]',
-			prompt TEXT NOT NULL DEFAULT '',
-			started_at DATETIME,
-			completed_at DATETIME,
-			error TEXT NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			user_id TEXT NOT NULL DEFAULT '',
-			run_provider TEXT NOT NULL DEFAULT '',
-			run_model TEXT NOT NULL DEFAULT '',
-			run_mode TEXT NOT NULL DEFAULT '',
-			launch_stage TEXT NOT NULL DEFAULT '',
-			chain_stop_stage TEXT NOT NULL DEFAULT '',
-			waiting_since DATETIME
-			-- No foreign key on task_id, deliberately. An activity is not always
-			-- attached to a ticket: a synchronisation is filed under a synthetic
-			-- "sync-<project>" id, and the queue does the same for work that
-			-- belongs to a project rather than a task. SQLite never enforced the
-			-- constraint — this package does not turn foreign keys on — so those
-			-- rows always went in; PostgreSQL enforces it and rejected them,
-			-- which made a synchronisation run and leave no trace at all.
-			--
-			-- The ON DELETE CASCADE it carried was redundant: deleting a task
-			-- already deletes its activities explicitly (see DeleteTask).
-		);`,
+		taskActivitiesSchema("task_activities"),
 		`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_position ON tasks(status, position);`,
 		`CREATE INDEX IF NOT EXISTS idx_activities_task ON task_activities(task_id, created_at DESC);`,
@@ -532,6 +500,23 @@ func (d *DB) initSchema() error {
 		// or every write path naming it fails on an upgraded deployment. The
 		// statement is idempotent, which the SQLite spelling cannot be.
 		_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pr_links_detached INTEGER NOT NULL DEFAULT 0;")
+	}
+
+	// task_activities: task_id points at a task again, and project_id carries a
+	// project activity. This runs on both engines and outside the legacy block
+	// above — a PostgreSQL database created since #304 holds the very
+	// "sync-<x>" rows the backfill exists for, and leaving them behind would
+	// make the restored foreign key impossible to create. It runs after the
+	// legacy migrations so that, under SQLite, the table it rebuilds already has
+	// every column those migrations add.
+	if err := d.dialect.MigrateActivityAttachment(d.conn, backfillActivityAttachment); err != nil {
+		log.Printf("[task_activities] attachment migration failed: %v", err)
+	}
+	// After the migration, never with the other indexes: on a database that
+	// still has the old table, project_id does not exist yet and the statement
+	// would fail the whole schema initialisation.
+	if _, err := d.conn.Exec(`CREATE INDEX IF NOT EXISTS idx_activities_project ON task_activities(project_id, created_at DESC);`); err != nil {
+		log.Printf("[task_activities] idx_activities_project: %v", err)
 	}
 
 	// Seed default workspace only if projects table is completely empty
@@ -3120,9 +3105,9 @@ func insertTaskActivity(conn activityExecutor, act models.TaskActivity) error {
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model)
+		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model)
+		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model)
 	return err
 }
 
@@ -3143,11 +3128,27 @@ func ownerDisplayName(displayName, email string) string {
 }
 
 func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, error) {
+	return d.activitiesAttachedTo("a.task_id", taskID)
+}
+
+// getProjectActivitiesUnsafe is the project history: the activities attached to
+// a project rather than to one of its tickets — its synchronisations, above all.
+//
+// It is a reader of its own rather than a project identifier smuggled into
+// getTaskActivitiesUnsafe, which is exactly the overloading #310 removes from
+// the column.
+func (d *DB) getProjectActivitiesUnsafe(projectID string) ([]models.TaskActivity, error) {
+	return d.activitiesAttachedTo("a.project_id", projectID)
+}
+
+// activitiesAttachedTo reads one attachment's history. The column is a literal
+// chosen by its two callers, never a value coming from a request.
+func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
-		SELECT a.id, a.task_id, a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
+		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
-		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE a.task_id = ? ORDER BY a.created_at DESC
-	`, taskID)
+		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE `+column+` = ? ORDER BY a.created_at DESC
+	`, id)
 	if err != nil {
 		return []models.TaskActivity{}, nil
 	}
@@ -3161,7 +3162,7 @@ func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, erro
 		var startedAt, completedAt, waitingSince sql.NullTime
 		var ownerName, ownerEmail string
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel)
+		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel)
 		if err != nil {
 			continue
 		}
@@ -3208,6 +3209,13 @@ func (d *DB) GetTaskActivities(taskID string) ([]models.TaskActivity, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.getTaskActivitiesUnsafe(taskID)
+}
+
+// GetProjectActivities is a project's own activity history.
+func (d *DB) GetProjectActivities(projectID string) ([]models.TaskActivity, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.getProjectActivitiesUnsafe(projectID)
 }
 
 // TrackerTokenClearSentinel is what the UI sends to delete a stored token, since
@@ -4517,10 +4525,6 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 	var skillName string
 	var summary string
 	var steps []string
-	targetTaskID := "sync-" + syncType
-	if proj != nil {
-		targetTaskID = "sync-" + proj.ID
-	}
 
 	switch syncType {
 	case "github", "sync_github":
@@ -4560,9 +4564,17 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 		}
 	}
 
+	// A synchronisation belongs to a project, or to nothing when it covers every
+	// project or a whole tracker. It never belongs to a ticket, and until #310 it
+	// said so through a made-up task_id.
+	attachedProject := ""
+	if proj != nil {
+		attachedProject = proj.ID
+	}
+
 	act := models.TaskActivity{
 		ID:        activityID,
-		TaskID:    targetTaskID,
+		ProjectID: attachedProject,
 		SkillID:   syncType,
 		SkillName: skillName,
 		Action:    "Synchronisation des tickets distants",
@@ -4581,7 +4593,6 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 	// Push job to worker queue
 	d.enqueueJob(SkillJob{
 		ActivityID: activityID,
-		TaskID:     targetTaskID,
 		ProjectID:  projectID,
 		SkillID:    syncType,
 		Prompt:     param,
@@ -4802,6 +4813,27 @@ func (d *DB) resolveTaskSkillMode(projectID, skillID, modeOverride string) strin
 	return ResolveSkillMode(modeOverride, d.ProjectSkillMode(projectID, skillID), projectDefault)
 }
 
+// activityProjectFilter is the "belongs to this project" condition, shared by the
+// activity list and the activity statistics so the two cannot answer differently
+// about the same project. It returns an empty clause when no project is named.
+//
+// It matches the recorded attachment and nothing else. Before #310 it also ran
+// "a.task_id LIKE '%id%' OR a.prompt LIKE '%id%'", which caught project
+// activities by the shape of their made-up identifier — and caught, with them,
+// any activity whose prompt happened to mention another project.
+//
+// The identifier may be a project id or a project slug, as it always could, so
+// each side is resolved both ways.
+func activityProjectFilter(projectID string) (string, []interface{}) {
+	if projectID == "" || projectID == "all" {
+		return "", nil
+	}
+	clause := `(a.project_id = ? OR a.project_id = (SELECT id FROM projects WHERE slug = ?)
+		OR t.project_id = ? OR t.project_id = (SELECT slug FROM projects WHERE id = ?)
+		OR t.project_id = (SELECT id FROM projects WHERE slug = ?))`
+	return clause, []interface{}{projectID, projectID, projectID, projectID, projectID}
+}
+
 func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, limit int) ([]models.TaskActivity, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -4809,9 +4841,9 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 	var conditions []string
 	var args []interface{}
 
-	if projectID != "" && projectID != "all" {
-		conditions = append(conditions, "((t.project_id = ? OR t.project_id = (SELECT slug FROM projects WHERE id = ?) OR t.project_id = (SELECT id FROM projects WHERE slug = ?)) OR a.task_id LIKE ? OR a.prompt LIKE ?)")
-		args = append(args, projectID, projectID, projectID, "%"+projectID+"%", "%"+projectID+"%")
+	if clause, clauseArgs := activityProjectFilter(projectID); clause != "" {
+		conditions = append(conditions, clause)
+		args = append(args, clauseArgs...)
 	}
 
 	if status != "" && status != "all" {
@@ -4837,7 +4869,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 	}
 
 	sqlQuery := `
-		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
+		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
@@ -4870,6 +4902,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		err := rows.Scan(
 			&a.ID,
 			&a.TaskID,
+			&a.ProjectID,
 			&a.TaskKey,
 			&a.TaskTitle,
 			&a.SkillID,
@@ -4947,7 +4980,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 	var ownerName, ownerEmail string
 
 	err := d.conn.QueryRow(`
-		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
+		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
@@ -4958,6 +4991,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 	`, id).Scan(
 		&a.ID,
 		&a.TaskID,
+		&a.ProjectID,
 		&a.TaskKey,
 		&a.TaskTitle,
 		&a.SkillID,
@@ -5030,15 +5064,15 @@ func (d *DB) GetActivityStats(projectID string) (*models.ActivityStats, error) {
 	var query string
 	var args []interface{}
 
-	if projectID != "" && projectID != "all" {
+	if clause, clauseArgs := activityProjectFilter(projectID); clause != "" {
 		query = `
-			SELECT a.status, COUNT(*) 
+			SELECT a.status, COUNT(*)
 			FROM task_activities a
 			LEFT JOIN tasks t ON a.task_id = t.id
-			WHERE ((t.project_id = ? OR t.project_id = (SELECT slug FROM projects WHERE id = ?) OR t.project_id = (SELECT id FROM projects WHERE slug = ?)) OR a.task_id LIKE ? OR a.prompt LIKE ?)
+			WHERE ` + clause + `
 			GROUP BY a.status
 		`
-		args = append(args, projectID, projectID, projectID, "%"+projectID+"%", "%"+projectID+"%")
+		args = append(args, clauseArgs...)
 	} else {
 		query = "SELECT status, COUNT(*) FROM task_activities GROUP BY status"
 	}
@@ -6074,6 +6108,10 @@ func (d *DB) DeleteProject(id string) error {
 	}
 	_, _ = d.conn.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID)
 	_, _ = d.conn.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID)
+	// Explicit, like DeleteTask's: the ON DELETE CASCADE on project_id only
+	// fires under PostgreSQL, because this package never turns SQLite's foreign
+	// keys on.
+	_, _ = d.conn.Exec("DELETE FROM task_activities WHERE project_id = ?", p.ID)
 	_, err = d.conn.Exec("DELETE FROM projects WHERE id = ?", p.ID)
 	return err
 }
