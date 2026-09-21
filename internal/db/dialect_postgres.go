@@ -65,3 +65,57 @@ func (postgresDialect) RewriteDDL(stmt string) string { return rewriteDDLTypes(s
 func (postgresDialect) SecretKeyDir(Config) string { return "" }
 
 func (postgresDialect) RunsLegacyMigrations() bool { return false }
+
+// MigrateActivityAttachment walks an existing table to the current schema with
+// ALTER TABLE, cleaning the data in the middle: PostgreSQL validates a foreign
+// key against the rows already there, and every "sync-<x>" identifier would
+// fail it, so the constraint can only be created once the backfill has run.
+//
+// The guard is the last constraint the migration creates, and every statement
+// tolerates having run before. An attempt that stops halfway — the backfill
+// failing, say — is therefore retried in full on the next start-up, instead of
+// leaving a table that has project_id but never regained its foreign keys and
+// that no later start would ever look at again.
+func (postgresDialect) MigrateActivityAttachment(conn *sqlConn, backfill func(*sqlConn) error) error {
+	migrated, err := hasConstraint(conn, "task_activities", "task_activities_project_id_fkey")
+	if err != nil || migrated {
+		return err
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE task_activities ALTER COLUMN task_id DROP NOT NULL`,
+		`ALTER TABLE task_activities ADD COLUMN IF NOT EXISTS project_id TEXT`,
+		`ALTER TABLE task_activities DROP CONSTRAINT IF EXISTS task_activities_attachment_check`,
+		`ALTER TABLE task_activities ADD CONSTRAINT task_activities_attachment_check CHECK (task_id IS NULL OR project_id IS NULL)`,
+	} {
+		if _, err := conn.Exec(stmt); err != nil {
+			return fmt.Errorf("preparing task_activities: %w", err)
+		}
+	}
+	if err := backfill(conn); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE task_activities DROP CONSTRAINT IF EXISTS task_activities_task_id_fkey`,
+		`ALTER TABLE task_activities ADD CONSTRAINT task_activities_task_id_fkey FOREIGN KEY (task_id) REFERENCES tasks(id)`,
+		`ALTER TABLE task_activities ADD CONSTRAINT task_activities_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE`,
+	} {
+		if _, err := conn.Exec(stmt); err != nil {
+			return fmt.Errorf("restoring the foreign keys of task_activities: %w", err)
+		}
+	}
+	return nil
+}
+
+// hasConstraint reports whether a table already carries a named constraint.
+// PostgreSQL names the ones declared inline exactly as this migration names the
+// ones it adds, so a database born at the current schema reads as migrated.
+func hasConstraint(conn *sqlConn, table, name string) (bool, error) {
+	var found int
+	err := conn.QueryRow(
+		`SELECT COUNT(*) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid
+		  WHERE t.relname = ? AND c.conname = ?`, table, name).Scan(&found)
+	if err != nil {
+		return false, err
+	}
+	return found > 0, nil
+}

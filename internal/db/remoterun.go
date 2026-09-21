@@ -92,7 +92,10 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 		return nil, fmt.Errorf("skill is required")
 	}
 	now := time.Now()
-	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID, ProjectID: task.ProjectID,
+	// No project_id: the activity is attached to the task, and the task is what
+	// carries the project. Writing both would be two sources of truth for one
+	// attachment, and the schema refuses it outright.
+	activity := &models.TaskActivity{ID: uuid.NewString(), TaskID: task.ID,
 		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
 		Status: "running", Summary: "Execution reported by a local agent or native client",
 		CreatedAt: now, StartedAt: &now, Steps: []string{}, UserID: strings.TrimSpace(launch.UserID),

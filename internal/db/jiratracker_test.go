@@ -204,7 +204,7 @@ func TestSyncOnATrackerWithBoardsImportsRefreshesTeamsAndColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	activity := models.TaskActivity{ID: "sync-jira", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-jira", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +256,7 @@ func TestSyncSurvivesAnUnreadableTeam(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-2", Title: "Still imported", Status: models.StatusToClarify, Source: "jira", Team: "Platform", TeamID: "team-1", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 
 	database, project := jiraTestDB(t, fake)
-	activity := models.TaskActivity{ID: "sync-degraded", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-degraded", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestASyncRunsAsWhoeverAskedForIt(t *testing.T) {
 
 	// The job is run here rather than queued: the worker would run it in
 	// parallel and overwrite what this test is watching.
-	activity := models.TaskActivity{ID: "sync-as", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-as", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +392,7 @@ func TestACommentIsPostedUnderItsAuthorsCredential(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-comment", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-comment", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +420,7 @@ func TestAQueuedFieldUpdateCarriesItsActor(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-update", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-update", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +450,7 @@ func TestAQueuedSprintMoveCarriesItsAuthorAndItsProject(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-sprint", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-sprint", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
