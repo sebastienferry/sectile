@@ -34,10 +34,6 @@ type runQueue struct {
 	// restart from a plain stop once the process is on its way out.
 	shuttingDown     bool
 	restartRequested bool
-	// sessionAlerts holds notification reports from Claude Code sessions this
-	// agent did not launch. They have no run to hang on, so they wait here for
-	// the desktop to drain them on its next poll.
-	sessionAlerts []sessionAlert
 }
 
 // read runs fn against the execution registered under id, holding the queue
@@ -74,9 +70,6 @@ type controlledRun struct {
 	canceled bool
 	exited   chan struct{}
 	once     sync.Once
-	// relay serialises the waiting reports sent to the server for this run, so
-	// two reports in quick succession cannot cross on the wire.
-	relay sync.Mutex
 }
 
 func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
@@ -125,10 +118,6 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := strings.TrimPrefix(r.URL.Path, "/control/runs/")
-	if suffix := strings.TrimSuffix(id, "/waiting"); suffix != id {
-		d.handleRunWaiting(w, r, suffix)
-		return
-	}
 	d.queue.mu.Lock()
 	run := d.queue.runs[id]
 	if run == nil || subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")), []byte(run.token)) != 1 {
@@ -159,113 +148,6 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]bool{"canceled": canceled})
-}
-
-// handleRunWaiting takes the report a Claude Code hook makes when its session
-// blocks on the user, and the symmetric one when it resumes. The hook is a
-// child of the launched session, so it carries the run identity and the
-// workstation credential in its environment; nothing here is inferred from a
-// working directory.
-//
-// It authenticates with the workstation API key rather than the per-run token
-// of handleRunControl: that token exists only for a wrapped dispatched run, and
-// a free console has a run identifier but no such token. The key is what every
-// launched session is given, console included.
-//
-// The report is acknowledged before the relay is attempted. A hook must never
-// wait on the network: whatever the server answers, the session has to carry on.
-func (d *agentDaemon) handleRunWaiting(w http.ResponseWriter, r *http.Request, runID string) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	if !d.validLoopbackRequest(r) {
-		http.Error(w, "Valid API key required", http.StatusUnauthorized)
-		return
-	}
-	if r.Host != fmt.Sprintf("127.0.0.1:%d", d.loopback.port) && r.Host != fmt.Sprintf("localhost:%d", d.loopback.port) {
-		http.Error(w, "Invalid gateway host", http.StatusForbidden)
-		return
-	}
-	var body struct {
-		Waiting *bool `json:"waiting"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Waiting == nil {
-		http.Error(w, "Body must be {\"waiting\": true|false}", http.StatusBadRequest)
-		return
-	}
-	// The desktop reads the waiting mark off its own run list, which it polls
-	// every two seconds, so the state is recorded here as well as relayed. That
-	// is what lets the notification be raised without waiting on the server.
-	d.queue.mu.Lock()
-	run := d.queue.runs[runID]
-	changed := false
-	if run != nil {
-		// An autonomous run has nobody to wait for. Its Stop hook fires as the
-		// process ends, and a waiting mark there would raise a false "waiting
-		// for you" banner in the poll before the exit is observed. The exit is
-		// the only thing that reports on such a run.
-		waiting := *body.Waiting && !run.desktop.Headless
-		was := !run.desktop.WaitingSince.IsZero()
-		switch {
-		case waiting && !was:
-			run.desktop.WaitingSince = time.Now().UTC()
-		case !waiting && was:
-			run.desktop.WaitingSince = time.Time{}
-		}
-		// A repeated report keeps the original stamp: the wait started when it
-		// was first reported, not when it was last confirmed.
-		changed = waiting != was
-	}
-	d.queue.mu.Unlock()
-	if run == nil {
-		http.Error(w, "Unknown run", http.StatusNotFound)
-		return
-	}
-	// Every tool call reports "working" again, so only a transition goes to the
-	// server: the relay is a row update and a task_updated event on every
-	// client, which is not a price to pay per tool call.
-	if changed {
-		go d.relayRunWaiting(runID, run)
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_, _ = w.Write([]byte(`{"accepted":true}`))
-}
-
-// relayRunWaiting sends the run's waiting state to the server. Relays are
-// serialised per run and each one sends the state current at the moment it is
-// sent, not the one that triggered it: a permission asked and granted within a
-// few milliseconds would otherwise reach the server as two requests that can
-// arrive in either order, and leave it showing a wait that has ended.
-func (d *agentDaemon) relayRunWaiting(runID string, run *controlledRun) {
-	run.relay.Lock()
-	defer run.relay.Unlock()
-	d.queue.mu.Lock()
-	waiting := !run.desktop.WaitingSince.IsZero()
-	d.queue.mu.Unlock()
-	d.postRunWaiting(runID, waiting)
-}
-
-// postRunWaiting relays one waiting state to the server over the same
-// authenticated REST surface the agent already uses for run output. It is
-// best-effort: a report that cannot be delivered is dropped rather than
-// retried, because the next transition supersedes it anyway.
-func (d *agentDaemon) postRunWaiting(runID string, waiting bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	body := mustJSON(map[string]bool{"waiting": waiting})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		d.link.serverURL+"/api/activities/"+url.PathEscape(runID)+"/waiting", strings.NewReader(body))
-	if err != nil {
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := agenthttp.Client(d.link.token).Do(req)
-	if err != nil {
-		return
-	}
-	_ = resp.Body.Close()
 }
 
 // postRunEngine tells the server which engine this run was actually launched

@@ -170,13 +170,6 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 		for path, content := range installed {
 			files[path] = content
 		}
-		hooks, err := hookFiles(provider)
-		if err != nil {
-			return nil, err
-		}
-		for path, content := range hooks {
-			files[path] = content
-		}
 		if loc.InstallsSkills() && !hasCreatePR(config.Skills) {
 			for _, skill := range config.Skills {
 				if skill.ID != "adjust" {
@@ -229,24 +222,22 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 	if err != nil {
 		return backups, err
 	}
-	if err := executableHooks(fs, files); err != nil {
+	// Earlier releases registered a Claude Code hook in ~/.claude/settings.json
+	// (#174); it was withdrawn (#260). The refresh above retires the script
+	// through the manifest, and this drops the registrations that pointed at
+	// it, for whichever provider is being set up: a Claude Code session used by
+	// hand would otherwise fail on every turn. A file that cannot be parsed is
+	// left alone and reported; the rest of the setup is still valid without it.
+	report, err := retireClaudeHooks(fs)
+	if err != nil {
 		return backups, err
 	}
-	// Registering the hooks makes Sectile a writer of ~/.claude/settings.json,
-	// which it only ever read before. A file it cannot parse is left alone and
-	// reported: the rest of the setup is still valid without the registration.
-	for _, provider := range providers {
-		if provider != "claude" {
-			continue
-		}
-		report, err := registerClaudeHooks(fs, home)
-		if err != nil {
-			return backups, err
-		}
-		if report != "" {
-			backups = append(backups, report)
-		}
+	if report != "" {
+		backups = append(backups, report)
 	}
+	// The directory only ever held Sectile's scripts; Remove refuses a
+	// directory that still holds anything, which is the guard wanted here.
+	_ = fs.Remove(claudeHookDir)
 	raw, err := json.MarshalIndent(install, "", "  ")
 	if err != nil {
 		return backups, err

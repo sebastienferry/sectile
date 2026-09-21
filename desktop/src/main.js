@@ -425,9 +425,6 @@ async function refresh(){
   const current=runs.find(run=>run.id===selected)
   if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
-  // Sessions Sectile did not launch have no run to compare; they report
-  // themselves and are announced as they are drained.
-  try{const alerts=await api.sessionAlerts();if(alerts?.length)announce(alerts.map(alert=>({id:'session:'+alert.session,state:alert.state,name:alert.session})))}catch{}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   refreshVisibleSkillResults()
  }catch{agentUnavailable()}

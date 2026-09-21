@@ -63,24 +63,7 @@ type desktopRun struct {
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
 	// captured output read-only instead of reporting a missing console.
 	Headless bool `json:"headless,omitempty"`
-	// WaitingSince is set while the session is blocked on the user. The desktop
-	// reads it to raise its notification and to mark the run in its list.
-	WaitingSince time.Time `json:"waitingSince,omitzero"`
 }
-
-// sessionAlert is a report from a Claude Code session Sectile did not launch.
-// It has no run, so it names itself; the desktop drains these on its poll and
-// raises the same notification it would for a run.
-type sessionAlert struct {
-	Session string    `json:"session"`
-	State   string    `json:"state"`
-	At      time.Time `json:"at"`
-}
-
-// sessionAlertLimit bounds what the daemon retains when nothing drains it. The
-// alerts are a notification backlog, not a record: past the limit the oldest go,
-// because a banner nobody collected for that long is no longer worth raising.
-const sessionAlertLimit = 32
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
@@ -193,41 +176,6 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.queue.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"removed": removed})
-		return
-	}
-	// A session Sectile did not launch reports itself here, with the same
-	// companion credential the desktop uses. POST files an alert, and the
-	// desktop's poll drains them.
-	if r.URL.Path == "/desktop/session-alert" {
-		if r.Method == http.MethodPost {
-			var alert sessionAlert
-			if err := json.NewDecoder(r.Body).Decode(&alert); err != nil || strings.TrimSpace(alert.Session) == "" {
-				http.Error(w, "Body must name a session and a state", 400)
-				return
-			}
-			alert.At = time.Now().UTC()
-			d.queue.mu.Lock()
-			d.queue.sessionAlerts = append(d.queue.sessionAlerts, alert)
-			if len(d.queue.sessionAlerts) > sessionAlertLimit {
-				d.queue.sessionAlerts = d.queue.sessionAlerts[len(d.queue.sessionAlerts)-sessionAlertLimit:]
-			}
-			d.queue.mu.Unlock()
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		if r.Method == http.MethodGet {
-			d.queue.mu.Lock()
-			pending := d.queue.sessionAlerts
-			d.queue.sessionAlerts = nil
-			d.queue.mu.Unlock()
-			if pending == nil {
-				pending = []sessionAlert{}
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(pending)
-			return
-		}
-		http.Error(w, "Method not allowed", 405)
 		return
 	}
 	if r.URL.Path != "/desktop/runs" && r.URL.Path != "/desktop/stop" && r.URL.Path != "/desktop/terminal" {
