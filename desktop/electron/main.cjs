@@ -236,10 +236,6 @@ ipcMain.handle('git-diff',async(_,id)=>{
  }
 })
 ipcMain.handle('runs',()=>api('/desktop/runs'))
-// Alerts from Claude Code sessions Sectile did not launch. Draining is
-// destructive on the agent side, so a failure yields an empty list rather than
-// an error the poll would have to handle.
-ipcMain.handle('session-alerts',async()=>{try{return await api('/desktop/session-alert')}catch{return []}})
 // The agent forgets a run once its history is cleared or it restarts, and
 // answers 404 by contract. Report "no result" instead of rejecting the IPC
 // promise: Electron logs every rejected handler with a stack, and this outcome

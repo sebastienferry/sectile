@@ -9,14 +9,12 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 test('a waiting session raises one native notification carrying the shared glyph',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-waiting-'))
  const runs=[{id:'run-1',taskId:'t1',taskKey:'#174',skill:'implement',projectId:'p',directory:'/tmp/repo',sessionId:'run-1',status:'running'}]
- let alerts=[]
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
   if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'http://example.test',capabilities:[]}));return}
   if(req.url==='/desktop/projects'){res.end(JSON.stringify([{id:'p',name:'Project',path:'/tmp/repo'}]));return}
   if(req.url==='/desktop/project?id=p'){res.end(JSON.stringify({configured:true,parallelism:2,server:{aiProvider:'claude',skills:[]}}));return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify(runs));return}
-  if(req.url==='/desktop/session-alert'){const pending=alerts;alerts=[];res.end(JSON.stringify(pending));return}
   if(req.url.startsWith('/desktop/run-result')){res.writeHead(404).end();return}
   if(req.url.startsWith('/desktop/tasks?')){res.end('[]');return}
   res.writeHead(404).end()
@@ -71,19 +69,12 @@ test('a waiting session raises one native notification carrying the shared glyph
   await page.waitForTimeout(5000)
   assert.equal((await page.evaluate(()=>window.__raised.length)),1,'a repeated poll raised the banner again')
 
-  // A session Sectile did not launch is announced from its own report.
-  alerts=[{session:'other-worktree',state:'waiting',at:new Date().toISOString()}]
-  await page.waitForFunction(()=>window.__raised.length>1)
-  const second=(await page.evaluate(()=>window.__raised))[1]
-  assert.equal(second.title,'other-worktree')
-  assert.match(second.body,/waiting for you/)
-
   // And the turn ending raises the other banner, with the other glyph.
   delete runs[0].waitingSince;runs[0].status='completed'
-  await page.waitForFunction(()=>window.__raised.length>2)
-  const third=(await page.evaluate(()=>window.__raised))[2]
-  assert.match(third.body,/finished its turn/)
-  assert.equal(third.icon,runStateIconDataUrl('completed'))
+  await page.waitForFunction(()=>window.__raised.length>1)
+  const second=(await page.evaluate(()=>window.__raised))[1]
+  assert.match(second.body,/finished its turn/)
+  assert.equal(second.icon,runStateIconDataUrl('completed'))
   // And the row follows the banner rather than keeping the wait it left behind.
   await page.waitForFunction(()=>document.querySelector('.local-task .run .run-state')?.dataset.runState==='completed')
   assert.equal(await state.getAttribute('aria-label'),'Finished')

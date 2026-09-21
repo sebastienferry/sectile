@@ -26,7 +26,6 @@ contextBridge.exposeInMainWorld('localAgent',{
  clearHistory:()=>ipcRenderer.invoke('clear-history'),
  gitDiff:id=>ipcRenderer.invoke('git-diff',id),
  runs:()=>ipcRenderer.invoke('runs'),
- sessionAlerts:()=>ipcRenderer.invoke('session-alerts'),
  runResult:id=>ipcRenderer.invoke('run-result',id),
  stop:id=>ipcRenderer.invoke('stop',id),
  launchNativeDiscussion:(projectId,taskId,terminal)=>ipcRenderer.invoke('launch-native-discussion',{projectId,taskId,terminal}),

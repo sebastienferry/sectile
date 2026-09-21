@@ -331,51 +331,38 @@ and do not create a shell.
 Several agent sessions run in parallel across worktrees and desktop tabs, and a
 session blocked on a permission prompt looks exactly like one still working.
 
-**The hooks report, they do not alert.** Setting up the Claude provider installs
-one script, `~/.claude/hooks/sectile-hook.sh`, and registers it in
-`~/.claude/settings.json` on five Claude Code events. It is POSIX shell, needs no
-`jq`, exits 0 on every path and writes nothing on standard output — a hook must
-never interrupt the session it reports on. The script reads the event from its
-payload and turns it into a state, so the wait is bracketed from both sides:
+**Sectile installs no Claude Code hook.** Until #260, setting up the Claude
+provider installed a script under `~/.claude/hooks`, registered it in
+`~/.claude/settings.json` on five Claude Code events, and had it report to the
+local agent whether the session was waiting for the user or working. That was
+withdrawn. It made Sectile a writer of a file it otherwise only reads, and it
+ran a process on every tool call of every Claude Code session on the
+workstation, launched by Sectile or not — too intrusive for what it answered.
+A workstation that still carries the script and its registrations has both
+removed the next time a project is set up, whichever provider that project
+uses: the script is retired through the managed-file manifest, and only the
+registrations Sectile wrote are dropped from the settings file. Third-party
+hooks and every other key are left as they are, a file Sectile never touched
+is not rewritten, and an unparseable file is left alone and reported.
 
-| Event | Meaning | State reported |
-|---|---|---|
-| `Notification` (`permission_prompt`, `idle_prompt`, an elicitation) | the agent asks the user for something | waiting |
-| `Stop` | the turn ended; the agent awaits the next prompt | waiting |
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | the agent is working | working |
+**The waiting state is kept as a model, without a reporter.** A run still
+carries `waitingSince`, the server still accepts
+`POST /api/activities/{id}/waiting` to set or clear it, and the board badge,
+the activities filter and the desktop row still render a waiting run ahead of a
+running one. Nothing calls that route today, so a blocked session shows as
+running until something reports otherwise. The model is additive and costs
+nothing to keep; a future reporter that is not a per-tool-call hook can feed it
+without touching the UI.
 
-The other `Notification` types — a sign-in, a quota notice, a finished
-sub-agent — are not prompts and report nothing. A payload with no
-`notification_type` comes from an older Claude Code and is read as a prompt.
-The three "working" events matter as much as the two "waiting" ones: without
-them, a permission granted or a question answered left the session marked as
-waiting for the whole turn that followed.
-
-What the report does depends on what the session carries:
-
-| Session | Report | Effect |
-|---|---|---|
-| Launched by Sectile (`SECTILE_RUN_ID` present) | `POST <loopback>/control/runs/{id}/waiting` | the run is marked waiting, or working again, everywhere |
-| Any other Claude Code session | `POST <loopback>/desktop/session-alert`, authenticated with `~/.taskflow/agent-connection.json`, on `Notification` and `Stop` only | a banner, and nothing else |
-| A workstation that was never paired | none | silent no-op |
-
-The agent applies two rules to a run report. An autonomous run never waits: its
-`Stop` hook fires as the process ends, and a waiting mark there would raise a
-false banner in the poll before the exit is observed, so only the exit reports
-on such a run. And only a transition is relayed to the server: every tool call
-reports "working" again, and a row update plus a `task_updated` event per tool
-call is not a price worth paying. Relays are serialised per run and each sends
-the state current when it is sent, so two reports a few milliseconds apart
-cannot cross on the wire.
-
-**The desktop raises the banner.** The notification comes from the desktop
-application, through Electron's notification API — a thin binding over
-`UNUserNotificationCenter` on macOS, toast notifications on Windows and the
-freedesktop specification on Linux. The banner is therefore a real system
-notification, attributed to Sectile and carrying an icon, on the three platforms
-and with no external binary. The desktop already polls `/desktop/runs` every two
-seconds; it is the *transition* that notifies — not waiting to waiting, or
-running to a terminal status — so a repeated poll raises nothing.
+**The desktop raises the banner on a run transition.** The notification comes
+from the desktop application, through Electron's notification API — a thin
+binding over `UNUserNotificationCenter` on macOS, toast notifications on Windows
+and the freedesktop specification on Linux. The banner is therefore a real
+system notification, attributed to Sectile and carrying an icon, on the three
+platforms and with no external binary. The desktop polls `/desktop/runs` every
+two seconds; it is the *transition* that notifies — a run reaching a terminal
+status, or a run starting to wait should anything mark it so — and a repeated
+poll of the same state raises nothing.
 
 A workstation that denies notifications is checked once and then left alone: the
 state is still in the list, which is what answers the question.
@@ -386,12 +373,11 @@ renders it as an inline SVG; the desktop renders the same definition into the
 notification's icon. The glyph on the banner is therefore the glyph on the task
 row, by construction rather than by convention.
 
-**The state itself.** A waiting report stamps `waitingSince` on the run. The run
-keeps the status `running`: waiting is a phase of a run, not a status of its
-own. Any terminal status clears the stamp, so a session killed while blocked
-cannot leave a run waiting forever. The board indicator shows waiting ahead of
-running, with how long the wait has lasted, and the activities view has a
-matching filter.
+**The state itself.** A waiting report, when there is one, stamps `waitingSince`
+on the run. The run keeps the status `running`: waiting is a phase of a run, not
+a status of its own. Any terminal status clears the stamp, so a run cannot be
+left waiting forever. The board indicator shows waiting ahead of running, with
+how long the wait has lasted, and the activities view has a matching filter.
 
 ## 5. Live Git Diff & Branch Management
 

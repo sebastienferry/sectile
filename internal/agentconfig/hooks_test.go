@@ -13,6 +13,17 @@ func claudeConfig() Config {
 		Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/clarify-issue", Content: "skill", CommandContent: "command"}}}
 }
 
+// setHome points os.UserHomeDir at a temporary directory on every platform: it
+// reads HOME on POSIX and USERPROFILE on Windows, and a test that sets only the
+// first installs into the developer's real home directory on the second.
+func setHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	return home
+}
+
 func readSettings(t *testing.T, home string) map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(home, ".claude/settings.json"))
@@ -24,6 +35,18 @@ func readSettings(t *testing.T, home string) map[string]any {
 		t.Fatalf("the settings Sectile wrote are not valid JSON: %v\n%s", err, raw)
 	}
 	return settings
+}
+
+func writeSettings(t *testing.T, home, content string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".claude/settings.json")
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // hookCommands lists the commands registered for one event, whoever owns them.
@@ -45,47 +68,20 @@ func hookCommands(t *testing.T, settings map[string]any, event string) []string 
 	return commands
 }
 
-func TestHooksAreInstalledExecutableAndRegistered(t *testing.T) {
-	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
-	if _, err := Scaffold(root, claudeConfig()); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(home, claudeHookDir, claudeHookFile)
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("the hook was not installed: %v", err)
-	}
-	// Claude Code runs the file; a hook it cannot execute is a hook that
-	// silently never fires.
-	if info.Mode().Perm()&0100 == 0 {
-		t.Fatalf("the hook is not executable: %v", info.Mode())
-	}
-	settings := readSettings(t, home)
-	for _, event := range claudeHookEvents {
-		commands := hookCommands(t, settings, event)
-		if len(commands) != 1 || commands[0] != path {
-			t.Fatalf("%s is registered as %v, expected %s", event, commands, path)
-		}
-	}
-}
-
-// The first release installed one script per event, on Notification and Stop.
-// Upgrading must leave neither the files nor their registrations behind: a
-// registration pointing at a removed script is a hook error on every turn.
-func TestLegacyHookScriptsAreRetiredWithTheirRegistrations(t *testing.T) {
-	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+// installRetiredHooks seeds what an earlier release left on a workstation: the
+// scripts under ~/.claude/hooks, recorded in the manifest with their digest.
+func installRetiredHooks(t *testing.T, home string, names ...string) {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Join(home, claudeHookDir), 0755); err != nil {
 		t.Fatal(err)
 	}
 	manifest := map[string]string{}
-	for _, legacy := range retiredClaudeHookFiles {
-		content := []byte("#!/bin/sh\n# legacy " + legacy + "\n")
-		if err := os.WriteFile(filepath.Join(home, claudeHookDir, legacy), content, 0700); err != nil {
+	for _, name := range names {
+		content := []byte("#!/bin/sh\n# managed " + name + "\n")
+		if err := os.WriteFile(filepath.Join(home, claudeHookDir, name), content, 0700); err != nil {
 			t.Fatal(err)
 		}
-		manifest[filepath.Join(claudeHookDir, legacy)] = digest(content)
+		manifest[filepath.Join(claudeHookDir, name)] = digest(content)
 	}
 	manifestPath, err := ManifestPath()
 	if err != nil {
@@ -98,67 +94,60 @@ func TestLegacyHookScriptsAreRetiredWithTheirRegistrations(t *testing.T) {
 	if err := os.WriteFile(manifestPath, raw, 0600); err != nil {
 		t.Fatal(err)
 	}
-	// The registrations point at a former home directory: ownership is read
-	// from the file name, so they are still recognised as Sectile's.
-	existing := `{
-	  "hooks": {
-	    "Notification": [
-	      {"matcher": "", "hooks": [{"type": "command", "command": "/opt/mine/ping.sh"}]},
-	      {"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-notification.sh"}]}
-	    ],
-	    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-stop.sh"}]}]
-	  }
-	}`
-	if err := os.WriteFile(filepath.Join(home, ".claude/settings.json"), []byte(existing), 0600); err != nil {
-		t.Fatal(err)
-	}
+}
 
+// Sectile no longer installs a Claude Code hook: setting up the provider leaves
+// ~/.claude/hooks and ~/.claude/settings.json alone, and still installs the skills.
+func TestNoHookIsInstalledOrRegistered(t *testing.T) {
+	root, home := t.TempDir(), setHome(t)
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
 	}
-	for _, legacy := range retiredClaudeHookFiles {
-		if _, err := os.Stat(filepath.Join(home, claudeHookDir, legacy)); !os.IsNotExist(err) {
-			t.Fatalf("the legacy script %s survived the upgrade: %v", legacy, err)
-		}
+	if _, err := os.Stat(filepath.Join(home, claudeHookDir)); !os.IsNotExist(err) {
+		t.Fatalf("a hook directory was created: %v", err)
 	}
-	settings := readSettings(t, home)
-	current := filepath.Join(home, claudeHookDir, claudeHookFile)
-	if got := hookCommands(t, settings, "Notification"); len(got) != 2 || got[0] != "/opt/mine/ping.sh" || got[1] != current {
-		t.Fatalf("Notification after the upgrade: %v", got)
+	if _, err := os.Stat(filepath.Join(home, ".claude/settings.json")); !os.IsNotExist(err) {
+		t.Fatalf("Claude settings were written: %v", err)
 	}
-	for _, event := range claudeHookEvents {
-		if got := hookCommands(t, settings, event); len(got) == 0 || got[len(got)-1] != current {
-			t.Fatalf("%s after the upgrade: %v", event, got)
-		}
-		for _, command := range hookCommands(t, settings, event) {
-			for _, legacy := range retiredClaudeHookFiles {
-				if strings.HasSuffix(command, legacy) {
-					t.Fatalf("%s still registers the retired %s", event, legacy)
-				}
-			}
-		}
+	if _, err := os.Stat(filepath.Join(home, ".claude/skills/clarify-issue/SKILL.md")); err != nil {
+		t.Fatalf("the skills were not installed: %v", err)
 	}
 }
 
-func TestHookRegistrationPreservesEverythingElse(t *testing.T) {
-	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	existing := `{
+// Every release that installed a hook is upgraded from: the scripts go with
+// their registrations, whatever home directory or binary they pointed at, and
+// nothing of the user's is touched.
+func TestInstalledHooksAreRetiredWithTheirRegistrations(t *testing.T) {
+	root, home := t.TempDir(), setHome(t)
+	installRetiredHooks(t, home, retiredClaudeHookFiles...)
+	writeSettings(t, home, `{
 	  "model": "opus",
 	  "permissions": {"allow": ["Bash(git status)"]},
 	  "hooks": {
-	    "Notification": [{"matcher": "", "hooks": [{"type": "command", "command": "/opt/mine/ping.sh"}]}],
-	    "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "/opt/mine/audit.sh"}]}]
+	    "Notification": [
+	      {"matcher": "", "hooks": [{"type": "command", "command": "/opt/mine/ping.sh"}]},
+	      {"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-notification.sh"}]},
+	      {"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-hook.sh"}]}
+	    ],
+	    "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-stop.sh"}]}],
+	    "PreToolUse": [
+	      {"matcher": "Bash", "hooks": [{"type": "command", "command": "/opt/mine/audit.sh"}]},
+	      {"matcher": "", "hooks": [{"type": "command", "command": "\"C:\\Program Files\\Sectile\\sectile-agent.exe\" sectile-hook"}]}
+	    ],
+	    "PostToolUse": [{"matcher": "", "hooks": [{"type": "command", "command": "'/Applications/Sectile.app/Contents/Resources/bin/sectile-agent' sectile-hook"}]}]
 	  }
-	}`
-	if err := os.WriteFile(filepath.Join(home, ".claude/settings.json"), []byte(existing), 0600); err != nil {
-		t.Fatal(err)
-	}
+	}`)
+
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
+	}
+	for _, name := range retiredClaudeHookFiles {
+		if _, err := os.Stat(filepath.Join(home, claudeHookDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("the script %s survived the upgrade: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, claudeHookDir)); !os.IsNotExist(err) {
+		t.Fatalf("the emptied hook directory was left behind: %v", err)
 	}
 	settings := readSettings(t, home)
 	if settings["model"] != "opus" {
@@ -167,57 +156,72 @@ func TestHookRegistrationPreservesEverythingElse(t *testing.T) {
 	if _, ok := settings["permissions"]; !ok {
 		t.Fatalf("the permissions the user configured were lost: %+v", settings)
 	}
-	// The user's own hooks share their events with Sectile's: both must still
-	// be there, the third-party one first, with its matcher intact.
-	for event, own := range map[string]string{"Notification": "/opt/mine/ping.sh", "PreToolUse": "/opt/mine/audit.sh"} {
-		got := hookCommands(t, settings, event)
-		if len(got) != 2 || got[0] != own || !strings.HasSuffix(got[1], "/"+claudeHookFile) {
-			t.Fatalf("%s hooks after the merge: %v", event, got)
-		}
+	if got := hookCommands(t, settings, "Notification"); len(got) != 1 || got[0] != "/opt/mine/ping.sh" {
+		t.Fatalf("Notification after the upgrade: %v", got)
+	}
+	if got := hookCommands(t, settings, "PreToolUse"); len(got) != 1 || got[0] != "/opt/mine/audit.sh" {
+		t.Fatalf("PreToolUse after the upgrade: %v", got)
 	}
 	hooks, _ := settings["hooks"].(map[string]any)
+	for _, event := range []string{"Stop", "PostToolUse"} {
+		if entry, present := hooks[event]; present {
+			t.Fatalf("%s kept an entry once Sectile's was removed: %v", event, entry)
+		}
+	}
 	groups, _ := hooks["PreToolUse"].([]any)
 	if first, _ := groups[0].(map[string]any); first["matcher"] != "Bash" {
 		t.Fatalf("the third-party matcher was rewritten: %+v", first)
 	}
 }
 
-func TestHookRegistrationIsIdempotent(t *testing.T) {
-	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+// A settings file Sectile never wrote to is not rewritten: not even its
+// formatting changes, and a second run changes nothing either.
+func TestForeignSettingsAreLeftByteForByte(t *testing.T) {
+	root, home := t.TempDir(), setHome(t)
+	original := "{\n  \"model\": \"opus\",\n  \"hooks\": {\"Notification\": [{\"matcher\": \"\", \"hooks\": [{\"type\": \"command\", \"command\": \"/opt/mine/ping.sh\"}]}]}\n}\n"
+	path := writeSettings(t, home, original)
+	for range 2 {
+		if _, err := Scaffold(root, claudeConfig()); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil || string(raw) != original {
+			t.Fatalf("the file was rewritten: %q %v", raw, err)
+		}
+	}
+}
+
+// Once the Sectile entries are gone the file is not written again, and an
+// event or a hooks object emptied by the cleanup is not left behind.
+func TestHookRetirementIsIdempotent(t *testing.T) {
+	root, home := t.TempDir(), setHome(t)
+	path := writeSettings(t, home, `{"model": "opus", "hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-hook.sh"}]}]}}`)
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
 	}
-	first, err := os.ReadFile(filepath.Join(home, ".claude/settings.json"))
+	first, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, present := readSettings(t, home)["hooks"]; present {
+		t.Fatalf("an empty hooks object was left behind: %s", first)
+	}
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
 	}
-	second, err := os.ReadFile(filepath.Join(home, ".claude/settings.json"))
+	second, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(first) != string(second) {
 		t.Fatalf("a second run changed the settings:\n%s\n---\n%s", first, second)
 	}
-	if got := hookCommands(t, readSettings(t, home), "Stop"); len(got) != 1 {
-		t.Fatalf("the Stop hook was registered %d times", len(got))
-	}
 }
 
 func TestUnparseableSettingsAreLeftUntouchedAndReported(t *testing.T) {
-	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
-	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
-		t.Fatal(err)
-	}
+	root, home := t.TempDir(), setHome(t)
 	broken := "{ this is not JSON"
-	path := filepath.Join(home, ".claude/settings.json")
-	if err := os.WriteFile(path, []byte(broken), 0600); err != nil {
-		t.Fatal(err)
-	}
+	path := writeSettings(t, home, broken)
 	reports, err := Scaffold(root, claudeConfig())
 	if err != nil {
 		t.Fatalf("an unreadable settings file aborted the whole setup: %v", err)
@@ -229,15 +233,40 @@ func TestUnparseableSettingsAreLeftUntouchedAndReported(t *testing.T) {
 	if !strings.Contains(strings.Join(reports, "\n"), "settings") {
 		t.Fatalf("the failure was not reported: %v", reports)
 	}
-	// The rest of the setup still happened.
 	if _, err := os.Stat(filepath.Join(home, ".claude/skills/clarify-issue/SKILL.md")); err != nil {
 		t.Fatalf("the skills were not installed: %v", err)
 	}
 }
 
-func TestNoHookIsWrittenForAnotherProvider(t *testing.T) {
-	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+// A hook script the user edited is theirs: the file survives, while the
+// registration pointing at it is still Sectile's and goes.
+func TestAnEditedHookScriptSurvivesButLosesItsRegistration(t *testing.T) {
+	root, home := t.TempDir(), setHome(t)
+	installRetiredHooks(t, home, "sectile-hook.sh")
+	path := filepath.Join(home, claudeHookDir, "sectile-hook.sh")
+	edited := []byte("#!/bin/sh\n# edited by hand\n")
+	if err := os.WriteFile(path, edited, 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeSettings(t, home, `{"hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "`+filepath.ToSlash(path)+`"}]}]}}`)
+
+	if _, err := Scaffold(root, claudeConfig()); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || string(raw) != string(edited) {
+		t.Fatalf("the edited script did not survive: %q %v", raw, err)
+	}
+	if got := hookCommands(t, readSettings(t, home), "Stop"); len(got) != 0 {
+		t.Fatalf("the registration of the edited script survived: %v", got)
+	}
+}
+
+// Setting up another provider never creates Claude settings. The cleanup still
+// runs on such a workstation, so a Claude Code session that is still used by
+// hand is not left with a registration failing on every turn.
+func TestAnotherProviderCreatesNoClaudeSettingsButStillRetiresHooks(t *testing.T) {
+	root, home := t.TempDir(), setHome(t)
 	config := claudeConfig()
 	config.AIProvider = "codex"
 	if _, err := Scaffold(root, config); err != nil {
@@ -248,5 +277,13 @@ func TestNoHookIsWrittenForAnotherProvider(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude/settings.json")); !os.IsNotExist(err) {
 		t.Fatalf("Claude settings were written while setting up another provider: %v", err)
+	}
+
+	writeSettings(t, home, `{"hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-hook.sh"}]}]}}`)
+	if _, err := Scaffold(root, config); err != nil {
+		t.Fatal(err)
+	}
+	if got := hookCommands(t, readSettings(t, home), "Stop"); len(got) != 0 {
+		t.Fatalf("the registration survived a setup for another provider: %v", got)
 	}
 }
