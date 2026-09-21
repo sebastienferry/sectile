@@ -138,7 +138,15 @@ type DB struct {
 }
 
 func NewDB(dbPath string) (*DB, error) {
-	conn, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
+	// _time_format=sqlite: without it the driver stores a time.Time as
+	// time.Time.String(), which prints the zone abbreviation last. A date parsed
+	// from a tracker carries an offset that rarely matches the server's own
+	// zone, Go gives it a location with no name, and String() then writes the
+	// numeric offset where the abbreviation belongs — a form the driver cannot
+	// read back, so the Scan fails and the endpoint answers 500. The requested
+	// format ends with the offset itself and round trips in any zone. See
+	// repairNumericZoneTimestamps for the rows written before this was set.
+	conn, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_time_format=sqlite")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -586,6 +594,10 @@ func (d *DB) initSchema() error {
 	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_close' WHERE status = 'done';")
 
 	d.dropRetiredColumns()
+
+	// Runs last: it sweeps the date columns of the schema as it stands once
+	// every table and column above exists.
+	d.repairNumericZoneTimestamps()
 
 	// Seed default workspace only if projects table is completely empty
 	var projectsCount int
