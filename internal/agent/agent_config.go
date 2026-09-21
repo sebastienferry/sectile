@@ -205,11 +205,41 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	for id, command := range overrides.Commands {
 		local.Commands[id] = command
 	}
+	if local.CommandsAutonomous == nil {
+		local.CommandsAutonomous = map[string]string{}
+	}
+	for id, command := range overrides.CommandsAutonomous {
+		local.CommandsAutonomous[id] = command
+	}
+	if local.AIProviders == nil {
+		local.AIProviders = map[string]string{}
+	}
+	for id, provider := range overrides.AIProviders {
+		local.AIProviders[id] = provider
+	}
+	if local.AIModels == nil {
+		local.AIModels = map[string]string{}
+	}
+	for id, model := range overrides.AIModels {
+		local.AIModels[id] = model
+	}
 	if overrides.AIProvider != "" {
 		local.AIProvider = overrides.AIProvider
 	}
 	if overrides.AICommandTemplate != "" {
 		local.AICommandTemplate = overrides.AICommandTemplate
+	}
+	if overrides.AICommandTemplateAutonomous != "" {
+		local.AICommandTemplateAutonomous = overrides.AICommandTemplateAutonomous
+	}
+	if overrides.AIModel != "" {
+		local.AIModel = overrides.AIModel
+	}
+	if local.AISkillModels == nil {
+		local.AISkillModels = map[string]string{}
+	}
+	for id, model := range overrides.AISkillModels {
+		local.AISkillModels[id] = model
 	}
 	if overrides.Terminal != "" {
 		local.Terminal = overrides.Terminal

@@ -1,4 +1,5 @@
 import type { IssueTracker, TrackerCredentials, UserSettings } from '../types'
+import { translations, type TranslationSchema } from '../locales/translations.ts'
 
 /**
  * Ce que chaque tracker demande pour se connecter. Un seul écran, un jeu de
@@ -37,41 +38,58 @@ export interface TrackerFields {
   hasAdapter?: boolean
 }
 
-export const TRACKERS: TrackerFields[] = [
+export const TRACKER_CONFIGS: {
+  id: TrackerKind
+  label: string
+  wantsEmail: boolean
+  personalOnly?: boolean
+  siteIsPersonal?: boolean
+  hasAdapter?: boolean
+}[] = [
   {
     id: 'jira',
     label: 'Jira',
-    siteLabel: 'Site Jira',
-    sitePlaceholder: 'mon-org.atlassian.net',
     wantsEmail: true,
-    projectLabel: 'Clé du projet par défaut',
-    projectPlaceholder: 'PE',
-    tokenHint: "À créer sur id.atlassian.com, section jetons d'API. Il s'utilise avec votre e-mail Atlassian, jamais seul.",
     personalOnly: true,
     siteIsPersonal: true,
   },
   {
     id: 'github',
     label: 'GitHub',
-    siteLabel: "URL de l'API GitHub",
-    sitePlaceholder: 'https://api.github.com',
     wantsEmail: false,
-    projectLabel: 'Dépôt par défaut',
-    projectPlaceholder: 'organisation/depot',
-    tokenHint: 'Personal Access Token avec la portée repo.',
+    personalOnly: true,
   },
   {
     id: 'gitlab',
     label: 'GitLab',
-    siteLabel: "URL de l'API GitLab",
-    sitePlaceholder: 'https://gitlab.com/api/v4',
     wantsEmail: false,
-    projectLabel: 'Projet par défaut',
-    projectPlaceholder: 'groupe/projet',
-    tokenHint: 'Personal Access Token avec la portée api.',
+    personalOnly: true,
     hasAdapter: false,
   },
 ]
+
+export function trackerFields(tracker: TrackerKind, t: TranslationSchema = translations.fr): TrackerFields {
+  const config = TRACKER_CONFIGS.find(item => item.id === tracker) ?? TRACKER_CONFIGS[0]
+  const tr = t.trackerCredentials.trackers[tracker as keyof typeof t.trackerCredentials.trackers] ?? t.trackerCredentials.trackers.jira
+  return {
+    ...config,
+    siteLabel: tr.siteLabel,
+    sitePlaceholder: tr.sitePlaceholder,
+    projectLabel: tr.projectLabel,
+    projectPlaceholder: tr.projectPlaceholder,
+    tokenHint: tr.tokenHint,
+  }
+}
+
+export function getTrackers(t: TranslationSchema = translations.fr): TrackerFields[] {
+  return TRACKER_CONFIGS.map(config => trackerFields(config.id, t))
+}
+
+export function personalTrackers(t: TranslationSchema = translations.fr): TrackerFields[] {
+  return getTrackers(t).filter(item => item.hasAdapter !== false)
+}
+
+export const TRACKERS: TrackerFields[] = getTrackers(translations.fr)
 
 /**
  * Les trackers dont un accès personnel sert à quelque chose : ceux que le
@@ -79,11 +97,7 @@ export const TRACKERS: TrackerFields[] = [
  * personnel GitLab n'a aucun chemin d'exécution — l'écran le proposait, le
  * stockait et l'affichait comme actif pendant que rien ne s'en servait.
  */
-export const PERSONAL_TRACKERS: TrackerFields[] = TRACKERS.filter(t => t.hasAdapter !== false)
-
-export function trackerFields(tracker: TrackerKind): TrackerFields {
-  return TRACKERS.find(t => t.id === tracker) ?? TRACKERS[0]
-}
+export const PERSONAL_TRACKERS: TrackerFields[] = personalTrackers(translations.fr)
 
 /**
  * Les trackers qu'un projet peut réellement porter : ceux dont un adaptateur est
@@ -174,14 +188,20 @@ export function canCheck(tracker: TrackerKind, values: { siteUrl?: string; email
  * pas. L'écran n'annonçait la règle que dans une infobulle, invisible tant
  * qu'on ne survole pas un bouton déjà grisé.
  */
-export function saveBlockedReason(tracker: TrackerKind, values: { siteUrl?: string; email?: string }, checked: boolean): string {
+export function saveBlockedReason(
+  tracker: TrackerKind,
+  values: { siteUrl?: string; email?: string },
+  checked: boolean,
+  t: TranslationSchema = translations.fr
+): string {
   if (checked) return ''
+  const reasons = t.trackerCredentials.saveBlockedReasons
   if (!canCheck(tracker, values)) {
-    return trackerFields(tracker).wantsEmail
-      ? "Renseignez votre site et l'e-mail de votre compte, puis vérifiez les accès."
-      : 'Renseignez les accès, puis vérifiez-les.'
+    return trackerFields(tracker, t).wantsEmail
+      ? reasons.wantsEmail
+      : reasons.default
   }
-  return "Vérifiez les accès : l'enregistrement se débloque une fois que l'instance les a acceptés."
+  return reasons.needCheck
 }
 
 /**
@@ -207,43 +227,58 @@ export interface StoredUserCredential {
  * qu'elle devra faire. Ce qui se passe sous le capot, clé et chiffrement, ne lui
  * apprend rien d'actionnable et n'a donc pas sa place ici.
  */
-export const SEALING_INVITATION =
-  'Par mesure de protection de votre identité, vous pouvez sceller votre jeton. Vous devrez alors le desceller pour agir sur les tâches.'
+export const SEALING_INVITATION = translations.fr.trackerCredentials.sealingInvitation
 
-/** Ce que le choix change, dit au moment où il se fait. */
-export function sealingConsequence(sealed: boolean): string {
-  return sealed
-    ? 'Scellé : vous seul pouvez l’ouvrir, et vous devrez le desceller à chaque session pour agir sur les tâches.'
-    : 'Non scellé : vos actions partent sans rien vous demander.'
+export function sealingInvitation(t: TranslationSchema = translations.fr): string {
+  return t.trackerCredentials.sealingInvitation
 }
 
+export type SealingConsequences = TranslationSchema['trackerCredentials']['sealingConsequences']
+
+/** Ce que le choix change, dit au moment où il se fait. */
+export function sealingConsequence(
+  sealed: boolean,
+  t?: TranslationSchema | SealingConsequences
+): string {
+  const c = !t
+    ? translations.fr.trackerCredentials.sealingConsequences
+    : 'trackerCredentials' in t
+      ? t.trackerCredentials.sealingConsequences
+      : t
+  return sealed ? c.sealed : c.unsealed
+}
+
+export type CredentialStateMessages = TranslationSchema['trackerCredentials']['states']
+
 /** L'état d'un accès personnel, en une phrase, pour l'écran. */
-export function credentialState(credential?: StoredUserCredential): string {
-  if (!credential) return "Aucun jeton enregistré : vos actions sur les tâches ne partiront pas."
-  if (!credential.sealed) return 'Enregistré. Vos actions partent sous votre compte.'
-  return credential.unlocked
-    ? 'Scellé, descellé pour cette session.'
-    : 'Scellé et verrouillé : descellez-le pour agir sur les tâches.'
+export function credentialState(
+  credential?: StoredUserCredential,
+  t?: TranslationSchema | CredentialStateMessages
+): string {
+  const states = !t
+    ? translations.fr.trackerCredentials.states
+    : 'trackerCredentials' in t
+      ? t.trackerCredentials.states
+      : t
+  if (!credential) return states.none
+  if (!credential.sealed) return states.unsealed
+  return credential.unlocked ? states.unlocked : states.locked
 }
 
 /**
- * Pour qui l'écran peut enregistrer ce tracker. Un tracker qui attribue ses
- * écritures à un compte n'accepte que le personnel : son jeton serveur reste
- * un repli de configuration, jamais une case de l'interface.
+ * Dans l'interface utilisateur, tous les jetons saisis sont personnels.
+ * Le jeton serveur n'est configurable que via l'environnement du serveur.
  */
-export function scopesFor(tracker: TrackerKind): CredentialScope[] {
-  return trackerFields(tracker).personalOnly ? ['personal'] : ['server', 'personal']
+export function scopesFor(_tracker: TrackerKind): CredentialScope[] {
+  return ['personal']
 }
 
 /**
  * Un projet posé sur un tracker distant sans accès ne ramènera rien : autant le
  * dire à la création plutôt qu'après une synchronisation vide.
  *
- * Où chercher l'accès dépend du tracker, et c'est ce qui manquait : Jira n'a
- * plus d'accès serveur du tout dans l'interface, donc interroger les réglages
- * globaux répondait « rien de configuré » quoi que la personne ait enregistré
- * dans son profil. L'écran de connexion se rouvrait à chaque projet Jira créé
- * ou modifié, même pour quelqu'un dont le jeton fonctionnait.
+ * Pour Jira, seul un jeton personnel permet d'agir. Pour GitHub, le jeton
+ * personnel ou le jeton d'environnement du serveur permet la synchronisation.
  */
 export function needsCredentialsFor(
   tracker: IssueTracker | string,
@@ -252,11 +287,9 @@ export function needsCredentialsFor(
 ): boolean {
   const kind = String(tracker)
   if (kind === 'local' || kind === '') return false
-  if (trackerFields(kind as TrackerKind)?.personalOnly) {
-    return !mine.some(c => c.tracker === kind)
-  }
-  const stored = storedFor(settings, kind as TrackerKind)
   if (mine.some(c => c.tracker === kind)) return false
+  if (kind === 'jira') return true
+  const stored = storedFor(settings, kind as TrackerKind)
   return !stored.tokenIsSet && !stored.tokenFromEnv
 }
 

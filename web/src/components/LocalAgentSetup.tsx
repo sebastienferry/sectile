@@ -1,9 +1,95 @@
 import { useState } from 'react'
-import { Copy, Terminal } from 'lucide-react'
+import { Check, Copy, Monitor, Terminal } from 'lucide-react'
+import { useApp } from '../context/AppContext'
 
-export function LocalAgentSetup() {
-  const [serverUrl, setServerUrl] = useState(window.location.origin)
+/**
+ * Sectile Desktop App Panel
+ * Graphical companion app with native PTY terminal streaming and workspace management.
+ */
+export function SectileDesktopPanel() {
+  const { t } = useApp()
+  const serverOrigin = window.location.origin
+  const [copiedUrl, setCopiedUrl] = useState(false)
+
+  async function copyOrigin() {
+    try {
+      await navigator.clipboard.writeText(serverOrigin)
+      setCopiedUrl(true)
+      setTimeout(() => setCopiedUrl(false), 2000)
+    } catch {
+      // Ignored
+    }
+  }
+
+  return (
+    <section
+      className="p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-4"
+      aria-labelledby="desktop-app-title"
+    >
+      <div className="flex items-center gap-2">
+        <Monitor size={16} className="text-cyan-400" />
+        <h4 id="desktop-app-title" className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
+          {t.profileModal.workstations?.desktopAppTitle || 'Sectile Desktop App'}
+        </h4>
+      </div>
+
+      <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+        {t.profileModal.workstations?.desktopAppDesc ||
+          'Full desktop application with native PTY terminals, live log streaming, and visual workspace management.'}
+      </p>
+
+      <div className="p-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] space-y-2.5 text-xs text-[var(--text-secondary)]">
+        <div className="font-semibold text-[var(--text-primary)] text-[11px]">
+          {t.profileModal.workstations?.onWorkstationTitle || 'Quick Setup Guide'} :
+        </div>
+        <div className="space-y-1.5 pl-1 text-[11px]">
+          <div className="flex items-start gap-2">
+            <span className="font-bold text-cyan-400">1.</span>
+            <span>
+              {t.profileModal.workstations?.desktopStep1 || 'Launch Sectile Desktop on your workstation.'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-cyan-400">2.</span>
+            <span>
+              {t.profileModal.workstations?.desktopStep2 || 'Set server address to:'}
+            </span>
+            <div className="inline-flex items-center gap-1.5 bg-[var(--bg-tertiary)] px-2 py-0.5 rounded-lg border border-[var(--border-color)] font-mono text-[10.5px] text-[var(--text-primary)]">
+              <span>{serverOrigin}</span>
+              <button
+                type="button"
+                onClick={copyOrigin}
+                className="hover:text-cyan-400 transition-colors cursor-pointer"
+                title="Copy Server URL"
+              >
+                {copiedUrl ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+              </button>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <span className="font-bold text-cyan-400">3.</span>
+            <span>
+              {t.profileModal.workstations?.desktopStep3 ||
+                'Enter the temporary pairing code generated in the Workstations section above.'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Headless CLI Agent Panel
+ * Background runner for terminals and CI/CD pipelines.
+ */
+export function HeadlessCliAgentPanel() {
+  const { t } = useApp()
+  const serverOrigin = window.location.origin
+  const [serverUrl, setServerUrl] = useState(serverOrigin)
   const [copyStatus, setCopyStatus] = useState('')
+  const [copiedCmd, setCopiedCmd] = useState(false)
+
   let validUrl = false
   try {
     const url = new URL(serverUrl)
@@ -11,49 +97,109 @@ export function LocalAgentSetup() {
   } catch {
     // Keep invalid input editable without generating an executable command.
   }
+
   const quotedUrl = "'" + serverUrl.trim().replace(/\/$/, '').replace(/'/g, "'\\''") + "'"
-  const command = 'sectile agent --url ' + quotedUrl
+  const command = 'sectile-agent --url ' + quotedUrl
 
   async function copyCommand() {
     try {
       await navigator.clipboard.writeText(command)
-      setCopyStatus('Command copied.')
+      setCopiedCmd(true)
+      setCopyStatus(t.profileModal.workstations?.copiedCommand || 'Command copied.')
+      setTimeout(() => setCopiedCmd(false), 2000)
     } catch {
-      setCopyStatus('Copy unavailable. Select the command and copy it manually.')
+      setCopyStatus('Copy unavailable. Please copy manually.')
     }
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4" aria-labelledby="local-agent-title">
-      <h3 id="local-agent-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
-        <Terminal size={16} /> Local agent
-      </h3>
-      <p className="text-[var(--text-muted)]">
-        Use Sectile Desktop to host your execution consoles. The command below starts an optional headless agent from your repository or project mappings directory. Project settings and skills are downloaded from the server.
+    <section
+      className="p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-4"
+      aria-labelledby="headless-cli-title"
+    >
+      <div className="flex items-center gap-2">
+        <Terminal size={16} className="text-emerald-400" />
+        <h4 id="headless-cli-title" className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
+          {t.profileModal.workstations?.headlessCliTitle || 'Headless CLI Agent'}
+        </h4>
+      </div>
+
+      <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+        {t.profileModal.workstations?.headlessCliDesc ||
+          'Lightweight background runner executing autonomous tasks directly in your terminal or CI/CD pipeline.'}
       </p>
-      <label className="block space-y-1">
-        <span className="font-semibold">Server URL</span>
+
+      {/* Server URL Input */}
+      <div className="space-y-1">
+        <label htmlFor="cli-server-url" className="block text-[11px] font-medium text-[var(--text-muted)]">
+          {t.profileModal.workstations?.serverUrlLabel || 'Sectile Server URL'}
+        </label>
         <input
+          id="cli-server-url"
           type="url"
           value={serverUrl}
-          onChange={event => { setServerUrl(event.target.value); setCopyStatus('') }}
-          className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-primary)] px-3 py-2 text-[var(--text-primary)]"
+          onChange={event => {
+            setServerUrl(event.target.value)
+            setCopyStatus('')
+          }}
+          placeholder="http://localhost:8090"
+          className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-emerald-500 transition-all font-mono"
           aria-invalid={!validUrl}
         />
-      </label>
+      </div>
+
+      {/* Executable Command Block */}
       {validUrl ? (
-        <div className="flex items-start gap-2">
-          <pre className="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-lg bg-[var(--bg-primary)] p-3 select-text"><code>{command}</code></pre>
-          <button type="button" onClick={copyCommand} className="flex shrink-0 items-center gap-1 rounded-lg border border-[var(--border-color)] px-3 py-2 hover:bg-[var(--bg-hover)]">
-            <Copy size={14} /> Copy
+        <div className="flex items-center gap-2">
+          <pre className="min-w-0 flex-1 whitespace-pre-wrap break-all rounded-xl bg-[var(--bg-secondary)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] select-text border border-[var(--border-color)]">
+            <code>{command}</code>
+          </pre>
+          <button
+            type="button"
+            onClick={copyCommand}
+            className="px-3 py-2 rounded-xl text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+          >
+            {copiedCmd ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+            <span>{copiedCmd ? 'Copied' : (t.profileModal.workstations?.copyCommandBtn || 'Copy Command')}</span>
           </button>
         </div>
-      ) : <p role="alert">Enter an HTTP or HTTPS server URL without credentials, query parameters or a fragment.</p>}
-      <p className="text-[var(--text-muted)]">
-        Requires the Sectile binary in your PATH and a workstation paired once from the panel above
-        (<code>sectile-agent pair --url … --code …</code>). The agent connects to all projects by default.
+      ) : (
+        <div role="alert" className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs">
+          {t.profileModal.workstations?.urlInvalidAlert ||
+            'Enter a valid HTTP or HTTPS server URL without credentials or query parameters.'}
+        </div>
+      )}
+
+      <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+        {t.profileModal.workstations?.cliPrereqNotice ||
+          'Requires the sectile-agent binary in your PATH and a workstation paired once.'}{' '}
+        <code className="px-1 py-0.5 rounded bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[9.5px]">
+          sectile-agent pair --url … --code …
+        </code>
       </p>
-      <p role="status" className="text-[var(--text-muted)]">{copyStatus}</p>
+
+      {copyStatus && (
+        <p role="status" className="text-[11px] text-emerald-400 font-medium">
+          {copyStatus}
+        </p>
+      )}
     </section>
   )
 }
+
+/**
+ * LocalExecutionPanel combines both panels for backwards compatibility.
+ */
+export function LocalExecutionPanel() {
+  return (
+    <div className="space-y-4" aria-labelledby="local-execution-title">
+      <SectileDesktopPanel />
+      <HeadlessCliAgentPanel />
+    </div>
+  )
+}
+
+/**
+ * LocalAgentSetup export retained for backward compatibility.
+ */
+export const LocalAgentSetup = LocalExecutionPanel

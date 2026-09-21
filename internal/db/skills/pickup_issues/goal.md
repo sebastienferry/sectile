@@ -1,0 +1,1 @@
+Autonomously process a batch of tickets selected from the board sequentially in the exact order provided inside a single dedicated batch worktree.

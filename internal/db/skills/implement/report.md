@@ -1,0 +1,3 @@
+- What changed, file by file, and why.
+- The real output of build, linters and tests, remaining failures included.
+- What you deliberately left out, and what it would take to finish it.

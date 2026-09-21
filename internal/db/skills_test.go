@@ -2,6 +2,8 @@ package db_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -44,6 +46,33 @@ func TestGeneratedSkillContracts(t *testing.T) {
 				}
 				if stage.FromStage != "" && stage.Scope != "macro" && (strings.Contains(content, "sectile stage") || strings.Contains(content, "curl --")) {
 					t.Fatal("workflow skill must use native MCP tools")
+				}
+				if stage.ID == "clarify" {
+					for _, required := range []string{
+						"docs/clarifications/",
+						"docs(spec):",
+						"Round 1",
+						"Round N",
+						"satisfactory",
+						"Never transition new → clarified while",
+					} {
+						if !strings.Contains(content, required) {
+							t.Fatalf("clarify skill content is missing %q", required)
+						}
+					}
+					command := db.RenderSkillCommand(stage, framework)
+					for _, required := range []string{
+						"docs/clarifications/",
+						"docs(spec):",
+						"Round 1",
+						"Round N",
+						"satisfactory",
+						"Never transition new → clarified while",
+					} {
+						if !strings.Contains(command, required) {
+							t.Fatalf("clarify skill command is missing %q", required)
+						}
+					}
 				}
 			})
 		}
@@ -185,6 +214,139 @@ func TestRefineMacroSkillTemplate(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("Expected ProjectSkillTemplates(%s) to include 'refine_macro'", fw)
+		}
+	}
+}
+
+func TestClarifySkillRoundLoopInvariants(t *testing.T) {
+	skill, ok := db.StageSkillByID("clarify")
+	if !ok {
+		t.Fatal("clarify skill missing from catalogue")
+	}
+	if skill.Command != "/clarify-issue" {
+		t.Fatalf("expected command /clarify-issue, got %q", skill.Command)
+	}
+	for _, fw := range []string{"speckit", "openspec"} {
+		content := db.RenderSkillContent(skill, fw)
+		command := db.RenderSkillCommand(skill, fw)
+
+		for _, doc := range []string{content, command} {
+			for _, required := range []string{
+				"docs/clarifications/<n>.md",
+				"docs(spec): clarify #<n> (round 1)",
+				"docs(spec): clarify #<n> (round N)",
+				"Round 1",
+				"Round N",
+				"## Round N - answers from the owner (<date>)",
+				"satisfactory",
+				"add_comment",
+				"get_task",
+				"Never transition new → clarified while",
+			} {
+				if !strings.Contains(doc, required) {
+					t.Errorf("framework %s missing expected invariant %q", fw, required)
+				}
+			}
+		}
+
+		if !strings.Contains(command, "## Ticket\n$ARGUMENTS") {
+			t.Errorf("framework %s command missing $ARGUMENTS placeholder", fw)
+		}
+	}
+}
+
+func TestGoldenSkillParity(t *testing.T) {
+	updateGolden := os.Getenv("UPDATE_GOLDEN") == "1"
+	goldenDir := filepath.Join("testdata", "golden")
+	if updateGolden {
+		_ = os.MkdirAll(goldenDir, 0755)
+	}
+
+	for _, framework := range []string{"openspec", "speckit"} {
+		for _, stage := range db.StageSkills {
+			// 1. Skill document
+			skillFile := filepath.Join(goldenDir, stage.ID+"."+framework+".skill.md")
+			actualSkill := db.RenderSkillContent(stage, framework)
+			if updateGolden {
+				if err := os.WriteFile(skillFile, []byte(actualSkill), 0644); err != nil {
+					t.Fatalf("failed to write golden file %s: %v", skillFile, err)
+				}
+			} else {
+				expected, err := os.ReadFile(skillFile)
+				if err != nil {
+					t.Fatalf("missing golden file %s: %v (run with UPDATE_GOLDEN=1 to generate)", skillFile, err)
+				}
+				if string(expected) != actualSkill {
+					t.Errorf("skill output mismatch for %s (%s)", stage.ID, framework)
+					expLines := strings.Split(string(expected), "\n")
+					actLines := strings.Split(actualSkill, "\n")
+					for i := 0; i < len(expLines) && i < len(actLines); i++ {
+						if expLines[i] != actLines[i] {
+							t.Errorf("first diff at line %d:\nexp: %q\nact: %q", i+1, expLines[i], actLines[i])
+							break
+						}
+					}
+				}
+			}
+
+			// 2. Command document
+			cmdFile := filepath.Join(goldenDir, stage.ID+"."+framework+".command.md")
+			actualCmd := db.RenderSkillCommand(stage, framework)
+			if updateGolden {
+				if err := os.WriteFile(cmdFile, []byte(actualCmd), 0644); err != nil {
+					t.Fatalf("failed to write golden file %s: %v", cmdFile, err)
+				}
+			} else {
+				expected, err := os.ReadFile(cmdFile)
+				if err != nil {
+					t.Fatalf("missing golden file %s: %v (run with UPDATE_GOLDEN=1 to generate)", cmdFile, err)
+				}
+				if string(expected) != actualCmd {
+					t.Errorf("command output mismatch for %s (%s)", stage.ID, framework)
+					expLines := strings.Split(string(expected), "\n")
+					actLines := strings.Split(actualCmd, "\n")
+					for i := 0; i < len(expLines) && i < len(actLines); i++ {
+						if expLines[i] != actLines[i] {
+							t.Errorf("first diff at line %d:\nexp: %q\nact: %q", i+1, expLines[i], actLines[i])
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestSkillFragmentsIntegrity(t *testing.T) {
+	requiredContracts := []string{"task-access.md", "session-title.md", "transition.md", "pickup-header.md"}
+	for _, c := range requiredContracts {
+		path := filepath.Join("skills", "contracts", c)
+		data, err := os.ReadFile(path)
+		if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+			t.Errorf("contract %s is missing or empty", path)
+		}
+	}
+
+	for _, s := range db.StageSkills {
+		dir := filepath.Join("skills", s.ID)
+
+		// Every skill must have a goal and report
+		for _, required := range []string{"goal.md", "report.md"} {
+			path := filepath.Join(dir, required)
+			data, err := os.ReadFile(path)
+			if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+				t.Errorf("skill %s missing required fragment %s", s.ID, required)
+			}
+		}
+
+		// Composite skills (pickup, pickup_issues) compose steps dynamically;
+		// standalone skills must have steps.md (or framework variants)
+		if s.ID != "pickup" && s.ID != "pickup_issues" {
+			path := filepath.Join(dir, "steps.md")
+			data, err := os.ReadFile(path)
+			if err != nil || len(strings.TrimSpace(string(data))) == 0 {
+				t.Errorf("skill %s missing steps.md", s.ID)
+			}
 		}
 	}
 }

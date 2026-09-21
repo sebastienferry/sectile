@@ -1,0 +1,2 @@
+- Do not delete anything remote: no remote branch, no tag, no release.
+- Do not clean up while the merge is unconfirmed.

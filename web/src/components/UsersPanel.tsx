@@ -24,7 +24,7 @@ function when(value?: string): string {
  * identity provider supplies roles, a manual change lasts only until that
  * user's next sign-in, and the panel says that too.
  */
-export function UsersPanel({ currentUserId }: { currentUserId: string }) {
+export function UsersPanel({ currentUserId, embedded = false }: { currentUserId: string; embedded?: boolean }) {
   const [users, setUsers] = useState<UserRow[]>([])
   const [rolesFromProvider, setRolesFromProvider] = useState(false)
   const [status, setStatus] = useState('')
@@ -61,10 +61,12 @@ export function UsersPanel({ currentUserId }: { currentUserId: string }) {
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4" aria-labelledby="users-title">
-      <h3 id="users-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
-        <Users size={16} /> Users
-      </h3>
+    <section className={embedded ? 'space-y-4' : 'space-y-3 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-4'} aria-labelledby="users-title">
+      {!embedded && (
+        <h3 id="users-title" className="flex items-center gap-2 font-bold text-[var(--text-primary)]">
+          <Users size={16} /> Users
+        </h3>
+      )}
       <p className="text-[var(--text-muted)]">
         Admins manage users, projects, global settings, tracker credentials and anyone's execution.
         Members work on the shared board and act only on their own agent and executions.

@@ -1,8 +1,10 @@
 package db
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -236,6 +238,26 @@ func TestActivityOwnerRoundTrips(t *testing.T) {
 	if err != nil || inserted.UserID != owner.ID {
 		t.Fatalf("inserted run owner = %q, %v", inserted.UserID, err)
 	}
+
+	// The three activity queries join the users table themselves instead of
+	// going through userColumns, so the chosen name has to reach each of them
+	// or the log keeps naming people by the address they renamed away from.
+	if _, err = d.SetDisplayName(owner.ID, "Alice Dupont"); err != nil {
+		t.Fatal(err)
+	}
+	byID, _ = d.GetActivityByID(run.ID)
+	if byID.UserName != "Alice Dupont" {
+		t.Fatalf("GetActivityByID keeps the old name: %q", byID.UserName)
+	}
+	perTask, _ = d.GetTaskActivities(task.ID)
+	all, _ = d.GetActivities("", "", "", task.ID, "", 10)
+	for name, list := range map[string][]models.TaskActivity{"GetTaskActivities": perTask, "GetActivities": all} {
+		for _, a := range list {
+			if a.ID == run.ID && a.UserName != "Alice Dupont" {
+				t.Fatalf("%s keeps the old name: %q", name, a.UserName)
+			}
+		}
+	}
 }
 
 // Closing a run is reporting its outcome, which is the run's own business: a
@@ -295,5 +317,105 @@ func TestTransitionAndCommentRecordTheActor(t *testing.T) {
 	}
 	if len(comments) != 1 || comments[0].UserID != alice.ID || comments[0].Author != "alice@example.com" {
 		t.Fatalf("comment = %+v", comments)
+	}
+}
+
+// The whole point of a separate column: UpsertUser rewrites display_name at
+// every sign-in, from the e-mail for a local account, so a chosen name stored
+// there would live exactly until the next visit.
+func TestAChosenNameSurvivesTheNextSignIn(t *testing.T) {
+	d := openRolesDB(t)
+	alice, err := d.SignInLocal("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if alice.DisplayName != "alice@example.com" {
+		t.Fatalf("a local account is named by its address: %q", alice.DisplayName)
+	}
+
+	renamed, err := d.SetDisplayName(alice.ID, "  Alice Dupont  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.DisplayName != "Alice Dupont" {
+		t.Fatalf("the chosen name is stored trimmed: %q", renamed.DisplayName)
+	}
+
+	again, err := d.SignInLocal("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.DisplayName != "Alice Dupont" {
+		t.Fatalf("the next sign-in erased the chosen name: %q", again.DisplayName)
+	}
+
+	// Every reader of a user goes through the shared column list, so the admin
+	// users panel shows the chosen name without knowing the column exists.
+	users, err := d.ListUsers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(users) != 1 || users[0].DisplayName != "Alice Dupont" {
+		t.Fatalf("ListUsers = %+v", users)
+	}
+
+	// The provider's claim is recorded and not shown, so clearing the choice
+	// hands the account back to it.
+	if _, err = d.SetDisplayName(alice.ID, "   "); err != nil {
+		t.Fatal(err)
+	}
+	back, err := d.GetUser(alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back.DisplayName != "alice@example.com" {
+		t.Fatalf("clearing falls back to the sign-in name: %q", back.DisplayName)
+	}
+}
+
+func TestDisplayNameValidation(t *testing.T) {
+	d := openRolesDB(t)
+	alice, err := d.SignInLocal("alice@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.SetDisplayName(alice.ID, "Alice"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Counted in runes: eighty accented characters are a valid name, eighty-one
+	// are not, and a byte count would have refused the first.
+	if _, err = d.SetDisplayName(alice.ID, strings.Repeat("é", MaxDisplayNameLength)); err != nil {
+		t.Fatalf("a name of exactly the ceiling is accepted: %v", err)
+	}
+	if _, err = d.SetDisplayName(alice.ID, strings.Repeat("é", MaxDisplayNameLength+1)); !errors.Is(err, ErrDisplayNameTooLong) {
+		t.Fatalf("over-long name = %v", err)
+	}
+	if _, err = d.SetDisplayName(alice.ID, "Alice\nDupont"); !errors.Is(err, ErrDisplayNameInvalid) {
+		t.Fatalf("line break = %v", err)
+	}
+	// A refused value leaves the stored name alone.
+	current, err := d.GetUser(alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.DisplayName != strings.Repeat("é", MaxDisplayNameLength) {
+		t.Fatalf("a refused rename changed the stored name: %q", current.DisplayName)
+	}
+
+	// The name is shown, never used to identify: two accounts may share one.
+	bob, err := d.SignInLocal("bob@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.SetDisplayName(alice.ID, "Sébastien Ferry"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.SetDisplayName(bob.ID, "Sébastien Ferry"); err != nil {
+		t.Fatalf("a duplicate display name is refused: %v", err)
+	}
+
+	if _, err = d.SetDisplayName("usr_nobody", "Ghost"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("unknown account = %v", err)
 	}
 }

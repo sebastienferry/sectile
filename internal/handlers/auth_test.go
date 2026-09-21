@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -101,6 +103,7 @@ func TestOnlyIntendedPathsBypassTheSessionGuard(t *testing.T) {
 		// tracker credential is the last thing that should answer without a
 		// session.
 		"/api/me/tracker-credentials", "/api/me/tracker-credentials/unlock",
+		"/api/me/project-bookmarks",
 		// Both probes are matched exactly: nothing below them is public.
 		"/api/health/details",
 	}
@@ -108,5 +111,68 @@ func TestOnlyIntendedPathsBypassTheSessionGuard(t *testing.T) {
 		if publicPath(path) {
 			t.Errorf("publicPath(%q) = true, want false", path)
 		}
+	}
+}
+
+// The rename takes its account from the session and never from the body, so the
+// route that lets somebody choose their own name is not also a route that lets
+// them choose somebody else's.
+func TestRenameTheCurrentUser(t *testing.T) {
+	h, session := credentialHandler(t)
+
+	patch := func(body string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.HandleCurrentUser(w, signedRequest(session, http.MethodPatch, "/api/me", strings.NewReader(body)))
+		return w
+	}
+
+	w := patch(`{"displayName":"Ada Lovelace"}`)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"displayName":"Ada Lovelace"`) {
+		t.Fatalf("rename = %d %s", w.Code, w.Body.String())
+	}
+	// The answer is the profile itself, and a following read agrees with it.
+	read := httptest.NewRecorder()
+	h.HandleCurrentUser(read, signedRequest(session, http.MethodGet, "/api/me", nil))
+	if !strings.Contains(read.Body.String(), `"displayName":"Ada Lovelace"`) {
+		t.Fatalf("GET after rename = %s", read.Body.String())
+	}
+
+	if w = patch(`{"displayName":"` + strings.Repeat("e", 81) + `"}`); w.Code != http.StatusBadRequest ||
+		!strings.Contains(w.Body.String(), "at most 80 characters") {
+		t.Fatalf("over-long name = %d %s", w.Code, w.Body.String())
+	}
+	if w = patch(`{"displayName":"Ada\nLovelace"}`); w.Code != http.StatusBadRequest ||
+		!strings.Contains(w.Body.String(), "cannot contain line breaks") {
+		t.Fatalf("line break = %d %s", w.Code, w.Body.String())
+	}
+	// A refused rename left the stored name alone.
+	read = httptest.NewRecorder()
+	h.HandleCurrentUser(read, signedRequest(session, http.MethodGet, "/api/me", nil))
+	if !strings.Contains(read.Body.String(), `"displayName":"Ada Lovelace"`) {
+		t.Fatalf("a refused rename changed the name: %s", read.Body.String())
+	}
+
+	// Clearing hands the account back to the name its sign-in supplies.
+	if w = patch(`{"displayName":""}`); w.Code != http.StatusOK ||
+		!strings.Contains(w.Body.String(), `"displayName":"ada@example.com"`) {
+		t.Fatalf("cleared name = %d %s", w.Code, w.Body.String())
+	}
+}
+
+// /api/me is public for the read alone: it is what the interface asks before
+// anyone is signed in. Writing through it requires the session all the same.
+func TestRenameWithoutASessionIsRefused(t *testing.T) {
+	h, _ := credentialHandler(t)
+
+	w := httptest.NewRecorder()
+	h.HandleCurrentUser(w, httptest.NewRequest(http.MethodPatch, "/api/me", strings.NewReader(`{"displayName":"Stranger"}`)))
+	if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), "Sign in to use this interface") {
+		t.Fatalf("anonymous rename = %d %s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	h.HandleCurrentUser(w, httptest.NewRequest(http.MethodDelete, "/api/me", nil))
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("unsupported method = %d", w.Code)
 	}
 }

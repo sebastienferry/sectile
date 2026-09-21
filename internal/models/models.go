@@ -157,6 +157,7 @@ type Project struct {
 	IssueTracker                string            `json:"issueTracker"` // "github", "jira", "local"
 	TrackerUrl                  string            `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
 	IsDefault                   bool              `json:"isDefault"`
+	Bookmarked                  bool              `json:"bookmarked"`
 	SkillOverrides              map[string]string `json:"skillOverrides,omitempty"`              // skillId -> custom skill name override
 	AIProvider                  string            `json:"aiProvider,omitempty"`                  // "agy", "claude", "codex", "vibe", "gemini", "cursor", "custom"
 	SetupProviders              []string          `json:"setupProviders"`                        // extra agents to install skills and MCP for
@@ -806,7 +807,9 @@ type Settings struct {
 	PromptClarify           string    `json:"promptClarify"`
 	PromptSpecify           string    `json:"promptSpecify"`
 	PromptImplement         string    `json:"promptImplement"`
-	PromptCreatePR          string    `json:"promptCreatePr"`
+	PromptAdjust            string    `json:"promptAdjust"`
+	PromptHandoff           string    `json:"promptHandoff"`
+	PromptCreatePR          string    `json:"promptCreatePr,omitempty"`
 	PromptPick              string    `json:"promptPick"`
 	EditorCommand           string    `json:"editorCommand"`                     // "code", "cursor", "zed", "subl", etc.
 	ExternalTerminalCommand string    `json:"externalTerminalCommand,omitempty"` // e.g. "Terminal", "iTerm", "Ghostty", "alacritty", "kitty"

@@ -1,8 +1,9 @@
 // Command sectile-agent is the workstation executable. It dispatches to one of
-// five independent roles and owns no logic of its own: the daemon that talks
+// six independent roles and owns no logic of its own: the daemon that talks
 // to the server, the one-time pairing that stores the workstation API key, the
-// reader and writer of the workstation settings, the stdio MCP bridge a coding
-// CLI spawns, and the terminal-side supervisor of a single agent-owned command.
+// reader and writer of the workstation settings, the local initialization that
+// bootstraps MCP and skills for a provider, the stdio MCP bridge a coding CLI
+// spawns, and the terminal-side supervisor of a single agent-owned command.
 package main
 
 import (
@@ -34,6 +35,13 @@ func main() {
 			}
 			fmt.Println(message)
 			return
+		case "init":
+			message, err := agent.Init(args[1:])
+			if err != nil {
+				log.Fatal(err)
+			}
+			fmt.Println(message)
+			return
 		case "mcp":
 			if err := agentmcp.Run(context.Background(), args[1:]); err != nil {
 				log.Fatal(err)
@@ -41,6 +49,11 @@ func main() {
 			return
 		case "agent-exec":
 			if err := agentexec.Run(args[1:]); err != nil {
+				log.Fatal(err)
+			}
+			return
+		case "render-skills", "skills":
+			if err := agent.RenderSkills(args[1:]); err != nil {
 				log.Fatal(err)
 			}
 			return

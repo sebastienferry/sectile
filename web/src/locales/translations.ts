@@ -14,6 +14,10 @@ export interface TranslationSchema {
     views: string
     board: string
     list: string
+    roadmap: string
+    timeline: string
+    roadmapTooltip: string
+    timelineTooltip: string
     activities: string
     sync: string
     filters: string
@@ -198,7 +202,12 @@ export interface TranslationSchema {
     title: string
     subtitle: string
     tabs: {
+      account: string
       appearance: string
+      trackers: string
+      aiEngine: string
+      sdd: string
+      workstations: string
       aiConfig: string
       tracker: string
     }
@@ -224,9 +233,29 @@ export interface TranslationSchema {
       standard: string
       comfortable: string
     }
+    densityDesc?: {
+      compact: string
+      standard: string
+      comfortable: string
+    }
     defaultView: string
+    defaultViews?: {
+      board: string
+      list: string
+    }
+    uiScale?: string
+    uiScales?: {
+      s90: string
+      s100: string
+      s112: string
+      s125: string
+    }
     detailMode: string
     detailModes: {
+      modal: string
+      panel: string
+    }
+    detailModeDesc?: {
       modal: string
       panel: string
     }
@@ -244,9 +273,30 @@ export interface TranslationSchema {
       'neon-green': string
       'neon-amber': string
     }
+    sectilePreferences?: string
     ai: {
       title: string
       engine: string
+      defaultEngine: string
+      proposedModelsFor?: string
+      proposedModelsGroup?: string
+      noModelsConfigured?: string
+      addModelPlaceholder?: string
+      addModelButton?: string
+      addModelAria?: string
+      removeModelAria?: string
+      engineIgnoresModelNotice?: string
+      modelTemplatePlaceholderNotice?: string
+      providerIgnoresModel?: string
+      invalidModelIdentifier?: string
+      defaultModel: string
+      defaultModelPlaceholder?: string
+      customModelOption?: string
+      quickSelect?: string
+      cliParametersTitle?: string
+      cmdInteractive?: string
+      cmdAutonomous?: string
+      fastPresets?: string
       engineDesc: string
       cmdTemplate: string
       repoPath: string
@@ -255,8 +305,135 @@ export interface TranslationSchema {
       promptClarify: string
       promptSpecify: string
       promptImplement: string
-      promptCreatePr: string
+      promptAdjust: string
+      promptHandoff: string
+      promptCreatePr?: string
       cliStatusTitle: string
+      availableVariables?: string
+      executedCommand?: string
+      modeInteractive?: string
+      modeAutonomous?: string
+      mcpConfigWithoutAgent?: string
+      mcpConnectDirectlyDesc?: string
+      mcpConnectDirectlyWorkflow?: string
+      mcpKeyRequired?: string
+      mcpKeyRequiredDesc?: string
+      mcpKeyPlaceholder?: string
+      mcpGenerateKey?: string
+      mcpCopy?: string
+      mcpCopied?: string
+      mcpQuickCliCommand?: string
+      mcpOrInConfig?: string
+      customProviderLabel?: string
+      customProviderSub?: string
+    }
+    sdd?: {
+      title: string
+      subtitle: string
+      contractBadge: string
+      defaultFramework: string
+      speckitTitle: string
+      speckitSubtitle: string
+      speckitDesc: string
+      speckitCommands: string
+      openspecTitle: string
+      openspecSubtitle: string
+      openspecDesc: string
+      openspecCommands: string
+      lifecycleTitle: string
+      customizePrompts: string
+      steps: {
+        clarify: string
+        specify: string
+        code: string
+        adjust: string
+        handoff: string
+      }
+      promptsSectionTitle: string
+      promptsSectionDesc: string
+      prompts: {
+        clarify: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+        specify: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+        implement: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+        adjust: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+        handoff: {
+          label: string
+          hint: string
+          placeholder: string
+        }
+      }
+    }
+    workstations?: {
+      desc: string
+      title?: string
+      badge?: string
+      pairBtn?: string
+      workingBtn?: string
+      singleUseNotice?: string
+      onWorkstationTitle?: string
+      terminalStep?: string
+      desktopStep?: string
+      pairedListTitle?: string
+      noWorkstations?: string
+      lastSeen?: string
+      renewBtn?: string
+      renewNever?: string
+      revokeBtn?: string
+      sharedTokenWarning?: string
+      // Direct MCP
+      directMcpTitle?: string
+      directMcpBadge?: string
+      directMcpDesc?: string
+      labelInput?: string
+      labelPlaceholder?: string
+      expiresInput?: string
+      ttl90?: string
+      ttl30?: string
+      ttl365?: string
+      ttl0?: string
+      createKeyBtn?: string
+      keyCreatedSuccess?: string
+      copyKeyBtn?: string
+      copiedKey?: string
+      desktopConfigsTitle?: string
+      tabClaude?: string
+      tabAgy?: string
+      tabCodex?: string
+      tabCursor?: string
+      copyConfigBtn?: string
+      copiedConfig?: string
+      // Local Execution
+      localExecTitle?: string
+      desktopAppTitle?: string
+      desktopAppBadge?: string
+      desktopAppDesc?: string
+      desktopStep1?: string
+      desktopStep2?: string
+      desktopStep3?: string
+      headlessCliTitle?: string
+      headlessCliBadge?: string
+      headlessCliDesc?: string
+      serverUrlLabel?: string
+      urlInvalidAlert?: string
+      copyCommandBtn?: string
+      copiedCommand?: string
+      cliPrereqNotice?: string
     }
     tracker: {
       title: string
@@ -266,6 +443,114 @@ export interface TranslationSchema {
     }
     save: string
     reseedBtn: string
+  }
+  account: {
+    signOut: string
+    displayName: string
+    displayNamePlaceholder: string
+    save: string
+    notSignedIn: string
+    signIn: string
+    saved: string
+    couldNotSignOut: string
+  }
+  trackerCredentials: {
+    description: string
+    masterPassphraseTitle: string
+    statusLocked: string
+    statusActive: string
+    statusNotConfigured: string
+    passphraseDescription: string
+    lock: string
+    locking: string
+    unlockPrompt: string
+    unlockPlaceholder: string
+    unlockAll: string
+    unlocking: string
+    operationalBanner: string
+    changePassphrase: string
+    cancelChangePassphrase: string
+    changePassphrasePrompt: string
+    newPassphrasePlaceholder: string
+    apply: string
+    applying: string
+    definePassphrasePrompt: string
+    definePassphrasePlaceholder: string
+    sealMyTokens: string
+    toastUpdatedTitle: string
+    toastUpdatedDesc: string
+    toastRemovedTitle: string
+    toastRemovedDesc: string
+    toastErrorTitle: string
+    toastErrorDefault: string
+    states: {
+      none: string
+      unsealed: string
+      unlocked: string
+      locked: string
+    }
+    sealingInvitation: string
+    sealingConsequences: {
+      sealed: string
+      unsealed: string
+    }
+    trackers: {
+      jira: {
+        siteLabel: string
+        sitePlaceholder: string
+        projectLabel: string
+        projectPlaceholder: string
+        tokenHint: string
+      }
+      github: {
+        siteLabel: string
+        sitePlaceholder: string
+        projectLabel: string
+        projectPlaceholder: string
+        tokenHint: string
+      }
+      gitlab: {
+        siteLabel: string
+        sitePlaceholder: string
+        projectLabel: string
+        projectPlaceholder: string
+        tokenHint: string
+      }
+    }
+    saveBlockedReasons: {
+      wantsEmail: string
+      default: string
+      needCheck: string
+    }
+    form: {
+      accountEmail: string
+      accountEmailPlaceholder: string
+      personalAccessToken: string
+      tokenPlaceholderSet: string
+      tokenPlaceholderEnv: string
+      tokenPlaceholderEmpty: string
+      siteIsPersonalNotice: string
+      lockedNoticeSuffix: string
+      sealedUnlockedNotice: string
+      willBeSealedNotice: string
+      connectedAs: string
+      forgetAccess: string
+      forgetConfirm: string
+      verify: string
+      save: string
+      saveTitleReady: string
+      saveTitleNotChecked: string
+      configuredTitle: string
+      saveErrorTitle: string
+      checkErrorDefault: string
+    }
+    setup: {
+      title: string
+      description: string
+      closeTitle: string
+      trackerLabel: string
+      later: string
+    }
   }
   activities: {
     title: string
@@ -404,6 +689,10 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       views: 'Vues',
       board: 'Board',
       list: 'Backlog',
+      roadmap: 'Roadmap',
+      timeline: 'Timeline',
+      roadmapTooltip: 'Roadmap : NOW / NEXT / FUTURE',
+      timelineTooltip: 'Timeline Sprints',
       activities: 'Activités',
       sync: 'Synchro',
       filters: 'Filtres rapides',
@@ -585,9 +874,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     profileModal: {
       title: 'Configuration & Paramètres',
-      subtitle: 'Personnalisez le moteur IA (agy, claude, codex), GitHub/Jira et l\'apparence',
+      subtitle: 'Compte, apparence et configuration des outils',
       tabs: {
-        appearance: 'Apparence & Profil',
+        account: 'Compte',
+        appearance: 'Apparence',
+        trackers: 'Identifiants Trackers',
+        aiEngine: 'Paramètres de l\'agent',
+        sdd: 'Compétences & SDD',
+        workstations: 'Workstations & Agent',
         aiConfig: 'Moteur IA & Prompts',
         tracker: 'GitHub & Jira',
       },
@@ -613,11 +907,31 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         standard: 'Standard (Équilibrée)',
         comfortable: 'Confortable (Espaces généreux)',
       },
+      densityDesc: {
+        compact: '13px font, padding réduit',
+        standard: '14px font, équilibre optimal',
+        comfortable: '15px font, grands espacements',
+      },
       defaultView: 'Vue par défaut',
+      defaultViews: {
+        board: 'Tableau (Kanban)',
+        list: 'Liste détaillée',
+      },
+      uiScale: 'Échelle de l\'interface',
+      uiScales: {
+        s90: '90% (Compact)',
+        s100: '100% (Défaut)',
+        s112: '112% (Agrandie)',
+        s125: '125% (Large)',
+      },
       detailMode: 'Affichage des détails de tâche',
       detailModes: {
         modal: 'Modale centrée',
         panel: 'Panneau latéral droit (Right Panel)',
+      },
+      detailModeDesc: {
+        panel: 'Glissement latéral à droite',
+        modal: 'Boîte de dialogue au centre',
       },
       accents: {
         indigo: 'Indigo Royal',
@@ -633,10 +947,31 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         'neon-green': '🟢 Matrix Green Néon',
         'neon-amber': '✨ Laser Gold Néon',
       },
+      sectilePreferences: 'Préférences Sectile',
       ai: {
         title: 'Moteur IA & Exécution Shell',
-        engine: 'Agent IA sélectionné',
-        engineDesc: 'Choisissez l\'outil CLI qui exécutera les skills en arrière-plan',
+        engine: 'Moteur Agentic IA par défaut',
+        defaultEngine: 'Moteur Agentic IA par défaut',
+        proposedModelsFor: 'Modèles proposés pour',
+        proposedModelsGroup: 'Modèles proposés',
+        noModelsConfigured: 'Aucun modèle : rien ne sera proposé au lancement.',
+        addModelPlaceholder: 'Ajouter un modèle...',
+        addModelButton: 'Ajouter ce modèle',
+        addModelAria: 'Ajouter un modèle pour {target}',
+        removeModelAria: 'Retirer {model} de {target}',
+        engineIgnoresModelNotice: 'Ce moteur ignore le modèle sauf si sa commande porte le marqueur {model}.',
+        modelTemplatePlaceholderNotice: 'Le modèle est appliqué via le marqueur {model} dans la commande.',
+        providerIgnoresModel: '{provider} n\'accepte pas de sélection de modèle : la valeur est ignorée.',
+        invalidModelIdentifier: 'Identifiant invalide : lettres, chiffres et . _ - : @ / uniquement, sans espace.',
+        defaultModel: 'Modèle par défaut',
+        defaultModelPlaceholder: 'Défaut du CLI',
+        customModelOption: 'Autre modèle (saisie libre)...',
+        quickSelect: 'Sélection rapide :',
+        cliParametersTitle: 'CLI & Commandes : {provider}',
+        cmdInteractive: 'Commande interactive',
+        cmdAutonomous: 'Commande autonome (headless)',
+        fastPresets: 'Modèles de commande rapides :',
+        engineDesc: 'Configurez le moteur d\'intelligence artificielle par défaut, les modèles et les commandes CLI d\'exécution des skills.',
         cmdTemplate: 'Template de commande Shell CLI',
         repoPath: 'Répertoire du projet cible (CWD)',
         repoPathDesc: 'Emplacement du repo dans lequel l\'agent exécutera les commandes',
@@ -644,8 +979,135 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         promptClarify: 'Prompt /clarify-issue (Cadrage & questions)',
         promptSpecify: 'Prompt /specify-issue (Spécification Spec Kit / OpenSpec)',
         promptImplement: 'Prompt /code-issue (Implémentation & tests)',
-        promptCreatePr: 'Legacy adjustment prompt (reconciliation required)',
+        promptAdjust: 'Prompt /adjust-issue (Ajustement, revue & màj PR)',
+        promptHandoff: 'Prompt /handoff-issue (Clôture & handoff)',
+        promptCreatePr: 'Prompt legacy de création de PR (obsolète)',
         cliStatusTitle: 'Statut des CLI Locales',
+        availableVariables: 'Variables disponibles :',
+        executedCommand: 'Commande exécutée',
+        modeInteractive: 'Interactif',
+        modeAutonomous: 'Autonome',
+        mcpConfigWithoutAgent: 'Configuration MCP sans agent local',
+        mcpConnectDirectlyDesc: "Pour connecter directement votre CLI ou IDE au serveur MCP Sectile sans passer par l'agent local (",
+        mcpConnectDirectlyWorkflow: "). Le moteur accède directement aux outils de gestion des tâches et de suivi du workflow.",
+        mcpKeyRequired: 'Clé requise :',
+        mcpKeyRequiredDesc: "Remplacez {placeholder} par une clé d'API.",
+        mcpKeyPlaceholder: '<VOTRE_CLE_WORKSTATION>',
+        mcpGenerateKey: 'Générer une clé',
+        mcpCopy: 'Copier',
+        mcpCopied: 'Copié !',
+        mcpQuickCliCommand: 'Commande rapide ({engine}) :',
+        mcpOrInConfig: 'Ou dans',
+        customProviderLabel: 'CLI Personnalisé',
+        customProviderSub: 'Binaire ou script custom',
+      },
+      sdd: {
+        title: 'Framework Spec-Driven Design (SDD)',
+        subtitle: 'Le Spec-Driven Design garantit qu\'une spécification claire, structurée et vérifiable est rédigée et validée avant toute génération de code par les agents d\'IA.',
+        contractBadge: 'Contract-First',
+        defaultFramework: 'Framework par défaut du projet',
+        speckitTitle: 'GitHub Spec Kit',
+        speckitSubtitle: 'CLI specify',
+        speckitDesc: 'Convention standard GitHub : structure modulaire dans .specify/ et specs/ (spec.md, plan.md, tasks.md).',
+        speckitCommands: 'Commandes : /specify-issue, /code-issue',
+        openspecTitle: 'OpenSpec',
+        openspecSubtitle: 'CLI openspec',
+        openspecDesc: 'Spécification formelle par deltas et exigences vérifiables. Les propositions de changements sont validées et revues avant l\'écriture de code.',
+        openspecCommands: 'Commandes : openspec propose, validate',
+        lifecycleTitle: 'Cycle de vie SDD dans Sectile',
+        customizePrompts: 'Personnaliser les prompts',
+        steps: {
+          clarify: '1. Clarifier',
+          specify: '2. Spécifier',
+          code: '3. Coder',
+          adjust: '4. Ajuster',
+          handoff: '5. Clôturer',
+        },
+        promptsSectionTitle: 'Personnalisation des Prompts par Compétence',
+        promptsSectionDesc: 'Personnalisez les invites (prompts) envoyées au CLI Agentic pour chaque étape du workflow SDD. Si laissé vide, les invites par défaut sont utilisées.',
+        prompts: {
+          clarify: {
+            label: 'Prompt de Cadrage (/clarify-issue)',
+            hint: 'Défaut : /clarify-issue {issueKey} tracked on {tracker} in {repo}',
+            placeholder: '/clarify-issue {issueKey} tracked on {tracker} in {repo}',
+          },
+          specify: {
+            label: 'Prompt de Spécification (/specify-issue)',
+            hint: 'Spécification Spec Kit / OpenSpec',
+            placeholder: 'Tu es le Product Owner pour {issueKey}. Rédige la spécification selon le framework SDD configuré...',
+          },
+          implement: {
+            label: 'Prompt d\'Implémentation (/code-issue)',
+            hint: 'Développement & Tests',
+            placeholder: 'Tu es le développeur senior pour {issueKey}. Implémente le code dans {repoPath}...',
+          },
+          adjust: {
+            label: 'Prompt d\'Ajustement & Revue (/adjust-issue)',
+            hint: 'Revue de code & màj PR',
+            placeholder: 'Tu es le reviewer senior pour {issueKey}. Revois les changements, applique les correctifs et mets à jour la PR...',
+          },
+          handoff: {
+            label: 'Prompt de Clôture & Handoff (/handoff-issue)',
+            hint: 'Documentation & Nettoyage local',
+            placeholder: 'Tu es responsable de la clôture pour {issueKey}. Vérifie la fusion, rédige le rapport de handoff et nettoie le worktree...',
+          },
+        },
+      },
+      workstations: {
+        desc: 'Gérez vos machines de développement appairées, les clés de signature des agents et la configuration de l\'agent local.',
+        title: 'Machines de travail',
+        badge: 'Appairage & Équipements',
+        pairBtn: 'Appairer une machine',
+        workingBtn: 'Opération en cours…',
+        singleUseNotice: 'Usage unique. Non réutilisable une fois expiré.',
+        onWorkstationTitle: 'Sur la machine de travail',
+        terminalStep: 'Dans un terminal :',
+        desktopStep: 'Ou dans Sectile Desktop :',
+        pairedListTitle: 'Machines connectées',
+        noWorkstations: 'Aucune machine n\'est actuellement appairée.',
+        lastSeen: 'vu pour la dernière fois',
+        renewBtn: 'Prolonger',
+        renewNever: 'Permanent',
+        revokeBtn: 'Révoquer',
+        sharedTokenWarning: 'Ce serveur s\'exécute toujours avec SECTILE_SERVER_TOKEN, obsolète et retiré à la prochaine version. Appairez vos machines et supprimez la variable d\'environnement.',
+        // Direct MCP
+        directMcpTitle: 'Intégration MCP Directe',
+        directMcpBadge: 'Apps IA Desktop',
+        directMcpDesc: 'Connectez des applications d\'IA desktop (Cursor, Claude Desktop, Antigravity, etc.) directement au endpoint MCP (/mcp) de Sectile sans exécuter de démon local.',
+        labelInput: 'Nom du client',
+        labelPlaceholder: 'Ex: Claude Desktop sur MacBook Pro…',
+        expiresInput: 'Expiration',
+        ttl90: 'dans 90 jours',
+        ttl30: 'dans 30 jours',
+        ttl365: 'dans 1 an',
+        ttl0: 'jamais',
+        createKeyBtn: 'Créer une clé API',
+        keyCreatedSuccess: 'Clé générée pour {label}. Copiez-la maintenant : elle ne sera plus jamais affichée.',
+        copyKeyBtn: 'Copier la clé',
+        copiedKey: 'Clé API copiée dans le presse-papier.',
+        desktopConfigsTitle: 'Exemples de configuration Desktop',
+        tabClaude: 'Claude Desktop',
+        tabAgy: 'Antigravity',
+        tabCodex: 'Codex / ChatGPT',
+        tabCursor: 'Cursor',
+        copyConfigBtn: 'Copier la config JSON',
+        copiedConfig: 'Configuration copiée dans le presse-papier.',
+        // Local Execution
+        localExecTitle: 'Exécution Locale',
+        desktopAppTitle: 'Application Sectile Desktop',
+        desktopAppBadge: 'Compagnon GUI',
+        desktopAppDesc: 'Application de bureau complète avec terminaux PTY natifs, streaming temps réel des journaux et gestion visuelle des espaces de travail.',
+        desktopStep1: 'Lancez Sectile Desktop sur votre machine.',
+        desktopStep2: 'Configurez l\'adresse du serveur sur :',
+        desktopStep3: 'Saisissez le code d\'appairage temporaire généré ci-dessus.',
+        headlessCliTitle: 'Agent CLI Headless',
+        headlessCliBadge: 'Démon d\'arrière-plan',
+        headlessCliDesc: 'Runner léger exécutant les tâches autonomes directement dans votre terminal ou votre infrastructure CI/CD.',
+        serverUrlLabel: 'URL du serveur Sectile',
+        urlInvalidAlert: 'Veuillez saisir une URL HTTP ou HTTPS valide sans identifiants ni paramètres.',
+        copyCommandBtn: 'Copier la commande',
+        copiedCommand: 'Commande copiée.',
+        cliPrereqNotice: 'Nécessite le binaire sectile-agent dans votre variable PATH et une machine appairée une première fois.',
       },
       tracker: {
         title: 'Intégration Issue Tracker',
@@ -655,6 +1117,114 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       save: 'Enregistrer la configuration',
       reseedBtn: 'Réinitialiser le jeu de test démo',
+    },
+    account: {
+      signOut: 'Se déconnecter',
+      displayName: 'Nom d\'affichage',
+      displayNamePlaceholder: 'Votre nom sur ce tableau...',
+      save: 'Enregistrer',
+      notSignedIn: 'Vous n\'êtes pas connecté.',
+      signIn: 'Se connecter',
+      saved: 'Nom d\'affichage enregistré.',
+      couldNotSignOut: 'Impossible de se déconnecter.',
+    },
+    trackerCredentials: {
+      description: 'Vos accès personnels aux trackers. Les jetons saisis sont strictement individuels et protégés par votre compte.',
+      masterPassphraseTitle: 'Phrase de scellement unique',
+      statusLocked: 'Verrouillée',
+      statusActive: 'Active',
+      statusNotConfigured: 'Non configurée',
+      passphraseDescription: "Une seule phrase protège l'ensemble de vos jetons de trackers. Elle est demandée pour déverrouiller vos accès à chaque session.",
+      lock: 'Verrouiller',
+      locking: 'Verrouillage...',
+      unlockPrompt: 'Saisissez votre phrase de scellement unique pour déverrouiller tous vos jetons :',
+      unlockPlaceholder: 'Phrase de scellement unique',
+      unlockAll: 'Déverrouiller tous les jetons',
+      unlocking: 'Déverrouillage...',
+      operationalBanner: 'Vos accès aux trackers sont opérationnels pour cette session.',
+      changePassphrase: 'Modifier la phrase',
+      cancelChangePassphrase: 'Annuler',
+      changePassphrasePrompt: 'Entrez une nouvelle phrase pour re-sceller tous vos jetons, ou laissez vide pour retirer le scellement :',
+      newPassphrasePlaceholder: 'Nouvelle phrase de scellement (ou vide pour retirer)',
+      apply: 'Appliquer',
+      applying: 'Application...',
+      definePassphrasePrompt: 'Définissez ici votre phrase de scellement unique. Tout jeton enregistré ci-dessous sera scellé avec celle-ci :',
+      definePassphrasePlaceholder: 'Définir une phrase de scellement unique',
+      sealMyTokens: 'Sceller mes jetons',
+      toastUpdatedTitle: 'Phrase de scellement mise à jour',
+      toastUpdatedDesc: 'Tous vos jetons sont désormais protégés par cette phrase unique.',
+      toastRemovedTitle: 'Scellement retiré',
+      toastRemovedDesc: 'Vos jetons sont désormais chiffrés par le serveur.',
+      toastErrorTitle: 'Mise à jour impossible',
+      toastErrorDefault: 'Erreur lors de la mise à jour des jetons',
+      states: {
+        none: 'Aucun jeton enregistré : vos actions sur les tâches ne partiront pas.',
+        unsealed: 'Enregistré. Vos actions partent sous votre compte.',
+        unlocked: 'Scellé, descellé pour cette session.',
+        locked: 'Scellé et verrouillé : descellez-le pour agir sur les tâches.',
+      },
+      sealingInvitation: 'Par mesure de protection de votre identité, vous pouvez définir une phrase de scellement unique pour tous vos jetons. Vous devrez la saisir pour agir sur les tâches.',
+      sealingConsequences: {
+        sealed: 'Scellé : vous seul pouvez l’ouvrir avec votre phrase de scellement unique pour cette session.',
+        unsealed: 'Non scellé : vos actions partent sans rien vous demander.',
+      },
+      trackers: {
+        jira: {
+          siteLabel: 'Site Jira',
+          sitePlaceholder: 'mon-org.atlassian.net',
+          projectLabel: 'Clé du projet par défaut',
+          projectPlaceholder: 'PE',
+          tokenHint: "À créer sur id.atlassian.com, section jetons d'API. Il s'utilise avec votre e-mail Atlassian, jamais seul.",
+        },
+        github: {
+          siteLabel: "URL de l'API GitHub",
+          sitePlaceholder: 'https://api.github.com',
+          projectLabel: 'Dépôt par défaut',
+          projectPlaceholder: 'organisation/depot',
+          tokenHint: 'Personal Access Token avec la portée repo.',
+        },
+        gitlab: {
+          siteLabel: "URL de l'API GitLab",
+          sitePlaceholder: 'https://gitlab.com/api/v4',
+          projectLabel: 'Projet par défaut',
+          projectPlaceholder: 'groupe/projet',
+          tokenHint: 'Personal Access Token avec la portée api.',
+        },
+      },
+      saveBlockedReasons: {
+        wantsEmail: "Renseignez votre site et l'e-mail de votre compte, puis vérifiez les accès.",
+        default: 'Renseignez les accès, puis vérifiez-les.',
+        needCheck: "Vérifiez les accès : l'enregistrement se débloque une fois que l'instance les a acceptés.",
+      },
+      form: {
+        accountEmail: "E-mail du compte",
+        accountEmailPlaceholder: "prenom.nom@exemple.com",
+        personalAccessToken: "Personal Access Token",
+        tokenPlaceholderSet: "Déjà configuré, laissez vide pour le garder",
+        tokenPlaceholderEnv: "Fourni par l'environnement du serveur",
+        tokenPlaceholderEmpty: "Collez le jeton",
+        siteIsPersonalNotice: "Votre compte appartient à cette instance. Les projets que vous posez sur ce tracker la reprennent.",
+        lockedNoticeSuffix: " — déverrouillez vos jetons dans la section ci-dessus.",
+        sealedUnlockedNotice: "Jeton scellé avec votre phrase unique (déverrouillé).",
+        willBeSealedNotice: "Ce jeton sera automatiquement scellé avec la phrase unique active définie plus haut.",
+        connectedAs: "Connecté comme",
+        forgetAccess: "Oublier mon accès",
+        forgetConfirm: "Oublier votre accès {tracker} ? Vous devrez saisir votre jeton à nouveau.",
+        verify: "Vérifier",
+        save: "Enregistrer",
+        saveTitleReady: "Enregistrer ces accès",
+        saveTitleNotChecked: "Vérifiez d'abord les accès",
+        configuredTitle: "{tracker} configuré",
+        saveErrorTitle: "Enregistrement impossible",
+        checkErrorDefault: "Vérification impossible",
+      },
+      setup: {
+        title: "Connecter votre tracker",
+        description: "Sans ces valeurs, la synchronisation ne ramène rien et aucune écriture ne part. Elles sont vérifiées auprès de l'instance avant d'être enregistrées.",
+        closeTitle: "Configurer plus tard",
+        trackerLabel: "Tracker",
+        later: "Plus tard",
+      },
     },
     activities: {
       title: 'Activités & File d\'attente',
@@ -791,6 +1361,10 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       views: 'Views',
       board: 'Board',
       list: 'Backlog',
+      roadmap: 'Roadmap',
+      timeline: 'Timeline',
+      roadmapTooltip: 'Roadmap: NOW / NEXT / FUTURE',
+      timelineTooltip: 'Sprint Timeline',
       activities: 'Activities',
       sync: 'Sync',
       filters: 'Quick Filters',
@@ -972,9 +1546,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     profileModal: {
       title: 'Configuration & Settings',
-      subtitle: 'Configure AI engine (agy, claude, codex), GitHub/Jira and appearance',
+      subtitle: 'Account, appearance, and tool configuration',
       tabs: {
-        appearance: 'Appearance & Profile',
+        account: 'Account',
+        appearance: 'Appearance',
+        trackers: 'Tracker Credentials',
+        aiEngine: 'Agent settings',
+        sdd: 'Skills & SDD',
+        workstations: 'Workstations & Agent',
         aiConfig: 'AI Engine & Prompts',
         tracker: 'GitHub & Jira',
       },
@@ -1000,11 +1579,31 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         standard: 'Standard (Balanced)',
         comfortable: 'Comfortable (Spacious)',
       },
+      densityDesc: {
+        compact: '13px font, reduced padding',
+        standard: '14px font, optimal balance',
+        comfortable: '15px font, spacious padding',
+      },
       defaultView: 'Default View',
+      defaultViews: {
+        board: 'Board (Kanban)',
+        list: 'Detailed List',
+      },
+      uiScale: 'Interface Scale',
+      uiScales: {
+        s90: '90% (Compact)',
+        s100: '100% (Default)',
+        s112: '112% (Enlarged)',
+        s125: '125% (Large)',
+      },
       detailMode: 'Story Detail View Style',
       detailModes: {
         modal: 'Centered Modal',
         panel: 'Right Sliding Panel (Drawer)',
+      },
+      detailModeDesc: {
+        panel: 'Right-side sliding panel',
+        modal: 'Centered modal dialog',
       },
       accents: {
         indigo: 'Royal Indigo',
@@ -1020,10 +1619,31 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         'neon-green': '🟢 Matrix Neon Green',
         'neon-amber': '✨ Laser Gold Neon',
       },
+      sectilePreferences: 'Sectile Preferences',
       ai: {
         title: 'AI Engine & Shell Execution',
-        engine: 'Selected AI Agent',
-        engineDesc: 'Choose the CLI tool that will execute skills in the background',
+        engine: 'Default Agentic AI Engine',
+        defaultEngine: 'Default Agentic AI Engine',
+        proposedModelsFor: 'Proposed models for',
+        proposedModelsGroup: 'Proposed models',
+        noModelsConfigured: 'No models: nothing will be proposed at launch.',
+        addModelPlaceholder: 'Add a model...',
+        addModelButton: 'Add this model',
+        addModelAria: 'Add a model for {target}',
+        removeModelAria: 'Remove {model} from {target}',
+        engineIgnoresModelNotice: 'This engine ignores the model unless its command contains the {model} marker.',
+        modelTemplatePlaceholderNotice: 'The model is applied via the {model} placeholder in the command.',
+        providerIgnoresModel: '{provider} does not accept a model selection: the value is ignored.',
+        invalidModelIdentifier: 'Invalid identifier: letters, numbers and . _ - : @ / only, no spaces.',
+        defaultModel: 'Default Model',
+        defaultModelPlaceholder: 'CLI default',
+        customModelOption: 'Other model (free text)...',
+        quickSelect: 'Quick select:',
+        cliParametersTitle: 'CLI & Commands: {provider}',
+        cmdInteractive: 'Interactive command',
+        cmdAutonomous: 'Autonomous command (headless)',
+        fastPresets: 'Quick command presets:',
+        engineDesc: 'Configure the default artificial intelligence engine, models, and CLI command execution for skills.',
         cmdTemplate: 'Shell CLI Command Template',
         repoPath: 'Target Project Directory (CWD)',
         repoPathDesc: 'Workspace directory where the agent will run commands',
@@ -1031,8 +1651,135 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         promptClarify: 'Prompt /clarify-issue',
         promptSpecify: 'Prompt /specify-issue',
         promptImplement: 'Prompt /code-issue',
+        promptAdjust: 'Prompt /adjust-issue',
+        promptHandoff: 'Prompt /handoff-issue',
         promptCreatePr: 'Legacy adjustment prompt',
         cliStatusTitle: 'Local CLI Tools Status',
+        availableVariables: 'Available variables:',
+        executedCommand: 'Executed command',
+        modeInteractive: 'Interactive',
+        modeAutonomous: 'Autonomous',
+        mcpConfigWithoutAgent: 'MCP configuration without local agent',
+        mcpConnectDirectlyDesc: 'To connect your CLI or IDE directly to the Sectile MCP server without going through the local agent (',
+        mcpConnectDirectlyWorkflow: '). The engine accesses task management and workflow tracking tools directly.',
+        mcpKeyRequired: 'Key required:',
+        mcpKeyRequiredDesc: 'Replace {placeholder} with an API key.',
+        mcpKeyPlaceholder: '<YOUR_WORKSTATION_KEY>',
+        mcpGenerateKey: 'Generate a key',
+        mcpCopy: 'Copy',
+        mcpCopied: 'Copied!',
+        mcpQuickCliCommand: 'Quick command ({engine}):',
+        mcpOrInConfig: 'Or in',
+        customProviderLabel: 'Custom CLI',
+        customProviderSub: 'Custom binary or script',
+      },
+      sdd: {
+        title: 'Spec-Driven Design (SDD) Framework',
+        subtitle: 'Spec-Driven Design ensures a clear, structured, and verifiable specification is drafted and reviewed before any code generation by AI agents.',
+        contractBadge: 'Contract-First',
+        defaultFramework: 'Default project framework',
+        speckitTitle: 'GitHub Spec Kit',
+        speckitSubtitle: 'CLI specify',
+        speckitDesc: 'Standard GitHub convention: modular structure in .specify/ and specs/ (spec.md, plan.md, tasks.md).',
+        speckitCommands: 'Commands: /specify-issue, /code-issue',
+        openspecTitle: 'OpenSpec',
+        openspecSubtitle: 'CLI openspec',
+        openspecDesc: 'Formal specification with deltas and verifiable requirements. Change proposals are reviewed and verified before writing code.',
+        openspecCommands: 'Commands: openspec propose, validate',
+        lifecycleTitle: 'SDD Lifecycle in Sectile',
+        customizePrompts: 'Customize prompts',
+        steps: {
+          clarify: '1. Clarify',
+          specify: '2. Specify',
+          code: '3. Code',
+          adjust: '4. Adjust',
+          handoff: '5. Handoff',
+        },
+        promptsSectionTitle: 'Custom Prompts per Skill',
+        promptsSectionDesc: 'Customize instructions sent to the Agentic CLI for each step of the SDD workflow. When left blank, default prompts are used.',
+        prompts: {
+          clarify: {
+            label: 'Clarify Prompt (/clarify-issue)',
+            hint: 'Default: /clarify-issue {issueKey} tracked on {tracker} in {repo}',
+            placeholder: '/clarify-issue {issueKey} tracked on {tracker} in {repo}',
+          },
+          specify: {
+            label: 'Specification Prompt (/specify-issue)',
+            hint: 'Spec Kit / OpenSpec specification',
+            placeholder: 'You are the Product Owner for {issueKey}. Write the specification following the configured SDD framework...',
+          },
+          implement: {
+            label: 'Implementation Prompt (/code-issue)',
+            hint: 'Development & tests',
+            placeholder: 'You are the senior developer for {issueKey}. Implement the code in {repoPath}...',
+          },
+          adjust: {
+            label: 'Adjustment & Review Prompt (/adjust-issue)',
+            hint: 'Code review & PR update',
+            placeholder: 'You are the senior reviewer for {issueKey}. Review the changes, address feedback and update the PR...',
+          },
+          handoff: {
+            label: 'Closing & Handoff Prompt (/handoff-issue)',
+            hint: 'Documentation & local cleanup',
+            placeholder: 'You are responsible for closing {issueKey}. Verify the branch merge, write the handoff report and clean the worktree...',
+          },
+        },
+      },
+      workstations: {
+        desc: 'Manage your paired development workstations, agent signing keys, and local agent configuration.',
+        title: 'Workstations',
+        badge: 'Pairing & Devices',
+        pairBtn: 'Pair a workstation',
+        workingBtn: 'Working…',
+        singleUseNotice: 'Single use. Non-reusable once expired.',
+        onWorkstationTitle: 'On the workstation',
+        terminalStep: 'In a terminal:',
+        desktopStep: 'Or in Sectile Desktop:',
+        pairedListTitle: 'Connected Machines',
+        noWorkstations: 'No workstation is paired yet.',
+        lastSeen: 'last seen',
+        renewBtn: 'Renew',
+        renewNever: 'Never expires',
+        revokeBtn: 'Revoke',
+        sharedTokenWarning: 'This server still runs with SECTILE_SERVER_TOKEN, which is deprecated and will be removed in the next release. Pair your workstations and drop the variable.',
+        // Direct MCP
+        directMcpTitle: 'Direct MCP Integration',
+        directMcpBadge: 'AI Desktop Apps',
+        directMcpDesc: 'Connect AI desktop applications (Cursor, Claude Desktop, Antigravity, etc.) directly to Sectile\'s MCP endpoint (/mcp) via an API key without running a local agent daemon.',
+        labelInput: 'Client Label',
+        labelPlaceholder: 'e.g. Claude Desktop on MacBook Pro…',
+        expiresInput: 'Expiration',
+        ttl90: 'in 90 days',
+        ttl30: 'in 30 days',
+        ttl365: 'in 1 year',
+        ttl0: 'never',
+        createKeyBtn: 'Create an API Key',
+        keyCreatedSuccess: 'API key generated for {label}. Copy it now: it will never be displayed again.',
+        copyKeyBtn: 'Copy Key',
+        copiedKey: 'API key copied to clipboard.',
+        desktopConfigsTitle: 'Desktop App Configurations',
+        tabClaude: 'Claude Desktop',
+        tabAgy: 'Antigravity',
+        tabCodex: 'Codex / ChatGPT',
+        tabCursor: 'Cursor',
+        copyConfigBtn: 'Copy JSON Config',
+        copiedConfig: 'Configuration copied to clipboard.',
+        // Local Execution
+        localExecTitle: 'Local Execution',
+        desktopAppTitle: 'Sectile Desktop App',
+        desktopAppBadge: 'GUI Companion',
+        desktopAppDesc: 'Full desktop application with native PTY terminals, live log streaming, and visual workspace management.',
+        desktopStep1: 'Launch Sectile Desktop on your workstation.',
+        desktopStep2: 'Set server address to:',
+        desktopStep3: 'Enter the temporary pairing code generated above.',
+        headlessCliTitle: 'Headless CLI Agent',
+        headlessCliBadge: 'Background Daemon',
+        headlessCliDesc: 'Lightweight background runner executing autonomous tasks directly in your terminal or CI/CD pipeline.',
+        serverUrlLabel: 'Sectile Server URL',
+        urlInvalidAlert: 'Enter a valid HTTP or HTTPS server URL without credentials or query parameters.',
+        copyCommandBtn: 'Copy Command',
+        copiedCommand: 'Command copied.',
+        cliPrereqNotice: 'Requires the sectile-agent binary in your PATH and a workstation paired once.',
       },
       tracker: {
         title: 'Issue Tracker Integration',
@@ -1042,6 +1789,114 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       },
       save: 'Save Configuration',
       reseedBtn: 'Reset Demo Dataset',
+    },
+    account: {
+      signOut: 'Sign out',
+      displayName: 'Display name',
+      displayNamePlaceholder: 'Your name on this board...',
+      save: 'Save',
+      notSignedIn: 'You are not signed in.',
+      signIn: 'Sign in',
+      saved: 'Display name saved.',
+      couldNotSignOut: 'Could not sign out.',
+    },
+    trackerCredentials: {
+      description: 'Your personal tracker credentials. Entered tokens are strictly individual and protected by your account.',
+      masterPassphraseTitle: 'Master sealing passphrase',
+      statusLocked: 'Locked',
+      statusActive: 'Active',
+      statusNotConfigured: 'Not configured',
+      passphraseDescription: 'A single passphrase protects all your tracker tokens. It is requested to unlock your access for each session.',
+      lock: 'Lock',
+      locking: 'Locking...',
+      unlockPrompt: 'Enter your master sealing passphrase to unlock all your tokens:',
+      unlockPlaceholder: 'Master sealing passphrase',
+      unlockAll: 'Unlock all tokens',
+      unlocking: 'Unlocking...',
+      operationalBanner: 'Your tracker credentials are operational for this session.',
+      changePassphrase: 'Change passphrase',
+      cancelChangePassphrase: 'Cancel',
+      changePassphrasePrompt: 'Enter a new passphrase to re-seal all your tokens, or leave blank to remove sealing:',
+      newPassphrasePlaceholder: 'New sealing passphrase (or leave blank to remove)',
+      apply: 'Apply',
+      applying: 'Applying...',
+      definePassphrasePrompt: 'Set your master sealing passphrase here. Any token saved below will be sealed with it:',
+      definePassphrasePlaceholder: 'Set a master sealing passphrase',
+      sealMyTokens: 'Seal my tokens',
+      toastUpdatedTitle: 'Sealing passphrase updated',
+      toastUpdatedDesc: 'All your tokens are now protected by this unique passphrase.',
+      toastRemovedTitle: 'Sealing removed',
+      toastRemovedDesc: 'Your tokens are now encrypted by the server.',
+      toastErrorTitle: 'Update failed',
+      toastErrorDefault: 'Error updating tokens',
+      states: {
+        none: 'No token saved: your task actions will not be dispatched.',
+        unsealed: 'Saved. Your actions are dispatched under your account.',
+        unlocked: 'Sealed, unlocked for this session.',
+        locked: 'Sealed and locked: unlock it to act on tasks.',
+      },
+      sealingInvitation: 'To protect your identity, you can define a master sealing passphrase for all your tokens. You will need to enter it to act on tasks.',
+      sealingConsequences: {
+        sealed: 'Sealed: only you can open it with your master sealing passphrase for this session.',
+        unsealed: 'Unsealed: your actions will be performed without prompting.',
+      },
+      trackers: {
+        jira: {
+          siteLabel: 'Jira site',
+          sitePlaceholder: 'my-org.atlassian.net',
+          projectLabel: 'Default project key',
+          projectPlaceholder: 'e.g. MKTG',
+          tokenHint: 'Create at id.atlassian.com, API tokens section. Used with your Atlassian email, never alone.',
+        },
+        github: {
+          siteLabel: 'GitHub API URL',
+          sitePlaceholder: 'https://api.github.com',
+          projectLabel: 'Default repository',
+          projectPlaceholder: 'organization/repo',
+          tokenHint: 'Personal Access Token with repo scope.',
+        },
+        gitlab: {
+          siteLabel: 'GitLab API URL',
+          sitePlaceholder: 'https://gitlab.com/api/v4',
+          projectLabel: 'Default project',
+          projectPlaceholder: 'group/project',
+          tokenHint: 'Personal Access Token with api scope.',
+        },
+      },
+      saveBlockedReasons: {
+        wantsEmail: 'Enter your site and account email, then verify credentials.',
+        default: 'Enter credentials, then verify them.',
+        needCheck: 'Verify credentials: saving unlocks once accepted by the instance.',
+      },
+      form: {
+        accountEmail: 'Account email',
+        accountEmailPlaceholder: 'firstname.lastname@example.com',
+        personalAccessToken: 'Personal Access Token',
+        tokenPlaceholderSet: 'Already configured, leave blank to keep',
+        tokenPlaceholderEnv: 'Provided by server environment',
+        tokenPlaceholderEmpty: 'Paste token',
+        siteIsPersonalNotice: 'Your account belongs to this instance. Projects configured with this tracker will inherit it.',
+        lockedNoticeSuffix: ' — unlock your tokens in the section above.',
+        sealedUnlockedNotice: 'Token sealed with your master passphrase (unlocked).',
+        willBeSealedNotice: 'This token will automatically be sealed with the active master passphrase defined above.',
+        connectedAs: 'Connected as',
+        forgetAccess: 'Forget my access',
+        forgetConfirm: 'Forget your {tracker} access? You will need to enter your token again.',
+        verify: 'Verify',
+        save: 'Save',
+        saveTitleReady: 'Save these credentials',
+        saveTitleNotChecked: 'Verify credentials first',
+        configuredTitle: '{tracker} configured',
+        saveErrorTitle: 'Failed to save',
+        checkErrorDefault: 'Verification failed',
+      },
+      setup: {
+        title: 'Connect your tracker',
+        description: 'Without these values, synchronization fetches nothing and no writes are dispatched. They are verified with the instance before being saved.',
+        closeTitle: 'Configure later',
+        trackerLabel: 'Tracker',
+        later: 'Later',
+      },
     },
     activities: {
       title: 'Activities & Execution Queue',

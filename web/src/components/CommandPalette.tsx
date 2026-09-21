@@ -5,6 +5,8 @@ import {
   Columns,
   ListFilter,
   Activity,
+  Map,
+  Clock,
   Sun,
   Moon,
   Globe,
@@ -18,8 +20,10 @@ import {
   ShieldCheck,
   Layers,
   Download,
+  Shield,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentTextStyle } from '../lib/accents'
 
 export const CommandPalette: React.FC = () => {
@@ -34,6 +38,7 @@ export const CommandPalette: React.FC = () => {
     setActiveView,
     setIsQuickAddOpen,
     setIsProfileOpen,
+    setIsAdminOpen,
     setSelectedTask,
     settings,
     updateSettings,
@@ -46,6 +51,8 @@ export const CommandPalette: React.FC = () => {
     addToast,
     t,
   } = useApp()
+
+  const { user: currentUser } = useCurrentUser()
 
   const [query, setQuery] = useState('')
   const [selectedIndex, setSelectedIndex] = useState(0)
@@ -176,6 +183,28 @@ export const CommandPalette: React.FC = () => {
       },
     },
     {
+      id: 'switch_roadmap',
+      title: '🗺️ Vue Roadmap (Macros : NOW / NEXT / FUTURE)',
+      icon: <Map size={16} className="text-emerald-400" />,
+      shortcut: 'R',
+      keywords: ['roadmap', 'macros', 'macro', 'horizon', 'now', 'next', 'future', 'vue', 'plan'],
+      action: () => {
+        setActiveView('roadmap')
+        setIsCommandPaletteOpen(false)
+      },
+    },
+    {
+      id: 'switch_timeline',
+      title: '⏱️ Vue Timeline Sprints',
+      icon: <Clock size={16} className="text-blue-400" />,
+      shortcut: 'TL',
+      keywords: ['timeline', 'sprint', 'sprints', 'planning', 'vue', 'horizons', 'duree', 'chronologie'],
+      action: () => {
+        setActiveView('timeline')
+        setIsCommandPaletteOpen(false)
+      },
+    },
+    {
       id: 'switch_activities',
       title: '⚡ Vue Activités (File d\'exécution & IA)',
       icon: <Activity size={16} className="text-cyan-400" />,
@@ -197,7 +226,16 @@ export const CommandPalette: React.FC = () => {
         setIsCommandPaletteOpen(false)
       },
     },
-    ...[],
+    ...(currentUser?.role === 'admin' ? [{
+      id: 'open_admin',
+      title: '🛡️ Administration (utilisateurs et rôles)',
+      icon: <Shield size={16} className="text-amber-400" />,
+      keywords: ['admin', 'administration', 'utilisateurs', 'roles', 'users'],
+      action: () => {
+        setIsCommandPaletteOpen(false)
+        setIsAdminOpen(true)
+      },
+    }] : []),
     {
       id: 'sync_now',
       title: '🚀 Lancer la synchronisation du projet actif',
@@ -311,6 +349,21 @@ export const CommandPalette: React.FC = () => {
         setIsProfileOpen(true)
       },
     },
+    ...(currentUser?.role === 'admin'
+      ? [
+          {
+            id: 'open_admin',
+            title: 'Administration : Utilisateurs & Rôles',
+            icon: <Shield size={16} className="text-amber-400" />,
+            shortcut: 'A',
+            keywords: ['admin', 'administration', 'users', 'utilisateurs', 'roles', 'membres', 'comptes'],
+            action: () => {
+              setIsCommandPaletteOpen(false)
+              setIsAdminOpen(true)
+            },
+          },
+        ]
+      : []),
   ]
 
   // Dynamic Skill Actions

@@ -77,6 +77,29 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, "Payload illisible : "+err.Error())
 			return
 		}
+		if strings.TrimSpace(req.Tracker) == "" || req.Tracker == "*" {
+			creds, err := h.db.UserTrackerCredentials(userID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			unlockedCount := 0
+			for _, c := range creds {
+				if c.Sealed && !c.Unlocked {
+					if err := h.db.UnlockUserTrackerCredential(userID, c.Tracker, req.Passphrase); err != nil {
+						if errors.Is(err, secrets.ErrWrongKey) {
+							writeError(w, http.StatusForbidden, "Phrase de scellement refusée.")
+							return
+						}
+						writeError(w, http.StatusInternalServerError, err.Error())
+						return
+					}
+					unlockedCount++
+				}
+			}
+			h.listUserCredentials(w, userID)
+			return
+		}
 		switch err := h.db.UnlockUserTrackerCredential(userID, req.Tracker, req.Passphrase); {
 		case errors.Is(err, secrets.ErrWrongKey):
 			// The same answer whatever is wrong: an attacker learns nothing
@@ -100,7 +123,14 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			Tracker string `json:"tracker"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
-		h.db.LockUserTrackerCredential(userID, req.Tracker)
+		if strings.TrimSpace(req.Tracker) == "" || req.Tracker == "*" {
+			creds, _ := h.db.UserTrackerCredentials(userID)
+			for _, c := range creds {
+				h.db.LockUserTrackerCredential(userID, c.Tracker)
+			}
+		} else {
+			h.db.LockUserTrackerCredential(userID, req.Tracker)
+		}
 		h.listUserCredentials(w, userID)
 
 	default:

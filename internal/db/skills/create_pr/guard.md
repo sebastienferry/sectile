@@ -1,0 +1,2 @@
+- Do not advance workflow stages, mark the task reviewed, merge, approve or clean up the worktree.
+- Do not create duplicate PRs or publish with failing checks.

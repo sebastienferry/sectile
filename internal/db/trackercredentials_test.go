@@ -317,3 +317,39 @@ func TestACredentialCheckGivesUpAfterFiveSeconds(t *testing.T) {
 		t.Errorf("the check waited %v, past its own deadline", elapsed)
 	}
 }
+
+// The evidence lookup used to resolve with neither a project nor a person, so a
+// deployment whose only GitHub credential was the one somebody stored in their
+// profile had none on this path: the stage transition failed with "configure
+// SECTILE_TRACKER_TOKEN on the server" while every other tracker call worked.
+func TestStagePRLookupUsesTheCallersOwnToken(t *testing.T) {
+	database := testDB(t)
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Evidence", IssueTracker: "github", GithubRepo: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = database.EnsureUser("usr_alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err = database.SetUserTrackerCredential("usr_alice", "github", "", "", "alice-pat", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	// The person who asked travels under their own token.
+	if got := database.trackerAs("usr_alice", "github", project.ID); got.GithubToken != "alice-pat" {
+		t.Fatalf("the caller's own token is used: %q", got.GithubToken)
+	}
+	// Unattended work names nobody and keeps the project credential.
+	override := "project-token"
+	if _, err = database.UpdateProject(project.ID, models.UpdateProjectRequest{GithubToken: &override}); err != nil {
+		t.Fatal(err)
+	}
+	if got := database.trackerAs("", "github", project.ID); got.GithubToken != "project-token" {
+		t.Fatalf("no caller falls back to the project: %q", got.GithubToken)
+	}
+	// A person without a stored credential is not refused: the project's own
+	// still answers, as it did before personal credentials existed.
+	if got := database.trackerAs("usr_bob", "github", project.ID); got.GithubToken != "project-token" {
+		t.Fatalf("a caller without a credential falls back: %q", got.GithubToken)
+	}
+}

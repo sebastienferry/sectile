@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  envDir: '..',
+  envPrefix: ['VITE_', 'SECTILE_PRESET_'],
   plugins: [react(), tailwindcss()],
   build: {
     // La compilation sort dans le paquet Go qui l'embarque : go:embed ne sait
@@ -17,6 +19,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
+        target: 'http://localhost:8090',
+        changeOrigin: true,
+      },
+      '/auth': {
         target: 'http://localhost:8090',
         changeOrigin: true,
       },

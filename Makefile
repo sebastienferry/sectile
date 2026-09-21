@@ -4,7 +4,7 @@ EXE := $(if $(filter windows,$(shell go env GOOS)),.exe,)
 DESKTOP_AGENT := desktop/bin/sectile-agent$(EXE)
 .PHONY: help build-all build-server build-agent build-app build-app-package build-release image \
         all build server server-build agent agent-build binary-build desktop desktop-build desktop-package build-desktop build-desktop-package release \
-        web-deps desktop-deps start serve run fmt-check test clean reset-db
+        web-deps desktop-deps start serve run fmt-check test render-skills clean reset-db
 
 # Node dependencies are reinstalled as soon as a lockfile moves, so a build never
 # starts with a package missing from node_modules. The stamp keeps repeat builds
@@ -94,6 +94,9 @@ fmt-check: ## Fail if any Go source is not gofmt-clean
 test: fmt-check web-deps ## Run Go and web test suites
 	go test ./...
 	cd web && npm test && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
+
+render-skills: ## Render workflow skills to stdout or disk (ARGS=...)
+	go run ./cmd/render-skills $(ARGS)
 
 # Both components cross-compile with pure Go dependencies.
 build-release: web-deps ## Cross-compile every binary into dist/

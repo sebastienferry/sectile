@@ -22,10 +22,8 @@ func (c Config) Validate() error {
 		return fmt.Errorf("configuration projectId is required")
 	}
 
-	switch c.AIProvider {
-	case "", "agy", "codex", "claude", "gemini", "cursor", "vibe", "custom":
-	default:
-		return fmt.Errorf("unsupported AI provider %q", c.AIProvider)
+	if err := ValidProvider(c.AIProvider); err != nil {
+		return err
 	}
 	if c.AIProvider == "custom" && strings.TrimSpace(c.AICommandTemplate) == "" {
 		return fmt.Errorf("custom provider requires aiCommandTemplate")
@@ -153,4 +151,14 @@ func managedLegacyPath(p string) bool {
 		return true
 	}
 	return false
+}
+
+// ValidProvider checks that provider is a supported AI provider or empty.
+func ValidProvider(provider string) error {
+	switch provider {
+	case "", "agy", "codex", "claude", "gemini", "cursor", "vibe", "custom":
+		return nil
+	default:
+		return fmt.Errorf("unsupported AI provider %q", provider)
+	}
 }

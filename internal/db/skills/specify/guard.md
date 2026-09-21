@@ -1,0 +1,3 @@
+- Do not decide what the clarification left open. Mark it as open and say so.
+- Do not describe implementation inside the behaviour file.
+- Do not start implementing, even the easy part.

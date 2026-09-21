@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Two roles. An admin manages users, projects, global settings, tracker
@@ -33,6 +35,38 @@ var ErrLastAdmin = errors.New("the board would have no admin left")
 
 // ErrInvalidEmail refuses a local sign-in that does not name an address.
 var ErrInvalidEmail = errors.New("a valid e-mail address is required")
+
+// MaxDisplayNameLength bounds the name somebody chooses for themselves. It is
+// counted in runes, so an accented name is not shorter than an unaccented one.
+const MaxDisplayNameLength = 80
+
+// ErrDisplayNameTooLong and ErrDisplayNameInvalid refuse what is not a name.
+// They are distinct because the person can act on each: shorten it, or remove
+// what does not belong in a name. The wording shown to that person belongs to
+// the handler, which is the layer that answers them.
+var (
+	ErrDisplayNameTooLong = errors.New("display name is longer than the ceiling")
+	ErrDisplayNameInvalid = errors.New("display name carries a control character")
+)
+
+// NormalizeDisplayName is the name as it is stored: trimmed, free of control
+// characters, and no longer than the ceiling. The empty string is valid and
+// means "no choice": the account goes back to the name its sign-in supplies.
+func NormalizeDisplayName(name string) (string, error) {
+	name = strings.TrimSpace(name)
+	for _, r := range name {
+		// A name spanning two lines is not a name: it is something that would
+		// break the row it is shown in. A line break is a control character, so
+		// the one test covers both.
+		if unicode.IsControl(r) {
+			return "", ErrDisplayNameInvalid
+		}
+	}
+	if utf8.RuneCountInString(name) > MaxDisplayNameLength {
+		return "", ErrDisplayNameTooLong
+	}
+	return name, nil
+}
 
 // Actor is who performs an action, as the storage layer needs it: the id to
 // record and the name to show where a row is displayed without a join.
@@ -138,6 +172,27 @@ func (d *DB) SetUserRole(id, role string) (*User, error) {
 		}
 	}
 	if err := d.setUserRole(id, role); err != nil {
+		return nil, err
+	}
+	return d.GetUser(id)
+}
+
+// SetDisplayName records the name its owner chose. An empty value clears the
+// choice and hands the account back to the spelling its sign-in supplies. The
+// name is never an identifier, so it is not required to be unique.
+func (d *DB) SetDisplayName(id, name string) (*User, error) {
+	clean, err := NormalizeDisplayName(name)
+	if err != nil {
+		return nil, err
+	}
+	user, err := d.GetUser(id)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, sql.ErrNoRows
+	}
+	if _, err := d.conn.Exec(`UPDATE users SET chosen_name = ? WHERE id = ?`, clean, id); err != nil {
 		return nil, err
 	}
 	return d.GetUser(id)

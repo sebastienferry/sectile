@@ -69,7 +69,7 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 	}
 	skillForStage := map[string]string{"specified": "specify", "implemented": "implement", "reviewed": "adjust"}[cleanStage]
 	if skillForStage != "" {
-		verified, err := d.validateStagePR(task, skillForStage, d.adjustmentCheckout(task), branchForPR, strings.TrimSpace(prURL))
+		verified, err := d.validateStagePR(task, actorID, skillForStage, d.adjustmentCheckout(task), branchForPR, strings.TrimSpace(prURL))
 		if err != nil {
 			return nil, nil, err
 		}

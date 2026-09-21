@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -189,9 +191,16 @@ func (h *Handler) HandleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleCurrentUser tells the interface who is signed in, and whether signing
-// in is even possible on this deployment.
+// in is even possible on this deployment. A PATCH renames the caller's own
+// account and answers the same body, so the interface needs no second read.
 func (h *Handler) HandleCurrentUser(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
+	switch r.Method {
+	case http.MethodGet:
+	case http.MethodPatch:
+		if !h.renameCurrentUser(w, r) {
+			return
+		}
+	default:
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
@@ -213,6 +222,41 @@ func (h *Handler) HandleCurrentUser(w http.ResponseWriter, r *http.Request) {
 		body["displayName"] = user.DisplayName
 	}
 	writeJSON(w, http.StatusOK, body)
+}
+
+// renameCurrentUser applies a PATCH on /api/me and reports whether the answer
+// may proceed. Only the caller's own account is ever written: the id is taken
+// from the session, never from the body, so there is no route through which one
+// person renames another. /api/me is public for the read alone, hence the
+// refusal here rather than in publicPath.
+func (h *Handler) renameCurrentUser(w http.ResponseWriter, r *http.Request) bool {
+	caller := h.webPrincipal(r)
+	if caller.Anonymous() {
+		writeError(w, http.StatusUnauthorized, "Sign in to use this interface")
+		return false
+	}
+	var payload struct {
+		DisplayName string `json:"displayName"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid profile request")
+		return false
+	}
+	switch _, err := h.db.SetDisplayName(caller.UserID, payload.DisplayName); {
+	case errors.Is(err, db.ErrDisplayNameTooLong):
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("A display name is at most %d characters", db.MaxDisplayNameLength))
+		return false
+	case errors.Is(err, db.ErrDisplayNameInvalid):
+		writeError(w, http.StatusBadRequest, "A display name cannot contain line breaks")
+		return false
+	case errors.Is(err, sql.ErrNoRows):
+		writeError(w, http.StatusNotFound, "Unknown user")
+		return false
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return false
+	}
+	return true
 }
 
 // publicPaths are reachable without a browser session. Agent APIs carry their

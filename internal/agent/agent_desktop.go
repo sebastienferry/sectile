@@ -104,7 +104,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -147,6 +147,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/run-result" && r.Method == http.MethodGet {
 		d.desktopRunResult(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/tasks/transition" {
+		d.desktopTaskTransition(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/tasks" {
@@ -385,6 +389,10 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		ProjectID                   string  `json:"projectId"`
 		Path                        string  `json:"path"`
+		AIProvider                  *string `json:"aiProvider"`
+		AIModel                     *string `json:"aiModel"`
+		InheritAIProvider           bool    `json:"inheritAiProvider"`
+		InheritAIModel              bool    `json:"inheritAiModel"`
 		AICommandTemplate           *string `json:"aiCommandTemplate"`
 		AICommandTemplateAutonomous *string `json:"aiCommandTemplateAutonomous"`
 		InheritCommand              bool    `json:"inheritCommand"`
@@ -416,8 +424,59 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	if input.AIProvider != nil && !input.InheritAIProvider {
+		provider := strings.TrimSpace(*input.AIProvider)
+		if err := agentconfig.ValidProvider(provider); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		if provider == "custom" {
+			cmd := ""
+			if input.AICommandTemplate != nil && !input.InheritCommand {
+				cmd = strings.TrimSpace(*input.AICommandTemplate)
+			} else if !input.InheritCommand {
+				cmd = overrides.Commands[input.ProjectID]
+			}
+			if !strings.Contains(cmd, "{prompt}") {
+				http.Error(w, "Custom provider requires a command template containing {prompt}", 400)
+				return
+			}
+		}
+	}
+	if input.AIModel != nil && !input.InheritAIModel {
+		if err := agentconfig.ValidModel(*input.AIModel); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
 	if overrides.Projects == nil {
 		overrides.Projects = map[string]string{}
+	}
+	if input.InheritAIProvider {
+		delete(overrides.AIProviders, input.ProjectID)
+	} else if input.AIProvider != nil {
+		provider := strings.TrimSpace(*input.AIProvider)
+		if provider == "" {
+			delete(overrides.AIProviders, input.ProjectID)
+		} else {
+			if overrides.AIProviders == nil {
+				overrides.AIProviders = map[string]string{}
+			}
+			overrides.AIProviders[input.ProjectID] = provider
+		}
+	}
+	if input.InheritAIModel {
+		delete(overrides.AIModels, input.ProjectID)
+	} else if input.AIModel != nil {
+		model := strings.TrimSpace(*input.AIModel)
+		if model == "" {
+			delete(overrides.AIModels, input.ProjectID)
+		} else {
+			if overrides.AIModels == nil {
+				overrides.AIModels = map[string]string{}
+			}
+			overrides.AIModels[input.ProjectID] = model
+		}
 	}
 	// The two commands are overridden together: a workstation that pins only the
 	// interactive one would keep running the server's headless command beside it,
@@ -520,6 +579,9 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	delete(settings.Worktrees, id)
 	delete(settings.Parallelism, id)
 	delete(settings.Commands, id)
+	delete(settings.CommandsAutonomous, id)
+	delete(settings.AIProviders, id)
+	delete(settings.AIModels, id)
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
@@ -586,7 +648,22 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		effective := agentconfig.ApplyOverrides(config, overrides)
 		_, worktreeOverride := overrides.Worktrees[id]
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"server": config, "monoRepo": project.MonoRepo, "path": root, "useWorktrees": effective.UseWorktrees, "configured": mappingErr == nil, "aiCommandTemplate": effective.AICommandTemplate, "aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous, "commandOverride": overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "", "worktreeOverride": worktreeOverride, "parallelism": agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides)})
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"server":                      config,
+			"monoRepo":                    project.MonoRepo,
+			"path":                        root,
+			"useWorktrees":                effective.UseWorktrees,
+			"configured":                  mappingErr == nil,
+			"aiCommandTemplate":           effective.AICommandTemplate,
+			"aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous,
+			"commandOverride":             overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "",
+			"worktreeOverride":            worktreeOverride,
+			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
+			"aiProvider":                  effective.AIProvider,
+			"aiModel":                     effective.AIModel,
+			"aiProviderOverride":          overrides.AIProviders[id] != "",
+			"aiModelOverride":             overrides.AIModels[id] != "",
+		})
 		return
 	}
 	if mappingErr != nil {
@@ -749,6 +826,54 @@ func (d *agentDaemon) desktopCreateTask(w http.ResponseWriter, r *http.Request) 
 	}
 	body := mustJSON(models.CreateTaskRequest{ProjectID: input.ProjectID, Title: strings.TrimSpace(input.Title), Description: input.Description, RequireRemoteCreation: true})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks", strings.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	response, err := agenthttp.Client(d.link.token).Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), 502)
+		return
+	}
+	defer response.Body.Close()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(response.Body, 1<<20))
+}
+
+func (d *agentDaemon) desktopTaskTransition(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", 405)
+		return
+	}
+	var input struct {
+		ProjectID string `json:"projectId"`
+		TaskID    string `json:"taskId"`
+		Stage     string `json:"stage"`
+		Note      string `json:"note"`
+	}
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&input) != nil {
+		http.Error(w, "Invalid request body", 400)
+		return
+	}
+	projectID := r.URL.Query().Get("projectId")
+	if projectID == "" {
+		projectID = input.ProjectID
+	}
+	if projectID == "" || strings.TrimSpace(input.TaskID) == "" || strings.TrimSpace(input.Stage) == "" {
+		http.Error(w, "Project, task, and stage required", 400)
+		return
+	}
+	if _, err := d.fetchConfig(r.Context(), projectID, ""); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	body := mustJSON(map[string]string{
+		"stage": strings.TrimSpace(input.Stage),
+		"note":  input.Note,
+	})
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(input.TaskID)+"/stage", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return

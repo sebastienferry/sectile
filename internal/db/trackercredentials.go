@@ -77,6 +77,22 @@ func overrideWith(target *string, override string) {
 // tracker returns the tracker client carrying the credentials of one project.
 func (d *DB) tracker(projectID string) *trackerapi.Client { return d.trackers.For(projectID) }
 
+// trackerAs is tracker with the credentials of the person who asked for the
+// work substituted where they stored any. A tracker attributes a write to the
+// account behind the token, so an operation somebody asked for travels under
+// their own token rather than the server's. Unattended work names nobody and
+// keeps the project credential, which is why an empty user is not an error.
+func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client {
+	client, _, err := d.trackers.ForActingUser(userID, trackerName, projectID)
+	if err != nil || client == nil {
+		// A credential that cannot be resolved is not a reason to drop the
+		// request: the project's own is still there, and the call will say for
+		// itself whether it is accepted.
+		return d.trackers.For(projectID)
+	}
+	return client
+}
+
 // withoutTrackerTokens strips the credentials from a settings row on its way to
 // a client and reports them through flags instead: whether one is stored, and
 // whether the server environment supplies one in its absence. The interface
@@ -138,7 +154,16 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 	client := d.tracker("")
 	switch strings.ToLower(strings.TrimSpace(trackerName)) {
 	case "github":
-		return client.CheckGithub(ctx, firstNonEmpty(apiURL, client.GithubURL), firstNonEmpty(token, client.GithubToken))
+		site, own := "", ""
+		if user := tracker.ActingUser(ctx); user != "" {
+			var err error
+			if site, _, own, err = d.UserTrackerCredentialsFor(user, "github"); err != nil {
+				return "", err
+			}
+		}
+		return client.CheckGithub(ctx,
+			firstNonEmpty(apiURL, site, client.GithubURL),
+			firstNonEmpty(token, own, client.GithubToken))
 	case "gitlab":
 		return client.CheckGitlab(ctx, firstNonEmpty(apiURL, client.GitlabURL), firstNonEmpty(token, client.GitlabToken))
 	case "jira":

@@ -1,0 +1,3 @@
+- Do not merge, do not approve, do not close the ticket. That is the user's call.
+- Do not create a PR. Do not mark a PR ready on a red build. Report the failure instead.
+- Do not complete adjustment on a branch known to be behind the remote default branch.

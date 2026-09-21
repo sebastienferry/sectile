@@ -1,0 +1,3 @@
+- Do not mutate task title, status, priority, assignee, branch, or pull request.
+- Do not delete or overwrite task comments.
+- Do not invent artificial requirements not implied by the description or comments.

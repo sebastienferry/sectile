@@ -4,5 +4,19 @@ import type { Task } from '../types'
 export const sameTask = (left: Pick<Task, 'id'>, right: Pick<Task, 'id'>): boolean =>
   left.id === right.id
 
-export const tasksInProject = <T extends Pick<Task, 'projectId'>>(tasks: T[], projectId: string): T[] =>
-  projectId && projectId !== 'all' ? tasks.filter(task => task.projectId === projectId) : tasks
+export const tasksInProject = <T extends Pick<Task, 'projectId'>>(
+  tasks: T[],
+  projectId: string,
+  bookmarkedProjectIds?: Set<string> | string[]
+): T[] => {
+  if (projectId && projectId !== 'all') {
+    return tasks.filter(task => task.projectId === projectId)
+  }
+  if (bookmarkedProjectIds) {
+    const set = bookmarkedProjectIds instanceof Set ? bookmarkedProjectIds : new Set(bookmarkedProjectIds)
+    if (set.size > 0) {
+      return tasks.filter(task => (task.projectId ? set.has(task.projectId) : false))
+    }
+  }
+  return tasks
+}

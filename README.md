@@ -61,6 +61,7 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
   - `Backlog` ➔ `À clarifier` ➔ `Spécifié` ➔ `En cours` ➔ `À valider` ➔ `Terminé` avec compteurs en temps réel.
   - Bascule des vues (`Tableau Kanban` / `Vue Liste`).
   - Filtres rapides (`Mes tâches`, `Priorité Haute`, `Étiquettes/Tags`) et filtre par source (`GitHub`, `Jira`, `Local`).
+  - **User project bookmarks & dropdown search**: Personal project bookmarks with star toggles, dropdown project search across shared workspaces, and "All projects" board/facets filtered strictly to bookmarked projects. Bookmarked projects are also prioritized in task creation, clone, and detail modals.
   - Repli / Dépli fluide de la barre latérale.
 
 - 👤 **Profil & Ergonomie Personnalisée** :
@@ -289,6 +290,14 @@ tag name on a tag) and the cross-compiled `sectile-server-*` /
 under the package `sectile` with the same version string. The agent is never
 part of the image: it runs on workstations, next to the coding CLIs.
 
+A branch other than `main` is also published as `server:preview-<commit sha>`,
+the tag the test environments pull. Those are declared in argocd-sp
+(`apps/sectile/dev`, feature `testenv`): a merge request opened on the GitLab
+mirror for the mirrored branch and labelled `testenv` gets its own board at
+`https://testenv-<merge request number>-sectile.internal.eqtv.dev`, with its
+own database, following the head of the branch until the merge request closes.
+The GitHub pull request alone spawns nothing: the generator only reads GitLab.
+
 ## 📚 Documentation Technique Complète
 
 Une suite documentaire complète pour développeurs et LLMs est disponible dans le dossier [`/docs`](./docs) :
@@ -313,7 +322,7 @@ Une suite documentaire complète pour développeurs et LLMs est disponible dans 
 
 ## Remote execution and MCP
 
-Sectile exposes nine typed tools at the Streamable HTTP endpoint `/mcp`:
+Sectile exposes ten typed tools at the Streamable HTTP endpoint `/mcp`:
 
 - `list_projects`: discover project primary keys, names and Git remotes.
 - `get_task`: read task details and comments.
@@ -322,6 +331,7 @@ Sectile exposes nine typed tools at the Streamable HTTP endpoint `/mcp`:
 - `list_tasks`: list tasks with optional filters.
 - `get_project_context`: read project execution settings and effective instructions.
 - `create_task`: file a new ticket on an explicitly named project, remotely whenever its tracker supports it.
+- `update_task`: update mutable descriptive fields of an existing task (title, description, priority, issueType, labels).
 - `start_run`: start or reuse the invocation's remote run.
 - `finish_run`: finish that run without advancing the task stage.
 
@@ -438,8 +448,13 @@ Then start the workstation agent in an existing clone, with its key:
 
 ```sh
 sectile-agent pair --url https://sectile.example.com --code '<pairing code>'
+sectile-agent init --provider <provider>    # bootstrap MCP and skills locally
 sectile-agent --url https://sectile.example.com --project '<project-id>' --repo /path/to/clone
 ```
+
+You can also run `sectile-agent init --provider <provider>` anytime to bootstrap
+MCP registration and install managed skills for a specific provider locally
+without launching the background daemon.
 
 `SECTILE_SERVER_TOKEN`, the former shared agent credential, is still accepted
 for one release with a startup warning; a server without it that has issued no

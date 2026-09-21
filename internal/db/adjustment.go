@@ -16,7 +16,7 @@ func (d *DB) prCreationOwner(task *models.Task) string {
 	return "implement"
 }
 
-func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (trackerapi.PullRequest, error) {
+func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready bool) (trackerapi.PullRequest, error) {
 	origin, _ := adjustmentOverrideOrigin(d.projectSkillOverrides(task.ProjectID))
 	settings, _ := d.GetSettings()
 	project, _ := d.GetProjectByID(task.ProjectID)
@@ -30,7 +30,7 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, ready bool) (trackerapi.P
 	if task.BranchName != nil {
 		branch = *task.BranchName
 	}
-	pr, err := d.lookupStagePR(d.adjustmentCheckout(task), branch)
+	pr, err := d.lookupStagePR(task.ProjectID, actorID, d.adjustmentCheckout(task), branch)
 	if err != nil {
 		return pr, fmt.Errorf("adjustment prerequisite: %w (creation owner: %s)", err, d.prCreationOwner(task))
 	}
@@ -71,13 +71,13 @@ func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url string, 
 	return nil
 }
 
-func (d *DB) validateStagePR(task *models.Task, skillID, repoPath, branch, url string) (string, error) {
+func (d *DB) validateStagePR(task *models.Task, actorID, skillID, repoPath, branch, url string) (string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	required := skillID == "create_pr" || skillID == "adjust" || skillID == "pickup" || skillID == "implement" || (skillID == "specify" && d.prCreationOwner(task) == "specify")
 	if !required {
 		return url, nil
 	}
-	pr, err := d.lookupStagePR(repoPath, branch)
+	pr, err := d.lookupStagePR(task.ProjectID, actorID, repoPath, branch)
 	if err != nil {
 		return "", err
 	}
@@ -92,7 +92,7 @@ func (d *DB) validateStagePR(task *models.Task, skillID, repoPath, branch, url s
 		Branch string
 		Clean  bool
 	}
-	if err = d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_evidence"}, &evidence); err != nil {
+	if err = d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_evidence", UserID: actorID}, &evidence); err != nil {
 		return "", err
 	}
 	if evidence.Branch != branch || evidence.SHA != pr.SHA {
@@ -115,9 +115,14 @@ func (d *DB) adjustmentCheckout(task *models.Task) string {
 	return ""
 }
 
-func (d *DB) lookupStagePR(repo, branch string) (trackerapi.PullRequest, error) {
+// lookupStagePR reads the pull request that carries a stage's evidence. It is
+// resolved for the task's own project and for whoever asked, because a lookup
+// with neither reached only the server environment: a deployment configured
+// through the project, or through the person's profile, had no credential on
+// this path at all while every other tracker call had one.
+func (d *DB) lookupStagePR(projectID, userID, repo, branch string) (trackerapi.PullRequest, error) {
 	if d.prEvidenceLookup != nil {
 		return d.prEvidenceLookup(repo, branch)
 	}
-	return d.tracker("").BranchPullRequest(repo, branch)
+	return d.trackerAs(userID, "github", projectID).BranchPullRequest(repo, branch)
 }
