@@ -150,9 +150,15 @@ func main() {
 		log.Fatal("sectile-server accepts configuration through environment variables; use sectile-agent for local execution and MCP")
 	}
 
-	dbPath, dbOrigin := resolveDBPath(os.Getenv("DB_PATH"))
+	dbConfig, dbTarget, dbOrigin, err := resolveDBConfig(osGetenv)
+	if err != nil {
+		log.Fatalf("Database configuration: %v", err)
+	}
 
-	database, err := db.NewDB(dbPath)
+	// A PostgreSQL configuration that cannot open must stop the server rather
+	// than fall back to SQLite. Falling back would serve an empty board out of
+	// an unexpected store, which reads as data loss to whoever is looking at it.
+	database, err := db.Open(dbConfig)
 	if err != nil {
 		log.Fatalf("Fatal database error: %v", err)
 	}
@@ -356,7 +362,7 @@ func main() {
 	}
 
 	log.Printf("🚀 Sectile Server listening on %s", url)
-	log.Printf("   base : %s (%s)", dbPath, dbOrigin)
+	log.Printf("   base : %s — %s (%s)", database.EngineName(), dbTarget, dbOrigin)
 
 	if err := http.Serve(listener, handlerWithCORS); err != nil {
 		log.Fatalf("Server failed: %v", err)

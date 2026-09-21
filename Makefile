@@ -55,6 +55,11 @@ build-agent: ## Build the agent binary
 	go build -o bin/agent$(EXE).new ./cmd/agent
 	mv -f bin/agent$(EXE).new bin/agent$(EXE)
 
+build-migrate: ## Build the one-shot SQLite to PostgreSQL migration tool
+	@mkdir -p bin
+	go build -o bin/sectile-migrate$(EXE).new ./cmd/sectile-migrate
+	mv -f bin/sectile-migrate$(EXE).new bin/sectile-migrate$(EXE)
+
 # The agent writes its own path into the MCP registration native clients read,
 # so it needs a stable one: `go run` would leave a build-cache path that stops
 # resolving as soon as the cache is pruned. Building first keeps the target as

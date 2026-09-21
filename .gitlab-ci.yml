@@ -125,6 +125,31 @@ test:go:
     - go install gotest.tools/gotestsum@v1.13.0
     - $GOPATH/bin/gotestsum --junitfile ${TEST_RESULT_PATH_XML} --jsonfile ${TEST_RESULT_PATH} --format testname -- -race -covermode=atomic -coverprofile="${COVERAGE_RESULT_PATH}" ${GOLANG_TEST_PATH}
 
+test:postgres:
+  stage: test
+  extends: [.go-test, .go-cache]
+  needs: []
+  # Deliberately not allow_failure, unlike test:go above: this job is new, it
+  # starts green, and the whole point of it is to gate. The moment it is allowed
+  # to fail it stops being evidence that PostgreSQL still works.
+  services:
+    - name: postgres:16
+      alias: postgres
+  variables:
+    POSTGRES_DB: sectile_test
+    POSTGRES_USER: sectile
+    POSTGRES_PASSWORD: sectile
+    # trust keeps the service simple; it is reachable only from this job.
+    POSTGRES_HOST_AUTH_METHOD: trust
+    SECTILE_TEST_POSTGRES_DSN: "postgres://sectile@postgres:5432/sectile_test?sslmode=disable"
+    # Without it the smoke tests skip and the job passes having proved nothing.
+    CGO_ENABLED: "0"
+  script:
+    # The subset is chosen for what breaks silently rather than for what is easy
+    # to test: schema creation from empty, a CRUD round trip, an upsert, the
+    # timestamp round trip that #294 was about, and a migration round trip.
+    - go test ./internal/db/ -run 'TestPostgres|TestMigrate' -v
+
 test:web:
   stage: test
   image: ${NODE_IMAGE}

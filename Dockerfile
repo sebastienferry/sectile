@@ -47,6 +47,14 @@ FROM gcr.io/distroless/static-debian12:nonroot
 # together, which protects nothing on its own: set SECTILE_SECRET_KEY from the
 # platform's secret store to keep them apart. The server starts either way and
 # refuses only the credentials that would need the key.
+#
+# To back the server with PostgreSQL instead, set DB_DRIVER=postgres and either
+# DATABASE_URL or the standard PGHOST/PGDATABASE/PGUSER/PGPASSWORD variables
+# (the second form is what a deployment gets when its username and password are
+# two separate secrets), and supply SECTILE_SECRET_KEY from the secret store:
+# with no database file there is no directory to generate a key beside, and one
+# invented on each restart of a container without a volume would silently
+# orphan every stored token. DB_PATH is then ignored.
 ENV PORT=8090 \
     DB_PATH=/data/tasks.db \
     HOME=/data \

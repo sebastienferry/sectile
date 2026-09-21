@@ -1,4 +1,4 @@
-# Sectile (React + Go + SQLite)
+# Sectile (React + Go + SQLite or PostgreSQL)
 
 Desktop now provides a read-only **Changes** view for each local execution, comparing current worktree contents with the default-branch common ancestor. See [Inspect worktree changes](desktop/README.md#inspect-worktree-changes).
 
@@ -112,6 +112,49 @@ export SECTILE_TRACKER_TOKEN='<tracker API token>'
 # export SECTILE_GITLAB_TOKEN='<GitLab API token>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/server
 ```
+
+### PostgreSQL instead of SQLite
+
+SQLite is the default and the only engine the desktop application ships with. A
+server deployment that already runs PostgreSQL can use it instead, for managed
+backups, point-in-time recovery and the ops tooling that comes with them:
+
+```sh
+export DB_DRIVER=postgres
+export DATABASE_URL='postgres://sectile:password@db.internal:5432/sectile?sslmode=require'
+# Or, when the username and the password arrive as two separate secrets — which
+# is what a Kubernetes deployment gets, since a secret cannot be interpolated
+# into a string — leave DATABASE_URL empty and set the standard variables
+# instead: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE.
+# The only source of the encryption key under PostgreSQL. There is no database
+# file to generate one beside, and a key invented on each restart would silently
+# make every stored tracker token unreadable. Generate: openssl rand -hex 32
+export SECTILE_SECRET_KEY='<64 hex characters>'
+./bin/server
+```
+
+`DB_PATH` is ignored in this mode. `DATABASE_URL` wins when both it and the
+standard variables are set. A PostgreSQL configuration that cannot be opened —
+or that names neither source — stops the server rather than falling back to
+SQLite: falling back would serve an empty board out of an unexpected store,
+which reads as data loss.
+
+One server instance per database. The job queue and the synchronisation loop run
+in-process and are not coordinated between instances, so two servers sharing a
+database would run every queued skill twice.
+
+To move an existing SQLite database across, once:
+
+```sh
+SECTILE_SECRET_KEY='<the same key the SQLite server uses>' \
+  ./bin/sectile-migrate -from ./tasks.db -to "$DATABASE_URL"
+```
+
+The key matters: a stored tracker token is sealed to its owner and its tracker,
+not to the database, so the rows copy perfectly well under a different key and
+nobody notices until a tracker call fails. The migration opens one sealed
+credential as a check before it copies a single row, and refuses a destination
+that already holds data.
 
 Open **http://localhost:8090**. The server never opens a browser or starts local
 Git, tracker CLI, terminal, editor or LLM processes. A server deployment needs
