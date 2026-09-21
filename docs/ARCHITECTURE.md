@@ -17,7 +17,7 @@ flowchart TB
 
     subgraph host["Server host"]
         Server["sectile-server<br/>REST · SSE · /mcp · agent relay"]
-        Store[("SQLite<br/>tasks · projects · activities · settings")]
+        Store[("SQLite or PostgreSQL<br/>tasks · projects · activities · settings")]
         Server --- Store
     end
 
@@ -150,7 +150,7 @@ binding and [ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md) for the key.
 
 | Component | Responsibility |
 | --- | --- |
-| `cmd/server` | HTTP routes, embedded web assets and SQLite startup; no command dispatch or browser launch |
+| `cmd/server` | HTTP routes, embedded web assets and database startup; no command dispatch or browser launch |
 | `internal/db` | Persisted tasks, projects, board/roadmap/sprint configuration, workflow and tracker queues |
 | `internal/handlers` | Server API, upstream MCP and authenticated agent relay |
 | `internal/trackerapi` | GitHub REST/GraphQL with explicit server credentials |
@@ -172,7 +172,14 @@ the subprocess runner, workspace and terminal packages.
 
 ## Server persistence and queues
 
-SQLite stores projects, tasks, activities, settings and tracker operation state.
+The store holds projects, tasks, activities, settings and tracker operation
+state. It is SQLite by default, and PostgreSQL when `DB_DRIVER=postgres` names
+it. The two share one `*db.DB`, one schema and one set of queries: a small
+unexported `dialect` inside `internal/db` carries the six things that differ
+(connection, placeholder rebinding, DDL type names, catalogue introspection, the
+encryption key directory, and whether the historical migrations apply). See
+[ADR 0016](adrs/0016-postgresql-as-an-alternative-store.md) for why the seam is
+below `*db.DB` rather than an interface above it.
 The established database lookup order remains unchanged. `DB` uses an RWMutex;
 helpers suffixed `Unsafe` assume the caller already holds the appropriate lock.
 Avoid calling public locking methods while holding that lock.
