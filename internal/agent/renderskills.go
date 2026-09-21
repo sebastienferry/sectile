@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"tasks/internal/db"
+	"tasks/internal/skills"
 )
 
 // RenderSkills handles CLI execution for rendering embedded skills to stdout or disk.
@@ -39,12 +39,12 @@ func RenderSkillsTo(args []string, out io.Writer) error {
 	}
 
 	skillFilter := strings.TrimSpace(*skillFlag)
-	var targetSkills []db.StageSkill
+	var targetSkills []skills.StageSkill
 	if skillFilter != "" {
-		skill, ok := db.StageSkillByID(skillFilter)
+		skill, ok := skills.StageSkillByID(skillFilter)
 		if !ok {
 			// Check if matched by DirName directly
-			for _, s := range db.StageSkills {
+			for _, s := range skills.StageSkills {
 				if strings.EqualFold(s.DirName, skillFilter) {
 					skill = s
 					ok = true
@@ -57,7 +57,7 @@ func RenderSkillsTo(args []string, out io.Writer) error {
 		}
 		targetSkills = append(targetSkills, skill)
 	} else {
-		targetSkills = db.StageSkills
+		targetSkills = skills.StageSkills
 	}
 
 	outDir := strings.TrimSpace(*outDirFlag)
@@ -67,14 +67,14 @@ func RenderSkillsTo(args []string, out io.Writer) error {
 		skill := targetSkills[0]
 		switch format {
 		case "skill":
-			fmt.Fprint(out, db.RenderSkillContent(skill, framework))
+			fmt.Fprint(out, skills.RenderSkillContent(skill, framework))
 		case "command":
-			fmt.Fprint(out, db.RenderSkillCommand(skill, framework))
+			fmt.Fprint(out, skills.RenderSkillCommand(skill, framework))
 		case "all":
 			fmt.Fprintln(out, "=== SKILL.md ===")
-			fmt.Fprint(out, db.RenderSkillContent(skill, framework))
+			fmt.Fprint(out, skills.RenderSkillContent(skill, framework))
 			fmt.Fprintln(out, "\n=== COMMAND.md ===")
-			fmt.Fprint(out, db.RenderSkillCommand(skill, framework))
+			fmt.Fprint(out, skills.RenderSkillCommand(skill, framework))
 		}
 		return nil
 	}
@@ -96,7 +96,7 @@ func RenderSkillsTo(args []string, out io.Writer) error {
 			if err := os.MkdirAll(filepath.Dir(skillPath), 0755); err != nil {
 				return fmt.Errorf("create skill dir for %s: %w", dirName, err)
 			}
-			content := db.RenderSkillContent(skill, framework)
+			content := skills.RenderSkillContent(skill, framework)
 			if err := os.WriteFile(skillPath, []byte(content), 0644); err != nil {
 				return fmt.Errorf("write skill file %s: %w", skillPath, err)
 			}
@@ -108,7 +108,7 @@ func RenderSkillsTo(args []string, out io.Writer) error {
 			if err := os.MkdirAll(filepath.Dir(cmdPath), 0755); err != nil {
 				return fmt.Errorf("create commands dir: %w", err)
 			}
-			content := db.RenderSkillCommand(skill, framework)
+			content := skills.RenderSkillCommand(skill, framework)
 			if err := os.WriteFile(cmdPath, []byte(content), 0644); err != nil {
 				return fmt.Errorf("write command file %s: %w", cmdPath, err)
 			}
