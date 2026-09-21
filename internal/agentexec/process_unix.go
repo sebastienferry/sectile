@@ -62,3 +62,8 @@ func StopControlled(cmd *exec.Cmd, force bool) {
 func DetachedSession() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{Setsid: true}
 }
+
+// Hidden is the Windows console-window suppression described in its Windows
+// counterpart. A POSIX child inherits the terminal it was started from and opens
+// no window of its own, so there is nothing to suppress here.
+func Hidden(cmd *exec.Cmd) *exec.Cmd { return cmd }

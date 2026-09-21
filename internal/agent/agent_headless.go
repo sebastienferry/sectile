@@ -86,6 +86,9 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	// it worked and the run would keep going. Detaching also matches what a
 	// headless run is, a process with no controlling terminal at all.
 	cmd.SysProcAttr = agentexec.DetachedSession()
+	// No window either, which is what "headless" says on the platform where a
+	// console child of the console-less agent would otherwise get one.
+	agentexec.Hidden(cmd)
 
 	output, err := cmd.StdoutPipe()
 	if err != nil {

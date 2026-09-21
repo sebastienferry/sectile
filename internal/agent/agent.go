@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"tasks/internal/agentexec"
 	"tasks/internal/agenthttp"
 	"time"
 
@@ -300,7 +301,9 @@ func Run(args []string) {
 			log.Printf("[Agent] Restart failed: %v", err)
 			return
 		}
-		child := exec.Command(binary, os.Args[1:]...)
+		// Hidden: the desktop starts the agent with no console, so a plain restart
+		// would give the new agent a console window of its own, for its whole life.
+		child := agentexec.Hidden(exec.Command(binary, os.Args[1:]...))
 		child.Env = runner.SanitizedEnviron()
 		child.Stdin, child.Stdout, child.Stderr = os.Stdin, os.Stdout, os.Stderr
 		if err := child.Start(); err != nil {
@@ -762,7 +765,7 @@ func (d *agentDaemon) handlePullTasks(ctx context.Context, conn *websocket.Conn,
 // findRepoRoot finds the repository root containing .tasks and all worktrees
 func findRepoRoot(startDir string) string {
 	// 1. Try git rev-parse --git-common-dir (works inside any git worktree)
-	cmd := exec.Command("git", "-C", startDir, "rev-parse", "--git-common-dir")
+	cmd := agentexec.Hidden(exec.Command("git", "-C", startDir, "rev-parse", "--git-common-dir"))
 	if out, err := cmd.Output(); err == nil {
 		gitCommon := strings.TrimSpace(string(out))
 		if gitCommon != "" {

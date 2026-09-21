@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"tasks/internal/agentexec"
 )
 
 // PullRequestEvidence is forge-confirmed identity and readiness, not agent prose.
@@ -83,7 +85,7 @@ func (r *Runner) BranchPullRequest(repoPath, branch string) (PullRequestEvidence
 	if strings.TrimSpace(branch) == "" {
 		return PullRequestEvidence{}, fmt.Errorf("task branch is missing")
 	}
-	remote, err := exec.Command("git", "-C", repoPath, "remote", "get-url", "origin").Output()
+	remote, err := agentexec.Hidden(exec.Command("git", "-C", repoPath, "remote", "get-url", "origin")).Output()
 	if err != nil {
 		return PullRequestEvidence{}, fmt.Errorf("read repository remote: %w", err)
 	}
