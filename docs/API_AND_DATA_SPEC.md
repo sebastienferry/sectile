@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS settings (
 | `PUT` | `/api/tasks/{id}` | Updates task fields (status, title, description, priority, etc.). |
 | `DELETE` | `/api/tasks/{id}` | Deletes task and prunes associated Git worktree. |
 | `POST` | `/api/tasks/{id}/skills/{skillId}` | Enqueues or immediately executes an AI skill on the task. |
-| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?}`. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. |
+| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?, force?}`. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. A task already carrying an active run answers `409` with `{error, activeRunId}` and records nothing; `force` waives that refusal and only that one, for the active run's owner or an admin, and answers `403` for anyone else. |
 | `POST` | `/api/tasks/{id}/advance` | Advances one workflow step, or the full chain with `{"auto": true}`. Body also accepts `mode`, the one-off override for the single step; a full chain run ignores it and is always autonomous. |
 | `POST` | `/api/tasks/{id}/advance/confirm` | Closes an interactive step. A step the worker already transitioned is accepted as a no-op. |
 | `POST` | `/api/tasks/{id}/comment` | Publishes a comment to the GitHub issue tracker. |
