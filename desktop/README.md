@@ -238,7 +238,7 @@ The profile is a placeholder for future account management.
 
 ### Remove a local project
 
-In project settings, choose **Local → Remove from desktop**, then confirm
+In project settings, choose **General → Remove from desktop**, then confirm
 **Disconnect project**. Removal clears that project's workstation mapping and
 execution overrides. It preserves repository files, worktrees, deployed tooling,
 server projects, tracker tasks, and other local settings. Stop the project's
@@ -303,12 +303,20 @@ The `serve`, `start` and `run` targets run from source and need no prior build. 
 arguments with, for example, `make start ARGS="--url http://localhost:8090"`; provide
 authentication through `TOKEN`.
 
-Project configuration has three tabs: **Local**, **Deployment** and **Server**.
-Use **Choose folder…** to select a repository through the native directory dialog.
-Worktrees use Yes/No buttons; parallelism uses 1 to 5 buttons. Reset icons restore
-inheritance from server defaults, and parallelism has none because it never
-inherits. Changes take effect after **Save local
-configuration**. Server metadata and skill content remain read-only.
+Project configuration lists its categories in a side navigation, one panel at a
+time: **General** (local repository, removal from the desktop), **Execution**
+(worktrees, parallel executions, terminal emulator), **AI agent** (provider,
+model, command templates), **Deployment** and **Server**. **General** opens
+first. Use **Choose folder…** to select a repository through the native directory
+dialog. Worktrees use Yes/No buttons; parallel executions use a 1 to 10 slider.
+Each setting is one row: its name with the inherited value in small type on the
+left, its control on the right. Reset icons restore inheritance from server
+defaults, and parallelism has none because it never inherits. The placeholder
+reference sits behind the **Placeholders** disclosure under the interactive
+command. The three storing categories share one form, so
+**Save local configuration** in the dialog footer writes them all at once,
+whichever category is open; **Deployment** and **Server** hide it because they
+store nothing. Server metadata and skill content remain read-only.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
 open server tasks in the **Tickets** pane, which takes the console's place the
@@ -349,7 +357,7 @@ repository mapping, otherwise every launch control is disabled with a notice.
 Loading, empty and error states are shown in the pane; use **Search** to
 retry a failed request. Opening the pane does not start an execution.
 
-The Local project tab includes the effective **CLI command**. Edit it to save a
+The **AI agent** category includes the effective **CLI command**. Edit it to save a
 per-project override under `commands` in user settings; the reset icon restores
 the server template (or provider default when empty or lacking `{prompt}`). Save to apply to subsequent
 executions. Command templates execute on the local agent and support these placeholders:

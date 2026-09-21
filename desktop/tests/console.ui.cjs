@@ -73,10 +73,13 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Configure Example project',exact:true}).click()
   await page.getByRole('tab',{name:'Server',exact:true}).click()
   await page.getByText('Server configuration · Read only',{exact:true}).waitFor()
-  await page.getByRole('tab',{name:'Local',exact:true}).click()
+  await page.getByRole('tab',{name:'General',exact:true}).click()
   await application.evaluate(({dialog})=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:['/tmp/chosen-repository']})})
   await page.getByRole('button',{name:'Choose folder…',exact:true}).click()
   await page.waitForFunction(()=>document.querySelector('[aria-label="Local repository"]').value==='/tmp/chosen-repository')
+  // Each category shows its own panel, so worktrees and parallelism are reached
+  // from Execution and the command templates from AI agent.
+  await page.getByRole('tab',{name:'Execution',exact:true}).click()
   const parallel=page.getByRole('slider',{name:'Parallel executions',exact:true})
   await page.getByRole('button',{name:'No',exact:true}).click()
   assert.equal(await parallel.isDisabled(),true)
@@ -88,7 +91,10 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await parallel.inputValue(),'3')
   // Parallelism is workstation-owned: no server default, hence no reset control.
   assert.equal(await page.getByRole('button',{name:'Reset parallelism to server default',exact:true}).count(),0)
-  const placeholderHelp=await page.locator('p').filter({hasText:'Required in a command: {prompt}'}).textContent()
+  await page.getByRole('tab',{name:'AI agent',exact:true}).click()
+  // The token reference sits behind a disclosure so the row stays one line.
+  await page.locator('.placeholder-help summary').click()
+  const placeholderHelp=await page.locator('.placeholder-help p').textContent()
   for(const token of ['{prompt}','{issueKey}','{issueTitle}','{issueDesc}','{branchName}','{repoPath}','{tracker}','{repo}','{model}','{mode:AUTONOMOUS|INTERACTIVE}']){
    assert.ok(placeholderHelp.includes(token),`Missing placeholder help: ${token}`)
   }
@@ -113,6 +119,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
 
 
   // The workstation parallelism selection survives a server refresh.
+  await page.getByRole('tab',{name:'Execution',exact:true}).click()
   assert.equal(await parallel.inputValue(),'3')
   await page.getByRole('button',{name:'Close',exact:true}).click()
   // The control is named for the click it offers, so its name flips with the panel.
