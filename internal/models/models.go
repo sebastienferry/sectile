@@ -955,6 +955,10 @@ type RunSkillRequest struct {
 	// override, so the configured levels resolve the model as they always did.
 	Model        string `json:"model,omitempty"`
 	WithComments bool   `json:"withComments,omitempty"`
+	// Force skips the duplicate-launch refusal, and only that. Mode, model and
+	// workspace checks still apply. It is reserved to the owner of the active
+	// run or to an admin, and it never closes the run it steps over.
+	Force bool `json:"force,omitempty"`
 }
 
 type RunSkillResponse struct {

@@ -1889,23 +1889,11 @@ func GenerateTaskBranchName(key, title string) string {
 	return fmt.Sprintf("%s-%s", cleanKey, slug)
 }
 
-// SanitizeBranchName removes characters illegal in git branch names.
+// SanitizeBranchName removes characters illegal in git branch names. The rule
+// itself lives in models: the agent needs it too, and the agent binary must not
+// link the database package.
 func SanitizeBranchName(branch string) string {
-	branch = strings.TrimSpace(branch)
-	var b strings.Builder
-	for _, r := range branch {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' || r == '.' {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('-')
-		}
-	}
-	res := b.String()
-	for strings.Contains(res, "--") {
-		res = strings.ReplaceAll(res, "--", "-")
-	}
-	res = strings.Trim(res, "-")
-	return res
+	return models.SanitizeBranchName(branch)
 }
 
 func (d *DB) EnsureTaskWorktree(mainRepoPath string, task *models.Task) (string, string, error) {

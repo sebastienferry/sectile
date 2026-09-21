@@ -896,6 +896,15 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		return
 	}
 	payload.ProjectID = config.ProjectID
+	// A branch derived from the task key exists only in this process until it is
+	// written back: the next launch would derive it again against a branch since
+	// assigned elsewhere and resolve a different tree. Recording it is a
+	// durability improvement, not a precondition, so a failure only gets logged.
+	if recorded := derivedBranchToRecord(config, task, branch); recorded != "" {
+		if patchErr := d.patchTask(ctx, taskRef, map[string]string{"branchName": recorded}); patchErr != nil {
+			log.Printf("[Agent] Could not record branch %s on task %s: %v", recorded, taskRef, patchErr)
+		}
+	}
 	payload.SkillID = models.NormalizeSkillID(payload.SkillID)
 	if payload.SkillID == "" && models.NormalizeSkillID(payload.Action) == "adjust" {
 		payload.SkillID = "adjust"
@@ -920,21 +929,8 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 			return
 		}
 		if models.CurrentPullRequest(task.PrLinks) != pr.URL {
-			raw, _ := json.Marshal(map[string]string{"prUrl": pr.URL})
-			req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.link.serverURL+"/api/tasks/"+url.PathEscape(taskRef), strings.NewReader(string(raw)))
-			if err != nil {
-				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
-				return
-			}
-			req.Header.Set("Content-Type", "application/json")
-			resp, err := agenthttp.Client(d.link.token).Do(req)
-			if err != nil {
-				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
-				return
-			}
-			resp.Body.Close()
-			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", "could not persist existing PR identity")
+			if patchErr := d.patchTask(ctx, taskRef, map[string]string{"prUrl": pr.URL}); patchErr != nil {
+				d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", patchErr.Error())
 				return
 			}
 		}
@@ -1097,4 +1093,42 @@ func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override strin
 		return d.terminal.app
 	}
 	return detectDefaultTerminal()
+}
+
+// derivedBranchToRecord returns the branch to write onto the task, or "" when
+// there is nothing to record. Only a branch derived here is written: a task
+// that already names one is left alone, and without worktrees the branch is
+// whatever the checkout happens to sit on, which is not the task's.
+func derivedBranchToRecord(config agentconfig.Config, task models.Task, branch string) string {
+	if !config.UseWorktrees || strings.TrimSpace(branch) == "" {
+		return ""
+	}
+	if task.BranchName != nil && strings.TrimSpace(*task.BranchName) != "" {
+		return ""
+	}
+	return branch
+}
+
+// patchTask writes a few task fields back to the server. It is the one place
+// the agent updates a task record, so a caller decides whether a failure is
+// fatal - persisting a PR identity is, recording a derived branch is not.
+func (d *agentDaemon) patchTask(ctx context.Context, taskRef string, fields map[string]string) error {
+	raw, err := json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, d.link.serverURL+"/api/tasks/"+url.PathEscape(taskRef), strings.NewReader(string(raw)))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := agenthttp.Client(d.link.token).Do(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("task update refused with status %d", resp.StatusCode)
+	}
+	return nil
 }

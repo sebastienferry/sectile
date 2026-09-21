@@ -25,7 +25,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><details id="advanced-credential"><summary>Advanced: connect with an API key instead</summary><label>API key<input name="token" type="password" autocomplete="off" placeholder="sectile_…"></label></details><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="detach-terminal" type="button" title="Detach to native terminal" hidden>Detach to native terminal</button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="detach-terminal" type="button" title="Detach to native terminal" hidden>Detach to native terminal</button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
@@ -39,6 +39,22 @@ let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
 const submittingSteps=new Set()
 const submittedSteps=new Map()
 const nextStepErrors=new Map()
+// Task keys whose last launch was refused because a run is already active on
+// them. Only that refusal is forceable, so the offer is keyed on the marker the
+// server puts in its body, never on the 409 status alone: a finished task and a
+// disconnected agent answer 409 too, and neither is overridable.
+const forceableLaunches=new Set()
+// The renderer sees the refusal as a message: the structured body crosses the
+// IPC bridge inside the error text. Reading the marker back means finding the
+// JSON object in it, and giving up quietly when there is none.
+function refusedActiveRun(message){
+ const start=String(message||'').indexOf('{')
+ if(start<0)return null
+ try{
+  const body=JSON.parse(String(message).slice(start,String(message).lastIndexOf('}')+1))
+  return body&&body.activeRunId?body:null
+ }catch{return null}
+}
 const taskTitles=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 const pullRequests=new Map()
@@ -1652,8 +1668,9 @@ function isFinishedTask(task){
 
 function currentTaskRun(){return runs.find(run=>run.id===selected)}
 function renderNextStep(){
- const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),markReviewed=document.querySelector('#mark-reviewed'),retry=document.querySelector('#retry-next-step')
+ const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),markReviewed=document.querySelector('#mark-reviewed'),retry=document.querySelector('#retry-next-step'),force=document.querySelector('#force-next-step')
  button.hidden=true;button.disabled=true;retry.hidden=true
+ if(force){force.hidden=true;force.disabled=true}
  if(markReviewed){markReviewed.hidden=true;markReviewed.disabled=true}
  if(!run){status.textContent='Select a task to see its next step';return}
  if(freeConsole(run)){status.textContent='Free agent console · '+(run.cancelRequested?'Stopping':run.status);return}
@@ -1668,6 +1685,7 @@ function renderNextStep(){
  const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?'Execution in progress':nextStepErrors.get(key)||step.message
  status.textContent=(nextStepData.task.key||run.taskKey||run.taskId)+' · '+step.stage+' · '+message
  if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
+ if(force&&step.skillId&&forceableLaunches.has(key)){force.hidden=false;force.disabled=busy||pending}
  if(markReviewed&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){
   markReviewed.hidden=false
   markReviewed.disabled=busy||pending
@@ -1696,26 +1714,35 @@ async function refreshNextStep(){
  if(generation===nextStepGeneration)renderNextStep()
 }
 document.querySelector('#retry-next-step').onclick=refreshNextStep
-document.querySelector('#next-step').onclick=async()=>{
+// force re-sends the very same launch with the duplicate check waived. It is
+// the only difference between the two buttons: everything else, from the
+// freshness recheck to the local busy guard, applies identically.
+async function launchNextStep(force){
  const run=currentTaskRun(),displayed=nextStepData
  if(!run||displayed?.key!==taskKey(run)||!displayed.step?.skillId)return
  const key=taskKey(run)
  if(submittingSteps.has(key)||submittedSteps.has(key)||runs.some(item=>taskKey(item)===key&&activeRun(item)))return
- nextStepGeneration++;nextStepErrors.delete(key);submittingSteps.add(key);renderNextStep()
+ nextStepGeneration++;nextStepErrors.delete(key);forceableLaunches.delete(key);submittingSteps.add(key);renderNextStep()
  try{
   const [fresh,latestRuns]=await Promise.all([readNextStep(run),api.runs()])
   if(taskKey(currentTaskRun()||{})!==key)return
   nextStepData=fresh
   if(fresh.step.skillId!==displayed.step.skillId||latestRuns.some(item=>taskKey(item)===key&&activeRun(item))){await refresh();return}
-  await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'')
+  await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'',undefined,force)
   submittedSteps.set(key,{skillId:fresh.step.skillId,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
    const launched=runs.find(item=>taskKey(item)===key&&!latestRuns.some(previous=>previous.id===item.id))
    if(launched)select(launched)
   }
- }catch(err){nextStepErrors.set(key,'Could not launch next step: '+err.message)}finally{submittingSteps.delete(key);renderNextStep()}
+ }catch(err){
+  const refusal=refusedActiveRun(err.message)
+  if(refusal){nextStepErrors.set(key,refusal.error||'A run is already active on this task.');forceableLaunches.add(key)}
+  else nextStepErrors.set(key,'Could not launch next step: '+err.message)
+ }finally{submittingSteps.delete(key);renderNextStep()}
 }
+document.querySelector('#next-step').onclick=()=>launchNextStep(false)
+document.querySelector('#force-next-step').onclick=()=>launchNextStep(true)
 document.querySelector('#mark-reviewed').onclick=()=>{
  const run=currentTaskRun()
  if(run&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){

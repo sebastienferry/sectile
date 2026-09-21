@@ -155,6 +155,23 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
+// describeActiveRun names the run that blocks a launch, and when it started,
+// so the refusal says what is already happening rather than that something is.
+func describeActiveRun(a *models.TaskActivity) string {
+	name := a.SkillName
+	if strings.TrimSpace(name) == "" {
+		name = a.SkillID
+	}
+	started := "an unknown time"
+	if a.StartedAt != nil {
+		started = a.StartedAt.Format(time.RFC3339)
+	}
+	if a.WaitingSince != nil {
+		return fmt.Sprintf("A run of %s started at %s is still active on this task, waiting for user input.", name, started)
+	}
+	return fmt.Sprintf("A run of %s started at %s is still active on this task.", name, started)
+}
+
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "sectile-api"})
 }
@@ -1802,6 +1819,30 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Task not found")
 			return
+		}
+
+		// A task already carrying an active run is busy: a second launch would
+		// start an agent in parallel on the same work. The check happens before
+		// anything is recorded, so a refused launch leaves no trace at all.
+		active, activeErr := h.db.ActiveRunOnTask(task.ID)
+		if activeErr != nil {
+			writeError(w, http.StatusInternalServerError, "Cannot check the task for an active run")
+			return
+		}
+		if active != nil {
+			if !req.Force {
+				writeJSON(w, http.StatusConflict, map[string]string{
+					"error":       describeActiveRun(active),
+					"activeRunId": active.ID,
+				})
+				return
+			}
+			// Forcing steps over another session's run, so it follows the rule
+			// cancel-run enforces: the owner, or an admin. The active run is
+			// left exactly as it is; force is not a cancellation.
+			if _, ok := h.requireOwnerOrAdmin(w, r, active.UserID); !ok {
+				return
+			}
 		}
 
 		projectID := "default"

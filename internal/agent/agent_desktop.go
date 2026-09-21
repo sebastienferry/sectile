@@ -734,6 +734,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Relaunch dialog. Empty means no override: the server's precedence
 		// still applies. The agent does not interpret it, it passes it on.
 		Mode string
+		// Force asks the server to skip its duplicate-launch refusal. As with
+		// Mode, the agent does not interpret it, it passes it on.
+		Force bool
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -764,7 +767,7 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown execution mode", 400)
 		return
 	}
-	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode})
+	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
