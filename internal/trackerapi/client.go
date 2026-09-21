@@ -175,6 +175,19 @@ func IsRateLimited(err error) bool {
 	return errors.As(err, &httpErr) && httpErr.Status == http.StatusTooManyRequests
 }
 
+// missingCredential says what to do when no token could be resolved.
+//
+// It names the personal credential, because that is how this product is meant
+// to be used: a tracker write is attributed to whoever made it, so each person
+// stores their own token (ADR 0014). The server-wide environment variable still
+// exists as a last resort for work no one asked for — the automatic
+// synchronisation timer has no acting user to resolve — but pointing a person
+// at it when their own credential is what is missing sends them to change a
+// deployment they usually cannot reach, to fix something they can.
+func missingCredential(tracker string) string {
+	return "no " + tracker + " credential: add yours in Profile → Tracker credentials"
+}
+
 // trackerToken resolves one provider's credential. The provider-specific variable
 // comes first so a deployment serving two trackers cannot hand one provider's
 // credential to another; the tracker-agnostic name covers the common
@@ -238,7 +251,7 @@ func (c *Client) request(ctx context.Context, method, endpoint, token string, pa
 
 func (c *Client) github(ctx context.Context, method, path string, payload, result any) error {
 	if c.GithubToken == "" {
-		return fmt.Errorf("configure %s on the server", genericTokenVar)
+		return fmt.Errorf("%s", missingCredential("GitHub"))
 	}
 	raw, _, err := c.request(ctx, method, c.GithubURL+"/"+strings.TrimLeft(path, "/"), "Bearer "+c.GithubToken, payload)
 	if err != nil {
@@ -252,7 +265,7 @@ func (c *Client) github(ctx context.Context, method, path string, payload, resul
 
 func (c *Client) githubPages(ctx context.Context, path string) ([]json.RawMessage, error) {
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("configure %s on the server", genericTokenVar)
+		return nil, fmt.Errorf("%s", missingCredential("GitHub"))
 	}
 	next := c.GithubURL + "/" + path
 	origin, err := url.Parse(c.GithubURL)
@@ -331,7 +344,7 @@ func repository(repo string) (string, error) {
 
 func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("configure %s on the server", genericTokenVar)
+		return nil, fmt.Errorf("%s", missingCredential("GitHub"))
 	}
 	endpoint := strings.TrimSuffix(c.GithubURL, "/api/v3") + "/graphql"
 	if strings.HasSuffix(c.GithubURL, "/api/v3") {

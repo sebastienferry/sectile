@@ -61,7 +61,7 @@ func (c *Client) jiraConfigured() error {
 	case c.JiraEmail == "":
 		return fmt.Errorf("configure the Jira account e-mail")
 	case c.JiraToken == "":
-		return fmt.Errorf("configure the Jira API token or %s on the server", genericTokenVar)
+		return fmt.Errorf("%s", missingCredential("Jira"))
 	}
 	return nil
 }
