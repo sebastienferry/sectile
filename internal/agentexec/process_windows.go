@@ -77,3 +77,18 @@ func StopControlled(cmd *exec.Cmd, force bool) {
 func DetachedSession() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
 }
+
+// Hidden keeps a command the agent runs for itself from opening a console window.
+// The desktop starts the agent detached, which on Windows means DETACHED_PROCESS:
+// the agent owns no console, so Windows allocates a fresh one — a visible, focus
+// stealing window — for every console child it starts. CREATE_NO_WINDOW says the
+// child needs no console of its own, which is true of anything whose output the
+// agent reads itself. The flag is OR-ed in, so a caller that already asked for its
+// own process group keeps it.
+func Hidden(cmd *exec.Cmd) *exec.Cmd {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
+	return cmd
+}

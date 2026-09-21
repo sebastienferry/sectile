@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"tasks/internal/agentexec"
 	"tasks/internal/agenthttp"
 
 	"tasks/internal/agentconfig"
@@ -133,7 +134,7 @@ func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string
 }
 
 func gitLocal(ctx context.Context, root string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	cmd := agentexec.Hidden(exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...))
 	raw, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(raw)))

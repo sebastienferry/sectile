@@ -8,12 +8,14 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"tasks/internal/agentexec"
 )
 
 // OpenBranchMergeRequestURL confirms an open PR for the current commit, rather
 // than accepting an old/closed PR or a URL mentioned in the agent's prose.
 func (r *Runner) OpenBranchMergeRequestURL(repoPath, branch string) string {
-	head, err := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD").Output()
+	head, err := agentexec.Hidden(exec.Command("git", "-C", repoPath, "rev-parse", "HEAD")).Output()
 	if err != nil || strings.TrimSpace(branch) == "" {
 		return ""
 	}
