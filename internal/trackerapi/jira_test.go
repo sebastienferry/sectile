@@ -137,8 +137,9 @@ func TestJiraRefusesToWorkWithoutCredentials(t *testing.T) {
 	c := site.client()
 	c.JiraToken = ""
 	_, err := NewJiraAdapter(c).GetIssue(context.Background(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
-	if err == nil || !strings.Contains(err.Error(), "token") {
-		t.Fatalf("expected a credential error, got %v", err)
+	// The caller wraps it, so the guidance has to be contained rather than equal.
+	if err == nil || !strings.Contains(err.Error(), missingCredential("Jira")) {
+		t.Fatalf("expected the credential error %q, got %v", missingCredential("Jira"), err)
 	}
 	if len(site.requests) != 0 {
 		t.Fatalf("no network call is allowed without credentials: %v", site.requests)
