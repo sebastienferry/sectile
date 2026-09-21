@@ -3889,7 +3889,10 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 			steps = append(steps, "4. Équipes : "+note)
 		}
 	}
-	if ts.Supports(tracker.CapBoard) && strings.TrimSpace(proj.BoardID) != "" {
+	// No board recorded yet is not a reason to skip: SyncProjectBoardColumns
+	// resolves the project's board itself and persists the one it retained, so
+	// the columns follow the tracker from the very first sync.
+	if ts.Supports(tracker.CapBoard) {
 		if note, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
 			steps = append(steps, fmt.Sprintf("⚠️ Board : %v", err))
 		} else {

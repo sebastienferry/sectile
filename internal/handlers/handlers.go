@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 	"time"
 
@@ -519,17 +520,46 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/projects/detected-statuses: live status detection for draft project
 	if id == "detected-statuses" && r.Method == http.MethodGet {
-		tracker := r.URL.Query().Get("tracker")
+		trackerName := r.URL.Query().Get("tracker")
 		repo := r.URL.Query().Get("repo")
 		repoPath := r.URL.Query().Get("repoPath")
 		projID := r.URL.Query().Get("projectId")
 
 		var statuses []string
+		// columns is filled only for a saved project on a tracker with boards:
+		// there, detection mirrors the board instead of inventing one column per
+		// status. detectErr travels with the payload so a failed read is shown
+		// rather than read as "no column".
+		var columns []models.TrackerColumn
+		detectErr := ""
 		if projID != "" {
 			statuses, _ = h.db.GetProjectTrackerStatuses(h.actingContext(r), projID)
+			cols, err := h.db.DetectProjectBoardColumns(h.actingContext(r), projID)
+			switch {
+			case tracker.IsUnsupported(err):
+				// A tracker without boards keeps the historical payload.
+			case err != nil:
+				detectErr = err.Error()
+			default:
+				columns = cols
+				// The palette must hold everything the board groups, even a
+				// status the project status list did not return.
+				seen := map[string]bool{}
+				for _, st := range statuses {
+					seen[strings.ToLower(st)] = true
+				}
+				for _, col := range cols {
+					for _, st := range col.Statuses {
+						if key := strings.ToLower(strings.TrimSpace(st)); key != "" && !seen[key] {
+							seen[key] = true
+							statuses = append(statuses, st)
+						}
+					}
+				}
+			}
 		} else {
 			dummyProj := &models.Project{
-				IssueTracker: tracker,
+				IssueTracker: trackerName,
 				GithubRepo:   repo,
 				RepoPath:     repoPath,
 			}
@@ -537,7 +567,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			_ = dummyProj
 			// Query tracker HTTP metadata for a draft project
 			seen := map[string]bool{}
-			if tracker == "github" {
+			if trackerName == "github" {
 				rRepo := models.CleanGithubRepo(repo)
 				if rRepo != "" {
 
@@ -619,7 +649,14 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				Name: s,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"statuses": result})
+		payload := map[string]interface{}{"statuses": result}
+		if columns != nil {
+			payload["columns"] = columns
+		}
+		if detectErr != "" {
+			payload["error"] = detectErr
+		}
+		writeJSON(w, http.StatusOK, payload)
 		return
 	}
 

@@ -26,7 +26,7 @@ const boardAPITimeout = 60 * time.Second
 func (d *DB) trackerReaderFor(projectID string) (tracker.TicketingSystem, *models.Project, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
-		return nil, nil, fmt.Errorf("projet non trouvé")
+		return nil, nil, fmt.Errorf("project not found")
 	}
 	ts, err := d.TrackerForProject(proj)
 	if err != nil {
@@ -81,13 +81,13 @@ func (d *DB) ListProjectIssueTypesAs(ctx context.Context, projectID string) ([]s
 }
 
 // ImportProjectBoardColumns retains a board for the project then refreshes from
-// it. Le bouton « Détecter » et la synchro doivent donner le même résultat, donc
-// les deux passent par la même fusion : elle préserve les statuts affectés à la
-// main et les colonnes masquées, et ramène les sprints avec leur état.
+// it. The "Detect" button and the sync must give the same result, so both go
+// through the same merge: it preserves the statuses assigned by hand and the
+// hidden columns, and brings the sprints back with their state.
 func (d *DB) ImportProjectBoardColumns(ctx context.Context, projectID string, boardID string) (*models.Project, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
-		return nil, fmt.Errorf("projet non trouvé")
+		return nil, fmt.Errorf("project not found")
 	}
 
 	boardID = strings.TrimSpace(boardID)
@@ -95,7 +95,7 @@ func (d *DB) ImportProjectBoardColumns(ctx context.Context, projectID string, bo
 		boardID = proj.BoardID
 	}
 	if boardID == "" {
-		return nil, fmt.Errorf("aucun board sélectionné")
+		return nil, fmt.Errorf("no board selected")
 	}
 
 	if boardID != proj.BoardID {
@@ -110,72 +110,107 @@ func (d *DB) ImportProjectBoardColumns(ctx context.Context, projectID string, bo
 	return d.GetProjectByID(proj.ID)
 }
 
-// GetProjectTrackerStatuses lists the tracker statuses actually seen on the
-// project's tickets, plus those already assigned to a column. The point is to
-// offer real values in the assignment UI rather than the instance's full status
-// list, most of which never appears on this project.
+// GetProjectTrackerStatuses lists the statuses the assignment UI can offer for a
+// project. The dispatch is on the tracker rather than on its name: GitHub
+// answers with its ProjectsV2 single-select options, any other tracker that has
+// boards answers with its own project-scoped status list, and a tracker with
+// neither notion answers nothing rather than failing.
 func (d *DB) GetProjectTrackerStatuses(ctx context.Context, projectID string) ([]string, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
-		return nil, fmt.Errorf("projet non trouvé")
+		return nil, fmt.Errorf("project not found")
 	}
 
+	if proj.IssueTracker == "github" {
+		return d.githubProjectStatuses(ctx, proj), nil
+	}
+
+	ts, err := d.TrackerForProject(proj)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapBoard) {
+		return []string{}, nil
+	}
+
+	statusCtx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+	// The failure is propagated rather than folded into an empty palette: an
+	// empty list and an unreachable tracker are not the same thing to read.
+	statuses, err := ts.ListStatuses(statusCtx, tracker.ProjectRequest{Project: proj})
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, st := range statuses {
+		name := strings.TrimSpace(st.Name)
+		if name == "" || seen[strings.ToLower(name)] {
+			continue
+		}
+		seen[strings.ToLower(name)] = true
+		out = append(out, name)
+	}
+	return out, nil
+}
+
+// githubProjectStatuses reads the ProjectsV2 single-select options of a GitHub
+// project, falling back to the two states an issue always has. It is the
+// historical body of GetProjectTrackerStatuses, unchanged.
+func (d *DB) githubProjectStatuses(ctx context.Context, proj *models.Project) []string {
 	seen := map[string]bool{}
 	out := []string{}
 
-	// If GitHub tracker, query GitHub ProjectsV2 columns / SingleSelectField options via GraphQL API
-	if proj.IssueTracker == "github" {
-		repo := models.CleanGithubRepo(proj.GithubRepo)
-		if repo != "" {
+	repo := models.CleanGithubRepo(proj.GithubRepo)
+	if repo != "" {
 
-			parts := strings.Split(repo, "/")
-			if len(parts) == 2 {
-				gqlQuery, _ := trackerapi.GithubStatusQuery(repo)
+		parts := strings.Split(repo, "/")
+		if len(parts) == 2 {
+			gqlQuery, _ := trackerapi.GithubStatusQuery(repo)
 
-				if output, err := d.trackerAs(tracker.ActingUser(ctx), "github", proj.ID).GithubGraphQL(gqlQuery); err == nil {
-					var gqlRes struct {
-						Data struct {
-							Repository struct {
-								ProjectsV2 struct {
-									Nodes []struct {
-										Fields struct {
-											Nodes []struct {
-												Name    string `json:"name"`
-												Options []struct {
-													Name string `json:"name"`
-												} `json:"options"`
-											} `json:"nodes"`
-										} `json:"fields"`
-									} `json:"nodes"`
-								} `json:"projectsV2"`
-							} `json:"repository"`
-							User struct {
-								ProjectsV2 struct {
-									Nodes []struct {
-										Fields struct {
-											Nodes []struct {
-												Name    string `json:"name"`
-												Options []struct {
-													Name string `json:"name"`
-												} `json:"options"`
-											} `json:"nodes"`
-										} `json:"fields"`
-									} `json:"nodes"`
-								} `json:"projectsV2"`
-							} `json:"user"`
-						} `json:"data"`
-					}
-					if json.Unmarshal(output, &gqlRes) == nil {
-						allProjects := append(gqlRes.Data.Repository.ProjectsV2.Nodes, gqlRes.Data.User.ProjectsV2.Nodes...)
-						for _, pNode := range allProjects {
-							for _, fNode := range pNode.Fields.Nodes {
-								if strings.EqualFold(fNode.Name, "Status") || strings.EqualFold(fNode.Name, "Statut") || len(fNode.Options) > 0 {
-									for _, opt := range fNode.Options {
-										name := strings.TrimSpace(opt.Name)
-										if name != "" && !seen[strings.ToLower(name)] {
-											seen[strings.ToLower(name)] = true
-											out = append(out, name)
-										}
+			if output, err := d.trackerAs(tracker.ActingUser(ctx), "github", proj.ID).GithubGraphQL(gqlQuery); err == nil {
+				var gqlRes struct {
+					Data struct {
+						Repository struct {
+							ProjectsV2 struct {
+								Nodes []struct {
+									Fields struct {
+										Nodes []struct {
+											Name    string `json:"name"`
+											Options []struct {
+												Name string `json:"name"`
+											} `json:"options"`
+										} `json:"nodes"`
+									} `json:"fields"`
+								} `json:"nodes"`
+							} `json:"projectsV2"`
+						} `json:"repository"`
+						User struct {
+							ProjectsV2 struct {
+								Nodes []struct {
+									Fields struct {
+										Nodes []struct {
+											Name    string `json:"name"`
+											Options []struct {
+												Name string `json:"name"`
+											} `json:"options"`
+										} `json:"nodes"`
+									} `json:"fields"`
+								} `json:"nodes"`
+							} `json:"projectsV2"`
+						} `json:"user"`
+					} `json:"data"`
+				}
+				if json.Unmarshal(output, &gqlRes) == nil {
+					allProjects := append(gqlRes.Data.Repository.ProjectsV2.Nodes, gqlRes.Data.User.ProjectsV2.Nodes...)
+					for _, pNode := range allProjects {
+						for _, fNode := range pNode.Fields.Nodes {
+							if strings.EqualFold(fNode.Name, "Status") || strings.EqualFold(fNode.Name, "Statut") || len(fNode.Options) > 0 {
+								for _, opt := range fNode.Options {
+									name := strings.TrimSpace(opt.Name)
+									if name != "" && !seen[strings.ToLower(name)] {
+										seen[strings.ToLower(name)] = true
+										out = append(out, name)
 									}
 								}
 							}
@@ -184,19 +219,19 @@ func (d *DB) GetProjectTrackerStatuses(ctx context.Context, projectID string) ([
 				}
 			}
 		}
+	}
 
-		// Standard GitHub states if no board columns were found
-		if len(out) == 0 {
-			for _, s := range []string{"open", "closed"} {
-				if !seen[s] {
-					seen[s] = true
-					out = append(out, s)
-				}
+	// Standard GitHub states if no board columns were found
+	if len(out) == 0 {
+		for _, s := range []string{"open", "closed"} {
+			if !seen[s] {
+				seen[s] = true
+				out = append(out, s)
 			}
 		}
 	}
 
-	return out, nil
+	return out
 }
 
 // MoveTaskToTrackerStatus records the new tracker status locally and queues the
@@ -262,6 +297,51 @@ func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, st
 	return updated, activity, nil
 }
 
+// resolveBoardID names the board that drives a project: the one it recorded, or
+// its first scrum board, which is the one carrying columns worth mirroring, or
+// failing that its first board at all. A project with no board is an error, not
+// an empty column list.
+func resolveBoardID(ctx context.Context, ts tracker.TicketingSystem, proj *models.Project) (string, error) {
+	if boardID := strings.TrimSpace(proj.BoardID); boardID != "" {
+		return boardID, nil
+	}
+	boards, err := ts.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+	if err != nil {
+		return "", err
+	}
+	for _, b := range boards {
+		if strings.EqualFold(b.Type, "scrum") {
+			return b.ID, nil
+		}
+	}
+	if len(boards) > 0 {
+		return boards[0].ID, nil
+	}
+	return "", fmt.Errorf("no board on project %s", proj.Name)
+}
+
+// DetectProjectBoardColumns reads the columns of the board that drives a project
+// without writing anything: it is what the "Detect" button mirrors into the
+// editor, where the user still decides whether to save them.
+func (d *DB) DetectProjectBoardColumns(ctx context.Context, projectID string) ([]models.TrackerColumn, error) {
+	ts, proj, err := d.trackerReaderFor(projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !ts.Supports(tracker.CapBoard) {
+		return nil, tracker.Unsupported(ts.Name(), tracker.CapBoard)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
+	defer cancel()
+
+	boardID, err := resolveBoardID(ctx, ts, proj)
+	if err != nil {
+		return nil, err
+	}
+	return ts.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
+}
+
 // SyncProjectBoardColumns refreshes a project's columns from its tracker board,
 // merging rather than overwriting: the column list and their order come from the
 // tracker, while the statuses a user assigned by hand to a column of the same
@@ -283,26 +363,9 @@ func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (str
 	ctx, cancel := context.WithTimeout(ctx, boardAPITimeout)
 	defer cancel()
 
-	boardID := strings.TrimSpace(proj.BoardID)
-	if boardID == "" {
-		// No board chosen yet: the first scrum board of the project is the one
-		// that carries columns worth mirroring.
-		boards, err := ts.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
-		if err != nil {
-			return "", err
-		}
-		for _, b := range boards {
-			if strings.EqualFold(b.Type, "scrum") {
-				boardID = b.ID
-				break
-			}
-		}
-		if boardID == "" && len(boards) > 0 {
-			boardID = boards[0].ID
-		}
-		if boardID == "" {
-			return "", fmt.Errorf("aucun board sur le projet %s", proj.Name)
-		}
+	boardID, err := resolveBoardID(ctx, ts, proj)
+	if err != nil {
+		return "", err
 	}
 
 	remote, err := ts.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
@@ -406,7 +469,7 @@ func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (str
 		return "", err
 	}
 
-	note := fmt.Sprintf("%d colonnes du board %s reprises", len(merged), boardID)
+	note := fmt.Sprintf("%d columns taken from board %s", len(merged), boardID)
 	if sprintErr == nil {
 		active := 0
 		for _, sp := range sprints {
@@ -414,7 +477,7 @@ func (d *DB) SyncProjectBoardColumns(ctx context.Context, projectID string) (str
 				active++
 			}
 		}
-		note = fmt.Sprintf("%s, %d sprints (%d actifs)", note, len(sprints), active)
+		note = fmt.Sprintf("%s, %d sprints (%d active)", note, len(sprints), active)
 	}
 	return note, nil
 }

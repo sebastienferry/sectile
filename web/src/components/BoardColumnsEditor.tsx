@@ -1,7 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Plus, X, ArrowUp, ArrowDown, RefreshCw, Kanban, Tag, GitPullRequest, Eye, EyeOff } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { Project, TrackerColumn, WorkflowStage } from '../types'
+import type { Project, TrackerBoard, TrackerColumn, WorkflowStage } from '../types'
+import {
+  mergeDetectedColumns,
+  pickBoardId,
+  pruneStageColumns,
+  type DetectedColumn,
+} from '../lib/boardColumns'
 
 /**
  * Éditeur des colonnes du board : des colonnes, les statuts du tracker qu'on y dépose,
@@ -46,12 +52,15 @@ export const BoardColumnsEditor: React.FC<Props> = ({
   githubRepo,
   repoPath,
 }) => {
-  const { fetchProjectTrackerStatuses, addToast } = useApp()
+  const { fetchProjectTrackerStatuses, listProjectBoards, importProjectBoardColumns, addToast } = useApp()
 
   const [statuses, setStatuses] = useState<string[]>([])
   const [newColumnName, setNewColumnName] = useState('')
   const [dragging, setDragging] = useState<DragPayload>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [boards, setBoards] = useState<TrackerBoard[]>([])
+  const [boardId, setBoardId] = useState('')
+  const [isImporting, setIsImporting] = useState(false)
 
   useEffect(() => {
     if (project?.id) {
@@ -60,6 +69,42 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       handleDetect()
     }
   }, [project?.id])
+
+  // Les boards du tracker : un tracker sans la notion répond une erreur, la
+  // liste reste vide et le sélecteur ne s'affiche pas.
+  useEffect(() => {
+    if (!project?.id) {
+      setBoards([])
+      return
+    }
+    let cancelled = false
+    listProjectBoards(project.id).then(found => {
+      if (cancelled) return
+      setBoards(found)
+      setBoardId(pickBoardId(found, project.boardId))
+    })
+    return () => { cancelled = true }
+  }, [project?.id])
+
+  // Retenir un board l'enregistre sur le projet et ramène ses colonnes : c'est
+  // le même import que « Détecter », côté serveur.
+  const handleBoardChange = async (nextBoardId: string) => {
+    if (!project?.id || !nextBoardId || nextBoardId === boardId) return
+    setBoardId(nextBoardId)
+    setIsImporting(true)
+    try {
+      const updated = await importProjectBoardColumns(project.id, nextBoardId)
+      if (!updated) {
+        setBoardId(pickBoardId(boards, project.boardId))
+        return
+      }
+      onColumnsChange(updated.trackerColumns || [])
+      onStageColumnsChange(updated.stageColumns || {})
+      setStatuses(await fetchProjectTrackerStatuses(project.id))
+    } finally {
+      setIsImporting(false)
+    }
+  }
 
   const assignedStatuses = useMemo(
     () => new Set(columns.flatMap(c => c.statuses.map(s => s.toLowerCase()))),
@@ -80,12 +125,47 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       if (repoPath) params.append('repoPath', repoPath)
 
       let detectedList: string[] = []
+      let detectedColumns: DetectedColumn[] = []
+      let detectionError = ''
       const res = await fetch(`/api/projects/detected-statuses?${params.toString()}`)
       if (res.ok) {
-        const data: { statuses: { name: string }[] } = await res.json()
+        const data: {
+          statuses: { name: string }[]
+          columns?: DetectedColumn[]
+          error?: string
+        } = await res.json()
         if (data.statuses) {
           detectedList = data.statuses.map(s => s.name)
         }
+        detectedColumns = data.columns || []
+        detectionError = data.error || ''
+      } else {
+        const errData = await res.json().catch(() => ({}))
+        detectionError = errData.error || `Détection refusée (${res.status})`
+      }
+
+      // Un tracker à board décrit ses colonnes : on les reprend telles quelles,
+      // dans son ordre, plutôt que d'inventer une colonne par statut.
+      if (detectedColumns.length > 0) {
+        setStatuses(detectedList)
+        const merged = mergeDetectedColumns(columns, detectedColumns)
+        onColumnsChange(merged)
+        onStageColumnsChange(pruneStageColumns(stageColumns, merged))
+        addToast({
+          type: 'success',
+          title: 'Colonnes du board reprises',
+          description: `${merged.length} colonne(s) depuis le board distant.`,
+        })
+        return
+      }
+
+      if (detectionError) {
+        addToast({
+          type: 'error',
+          title: 'Détection impossible',
+          description: detectionError,
+        })
+        return
       }
 
       if (detectedList.length > 0) {
@@ -273,6 +353,27 @@ export const BoardColumnsEditor: React.FC<Props> = ({
           <span>{isDetecting ? 'Détection...' : 'Détecter les statuts'}</span>
         </button>
       </div>
+
+      {boards.length > 0 && (
+        <div className="flex items-center gap-2">
+          <label className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] shrink-0">
+            Board du tracker
+          </label>
+          <select
+            value={boardId}
+            disabled={isImporting}
+            onChange={e => handleBoardChange(e.target.value)}
+            className="flex-1 px-2 py-1 text-xs rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] disabled:opacity-50 cursor-pointer"
+            title="Board dont les colonnes sont reprises"
+          >
+            {boards.map(b => (
+              <option key={b.id} value={b.id}>
+                {b.name}{b.type ? ` (${b.type})` : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <p className="text-[10px] text-[var(--text-muted)] -mt-1">
         Les colonnes sont détectées à chaque synchro. Glisse un statut du tracker ou une étape du workflow dans une colonne ; un statut n'appartient qu'à une colonne, une étape peut en viser plusieurs.

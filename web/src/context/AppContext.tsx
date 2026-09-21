@@ -2771,11 +2771,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
 
   const fetchProjectTrackerStatuses = async (projectId: string): Promise<string[]> => {
+    // Une palette vide et un tracker injoignable ne se lisent pas pareil : la
+    // liste reste vide, mais l'échec est dit plutôt qu'avalé.
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/tracker-statuses`)
-      if (!res.ok) return []
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || 'Statuts du tracker indisponibles')
+      }
       return (await res.json()) || []
-    } catch {
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Statuts du tracker', description: err.message })
       return []
     }
   }

@@ -23,8 +23,12 @@ type fakeTracker struct {
 	tasks   []models.Task
 	boards  []models.TrackerBoard
 	columns []models.TrackerColumn
-	sprints []models.TrackerSprint
-	members map[string][]models.TeamMember
+	// statuses is what the project's workflows expose, a superset of what the
+	// board groups: the palette is fed from there.
+	statuses  []tracker.TrackerStatus
+	statusErr error
+	sprints   []models.TrackerSprint
+	members   map[string][]models.TeamMember
 	// memberErr makes the members endpoint fail, which must not fail a sync.
 	memberErr error
 	calls     []string
@@ -144,6 +148,14 @@ func (f *fakeTracker) ListBoards(ctx context.Context, req tracker.BoardsRequest)
 func (f *fakeTracker) ListBoardColumns(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerColumn, error) {
 	f.record("columns")
 	return f.columns, nil
+}
+
+func (f *fakeTracker) ListStatuses(ctx context.Context, req tracker.ProjectRequest) ([]tracker.TrackerStatus, error) {
+	f.record("statuses")
+	if f.statusErr != nil {
+		return nil, f.statusErr
+	}
+	return f.statuses, nil
 }
 
 func (f *fakeTracker) ListSprints(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerSprint, error) {
