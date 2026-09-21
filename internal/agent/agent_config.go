@@ -244,6 +244,12 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if overrides.Terminal != "" {
 		local.Terminal = overrides.Terminal
 	}
+	if local.Terminals == nil {
+		local.Terminals = map[string]string{}
+	}
+	for id, terminal := range overrides.Terminals {
+		local.Terminals[id] = terminal
+	}
 	if local.Skills == nil {
 		local.Skills = map[string]string{}
 	}
@@ -298,12 +304,14 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 		return "", "", err
 	}
 	// A task may already own the main checkout, including its uncommitted work.
-	// Git cannot check out that branch again in a new worktree.
+	// Git cannot check out that branch again in a new worktree, whether the task
+	// carries the branch name or the branch was derived from its key: only the
+	// branch the checkout sits on matters.
 	current, err := gitLocal(ctx, root, "branch", "--show-current")
 	if err != nil {
 		return "", "", err
 	}
-	if task.BranchName != nil && strings.TrimSpace(*task.BranchName) != "" && current == branch {
+	if current == branch {
 		return root, branch, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {

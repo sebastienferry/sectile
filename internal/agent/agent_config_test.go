@@ -91,6 +91,28 @@ func TestLocalWorktreeReusesAssignedMainCheckout(t *testing.T) {
 	}
 }
 
+// A task whose branch the server never named still resolves to a branch derived
+// from its key. When the main checkout already sits on it, git refuses a second
+// worktree and the dispatch used to fail before a console ever existed.
+func TestLocalWorktreeReusesMainCheckoutForDerivedBranch(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, args := range [][]string{{"init", "-b", "feat/281"}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial"}} {
+		if _, err := gitLocal(ctx, root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, task := range []models.Task{{Key: "#281"}, {Key: "#281", BranchName: new(string)}} {
+		workDir, got, err := ensureLocalWorktree(ctx, root, task, true)
+		if err != nil || workDir != root || got != "feat/281" {
+			t.Fatalf("derived branch not reused: %s %s %v", workDir, got, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, ".tasks", "worktrees", "#281")); !os.IsNotExist(err) {
+			t.Fatalf("unexpected duplicate worktree: %v", err)
+		}
+	}
+}
+
 func TestGatewayForwardsMCPAndOwnCredential(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer daemon-token" {

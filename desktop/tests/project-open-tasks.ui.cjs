@@ -159,7 +159,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   const more=page.getByRole('button',{name:'More actions for #1',exact:true})
   await more.click()
   await expect(more).toHaveAttribute('aria-expanded','true')
-  assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Custom instructions…'])
+  assert.deepEqual(await page.getByRole('menuitem').allTextContents(),['Pickup (full chain)','clarify','specify','Discussion (no skill)','Discussion in native terminal','Custom instructions…'])
   await page.getByRole('menuitem',{name:'Pickup (full chain)',exact:true}).click()
   await expect.poll(()=>launches.length).toBe(2)
   assert.deepEqual(launches.at(-1),{project:'project-b',taskID:'b1',skillID:'pickup',prompt:''})
