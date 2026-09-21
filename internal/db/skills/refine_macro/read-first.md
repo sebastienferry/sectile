@@ -1,0 +1,3 @@
+- The macro title and framing description.
+- The active project SDD framework (SpecKit or OpenSpec).
+- Existing macro todos and child tasks to avoid duplicating completed work.

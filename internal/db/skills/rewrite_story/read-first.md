@@ -1,0 +1,2 @@
+- The task: title, description, and task comments (if requested or passed as context).
+- Standard GitHub-Flavored Markdown (GFM) formatting guidelines.

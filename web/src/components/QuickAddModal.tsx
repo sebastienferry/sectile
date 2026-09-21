@@ -210,11 +210,35 @@ export const QuickAddModal: React.FC = () => {
                 onChange={e => handleProjectChange(e.target.value)}
                 className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
               >
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
+                {(() => {
+                  const bookmarked = projects.filter(p => p.bookmarked)
+                  const others = projects.filter(p => !p.bookmarked)
+                  if (bookmarked.length > 0 && others.length > 0) {
+                    return (
+                      <>
+                        <optgroup label="Favoris">
+                          {bookmarked.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Autres projets">
+                          {others.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      </>
+                    )
+                  }
+                  return projects.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))
+                })()}
               </select>
             </div>
           )}

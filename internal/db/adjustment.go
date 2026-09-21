@@ -92,7 +92,7 @@ func (d *DB) validateStagePR(task *models.Task, actorID, skillID, repoPath, bran
 		Branch string
 		Clean  bool
 	}
-	if err = d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_evidence"}, &evidence); err != nil {
+	if err = d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_evidence", UserID: actorID}, &evidence); err != nil {
 		return "", err
 	}
 	if evidence.Branch != branch || evidence.SHA != pr.SHA {

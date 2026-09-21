@@ -2,7 +2,9 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -301,5 +303,292 @@ func TestLaunchAdmissionOfReservedSkills(t *testing.T) {
 		if launchableSkill(config, skillID, "") {
 			t.Fatalf("accepted %q without instructions", skillID)
 		}
+	}
+}
+
+func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
+		if _, err := gitLocal(context.Background(), root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	settings := agentconfig.Overrides{Projects: map[string]string{"p": root}}
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
+			json.NewEncoder(w).Encode(agentconfig.Config{
+				SchemaVersion:     agentconfig.Version,
+				ProjectID:         "p",
+				GitRemoteURL:      "https://example.test/project.git",
+				AIProvider:        "agy",
+				AIModel:           "server-model",
+				AICommandTemplate: "server-cmd {prompt}",
+			})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/projects/") {
+			json.NewEncoder(w).Encode(models.Project{
+				ID:       "p",
+				Name:     "Project P",
+				MonoRepo: false,
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	d := &agentDaemon{
+		repoRoot: root,
+		loopback: loopbackServer{desktopToken: "private"},
+		link:     serverLink{serverURL: srv.URL, projectID: "p"},
+	}
+
+	doReq := func(method, path string, body any) *httptest.ResponseRecorder {
+		var r *http.Request
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			r = httptest.NewRequest(method, path, bytes.NewReader(raw))
+		} else {
+			r = httptest.NewRequest(method, path, nil)
+		}
+		r.Header.Set("Authorization", "Bearer private")
+		w := httptest.NewRecorder()
+		d.desktopHandler(w, r)
+		return w
+	}
+
+	// 1. Initial GET /desktop/project?id=p should return server defaults and false override flags
+	w := doReq("GET", "/desktop/project?id=p", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+	}
+	var projResp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
+		t.Fatal(err)
+	}
+	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "server-model" {
+		t.Fatalf("unexpected provider/model: %v / %v", projResp["aiProvider"], projResp["aiModel"])
+	}
+	if projResp["aiProviderOverride"] != false || projResp["aiModelOverride"] != false {
+		t.Fatalf("expected false override flags: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
+	}
+
+	// 2. Validation rejections
+	// 2a. Invalid model
+	w = doReq("POST", "/desktop/projects", map[string]any{
+		"projectId":  "p",
+		"path":       root,
+		"aiModel":    "invalid model; rm -rf /",
+		"aiProvider": "claude",
+	})
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for invalid model, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 2b. Invalid provider
+	w = doReq("POST", "/desktop/projects", map[string]any{
+		"projectId":  "p",
+		"path":       root,
+		"aiProvider": "unknown-provider",
+	})
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for invalid provider, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 2c. Custom provider without {prompt} in command
+	w = doReq("POST", "/desktop/projects", map[string]any{
+		"projectId":         "p",
+		"path":              root,
+		"aiProvider":        "custom",
+		"aiCommandTemplate": "custom command without prompt slot",
+	})
+	if w.Code != 400 {
+		t.Fatalf("expected 400 for custom provider without prompt, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Verify disk settings untouched after validation failures
+	s, _ := agentconfig.ReadSettings(root)
+	if len(s.AIProviders) != 0 || len(s.AIModels) != 0 {
+		t.Fatalf("settings mutated after validation failure: %+v", s)
+	}
+
+	// 3. Valid POST /desktop/projects sets overrides
+	w = doReq("POST", "/desktop/projects", map[string]any{
+		"projectId":  "p",
+		"path":       root,
+		"aiProvider": "claude",
+		"aiModel":    "claude-opus-5",
+	})
+	if w.Code != 204 {
+		t.Fatalf("POST /desktop/projects returned %d: %s", w.Code, w.Body.String())
+	}
+
+	s, _ = agentconfig.ReadSettings(root)
+	if s.AIProviders["p"] != "claude" || s.AIModels["p"] != "claude-opus-5" {
+		t.Fatalf("overrides not persisted: %+v", s)
+	}
+
+	// GET /desktop/project?id=p should reflect overrides
+	w = doReq("GET", "/desktop/project?id=p", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+	}
+	projResp = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
+		t.Fatal(err)
+	}
+	if projResp["aiProvider"] != "claude" || projResp["aiModel"] != "claude-opus-5" {
+		t.Fatalf("unexpected provider/model after override: %v / %v", projResp["aiProvider"], projResp["aiModel"])
+	}
+	if projResp["aiProviderOverride"] != true || projResp["aiModelOverride"] != true {
+		t.Fatalf("expected true override flags: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
+	}
+
+	// 4. Inherit resets provider and model to server defaults
+	w = doReq("POST", "/desktop/projects", map[string]any{
+		"projectId":         "p",
+		"path":              root,
+		"inheritAiProvider": true,
+		"inheritAiModel":    true,
+	})
+	if w.Code != 204 {
+		t.Fatalf("POST /desktop/projects inherit returned %d: %s", w.Code, w.Body.String())
+	}
+
+	s, _ = agentconfig.ReadSettings(root)
+	if len(s.AIProviders) != 0 || len(s.AIModels) != 0 {
+		t.Fatalf("overrides not deleted after inherit: %+v", s)
+	}
+
+	// GET /desktop/project?id=p should reflect server defaults again
+	w = doReq("GET", "/desktop/project?id=p", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+	}
+	projResp = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
+		t.Fatal(err)
+	}
+	if projResp["aiProvider"] != "agy" || projResp["aiModel"] != "server-model" {
+		t.Fatalf("unexpected provider/model after reset: %v / %v", projResp["aiProvider"], projResp["aiModel"])
+	}
+	if projResp["aiProviderOverride"] != false || projResp["aiModelOverride"] != false {
+		t.Fatalf("expected false override flags after reset: %v / %v", projResp["aiProviderOverride"], projResp["aiModelOverride"])
+	}
+}
+
+func TestDesktopTaskTransitionAndCapabilities(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+
+	var forwardedBody map[string]string
+	var forwardedPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
+			_ = json.NewEncoder(w).Encode(agentconfig.Config{
+				SchemaVersion: agentconfig.Version,
+				ProjectID:     "project-1",
+			})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/tasks/") && strings.HasSuffix(r.URL.Path, "/stage") && r.Method == http.MethodPost {
+			forwardedPath = r.URL.Path
+			_ = json.NewDecoder(r.Body).Decode(&forwardedBody)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"success":true,"stage":"reviewed"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	d := &agentDaemon{
+		repoRoot: root,
+		loopback: loopbackServer{desktopToken: "private"},
+		link:     serverLink{serverURL: srv.URL, token: "device-token"},
+	}
+
+	doReq := func(method, path string, body any) *httptest.ResponseRecorder {
+		var rdr io.Reader
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			rdr = bytes.NewReader(raw)
+		}
+		req := httptest.NewRequest(method, path, rdr)
+		req.Header.Set("Authorization", "Bearer private")
+		w := httptest.NewRecorder()
+		d.desktopHandler(w, req)
+		return w
+	}
+
+	// 1. GET /desktop/status includes "transition-stage" capability
+	statusResp := doReq("GET", "/desktop/status", nil)
+	if statusResp.Code != http.StatusOK {
+		t.Fatalf("GET /desktop/status returned %d: %s", statusResp.Code, statusResp.Body.String())
+	}
+	var statusData struct {
+		Capabilities []string `json:"capabilities"`
+	}
+	if err := json.Unmarshal(statusResp.Body.Bytes(), &statusData); err != nil {
+		t.Fatal(err)
+	}
+	hasTransitionStage := false
+	for _, cap := range statusData.Capabilities {
+		if cap == "transition-stage" {
+			hasTransitionStage = true
+			break
+		}
+	}
+	if !hasTransitionStage {
+		t.Fatalf("expected transition-stage capability, got %v", statusData.Capabilities)
+	}
+
+	// 2. Validation failures (400 Bad Request)
+	// Missing taskId
+	w := doReq("POST", "/desktop/tasks/transition?projectId=project-1", map[string]string{
+		"stage": "reviewed",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing taskId, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Missing stage
+	w = doReq("POST", "/desktop/tasks/transition?projectId=project-1", map[string]string{
+		"taskId": "task-abc",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing stage, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// Missing projectId
+	w = doReq("POST", "/desktop/tasks/transition", map[string]string{
+		"taskId": "task-abc",
+		"stage":  "reviewed",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for missing projectId, got %d: %s", w.Code, w.Body.String())
+	}
+
+	// 3. Valid transition request succeeds and forwards to server
+	w = doReq("POST", "/desktop/tasks/transition?projectId=project-1", map[string]string{
+		"taskId": "task-abc",
+		"stage":  "reviewed",
+		"note":   "Code declared as reviewed from desktop app",
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid transition, got %d: %s", w.Code, w.Body.String())
+	}
+	if forwardedPath != "/api/tasks/task-abc/stage" {
+		t.Fatalf("expected forwarded path /api/tasks/task-abc/stage, got %s", forwardedPath)
+	}
+	if forwardedBody["stage"] != "reviewed" || forwardedBody["note"] != "Code declared as reviewed from desktop app" {
+		t.Fatalf("unexpected forwarded payload: %v", forwardedBody)
 	}
 }

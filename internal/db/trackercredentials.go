@@ -154,7 +154,16 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 	client := d.tracker("")
 	switch strings.ToLower(strings.TrimSpace(trackerName)) {
 	case "github":
-		return client.CheckGithub(ctx, firstNonEmpty(apiURL, client.GithubURL), firstNonEmpty(token, client.GithubToken))
+		site, own := "", ""
+		if user := tracker.ActingUser(ctx); user != "" {
+			var err error
+			if site, _, own, err = d.UserTrackerCredentialsFor(user, "github"); err != nil {
+				return "", err
+			}
+		}
+		return client.CheckGithub(ctx,
+			firstNonEmpty(apiURL, site, client.GithubURL),
+			firstNonEmpty(token, own, client.GithubToken))
 	case "gitlab":
 		return client.CheckGitlab(ctx, firstNonEmpty(apiURL, client.GitlabURL), firstNonEmpty(token, client.GitlabToken))
 	case "jira":

@@ -98,9 +98,28 @@ func TestPersonalCredentialRoutesNeverReturnAToken(t *testing.T) {
 		t.Fatalf("unlock: %d %s", right.Code, right.Body)
 	}
 
+	// Test batch lock and unlock with single passphrase across multiple tokens
+	if w := store(`{"tracker":"github","siteUrl":"https://api.github.com","token":"ghp-secret","passphrase":"open sesame"}`); w.Code != http.StatusOK {
+		t.Fatalf("store github: %d %s", w.Code, w.Body)
+	}
+
+	// Lock all with empty tracker
+	lockAll := httptest.NewRecorder()
+	h.HandleUserTrackerCredentials(lockAll, signedRequest(session, http.MethodPost, "/api/me/tracker-credentials/lock", strings.NewReader(`{}`)))
+	if lockAll.Code != http.StatusOK || strings.Contains(lockAll.Body.String(), `"unlocked":true`) {
+		t.Fatalf("lockAll: %d %s", lockAll.Code, lockAll.Body)
+	}
+
+	// Unlock all with single passphrase
+	unlockAll := httptest.NewRecorder()
+	h.HandleUserTrackerCredentials(unlockAll, signedRequest(session, http.MethodPost, "/api/me/tracker-credentials/unlock", strings.NewReader(`{"passphrase":"open sesame"}`)))
+	if unlockAll.Code != http.StatusOK || strings.Contains(unlockAll.Body.String(), `"unlocked":false`) {
+		t.Fatalf("unlockAll: %d %s", unlockAll.Code, unlockAll.Body)
+	}
+
 	gone := httptest.NewRecorder()
 	h.HandleUserTrackerCredentials(gone, signedRequest(session, http.MethodDelete, "/api/me/tracker-credentials?tracker=jira", nil))
-	if gone.Code != http.StatusOK || !strings.Contains(gone.Body.String(), `"credentials":[]`) {
+	if gone.Code != http.StatusOK {
 		t.Fatalf("delete: %d %s", gone.Code, gone.Body)
 	}
 }

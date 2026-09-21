@@ -7,9 +7,10 @@ import type { AIProvider, Project, UserSettings } from '../types'
  * Engines that take no model flag are absent on purpose.
  */
 export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, string[]>> = {
-  claude: ['claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
+  claude: ['claude-fable-5-1', 'claude-fable-5', 'claude-fable', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5'],
   codex: ['gpt-5-codex', 'gpt-5', 'o4-mini'],
-  gemini: ['gemini-2.5-pro', 'gemini-2.5-flash'],
+  agy: ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-3.8', 'gemini-3.0-pro', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+  gemini: ['gemini-3.8-pro', 'gemini-3.8-flash', 'gemini-3.8', 'gemini-3.0-pro', 'gemini-2.5-pro', 'gemini-2.5-flash'],
   cursor: ['auto', 'claude-sonnet-5', 'gpt-5'],
 }
 
@@ -66,6 +67,7 @@ export function taskProvider(
  * hors de cette table garde ses quatre premiers caractères distinctifs.
  */
 const SHORT_MODEL_NAMES: Record<string, string> = {
+  fable: 'FABL',
   opus: 'OPUS',
   sonnet: 'SONN',
   haiku: 'HAIK',
@@ -105,7 +107,7 @@ export function shortModelLabel(model: string): string {
 
 /** Engines Sectile passes `--model` to. The others ignore a configured model. */
 export function providerTakesModel(provider?: AIProvider | ''): boolean {
-  return provider === 'claude' || provider === 'codex' || provider === 'gemini' || provider === 'cursor'
+  return provider === 'claude' || provider === 'codex' || provider === 'gemini' || provider === 'cursor' || provider === 'agy'
 }
 
 /**

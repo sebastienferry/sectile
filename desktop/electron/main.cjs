@@ -204,6 +204,14 @@ ipcMain.handle('create-task',async(_,input)=>{
  if(!status.capabilities?.includes('create-task'))throw Error('The running local agent is outdated. Stop it, then start the rebuilt agent before creating a task. Closing the desktop alone does not restart the agent.')
  return api('/desktop/create-task','POST',input)
 })
+ipcMain.handle('transition-stage',async(_,{projectId,taskId,stage,note})=>{
+ if(!projectId||!taskId||!stage)throw Error('Project, task, and stage required')
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('transition-stage')){
+  throw Error('The running local agent does not support stage transitions. Update and restart the agent.')
+ }
+ return api('/desktop/tasks/transition?projectId='+encodeURIComponent(projectId),'POST',{taskId,stage,note})
+})
 ipcMain.handle('project',(_,id)=>api('/desktop/project?id='+encodeURIComponent(id)))
 ipcMain.handle('deploy-project',(_,id,action)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))
@@ -257,7 +265,7 @@ function openWindow(){
  // painted over it in the app's colours. macOS keeps its traffic lights, positioned to sit centred
  // in that 68px header. The renderer asks the overlay itself where the buttons ended up, so the
  // header can keep their strip clear whatever the platform draws.
- window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',titleBarStyle:'hidden',titleBarOverlay:{color:'#11151c',symbolColor:'#d8e0ec',height:68},trafficLightPosition:{x:18,y:25},webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
+ window=new BrowserWindow({show:process.env.SECTILE_DESKTOP_TEST!=='1',width:1240,height:820,minWidth:800,minHeight:500,backgroundColor:'#11151c',title:'Sectile Desktop',titleBarStyle:'hidden',titleBarOverlay:{color:'#11151c',symbolColor:'#d8e0ec',height:68},trafficLightPosition:{x:18,y:25},icon:path.join(__dirname,'../assets/icon.png'),webPreferences:{preload:path.join(__dirname,'preload.cjs'),nodeIntegration:false,contextIsolation:true,sandbox:true}})
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))
@@ -265,8 +273,12 @@ function openWindow(){
 }
 if(!app.requestSingleInstanceLock())app.quit()
 else{
+ if(process.platform==='darwin'&&app.dock)app.dock.setIcon(path.join(__dirname,'../assets/icon.png'))
  app.on('second-instance',openWindow)
- app.whenReady().then(openWindow)
+ app.whenReady().then(()=>{
+  if(process.platform==='darwin'&&app.dock)app.dock.setIcon(path.join(__dirname,'../assets/icon.png'))
+  openWindow()
+ })
  app.on('activate',openWindow)
  // The detached agent and its PTYs survive closing or quitting this UI.
  app.on('window-all-closed',()=>app.quit())

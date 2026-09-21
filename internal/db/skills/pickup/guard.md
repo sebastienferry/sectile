@@ -1,0 +1,3 @@
+- Do not merge into the default branch (merging is reserved for the human user).
+- Do not push or open a PR if the test suite is failing.
+- Follow the managed or standalone transition contract for the invocation.

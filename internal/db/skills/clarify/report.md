@@ -1,0 +1,5 @@
+- The report path: docs/clarifications/<n>.md.
+- Current round number and whether the exit condition was met.
+- Settled decisions and reversed assumptions.
+- Numbered open questions (if any) and who is expected to answer them.
+- Stage transition status (applied or blocked awaiting answers).

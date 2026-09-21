@@ -1,0 +1,5 @@
+1. Reuse the assigned worktree and branch. Inspect the complete diff and verify the target repository and base branch.
+2. Run git fetch origin and reconcile the remote default branch (for example origin/main). Do not publish while behind the remote default branch. Preserve shared history; prefer rebase when the branch is private, and use git push --force-with-lease only when an authorized private-branch rebase requires it. Run the repository's required build, lint and tests. Fix findings before publishing and record the results.
+3. Commit and push the authorized changes. Look up the matching open PR for this branch before creating one; reuse it if present.
+4. Create a draft PR if none exists, or update the existing PR description with the final scope and validation. Preserve its existing draft/ready state.
+5. Verify the remote PR URL and head commit. Report the PR URL and evidence without transitioning the task.

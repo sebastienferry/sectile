@@ -1,0 +1,5 @@
+## Session title
+- As soon as the {{.Item}} is identified, and before doing the work, rename the current session to `<{{.Item}} ID> - <{{.Item}} title>`, for example `#47 - Remove the parallelism setting`. Keep that title for the whole run.
+{{if eq .ID "pickup_issues"}}- For a batch, name the session after the first ticket followed by the remaining count, for example `#47 (+2) - Remove the parallelism setting`.
+{{end}}- This applies to every agent, not only Claude Code: use whatever session renaming capability the running agent exposes, be it a session title tool, a rename command or the host session API. Discover it from the session context instead of assuming a name.
+- If no renaming capability is available, skip the rename silently and continue. It never blocks, delays or replaces the work of the skill.

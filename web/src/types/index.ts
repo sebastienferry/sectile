@@ -246,6 +246,7 @@ export interface Project {
   /** Tracker project URL, or the Jira base URL (e.g. https://acme.atlassian.net). */
   trackerUrl?: string
   isDefault: boolean
+  bookmarked?: boolean
   taskCount?: number
   skillOverrides?: Record<string, string>
   setupProviders?: string[]
@@ -609,7 +610,9 @@ export interface UserSettings {
   promptClarify: string
   promptSpecify: string
   promptImplement: string
-  promptCreatePr: string
+  promptAdjust: string
+  promptHandoff: string
+  promptCreatePr?: string
   promptPick: string
   editorCommand: string
   /** Commande ou nom de l'application de terminal externe (ex: "Terminal", "iTerm", "Ghostty"). */

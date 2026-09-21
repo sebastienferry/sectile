@@ -103,6 +103,7 @@ func TestOnlyIntendedPathsBypassTheSessionGuard(t *testing.T) {
 		// tracker credential is the last thing that should answer without a
 		// session.
 		"/api/me/tracker-credentials", "/api/me/tracker-credentials/unlock",
+		"/api/me/project-bookmarks",
 		// Both probes are matched exactly: nothing below them is public.
 		"/api/health/details",
 	}

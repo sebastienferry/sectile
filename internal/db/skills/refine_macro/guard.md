@@ -1,0 +1,3 @@
+- Do not generate tasks blindly when framing text is vague without asking clarification questions.
+- Do not overwrite existing todos or tasks without user confirmation in the UI.
+- Do not mutate external tracker issues directly without user trigger.

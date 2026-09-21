@@ -20,6 +20,8 @@ type Overrides struct {
 	Parallelism                 map[string]int    `json:"parallelism,omitempty"`
 	Worktrees                   map[string]bool   `json:"worktrees,omitempty"`
 	Projects                    map[string]string `json:"projects"`
+	AIProviders                 map[string]string `json:"aiProviders,omitempty"`
+	AIModels                    map[string]string `json:"aiModels,omitempty"`
 	AIProvider                  string            `json:"aiProvider"`
 	AICommandTemplate           string            `json:"aiCommandTemplate"`
 	AICommandTemplateAutonomous string            `json:"aiCommandTemplateAutonomous,omitempty"`
@@ -60,6 +62,13 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 		}
 		c.AIProvider = overrides.AIProvider
 	}
+	if projectProvider, ok := overrides.AIProviders[c.ProjectID]; ok && projectProvider != "" {
+		if projectProvider != c.AIProvider && overrides.AICommandTemplate == "" && overrides.Commands[c.ProjectID] == "" {
+			c.AICommandTemplate = ""
+			c.AICommandTemplateAutonomous = ""
+		}
+		c.AIProvider = projectProvider
+	}
 	if overrides.AICommandTemplate != "" {
 		c.AICommandTemplate = overrides.AICommandTemplate
 	}
@@ -69,7 +78,11 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 	if overrides.Terminal != "" {
 		c.ExternalTerminalCommand = overrides.Terminal
 	}
-	models := MergeModels(ModelConfig{Model: overrides.AIModel, SkillModels: overrides.AISkillModels}, c.Models())
+	model := overrides.AIModel
+	if projectModel, ok := overrides.AIModels[c.ProjectID]; ok && strings.TrimSpace(projectModel) != "" {
+		model = projectModel
+	}
+	models := MergeModels(ModelConfig{Model: model, SkillModels: overrides.AISkillModels}, c.Models())
 	c.AIModel, c.AISkillModels = models.Model, models.SkillModels
 	for i := range c.Skills {
 		id := c.Skills[i].ID

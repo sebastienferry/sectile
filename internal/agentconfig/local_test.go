@@ -237,3 +237,70 @@ func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
 		t.Fatal("creation override changed Adjust")
 	}
 }
+
+func TestProjectAIProviderAndModelOverrides(t *testing.T) {
+	c1 := Config{
+		ProjectID:         "p1",
+		AIProvider:        "agy",
+		AIModel:           "server-base-model",
+		AICommandTemplate: "agy {prompt}",
+	}
+	c2 := Config{
+		ProjectID:         "p2",
+		AIProvider:        "agy",
+		AIModel:           "server-base-model",
+		AICommandTemplate: "agy {prompt}",
+	}
+	overrides := Overrides{
+		AIProvider: "gemini",
+		AIModel:    "gemini-pro",
+		AIProviders: map[string]string{
+			"p1": "claude",
+		},
+		AIModels: map[string]string{
+			"p1": "claude-opus-5",
+		},
+	}
+
+	// p1 should take the per-project overrides over global and server defaults
+	effective1 := ApplyOverrides(c1, overrides)
+	if effective1.AIProvider != "claude" {
+		t.Fatalf("expected provider 'claude', got %q", effective1.AIProvider)
+	}
+	if effective1.AIModel != "claude-opus-5" {
+		t.Fatalf("expected model 'claude-opus-5', got %q", effective1.AIModel)
+	}
+	// Provider changed from server ("agy") and no command provided for p1: commands dropped
+	if effective1.AICommandTemplate != "" {
+		t.Fatalf("expected empty command template, got %q", effective1.AICommandTemplate)
+	}
+
+	// p2 has no project override, so it should fall back to global overrides
+	effective2 := ApplyOverrides(c2, overrides)
+	if effective2.AIProvider != "gemini" {
+		t.Fatalf("expected provider 'gemini', got %q", effective2.AIProvider)
+	}
+	if effective2.AIModel != "gemini-pro" {
+		t.Fatalf("expected model 'gemini-pro', got %q", effective2.AIModel)
+	}
+
+	// When neither project nor global overrides are set, fall back to server defaults
+	effectiveReset := ApplyOverrides(c1, Overrides{})
+	if effectiveReset.AIProvider != "agy" {
+		t.Fatalf("expected provider 'agy', got %q", effectiveReset.AIProvider)
+	}
+	if effectiveReset.AIModel != "server-base-model" {
+		t.Fatalf("expected model 'server-base-model', got %q", effectiveReset.AIModel)
+	}
+	if effectiveReset.AICommandTemplate != "agy {prompt}" {
+		t.Fatalf("expected 'agy {prompt}', got %q", effectiveReset.AICommandTemplate)
+	}
+
+	// Project command override is preserved when project provider changes
+	overridesWithCmd := overrides
+	overridesWithCmd.Commands = map[string]string{"p1": "my-claude {prompt}"}
+	effectiveWithCmd := ApplyOverrides(c1, overridesWithCmd)
+	if effectiveWithCmd.AIProvider != "claude" || effectiveWithCmd.AICommandTemplate != "my-claude {prompt}" {
+		t.Fatalf("expected claude with custom command, got provider=%q cmd=%q", effectiveWithCmd.AIProvider, effectiveWithCmd.AICommandTemplate)
+	}
+}
