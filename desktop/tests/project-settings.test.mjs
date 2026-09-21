@@ -84,70 +84,71 @@ test('previewLines generates previews for all supported providers and models', (
   }
 })
 
+class MockElement {
+  constructor(tag) {
+    this.tagName = tag.toUpperCase()
+    this.children = []
+    this.attributes = {}
+    this.style = {}
+    this.value = ''
+    this.textContent = ''
+    this.disabled = false
+    this.type = 'text'
+    this.placeholder = ''
+    this.hidden = false
+  }
+  setAttribute(k, v) { this.attributes[k] = String(v) }
+  getAttribute(k) { return this.attributes[k] }
+  removeAttribute(k) { delete this.attributes[k] }
+  append(...items) {
+    for (const item of items) {
+      if (typeof item === 'string') {
+        const t = new MockElement('#text')
+        t.textContent = item
+        this.children.push(t)
+      } else if (item) {
+        this.children.push(item)
+      }
+    }
+  }
+  replaceChildren(...items) {
+    this.children = []
+    this.append(...items)
+  }
+  querySelector(sel) { return this.querySelectorAll(sel)[0] || null }
+  querySelectorAll(sel) {
+    const results = []
+    const match = el => {
+      if (sel.startsWith('#') && el.id === sel.slice(1)) return true
+      if (sel.startsWith('.') && el.className?.split(/\s+/).includes(sel.slice(1))) return true
+      if (sel.toLowerCase() === el.tagName.toLowerCase()) return true
+      if (sel.includes('[') && sel.includes(']')) {
+        const [tag, attrPart] = sel.split('[')
+        const [k, v] = attrPart.replace(']', '').split('=')
+        const val = v ? v.replace(/['"]/g, '') : null
+        if (tag && tag.toLowerCase() !== el.tagName.toLowerCase()) return false
+        if (val !== null) return el.getAttribute(k) === val
+        return el.getAttribute(k) !== undefined
+      }
+      return false
+    }
+    const walk = node => {
+      for (const child of node.children) {
+        if (match(child)) results.push(child)
+        walk(child)
+      }
+    }
+    walk(this)
+    return results
+  }
+}
+
+const doc = {
+  createElement: tag => new MockElement(tag),
+}
+
 // DOM mock to verify openProject dialog rendering, reset controls, validation and mapProject payload
 test('project settings dialog renders AI provider and model controls and handles reset, validation, and submission', async () => {
-  class MockElement {
-    constructor(tag) {
-      this.tagName = tag.toUpperCase()
-      this.children = []
-      this.attributes = {}
-      this.style = {}
-      this.value = ''
-      this.textContent = ''
-      this.disabled = false
-      this.type = 'text'
-      this.placeholder = ''
-    }
-    setAttribute(k, v) { this.attributes[k] = String(v) }
-    getAttribute(k) { return this.attributes[k] }
-    removeAttribute(k) { delete this.attributes[k] }
-    append(...items) {
-      for (const item of items) {
-        if (typeof item === 'string') {
-          const t = new MockElement('#text')
-          t.textContent = item
-          this.children.push(t)
-        } else if (item) {
-          this.children.push(item)
-        }
-      }
-    }
-    replaceChildren(...items) {
-      this.children = []
-      this.append(...items)
-    }
-    querySelector(sel) { return this.querySelectorAll(sel)[0] || null }
-    querySelectorAll(sel) {
-      const results = []
-      const match = el => {
-        if (sel.startsWith('#') && el.id === sel.slice(1)) return true
-        if (sel.startsWith('.') && el.className?.split(/\s+/).includes(sel.slice(1))) return true
-        if (sel.toLowerCase() === el.tagName.toLowerCase()) return true
-        if (sel.includes('[') && sel.includes(']')) {
-          const [tag, attrPart] = sel.split('[')
-          const [k, v] = attrPart.replace(']', '').split('=')
-          const val = v ? v.replace(/['"]/g, '') : null
-          if (tag && tag.toLowerCase() !== el.tagName.toLowerCase()) return false
-          if (val !== null) return el.getAttribute(k) === val
-          return el.getAttribute(k) !== undefined
-        }
-        return false
-      }
-      const walk = node => {
-        for (const child of node.children) {
-          if (match(child)) results.push(child)
-          walk(child)
-        }
-      }
-      walk(this)
-      return results
-    }
-  }
-
-  const doc = {
-    createElement: tag => new MockElement(tag),
-  }
-
   // Simulate openProject data
   const info = {
     server: {
@@ -409,3 +410,159 @@ test('project settings dialog renders AI provider and model controls and handles
     inheritCommand: true,
   })
 })
+
+test('project settings dialog renders terminal emulator controls and handles reset, custom command, and submission', async () => {
+  const info = {
+    server: {
+      projectId: 'proj-1',
+      projectName: 'Test Project',
+      externalTerminalCommand: 'terminal',
+      useWorktrees: true,
+    },
+    path: '/path/to/repo',
+    useWorktrees: true,
+    worktreeOverride: false,
+    parallelism: 1,
+    terminal: 'ghostty',
+    terminalOverride: true,
+  }
+
+  let mappedPayload = null
+  const api = {
+    mapProject: async p => { mappedPayload = p },
+  }
+
+  const config = info.server
+  let selectedTerminal = info.terminal ?? config.externalTerminalCommand ?? '', inheritTerminal = !info.terminalOverride
+
+  const terminalSection = doc.createElement('section')
+  const terminalHeading = doc.createElement('div')
+  const terminalTitle = doc.createElement('strong')
+  terminalTitle.textContent = 'Terminal emulator'
+  const terminalReset = doc.createElement('button')
+  terminalReset.setAttribute('aria-label', 'Reset terminal emulator to workstation default')
+  terminalHeading.append(terminalTitle, terminalReset)
+
+  const terminalSelect = doc.createElement('select')
+  terminalSelect.setAttribute('aria-label', 'Terminal emulator')
+  const TERMINALS = [
+    { id: '', label: 'Auto-detect (Ghostty, iTerm, Terminal)' },
+    { id: 'ghostty', label: 'Ghostty' },
+    { id: 'terminal', label: 'Terminal.app' },
+    { id: 'iterm', label: 'iTerm' },
+    { id: 'custom', label: 'Custom command…' },
+  ]
+  for (const t of TERMINALS) {
+    const opt = doc.createElement('option')
+    opt.value = t.id
+    opt.textContent = t.label
+    terminalSelect.append(opt)
+  }
+  const customTerminalInput = doc.createElement('input')
+  customTerminalInput.setAttribute('aria-label', 'Custom terminal command')
+
+  const standardTerminals = ['', 'ghostty', 'terminal', 'iterm']
+  if (selectedTerminal && !standardTerminals.includes(selectedTerminal.toLowerCase())) {
+    terminalSelect.value = 'custom'
+    customTerminalInput.value = selectedTerminal
+    customTerminalInput.hidden = false
+  } else {
+    terminalSelect.value = selectedTerminal ? selectedTerminal.toLowerCase() : ''
+    customTerminalInput.value = ''
+    customTerminalInput.hidden = true
+  }
+
+  const terminalHint = doc.createElement('p')
+  terminalSection.append(terminalHeading, terminalSelect, customTerminalInput, terminalHint)
+
+  function updateTerminal() {
+    terminalHint.textContent = (inheritTerminal ? 'Inherited from workstation' : 'Local override') + ' · Default: ' + (config.externalTerminalCommand || 'Auto-detect')
+    customTerminalInput.hidden = terminalSelect.value !== 'custom'
+  }
+
+  terminalSelect.onchange = () => {
+    inheritTerminal = false
+    if (terminalSelect.value !== 'custom') {
+      selectedTerminal = terminalSelect.value
+    } else {
+      selectedTerminal = customTerminalInput.value.trim()
+    }
+    updateTerminal()
+  }
+  customTerminalInput.oninput = () => {
+    inheritTerminal = false
+    selectedTerminal = customTerminalInput.value.trim()
+  }
+  terminalReset.onclick = () => {
+    selectedTerminal = config.externalTerminalCommand || ''
+    inheritTerminal = true
+    if (selectedTerminal && !standardTerminals.includes(selectedTerminal.toLowerCase())) {
+      terminalSelect.value = 'custom'
+      customTerminalInput.value = selectedTerminal
+    } else {
+      terminalSelect.value = selectedTerminal ? selectedTerminal.toLowerCase() : ''
+      customTerminalInput.value = ''
+    }
+    updateTerminal()
+  }
+  updateTerminal()
+
+  const form = doc.createElement('form')
+  form.onsubmit = async event => {
+    if (event?.preventDefault) event.preventDefault()
+    const termToSend = terminalSelect.value === 'custom' ? customTerminalInput.value.trim() : terminalSelect.value
+    await api.mapProject({
+      projectId: 'proj-1',
+      path: info.path,
+      terminal: termToSend,
+      inheritTerminal,
+    })
+  }
+
+  // 1. Initial render with local override 'ghostty'
+  assert.equal(terminalSelect.children.length, 5)
+  assert.equal(terminalSelect.value, 'ghostty')
+  assert.equal(customTerminalInput.hidden, true)
+  assert.equal(terminalHint.textContent, 'Local override · Default: terminal')
+
+  // 2. Submit with initial override
+  await form.onsubmit()
+  assert.deepEqual(mappedPayload, {
+    projectId: 'proj-1',
+    path: '/path/to/repo',
+    terminal: 'ghostty',
+    inheritTerminal: false,
+  })
+
+  // 3. Switch to custom command
+  terminalSelect.value = 'custom'
+  terminalSelect.onchange()
+  assert.equal(customTerminalInput.hidden, false)
+  customTerminalInput.value = 'alacritty -e {command}'
+  customTerminalInput.oninput()
+
+  mappedPayload = null
+  await form.onsubmit()
+  assert.deepEqual(mappedPayload, {
+    projectId: 'proj-1',
+    path: '/path/to/repo',
+    terminal: 'alacritty -e {command}',
+    inheritTerminal: false,
+  })
+
+  // 4. Click reset to workstation/server default
+  terminalReset.onclick()
+  assert.equal(terminalSelect.value, 'terminal')
+  assert.equal(customTerminalInput.hidden, true)
+  assert.equal(terminalHint.textContent, 'Inherited from workstation · Default: terminal')
+
+  mappedPayload = null
+  await form.onsubmit()
+  assert.deepEqual(mappedPayload, {
+    projectId: 'proj-1',
+    path: '/path/to/repo',
+    terminal: 'terminal',
+    inheritTerminal: true,
+  })
+})
+

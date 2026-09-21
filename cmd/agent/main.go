@@ -13,6 +13,7 @@ import (
 	"os"
 
 	"tasks/internal/agent"
+	"tasks/internal/agentattach"
 	"tasks/internal/agentexec"
 	"tasks/internal/agentmcp"
 )
@@ -21,6 +22,11 @@ func main() {
 	args := os.Args[1:]
 	if len(args) > 0 {
 		switch args[0] {
+		case "attach":
+			if err := agentattach.Run(args[1:]); err != nil {
+				log.Fatal(err)
+			}
+			return
 		case "pair":
 			message, err := agent.Pair(args[1:])
 			if err != nil {

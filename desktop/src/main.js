@@ -16,6 +16,7 @@ import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-li
 import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
 import { runEngine } from './run-engine.mjs'
+import { pollAction } from './agent-poll.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
@@ -24,7 +25,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><details id="advanced-credential"><summary>Advanced: connect with an API key instead</summary><label>API key<input name="token" type="password" autocomplete="off" placeholder="sectile_…"></label></details><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="detach-terminal" type="button" title="Detach to native terminal" hidden>Detach to native terminal</button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
@@ -52,6 +53,16 @@ const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
+function formatTerminalName(term){
+ if(!term)return 'terminal'
+ const lower=term.toLowerCase().trim()
+ if(lower==='ghostty')return 'Ghostty'
+ if(lower==='iterm'||lower==='iterm2')return 'iTerm'
+ if(lower==='terminal'||lower==='apple-terminal'||lower==='terminal.app')return 'Terminal'
+ if(lower==='wt'||lower==='windows-terminal'||lower==='wt.exe')return 'Windows Terminal'
+ if(lower==='cmd'||lower==='cmd.exe')return 'Command Prompt'
+ return term
+}
 let disconnectedProjects=new Set(),projectStateVersion=0,refreshing=false
 // A background refresh must not reorder or rebuild the task list under the
 // user's pointer: it is deferred until the interaction ends.
@@ -362,6 +373,23 @@ function render(options){
  if(link){selectedPR.textContent=prLabel(link);selectedPR.title=link;selectedPR.onclick=()=>api.openPR(link).catch(error)}
  document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
+ const detachBtn=document.querySelector('#detach-terminal')
+ if(detachBtn){
+  const canDetach=current&&current.status==='running'&&!current.externalTerminal
+  detachBtn.hidden=!canDetach
+ }
+ const terminalBadge=document.querySelector('#native-terminal-badge')
+ if(terminalBadge){
+  if(current&&current.externalTerminal){
+   const termName=formatTerminalName(current.externalTerminal)
+   terminalBadge.textContent='Active in '+termName
+   terminalBadge.title='Running in host terminal emulator ('+termName+')'
+   terminalBadge.hidden=false
+  }else{
+   terminalBadge.hidden=true
+   terminalBadge.textContent=''
+  }
+ }
  renderNextStep()
  renderTicketRows()
 }
@@ -417,6 +445,25 @@ document.querySelector('#stop').onclick=async()=>{
  let stopped=false
  try{await api.stop(selected);await refresh();stopped=true}catch(err){error(err)}finally{stopping=false;render()}
  if(stopped&&run)await offerClosure(run)
+}
+let detachingTerminal=false
+const detachTerminalBtn=document.querySelector('#detach-terminal')
+if(detachTerminalBtn){
+ detachTerminalBtn.onclick=async()=>{
+  if(!selected||detachingTerminal)return
+  const run=runs.find(item=>item.id===selected)
+  if(!run||run.status!=='running'||run.externalTerminal)return
+  detachingTerminal=true
+  detachTerminalBtn.disabled=true
+  try{
+   const res=await api.detachToNativeTerminal(selected)
+   if(res?.terminal){
+    run.externalTerminal=res.terminal
+   }
+   await refresh()
+  }catch(err){error(err)}
+  finally{detachingTerminal=false;detachTerminalBtn.disabled=false;render()}
+ }
 }
 // Stopping an execution is where the user stands when a task has reached
 // reviewed, and nothing else in the desktop proposes its closing step. The
@@ -475,9 +522,9 @@ sidebarList().addEventListener('pointerout',scheduleFlush)
 sidebarList().addEventListener('focusout',scheduleFlush)
 api.connect().then(connected=>{if(connected){ready();refresh()}else{agentUnavailable()}}).catch(error)
 setInterval(async()=>{
- if(restarting)return
- if(document.querySelector('#setup').hidden)refresh()
- else if(document.querySelector('#shutdown').hidden){
+ const action=pollAction({restarting,agentConnected,shutdownVisible:!document.querySelector('#shutdown').hidden})
+ if(action==='refresh')refresh()
+ else if(action==='connect'){
   try{if(await api.connect()){ready();refresh()}}catch{}
  }
 },2000)
@@ -880,9 +927,83 @@ async function openProject(id){
   updateModel()
   commandState();commandLabel.append(commandReset,command,commandHint)
   autonomousLabel.append(autonomousCommand,commandPreviewBox)
+
+  let selectedTerminal=info.terminal??config.externalTerminalCommand??'',inheritTerminal=!info.terminalOverride
+  const terminalSection=document.createElement('section');terminalSection.className='execution-setting'
+  const terminalHeading=document.createElement('div');terminalHeading.className='setting-heading'
+  const terminalTitle=document.createElement('strong');terminalTitle.textContent='Terminal emulator'
+  const terminalReset=document.createElement('button');terminalReset.type='button';terminalReset.className='reset-setting'
+  terminalReset.setAttribute('aria-label','Reset terminal emulator to workstation default');terminalReset.title='Reset terminal emulator to workstation default'
+  terminalReset.innerHTML=controls.worktrees.reset.innerHTML
+  terminalHeading.append(terminalTitle,terminalReset)
+
+  const terminalSelect=document.createElement('select');terminalSelect.className='terminal-select';terminalSelect.setAttribute('aria-label','Terminal emulator')
+  terminalSelect.style.width='100%';terminalSelect.style.marginLeft='0';terminalSelect.style.marginTop='7px'
+  const TERMINALS=[
+    {id:'',label:'Auto-detect (Ghostty, iTerm, Terminal)'},
+    {id:'ghostty',label:'Ghostty'},
+    {id:'terminal',label:'Terminal.app'},
+    {id:'iterm',label:'iTerm'},
+    {id:'custom',label:'Custom command…'}
+  ]
+  for(const t of TERMINALS){
+    const opt=document.createElement('option');opt.value=t.id;opt.textContent=t.label
+    terminalSelect.append(opt)
+  }
+  const customTerminalInput=document.createElement('input');customTerminalInput.type='text';customTerminalInput.className='custom-terminal-input'
+  customTerminalInput.setAttribute('aria-label','Custom terminal command')
+  customTerminalInput.placeholder='e.g. alacritty -e {command}'
+  customTerminalInput.style.width='100%';customTerminalInput.style.marginTop='7px'
+
+  const standardTerminals=['','ghostty','terminal','iterm']
+  if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
+    terminalSelect.value='custom'
+    customTerminalInput.value=selectedTerminal
+    customTerminalInput.hidden=false
+  }else{
+    terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
+    customTerminalInput.value=''
+    customTerminalInput.hidden=true
+  }
+
+  const terminalHint=document.createElement('p')
+  terminalSection.append(terminalHeading,terminalSelect,customTerminalInput,terminalHint)
+
+  function updateTerminal(){
+    terminalHint.textContent=(inheritTerminal?'Inherited from workstation':'Local override')+' · Default: '+(config.externalTerminalCommand||'Auto-detect')
+    customTerminalInput.hidden=terminalSelect.value!=='custom'
+  }
+
+  terminalSelect.onchange=()=>{
+    inheritTerminal=false
+    if(terminalSelect.value!=='custom'){
+      selectedTerminal=terminalSelect.value
+    }else{
+      selectedTerminal=customTerminalInput.value.trim()
+    }
+    updateTerminal()
+  }
+  customTerminalInput.oninput=()=>{
+    inheritTerminal=false
+    selectedTerminal=customTerminalInput.value.trim()
+  }
+  terminalReset.onclick=()=>{
+    selectedTerminal=config.externalTerminalCommand||''
+    inheritTerminal=true
+    if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
+      terminalSelect.value='custom'
+      customTerminalInput.value=selectedTerminal
+    }else{
+      terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
+      customTerminalInput.value=''
+    }
+    updateTerminal()
+  }
+  updateTerminal()
+
   const save=document.createElement('button');save.textContent='Save local configuration'
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  form.append(label,controls.worktrees.section,controls.parallel.section,providerSection,modelSection,commandLabel,autonomousLabel,save)
+  form.append(label,controls.worktrees.section,controls.parallel.section,providerSection,modelSection,commandLabel,autonomousLabel,terminalSection,save)
   panels.Local.append(form)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
@@ -901,7 +1022,8 @@ async function openProject(id){
    }
    save.disabled=true
    try{
-    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand})
+    const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
+    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
     projectStateVersion++;disconnectedProjects.delete(id)
     notice.textContent='Local configuration saved';await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
@@ -943,6 +1065,17 @@ async function openProject(id){
     dialogBody.querySelector('h2').textContent=config.projectName
     if(inheritWorktrees)useWorktrees=!!config.useWorktrees
     if(inheritCommand){command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||''}
+    if(inheritTerminal){
+     selectedTerminal=fresh.terminal||fresh.server?.externalTerminalCommand||''
+     if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
+      terminalSelect.value='custom'
+      customTerminalInput.value=selectedTerminal
+     }else{
+      terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
+      customTerminalInput.value=''
+     }
+     updateTerminal()
+    }
     update();commandState();renderServer(fresh.monoRepo)
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
@@ -1122,6 +1255,26 @@ function ticketRow(view,task){
  }
  const openMenu=()=>{
   view.closeOpenMenu?.()
+  const activeRun=runs.find(r=>r.taskId===task.id&&r.status==='running'&&!r.externalTerminal)
+  let detachBtn=menu.querySelector('.ticket-detach')
+  if(activeRun){
+   if(!detachBtn){
+    detachBtn=document.createElement('button');detachBtn.type='button';detachBtn.className='ticket-detach';detachBtn.setAttribute('role','menuitem');detachBtn.textContent='Detach to native terminal'
+    const discussItem=menu.querySelector('[data-skill-id="discuss"]')
+    if(discussItem)menu.insertBefore(detachBtn,discussItem)
+    else menu.append(detachBtn)
+   }
+   detachBtn.onclick=async()=>{
+    closeMenu()
+    try{
+     const res=await api.detachToNativeTerminal(activeRun.id)
+     if(res?.terminal)activeRun.externalTerminal=res.terminal
+     render();await refresh()
+    }catch(err){view.status.textContent='Could not detach: '+err.message}
+   }
+  }else if(detachBtn){
+   detachBtn.remove()
+  }
   menu.hidden=false;more.setAttribute('aria-expanded','true')
   dismiss=event=>{if(!menu.contains(event.target)&&event.target!==more)closeMenu()}
   document.addEventListener('pointerdown',dismiss,true)
@@ -1140,14 +1293,15 @@ function ticketRow(view,task){
  if(taskStage(task)==='implemented'){
   items.push({label:'Declare code as reviewed…',transition:'reviewed'})
  }
- items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Custom instructions…',compose:true})
+ items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true})
  for(const item of items){
   const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!view.info.configured
+  if(item.skillId)button.dataset.skillId=item.skillId
   if(item.transition==='reviewed'){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else submitTicketLaunch(view,entry,item.skillId,'','').catch(()=>{})}
+   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'','').catch(()=>{})}
   }
   menu.append(button)
  }
@@ -1248,6 +1402,17 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  }catch(err){view.status.textContent='Could not launch '+key+': '+err.message;throw err}
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
 }
+async function submitNativeDiscussion(view,entry){
+ const key=entry.task.key||entry.task.id
+ view.submitting.add(entry.task.id);updateTicketRow(view,entry)
+ view.status.textContent='Launching native terminal for '+key+'…'
+ try{
+  await api.launchNativeDiscussion(view.projectID,entry.task.id)
+  view.status.textContent='Native terminal launched for '+key
+  await refresh()
+ }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+err.message;throw err}
+ finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
+}
 
 document.querySelector('#rerun').onclick=async()=>{
  const run=runs.find(item=>item.id===selected)
@@ -1329,7 +1494,21 @@ function taskMenu(run){
  rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render()}
  const archive=document.createElement('button');archive.textContent='Archive'
  archive.onclick=()=>requestArchive(run)
- dialogBody.append(relaunch,rename,archive)
+ dialogBody.append(relaunch)
+ const active=related().find(item=>item.status==='running'&&!item.externalTerminal)
+ if(active){
+  const detach=document.createElement('button');detach.textContent='Detach to native terminal'
+  detach.onclick=async()=>{
+   detach.disabled=true
+   try{
+    const res=await api.detachToNativeTerminal(active.id)
+    if(res?.terminal)active.externalTerminal=res.terminal
+    dialog.close();render();await refresh()
+   }catch(err){paragraph(err.message);detach.disabled=false}
+  }
+  dialogBody.append(detach)
+ }
+ dialogBody.append(rename,archive)
 }
 function requestArchive(run){
  const active=runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item))
