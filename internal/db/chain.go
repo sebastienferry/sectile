@@ -41,9 +41,18 @@ func (d *DB) runOutcomeOf(runID string) runOutcome {
 // replacing keeps the reason the process gave for ending, which is the other
 // half of the story.
 func (d *DB) noteRun(runID, note string) {
+	_ = d.appendToRunSummary(runID, note, "")
+}
+
+// appendToRunSummary adds one sentence to a run's summary, joined to whatever
+// was there rather than replacing it. The single SQL statement lives here so
+// that a caller only decides which runs it may annotate, through an extra
+// condition appended to the WHERE clause.
+func (d *DB) appendToRunSummary(runID, note, restrict string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_, _ = d.conn.Exec("UPDATE task_activities SET summary = CASE WHEN summary = '' THEN ? ELSE summary || ' — ' || ? END WHERE id = ?", note, note, runID)
+	_, err := d.conn.Exec("UPDATE task_activities SET summary = CASE WHEN summary = '' THEN ? ELSE summary || ' — ' || ? END WHERE id = ?"+restrict, note, note, runID)
+	return err
 }
 
 // skillOwnsAStage says whether a skill is one whose whole point is to leave the

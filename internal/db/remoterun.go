@@ -125,10 +125,7 @@ func (d *DB) NoteRemoteRun(runID, note string) error {
 	if runID == "" || note == "" {
 		return fmt.Errorf("runId and note are required")
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	_, err := d.conn.Exec("UPDATE task_activities SET summary = CASE WHEN summary = '' THEN ? ELSE summary || ' — ' || ? END WHERE id = ? AND skill_id='remote_run' AND status='running'", note, note, runID)
-	return err
+	return d.appendToRunSummary(runID, note, " AND skill_id='remote_run' AND status='running'")
 }
 
 // ErrRunNotYours refuses closing an execution that belongs to somebody else.
