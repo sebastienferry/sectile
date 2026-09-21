@@ -104,3 +104,29 @@ asked for.
 - Baseline before the change was green locally, so nothing here is masking a pre-existing
   failure. The four failures `.gitlab-ci.yml` documents for `test:go` do not reproduce on this
   machine.
+
+## Follow-up after the deployment review (2026-09-21)
+
+The ArgoCD deployment surfaced a mismatch the specification had not foreseen, and the fix landed
+on this branch rather than in a later ticket, because it changes an acceptance criterion.
+
+**What the deployment actually gets.** The Terraform module provisioning the database
+(`iac-data`, `live/databases/sp/europe-west4/*`) creates the credentials in Secret Manager as
+`<env>_application_sectile_all_db_user-name` and `_password` — two separate secrets. Kubernetes
+cannot interpolate a secret into a string environment variable, so a single `DATABASE_URL` would
+force the whole connection string, password included, into a third secret maintained by hand
+beside the two the module already creates.
+
+**The change.** `DATABASE_URL` stays the primary source. When it is absent, the standard libpq
+variables supply the connection, which `pgx` reads natively. `Config.FromEnvironment` says so
+explicitly rather than being inferred from an empty DSN — pgx falls back to those variables on its
+own, so an unconfigured server would otherwise dial localhost instead of refusing to start.
+`PGHOST` is what makes the intent deliberate.
+
+- [x] 19. Accept the standard PostgreSQL connection variables when `DATABASE_URL` is absent, keep
+      the refusal when neither source says anything, and keep the password out of the startup log.
+- [x] 20. Update the behaviour spec (three scenarios replace the single "no connection string"
+      one), the design record, `.env.sample`, the `Dockerfile` and the README.
+- [x] 21. Cover it: two unit tests on the resolution and its precedence, one integration test that
+      actually connects over the environment-provided variables, one that refuses an empty
+      configuration.

@@ -29,12 +29,25 @@ When PostgreSQL is named but cannot be used, the server SHALL refuse to start ra
 back to SQLite. A silent fallback would serve an empty board from an unexpected store and look
 like data loss.
 
-#### Scenario: PostgreSQL named without a connection string
-- **GIVEN** the environment names PostgreSQL but supplies no connection string
+#### Scenario: PostgreSQL named with no connection at all
+- **GIVEN** the environment names PostgreSQL but supplies neither a connection string nor the standard PostgreSQL connection variables
 - **WHEN** the server starts
 - **THEN** it refuses to start
-- **AND** the error says which variable is missing
-- **AND** no SQLite database is opened or created.
+- **AND** the error names both ways of supplying the connection
+- **AND** no SQLite database is opened or created
+- **AND** no connection is attempted against a defaulted host.
+
+#### Scenario: The connection is supplied as separate variables
+- **GIVEN** the environment names PostgreSQL, supplies no connection string, and supplies the standard PostgreSQL connection variables including the host
+- **WHEN** the server starts
+- **THEN** it connects to that database
+- **AND** the startup log reports the host and database name without the password.
+
+#### Scenario: A connection string wins over the separate variables
+- **GIVEN** the environment names PostgreSQL and supplies both a connection string and the standard connection variables
+- **WHEN** the server starts
+- **THEN** it uses the connection string
+- **AND** the separate variables do not change where it connects.
 
 #### Scenario: The PostgreSQL server is unreachable
 - **GIVEN** the environment names PostgreSQL with a connection string pointing at an unreachable server

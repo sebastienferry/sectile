@@ -25,6 +25,12 @@ type Config struct {
 	Driver Driver
 	Path   string
 	DSN    string
+	// FromEnvironment says the PostgreSQL connection comes from the standard
+	// libpq variables (PGHOST, PGDATABASE, PGUSER, PGPASSWORD, ...) rather than
+	// from a DSN. It is explicit rather than inferred from an empty DSN: pgx
+	// falls back to those variables on its own, and an unconfigured server
+	// would then quietly dial localhost instead of refusing to start.
+	FromEnvironment bool
 }
 
 // SQLiteConfig builds the configuration the code used before this file existed:
@@ -46,8 +52,8 @@ func (c Config) Validate() error {
 		}
 		return nil
 	case DriverPostgres:
-		if strings.TrimSpace(c.DSN) == "" {
-			return fmt.Errorf("driver %q needs a connection string: set DATABASE_URL", DriverPostgres)
+		if strings.TrimSpace(c.DSN) == "" && !c.FromEnvironment {
+			return fmt.Errorf("driver %q needs a connection: set DATABASE_URL, or the standard PGHOST/PGDATABASE/PGUSER/PGPASSWORD variables", DriverPostgres)
 		}
 		return nil
 	default:

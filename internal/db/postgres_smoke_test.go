@@ -1,8 +1,10 @@
 package db
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -343,5 +345,48 @@ func TestMigrateRefusesAKeyThatDoesNotOpenTheCredentials(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("%d task(s) were written before the refusal, want none", n)
+	}
+}
+
+// TestPostgresConnectsFromLibpqEnvironment proves the path a Kubernetes
+// deployment actually uses: the database module hands out a username and a
+// password as two separate secrets, Kubernetes cannot interpolate a secret into
+// a string, so the connection arrives as the standard libpq variables rather
+// than as one DATABASE_URL.
+func TestPostgresConnectsFromLibpqEnvironment(t *testing.T) {
+	u, err := url.Parse(postgresDSN(t))
+	if err != nil {
+		t.Fatalf("the test DSN is not a URL, cannot derive PG* variables: %v", err)
+	}
+	host, port := u.Hostname(), u.Port()
+	if port == "" {
+		port = "5432"
+	}
+	t.Setenv("PGHOST", host)
+	t.Setenv("PGPORT", port)
+	t.Setenv("PGDATABASE", strings.TrimPrefix(u.Path, "/"))
+	t.Setenv("PGUSER", u.User.Username())
+	if pw, ok := u.User.Password(); ok {
+		t.Setenv("PGPASSWORD", pw)
+	}
+	t.Setenv("PGSSLMODE", u.Query().Get("sslmode"))
+
+	d, err := Open(Config{Driver: DriverPostgres, FromEnvironment: true})
+	if err != nil {
+		t.Fatalf("opening from the libpq environment: %v", err)
+	}
+	defer d.Close()
+
+	var n int
+	if err := d.conn.QueryRow("SELECT COUNT(*) FROM projects").Scan(&n); err != nil {
+		t.Fatalf("the schema is not usable over the environment-provided connection: %v", err)
+	}
+}
+
+// A PostgreSQL configuration naming neither source must not reach the engine at
+// all: pgx would default the host to localhost and dial whatever is there.
+func TestPostgresRefusesAnEmptyConfiguration(t *testing.T) {
+	if _, err := Open(Config{Driver: DriverPostgres}); err == nil {
+		t.Fatal("a PostgreSQL config with no DSN and no environment must be refused")
 	}
 }

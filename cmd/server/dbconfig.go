@@ -26,15 +26,44 @@ func resolveDBConfig(getenv func(string) string) (cfg db.Config, target, origin 
 		return db.SQLiteConfig(path), path, pathOrigin, nil
 
 	case string(db.DriverPostgres), "postgresql", "pg":
-		dsn := strings.TrimSpace(getenv("DATABASE_URL"))
-		if dsn == "" {
-			return db.Config{}, "", "", fmt.Errorf("DB_DRIVER=%s requires a connection string in DATABASE_URL", driver)
+		if dsn := strings.TrimSpace(getenv("DATABASE_URL")); dsn != "" {
+			return db.Config{Driver: db.DriverPostgres, DSN: dsn}, redactDSN(dsn), "DATABASE_URL", nil
 		}
-		return db.Config{Driver: db.DriverPostgres, DSN: dsn}, redactDSN(dsn), "DATABASE_URL", nil
+		// No DSN: fall back to the standard libpq variables, which is how a
+		// platform that stores a username and a password as two separate
+		// secrets can hand them over. Kubernetes cannot interpolate a secret
+		// into a string, so a single DATABASE_URL would force the whole
+		// connection string, password included, into one more secret alongside
+		// the two the database module already creates.
+		if target := libpqTarget(getenv); target != "" {
+			return db.Config{Driver: db.DriverPostgres, FromEnvironment: true}, target, "PG* environment", nil
+		}
+		return db.Config{}, "", "", fmt.Errorf(
+			"DB_DRIVER=%s needs a connection: set DATABASE_URL, or the standard PGHOST/PGDATABASE/PGUSER/PGPASSWORD variables", driver)
 
 	default:
 		return db.Config{}, "", "", fmt.Errorf("unknown DB_DRIVER %q: expected %q or %q", driver, db.DriverSQLite, db.DriverPostgres)
 	}
+}
+
+// libpqTarget describes the connection the libpq variables point at, and
+// returns "" when they say nothing at all.
+//
+// PGHOST alone is enough to be deliberate: everything else has a usable libpq
+// default, but a host does not, and dialing localhost because nobody said
+// otherwise is exactly the silent fallback this whole path refuses.
+func libpqTarget(getenv func(string) string) string {
+	host := strings.TrimSpace(getenv("PGHOST"))
+	if host == "" {
+		return ""
+	}
+	if port := strings.TrimSpace(getenv("PGPORT")); port != "" {
+		host += ":" + port
+	}
+	if name := strings.TrimSpace(getenv("PGDATABASE")); name != "" {
+		return host + "/" + name
+	}
+	return host
 }
 
 // redactDSN keeps the host and the database name and drops everything that

@@ -122,6 +122,10 @@ backups, point-in-time recovery and the ops tooling that comes with them:
 ```sh
 export DB_DRIVER=postgres
 export DATABASE_URL='postgres://sectile:password@db.internal:5432/sectile?sslmode=require'
+# Or, when the username and the password arrive as two separate secrets — which
+# is what a Kubernetes deployment gets, since a secret cannot be interpolated
+# into a string — leave DATABASE_URL empty and set the standard variables
+# instead: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE.
 # The only source of the encryption key under PostgreSQL. There is no database
 # file to generate one beside, and a key invented on each restart would silently
 # make every stored tracker token unreadable. Generate: openssl rand -hex 32
@@ -129,9 +133,11 @@ export SECTILE_SECRET_KEY='<64 hex characters>'
 ./bin/server
 ```
 
-`DB_PATH` is ignored in this mode. A PostgreSQL configuration that cannot be
-opened stops the server rather than falling back to SQLite: falling back would
-serve an empty board out of an unexpected store, which reads as data loss.
+`DB_PATH` is ignored in this mode. `DATABASE_URL` wins when both it and the
+standard variables are set. A PostgreSQL configuration that cannot be opened —
+or that names neither source — stops the server rather than falling back to
+SQLite: falling back would serve an empty board out of an unexpected store,
+which reads as data loss.
 
 One server instance per database. The job queue and the synchronisation loop run
 in-process and are not coordinated between instances, so two servers sharing a

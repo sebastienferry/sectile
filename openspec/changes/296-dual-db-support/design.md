@@ -102,6 +102,22 @@ contradicts a convention the code states explicitly.
 `DB_DRIVER` (`sqlite` default, `postgres`) selects the engine. `DATABASE_URL` carries the
 PostgreSQL DSN. `DB_PATH` keeps its exact current meaning and is ignored under PostgreSQL.
 
+**A connection string is not the only way in.** The deployment this change targets receives its
+database credentials as two separate secrets — the Terraform module creates
+`<env>_application_sectile_all_db_user-name` and `_password` — and Kubernetes cannot interpolate a
+secret into a string environment variable. A single `DATABASE_URL` would therefore force the whole
+connection string, password included, into a third secret maintained by hand beside the two the
+module already creates: two sources of truth for one credential.
+
+So when `DATABASE_URL` is absent, the standard libpq variables (`PGHOST`, `PGPORT`, `PGDATABASE`,
+`PGUSER`, `PGPASSWORD`, `PGSSLMODE`) supply the connection. `pgx` reads them natively
+(`pgconn/config.go:438-442`), so this costs no parsing code.
+
+`Config.FromEnvironment` says so explicitly rather than being inferred from an empty DSN: pgx falls
+back to those variables on its own, so an unconfigured server would otherwise quietly dial
+localhost instead of refusing to start. `PGHOST` is the variable that makes the intent deliberate —
+every other field has a usable libpq default, a host does not.
+
 `DB_PATH` is documented in `.env.sample` l.31 and baked into the `Dockerfile` l.51, so it must not
 change meaning. `DATABASE_URL` is the conventional name and avoids inventing six `PG_*` variables.
 Rejected alternative: deriving the engine from the shape of `DB_PATH` (a path versus a URL). It is

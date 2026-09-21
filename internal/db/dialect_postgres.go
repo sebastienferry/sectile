@@ -21,6 +21,10 @@ type postgresDialect struct{}
 func (postgresDialect) Name() string { return "PostgreSQL" }
 
 func (postgresDialect) Open(cfg Config) (*sql.DB, error) {
+	// An empty string is not a missing value here: pgx reads the standard libpq
+	// variables for every field a DSN does not set, which is how a deployment
+	// receives a username and a password as two separate secrets. Config.Validate
+	// has already refused the case where neither source says anything.
 	connConfig, err := pgx.ParseConfig(cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("unusable connection string: %w", err)
