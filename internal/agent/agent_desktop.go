@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agenthttp"
@@ -133,6 +134,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/run-result" && r.Method == http.MethodGet {
 		d.desktopRunResult(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/run-output" && r.Method == http.MethodGet {
+		d.desktopRunOutput(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/tasks/transition" {
@@ -899,6 +904,38 @@ func desktopTaskFinished(task models.Task) bool {
 }
 
 // Resolve the selected execution against server activity, independently of PTY exit.
+// desktopRunOutput serves what a headless run has printed since offset. An
+// autonomous run has no PTY for the console pane to attach to, and the bytes
+// are already here, on the same workstation as the desktop: reading them from
+// the agent spares a hop through the server, a second credential and the
+// server's own lag on data held locally.
+func (d *agentDaemon) desktopRunOutput(w http.ResponseWriter, r *http.Request) {
+	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
+	if err != nil {
+		offset = 0
+	}
+	var output, status string
+	var next int
+	var truncated, headless bool
+	if !d.queue.read(r.URL.Query().Get("id"), func(run *controlledRun) {
+		// An offset past the end is what a truncated transcript leaves behind;
+		// rewinding to what is left beats reporting nothing at all.
+		if offset < 0 || offset > len(run.transcript) {
+			offset = 0
+		}
+		output, next = run.transcript[offset:], len(run.transcript)
+		truncated, headless, status = run.transcriptTruncated, run.desktop.Headless, run.desktop.Status
+	}) {
+		http.Error(w, "Run not found", 404)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"output": output, "offset": next, "status": status,
+		"truncated": truncated, "headless": headless,
+	})
+}
+
 func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	var taskID, projectID string

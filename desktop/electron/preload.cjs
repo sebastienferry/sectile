@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  gitDiff:id=>ipcRenderer.invoke('git-diff',id),
  runs:()=>ipcRenderer.invoke('runs'),
  runResult:id=>ipcRenderer.invoke('run-result',id),
+ runOutput:(id,offset)=>ipcRenderer.invoke('run-output',{id,offset}),
  stop:id=>ipcRenderer.invoke('stop',id),
  launchNativeDiscussion:(projectId,taskId,terminal)=>ipcRenderer.invoke('launch-native-discussion',{projectId,taskId,terminal}),
  detachToNativeTerminal:(runId,terminal)=>ipcRenderer.invoke('detach-to-native-terminal',{runId,terminal}),

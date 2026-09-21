@@ -119,8 +119,8 @@ func TestDispatchCommandResolvesPerSkillModel(t *testing.T) {
 // unattended run silently falls back to the CLI default.
 func TestHeadlessCommandLineCarriesTheModel(t *testing.T) {
 	for provider, want := range map[string]string{
-		"claude": "claude -p --permission-mode bypassPermissions --model M 'do it'",
-		"codex":  "codex exec --model M 'do it'",
+		"claude": "claude -p --permission-mode bypassPermissions " + claudeStreamFlags + " --model M 'do it' | " + claudeStreamFilter,
+		"codex":  "codex exec " + codexStreamFlags + " --model M 'do it' | " + codexStreamFilter,
 		"vibe":   "vibe -p --auto-approve 'do it'",
 	} {
 		got, err := modeCommandLine(provider, "", "M", "do it", models.SkillModeAutonomous)
@@ -133,12 +133,13 @@ func TestHeadlessCommandLineCarriesTheModel(t *testing.T) {
 	}
 }
 
-// With no model configured an autonomous line is byte for byte the one built
-// before this change.
+// With no model configured an autonomous line carries no --model at all: an
+// empty flag reaches the CLI as a blank model. Everything else about the line,
+// the event-stream flags and the filter included, stays in place.
 func TestHeadlessCommandLineUnchangedWithoutModel(t *testing.T) {
 	for provider, want := range map[string]string{
-		"claude": "claude -p --permission-mode bypassPermissions 'do it'",
-		"codex":  "codex exec 'do it'",
+		"claude": "claude -p --permission-mode bypassPermissions " + claudeStreamFlags + " 'do it' | " + claudeStreamFilter,
+		"codex":  "codex exec " + codexStreamFlags + " 'do it' | " + codexStreamFilter,
 		"vibe":   "vibe -p --auto-approve 'do it'",
 	} {
 		got, err := modeCommandLine(provider, "", "", "do it", models.SkillModeAutonomous)

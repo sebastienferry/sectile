@@ -3,10 +3,18 @@ const assert=require('node:assert/strict')
 
 async function load(){return import('../src/command-preview.mjs')}
 
+// The autonomous fallback renders the provider's event stream, so the expected
+// line is built from the same constant the preview splices in: what is asserted
+// here is the invocation, not the filter.
+async function claudeAutonomous(model){
+ const {CLAUDE_STREAM_FILTER,CLAUDE_STREAM_FLAGS}=await load()
+ return 'claude -p --permission-mode bypassPermissions '+CLAUDE_STREAM_FLAGS+(model?' --model '+model:'')+" '{prompt}' | "+CLAUDE_STREAM_FILTER
+}
+
 test('claude with no template gives the two attested command lines',async()=>{
  const {commandPreview}=await load()
  assert.equal(commandPreview('claude','','claude-opus-5',false).command,"claude --model claude-opus-5 '{prompt}'")
- assert.equal(commandPreview('claude','','claude-opus-5',true).command,"claude -p --permission-mode bypassPermissions --model claude-opus-5 '{prompt}'")
+ assert.equal(commandPreview('claude','','claude-opus-5',true).command,await claudeAutonomous('claude-opus-5'))
 })
 
 test('an unset model drops the flag rather than passing an empty one',async()=>{
@@ -14,7 +22,7 @@ test('an unset model drops the flag rather than passing an empty one',async()=>{
  assert.deepEqual(modelArgs('claude',''),[])
  assert.deepEqual(modelArgs('agy','claude-opus-5'),[])
  assert.equal(commandPreview('claude','','',false).command,"claude '{prompt}'")
- assert.equal(commandPreview('claude','','',true).command,"claude -p --permission-mode bypassPermissions '{prompt}'")
+ assert.equal(commandPreview('claude','','',true).command,await claudeAutonomous(''))
 })
 
 test('a template without the mode marker cannot serve an autonomous launch',async()=>{

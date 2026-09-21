@@ -117,6 +117,27 @@ Two independent caps now exist: the server's 256 KiB on the activity, and the ag
 local transcript. Each prints its own marker when it drops bytes, so a user reading a shortened
 transcript knows the run is not what was cut.
 
+## What implementation settled
+
+- **D3 confirmed.** `claude -p --output-format stream-json` is refused without `--verbose`
+  ("When using --print, --output-format=stream-json requires --verbose"), so the preset carries
+  both. `codex exec` takes `--json`; that one is written from the documented flag, not verified
+  against an installed CLI.
+- **The fixtures are one recording and two reconstructions.** `claude-stream.jsonl` is a real
+  recording; `agy` and `codex` are not installed on the workstation this was written on, so
+  their fixtures follow the schemas those CLIs document. Recorded in
+  `web/src/lib/__fixtures__/README.md`.
+- **`catch .` had to become `catch $raw`.** Inside a jq `catch`, `.` is the error jq raised, not
+  the input line, so D2.3 as written printed "Invalid numeric literal ..." where the warning
+  should have been. Every filter now binds `. as $raw` first.
+- **The transcript route is `GET /desktop/run-output?id=…&offset=N`,** not
+  `/desktop/runs/{id}/output`. The agent's desktop surface is flat and keyed by a query
+  parameter (`/desktop/run-result?id=…`, `/desktop/stop?id=…`); a nested path would have been
+  the only one of its shape.
+- **A queued run keeps its own notice even when it is headless.** `showsHeadlessOutput` gates
+  the transcript on the run being past `queued`/`preparing`, which is the order `consoleNotice`
+  already reads its branches in.
+
 ## Risks
 - **The filters depend on external event schemas.** A provider changing its schema degrades to
   raw lines by D2.3/D2.4 rather than to an empty panel. This is the accepted cost of D1.

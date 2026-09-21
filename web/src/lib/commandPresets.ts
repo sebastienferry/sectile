@@ -1,3 +1,12 @@
+import {
+  AGY_STREAM_FILTER,
+  AGY_STREAM_FLAGS,
+  CLAUDE_STREAM_FILTER,
+  CLAUDE_STREAM_FLAGS,
+  CODEX_STREAM_FILTER,
+  CODEX_STREAM_FLAGS,
+} from './autonomousStream.ts'
+
 export interface CommandPreset {
   label: string
   cmd: string
@@ -30,7 +39,7 @@ export function getCommandPresets(): CommandPreset[] {
       ),
       autonomous: getEnv(
         'SECTILE_PRESET_CLAUDE_AUTONOMOUS',
-        "claude -p --permission-mode bypassPermissions --model {model} '{prompt}'",
+        `claude -p --permission-mode bypassPermissions ${CLAUDE_STREAM_FLAGS} --model {model} '{prompt}' | ${CLAUDE_STREAM_FILTER}`,
         'VITE_PRESET_CLAUDE_AUTONOMOUS',
       ),
     },
@@ -43,7 +52,7 @@ export function getCommandPresets(): CommandPreset[] {
       ),
       autonomous: getEnv(
         'SECTILE_PRESET_AGY_AUTONOMOUS',
-        `agy --dangerously-skip-permissions --model {model} --output-format stream-json -p "{prompt}" | jq -rs 'map(select(.event == "result"))[0].result.response'`,
+        `agy --dangerously-skip-permissions --model {model} ${AGY_STREAM_FLAGS} -p "{prompt}" | ${AGY_STREAM_FILTER}`,
         'VITE_PRESET_AGY_AUTONOMOUS',
       ),
     },
@@ -56,7 +65,7 @@ export function getCommandPresets(): CommandPreset[] {
       ),
       autonomous: getEnv(
         'SECTILE_PRESET_CODEX_AUTONOMOUS',
-        "codex exec --model {model} '{prompt}'",
+        `codex exec ${CODEX_STREAM_FLAGS} --model {model} '{prompt}' | ${CODEX_STREAM_FILTER}`,
         'VITE_PRESET_CODEX_AUTONOMOUS',
       ),
     },

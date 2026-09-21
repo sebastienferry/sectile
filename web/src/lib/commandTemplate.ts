@@ -7,6 +7,13 @@
  * preview is to be right: keep the two in step.
  */
 
+import {
+  CLAUDE_STREAM_FILTER,
+  CLAUDE_STREAM_FLAGS,
+  CODEX_STREAM_FILTER,
+  CODEX_STREAM_FLAGS,
+} from './autonomousStream.ts'
+
 /** How a template says which words depend on the mode: {mode:AUTONOMOUS|INTERACTIVE}. */
 export const TEMPLATE_MODE_PLACEHOLDER = '{mode:'
 
@@ -203,9 +210,9 @@ export function commandPreview(
   if (autonomous) {
     switch (cli) {
       case 'claude':
-        return { command: words('claude', '-p', '--permission-mode', 'bypassPermissions', flag, PROMPT) }
+        return { command: words('claude', '-p', '--permission-mode', 'bypassPermissions', CLAUDE_STREAM_FLAGS, flag, PROMPT, '|', CLAUDE_STREAM_FILTER) }
       case 'codex':
-        return { command: words('codex', 'exec', flag, PROMPT) }
+        return { command: words('codex', 'exec', CODEX_STREAM_FLAGS, flag, PROMPT, '|', CODEX_STREAM_FILTER) }
       case 'vibe':
         return { command: 'vibe -p --auto-approve ' + PROMPT }
       default:
