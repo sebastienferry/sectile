@@ -46,6 +46,15 @@ func StartControlled(cmd *exec.Cmd) (func(), error) {
 	return restore, nil
 }
 
+// StartDetached starts a child the daemon supervises itself rather than one a
+// terminal owns. Setsid makes it a session and process group leader, which is
+// all StopControlled needs to signal the whole tree; the Windows side has to
+// build a Job Object for the same guarantee.
+func StartDetached(cmd *exec.Cmd) (func(), error) {
+	cmd.SysProcAttr = DetachedSession()
+	return func() {}, cmd.Start()
+}
+
 // StopControlled signals the whole process group cmd owns.
 func StopControlled(cmd *exec.Cmd, force bool) {
 	sig := syscall.SIGINT

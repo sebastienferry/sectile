@@ -59,6 +59,15 @@ func missingPipelineTool(line string) string {
 	return ""
 }
 
+// headlessStopGrace bounds the two waits a stop must never hang on: how long the
+// output pipe is given to close after a forced stop, and how long reaping the
+// shell is given after that. A descendant that outlives the kill holds the write
+// end of the pipe, so its EOF may never come, and a run that waits for it stays
+// "running" with no way to stop it. Both grace periods fit inside the twelve
+// seconds a stop request waits for confirmation, so the stop resolves as
+// canceled rather than as an unconfirmed exit.
+const headlessStopGrace = 2 * time.Second
+
 // startHeadlessRun launches the provider CLI with no terminal at all: no PTY
 // session, no foreground process group, no window. Output is read from the
 // process pipes and posted onto the run activity, which is the only channel an
@@ -80,16 +89,6 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	cmd.Dir = workDir
 	cmd.Stdin = nil
 	cmd.Env = commandEnv(envVars)
-	// Its own session, so it is also its own process group leader. Cancellation
-	// signals the group (stopControlledCommand kills -pid), which reaches nothing
-	// when the child shares the daemon's group: the stop button would look like
-	// it worked and the run would keep going. Detaching also matches what a
-	// headless run is, a process with no controlling terminal at all.
-	cmd.SysProcAttr = agentexec.DetachedSession()
-	// No window either, which is what "headless" says on the platform where a
-	// console child of the console-less agent would otherwise get one.
-	agentexec.Hidden(cmd)
-
 	output, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
@@ -100,12 +99,21 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	cmd.Stderr = cmd.Stdout
 
 	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model)
-	if err := cmd.Start(); err != nil {
+	// StartDetached owns the child: its own session or process group, so a stop
+	// reaches it rather than the daemon, no window on Windows, and a handle on
+	// the whole tree. A stop that only reached this shell would leave the
+	// provider CLI running behind it, still holding the pipe read below open.
+	release, err := agentexec.StartDetached(cmd)
+	if err != nil {
+		release()
 		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", err.Error())
 		return err
 	}
 
-	go d.superviseHeadlessRun(taskRef, payload.RunID, run, cmd, output)
+	go func() {
+		defer release()
+		d.superviseHeadlessRun(taskRef, payload.RunID, run, cmd, output)
+	}()
 	return nil
 }
 
@@ -173,9 +181,15 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	defer ticker.Stop()
 	signalled := false
 	draining := true
+	// abandoned fires once a forced stop has been issued and the pipe still has
+	// not closed. Waiting past that point is waiting on something that escaped
+	// the kill, and the tail of the output is worth less than a stop that lands.
+	var abandoned <-chan time.Time
 	for draining {
 		select {
 		case <-done:
+			draining = false
+		case <-abandoned:
 			draining = false
 		case <-ticker.C:
 			flush()
@@ -183,8 +197,12 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 				// Escalate on the second pass, as the interactive supervisor
 				// does: a CLI that traps the interrupt and keeps working must
 				// not turn a stop request into a run that never ends.
-				agentexec.StopControlled(cmd, signalled)
+				force := signalled
+				agentexec.StopControlled(cmd, force)
 				signalled = true
+				if force && abandoned == nil {
+					abandoned = time.After(headlessStopGrace)
+				}
 			}
 		}
 	}
@@ -192,7 +210,9 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	// Wait only once the pipe is drained. Wait closes the read end as soon as it
 	// sees the process exit, so calling it alongside the reader would truncate
 	// the tail of the output, which is exactly where a failure explains itself.
-	err := cmd.Wait()
+	// It is bounded for the same reason the drain is: the run has to end even
+	// when the shell itself survived the stop.
+	err := waitForExit(cmd, headlessStopGrace)
 	flush()
 	status, note := "completed", "Headless run finished"
 	if err != nil {
@@ -225,6 +245,20 @@ func (d *agentDaemon) appendHeadlessTranscript(run *controlledRun, chunk string)
 	run.dropped += len(run.transcript) - len(kept)
 	run.transcript = kept
 	run.transcriptTruncated = true
+}
+
+// waitForExit reaps the child, giving up after grace. cmd.Wait is left running
+// in its own goroutine when it does: it owns the pipe teardown, and the reader
+// it unblocks is what lets that goroutine finish on its own.
+func waitForExit(cmd *exec.Cmd, grace time.Duration) error {
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	select {
+	case err := <-waited:
+		return err
+	case <-time.After(grace):
+		return fmt.Errorf("the process did not exit within %s of the stop request", grace)
+	}
 }
 
 func (d *agentDaemon) finishHeadlessRun(taskRef, runID string, run *controlledRun, status, note string) {

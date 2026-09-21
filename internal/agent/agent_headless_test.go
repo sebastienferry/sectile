@@ -113,6 +113,35 @@ func TestHeadlessRunReportsFailure(t *testing.T) {
 	}
 }
 
+// A provider CLI is never the direct child: the shell reaches it through a
+// launcher script, and that grandchild inherits the output pipe. A stop that
+// only reached the shell left the CLI running, holding the pipe open, and the
+// supervisor waited for an EOF that could not come - the run stayed "running"
+// with no way to stop it, and the CLI kept working on the repository.
+func TestHeadlessRunStopReachesTheWholeTree(t *testing.T) {
+	server := newHeadlessServer(t)
+	d := &agentDaemon{link: serverLink{serverURL: server.server.URL}}
+	payload := agentconfig.Dispatch{RunID: "run-tree", TaskKey: "#7", SkillID: "clarify"}
+	// The inner shell is the grandchild: killing the outer one alone leaves it
+	// alive with the write end of the pipe.
+	if err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, "sh -c 'sleep 300'", "claude", "claude-opus-5"); err != nil {
+		t.Fatalf("startHeadlessRun: %v", err)
+	}
+	d.queue.mu.Lock()
+	run := d.queue.runs["run-tree"]
+	run.canceled = true
+	d.queue.mu.Unlock()
+
+	select {
+	case <-run.exited:
+	case <-time.After(25 * time.Second):
+		t.Fatal("a canceled headless run never finished: the stop did not reach past the shell, and the supervisor waited on a pipe a survivor still held")
+	}
+	if run.desktop.Status != "canceled" {
+		t.Fatalf("status = %q, want canceled", run.desktop.Status)
+	}
+}
+
 // The desktop's stop button must actually stop an autonomous run. The supervisor
 // signals the process GROUP, so the child has to be its own group leader.
 func TestHeadlessRunIsStoppable(t *testing.T) {
