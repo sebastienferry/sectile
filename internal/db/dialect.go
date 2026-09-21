@@ -64,6 +64,10 @@ type dialect interface {
 	Open(cfg Config) (*sql.DB, error)
 	// Rebind turns the shared "?" placeholders into whatever the engine wants.
 	Rebind(query string) string
+	// ColumnsQuery returns a one-argument query listing a table's column names,
+	// in declaration order. The catalogue is the one thing every engine spells
+	// entirely differently.
+	ColumnsQuery() string
 	// RewriteDDL adapts a schema statement to the engine. The schema is written
 	// as literal SQL in SQLite's spelling, and only its type names differ: the
 	// whole schema uses four types, two of which PostgreSQL does not have. A
@@ -102,3 +106,12 @@ func newDialect(cfg Config) (dialect, error) {
 type sqliteNoLegacy struct{ sqliteDialect }
 
 func (sqliteNoLegacy) RunsLegacyMigrations() bool { return false }
+
+// EngineName is what the running engine is called, for the startup banner and
+// for an error that needs to say which store it could not reach.
+func (d *DB) EngineName() string {
+	if d == nil || d.dialect == nil {
+		return string(DriverSQLite)
+	}
+	return d.dialect.Name()
+}

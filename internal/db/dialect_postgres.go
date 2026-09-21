@@ -4,7 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 // postgresDialect backs the store with an external PostgreSQL server.
@@ -20,23 +21,31 @@ type postgresDialect struct{}
 func (postgresDialect) Name() string { return "PostgreSQL" }
 
 func (postgresDialect) Open(cfg Config) (*sql.DB, error) {
-	conn, err := sql.Open("pgx", cfg.DSN)
+	connConfig, err := pgx.ParseConfig(cfg.DSN)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("unusable connection string: %w", err)
 	}
+	// The zone is set as a connection parameter rather than with a SET on the
+	// open handle. A SET reaches exactly one pooled connection; every other one
+	// the pool opens later would keep the server's zone, so CURRENT_TIMESTAMP
+	// would land in UTC or not depending on which connection served the write.
+	// As a parameter it is part of every connection this pool ever makes.
+	if connConfig.RuntimeParams == nil {
+		connConfig.RuntimeParams = map[string]string{}
+	}
+	connConfig.RuntimeParams["timezone"] = "UTC"
+
+	conn := stdlib.OpenDB(*connConfig)
 	conn.SetMaxOpenConns(25)
 	conn.SetMaxIdleConns(10)
-	// The session is pinned to UTC so CURRENT_TIMESTAMP means what it means on
-	// SQLite. Without it the default lands in the server's zone and two
-	// deployments disagree about when a row was written.
-	if _, err := conn.Exec("SET TIME ZONE 'UTC'"); err != nil {
-		conn.Close()
-		return nil, fmt.Errorf("failed to pin the session to UTC: %w", err)
-	}
 	return conn, nil
 }
 
 func (postgresDialect) Rebind(query string) string { return rebindNumbered(query) }
+
+func (postgresDialect) ColumnsQuery() string {
+	return "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position"
+}
 
 // RewriteDDL maps the two type names PostgreSQL does not share.
 //

@@ -217,6 +217,15 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
 	db.ensureUserCredentialsTable()
+	// Tables that used to be created on first use. Lazy creation works, but it
+	// leaves a freshly created database incomplete until something happens to
+	// touch each one, which a migration into it discovers the hard way. They
+	// are created here, from their own definitions, so the schema is whole the
+	// moment the server is up.
+	db.ensureCommentsTable()
+	db.ensureTeamsTables()
+	db.ensureProjectSkillsTable()
+	db.ensureMacrosTable()
 
 	// Start background queue worker
 	go db.startQueueWorker()

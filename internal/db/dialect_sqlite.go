@@ -37,6 +37,10 @@ func (sqliteDialect) Open(cfg Config) (*sql.DB, error) {
 // own "?" placeholders.
 func (sqliteDialect) Rebind(query string) string { return query }
 
+func (sqliteDialect) ColumnsQuery() string {
+	return "SELECT name FROM pragma_table_info(?) ORDER BY cid"
+}
+
 // RewriteDDL is the identity: the schema is written in SQLite's own spelling.
 func (sqliteDialect) RewriteDDL(stmt string) string { return stmt }
 
