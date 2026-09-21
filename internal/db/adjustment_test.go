@@ -8,6 +8,7 @@ import (
 	"strings"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 	"tasks/internal/trackerapi"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ import (
 
 func TestAdjustmentAliasesAndHumanBoundary(t *testing.T) {
 	for _, id := range []string{"adjust", "adjust-issue", "review"} {
-		s, ok := StageSkillByID(id)
+		s, ok := skills.StageSkillByID(id)
 		if !ok || s.ID != "adjust" || s.ToStage != "reviewed" {
 			t.Fatalf("alias %s: %+v", id, s)
 		}
@@ -252,9 +253,9 @@ func TestWebWorkflowSkillNamesAndTransitions(t *testing.T) {
 		{"handoff", "Handoff", "reviewed", "finished"},
 	}
 	for _, framework := range []string{"openspec", "speckit"} {
-		templates := ProjectSkillTemplates(framework)
+		templates := skills.ProjectSkillTemplates(framework)
 		for i, want := range expected {
-			stage := StageSkills[i]
+			stage := skills.StageSkills[i]
 			if stage.ID != want.id || stage.Name != want.name || stage.FromStage != want.from || stage.ToStage != want.to || templates[i].Name != want.name {
 				t.Fatalf("%s: stage %+v, template name %q, want %+v", framework, stage, templates[i].Name, want)
 			}
@@ -264,7 +265,7 @@ func TestWebWorkflowSkillNamesAndTransitions(t *testing.T) {
 
 func TestCreatePRIsIndependentOfWorkflow(t *testing.T) {
 	for _, alias := range []string{"create_pr", "create-pr"} {
-		s, ok := StageSkillByID(alias)
+		s, ok := skills.StageSkillByID(alias)
 		if !ok || s.ID != "create_pr" || s.Command != "/create-pr" || s.FromStage != "" || s.ToStage != "" || skillStageLabel[s.ID] != "" {
 			t.Fatalf("standalone creation was mapped to a workflow stage: %+v", s)
 		}

@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"tasks/internal/models"
+	"tasks/internal/skills"
 )
 
 // A run is the only thing that knows whether the work it was launched for
@@ -49,7 +50,7 @@ func (d *DB) noteRun(runID, note string) {
 // task on the next stage. A skill that legitimately moves nothing, a story
 // rewrite or a macro refinement, must not be reported as having failed to.
 func skillOwnsAStage(skill string) bool {
-	stageSkill, ok := StageSkillByID(skill)
+	stageSkill, ok := skills.StageSkillByID(skill)
 	return ok && stageRank(stageSkill.ToStage) >= 0
 }
 

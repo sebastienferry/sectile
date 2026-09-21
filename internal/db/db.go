@@ -21,6 +21,7 @@ import (
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 	"tasks/internal/secrets"
+	"tasks/internal/skills"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
@@ -3473,7 +3474,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 }
 
 // GetAvailableSkills exposes the workflow catalogue. It derives from the single
-// StageSkills table: the skill the UI offers, the file installed in the
+// skills.StageSkills table: the skill the UI offers, the file installed in the
 // repository and the step the worker runs are by construction the same thing.
 // The old pick-issue auto-pilot is gone, the autonomous run button replaced it.
 // UIScaleOptions are the four interface zoom levels the status bar switches
@@ -3517,8 +3518,8 @@ func NormalizeUIScale(scale int) int {
 }
 
 func (d *DB) GetAvailableSkills() []models.Skill {
-	out := make([]models.Skill, 0, len(StageSkills))
-	for _, s := range StageSkills {
+	out := make([]models.Skill, 0, len(skills.StageSkills))
+	for _, s := range skills.StageSkills {
 		name := s.Name
 		in, _ := InternalStatusForStage(s.FromStage)
 		outStatus, _ := InternalStatusForStage(s.ToStage)
@@ -3600,7 +3601,7 @@ func branchLabel(task *models.Task) string {
 }
 
 func (d *DB) processSkillJob(job SkillJob) {
-	if stage, ok := StageSkillByID(job.SkillID); ok {
+	if stage, ok := skills.StageSkillByID(job.SkillID); ok {
 		job.SkillID = stage.ID
 	}
 	// 1. Check if activity was canceled before starting
@@ -5902,14 +5903,6 @@ func (d *DB) DeleteProject(id string) error {
 // -------------------------------------------------------------
 // PROJECT SKILLS MANAGEMENT & PROVISIONING
 // -------------------------------------------------------------
-
-type ProjectSkillTemplate struct {
-	ID          string
-	Name        string
-	DirName     string
-	Description string
-	Content     string
-}
 
 func (d *DB) GetProjectSkillsStatus(projectID string) (*models.ProjectSkillsStatus, error) {
 	var result models.ProjectSkillsStatus

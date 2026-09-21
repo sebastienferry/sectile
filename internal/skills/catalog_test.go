@@ -1,4 +1,4 @@
-package db_test
+package skills_test
 
 import (
 	"encoding/json"
@@ -7,18 +7,18 @@ import (
 	"strings"
 	"testing"
 
-	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 )
 
 func TestGeneratedSkillContracts(t *testing.T) {
 	for _, framework := range []string{"openspec", "speckit"} {
-		for _, stage := range db.StageSkills {
+		for _, stage := range skills.StageSkills {
 			t.Run(framework+"/"+stage.ID, func(t *testing.T) {
-				content := db.RenderSkillContent(stage, framework)
+				content := skills.RenderSkillContent(stage, framework)
 				// A JSON-quoted description is a valid YAML scalar even with a
 				// colon, as in handoff's "properly: confirm the merge".
-				for _, document := range []string{content, db.RenderSkillCommand(stage, framework)} {
+				for _, document := range []string{content, skills.RenderSkillCommand(stage, framework)} {
 					lines := strings.SplitN(document, "\n", 5)
 					found := false
 					for _, line := range lines {
@@ -60,7 +60,7 @@ func TestGeneratedSkillContracts(t *testing.T) {
 							t.Fatalf("clarify skill content is missing %q", required)
 						}
 					}
-					command := db.RenderSkillCommand(stage, framework)
+					command := skills.RenderSkillCommand(stage, framework)
 					for _, required := range []string{
 						"docs/clarifications/",
 						"docs(spec):",
@@ -83,15 +83,15 @@ func TestGeneratedSkillContracts(t *testing.T) {
 // after the work item, whichever agent runs it.
 func TestGeneratedSkillsRenameTheSessionAfterTheWorkItem(t *testing.T) {
 	for _, framework := range []string{"openspec", "speckit"} {
-		for _, stage := range db.StageSkills {
+		for _, stage := range skills.StageSkills {
 			t.Run(framework+"/"+stage.ID, func(t *testing.T) {
 				item := "ticket"
 				if stage.Scope == "macro" {
 					item = "macro"
 				}
 				for _, document := range []string{
-					db.RenderSkillContent(stage, framework),
-					db.RenderSkillCommand(stage, framework),
+					skills.RenderSkillContent(stage, framework),
+					skills.RenderSkillCommand(stage, framework),
 				} {
 					for _, required := range []string{
 						"## Session title",
@@ -109,11 +109,11 @@ func TestGeneratedSkillsRenameTheSessionAfterTheWorkItem(t *testing.T) {
 }
 
 func TestCreatePRSkillIntegratesRemoteDefaultBranchBeforePublishing(t *testing.T) {
-	skill, ok := db.StageSkillByID("create_pr")
+	skill, ok := skills.StageSkillByID("create_pr")
 	if !ok {
 		t.Fatal("create_pr skill missing")
 	}
-	content := db.RenderSkillContent(skill, "openspec")
+	content := skills.RenderSkillContent(skill, "openspec")
 	for _, required := range []string{
 		"git fetch origin",
 		"origin/main",
@@ -131,7 +131,7 @@ func TestRewriteStorySkillTemplate(t *testing.T) {
 	// 1. Verify StageSkillByID lookup for rewrite_story and its aliases
 	aliases := []string{"rewrite_story", "rewrite-story", "rewrite"}
 	for _, alias := range aliases {
-		skill, ok := db.StageSkillByID(alias)
+		skill, ok := skills.StageSkillByID(alias)
 		if !ok {
 			t.Errorf("Expected StageSkillByID(%q) to be found", alias)
 			continue
@@ -151,7 +151,7 @@ func TestRewriteStorySkillTemplate(t *testing.T) {
 	}
 
 	// 3. Verify ProjectSkillTemplates contains rewrite_story
-	templates := db.ProjectSkillTemplates("speckit")
+	templates := skills.ProjectSkillTemplates("speckit")
 	found := false
 	for _, tmpl := range templates {
 		if tmpl.ID == "rewrite_story" {
@@ -174,7 +174,7 @@ func TestRefineMacroSkillTemplate(t *testing.T) {
 	// 1. Verify StageSkillByID lookup for refine_macro and its aliases
 	aliases := []string{"refine_macro", "refine-macro", "refine"}
 	for _, alias := range aliases {
-		skill, ok := db.StageSkillByID(alias)
+		skill, ok := skills.StageSkillByID(alias)
 		if !ok {
 			t.Errorf("Expected StageSkillByID(%q) to be found", alias)
 			continue
@@ -198,7 +198,7 @@ func TestRefineMacroSkillTemplate(t *testing.T) {
 
 	// 3. Verify ProjectSkillTemplates contains refine_macro and interactive steps
 	for _, fw := range []string{"speckit", "openspec"} {
-		templates := db.ProjectSkillTemplates(fw)
+		templates := skills.ProjectSkillTemplates(fw)
 		found := false
 		for _, tmpl := range templates {
 			if tmpl.ID == "refine_macro" {
@@ -219,7 +219,7 @@ func TestRefineMacroSkillTemplate(t *testing.T) {
 }
 
 func TestClarifySkillRoundLoopInvariants(t *testing.T) {
-	skill, ok := db.StageSkillByID("clarify")
+	skill, ok := skills.StageSkillByID("clarify")
 	if !ok {
 		t.Fatal("clarify skill missing from catalogue")
 	}
@@ -227,8 +227,8 @@ func TestClarifySkillRoundLoopInvariants(t *testing.T) {
 		t.Fatalf("expected command /clarify-issue, got %q", skill.Command)
 	}
 	for _, fw := range []string{"speckit", "openspec"} {
-		content := db.RenderSkillContent(skill, fw)
-		command := db.RenderSkillCommand(skill, fw)
+		content := skills.RenderSkillContent(skill, fw)
+		command := skills.RenderSkillCommand(skill, fw)
 
 		for _, doc := range []string{content, command} {
 			for _, required := range []string{
@@ -263,10 +263,10 @@ func TestGoldenSkillParity(t *testing.T) {
 	}
 
 	for _, framework := range []string{"openspec", "speckit"} {
-		for _, stage := range db.StageSkills {
+		for _, stage := range skills.StageSkills {
 			// 1. Skill document
 			skillFile := filepath.Join(goldenDir, stage.ID+"."+framework+".skill.md")
-			actualSkill := db.RenderSkillContent(stage, framework)
+			actualSkill := skills.RenderSkillContent(stage, framework)
 			if updateGolden {
 				if err := os.WriteFile(skillFile, []byte(actualSkill), 0644); err != nil {
 					t.Fatalf("failed to write golden file %s: %v", skillFile, err)
@@ -291,7 +291,7 @@ func TestGoldenSkillParity(t *testing.T) {
 
 			// 2. Command document
 			cmdFile := filepath.Join(goldenDir, stage.ID+"."+framework+".command.md")
-			actualCmd := db.RenderSkillCommand(stage, framework)
+			actualCmd := skills.RenderSkillCommand(stage, framework)
 			if updateGolden {
 				if err := os.WriteFile(cmdFile, []byte(actualCmd), 0644); err != nil {
 					t.Fatalf("failed to write golden file %s: %v", cmdFile, err)
@@ -320,15 +320,15 @@ func TestGoldenSkillParity(t *testing.T) {
 func TestSkillFragmentsIntegrity(t *testing.T) {
 	requiredContracts := []string{"task-access.md", "session-title.md", "transition.md", "pickup-header.md"}
 	for _, c := range requiredContracts {
-		path := filepath.Join("skills", "contracts", c)
+		path := filepath.Join("fragments", "contracts", c)
 		data, err := os.ReadFile(path)
 		if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 			t.Errorf("contract %s is missing or empty", path)
 		}
 	}
 
-	for _, s := range db.StageSkills {
-		dir := filepath.Join("skills", s.ID)
+	for _, s := range skills.StageSkills {
+		dir := filepath.Join("fragments", s.ID)
 
 		// Every skill must have a goal and report
 		for _, required := range []string{"goal.md", "report.md"} {

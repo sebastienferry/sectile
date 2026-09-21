@@ -1,4 +1,12 @@
-package db
+// Package skills holds the static catalogue of workflow skills and the
+// rendering of their SKILL.md and slash-command files.
+//
+// It is deliberately free of any storage dependency. The agent renders skills
+// from this catalogue, and ADR 0006 keeps the agent runtime clear of the
+// database layer and of the SQLite driver; cmd/server/runtime_boundary_test.go
+// enforces that. Anything that reads or writes persisted state belongs in
+// internal/db, which consumes this package rather than hosting it.
+package skills
 
 import (
 	"bytes"
@@ -12,12 +20,12 @@ import (
 	"tasks/internal/models"
 )
 
-//go:embed skills/*
+//go:embed fragments/*
 var embeddedSkillsFS embed.FS
 
 // The skills of the agentic workflow, one per step, in stage order.
 //
-// All prose lives in markdown fragments under internal/db/skills/ embedded with
+// All prose lives in markdown fragments under internal/skills/fragments/ embedded with
 // go:embed. StageSkill holds strictly the metadata needed by the catalogue,
 // router, UI, and template assembly.
 type StageSkill struct {
@@ -266,12 +274,12 @@ func StageSkillByID(skillID string) (StageSkill, bool) {
 func readSkillFragment(skillID, name, framework string) string {
 	framework = strings.ToLower(strings.TrimSpace(framework))
 	if framework != "" {
-		path := filepath.Join("skills", skillID, name+"."+framework+".md")
+		path := filepath.Join("fragments", skillID, name+"."+framework+".md")
 		if data, err := embeddedSkillsFS.ReadFile(path); err == nil {
 			return string(data)
 		}
 	}
-	path := filepath.Join("skills", skillID, name+".md")
+	path := filepath.Join("fragments", skillID, name+".md")
 	data, err := embeddedSkillsFS.ReadFile(path)
 	if err != nil {
 		return ""
@@ -280,7 +288,7 @@ func readSkillFragment(skillID, name, framework string) string {
 }
 
 func readContractFragment(name string) string {
-	data, err := embeddedSkillsFS.ReadFile(filepath.Join("skills", "contracts", name+".md"))
+	data, err := embeddedSkillsFS.ReadFile(filepath.Join("fragments", "contracts", name+".md"))
 	if err != nil {
 		return ""
 	}
@@ -299,8 +307,9 @@ func executeContractTemplate(tmplStr string, data any) string {
 	return buf.String()
 }
 
-// JSON strings are valid YAML scalars, including colons, quotes and newlines.
-func skillYAMLString(value string) string {
+// YAMLString encodes a value as a YAML scalar: JSON strings are valid YAML
+// scalars, including colons, quotes and newlines.
+func YAMLString(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }
@@ -407,7 +416,7 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	report := readSkillFragment(s.ID, "report", "")
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, skillYAMLString(s.FrontmatterDesc))
+	fmt.Fprintf(&b, "---\nname: %s\ndescription: %s\n---\n", s.DirName, YAMLString(s.FrontmatterDesc))
 	fmt.Fprintf(&b, "# %s\n\n", name)
 	if s.FromStage != "" && s.Scope != "macro" {
 		fmt.Fprintf(&b, "Stage: %s -> %s.", s.FromStage, s.ToStage)
@@ -441,6 +450,16 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 		fmt.Fprintf(&b, "## Report\n%s\n", report)
 	}
 	return b.String()
+}
+
+// ProjectSkillTemplate is one skill ready to be provisioned into a checkout:
+// the catalogue metadata plus the content rendered for a given framework.
+type ProjectSkillTemplate struct {
+	ID          string
+	Name        string
+	DirName     string
+	Description string
+	Content     string
 }
 
 // ProjectSkillTemplates returns the unified set ready to be written, with the
@@ -496,7 +515,7 @@ func RenderSkillCommand(s StageSkill, specFramework string) string {
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "description: %s\n", skillYAMLString(s.FrontmatterDesc))
+	fmt.Fprintf(&b, "description: %s\n", YAMLString(s.FrontmatterDesc))
 	hint := "<TICKET-KEY> [contexte]"
 	if s.Scope == "macro" {
 		hint = "<MACRO-KEY> [contexte]"
