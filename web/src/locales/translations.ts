@@ -89,6 +89,12 @@ export interface TranslationSchema {
     emptyColumn: string
     addTask: string
     dragHint: string
+    grouping: {
+      workflow: string
+      workflowTooltip: string
+      status: string
+      statusTooltip: string
+    }
   }
   list: {
     columns: {
@@ -763,6 +769,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       emptyColumn: 'Aucune tâche dans cette colonne',
       addTask: 'Ajouter une tâche',
       dragHint: 'Glisser-déposer pour changer de statut ou réordonner',
+      grouping: {
+        workflow: 'Workflow',
+        workflowTooltip: 'Workflow agentique (étapes : new ➔ clarified ➔ specified ➔ implemented ➔ reviewed ➔ finished)',
+        status: 'Statuts',
+        statusTooltip: 'Vue classique par statuts, de gauche à droite',
+      },
     },
     list: {
       columns: {
@@ -1435,6 +1447,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       emptyColumn: 'No tasks in this column',
       addTask: 'Add task',
       dragHint: 'Drag and drop to update status or reorder',
+      grouping: {
+        workflow: 'Workflow',
+        workflowTooltip: 'Agentic workflow (stages: new ➔ clarified ➔ specified ➔ implemented ➔ reviewed ➔ finished)',
+        status: 'Statuses',
+        statusTooltip: 'Classic status based view, from left to right',
+      },
     },
     list: {
       columns: {

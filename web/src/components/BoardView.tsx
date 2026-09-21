@@ -18,6 +18,7 @@ import { TaskCard } from './TaskCard'
 import { TaskFilters } from './TaskFilters'
 import type { Task, Status, WorkflowStage, Priority } from '../types'
 import { resolveTaskStage, stageFromLabels } from '../lib/workflow'
+import { BoardGroupingToggle } from './BoardGroupingToggle'
 
 interface WorkflowColumnConfig {
   id: WorkflowStage
@@ -56,7 +57,6 @@ export const BoardView: React.FC = () => {
     moveTask,
     moveTaskWorkflowStage,
     boardGrouping,
-    setBoardGrouping,
     boardCardDisplayMode,
     toggleBoardCardDisplayMode,
     hideDone,
@@ -429,33 +429,7 @@ export const BoardView: React.FC = () => {
       {/* View Subheader: View Mode Switcher (Icon-only) & Hide/Show Done Filter */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
         <div className="flex items-center gap-3">
-          <div className="flex items-center p-0.5 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-color)] shadow-2xs">
-            <button
-              onClick={() => setBoardGrouping('workflow')}
-              className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                boardGrouping === 'workflow'
-                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]'
-              }`}
-              title="Workflow Agentic (Labels : new ➔ clarified ➔ specified ➔ implemented ➔ reviewed ➔ finished)"
-            >
-              <Sparkles size={15} className={boardGrouping === 'workflow' ? 'text-white' : 'text-amber-400'} />
-              <span className="hidden md:inline">Workflow</span>
-            </button>
-
-            <button
-              onClick={() => setBoardGrouping('status')}
-              className={`flex items-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                boardGrouping === 'status'
-                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]'
-              }`}
-              title="Classical status based board from left to right"
-            >
-              <Kanban size={15} className={boardGrouping === 'status' ? 'text-white' : 'text-cyan-400'} />
-              <span className="hidden md:inline">{t.list.columns.status}</span>
-            </button>
-          </div>
+          <BoardGroupingToggle size="md" />
         </div>
 
         <div className="flex items-center gap-2">
