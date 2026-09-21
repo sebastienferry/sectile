@@ -533,13 +533,19 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		var columns []models.TrackerColumn
 		detectErr := ""
 		if projID != "" {
-			statuses, _ = h.db.GetProjectTrackerStatuses(h.actingContext(r), projID)
+			var statusErr error
+			statuses, statusErr = h.db.GetProjectTrackerStatuses(h.actingContext(r), projID)
+			if statusErr != nil {
+				detectErr = statusErr.Error()
+			}
 			cols, err := h.db.DetectProjectBoardColumns(h.actingContext(r), projID)
 			switch {
 			case tracker.IsUnsupported(err):
 				// A tracker without boards keeps the historical payload.
 			case err != nil:
-				detectErr = err.Error()
+				if detectErr == "" {
+					detectErr = err.Error()
+				}
 			default:
 				columns = cols
 				// The palette must hold everything the board groups, even a

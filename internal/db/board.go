@@ -339,7 +339,17 @@ func (d *DB) DetectProjectBoardColumns(ctx context.Context, projectID string) ([
 	if err != nil {
 		return nil, err
 	}
-	return ts.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
+	columns, err := ts.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: boardID})
+	if err != nil {
+		return nil, err
+	}
+	// A board that groups nothing is a failure to report, not an empty mirror:
+	// the caller would otherwise fall back to one column per status and quietly
+	// replace the columns the user already has.
+	if len(columns) == 0 {
+		return nil, fmt.Errorf("board %s exposes no column", boardID)
+	}
+	return columns, nil
 }
 
 // SyncProjectBoardColumns refreshes a project's columns from its tracker board,

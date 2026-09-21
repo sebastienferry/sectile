@@ -103,6 +103,19 @@ func TestDetectBoardColumnsMirrorsTheBoard(t *testing.T) {
 	}
 }
 
+// A board that groups no column is reported: the editor must keep the columns
+// the user already has rather than fall back to one column per status.
+func TestDetectBoardColumnsReportsAnEmptyBoard(t *testing.T) {
+	fake := newFakeTracker()
+	fake.boards = []models.TrackerBoard{{ID: "5", Name: "PE scrum", Type: "scrum"}}
+	fake.columns = nil
+
+	database, project := jiraTestDB(t, fake)
+	if _, err := database.DetectProjectBoardColumns(context.Background(), project.ID); err == nil {
+		t.Fatal("a board without column must be reported, not served as an empty mirror")
+	}
+}
+
 // A sync on a project that never chose a board resolves the first scrum board
 // and retains it, so the picker and the next sync agree on the same one.
 func TestSyncResolvesAndPersistsTheFirstScrumBoard(t *testing.T) {

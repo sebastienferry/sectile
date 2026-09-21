@@ -148,6 +148,15 @@ export const BoardColumnsEditor: React.FC<Props> = ({
       // dans son ordre, plutôt que d'inventer une colonne par statut.
       if (detectedColumns.length > 0) {
         setStatuses(detectedList)
+        // Les colonnes sont arrivées, la palette pas forcément : l'échec partiel
+        // se dit, il explique un statut manquant à la main.
+        if (detectionError) {
+          addToast({
+            type: 'error',
+            title: 'Statuts incomplets',
+            description: detectionError,
+          })
+        }
         const merged = mergeDetectedColumns(columns, detectedColumns)
         onColumnsChange(merged)
         onStageColumnsChange(pruneStageColumns(stageColumns, merged))
