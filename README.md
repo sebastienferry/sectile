@@ -290,6 +290,14 @@ tag name on a tag) and the cross-compiled `sectile-server-*` /
 under the package `sectile` with the same version string. The agent is never
 part of the image: it runs on workstations, next to the coding CLIs.
 
+A branch other than `main` is also published as `server:preview-<commit sha>`,
+the tag the test environments pull. Those are declared in argocd-sp
+(`apps/sectile/dev`, feature `testenv`): a merge request opened on the GitLab
+mirror for the mirrored branch and labelled `testenv` gets its own board at
+`https://testenv-<merge request number>-sectile.internal.eqtv.dev`, with its
+own database, following the head of the branch until the merge request closes.
+The GitHub pull request alone spawns nothing: the generator only reads GitLab.
+
 ## 📚 Documentation Technique Complète
 
 Une suite documentaire complète pour développeurs et LLMs est disponible dans le dossier [`/docs`](./docs) :
