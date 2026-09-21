@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -123,10 +122,15 @@ type DB struct {
 	// server's lifetime only.
 	unlocked         unlockedKeys
 	prEvidenceLookup func(string, string) (trackerapi.PullRequest, error)
-	conn             *sql.DB
-	mu               sync.RWMutex
-	jobQueue         chan SkillJob
-	limiter          *ProjectLimiter
+	conn             *sqlConn
+	// dialect carries what differs between the engines: placeholder
+	// rebinding, DDL type names, whether the legacy migrations apply. Every
+	// query and all 210 methods below are shared. See docs/adrs/0016.
+	dialect  dialect
+	cfg      Config
+	mu       sync.RWMutex
+	jobQueue chan SkillJob
+	limiter  *ProjectLimiter
 	// auto porte l'état de la boucle de synchronisation de fond.
 	auto              *autoSync
 	cancelMap         map[string]context.CancelFunc
@@ -138,22 +142,42 @@ type DB struct {
 	jobs inFlightJobs
 }
 
+// NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the
+// desktop application and the tests use; Open is the general one.
 func NewDB(dbPath string) (*DB, error) {
-	// _time_format=sqlite: without it the driver stores a time.Time as
-	// time.Time.String(), which prints the zone abbreviation last. A date parsed
-	// from a tracker carries an offset that rarely matches the server's own
-	// zone, Go gives it a location with no name, and String() then writes the
-	// numeric offset where the abbreviation belongs — a form the driver cannot
-	// read back, so the Scan fails and the endpoint answers 500. The requested
-	// format ends with the offset itself and round trips in any zone. See
-	// repairNumericZoneTimestamps for the rows written before this was set.
-	conn, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_time_format=sqlite")
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
+	return Open(SQLiteConfig(dbPath))
+}
 
-	conn.SetMaxOpenConns(25)
-	conn.SetMaxIdleConns(10)
+// Open connects the store to whichever engine cfg names. SQLite is the default
+// and the only engine the desktop application ships with; PostgreSQL is the
+// alternative an operator can point a server at.
+func Open(cfg Config) (*DB, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	d, err := newDialect(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return openWith(cfg, d)
+}
+
+// openWith is Open once the dialect is chosen. It exists as its own function so
+// a test can open SQLite through a dialect that skips the legacy migrations and
+// compare the two schemas; nothing else should call it.
+func openWith(cfg Config, d dialect) (*DB, error) {
+	conn, err := d.Open(cfg)
+	if err != nil {
+		return nil, err
+	}
+	// A pool hands out connections lazily, so a DSN pointing nowhere would not
+	// be noticed until the first query — by which time the server is up and
+	// answering with errors. Failing here keeps a misconfiguration a startup
+	// failure.
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("cannot reach the %s database: %w", d.Name(), err)
+	}
 
 	trackerClient := trackerapi.NewClient()
 	// The key sits beside the database: an operator who backs one up without the
@@ -162,14 +186,16 @@ func NewDB(dbPath string) (*DB, error) {
 	// It is not required to serve: a deployment on a read-only volume, or one
 	// that never stores a personal credential, must still start. Only the
 	// operations that need the key refuse, and they say why.
-	serverKey, serverKeyErr := secrets.ServerKey(filepath.Dir(dbPath))
+	serverKey, serverKeyErr := secrets.ServerKey(d.SecretKeyDir(cfg))
 	if serverKeyErr != nil {
 		log.Printf("⚠️  Clé de chiffrement indisponible (%v) : les accès tracker personnels non scellés seront refusés. Définissez %s pour la fournir.", serverKeyErr, secrets.KeyEnvVar)
 	}
 	db := &DB{
 		serverKey:       serverKey,
 		serverKeyErr:    serverKeyErr,
-		conn:            conn,
+		conn:            newSQLConn(conn, d),
+		dialect:         d,
+		cfg:             cfg,
 		trackers:        trackerClient,
 		trackerRegistry: trackerapi.NewDefaultRegistry(trackerClient),
 		jobQueue:        make(chan SkillJob, 100),
@@ -301,7 +327,18 @@ func (d *DB) initSchema() error {
 			ui_scale INTEGER NOT NULL DEFAULT 100,
 			auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
 			auto_sync_interval_sec INTEGER NOT NULL DEFAULT 60,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			jira_url TEXT NOT NULL DEFAULT '',
+			jira_email TEXT NOT NULL DEFAULT '',
+			jira_api_token TEXT NOT NULL DEFAULT '',
+			jira_project TEXT NOT NULL DEFAULT '',
+			github_api_url TEXT NOT NULL DEFAULT '',
+			github_token TEXT NOT NULL DEFAULT '',
+			gitlab_url TEXT NOT NULL DEFAULT '',
+			gitlab_project TEXT NOT NULL DEFAULT '',
+			gitlab_token TEXT NOT NULL DEFAULT '',
+			spec_framework TEXT NOT NULL DEFAULT 'speckit',
+			external_terminal_command TEXT NOT NULL DEFAULT ''
 		);`,
 		// user_settings holds the personal half of the settings: one row per
 		// account, created on the first save and seeded, until then, from the
@@ -349,7 +386,26 @@ func (d *DB) initSchema() error {
 			auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
 			auto_sync_interval_min INTEGER NOT NULL DEFAULT 5,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			git_remote_url TEXT NOT NULL DEFAULT '',
+			tracker_url TEXT NOT NULL DEFAULT '',
+			github_api_url TEXT NOT NULL DEFAULT '',
+			github_token TEXT NOT NULL DEFAULT '',
+			gitlab_url TEXT NOT NULL DEFAULT '',
+			gitlab_project TEXT NOT NULL DEFAULT '',
+			gitlab_token TEXT NOT NULL DEFAULT '',
+			jira_project TEXT NOT NULL DEFAULT '',
+			pr_creation_stage TEXT NOT NULL DEFAULT 'implemented',
+			skill_overrides TEXT NOT NULL DEFAULT '{}',
+			setup_providers TEXT NOT NULL DEFAULT '[]',
+			spec_framework TEXT NOT NULL DEFAULT '',
+			tty_mode TEXT NOT NULL DEFAULT 'integrated',
+			external_terminal_command TEXT NOT NULL DEFAULT '',
+			ai_provider TEXT NOT NULL DEFAULT '',
+			ai_command_template TEXT NOT NULL DEFAULT '',
+			ai_command_template_autonomous TEXT NOT NULL DEFAULT '',
+			ai_model TEXT NOT NULL DEFAULT '',
+			ai_skill_models TEXT NOT NULL DEFAULT '{}'
 		);`,
 		`CREATE TABLE IF NOT EXISTS tasks (
 			id TEXT PRIMARY KEY,
@@ -380,6 +436,10 @@ func (d *DB) initSchema() error {
 			external_url TEXT,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			issue_type TEXT NOT NULL DEFAULT '',
+			parent_key TEXT NOT NULL DEFAULT '',
+			parent_title TEXT NOT NULL DEFAULT '',
+			parent_type TEXT NOT NULL DEFAULT '',
 			UNIQUE(project_id, key)
 		);`,
 		`CREATE TABLE IF NOT EXISTS task_activities (
@@ -397,6 +457,13 @@ func (d *DB) initSchema() error {
 			completed_at DATETIME,
 			error TEXT NOT NULL DEFAULT '',
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			user_id TEXT NOT NULL DEFAULT '',
+			run_provider TEXT NOT NULL DEFAULT '',
+			run_model TEXT NOT NULL DEFAULT '',
+			run_mode TEXT NOT NULL DEFAULT '',
+			launch_stage TEXT NOT NULL DEFAULT '',
+			chain_stop_stage TEXT NOT NULL DEFAULT '',
+			waiting_since DATETIME,
 			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);`,
@@ -412,6 +479,13 @@ func (d *DB) initSchema() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_user_project_bookmarks_user ON user_project_bookmarks (user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_user_project_bookmarks_project ON user_project_bookmarks (project_id);`,
+		// pinned_tasks was created lazily by the pin helpers, which reach an
+		// engine that skips the legacy migrations too late: the schema has to
+		// declare it like any other live table.
+		`CREATE TABLE IF NOT EXISTS pinned_tasks (
+			task_id   TEXT PRIMARY KEY,
+			pinned_at TEXT NOT NULL
+		);`,
 	}
 
 	for _, query := range queries {
@@ -420,6 +494,118 @@ func (d *DB) initSchema() error {
 		}
 	}
 
+	// Everything below repairs databases created by earlier versions: columns
+	// added after their table, a table rebuilt for a constraint it lacked,
+	// statuses renamed, timestamps rewritten. A database created today starts
+	// complete, so the engines that have no such history skip all of it. See
+	// docs/adrs/0016.
+	if d.dialect.RunsLegacyMigrations() {
+		d.applyLegacyMigrations()
+	}
+
+	// Seed default workspace only if projects table is completely empty
+	var projectsCount int
+	_ = d.conn.QueryRow("SELECT COUNT(*) FROM projects").Scan(&projectsCount)
+	if projectsCount == 0 {
+		_, _ = d.conn.Exec(`
+			INSERT INTO projects (id, name, slug, description, icon, color, repo_path, github_repo, issue_tracker, is_default)
+			VALUES ('default', 'Default Project', 'default', 'Primary workspace repository', 'Folder', 'emerald', '.', '', 'local', 1);
+		`)
+	}
+
+	return nil
+}
+
+// dropRetiredColumns removes the storage of features the app no longer has:
+// the Linear tracker, the delivery/personal project type and the daily digest.
+// Leaving the columns behind would keep serving stale values to anything that
+// reads the table with SELECT *, and keep the digests growing on disk.
+//
+// Each statement is idempotent by failure: a database created after the removal
+// no longer declares these columns, and SQLite then refuses the ALTER with an
+// error this deliberately ignores, exactly like the ADD COLUMN migrations above.
+func (d *DB) dropRetiredColumns() {
+	for _, statement := range []string{
+		"ALTER TABLE projects DROP COLUMN linear_team;",
+		"ALTER TABLE projects DROP COLUMN project_type;",
+		"ALTER TABLE settings DROP COLUMN linear_team;",
+		"ALTER TABLE settings DROP COLUMN prompt_digest_agenda;",
+		"DROP TABLE IF EXISTS daily_digests;",
+	} {
+		_, _ = d.conn.Exec(statement)
+	}
+}
+
+func (d *DB) migrateTasksKeyUnique() {
+	var sqlSchema string
+	_ = d.conn.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&sqlSchema)
+	if strings.Contains(sqlSchema, "key TEXT NOT NULL UNIQUE") || (strings.Contains(sqlSchema, "key TEXT NOT NULL") && !strings.Contains(sqlSchema, "UNIQUE(project_id, key)")) {
+		_, err := d.conn.Exec(`
+			PRAGMA foreign_keys=OFF;
+			CREATE TABLE IF NOT EXISTS tasks_new (
+				id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL DEFAULT 'default',
+				key TEXT NOT NULL,
+				title TEXT NOT NULL,
+				description TEXT NOT NULL DEFAULT '',
+				status TEXT NOT NULL DEFAULT 'backlog',
+				priority TEXT NOT NULL DEFAULT 'medium',
+				labels TEXT NOT NULL DEFAULT '[]',
+				pinned INTEGER NOT NULL DEFAULT 0,
+				assignee TEXT NOT NULL DEFAULT '',
+				assignee_avatar TEXT NOT NULL DEFAULT '',
+				position INTEGER NOT NULL DEFAULT 0,
+				due_date TEXT,
+				branch_name TEXT,
+				pr_url TEXT,
+				repo_path TEXT NOT NULL DEFAULT '',
+				sprint TEXT NOT NULL DEFAULT '',
+				team TEXT NOT NULL DEFAULT '',
+				team_id TEXT NOT NULL DEFAULT '',
+				tracker_created_at DATETIME,
+				tracker_updated_at DATETIME,
+				status_changed_at DATETIME,
+				tracker_status TEXT NOT NULL DEFAULT '',
+				source TEXT NOT NULL DEFAULT 'local',
+				external_url TEXT,
+				issue_type TEXT NOT NULL DEFAULT '',
+				parent_key TEXT NOT NULL DEFAULT '',
+				parent_title TEXT NOT NULL DEFAULT '',
+				parent_type TEXT NOT NULL DEFAULT '',
+				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(project_id, key)
+			);
+			INSERT OR REPLACE INTO tasks_new (
+				id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_created_at, tracker_updated_at, status_changed_at, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, created_at, updated_at
+			)
+			SELECT
+				id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_created_at, tracker_updated_at, status_changed_at, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, created_at, updated_at
+			FROM tasks;
+			DROP TABLE tasks;
+			ALTER TABLE tasks_new RENAME TO tasks;
+			CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+			CREATE INDEX IF NOT EXISTS idx_tasks_position ON tasks(status, position);
+			CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
+			CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team);
+			CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
+			CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint);
+			CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_key);
+			CREATE INDEX IF NOT EXISTS idx_tasks_pinned ON tasks(pinned);
+			PRAGMA foreign_keys=ON;
+		`)
+		if err != nil {
+			log.Printf("[migrateTasksKeyUnique] failed: %v", err)
+		}
+	}
+}
+
+// applyLegacyMigrations brings a database written by an earlier version up to
+// the current schema. It is a no-op on an engine whose databases are always
+// created complete, and every statement in it is deliberately
+// error-tolerant: re-adding a column that is already there is how it detects
+// it has already run.
+func (d *DB) applyLegacyMigrations() {
 	// stage_mapping is dead weight, kept only so the schema stays identical
 	// across versions; see the CREATE TABLE above.
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN stage_mapping TEXT NOT NULL DEFAULT '{}';")
@@ -599,102 +785,6 @@ func (d *DB) initSchema() error {
 	// Runs last: it sweeps the date columns of the schema as it stands once
 	// every table and column above exists.
 	d.repairNumericZoneTimestamps()
-
-	// Seed default workspace only if projects table is completely empty
-	var projectsCount int
-	_ = d.conn.QueryRow("SELECT COUNT(*) FROM projects").Scan(&projectsCount)
-	if projectsCount == 0 {
-		_, _ = d.conn.Exec(`
-			INSERT INTO projects (id, name, slug, description, icon, color, repo_path, github_repo, issue_tracker, is_default)
-			VALUES ('default', 'Default Project', 'default', 'Primary workspace repository', 'Folder', 'emerald', '.', '', 'local', 1);
-		`)
-	}
-
-	return nil
-}
-
-// dropRetiredColumns removes the storage of features the app no longer has:
-// the Linear tracker, the delivery/personal project type and the daily digest.
-// Leaving the columns behind would keep serving stale values to anything that
-// reads the table with SELECT *, and keep the digests growing on disk.
-//
-// Each statement is idempotent by failure: a database created after the removal
-// no longer declares these columns, and SQLite then refuses the ALTER with an
-// error this deliberately ignores, exactly like the ADD COLUMN migrations above.
-func (d *DB) dropRetiredColumns() {
-	for _, statement := range []string{
-		"ALTER TABLE projects DROP COLUMN linear_team;",
-		"ALTER TABLE projects DROP COLUMN project_type;",
-		"ALTER TABLE settings DROP COLUMN linear_team;",
-		"ALTER TABLE settings DROP COLUMN prompt_digest_agenda;",
-		"DROP TABLE IF EXISTS daily_digests;",
-	} {
-		_, _ = d.conn.Exec(statement)
-	}
-}
-
-func (d *DB) migrateTasksKeyUnique() {
-	var sqlSchema string
-	_ = d.conn.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&sqlSchema)
-	if strings.Contains(sqlSchema, "key TEXT NOT NULL UNIQUE") || (strings.Contains(sqlSchema, "key TEXT NOT NULL") && !strings.Contains(sqlSchema, "UNIQUE(project_id, key)")) {
-		_, err := d.conn.Exec(`
-			PRAGMA foreign_keys=OFF;
-			CREATE TABLE IF NOT EXISTS tasks_new (
-				id TEXT PRIMARY KEY,
-				project_id TEXT NOT NULL DEFAULT 'default',
-				key TEXT NOT NULL,
-				title TEXT NOT NULL,
-				description TEXT NOT NULL DEFAULT '',
-				status TEXT NOT NULL DEFAULT 'backlog',
-				priority TEXT NOT NULL DEFAULT 'medium',
-				labels TEXT NOT NULL DEFAULT '[]',
-				pinned INTEGER NOT NULL DEFAULT 0,
-				assignee TEXT NOT NULL DEFAULT '',
-				assignee_avatar TEXT NOT NULL DEFAULT '',
-				position INTEGER NOT NULL DEFAULT 0,
-				due_date TEXT,
-				branch_name TEXT,
-				pr_url TEXT,
-				repo_path TEXT NOT NULL DEFAULT '',
-				sprint TEXT NOT NULL DEFAULT '',
-				team TEXT NOT NULL DEFAULT '',
-				team_id TEXT NOT NULL DEFAULT '',
-				tracker_created_at DATETIME,
-				tracker_updated_at DATETIME,
-				status_changed_at DATETIME,
-				tracker_status TEXT NOT NULL DEFAULT '',
-				source TEXT NOT NULL DEFAULT 'local',
-				external_url TEXT,
-				issue_type TEXT NOT NULL DEFAULT '',
-				parent_key TEXT NOT NULL DEFAULT '',
-				parent_title TEXT NOT NULL DEFAULT '',
-				parent_type TEXT NOT NULL DEFAULT '',
-				created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				UNIQUE(project_id, key)
-			);
-			INSERT OR REPLACE INTO tasks_new (
-				id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_created_at, tracker_updated_at, status_changed_at, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, created_at, updated_at
-			)
-			SELECT
-				id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, position, due_date, branch_name, pr_url, repo_path, sprint, team, team_id, tracker_created_at, tracker_updated_at, status_changed_at, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, created_at, updated_at
-			FROM tasks;
-			DROP TABLE tasks;
-			ALTER TABLE tasks_new RENAME TO tasks;
-			CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-			CREATE INDEX IF NOT EXISTS idx_tasks_position ON tasks(status, position);
-			CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);
-			CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team);
-			CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);
-			CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint);
-			CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_key);
-			CREATE INDEX IF NOT EXISTS idx_tasks_pinned ON tasks(pinned);
-			PRAGMA foreign_keys=ON;
-		`)
-		if err != nil {
-			log.Printf("[migrateTasksKeyUnique] failed: %v", err)
-		}
-	}
 }
 
 func (d *DB) seedIfEmpty() error {
