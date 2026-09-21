@@ -60,13 +60,21 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   assert.equal(await declareBtn.count(),1)
   assert.equal(await declareBtn.isEnabled(),true)
 
-  // Test active execution disables the menu item
+  // Test active execution disables the menu item and offers Detach to native terminal
   activeRuns=[{id:'run-act',taskId:'task-1',projectId:'project-a',skill:'adjust',status:'running'}]
   // Wait for poll to refresh row
   await page.waitForFunction(()=>document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-run').disabled)
   assert.equal(await declareBtn.isDisabled(),true,'Active run disables Declare code as reviewed')
+  await page.keyboard.press('Escape')
+  await row1.locator('.ticket-more').click()
+  const detachTicketBtn=row1.locator('.ticket-menu').getByRole('menuitem',{name:'Detach to native terminal'})
+  assert.equal(await detachTicketBtn.count(),1)
+  assert.equal(await detachTicketBtn.isVisible(),true)
+  await page.keyboard.press('Escape')
   activeRuns=[]
   await page.waitForFunction(()=>!document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-run').disabled)
+  await row1.locator('.ticket-more').click()
+  assert.equal(await row1.locator('.ticket-menu').getByRole('menuitem',{name:'Detach to native terminal'}).count(),0)
   assert.equal(await declareBtn.isEnabled(),true)
 
   // Test Escape dismisses dialog without transitioning

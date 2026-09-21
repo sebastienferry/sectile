@@ -374,7 +374,7 @@ function render(options){
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
-  const canDetach=current&&current.skill==='discuss'&&current.status==='running'&&!current.externalTerminal
+  const canDetach=current&&current.status==='running'&&!current.externalTerminal
   detachBtn.hidden=!canDetach
  }
  const terminalBadge=document.querySelector('#native-terminal-badge')
@@ -451,7 +451,7 @@ if(detachTerminalBtn){
  detachTerminalBtn.onclick=async()=>{
   if(!selected||detachingTerminal)return
   const run=runs.find(item=>item.id===selected)
-  if(!run||run.skill!=='discuss'||run.status!=='running')return
+  if(!run||run.status!=='running'||run.externalTerminal)return
   detachingTerminal=true
   detachTerminalBtn.disabled=true
   try{
@@ -1254,6 +1254,26 @@ function ticketRow(view,task){
  }
  const openMenu=()=>{
   view.closeOpenMenu?.()
+  const activeRun=runs.find(r=>r.taskId===task.id&&r.status==='running'&&!r.externalTerminal)
+  let detachBtn=menu.querySelector('.ticket-detach')
+  if(activeRun){
+   if(!detachBtn){
+    detachBtn=document.createElement('button');detachBtn.type='button';detachBtn.className='ticket-detach';detachBtn.setAttribute('role','menuitem');detachBtn.textContent='Detach to native terminal'
+    const discussItem=menu.querySelector('[data-skill-id="discuss"]')
+    if(discussItem)menu.insertBefore(detachBtn,discussItem)
+    else menu.append(detachBtn)
+   }
+   detachBtn.onclick=async()=>{
+    closeMenu()
+    try{
+     const res=await api.detachToNativeTerminal(activeRun.id)
+     if(res?.terminal)activeRun.externalTerminal=res.terminal
+     render();await refresh()
+    }catch(err){view.status.textContent='Could not detach: '+err.message}
+   }
+  }else if(detachBtn){
+   detachBtn.remove()
+  }
   menu.hidden=false;more.setAttribute('aria-expanded','true')
   dismiss=event=>{if(!menu.contains(event.target)&&event.target!==more)closeMenu()}
   document.addEventListener('pointerdown',dismiss,true)
@@ -1275,6 +1295,7 @@ function ticketRow(view,task){
  items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true})
  for(const item of items){
   const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!view.info.configured
+  if(item.skillId)button.dataset.skillId=item.skillId
   if(item.transition==='reviewed'){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
@@ -1472,7 +1493,21 @@ function taskMenu(run){
  rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render()}
  const archive=document.createElement('button');archive.textContent='Archive'
  archive.onclick=()=>requestArchive(run)
- dialogBody.append(relaunch,rename,archive)
+ dialogBody.append(relaunch)
+ const active=related().find(item=>item.status==='running'&&!item.externalTerminal)
+ if(active){
+  const detach=document.createElement('button');detach.textContent='Detach to native terminal'
+  detach.onclick=async()=>{
+   detach.disabled=true
+   try{
+    const res=await api.detachToNativeTerminal(active.id)
+    if(res?.terminal)active.externalTerminal=res.terminal
+    dialog.close();render();await refresh()
+   }catch(err){paragraph(err.message);detach.disabled=false}
+  }
+  dialogBody.append(detach)
+ }
+ dialogBody.append(rename,archive)
 }
 function requestArchive(run){
  const active=runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item))
