@@ -106,7 +106,9 @@ func (d *DB) ensureUserCredentialsTable() {
 	// The site moved into the credential once it became clear an account
 	// belongs to an instance. Additive, and refused on a fresh database, like
 	// every other migration here.
-	_, _ = d.conn.Exec(`ALTER TABLE user_tracker_credentials ADD COLUMN site_url TEXT NOT NULL DEFAULT '';`)
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec(`ALTER TABLE user_tracker_credentials ADD COLUMN site_url TEXT NOT NULL DEFAULT '';`)
+	}
 }
 
 // SetUserTrackerCredential stores one person's token for one tracker. An empty

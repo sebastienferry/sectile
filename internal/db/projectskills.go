@@ -21,6 +21,7 @@ import (
 // être réimportée.
 func (d *DB) ensureProjectSkillsTable() {
 	_, _ = d.conn.Exec(`CREATE TABLE IF NOT EXISTS project_skills (
+		mode TEXT NOT NULL DEFAULT '',
 		project_id TEXT NOT NULL,
 		skill_id   TEXT NOT NULL,
 		content    TEXT NOT NULL,
@@ -29,7 +30,9 @@ func (d *DB) ensureProjectSkillsTable() {
 	)`)
 	// mode : le mode d'exécution propre à la skill. Vide vaut « pas d'avis »,
 	// ce qui laisse la précédence retomber sur le défaut du projet.
-	_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN mode TEXT NOT NULL DEFAULT ''`)
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN mode TEXT NOT NULL DEFAULT ''`)
+	}
 }
 
 type projectSkillOverride struct {

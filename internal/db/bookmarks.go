@@ -42,7 +42,11 @@ func (d *DB) ensureDefaultBookmarkUnsafe(userID string) error {
 		return err
 	}
 
-	_, err = d.conn.Exec("INSERT OR IGNORE INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?)", userID, defaultProjectID)
+	// ON CONFLICT DO NOTHING rather than INSERT OR IGNORE: both engines accept
+	// the first, only SQLite the second. Bookmarking is idempotent by design —
+	// it is called on every sign-in — so a row that is already there is not an
+	// error to report.
+	_, err = d.conn.Exec("INSERT INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?) ON CONFLICT DO NOTHING", userID, defaultProjectID)
 	return err
 }
 
@@ -115,7 +119,7 @@ func (d *DB) BookmarkProject(userID, projectID string) error {
 		return err
 	}
 
-	_, err = d.conn.Exec("INSERT OR IGNORE INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?)", userID, actualID)
+	_, err = d.conn.Exec("INSERT INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?) ON CONFLICT DO NOTHING", userID, actualID)
 	return err
 }
 
@@ -165,6 +169,6 @@ func (d *DB) ToggleProjectBookmark(userID, projectID string) (bool, error) {
 		return false, err
 	}
 
-	_, err = d.conn.Exec("INSERT OR IGNORE INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?)", userID, actualID)
+	_, err = d.conn.Exec("INSERT INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?) ON CONFLICT DO NOTHING", userID, actualID)
 	return true, err
 }

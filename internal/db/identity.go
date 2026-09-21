@@ -56,6 +56,9 @@ func (c DeviceCredential) ExpiresWithin(window time.Duration) bool {
 func (d *DB) initIdentitySchema() error {
 	queries := []string{
 		`CREATE TABLE IF NOT EXISTS users (
+			role TEXT NOT NULL DEFAULT 'member',
+			last_sign_in DATETIME,
+			chosen_name TEXT NOT NULL DEFAULT '',
 			id TEXT PRIMARY KEY,
 			subject TEXT NOT NULL UNIQUE,
 			email TEXT NOT NULL DEFAULT '',
@@ -65,6 +68,7 @@ func (d *DB) initIdentitySchema() error {
 		// Only the hash is stored: a database copy must not yield usable
 		// credentials.
 		`CREATE TABLE IF NOT EXISTS device_credentials (
+			expires_at DATETIME,
 			id TEXT PRIMARY KEY,
 			user_id TEXT NOT NULL,
 			token_hash TEXT NOT NULL UNIQUE,
@@ -91,17 +95,25 @@ func (d *DB) initIdentitySchema() error {
 	}
 	// Credentials issued before keys expired keep NULL here, which means no
 	// expiry: an upgrade must not cut off every paired workstation at once.
-	_, _ = d.conn.Exec(`ALTER TABLE device_credentials ADD COLUMN expires_at DATETIME;`)
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec(`ALTER TABLE device_credentials ADD COLUMN expires_at DATETIME;`)
+	}
 	// Users created before roles existed all become members: the next person to
 	// sign in becomes the first admin, exactly as on a fresh installation.
-	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member';`)
-	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN last_sign_in DATETIME;`)
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'member';`)
+	}
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN last_sign_in DATETIME;`)
+	}
 	// display_name is rewritten at every sign-in by UpsertUser, from the
 	// provider's claim or, for a local account, from the e-mail address. A name
 	// its owner chose therefore cannot live there: the next sign-in would erase
 	// it. chosen_name holds the choice and wins the read; empty means no choice,
 	// so an account that never renamed itself reads exactly as it did before.
-	_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN chosen_name TEXT NOT NULL DEFAULT '';`)
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN chosen_name TEXT NOT NULL DEFAULT '';`)
+	}
 	return nil
 }
 
