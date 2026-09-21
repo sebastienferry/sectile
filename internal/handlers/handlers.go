@@ -2405,7 +2405,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/tasks/{id}/sync: perform a unit two-way sync (update tracker and rsync local state)
 	if subAction == "sync" && (r.Method == http.MethodPost || r.Method == http.MethodGet) {
-		task, err := h.db.SyncSingleTask(id)
+		// A synchronisation a person triggered on one ticket also rediscovers
+		// its pull requests, whatever the bounding rule of the background pass.
+		task, err := h.db.ForceSyncSingleTask(r.Context(), id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Échec de la synchronisation unitaire: "+err.Error())
 			return

@@ -269,6 +269,12 @@ func isRateLimited(err error) bool {
 // enterAutoSyncBackoff steps back for a while. A tracker that says it has had
 // enough is answered by waiting, not by trying again a minute later.
 func (d *DB) enterAutoSyncBackoff() {
+	// The backoff is asked for by any rate-limited tracker call, including one
+	// made before the loop was ever started; there is then nothing to step
+	// back from.
+	if d.auto == nil {
+		return
+	}
 	d.auto.mu.Lock()
 	defer d.auto.mu.Unlock()
 	d.auto.backoffUntil = time.Now().Add(10 * time.Minute)

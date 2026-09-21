@@ -38,10 +38,34 @@ func NewGithubAdapter(client *Client) *GithubAdapter {
 				tracker.CapComment,
 				tracker.CapLabels,
 				tracker.CapAssign,
+				tracker.CapPullRequests,
 			},
 		},
 		client: client,
 	}
+}
+
+// IssuePullRequests implements tracker.PullRequestDiscoverer. GitHub is the only
+// tracker that answers it today; Jira and the local board do not declare the
+// capability and do not implement the interface.
+func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.IssuePullRequestsRequest) ([]models.TaskPullRequest, error) {
+	repo := resolveGithubRepo(req.Project)
+	if repo == "" {
+		return nil, fmt.Errorf("configure an explicit GitHub owner/repository")
+	}
+	num, err := cleanGithubIssueNum(req.Key)
+	if err != nil {
+		return nil, err
+	}
+	found, err := g.forProject(ctx, req.Project).IssuePullRequests(repo, num)
+	if err != nil {
+		return nil, err
+	}
+	links := make([]models.TaskPullRequest, 0, len(found))
+	for _, pr := range found {
+		links = append(links, models.TaskPullRequest{URL: pr.URL, Branch: pr.Branch})
+	}
+	return links, nil
 }
 
 // forProject is the client to run one request with: the same one when nothing is
