@@ -73,6 +73,21 @@ loop and the per-project limiter stay in-process.
   which keep going through the `ALTER` path. It is checked explicitly: a
   database built with the legacy migrations disabled must have the same schema
   as one built with them enabled.
+
+  The first version of this record only counted the statements in `initSchema`,
+  and the guard only covered those. It missed the tables created by their own
+  `ensure…Table` helper, each carrying its own `ALTER`: seven further columns
+  reached PostgreSQL missing, `users.role` among them, which is read on every
+  authorisation check. Those helpers are now gated the same way and the guard
+  covers them. The rule to carry forward: **any** `ALTER TABLE ... ADD COLUMN`
+  anywhere in the package is a column its `CREATE TABLE` must also declare.
+
+- `CREATE TABLE IF NOT EXISTS` does not retrofit a column onto a table that
+  already exists. A PostgreSQL database created by a version whose schema was
+  incomplete stays incomplete after the fix, and has to be recreated or
+  patched by hand. There is deliberately no automatic repair: inventing one
+  would mean running the historical SQLite migrations against PostgreSQL, which
+  is exactly what this record separates them from.
 - `pgx` rejects multi-statement `Exec` under its default extended protocol, and
   `migrateTasksKeyUnique` sends a 20-statement script. Another reason it stays
   SQLite-only, and a trap for anyone who later tries to make it portable.
