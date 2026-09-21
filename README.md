@@ -395,10 +395,13 @@ authentication and workflow validation retain their existing contracts.
 `/mcp` is stateful: every connected client holds one server session, so two
 clients sharing the same credential stay distinct and a client that goes away is
 noticed. A run started with `start_run` belongs to the session that started it.
-When that session ends — the client quits, its process is killed, or it falls
-silent past the idle timeout — the server closes the runs it still owns as
-canceled, with a note saying the client disconnected. `finish_run` remains how a
-run reports its own outcome and always wins over that fallback. A run reused from
+When that session ends — the client quits, its process is killed, or its
+connection breaks — the server closes the runs it still owns as canceled, with a
+note saying the client disconnected. Silence alone ends nothing: a client that
+says nothing past `SECTILE_MCP_SESSION_TIMEOUT` (four hours by default) gets one
+sentence appended to its runs, which keep running. `finish_run` remains how a run
+reports its own outcome and always wins over that fallback, and a run a
+disconnection canceled can still be reported by its owner afterwards. A run reused from
 a launcher keeps its dispatching agent as owner, since that agent already watches
 the real process.
 

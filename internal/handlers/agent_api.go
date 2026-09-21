@@ -16,22 +16,22 @@ import (
 	"tasks/internal/taskmcp"
 )
 
-// defaultMCPSessionTimeout bounds a session whose client never says goodbye: a
-// process killed outright sends no termination, so only silence reveals it.
-// Sectile's own bridge pings well inside this window, which keeps a live but
-// idle conversation connected while still closing an abandoned one.
-const defaultMCPSessionTimeout = 15 * time.Minute
+// defaultMCPSilenceNotice is how long a client may say nothing before Sectile
+// remarks on it. Silence is not proof of death: a stage that compiles, tests or
+// waits for its owner is quiet for a long while and its run must survive it, so
+// crossing this bound only appends a sentence to the runs the session owns.
+const defaultMCPSilenceNotice = 4 * time.Hour
 
-// mcpSessionTimeout reads the deployment's override. An unparseable or
+// mcpSilenceNotice reads the deployment's override. An unparseable or
 // negative value keeps the default rather than disabling the bound silently.
-func mcpSessionTimeout() time.Duration {
+func mcpSilenceNotice() time.Duration {
 	raw := strings.TrimSpace(os.Getenv("SECTILE_MCP_SESSION_TIMEOUT"))
 	if raw == "" {
-		return defaultMCPSessionTimeout
+		return defaultMCPSilenceNotice
 	}
 	timeout, err := time.ParseDuration(raw)
 	if err != nil || timeout <= 0 {
-		return defaultMCPSessionTimeout
+		return defaultMCPSilenceNotice
 	}
 	return timeout
 }
@@ -175,7 +175,10 @@ func (h *Handler) MCPHandler() http.Handler {
 	server := taskmcp.NewServerWithCallers(h.db, h.mcpSessions, h.mcpCaller)
 	return h.AgentAPIAuth(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: mcpSessionTimeout()},
+		// The transport is given no bound of its own: its timeout closes the
+		// session, which would cancel every run it adopted. Sectile owns the
+		// bound instead and only marks the silence (see SessionRegistry).
+		&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: 0},
 	))
 }
 

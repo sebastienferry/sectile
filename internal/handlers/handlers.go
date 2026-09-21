@@ -67,14 +67,15 @@ func NewHandler(database *db.DB) *Handler {
 	// A typed nil database would satisfy the closer interface and panic on the
 	// first disconnection, so the registry is given one only when it exists.
 	var runs taskmcp.RunCloser
+	var notes taskmcp.RunNoter
 	if database != nil {
-		runs = database
+		runs, notes = database, database
 	}
 	h := &Handler{
 		db:                database,
 		subscribers:       make(map[chan Event]bool),
 		agentDispatcher:   NewAgentDispatcher(),
-		mcpSessions:       taskmcp.NewSessionRegistry(runs),
+		mcpSessions:       taskmcp.NewSessionRegistryWith(runs, notes, mcpSilenceNotice()),
 		agentPingInterval: defaultAgentPingInterval,
 		agentReadTimeout:  defaultAgentReadTimeout,
 	}

@@ -143,6 +143,17 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			sessions.Watch(req.Session)
 		},
 	})
+	// Any message proves the client is alive, whichever tool or protocol method
+	// it invoked, so activity is observed in the one place they all pass
+	// through rather than tool by tool.
+	s.AddReceivingMiddleware(func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if session := req.GetSession(); session != nil {
+				sessions.Touch(session.ID())
+			}
+			return next(ctx, method, req)
+		}
+	})
 	mcp.AddTool(s, &mcp.Tool{Name: "get_task", Description: "Read task details, workflow labels, branch metadata and live comments. Comments come from the tracker; when they cannot be retrieved the task is still returned and the failure is reported in commentsError."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in taskInput) (*mcp.CallToolResult, any, error) {
 			if strings.TrimSpace(in.TaskKey) == "" {
@@ -211,7 +222,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			projects, err := database.AgentProjects()
 			return nil, projects, err
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs. A run this session creates is owned by it: if this client disconnects without finishing it, the server closes the run as canceled. A run reused from a launcher keeps the ownership of that launcher."},
+	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs. A run this session creates is owned by it: if this client disconnects without finishing it, the server closes the run as canceled. A long silence does not: a quiet run stays open and is only remarked upon. A run reused from a launcher keeps the ownership of that launcher."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in startRunInput) (*mcp.CallToolResult, any, error) {
 			activity, err := database.StartRemoteRunBy(callerOf(resolve, req).UserID, in.TaskKey, in.Skill, in.RunID)
 			if err != nil {
@@ -226,7 +237,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, activity, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "finish_run", Description: "Finish the specified remote execution with completed, failed or canceled status. Call when the entire invoked skill ends, including when stopping for user input. This is how a run reports its own outcome; a run left open when the session ends is closed as canceled instead. Does not transition the task."},
+	mcp.AddTool(s, &mcp.Tool{Name: "finish_run", Description: "Finish the specified remote execution with completed, failed or canceled status. Call when the entire invoked skill ends, including when stopping for user input. This is how a run reports its own outcome; a run left open when the session ends is closed as canceled instead, and such a run may still be reported here afterwards by its owner. Does not transition the task."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in finishRunInput) (*mcp.CallToolResult, any, error) {
 			caller := callerOf(resolve, req)
 			activity, err := database.FinishRemoteRunAs(db.Actor{ID: caller.UserID, Name: caller.Name},

@@ -314,7 +314,7 @@ liveness.
 `/mcp` is served statefully: each client holds one server session, identified by
 `Mcp-Session-Id` and told apart from any other session sharing the same bearer
 credential. A session begins when its client completes initialization and ends on
-client termination, a dropped connection, or silence beyond the idle timeout.
+client termination, a dropped connection, or a server restart.
 
 `GET /api/mcp/sessions` lists live sessions with the identity the client declared
 in `clientInfo`, its connection time, and the runs it owns. It is a browser-facing
@@ -332,10 +332,13 @@ not adopted: it belongs to the agent that dispatched it, whose supervisor report
 the real process exit. A client connected through a transport without sessions
 keeps the previous behaviour, where only `finish_run` closes a run.
 
-`SECTILE_MCP_SESSION_TIMEOUT` bounds a session whose client never announces its
-departure, defaulting to fifteen minutes of silence; an unusable value keeps the
-default rather than removing the bound. The stdio bridge pings inside that window,
-so an idle but live conversation stays connected. `SECTILE_MCP_CLIENT` names the
+`SECTILE_MCP_SESSION_TIMEOUT` bounds how long a client may say nothing before the
+silence is remarked upon, defaulting to four hours; an unusable value keeps the
+default. Crossing it never ends a session and never cancels a run: it appends one
+sentence to each run the session owns, once per silent stretch, and any later
+message rearms the observation. A run canceled by a real disconnection stays
+recoverable: its owner, or an administrator, may still report its outcome through
+`finish_run`, which replays the hand-back on the corrected status. `SECTILE_MCP_CLIENT` names the
 bridge in the session list, defaulting to host and process id.
 
 A restart destroys every session at once, so startup closes the runs those

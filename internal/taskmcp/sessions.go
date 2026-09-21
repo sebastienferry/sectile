@@ -16,14 +16,33 @@ import (
 // note rather than in a new status value.
 const (
 	disconnectStatus = "canceled"
-	disconnectNote   = "Client disconnected: the server closed this run when its MCP session ended"
+	// The note is shared with internal/db, which recognizes it to let the run's
+	// owner rewrite an outcome a disconnection decided for them.
+	disconnectNote = models.RunDisconnectNote
 )
+
+// defaultSilenceBound is how long a session may say nothing before the registry
+// remarks on it. It bounds an observation, never a life: the deployment
+// overrides it through SECTILE_MCP_SESSION_TIMEOUT.
+const defaultSilenceBound = 4 * time.Hour
+
+// silenceSweepDivisor sets how often the sweeper looks, as a fraction of the
+// bound, so a silence is noticed shortly after it crosses rather than a whole
+// bound later.
+const silenceSweepDivisor = 10
 
 // RunCloser finishes a run whose client can no longer report on it. The
 // registry depends on this narrow contract rather than on the database so that
 // session ownership can be exercised without one.
 type RunCloser interface {
 	FinishRemoteRun(taskKey, runID, status, note string) (*models.TaskActivity, error)
+}
+
+// RunNoter appends one sentence to a run that is still running. Marking is the
+// only thing a silence may do, so the registry asks for exactly that verb and
+// nothing that could end a run.
+type RunNoter interface {
+	NoteRemoteRun(runID, note string) error
 }
 
 // adoptedRun remembers what a session would leave behind. The task key is kept
@@ -41,6 +60,11 @@ type liveSession struct {
 	version     string
 	connectedAt time.Time
 	runs        map[string]adoptedRun
+	// lastSeen is the last client-to-server message, whatever it invoked.
+	lastSeen time.Time
+	// silentSince marks the stretch of silence already remarked upon, and is
+	// nil the rest of the time, so one stretch costs exactly one sentence.
+	silentSince *time.Time
 }
 
 // SessionView projects a live session for the status API. It carries the
@@ -66,14 +90,118 @@ type SessionView struct {
 // transport without sessions degrades to the previous client-owned behaviour
 // instead of failing.
 type SessionRegistry struct {
-	mu   sync.Mutex
-	live map[string]*liveSession
-	runs RunCloser
-	now  func() time.Time
+	mu    sync.Mutex
+	live  map[string]*liveSession
+	runs  RunCloser
+	notes RunNoter
+	bound time.Duration
+	now   func() time.Time
+	stop  chan struct{}
+	// stopOnce keeps Stop idempotent: a server shut down twice, as tests do,
+	// must not panic on a closed channel.
+	stopOnce sync.Once
 }
 
+// NewSessionRegistry builds a registry that observes silences but has nothing to
+// note them on, which is the shape a host without a database gets.
 func NewSessionRegistry(runs RunCloser) *SessionRegistry {
-	return &SessionRegistry{live: make(map[string]*liveSession), runs: runs, now: time.Now}
+	return NewSessionRegistryWith(runs, nil, defaultSilenceBound)
+}
+
+// NewSessionRegistryWith is NewSessionRegistry with the deployment's silence
+// bound and the sink that records an observed silence. The sweeper starts here
+// and stops with Stop, so a caller owns the goroutine it created.
+func NewSessionRegistryWith(runs RunCloser, notes RunNoter, bound time.Duration) *SessionRegistry {
+	if bound <= 0 {
+		bound = defaultSilenceBound
+	}
+	r := &SessionRegistry{live: make(map[string]*liveSession), runs: runs, notes: notes,
+		bound: bound, now: time.Now, stop: make(chan struct{})}
+	go r.sweep(bound / silenceSweepDivisor)
+	return r
+}
+
+// Stop ends the sweeper. The registry keeps serving every other method, since a
+// session's ownership does not depend on anyone watching it fall silent.
+func (r *SessionRegistry) Stop() {
+	if r == nil {
+		return
+	}
+	r.stopOnce.Do(func() { close(r.stop) })
+}
+
+// sweep remarks on the sessions that crossed the bound. It cancels nothing:
+// silence says a client is slow, not that it is gone, and only a real ending
+// closes a run.
+func (r *SessionRegistry) sweep(every time.Duration) {
+	if every <= 0 {
+		every = time.Second
+	}
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.stop:
+			return
+		case <-ticker.C:
+			r.markSilentSessions()
+		}
+	}
+}
+
+// silentRun pairs a run to note with the sentence it earns, so the notes go out
+// once the lock is released.
+type silentRun struct {
+	runID string
+	note  string
+}
+
+func (r *SessionRegistry) markSilentSessions() {
+	if r == nil {
+		return
+	}
+	now := r.now()
+	r.mu.Lock()
+	var pending []silentRun
+	for _, entry := range r.live {
+		silence := now.Sub(entry.lastSeen)
+		if silence < r.bound || entry.silentSince != nil {
+			continue
+		}
+		since := entry.lastSeen
+		entry.silentSince = &since
+		note := models.RunSilenceNote(silence)
+		for runID := range entry.runs {
+			pending = append(pending, silentRun{runID: runID, note: note})
+		}
+		log.Printf("[MCP] session %s has been silent for %s: its runs stay open", entry.id, silence.Round(time.Minute))
+	}
+	r.mu.Unlock()
+	if r.notes == nil {
+		return
+	}
+	// Outside the lock, as with Close: annotating runs must not hold up the
+	// sessions still being served.
+	for _, run := range pending {
+		if err := r.notes.NoteRemoteRun(run.runID, run.note); err != nil {
+			log.Printf("[MCP] cannot note the silence on run %s: %v", run.runID, err)
+		}
+	}
+}
+
+// Touch records that a client spoke. Any message counts, whichever tool or
+// protocol method it invoked, and it rearms the observation so the next silence
+// is remarked upon in its turn.
+func (r *SessionRegistry) Touch(sessionID string) {
+	if r == nil || sessionID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entry := r.live[sessionID]; entry != nil {
+		entry.lastSeen = r.now()
+		entry.silentSince = nil
+	}
 }
 
 // Watch registers a session and closes it when its client goes away. The wait
@@ -96,7 +224,8 @@ func (r *SessionRegistry) Watch(session *mcp.ServerSession) {
 }
 
 func (r *SessionRegistry) open(id string, info *mcp.Implementation) {
-	entry := &liveSession{id: id, client: "unknown", connectedAt: r.now(), runs: make(map[string]adoptedRun)}
+	entry := &liveSession{id: id, client: "unknown", connectedAt: r.now(), lastSeen: r.now(),
+		runs: make(map[string]adoptedRun)}
 	if info != nil {
 		if info.Name != "" {
 			entry.client = info.Name
