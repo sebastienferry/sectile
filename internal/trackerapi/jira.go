@@ -250,8 +250,14 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	if err != nil {
 		return nil, err
 	}
+	// The creation screen decides: which options this project's scheme has,
+	// and whether it carries the field at all. A project whose screen has no
+	// priority is created without one rather than refused over it.
 	if req.Priority != "" {
-		fields["priority"] = c.jiraPriorityValue(ctx, req.Priority)
+		screen, readable := c.jiraCreatePriorities(ctx, projectKey, issueType)
+		if value, ok := c.priorityFieldFor(ctx, screen, readable, req.Priority, projectKey+"/"+issueType); ok {
+			fields["priority"] = value
+		}
 	}
 	var created struct {
 		Key string `json:"key"`
@@ -315,7 +321,10 @@ func (j *JiraAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 		fields["description"] = MarkdownToADF(*req.Description)
 	}
 	if req.Priority != nil && *req.Priority != "" {
-		fields["priority"] = c.jiraPriorityValue(ctx, *req.Priority)
+		screen, readable := c.jiraEditPriorities(ctx, key)
+		if value, ok := c.priorityFieldFor(ctx, screen, readable, *req.Priority, key); ok {
+			fields["priority"] = value
+		}
 	}
 	update := map[string]any{}
 	if ops := labelOps(req.Labels, req.RemovedLabels); len(ops) > 0 {

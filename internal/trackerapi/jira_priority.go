@@ -3,9 +3,11 @@ package trackerapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"tasks/internal/models"
@@ -200,9 +202,16 @@ func jiraPriorityRank(p models.Priority, n int) int {
 }
 
 // jiraPriorityAliases is what the priority names met so far mean: Atlassian's
-// default scheme, the Blocker/Major/Minor one Jira Server shipped, and the
-// French translations of both. Accents are folded before the lookup, so one
-// spelling answers for every way a site writes it.
+// default scheme, the Blocker/Critical/Major/Minor/Trivial one Jira Server
+// shipped, and the French translations of both. Accents are folded before the
+// lookup, so one spelling answers for every way a site writes it.
+//
+// The Server scheme has five levels for Sectile's four, and it is read the way
+// the sites running it use it: "Major" is the level most of their work items
+// sit at, so it is the middle one, and "Critical" the one above it rather than
+// a second name for "Blocker". Reading Critical as urgent and Major as high
+// instead put every ordinary work item on the board's high level and left
+// Sectile's medium with nowhere to write.
 //
 // Numbered schemes (P1…P4, S1…S3) are deliberately absent: what "P4" means
 // depends on how many options the scheme has, which is precisely what
@@ -212,28 +221,29 @@ var jiraPriorityAliases = map[string]models.Priority{
 	"highest":        models.PriorityUrgent,
 	"blocker":        models.PriorityUrgent,
 	"blocking":       models.PriorityUrgent,
-	"critical":       models.PriorityUrgent,
 	"immediate":      models.PriorityUrgent,
 	"urgent":         models.PriorityUrgent,
 	"urgente":        models.PriorityUrgent,
 	"showstopper":    models.PriorityUrgent,
 	"bloquant":       models.PriorityUrgent,
 	"bloquante":      models.PriorityUrgent,
-	"critique":       models.PriorityUrgent,
 	"la plus elevee": models.PriorityUrgent,
 	"la plus haute":  models.PriorityUrgent,
 	"tres elevee":    models.PriorityUrgent,
 	"tres haute":     models.PriorityUrgent,
-	// High.
+	// High. Critical sits under Blocker in the Server scheme, which is one
+	// level down, not the same one.
+	"critical":   models.PriorityHigh,
+	"critique":   models.PriorityHigh,
 	"high":       models.PriorityHigh,
-	"major":      models.PriorityHigh,
 	"important":  models.PriorityHigh,
 	"importante": models.PriorityHigh,
 	"elevee":     models.PriorityHigh,
 	"eleve":      models.PriorityHigh,
 	"haute":      models.PriorityHigh,
-	"majeure":    models.PriorityHigh,
-	// Medium.
+	// Medium. Major is the Server scheme's ordinary level, not an elevated one.
+	"major":    models.PriorityMedium,
+	"majeure":  models.PriorityMedium,
 	"medium":   models.PriorityMedium,
 	"moderate": models.PriorityMedium,
 	"normal":   models.PriorityMedium,
@@ -315,4 +325,121 @@ func foldPriorityName(name string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+// The site's list is not what a write is judged against. A project has a
+// priority *scheme*, a subset of the site's priorities, and a work item type
+// has a screen that may not carry the field at all. Both are why a name the
+// site knows is still answered with "The priority selected is invalid": the
+// option exists, just not for this project. So a write asks the screen that
+// will receive it — createmeta for a creation, editmeta for an update — and
+// keeps the site's list for when neither can be read.
+
+type jiraScreenPriorities struct {
+	scheme  jiraPriorityScheme
+	offered bool // whether the field is on that screen at all
+}
+
+var jiraCreatePriorityCache sync.Map // site|project|type -> jiraCreatePriorityEntry
+
+type jiraCreatePriorityEntry struct {
+	screen jiraScreenPriorities
+	expiry time.Time
+}
+
+// resetJiraCreatePriorityCache forgets every discovered create screen, for
+// tests that rebuild a site under the same URL.
+func resetJiraCreatePriorityCache() { jiraCreatePriorityCache = sync.Map{} }
+
+// priorityFieldFor answers what to put in the "priority" field of a write, and
+// false when the write must not carry the field at all.
+//
+// The screen decides. A project whose creation screen has no priority — which
+// is the shape of every issue type on some projects — answers false, and the
+// creation goes out without it rather than being refused outright over a field
+// the site was never going to accept. A screen that does carry the field names
+// the options a write may use, and the site's own list is the last resort.
+func (c *Client) priorityFieldFor(ctx context.Context, screen jiraScreenPriorities, readable bool, p models.Priority, what string) (map[string]string, bool) {
+	if readable && !screen.offered {
+		log.Printf("[jira] %s does not offer the priority field; %q left to the site", what, p)
+		return nil, false
+	}
+	if option, ok := screen.scheme.option(p); ok {
+		return map[string]string{"id": option.ID}, true
+	}
+	// Either the screen could not be read, or it carries the field without
+	// enumerating its options. The site's list is a better guess than the
+	// default names, and the default names are better than nothing.
+	return c.jiraPriorityValue(ctx, p), true
+}
+
+// jiraCreatePriorities reads the priority options of one project's creation
+// screen for one work item type, and remembers them for a while.
+func (c *Client) jiraCreatePriorities(ctx context.Context, projectKey, issueType string) (jiraScreenPriorities, bool) {
+	cacheKey := c.JiraURL + "|" + projectKey + "|" + strings.ToLower(issueType)
+	if cached, ok := jiraCreatePriorityCache.Load(cacheKey); ok {
+		if entry, ok := cached.(jiraCreatePriorityEntry); ok && time.Now().Before(entry.expiry) {
+			return entry.screen, true
+		}
+	}
+	screen, err := c.readJiraCreatePriorities(ctx, projectKey, issueType)
+	if err != nil {
+		log.Printf("[jira] the creation screen of %s/%s did not say which priorities it takes: %v", projectKey, issueType, err)
+		return jiraScreenPriorities{}, false
+	}
+	jiraCreatePriorityCache.Store(cacheKey, jiraCreatePriorityEntry{screen: screen, expiry: time.Now().Add(jiraPriorityTTL)})
+	return screen, true
+}
+
+func (c *Client) readJiraCreatePriorities(ctx context.Context, projectKey, issueType string) (jiraScreenPriorities, error) {
+	types, err := c.jiraIssueTypes(ctx, projectKey)
+	if err != nil {
+		return jiraScreenPriorities{}, err
+	}
+	typeID := ""
+	for _, it := range types {
+		if strings.EqualFold(it.Name, issueType) {
+			typeID = it.ID
+			break
+		}
+	}
+	if typeID == "" {
+		return jiraScreenPriorities{}, fmt.Errorf("issue type %q does not exist on project %s", issueType, projectKey)
+	}
+	items, err := c.jiraCreateMetaPages(ctx, "/rest/api/3/issue/createmeta/"+url.PathEscape(projectKey)+"/issuetypes/"+url.PathEscape(typeID), "fields")
+	if err != nil {
+		return jiraScreenPriorities{}, err
+	}
+	for _, raw := range items {
+		var field struct {
+			FieldID       string            `json:"fieldId"`
+			AllowedValues []json.RawMessage `json:"allowedValues"`
+		}
+		if json.Unmarshal(raw, &field) != nil || field.FieldID != "priority" {
+			continue
+		}
+		return jiraScreenPriorities{scheme: decodeJiraPriorities(field.AllowedValues), offered: true}, nil
+	}
+	return jiraScreenPriorities{}, nil
+}
+
+// jiraEditPriorities reads the priority options of one work item's own edit
+// screen. It is not cached: the answer belongs to a work item's project and
+// type, which a key alone does not name, and a priority change is a thing
+// somebody asks for rather than something a synchronisation repeats.
+func (c *Client) jiraEditPriorities(ctx context.Context, key string) (jiraScreenPriorities, bool) {
+	var meta struct {
+		Fields map[string]struct {
+			AllowedValues []json.RawMessage `json:"allowedValues"`
+		} `json:"fields"`
+	}
+	if err := c.jira(ctx, http.MethodGet, "/rest/api/3/issue/"+url.PathEscape(key)+"/editmeta", nil, nil, &meta); err != nil {
+		log.Printf("[jira] the edit screen of %s did not say which priorities it takes: %v", key, err)
+		return jiraScreenPriorities{}, false
+	}
+	field, ok := meta.Fields["priority"]
+	if !ok {
+		return jiraScreenPriorities{}, true
+	}
+	return jiraScreenPriorities{scheme: decodeJiraPriorities(field.AllowedValues), offered: true}, true
 }

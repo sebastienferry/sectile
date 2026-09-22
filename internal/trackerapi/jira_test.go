@@ -36,6 +36,7 @@ func newJiraSite(t *testing.T) *jiraSite {
 	t.Helper()
 	resetJiraFieldCache()
 	resetJiraPriorityCache()
+	resetJiraCreatePriorityCache()
 	site := &jiraSite{t: t, routes: map[string]http.HandlerFunc{}}
 	site.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

@@ -47,20 +47,30 @@
 - **The Team field write is site-dependent**: some instances want the bare team id, others `{"id": …}`. The adapter sends the bare form and retries with the object on refusal. Do not "simplify" that to one form.
 - **Stage vs status**: labels carry the workflow stage, a transition runs only on close or on an explicit target status, and the closing transition is picked by status **category** (`done`), never by the transition's own (localised) name. See ADR 0013.
 - **Bodies are ADF, not Markdown**: `adf.go` converts both ways for a bounded subset. Sending a Markdown string where Jira expects a document is refused, and sending it as one paragraph makes every skill report unreadable.
-- **Priorities are named by the site, not by Atlassian**: the default
-  Highest/High/Medium/Low scheme is one scheme among many, and writing those
-  names to a site running P1…P4, Blocker/Major/Minor or a translated scheme is
-  answered with `400 priority: The priority selected is invalid`. The scheme is
-  read from `GET /rest/api/3/priority/search` (bare `/rest/api/3/priority` on
-  older sites), cached per site URL for ten minutes like the custom field ids,
-  and a write sends the option **id** (`jiraPriorityValue`). Resolution is by
-  name first (`jiraPriorityAliases`, accents folded, English and French), then
-  by **rank** in the scheme's own order, which is most urgent first —
-  `jiraPriorityRank` and `jiraPriorityScheme.priorityAt` are exact inverses, so
-  a level written to an unnamed scheme reads back unchanged. Do not add P1…P5
-  to the alias table: what "P4" means depends on how many options the scheme
-  has, which the rank already knows. A site that will not answer the endpoint
-  degrades to the old names rather than failing the write.
+- **Priorities belong to the project's scheme, not to the site** (2026-09-22):
+  writing Atlassian's default names is answered with
+  `400 priority: The priority selected is invalid` on any project whose scheme
+  is named otherwise. The site list (`GET /rest/api/3/priority/search`, bare
+  `/rest/api/3/priority` on older sites) is **not** enough on its own:
+  equativ.atlassian.net carries all ten options — Blocker/Critical/Major/Minor/
+  Trivial *and* Highest…Lowest — while project PE's scheme holds only the first
+  five, so a write resolved against the site list still sends a refused
+  `Medium`. A write therefore asks the screen that receives it:
+  `createmeta/{project}/issuetypes/{typeId}` for a creation (cached per site,
+  project and type), `issue/{key}/editmeta` for an update (never cached — a key
+  alone does not name its project and type). **A screen without the priority
+  field is written without a priority**, not refused: on PE the field is on no
+  creation screen at all, and sending it fails the whole creation. The site
+  list, then the default names, are the fallbacks when no screen answers.
+  Resolution inside a scheme is by name (`jiraPriorityAliases`, accents folded,
+  English and French), then by **rank** in the scheme's order, most urgent
+  first; `jiraPriorityRank` and `jiraPriorityScheme.priorityAt` are exact
+  inverses, so a level written to an unnamed scheme reads back unchanged. Do
+  not add P1…P5 to the alias table: what "P4" means depends on the scheme's
+  size, which the rank already knows. The Server scheme is deliberately read
+  one level lower than its names suggest — Critical is high, Major is medium —
+  because Major is where the bulk of such a site's work items sit (1931 of the
+  2003 prioritised PE items); reading it as high put a whole board on one level.
 - **`cleanJiraKey` matches a key pattern, it does not strip a prefix**: `JIRA-101` is a legitimate Jira key whose project key happens to be `JIRA`. Recognise `^[A-Z][A-Z0-9_]*-[0-9]+$` first, and only then read the last two segments of a local `jira-<projectID>-<KEY>` identity. Stripping a `jira-` prefix corrupts that key, which `internal/db/pins_test.go` catches.
 
 ### 3. Project Settings Are Runtime State, Not Repository Artifacts

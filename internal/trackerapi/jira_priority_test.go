@@ -14,10 +14,11 @@ import (
 // met in the wild: Atlassian's default, the one Jira Server shipped, a site
 // served in French, and a numbered one whose names mean nothing at all.
 var (
-	jiraServerScheme = jiraPriorityScheme{{ID: "1", Name: "Blocker"}, {ID: "2", Name: "Major"}, {ID: "3", Name: "Minor"}}
-	jiraFrenchScheme = jiraPriorityScheme{{ID: "10", Name: "La plus élevée"}, {ID: "11", Name: "Élevée"}, {ID: "12", Name: "Moyenne"}, {ID: "13", Name: "Basse"}}
-	jiraNumberScheme = jiraPriorityScheme{{ID: "20", Name: "P1"}, {ID: "21", Name: "P2"}, {ID: "22", Name: "P3"}, {ID: "23", Name: "P4"}, {ID: "24", Name: "P5"}}
-	jiraCloudScheme  = jiraPriorityScheme{{ID: "1", Name: "Highest"}, {ID: "2", Name: "High"}, {ID: "3", Name: "Medium"}, {ID: "4", Name: "Low"}, {ID: "5", Name: "Lowest"}}
+	jiraServerScheme  = jiraPriorityScheme{{ID: "1", Name: "Blocker"}, {ID: "2", Name: "Major"}, {ID: "3", Name: "Minor"}}
+	jiraEquativScheme = jiraPriorityScheme{{ID: "1", Name: "Blocker"}, {ID: "2", Name: "Critical"}, {ID: "3", Name: "Major"}, {ID: "4", Name: "Minor"}, {ID: "5", Name: "Trivial"}}
+	jiraFrenchScheme  = jiraPriorityScheme{{ID: "10", Name: "La plus élevée"}, {ID: "11", Name: "Élevée"}, {ID: "12", Name: "Moyenne"}, {ID: "13", Name: "Basse"}}
+	jiraNumberScheme  = jiraPriorityScheme{{ID: "20", Name: "P1"}, {ID: "21", Name: "P2"}, {ID: "22", Name: "P3"}, {ID: "23", Name: "P4"}, {ID: "24", Name: "P5"}}
+	jiraCloudScheme   = jiraPriorityScheme{{ID: "1", Name: "Highest"}, {ID: "2", Name: "High"}, {ID: "3", Name: "Medium"}, {ID: "4", Name: "Low"}, {ID: "5", Name: "Lowest"}}
 )
 
 func TestJiraPriorityIsReadByNameThenByRank(t *testing.T) {
@@ -29,9 +30,15 @@ func TestJiraPriorityIsReadByNameThenByRank(t *testing.T) {
 		// The name decides whenever it means something, whatever the scheme.
 		{"Highest", jiraCloudScheme, models.PriorityUrgent},
 		{"Blocker", jiraServerScheme, models.PriorityUrgent},
-		{"Critique", jiraFrenchScheme, models.PriorityUrgent},
+		// The Server scheme is read as the sites running it use it: Blocker
+		// alone is urgent, Critical is the level under it.
+		{"Critique", jiraFrenchScheme, models.PriorityHigh},
 		{"La plus élevée", jiraFrenchScheme, models.PriorityUrgent},
-		{"Major", jiraServerScheme, models.PriorityHigh},
+		{"Critical", jiraEquativScheme, models.PriorityHigh},
+		// Major is where most work items of such a site sit: the ordinary
+		// level, not an elevated one.
+		{"Major", jiraEquativScheme, models.PriorityMedium},
+		{"Major", jiraServerScheme, models.PriorityMedium},
 		{"Élevée", jiraFrenchScheme, models.PriorityHigh},
 		// Accents are folded, so a site writing it flat says the same thing.
 		{"elevee", jiraFrenchScheme, models.PriorityHigh},
@@ -42,7 +49,7 @@ func TestJiraPriorityIsReadByNameThenByRank(t *testing.T) {
 		{"La plus basse", jiraFrenchScheme, models.PriorityLow},
 		// A scheme spelling a level twice is read on either word, and the whole
 		// name is tried first: "la plus élevée" is not the "élevée" it carries.
-		{"P1 - Critical", jiraNumberScheme, models.PriorityUrgent},
+		{"P1 - Critical", jiraNumberScheme, models.PriorityHigh},
 		// A name that means nothing is placed by its rank in the site's own
 		// scheme. Reading every one of them as medium, which the name table
 		// alone did, put a whole board on one level.
@@ -84,6 +91,12 @@ func TestJiraPriorityIsWrittenAsAnOptionTheSiteHas(t *testing.T) {
 		{models.PriorityMedium, jiraServerScheme, "2"},
 		{models.PriorityLow, jiraServerScheme, "3"},
 		// A scheme this adapter cannot name at all is still spread over.
+		// The scheme project PE runs: the four Sectile levels each find a
+		// home of their own, and Trivial is the one level with no writer.
+		{models.PriorityUrgent, jiraEquativScheme, "1"},
+		{models.PriorityHigh, jiraEquativScheme, "2"},
+		{models.PriorityMedium, jiraEquativScheme, "3"},
+		{models.PriorityLow, jiraEquativScheme, "4"},
 		{models.PriorityUrgent, jiraNumberScheme, "20"},
 		{models.PriorityHigh, jiraNumberScheme, "21"},
 		{models.PriorityMedium, jiraNumberScheme, "22"},
@@ -101,113 +114,173 @@ func TestJiraPriorityIsWrittenAsAnOptionTheSiteHas(t *testing.T) {
 	}
 	// What a write puts in a scheme it cannot read back is what the read side
 	// makes of it: a level written then synchronised must not move.
-	for _, p := range []models.Priority{models.PriorityUrgent, models.PriorityHigh, models.PriorityMedium, models.PriorityLow} {
-		option, _ := jiraNumberScheme.option(p)
-		if got := jiraPriority(option.Name, jiraNumberScheme); got != p {
-			t.Errorf("writing %q wrote %q, which reads back as %q", p, option.Name, got)
+	for _, scheme := range []jiraPriorityScheme{jiraNumberScheme, jiraEquativScheme, jiraCloudScheme, jiraFrenchScheme} {
+		for _, p := range []models.Priority{models.PriorityUrgent, models.PriorityHigh, models.PriorityMedium, models.PriorityLow} {
+			option, _ := scheme.option(p)
+			if got := jiraPriority(option.Name, scheme); got != p {
+				t.Errorf("writing %q wrote %q, which reads back as %q", p, option.Name, got)
+			}
 		}
 	}
 }
 
-// The bug: the adapter wrote "Highest", a name a site whose scheme is not
-// Atlassian's default does not have, and every write came back as
-// "priority: The priority selected is invalid".
-func TestJiraWritesThePriorityIDOfTheSitesOwnScheme(t *testing.T) {
+// The bug, as the reporting site has it. equativ.atlassian.net carries ten
+// priorities — Jira Server's Blocker…Trivial and Atlassian's Highest…Lowest —
+// but project PE's scheme holds only the first five. So "Highest" is a name
+// the *site* has and the *project* refuses, and every write Sectile made was
+// answered with "priority: The priority selected is invalid". The screen that
+// will receive the write is what names the options it may use.
+const jiraPEScheme = `[
+	{"id":"1","name":"Blocker"},{"id":"2","name":"Critical"},{"id":"3","name":"Major"},
+	{"id":"4","name":"Minor"},{"id":"5","name":"Trivial"}
+]`
+
+// jiraTenPriorities is the site's own list: every option of every scheme, the
+// five the project refuses included. Reading a write off this is what still
+// sent "Medium" to a project that has no such option.
+const jiraTenPriorities = `{"isLast":true,"values":[
+	{"id":"2","name":"Critical"},{"id":"1","name":"Blocker"},{"id":"10000","name":"Highest"},
+	{"id":"3","name":"Major"},{"id":"10001","name":"High"},{"id":"10002","name":"Medium"},
+	{"id":"4","name":"Minor"},{"id":"5","name":"Trivial"},{"id":"10004","name":"Lowest"},
+	{"id":"10003","name":"Low"}
+]}`
+
+func jiraSiteWithScreens(t *testing.T) *jiraSite {
 	site := newJiraSite(t)
-	site.reply("GET", "/rest/api/3/priority/search", `{"isLast":true,"values":[
-		{"id":"10300","name":"P1"},{"id":"10301","name":"P2"},{"id":"10302","name":"P3"},{"id":"10303","name":"P4"}
-	]}`)
+	site.reply("GET", "/rest/api/3/priority/search", jiraTenPriorities)
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes", `{"total":1,"issueTypes":[{"id":"3","name":"Task"}]}`)
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3", `{"total":1,"fields":[{"fieldId":"priority","name":"Priority","allowedValues":`+jiraPEScheme+`}]}`)
+	site.reply("GET", "/rest/api/3/issue/PE-7/editmeta", `{"fields":{"priority":{"allowedValues":`+jiraPEScheme+`}}}`)
+	site.reply("GET", "/rest/api/3/issue/PE-42", `{"key":"PE-42","fields":{"summary":"New","priority":{"name":"Blocker"},"status":{"name":"To Do","statusCategory":{"key":"new"}},"labels":[]}}`)
+	return site
+}
+
+func TestJiraWritesAPriorityTheProjectsSchemeHas(t *testing.T) {
+	site := jiraSiteWithScreens(t)
 	var created, updated map[string]any
 	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&created)
 		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
 	})
-	site.reply("GET", "/rest/api/3/issue/PE-42", `{"key":"PE-42","fields":{"summary":"New","priority":{"name":"P2"},"status":{"name":"To Do","statusCategory":{"key":"new"}},"labels":[]}}`)
 	site.on("PUT", "/rest/api/3/issue/PE-7", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&updated)
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityHigh})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := created["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "10301"}) {
-		t.Fatalf("creation must name an option the site has: %#v", got)
-	}
-	// And the work item comes back on the level it was created with.
-	if task.Priority != models.PriorityHigh {
-		t.Fatalf("read back as %q", task.Priority)
-	}
-
-	low := models.PriorityLow
-	if err := site.adapter().UpdateIssue(context.Background(), tracker.UpdateIssueRequest{Project: jiraProject(), Key: "PE-7", Priority: &low}); err != nil {
-		t.Fatal(err)
-	}
-	if got := updated["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "10303"}) {
-		t.Fatalf("update must name an option the site has: %#v", got)
-	}
-	// One discovery for both writes: the scheme belongs to the site.
-	if calls := site.calls("GET", "/rest/api/3/priority/search"); len(calls) != 1 {
-		t.Fatalf("the scheme must be discovered once, not %d times", len(calls))
-	}
-}
-
-// An older site serves the bare list instead of the paginated search.
-func TestJiraReadsTheBarePriorityListWhenTheSearchIsGone(t *testing.T) {
-	site := newJiraSite(t)
-	site.on("GET", "/rest/api/3/priority/search", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, `{"errorMessages":["not found"]}`)
-	})
-	site.reply("GET", "/rest/api/3/priority", `[{"id":"1","name":"Blocker"},{"id":"2","name":"Major"},{"id":"3","name":"Minor"}]`)
-	var created map[string]any
-	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&created)
-		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
-	})
-	site.reply("GET", "/rest/api/3/issue/PE-42", `{"key":"PE-42","fields":{"summary":"New","priority":{"name":"Blocker"},"status":{"name":"To Do","statusCategory":{"key":"new"}},"labels":[]}}`)
-
 	task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent})
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Blocker, the project's own top option — not "Highest", which the site
+	// has and the project refuses.
 	if got := created["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "1"}) {
-		t.Fatalf("creation must name an option the site has: %#v", got)
+		t.Fatalf("creation must use the project's scheme: %#v", got)
 	}
 	if task.Priority != models.PriorityUrgent {
 		t.Fatalf("read back as %q", task.Priority)
 	}
+
+	// An update is judged by the work item's own edit screen, which is the
+	// only place a key alone can name its project and type.
+	low := models.PriorityLow
+	if err := site.adapter().UpdateIssue(context.Background(), tracker.UpdateIssueRequest{Project: jiraProject(), Key: "PE-7", Priority: &low}); err != nil {
+		t.Fatal(err)
+	}
+	if got := updated["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "4"}) {
+		t.Fatalf("update must use the project's scheme: %#v", got)
+	}
+	// The creation screen is asked once per project and type, not once per
+	// write; the edit screen belongs to one work item and is not remembered.
+	if calls := site.calls("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3"); len(calls) != 1 {
+		t.Fatalf("the creation screen must be read once, not %d times", len(calls))
+	}
 }
 
-// A site that will not say which priorities it has is no reason to refuse the
-// write: it goes out under the default name, as it always did, and the site
-// decides.
-func TestJiraFallsBackOnThePriorityNameWhenTheSchemeCannotBeRead(t *testing.T) {
-	site := newJiraSite(t)
-	for _, path := range []string{"/rest/api/3/priority/search", "/rest/api/3/priority"} {
-		site.on("GET", path, func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusForbidden)
-			fmt.Fprint(w, `{"errorMessages":["no permission"]}`)
-		})
-	}
+// Project PE carries no priority on its creation screens at all. Sending the
+// field anyway is refused ("Field 'priority' cannot be set"), which would fail
+// a creation over something the site was never going to accept.
+func TestJiraOmitsThePriorityWhenTheScreenHasNoSuchField(t *testing.T) {
+	site := jiraSiteWithScreens(t)
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3", `{"total":1,"fields":[{"fieldId":"summary","name":"Summary","required":true}]}`)
 	var created map[string]any
 	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&created)
 		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
 	})
-	site.reply("GET", "/rest/api/3/issue/PE-42", `{"key":"PE-42","fields":{"summary":"New","status":{"name":"To Do","statusCategory":{"key":"new"}},"labels":[]}}`)
 
 	if _, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
 		t.Fatal(err)
 	}
-	if got := created["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"name": "Highest"}) {
-		t.Fatalf("an unreadable scheme must not stop the write: %#v", got)
+	if _, ok := created["fields"].(map[string]any)["priority"]; ok {
+		t.Fatalf("a screen without the field must receive no priority: %#v", created["fields"])
 	}
 }
 
-// A synchronisation reads the scheme once for the whole page, not once per
-// work item.
+// A screen that cannot be read falls back on the site's list, which is a
+// better guess than the default names.
+func TestJiraFallsBackOnTheSiteListWhenTheScreenCannotBeRead(t *testing.T) {
+	site := jiraSiteWithScreens(t)
+	site.on("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"errorMessages":["no permission"]}`)
+	})
+	var created map[string]any
+	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&created)
+		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
+	})
+
+	if _, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
+		t.Fatal(err)
+	}
+	// Blocker: the first option the site list names urgent. It happens to be
+	// one the project has too, which is luck rather than design — the site
+	// list knows nothing of the project's scheme.
+	if got := created["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "1"}) {
+		t.Fatalf("an unreadable screen must fall back on the site list: %#v", got)
+	}
+}
+
+// An older site serves the bare list instead of the paginated search, and a
+// site that answers neither still gets its write, under the default name.
+func TestJiraFallsBackThroughTheBareListToTheDefaultNames(t *testing.T) {
+	refuse := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		fmt.Fprint(w, `{"errorMessages":["no permission"]}`)
+	}
+	for _, c := range []struct {
+		name     string
+		bareList http.HandlerFunc
+		want     map[string]any
+	}{
+		{"the bare list answers", func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, `[{"id":"1","name":"Blocker"},{"id":"3","name":"Major"},{"id":"4","name":"Minor"}]`)
+		}, map[string]any{"id": "1"}},
+		{"nothing answers", refuse, map[string]any{"name": "Highest"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			site := jiraSiteWithScreens(t)
+			site.on("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3", refuse)
+			site.on("GET", "/rest/api/3/priority/search", refuse)
+			site.on("GET", "/rest/api/3/priority", c.bareList)
+			var created map[string]any
+			site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+				_ = json.NewDecoder(r.Body).Decode(&created)
+				fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
+			})
+
+			if _, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
+				t.Fatal(err)
+			}
+			if got := created["fields"].(map[string]any)["priority"]; !sameJSON(got, c.want) {
+				t.Fatalf("got %#v, want %#v", got, c.want)
+			}
+		})
+	}
+}
+
+// A synchronisation reads the site's list once for the whole page, not once
+// per work item: a read has no screen to ask and no project scheme to narrow.
 func TestJiraSyncPlacesUnnamedPrioritiesByRank(t *testing.T) {
 	site := newJiraSite(t)
 	site.reply("GET", "/rest/api/3/priority/search", `{"isLast":true,"values":[
