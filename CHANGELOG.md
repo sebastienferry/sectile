@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- Refreshed the web interface with Graphite light and dark surfaces, quieter navigation, and softer board cards that respect the selected density and project accent.
+
 - **The desktop settings panel dropped its bottom bar.** Its only button,
   **Close settings**, repeated the cross in the corner on every category, and
   the same bar showed up under dialogs that had nothing to put on it. The cross

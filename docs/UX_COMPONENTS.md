@@ -6,7 +6,7 @@ This document details the user interface architecture, component hierarchy, inte
 
 ## 1. Application Layout & Hierarchy
 
-The frontend is a React 19 Single Page Application styled with modern Tailwind CSS and custom CSS variables for dark-mode obsidian themes:
+The frontend is a React 19 Single Page Application styled with modern Tailwind CSS and custom CSS variables for Graphite light and dark themes:
 
 ```
 App.tsx
@@ -108,3 +108,11 @@ The web app does not retrieve or display this local source comparison (ADR 0003)
 - Real-time counters: Running, Queued, Completed, Failed.
 - Real-time stdout/stderr log inspector with auto-scroll.
 - Actions to retry failed jobs, cancel running jobs, and clear finished history.
+
+## Graphite styling
+
+The web theme uses neutral Graphite surfaces with project accents reserved for
+selection and actions. Theme tokens live in `web/src/index.css`; the header and
+sidebar use opaque surfaces, and board lanes share the canvas background.
+Expanded task cards use 12px corners and the selected density padding; condensed
+rows preserve their compact geometry. Card transitions respect reduced motion.
