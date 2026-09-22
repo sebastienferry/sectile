@@ -10,9 +10,11 @@ import (
 	"unicode/utf8"
 )
 
-// Two roles. An admin manages users, projects, global settings, tracker
-// credentials, anyone's workstations and anyone's execution; a member does
-// everything else. A third role is a decision for the day someone needs one.
+// Two roles. An admin owns the roster, who holds an account, what role it
+// carries and whether it still opens, plus anyone's workstations and anyone's
+// execution; a member does everything else, the board and its projects
+// included (ADR 0018). A third role is a decision for the day someone needs
+// one.
 const (
 	RoleAdmin  = "admin"
 	RoleMember = "member"
@@ -30,8 +32,18 @@ const LocalSubjectPrefix = "local|"
 const ImplicitUserID = "default"
 
 // ErrLastAdmin refuses the change that would leave the board with nobody able
-// to administer it.
+// to administer it: a demotion, a block and a deletion all reach it.
 var ErrLastAdmin = errors.New("the board would have no admin left")
+
+// ErrImplicitUser refuses a deletion or a block of the implicit account. It is
+// not a person: it owns everything that runs without a session, and removing it
+// would orphan the local agent's own work rather than close anybody's access.
+var ErrImplicitUser = errors.New("the implicit account is not a person")
+
+// ErrAccountBlocked refuses an account an admin has closed. It is returned at
+// the sign-in rather than at the first action, so the person is told once, at
+// the door, instead of finding every page refusing them for no stated reason.
+var ErrAccountBlocked = errors.New("this account is blocked")
 
 // ErrInvalidEmail refuses a local sign-in that does not name an address.
 var ErrInvalidEmail = errors.New("a valid e-mail address is required")
@@ -102,11 +114,14 @@ func NormalizeLocalEmail(email string) (string, error) {
 	return email, nil
 }
 
-// AdminCount is how many admins exist. Zero is the bootstrap state: the next
-// account to sign in takes the role.
+// AdminCount is how many admins can actually administer the board. A blocked
+// admin is not one of them: their account does not open, so counting them would
+// let the last working admin be demoted or blocked behind a row that can no
+// longer undo it. Zero is the bootstrap state: the next account to sign in
+// takes the role.
 func (d *DB) AdminCount() (int, error) {
 	var count int
-	err := d.conn.QueryRow(`SELECT COUNT(*) FROM users WHERE role = ?`, RoleAdmin).Scan(&count)
+	err := d.conn.QueryRow(`SELECT COUNT(*) FROM users WHERE role = ? AND blocked_at IS NULL`, RoleAdmin).Scan(&count)
 	return count, err
 }
 
@@ -177,6 +192,100 @@ func (d *DB) SetUserRole(id, role string) (*User, error) {
 	return d.GetUser(id)
 }
 
+// SetUserBlocked closes an account or opens it again. A blocked account keeps
+// everything it owns: its rows, its past executions and the history that names
+// it stay exactly where they are, which is the whole difference with a deletion.
+// Only the sign-in stops answering.
+//
+// The last admin cannot be blocked, for the reason a demotion cannot: the board
+// would be left with nobody able to undo it.
+func (d *DB) SetUserBlocked(id string, blocked bool) (*User, error) {
+	user, err := d.GetUser(id)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, sql.ErrNoRows
+	}
+	if blocked && id == ImplicitUserID {
+		return nil, ErrImplicitUser
+	}
+	if blocked && user.Role == RoleAdmin {
+		admins, err := d.AdminCount()
+		if err != nil {
+			return nil, err
+		}
+		if admins <= 1 {
+			return nil, ErrLastAdmin
+		}
+	}
+	if blocked {
+		if _, err := d.conn.Exec(`UPDATE users SET blocked_at = ? WHERE id = ?`, time.Now().UTC(), id); err != nil {
+			return nil, err
+		}
+		// The block has to reach the sessions already open, otherwise it only
+		// takes effect whenever the person next signs in, which is exactly when
+		// they would not.
+		if err := d.RevokeUserSessions(id); err != nil {
+			return nil, err
+		}
+	} else if _, err := d.conn.Exec(`UPDATE users SET blocked_at = NULL WHERE id = ?`, id); err != nil {
+		return nil, err
+	}
+	return d.GetUser(id)
+}
+
+// DeleteUser removes an account and everything that authenticates it: its
+// sessions, its workstation keys and any pairing code in flight. What it does
+// not remove is the work: tasks, comments and executions record a user id
+// without a foreign key, so they survive their author and read as an execution
+// without an owner, which is a state the board already knows how to display.
+//
+// The last admin cannot be deleted, and neither can the implicit user, which is
+// not a person but the owner of everything that runs without a session.
+func (d *DB) DeleteUser(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return sql.ErrNoRows
+	}
+	if id == ImplicitUserID {
+		return ErrImplicitUser
+	}
+	user, err := d.GetUser(id)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return sql.ErrNoRows
+	}
+	if user.Role == RoleAdmin {
+		admins, err := d.AdminCount()
+		if err != nil {
+			return err
+		}
+		if admins <= 1 {
+			return ErrLastAdmin
+		}
+	}
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, statement := range []string{
+		`DELETE FROM web_sessions WHERE user_id = ?`,
+		`DELETE FROM pairing_codes WHERE user_id = ?`,
+		`DELETE FROM device_credentials WHERE user_id = ?`,
+		`DELETE FROM user_settings WHERE user_id = ?`,
+		`DELETE FROM users WHERE id = ?`,
+	} {
+		if _, err := tx.Exec(statement, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 // SetDisplayName records the name its owner chose. An empty value clears the
 // choice and hands the account back to the spelling its sign-in supplies. The
 // name is never an identifier, so it is not required to be unique.
@@ -214,7 +323,7 @@ func (d *DB) setUserRole(id, role string) error {
 // both take the role.
 func (d *DB) ensureFirstAdmin(userID string) error {
 	_, err := d.conn.Exec(`UPDATE users SET role = ? WHERE id = ?
-		AND NOT EXISTS (SELECT 1 FROM users WHERE role = ?)`, RoleAdmin, userID, RoleAdmin)
+		AND NOT EXISTS (SELECT 1 FROM users WHERE role = ? AND blocked_at IS NULL)`, RoleAdmin, userID, RoleAdmin)
 	return err
 }
 
@@ -253,6 +362,9 @@ func (d *DB) SignInLocal(email string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := d.refuseBlocked(id); err != nil {
+		return nil, err
+	}
 	if err := d.ensureFirstAdmin(id); err != nil {
 		return nil, err
 	}
@@ -268,6 +380,11 @@ func (d *DB) SignInProvider(subject, email, displayName, role string, roleFromCl
 	if err != nil {
 		return nil, err
 	}
+	// The provider authenticated them; the block is this board's own decision
+	// and outranks it, claim or no claim.
+	if err := d.refuseBlocked(id); err != nil {
+		return nil, err
+	}
 	if roleFromClaim {
 		if err := d.setUserRole(id, role); err != nil {
 			return nil, err
@@ -276,6 +393,19 @@ func (d *DB) SignInProvider(subject, email, displayName, role string, roleFromCl
 		return nil, err
 	}
 	return d.recordSignIn(id)
+}
+
+// refuseBlocked stops a sign-in on a closed account, after the upsert so the
+// e-mail and display name the provider supplies stay current on the row.
+func (d *DB) refuseBlocked(id string) error {
+	user, err := d.GetUser(id)
+	if err != nil {
+		return err
+	}
+	if user != nil && user.Blocked {
+		return ErrAccountBlocked
+	}
+	return nil
 }
 
 func (d *DB) recordSignIn(id string) (*User, error) {

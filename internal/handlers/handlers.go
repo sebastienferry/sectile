@@ -2667,8 +2667,8 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The payload carries both halves. A member may change the personal
-		// one; touching the deployment's is refused by naming the keys, so the
-		// interface can say which.
+		// keys and the tracker ones; touching the rest of the deployment's is
+		// refused by naming the keys, so the interface can say which.
 		if !caller.IsAdmin() {
 			if offending := memberSettingsViolations(*current, sent); len(offending) > 0 {
 				writeError(w, http.StatusForbidden, msgAdminOnly+": "+strings.Join(offending, ", "))
@@ -2695,18 +2695,21 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// The deployment keys go to the shared row, and only an admin ever
-		// reaches this: a member's payload was just checked to change none.
-		if caller.IsAdmin() {
-			deploymentReq, err := deploymentSettingsPayload(*current, sent)
+		// The deployment keys go to the shared row. A member reaches it for the
+		// tracker keys only; the payload filter, not this branch, is what keeps
+		// the rest of the row theirs to read and an admin's to change.
+		{
+			deploymentReq, err := deploymentSettingsPayload(*current, sent, caller.IsAdmin())
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			var clear []string
-			for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
-				if _, ok := sent[name]; ok {
-					clear = append(clear, name)
+			if caller.IsAdmin() {
+				for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
+					if _, ok := sent[name]; ok {
+						clear = append(clear, name)
+					}
 				}
 			}
 			if _, err := h.db.UpdateSettings(deploymentReq, clear...); err != nil {

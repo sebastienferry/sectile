@@ -209,6 +209,23 @@ e-mail address for a local account, so a chosen name stored there would be
 erased at the next visit. Every read of a user resolves
 `COALESCE(NULLIF(chosen_name, ''), display_name)`.
 
+### 2.3.0.1 Accounts API
+
+The one part of the interface reserved to admins. Everything else on the board,
+projects included, is a member's to use; what stays here is the roster: who
+exists, what role they hold, and whether their account still opens.
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/users` | (none) | Every account with its role, its last sign-in and whether it is blocked, plus `rolesFromProvider` when the identity provider supplies the roles. |
+| `PUT` | `/api/users/{id}` | `{role?, blocked?}` | Changes the role, the blocked state, or both. An absent field is left alone. `400` on neither field and on a role that is not `admin` or `member`; `404` on an unknown account; `409` on the last admin, on blocking or deleting your own account, and on the implicit account. |
+| `DELETE` | `/api/users/{id}` | (none) | Removes the account, its sessions and its workstation keys. Same refusals as above. The tasks, comments and executions it owns stay on the board and read as having no owner. |
+
+Blocking keeps everything the account owns and only closes the door: the open
+sessions are revoked at once, the workstation keys stop authenticating, and the
+next sign-in answers `403`. Unblocking gives all three back. Deleting is the
+irreversible one, and is why the two are separate actions rather than a switch.
+
 ### 2.3.1 Personal Tracker Credentials API
 
 A tracker credential may be personal, so a write carries the name of whoever

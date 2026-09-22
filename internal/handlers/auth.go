@@ -117,6 +117,10 @@ func (h *Handler) HandleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// overwrites any manual change; without a claim the stored role stands and
 	// the first person to sign in while no admin exists becomes one.
 	user, err := h.db.SignInProvider(identity.Subject, identity.Email, identity.DisplayName, identity.Role, identity.RoleFromClaim)
+	if errors.Is(err, db.ErrAccountBlocked) {
+		writeError(w, http.StatusForbidden, msgBlocked)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -153,6 +157,10 @@ func (h *Handler) HandleLocalSignIn(w http.ResponseWriter, r *http.Request) {
 	user, err := h.db.SignInLocal(payload.Email)
 	if errors.Is(err, db.ErrInvalidEmail) {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if errors.Is(err, db.ErrAccountBlocked) {
+		writeError(w, http.StatusForbidden, msgBlocked)
 		return
 	}
 	if err != nil {
@@ -292,7 +300,8 @@ func publicPath(path string) bool {
 
 // RequireSession guards the interface API: everything but publicPath needs a
 // session, on every deployment and from the first visit (ADR 0015). Past the
-// sign-in check it also refuses members on the routes adminOnlyRoute names.
+// sign-in check it refuses a blocked account outright, and members on the
+// routes adminOnlyRoute names.
 func (h *Handler) RequireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if publicPath(r.URL.Path) {
@@ -302,6 +311,10 @@ func (h *Handler) RequireSession(next http.Handler) http.Handler {
 		caller := h.webPrincipal(r)
 		if caller.Anonymous() {
 			writeError(w, http.StatusUnauthorized, msgSignIn)
+			return
+		}
+		if caller.Blocked {
+			writeError(w, http.StatusForbidden, msgBlocked)
 			return
 		}
 		if adminOnlyRoute(r.Method, r.URL.Path) && !caller.IsAdmin() {
