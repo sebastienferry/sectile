@@ -13,6 +13,34 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- **A macro's roadmap horizon now reaches the tracker.** Classifying a macro as
+  NOW, NEXT or LATER writes a `roadmap:now`, `roadmap:next` or `roadmap:later`
+  label on its epic and removes the other three, so the classification is
+  readable from a Jira filter, a board or a JQL query instead of living only in
+  Sectile. Un-classifying a macro removes the axis. The write goes through the
+  activity queue, so a refusal from the tracker is visible rather than silent.
+  Until now the classification was kept locally and announced as pushed.
+- **The roadmap says how many classifications have not reached the tracker.** A
+  counter in the roadmap toolbar lists the macros whose label is missing or no
+  longer matches — anything classified before the mirroring existed, or while
+  the tracker was unreachable — and pushes them all in one click. Macros that
+  can never carry a label, such as GitHub milestones and epics belonging to
+  another project, are left out rather than reported as late for ever.
+- **A condensed row for the roadmap.** **Condensed** in the roadmap toolbar
+  reduces each macro to one line — its key, its title, its open/total count, its
+  priority and a count of the tickets left to place — and puts NOW, NEXT and
+  LATER on it as three two-letter buttons, so a macro moves from one horizon to
+  another without unfolding anything. The choice is remembered per browser. The
+  **Hidden** tab keeps the unfolded row: none of the three buttons applies
+  there, and every macro would read as unclassified.
+- **Roadmap labels can be read back from the tracker.** **Re-read labels** in
+  the roadmap toolbar imports the `roadmap:` labels the epics already carry,
+  along with each epic's own title and whether it is closed, which the
+  synchronisation never imported. A macro classified on the tracker wins; one
+  carrying no label keeps the classification made here.
+
 ### Changed
 
 - Refreshed the web interface with Graphite light and dark surfaces, quieter navigation, and softer board cards that respect the selected density and project accent.
@@ -46,6 +74,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Cutting stories out of a macro no longer answers success without moving
+  anything.** The move, the horizon push and the required-field lookup were
+  served under `/epics/` only, while the interface asked for them under
+  `/macros/`. The request fell through to the generic macro route, which read
+  the action's own name as a macro key: a cut reported "queued" while it had
+  created an empty macro called `move`, and the list of classifications to push
+  answered with every macro of the project.
 - **A ticket's activity list shows what happened to it, not how often it was
   read.** The background synchronisation left one entry on a ticket every time
   it re-read it, whether or not anything had moved. On a project of a few

@@ -272,6 +272,8 @@ interface AppContextType {
   pendingHorizonPushes: (projectId: string) => Promise<MacroMeta[]>
   /** Met la poussée des labels d'horizon en file d'activités. Retourne true si la file a accepté. */
   pushPendingHorizons: (projectId: string) => Promise<boolean>
+  /** Relit les labels `roadmap:` du tracker et en tire l'horizon local. */
+  importMacroHorizons: (projectId: string) => Promise<boolean>
   /**
    * Met le rattachement à une macro en file d'activités et renvoie le ticket tel
    * qu'il est déjà en local.
@@ -2784,6 +2786,31 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
+  /**
+   * Relit les labels `roadmap:` portés par les épics du tracker.
+   *
+   * Synchrone, contrairement à la poussée : rien n'est écrit sur le tracker, et
+   * la réponse est le compte rendu qu'on est venu chercher. Les macros sont
+   * relues ensuite, l'import ayant pu changer l'horizon, le titre et l'état
+   * terminé de chacune.
+   */
+  const importMacroHorizons = async (projectId: string): Promise<boolean> => {
+    try {
+      const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/import-horizons`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Lecture refusée')
+      addToast({
+        type: 'success',
+        title: 'Labels roadmap relus',
+        description: data.note || undefined,
+      })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Lecture impossible', description: err.message })
+      return false
+    }
+  }
+
   const fetchProjectIssueTypes = async (projectId: string): Promise<string[]> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(projectId)}/issue-types`)
@@ -3437,6 +3464,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         createStoryFromEpicTodo,
         pendingHorizonPushes,
         pushPendingHorizons,
+        importMacroHorizons,
         setTaskMacro,
         setTaskEpic,
         createStoryUnderMacro,

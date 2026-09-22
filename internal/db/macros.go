@@ -386,38 +386,6 @@ func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID st
 	return d.CreateStoryFromMacroTodo(projectID, epicKey, todoID)
 }
 
-// PushMacroHorizonLabel mirrors the classification onto the macro.
-func (d *DB) PushMacroHorizonLabel(projectID string, macroKey string, horizon string) (string, error) {
-	return "classification gardée en local", nil
-}
-
-func (d *DB) PushEpicHorizonLabel(projectID string, epicKey string, horizon string) (string, error) {
-	return d.PushMacroHorizonLabel(projectID, epicKey, horizon)
-}
-
-// ImportMacroHorizons reads the roadmap labels of a project's macros.
-func (d *DB) ImportMacroHorizons(projectID string) (string, error) {
-	proj, err := d.GetProjectByID(projectID)
-	if err != nil || proj == nil {
-		return "", fmt.Errorf("projet non trouvé")
-	}
-	return "0 macros lues", nil
-}
-
-func (d *DB) ImportEpicHorizons(projectID string) (string, error) {
-	return d.ImportMacroHorizons(projectID)
-}
-
-// PendingHorizonPushes lists the macros classified locally.
-func (d *DB) PendingHorizonPushes(projectID string) ([]models.MacroMeta, error) {
-	return []models.MacroMeta{}, nil
-}
-
-// PushPendingHorizons mirrors every locally classified macro.
-func (d *DB) PushPendingHorizons(projectID string) (int, []string, error) {
-	return 0, nil, nil
-}
-
 // SetTaskMacro queues the attachment of a ticket to a macro.
 func (d *DB) SetTaskMacro(ctx context.Context, taskIDOrKey string, macroKey string) (*models.Task, *models.TaskActivity, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
