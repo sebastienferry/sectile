@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"tasks/internal/agentprotocol"
+	"tasks/internal/testhome"
 )
 
 // fixtureMarketplace copies the format fixture out of the repository, so a
@@ -101,8 +102,7 @@ func TestMarketplaceCatalogReportsWhatEachPluginSupplies(t *testing.T) {
 // separator is refused before anything is written.
 func TestMarketplaceCacheDirRefusesAnEscapingName(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.Set(t, home)
 
 	for _, name := range []string{"", "..", ".", "../escape", `team\pack`, "team/pack"} {
 		if _, err := marketplaceCacheDir(name); err == nil {
@@ -123,8 +123,7 @@ func TestMarketplaceCacheDirRefusesAnEscapingName(t *testing.T) {
 func TestMarketplacePackReusesTheCacheForAPinnedRevision(t *testing.T) {
 	ctx := context.Background()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
+	testhome.Set(t, home)
 
 	origin := fixtureMarketplace(t)
 	for _, args := range [][]string{
