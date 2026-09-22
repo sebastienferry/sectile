@@ -77,6 +77,21 @@ func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	return append([]models.Task{}, f.tasks...), nil
 }
 
+// GetIssue is the single-work-item read the background pass makes, one job per
+// unfinished card. It records who it ran as for the same reason SyncIssues
+// does: that is what decides which credential can be resolved.
+func (f *fakeTracker) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
+	f.record("get")
+	f.readAs = tracker.ActingUser(ctx)
+	for _, task := range f.tasks {
+		if strings.EqualFold(task.Key, req.Key) {
+			found := task
+			return &found, nil
+		}
+	}
+	return &models.Task{Key: req.Key, Title: "Remote", Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+}
+
 func (f *fakeTracker) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRequest) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

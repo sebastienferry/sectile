@@ -223,8 +223,11 @@ a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credential
 
 The background queue carries whoever asked: a sync, a field update and every
 tracker operation record the acting user on the job, and the worker puts them
-back before resolving a credential. Only work nobody asked for — the auto-sync
-timer — names nobody and keeps the server credential.
+back before resolving a credential. Work nobody asked for, the auto-sync timer,
+reads as the project's owner instead: the owner is its creator, or whoever first
+saves a project older than the field, and the loop borrows their token for the
+re-reads it queues. A project with no owner keeps the server credential. See
+[ADR 0018](./docs/adrs/0018-the-background-synchronisation-runs-as-the-project-owner.md).
 
 Jira asks for the site (`mon-org.atlassian.net`), the account e-mail and an
 Atlassian API token, which authenticate as `email:token`. Its environment

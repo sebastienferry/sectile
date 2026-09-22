@@ -279,3 +279,35 @@ func TestPostgresPullRequestDetachmentFlag(t *testing.T) {
 		t.Fatal("attaching a link again must clear the flag")
 	}
 }
+
+// owner_user_id is the column the background synchronisation reads to know
+// whose credential to borrow. It is the second column added after PostgreSQL
+// support shipped, so it takes the route ADR 0017 opened: reconciled in
+// initSchema rather than in the legacy migrations PostgreSQL never replays.
+func TestPostgresProjectOwner(t *testing.T) {
+	d := openPostgres(t)
+
+	created, err := d.CreateProjectAs("u-ada", models.CreateProjectRequest{Name: "Owned", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatalf("creating a project: %v", err)
+	}
+	if created.OwnerUserID != "u-ada" {
+		t.Fatalf("owner = %q, want u-ada", created.OwnerUserID)
+	}
+
+	read, err := d.GetProjectByID(created.ID)
+	if err != nil || read == nil {
+		t.Fatalf("reading the project back: %v", err)
+	}
+	if read.OwnerUserID != "u-ada" {
+		t.Fatalf("owner read back = %q, want u-ada", read.OwnerUserID)
+	}
+
+	saved, err := d.UpdateProjectAs("u-grace", created.ID, models.UpdateProjectRequest{})
+	if err != nil {
+		t.Fatalf("saving the project: %v", err)
+	}
+	if saved.OwnerUserID != "u-ada" {
+		t.Fatalf("owner after another person saved it = %q, want u-ada", saved.OwnerUserID)
+	}
+}
