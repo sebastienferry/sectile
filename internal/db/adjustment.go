@@ -140,7 +140,12 @@ func (d *DB) lookupStagePR(task *models.Task, userID, repo, branch string) (trac
 	if d.prEvidenceLookup != nil {
 		return d.prEvidenceLookup(repo, branch)
 	}
-	project, _ := d.GetProjectByID(task.ProjectID)
+	// An unreadable project is a failed lookup: guessing a forge would send the
+	// question to the wrong one and report its answer as the task's evidence.
+	project, err := d.GetProjectByID(task.ProjectID)
+	if err != nil {
+		return trackerapi.PullRequest{}, fmt.Errorf("read project for the stage PR lookup: %w", err)
+	}
 	forge := stagePRForge(project)
 	if forge == "github" {
 		return d.trackerAs(userID, "github", task.ProjectID).BranchPullRequest(repo, branch)
