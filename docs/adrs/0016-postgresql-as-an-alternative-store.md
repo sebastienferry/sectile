@@ -95,11 +95,32 @@ loop and the per-project limiter stay in-process.
   anywhere in the package is a column its `CREATE TABLE` must also declare.
 
 - `CREATE TABLE IF NOT EXISTS` does not retrofit a column onto a table that
-  already exists. A PostgreSQL database created by a version whose schema was
-  incomplete stays incomplete after the fix, and has to be recreated or
-  patched by hand. There is deliberately no automatic repair: inventing one
-  would mean running the historical SQLite migrations against PostgreSQL, which
-  is exactly what this record separates them from.
+  already exists, so a PostgreSQL database keeps the schema it was created
+  with. This record first concluded that such a database had to be recreated or
+  patched by hand, on the grounds that an automatic repair would mean replaying
+  the historical SQLite migrations. That holds for the history, and does not
+  hold from the moment PostgreSQL shipped: a running deployment cannot be asked
+  to be recreated because a column was added, and #327 proved it — `blocked_at`
+  reached the CREATE TABLE and the legacy `ALTER`, and an upgraded deployment
+  answered every attempt to block an account with `column "blocked_at" does not
+  exist`.
+
+  So the repair exists, and it is bounded rather than a replay: `lateColumns`
+  in `internal/db/db.go` lists the columns declared *after* PostgreSQL support,
+  each as an idempotent `ADD COLUMN IF NOT EXISTS`, applied on every start by
+  the engines that skip the legacy migrations. The ~90 columns before that point
+  are not in it, and must not be: they only ever went missing from a SQLite file.
+  The rule to carry forward, alongside the CREATE TABLE one above: **a column
+  added from now on goes in the `CREATE TABLE`, in the legacy `ALTER`, and in
+  `lateColumns`.** The third is checked — `TestPostgresUpgradeRestoresLateColumns`
+  drops every listed column, opens the store again and requires them all back —
+  but the check can only cover what the list names, so the list is still the
+  thing a reviewer has to read.
+
+  A database created in the hours between PostgreSQL support (#296) and the
+  first correction of the schema's completeness (#302) is missing `users.role`
+  and six others, which predate this list. That one really does have to be
+  patched by hand; no deployment is known to be in that state.
 - `pgx` rejects multi-statement `Exec` under its default extended protocol, and
   `migrateTasksKeyUnique` sends a 20-statement script. Another reason it stays
   SQLite-only, and a trap for anyone who later tries to make it portable.

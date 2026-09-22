@@ -143,6 +143,10 @@ One server instance per database. The job queue and the synchronisation loop run
 in-process and are not coordinated between instances, so two servers sharing a
 database would run every queued skill twice.
 
+Upgrading needs no schema step: a PostgreSQL database is created at the schema of
+the version that created it, and the server adds on each start whichever columns
+newer versions have declared since.
+
 To move an existing SQLite database across, once:
 
 ```sh
