@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"tasks/internal/agentexec"
 	"tasks/internal/models"
 	"tasks/internal/runner"
 )
@@ -14,6 +15,14 @@ import (
 type Workspace struct {
 	runner *runner.Runner
 	ctx    context.Context
+}
+
+// gitCommand builds a git invocation that opens no console window. The agent runs
+// with no console of its own on Windows, so a plain child would be given one; every
+// git here is read by the agent rather than by the user, and none of them should
+// flash a window at them.
+func gitCommand(ctx context.Context, args ...string) *exec.Cmd {
+	return agentexec.Hidden(exec.CommandContext(ctx, "git", args...))
 }
 
 func New(ctx context.Context) *Workspace { return &Workspace{runner: runner.NewRunner(), ctx: ctx} }
@@ -29,13 +38,13 @@ func (d *Workspace) GetGitBranches(projectIDOrPath string) (*models.GitBranchesI
 	}
 
 	// Current active branch
-	curCmd := exec.CommandContext(d.ctx, "git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	curCmd := gitCommand(d.ctx, "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 	curOut, _ := curCmd.Output()
 	currentBranch := strings.TrimSpace(string(curOut))
 
 	// Get all branches (local + remote)
 	format := "%(HEAD)|%(refname:short)|%(objectname:short)|%(contents:subject)"
-	cmd := exec.CommandContext(d.ctx, "git", "-C", repoPath, "branch", "-a", "--format="+format)
+	cmd := gitCommand(d.ctx, "-C", repoPath, "branch", "-a", "--format="+format)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("list Git branches: %w", err)
@@ -119,12 +128,12 @@ func (d *Workspace) SwitchGitBranch(projectIDOrPath, targetBranch string, create
 	targetBranch = strings.TrimPrefix(targetBranch, "remotes/")
 	targetBranch = strings.TrimPrefix(targetBranch, "origin/")
 
-	if err := exec.CommandContext(d.ctx, "git", "check-ref-format", "--branch", targetBranch).Run(); err != nil {
+	if err := gitCommand(d.ctx, "check-ref-format", "--branch", targetBranch).Run(); err != nil {
 		return nil, fmt.Errorf("invalid branch name")
 	}
 
 	// 1. Get current branch
-	curCmd := exec.CommandContext(d.ctx, "git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	curCmd := gitCommand(d.ctx, "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 	curOut, _ := curCmd.Output()
 	currentBranch := strings.TrimSpace(string(curOut))
 
@@ -139,7 +148,7 @@ func (d *Workspace) SwitchGitBranch(projectIDOrPath, targetBranch string, create
 		args = append(args, "-c")
 	}
 	args = append(args, targetBranch)
-	if output, err := exec.CommandContext(d.ctx, "git", args...).CombinedOutput(); err != nil {
+	if output, err := gitCommand(d.ctx, args...).CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("switch branch: %s (%w)", output, err)
 	}
 
@@ -159,8 +168,8 @@ func (d *Workspace) CleanAllLocalBranches(projectIDOrPath string) (*models.Clean
 
 	// 1. Detect default branch (main or master)
 	defaultBranch := "main"
-	if err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "rev-parse", "--verify", "main").Run(); err != nil {
-		if err2 := exec.CommandContext(d.ctx, "git", "-C", repoPath, "rev-parse", "--verify", "master").Run(); err2 == nil {
+	if err := gitCommand(d.ctx, "-C", repoPath, "rev-parse", "--verify", "main").Run(); err != nil {
+		if err2 := gitCommand(d.ctx, "-C", repoPath, "rev-parse", "--verify", "master").Run(); err2 == nil {
 			defaultBranch = "master"
 		}
 	}
@@ -170,20 +179,20 @@ func (d *Workspace) CleanAllLocalBranches(projectIDOrPath string) (*models.Clean
 	if entries, err := os.ReadDir(worktreesDir); err == nil {
 		for _, e := range entries {
 			wtPath := filepath.Join(worktreesDir, e.Name())
-			if err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "worktree", "remove", wtPath).Run(); err != nil {
+			if err := gitCommand(d.ctx, "-C", repoPath, "worktree", "remove", wtPath).Run(); err != nil {
 				return nil, fmt.Errorf("worktree removal failed; preserve local changes: %w", err)
 			}
 		}
 	}
-	_ = exec.CommandContext(d.ctx, "git", "-C", repoPath, "worktree", "prune").Run()
+	_ = gitCommand(d.ctx, "-C", repoPath, "worktree", "prune").Run()
 
 	// 3. Checkout default branch in main repo
-	if out, err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "checkout", defaultBranch).CombinedOutput(); err != nil {
+	if out, err := gitCommand(d.ctx, "-C", repoPath, "checkout", defaultBranch).CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("checkout default branch: %s (%w)", out, err)
 	}
 
 	// 4. List all local branches
-	out, err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "branch", "--format=%(refname:short)").Output()
+	out, err := gitCommand(d.ctx, "-C", repoPath, "branch", "--format=%(refname:short)").Output()
 	if err != nil {
 		return nil, fmt.Errorf("list branches: %w", err)
 	}
@@ -196,7 +205,7 @@ func (d *Workspace) CleanAllLocalBranches(projectIDOrPath string) (*models.Clean
 			continue
 		}
 		// Delete only merged local branches
-		delCmd := exec.CommandContext(d.ctx, "git", "-C", repoPath, "branch", "-d", branch)
+		delCmd := gitCommand(d.ctx, "-C", repoPath, "branch", "-d", branch)
 		if delOut, delErr := delCmd.CombinedOutput(); delErr == nil {
 			deleted = append(deleted, branch)
 		} else {
@@ -221,7 +230,7 @@ func (d *Workspace) DeleteGitBranch(projectIDOrPath string, branchName string, d
 		return fmt.Errorf("cannot delete primary branch '%s'", branchName)
 	}
 
-	if err := exec.CommandContext(d.ctx, "git", "check-ref-format", "--branch", branchName).Run(); err != nil {
+	if err := gitCommand(d.ctx, "check-ref-format", "--branch", branchName).Run(); err != nil {
 		return fmt.Errorf("invalid branch name")
 	}
 	repoPath := projectIDOrPath
@@ -235,37 +244,37 @@ func (d *Workspace) DeleteGitBranch(projectIDOrPath string, branchName string, d
 	if entries, err := os.ReadDir(worktreesDir); err == nil {
 		for _, e := range entries {
 			wtPath := filepath.Join(worktreesDir, e.Name())
-			curCmd := exec.CommandContext(d.ctx, "git", "-C", wtPath, "rev-parse", "--abbrev-ref", "HEAD")
+			curCmd := gitCommand(d.ctx, "-C", wtPath, "rev-parse", "--abbrev-ref", "HEAD")
 			if curOut, curErr := curCmd.Output(); curErr == nil && strings.TrimSpace(string(curOut)) == branchName {
-				if err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "worktree", "remove", wtPath).Run(); err != nil {
+				if err := gitCommand(d.ctx, "-C", repoPath, "worktree", "remove", wtPath).Run(); err != nil {
 					return fmt.Errorf("worktree removal failed; preserve local changes: %w", err)
 				}
 			}
 		}
 	}
-	_ = exec.CommandContext(d.ctx, "git", "-C", repoPath, "worktree", "prune").Run()
+	_ = gitCommand(d.ctx, "-C", repoPath, "worktree", "prune").Run()
 
 	// 2. If main repo is currently on this branch, switch to main/master first
-	curCmd := exec.CommandContext(d.ctx, "git", "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
+	curCmd := gitCommand(d.ctx, "-C", repoPath, "rev-parse", "--abbrev-ref", "HEAD")
 	if curOut, curErr := curCmd.Output(); curErr == nil && strings.TrimSpace(string(curOut)) == branchName {
 		defaultBranch := "main"
-		if err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "rev-parse", "--verify", "main").Run(); err != nil {
+		if err := gitCommand(d.ctx, "-C", repoPath, "rev-parse", "--verify", "main").Run(); err != nil {
 			defaultBranch = "master"
 		}
-		if out, err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "checkout", defaultBranch).CombinedOutput(); err != nil {
+		if out, err := gitCommand(d.ctx, "-C", repoPath, "checkout", defaultBranch).CombinedOutput(); err != nil {
 			return fmt.Errorf("checkout default branch: %s (%w)", out, err)
 		}
 	}
 
 	// 3. Delete local branch
-	delCmd := exec.CommandContext(d.ctx, "git", "-C", repoPath, "branch", "-d", branchName)
+	delCmd := gitCommand(d.ctx, "-C", repoPath, "branch", "-d", branchName)
 	if out, err := delCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("delete local branch %s: %s", branchName, string(out))
 	}
 
 	// 4. Optionally delete remote branch
 	if deleteRemote {
-		if out, err := exec.CommandContext(d.ctx, "git", "-C", repoPath, "push", "origin", "--delete", branchName).CombinedOutput(); err != nil {
+		if out, err := gitCommand(d.ctx, "-C", repoPath, "push", "origin", "--delete", branchName).CombinedOutput(); err != nil {
 			return fmt.Errorf("remote branch deletion failed: %s (%w)", out, err)
 		}
 	}
