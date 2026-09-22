@@ -11,11 +11,16 @@ The desktop SHALL show the selected task's current stage and next agentic step b
 - **WHEN** current task and configured project skills are available
 - **THEN** the footer offers Clarify, Specify, Implement or Review and create PR respectively.
 
-#### Scenario: No action available
-- **GIVEN** no selected task, a reviewed or finished task, or unavailable task/project metadata or required skill
+#### Scenario: Reviewed task
+- **GIVEN** a selected task at the reviewed stage on a configured project exposing the handoff skill
 - **WHEN** the footer renders
-- **THEN** it explains the state without an enabled launch action
-- **AND** reviewed tasks indicate that human merge is pending.
+- **THEN** it offers Handoff, the only step that takes a reviewed task to finished
+- **AND** the pull request merge itself stays with the user, outside the desktop.
+
+#### Scenario: No action available
+- **GIVEN** no selected task, a finished task, or unavailable task/project metadata or required skill
+- **WHEN** the footer renders
+- **THEN** it explains the state without an enabled launch action.
 
 ### Requirement: Safe next-step dispatch
 The desktop SHALL dispatch one next skill for the selected task using existing server launch behavior and SHALL NOT change workflow stage or merge a pull request itself.
