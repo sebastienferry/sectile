@@ -636,10 +636,11 @@ test('Agents CLI settings panel renders controls, presets, live preview, validat
   cliAutonomousCommand.oninput = renderCliPreview
 
   const CLI_PRESETS = [
-    { label: 'AGY', provider: 'agy', cmd: 'agy --dangerously-skip-permissions --model {model} "{prompt}"', auto: '' },
+    { label: 'AGY', provider: 'agy', cmd: 'agy --dangerously-skip-permissions --model {model} "{prompt}"', auto: 'agy --dangerously-skip-permissions --model {model} -p "{prompt}"' },
     { label: 'Claude', provider: 'claude', cmd: "claude --model {model} '{prompt}'", auto: "claude -p --permission-mode bypassPermissions --model {model} '{prompt}'" },
-    { label: 'Codex', provider: 'codex', cmd: "codex --model {model} '{prompt}'", auto: "codex -p --permission-mode bypassPermissions --model {model} '{prompt}'" },
-    { label: 'Gemini', provider: 'gemini', cmd: "gemini --model {model} '{prompt}'", auto: "gemini -p --permission-mode bypassPermissions --model {model} '{prompt}'" },
+    { label: 'Codex', provider: 'codex', cmd: "codex --model {model} '{prompt}'", auto: "codex exec --model {model} '{prompt}'" },
+    { label: 'Gemini', provider: 'gemini', cmd: "gemini --model {model} '{prompt}'", auto: "gemini -y --model {model} -p '{prompt}'" },
+    { label: 'Vibe', provider: 'vibe', cmd: "vibe '{prompt}'", auto: "vibe -p --auto-approve '{prompt}'" },
     { label: 'Custom', provider: 'custom', cmd: "/path/to/custom-cli {mode:-p|-i} '{prompt}'", auto: '' },
     { label: 'Clear to defaults', provider: 'agy', cmd: '', auto: '' },
   ]
@@ -657,7 +658,7 @@ test('Agents CLI settings panel renders controls, presets, live preview, validat
   })
 
   cliProviderSelect.onchange = () => {
-    const KNOWN = ['', "/path/to/custom-cli {mode:-p|-i} '{prompt}'", "claude --model {model} '{prompt}'", 'agy --dangerously-skip-permissions --model {model} "{prompt}"', "codex --model {model} '{prompt}'"]
+    const KNOWN = ['', "/path/to/custom-cli {mode:-p|-i} '{prompt}'", "claude --model {model} '{prompt}'", 'agy --dangerously-skip-permissions --model {model} "{prompt}"', "codex --model {model} '{prompt}'", "gemini --model {model} '{prompt}'", "vibe '{prompt}'"]
     if (cliCommand.value.trim() === '' || KNOWN.includes(cliCommand.value.trim())) {
       if (cliProviderSelect.value === 'custom') {
         cliCommand.value = "/path/to/custom-cli {mode:-p|-i} '{prompt}'"
@@ -717,7 +718,7 @@ test('Agents CLI settings panel renders controls, presets, live preview, validat
   codexPreset.onclick()
   assert.equal(cliProviderSelect.value, 'codex')
   assert.equal(cliCommand.value, "codex --model {model} '{prompt}'")
-  assert.equal(cliAutonomousCommand.value, "codex -p --permission-mode bypassPermissions --model {model} '{prompt}'")
+  assert.equal(cliAutonomousCommand.value, "codex exec --model {model} '{prompt}'")
 
   // 3. Save after preset
   await cliSaveBtn.onclick()
@@ -726,8 +727,15 @@ test('Agents CLI settings panel renders controls, presets, live preview, validat
     aiProvider: 'codex',
     aiModel: 'claude-3-7-sonnet',
     aiCommandTemplate: "codex --model {model} '{prompt}'",
-    aiCommandTemplateAutonomous: "codex -p --permission-mode bypassPermissions --model {model} '{prompt}'",
+    aiCommandTemplateAutonomous: "codex exec --model {model} '{prompt}'",
   })
+
+  // 3b. Click preset: AGY
+  const agyPreset = presetButtons.find(b => b.textContent === 'AGY')
+  agyPreset.onclick()
+  assert.equal(cliProviderSelect.value, 'agy')
+  assert.equal(cliCommand.value, 'agy --dangerously-skip-permissions --model {model} "{prompt}"')
+  assert.equal(cliAutonomousCommand.value, 'agy --dangerously-skip-permissions --model {model} -p "{prompt}"')
 
   // 4. Validation error: invalid model
   cliModelInput.value = 'invalid model spaces'
@@ -753,7 +761,7 @@ test('Agents CLI settings panel renders controls, presets, live preview, validat
     aiProvider: 'custom',
     aiModel: 'valid-model',
     aiCommandTemplate: 'custom-cmd {mode:-p|-i} {prompt}',
-    aiCommandTemplateAutonomous: "codex -p --permission-mode bypassPermissions --model {model} '{prompt}'",
+    aiCommandTemplateAutonomous: 'agy --dangerously-skip-permissions --model {model} -p "{prompt}"',
   })
 })
 

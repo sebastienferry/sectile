@@ -832,10 +832,11 @@ function openSettings(initial='General'){
  presetsBar.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-top:8px'
 
  const CLI_PRESETS=[
-  {label:'AGY',provider:'agy',cmd:'agy --dangerously-skip-permissions --model {model} "{prompt}"',auto:''},
+  {label:'AGY',provider:'agy',cmd:'agy --dangerously-skip-permissions --model {model} "{prompt}"',auto:'agy --dangerously-skip-permissions --model {model} -p "{prompt}"'},
   {label:'Claude',provider:'claude',cmd:"claude --model {model} '{prompt}'",auto:"claude -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
-  {label:'Codex',provider:'codex',cmd:"codex --model {model} '{prompt}'",auto:"codex -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
-  {label:'Gemini',provider:'gemini',cmd:"gemini --model {model} '{prompt}'",auto:"gemini -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
+  {label:'Codex',provider:'codex',cmd:"codex --model {model} '{prompt}'",auto:"codex exec --model {model} '{prompt}'"},
+  {label:'Gemini',provider:'gemini',cmd:"gemini --model {model} '{prompt}'",auto:"gemini -y --model {model} -p '{prompt}'"},
+  {label:'Vibe',provider:'vibe',cmd:"vibe '{prompt}'",auto:"vibe -p --auto-approve '{prompt}'"},
   {label:'Custom',provider:'custom',cmd:"/path/to/custom-cli {mode:-p|-i} '{prompt}'",auto:''},
   {label:'Clear to defaults',provider:'agy',cmd:'',auto:''}
  ]
@@ -853,7 +854,7 @@ function openSettings(initial='General'){
  }
 
  cliProviderSelect.onchange=()=>{
-  const KNOWN=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'"]
+  const KNOWN=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'","gemini --model {model} '{prompt}'","vibe '{prompt}'"]
   if(cliCommand.value.trim()===''||KNOWN.includes(cliCommand.value.trim())){
    if(cliProviderSelect.value==='custom'){
     cliCommand.value="/path/to/custom-cli {mode:-p|-i} '{prompt}'"
