@@ -524,6 +524,18 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// isMacroSegment tells the path segment that introduces a macro sub-action.
+//
+// The two spellings are the same route. "epics" is what the tracker calls the
+// container and what the URLs were written with; "macros" is what the product
+// calls it and what the interface asks for. A sub-action that only answered one
+// of them fell through to the generic macro handler, where "move" and
+// "push-horizons" were read as a macro key: the call answered 200 and created a
+// macro named after the action it was supposed to run.
+func isMacroSegment(segment string) bool {
+	return segment == "macros" || segment == "epics"
+}
+
 func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	rawPath := strings.TrimPrefix(r.URL.Path, "/api/projects/")
 	rawPath = strings.Trim(rawPath, "/")
@@ -688,7 +700,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/projects/{id}/epics/create: create an epic, the container
 	// a split needs as a target
-	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "create" && r.Method == http.MethodPost {
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "create" && r.Method == http.MethodPost {
 		var req struct {
 			Title   string            `json:"title"`
 			Horizon string            `json:"horizon"`
@@ -710,14 +722,14 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/projects/{id}/epics/fields: ce que l'instance impose pour
 	// créer un épic, au delà du titre. PE exige « Epic Type » et la création
 	// échouait en 400 sans que l'interface puisse le demander.
-	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "fields" && r.Method == http.MethodGet {
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "fields" && r.Method == http.MethodGet {
 		writeJSON(w, http.StatusOK, []string{})
 		return
 	}
 
 	// Sub-action: /api/projects/{id}/epics/move: cut stories out of an epic into
 	// another one, created on the fly when only a title is given
-	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "move" && r.Method == http.MethodPost {
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "move" && r.Method == http.MethodPost {
 		var req struct {
 			TaskIDs       []string          `json:"taskIds"`
 			TargetEpicKey string            `json:"targetEpicKey"`
@@ -806,7 +818,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/projects/{id}/epics/push-horizons: mirror the locally
 	// classified epics whose Jira label is missing or stale
-	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "push-horizons" {
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "push-horizons" {
 		switch r.Method {
 		case http.MethodGet:
 			pending, err := h.db.PendingHorizonPushes(id)
@@ -831,6 +843,22 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
+	}
+
+	// Sub-action: /api/projects/{id}/macros/import-horizons: read the roadmap
+	// labels back from the tracker, so a classification made there wins over
+	// ours instead of being overwritten by the next push.
+	//
+	// Synchronous, unlike the push: it writes nothing on the tracker, and its
+	// answer is the report the caller came for.
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "import-horizons" && r.Method == http.MethodPost {
+		note, err := h.db.ImportMacroHorizons(id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"imported": true, "note": note})
+		return
 	}
 
 	// Sub-action: /api/projects/{id}/macros/{key}/migrate: migrate macro and attached tasks to another project
