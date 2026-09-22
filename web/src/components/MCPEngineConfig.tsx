@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Check, Copy, ExternalLink, Network, Terminal, Code2 } from 'lucide-react'
-import { Antigravity, Claude, OpenAI, Cursor } from '@lobehub/icons'
+import { Antigravity, Claude, OpenAI, Cursor } from './icons'
 import type { AIProvider } from '../types'
 import { useOptionalApp } from '../context/AppContext'
 import { translations } from '../locales/translations'

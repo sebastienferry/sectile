@@ -111,7 +111,10 @@ reflect what the application actually uses.
   `@lobehub/fluent-emoji`, `@emoji-mart/react` and `antd` no longer appear, and the
   installed package count is materially lower than 518.
 - **Given** the repository, **when** I grep `web/` for `@lobehub`,
-  **then** there is no match outside this specification and the clarification report.
+  **then** no *import* resolves to it. The only remaining mentions are the provenance
+  comments at the top of the vendored files and of their barrel, which name the package
+  and version each mark was copied from — they are how a reviewer checks the copy, so
+  they are deliberate.
 
 ### US4 — The release procedure is unaffected (P3)
 
