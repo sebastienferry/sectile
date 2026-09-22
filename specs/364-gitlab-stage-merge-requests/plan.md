@@ -24,7 +24,7 @@ lookupStagePR(task, actor, branch)
 | --- | --- |
 | `internal/runner/adjustment.go` | `PullRequestEvidence.Forge`; `glab mr list --all`; ambiguity on several open MRs; latest `merged_at` wins; sentinel errors `ErrNoMatchingPullRequest` / `ErrAmbiguousPullRequest` separating refusals from lookup failures. |
 | `internal/agent/agent_operations.go` | New `pr_evidence` operation: runs `Runner.BranchPullRequest` on the resolved checkout for `op.Branch` (else the task branch); a refusal is returned as data (`refusal`), a lookup failure as an operation error. |
-| `internal/trackerapi/github.go` | `PullRequest.Forge`, set to `github` by `BranchPullRequest`. |
+| `internal/trackerapi/github.go` | `PullRequest.Forge`: `gitlab` for a merge request read by the agent, empty for GitHub, so the GitHub client is untouched. |
 | `internal/db/adjustment.go` | `stagePRForge`; `lookupStagePR` takes the task and routes; `agentBranchPullRequest`; forge-aware wording in `validatePullRequestEvidence` / `validateStagePR`. |
 | `internal/db/adjustment_test.go` | Forge selection, GitLab rules through `prEvidenceLookup`, agent route through `SetAgentOperations`. |
 | `internal/runner/adjustment_test.go` | `parsePullRequestEvidence` GitLab merged / ambiguous / closed / readiness cases. |
@@ -45,13 +45,19 @@ has its own 25 s limit).
 
 ## Decisions
 
-- **Forge selection** (`stagePRForge`): remote containing `github` → GitHub; remote
-  containing `gitlab` → agent; otherwise GitHub when `GithubRepo` is set, else agent.
+- **Forge selection** (`stagePRForge`): the remote *host* (URL or scp-like form)
+  containing `github` → GitHub; containing `gitlab` → agent; otherwise GitHub when
+  `GithubRepo` is set, else agent. Reading the host, not the whole remote, keeps a
+  `github.com:acme/gitlab-mirror` remote on GitHub.
   The third rule refines D2 so that a GitHub project whose remote hostname names no
   forge keeps its exact current path (US4).
-- **Hook**: `prEvidenceLookup(repo, branch)` stays the injection point for the forge
-  answer and now runs after routing is decided; the answer carries `Forge`, so GitLab
-  wording is testable through it. The agent route itself is tested with a fake agent.
+- **Hook**: `prEvidenceLookup(repo, branch)` stays the injection point replacing the
+  forge answer on either route; the answer carries `Forge`, so GitLab wording is
+  testable through it. The agent route itself is tested with a fake agent
+  (`SetAgentOperations`) answering `pr_evidence`.
+- **Refusal wording on the agent**: the runner's refusals are typed
+  (`ErrNoMatchingPullRequest`, `ErrAmbiguousPullRequest`) but keep a message in the
+  forge's terms; the server prefixes a GitLab refusal with `GitLab: `.
 - **Wording**: GitHub keeps "forge … PR"; GitLab says "GitLab … merge request". The
   agent-route failure says "GitLab merge request lookup failed on the local agent"
   (or "pull request lookup" when the remote does not name GitLab).

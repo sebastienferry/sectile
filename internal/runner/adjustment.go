@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -19,22 +20,45 @@ type PullRequestEvidence struct {
 	Open   bool
 	Draft  bool
 	Merged bool
+	// Forge names the forge that answered, "github" or "gitlab", so a caller
+	// can word a refusal in the terms of the forge the user works with.
+	Forge string
 }
+
+// The forge answered, but its answer is not usable evidence. Both are refusals,
+// never lookup failures: the listing succeeded, so they must not be retried as
+// an outage, and they must never be read as permission to create a PR.
+var (
+	ErrNoMatchingPullRequest = errors.New("no matching open or merged pull request")
+	ErrAmbiguousPullRequest  = errors.New("several open pull requests on the branch")
+)
+
+// refusal words a refusal in the forge's own terms while still matching its kind.
+type refusal struct {
+	kind    error
+	message string
+}
+
+func (e refusal) Error() string { return e.message }
+func (e refusal) Unwrap() error { return e.kind }
 
 func parsePullRequestEvidence(raw, branch string, gitlab bool) (PullRequestEvidence, error) {
 	if gitlab {
 		var rows []struct {
-			URL    string `json:"web_url"`
-			Branch string `json:"source_branch"`
-			SHA    string `json:"sha"`
-			State  string `json:"state"`
-			Draft  *bool  `json:"draft"`
-			WIP    *bool  `json:"work_in_progress"`
+			URL      string     `json:"web_url"`
+			Branch   string     `json:"source_branch"`
+			SHA      string     `json:"sha"`
+			State    string     `json:"state"`
+			Draft    *bool      `json:"draft"`
+			WIP      *bool      `json:"work_in_progress"`
+			MergedAt *time.Time `json:"merged_at"`
 		}
 		if err := json.Unmarshal([]byte(raw), &rows); err != nil {
 			return PullRequestEvidence{}, err
 		}
+		var open []PullRequestEvidence
 		var fallback *PullRequestEvidence
+		var fallbackAt *time.Time
 		for i := range rows {
 			p := rows[i]
 			if p.Branch != branch || p.URL == "" {
@@ -45,17 +69,32 @@ func parsePullRequestEvidence(raw, branch string, gitlab bool) (PullRequestEvide
 					return PullRequestEvidence{}, fmt.Errorf("forge omitted MR readiness")
 				}
 				draft := (p.Draft != nil && *p.Draft) || (p.WIP != nil && *p.WIP)
-				return PullRequestEvidence{p.URL, p.Branch, p.SHA, true, draft, false}, nil
+				open = append(open, PullRequestEvidence{URL: p.URL, Branch: p.Branch, SHA: p.SHA, Open: true, Draft: draft})
+				continue
 			}
-			// A merged MR is the same task MR; readiness no longer applies once it is merged.
-			if p.State == "merged" && fallback == nil {
-				fallback = &PullRequestEvidence{p.URL, p.Branch, p.SHA, false, false, true}
+			// A merged MR is the same task MR; readiness no longer applies once it is
+			// merged. The latest merge is the branch's state; without a merge date the
+			// listing order, newest first, decides.
+			if p.State == "merged" && (fallback == nil || (p.MergedAt != nil && (fallbackAt == nil || p.MergedAt.After(*fallbackAt)))) {
+				fallback = &PullRequestEvidence{URL: p.URL, Branch: p.Branch, SHA: p.SHA, Merged: true}
+				fallbackAt = p.MergedAt
 			}
+			// A closed-unmerged MR is abandoned work, never evidence.
 		}
-		if fallback != nil {
+		switch {
+		case len(open) == 1:
+			return open[0], nil
+		case len(open) > 1:
+			// Which one is current cannot be guessed, as on the GitHub server path.
+			urls := make([]string, len(open))
+			for i, p := range open {
+				urls[i] = p.URL
+			}
+			return PullRequestEvidence{}, refusal{ErrAmbiguousPullRequest, fmt.Sprintf("expected one open merge request on %s, got %d (%s)", branch, len(open), strings.Join(urls, ", "))}
+		case fallback != nil:
 			return *fallback, nil
 		}
-		return PullRequestEvidence{}, fmt.Errorf("no matching open or merged merge request; recover through the configured creation owner")
+		return PullRequestEvidence{}, refusal{ErrNoMatchingPullRequest, "no matching open or merged merge request; recover through the configured creation owner"}
 	}
 	var p struct {
 		URL    string `json:"url"`
@@ -68,16 +107,16 @@ func parsePullRequestEvidence(raw, branch string, gitlab bool) (PullRequestEvide
 		return PullRequestEvidence{}, err
 	}
 	if p.URL == "" || p.Branch != branch || (p.State != "OPEN" && p.State != "MERGED") {
-		return PullRequestEvidence{}, fmt.Errorf("no matching open or merged pull request; recover through the configured creation owner")
+		return PullRequestEvidence{}, refusal{ErrNoMatchingPullRequest, "no matching open or merged pull request; recover through the configured creation owner"}
 	}
 	// A merged PR is the same task PR; readiness no longer applies once it is merged.
 	if p.State == "MERGED" {
-		return PullRequestEvidence{p.URL, p.Branch, p.SHA, false, false, true}, nil
+		return PullRequestEvidence{URL: p.URL, Branch: p.Branch, SHA: p.SHA, Merged: true}, nil
 	}
 	if p.Draft == nil {
 		return PullRequestEvidence{}, fmt.Errorf("forge omitted PR readiness")
 	}
-	return PullRequestEvidence{p.URL, p.Branch, p.SHA, true, *p.Draft, false}, nil
+	return PullRequestEvidence{URL: p.URL, Branch: p.Branch, SHA: p.SHA, Open: true, Draft: *p.Draft}, nil
 }
 
 // BranchPullRequest reports lookup failures distinctly; callers must never treat errors as permission to create.
@@ -99,7 +138,9 @@ func (r *Runner) BranchPullRequest(repoPath, branch string) (PullRequestEvidence
 		args := []string{"pr", "view", branch, "--json", "url,state,headRefName,headRefOid,isDraft"}
 		if gitlab {
 			cli = "glab"
-			args = []string{"mr", "list", "--source-branch", branch, "--output", "json"}
+			// https://docs.gitlab.com/cli/mr/list/ : open MRs only unless --all, and a
+			// merged MR is evidence, like a merged PR on GitHub.
+			args = []string{"mr", "list", "--source-branch", branch, "--all", "--output", "json"}
 		}
 		tool, err := FindCliTool(cli)
 		if err != nil {
@@ -112,7 +153,12 @@ func (r *Runner) BranchPullRequest(repoPath, branch string) (PullRequestEvidence
 			continue
 		}
 		// A successful response identifies the forge; invalid evidence is not a reason to substitute another PR.
-		return parsePullRequestEvidence(out, branch, gitlab)
+		evidence, err := parsePullRequestEvidence(out, branch, gitlab)
+		evidence.Forge = "github"
+		if gitlab {
+			evidence.Forge = "gitlab"
+		}
+		return evidence, err
 	}
 	return PullRequestEvidence{}, fmt.Errorf("PR lookup failed; retry or recover through the creation owner: %s", strings.Join(failures, "; "))
 
