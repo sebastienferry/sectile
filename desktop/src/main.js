@@ -717,12 +717,20 @@ function readOnlyRow(name,hint){
  return row
 }
 
+const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
+function validateModel(val){
+ const trimmed=String(val||'').trim()
+ if(trimmed==='')return true
+ return MODEL_REGEX.test(trimmed)
+}
+
 // The workstation's own settings, gathered where the project panel already puts
 // a project's: one dialog, a category per surface. The header carried three
 // unrelated controls for these; the sidebar now carries one.
 const SETTINGS_CATEGORIES=[
  {id:'General',label:'General',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'},
  {id:'Profile',label:'User profile',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
+ {id:'AgentCli',label:'Agents CLI',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
  {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'}
 ]
@@ -761,6 +769,140 @@ function openSettings(initial='General'){
  const web=settingRow('Profile and API keys',null,openWeb)
  web.hint.textContent='Display name, password and API keys live in the web interface.'
  panels.Profile.append(account.section,device.section,web.section,credential.section)
+
+ // Agents CLI panel: workstation-wide CLI engine defaults
+ const cliProviderSelect=document.createElement('select');cliProviderSelect.className='provider-select';cliProviderSelect.setAttribute('aria-label','AI Provider')
+ const CLI_PROVIDERS=[
+  {id:'agy',label:'AGY CLI (Google Antigravity)'},
+  {id:'claude',label:'Claude Code CLI'},
+  {id:'codex',label:'Codex CLI'},
+  {id:'gemini',label:'Gemini CLI'},
+  {id:'cursor',label:'Cursor CLI'},
+  {id:'vibe',label:'Mistral Vibe CLI'},
+  {id:'custom',label:'Custom Command'}
+ ]
+ for(const p of CLI_PROVIDERS){
+  const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.label
+  cliProviderSelect.append(opt)
+ }
+ const cliProviderRow=settingRow('AI Provider',null,cliProviderSelect)
+ cliProviderRow.hint.textContent='Default AI provider for local tasks on this workstation.'
+
+ const cliModelInput=document.createElement('input');cliModelInput.type='text';cliModelInput.className='model-input';cliModelInput.setAttribute('aria-label','AI Model')
+ cliModelInput.placeholder='Empty: use provider default model'
+ const cliModelRow=settingRow('AI Model',null,cliModelInput)
+ cliModelRow.hint.textContent='Default AI model for local tasks. Empty uses provider default.'
+
+ const cliCommand=document.createElement('textarea');cliCommand.className='cli-command';cliCommand.setAttribute('aria-label','Interactive CLI command')
+ cliCommand.placeholder='Provider default command'
+
+ const cliAutonomousCommand=document.createElement('textarea');cliAutonomousCommand.className='cli-command';cliAutonomousCommand.setAttribute('aria-label','Autonomous CLI command')
+ cliAutonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
+
+ const cliPreviewBox=document.createElement('dl');cliPreviewBox.className='command-preview'
+
+ function renderCliPreview(){
+  if(!validateModel(cliModelInput.value)){
+   cliModelRow.hint.textContent='Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
+   cliModelInput.setAttribute('aria-invalid','true')
+  }else{
+   cliModelRow.hint.textContent='Default AI model for local tasks. Empty uses provider default.'
+   cliModelInput.removeAttribute('aria-invalid')
+  }
+  cliPreviewBox.replaceChildren()
+  for(const line of previewLines(cliProviderSelect.value,cliCommand.value,cliModelInput.value,cliAutonomousCommand.value)){
+   const term=document.createElement('dt');term.textContent=line.label
+   const detail=document.createElement('dd');detail.textContent=line.text
+   if(!line.ok)detail.className='command-preview-error'
+   cliPreviewBox.append(term,detail)
+  }
+ }
+
+ cliModelInput.oninput=renderCliPreview
+ cliCommand.oninput=renderCliPreview
+ cliAutonomousCommand.oninput=renderCliPreview
+
+ const cliHelp=document.createElement('details');cliHelp.className='placeholder-help'
+ const cliSummary=document.createElement('summary');cliSummary.textContent='Placeholders'
+ const cliHelpText=document.createElement('p')
+ cliHelpText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
+ cliHelp.append(cliSummary,cliHelpText)
+
+ const presetsBar=document.createElement('div');presetsBar.className='cli-presets-bar'
+ presetsBar.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-top:8px'
+
+ const CLI_PRESETS=[
+  {label:'AGY',provider:'agy',cmd:'agy --dangerously-skip-permissions --model {model} "{prompt}"',auto:''},
+  {label:'Claude',provider:'claude',cmd:"claude --model {model} '{prompt}'",auto:"claude -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
+  {label:'Codex',provider:'codex',cmd:"codex --model {model} '{prompt}'",auto:"codex -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
+  {label:'Gemini',provider:'gemini',cmd:"gemini --model {model} '{prompt}'",auto:"gemini -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
+  {label:'Custom',provider:'custom',cmd:"/path/to/custom-cli {mode:-p|-i} '{prompt}'",auto:''},
+  {label:'Clear to defaults',provider:'agy',cmd:'',auto:''}
+ ]
+
+ for(const preset of CLI_PRESETS){
+  const pBtn=document.createElement('button');pBtn.type='button';pBtn.textContent=preset.label
+  pBtn.style.cssText='font-size:11.5px;padding:4px 8px'
+  pBtn.onclick=()=>{
+   cliProviderSelect.value=preset.provider
+   cliCommand.value=preset.cmd
+   cliAutonomousCommand.value=preset.auto
+   renderCliPreview()
+  }
+  presetsBar.append(pBtn)
+ }
+
+ cliProviderSelect.onchange=()=>{
+  const KNOWN=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'"]
+  if(cliCommand.value.trim()===''||KNOWN.includes(cliCommand.value.trim())){
+   if(cliProviderSelect.value==='custom'){
+    cliCommand.value="/path/to/custom-cli {mode:-p|-i} '{prompt}'"
+   }else{
+    cliCommand.value=''
+   }
+   cliAutonomousCommand.value=''
+  }
+  renderCliPreview()
+ }
+
+ const cliCommandRow=settingRow('Interactive CLI command',{stacked:true},cliCommand,cliHelp,presetsBar)
+ cliCommandRow.hint.textContent='Command template used for interactive runs. Empty runs provider default.'
+
+ const cliAutonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},cliAutonomousCommand,cliPreviewBox)
+ cliAutonomousRow.hint.textContent='Command template used for autonomous runs. Empty falls back to interactive command.'
+
+ const cliNotice=document.createElement('p');cliNotice.setAttribute('role','status');cliNotice.style.marginTop='12px'
+
+ const cliSaveBtn=document.createElement('button');cliSaveBtn.type='button';cliSaveBtn.className='dialog-action primary';cliSaveBtn.textContent='Save Agents CLI settings'
+ cliSaveBtn.onclick=async()=>{
+  if(!validateModel(cliModelInput.value)){
+   cliNotice.textContent='Invalid AI model identifier: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
+   return
+  }
+  if(cliProviderSelect.value==='custom'&&!cliCommand.value.includes('{prompt}')){
+   cliNotice.textContent='Custom provider requires a command template containing {prompt}'
+   return
+  }
+  cliSaveBtn.disabled=true;cliNotice.textContent='Saving…'
+  try{
+   await api.saveSettings({
+    aiProvider:cliProviderSelect.value,
+    aiModel:cliModelInput.value.trim(),
+    aiCommandTemplate:cliCommand.value,
+    aiCommandTemplateAutonomous:cliAutonomousCommand.value
+   })
+   cliNotice.textContent='Agents CLI settings saved'
+  }catch(err){
+   cliNotice.textContent='Error saving settings: '+(err.message||String(err))
+  }finally{
+   cliSaveBtn.disabled=false
+  }
+ }
+
+ const cliActions=document.createElement('div');cliActions.className='deployment-actions';cliActions.style.marginTop='16px'
+ cliActions.append(cliSaveBtn,cliNotice)
+
+ panels.AgentCli.append(cliProviderRow.section,cliModelRow.section,cliCommandRow.section,cliAutonomousRow.section,cliActions)
 
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
  const link=readOnlyRow('Server link','Whether the local agent reaches the Sectile server.')
@@ -814,6 +956,13 @@ function openSettings(initial='General'){
    ?'This workstation is paired. Pasting a new code re-pairs it.'
    :'In the web interface, under your profile, choose Pair a workstation and paste the code here.'
   pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
+  if(cliProviderSelect.isConnected){
+   cliProviderSelect.value=stored.aiProvider||'agy'
+   cliModelInput.value=stored.aiModel||''
+   cliCommand.value=stored.aiCommandTemplate||''
+   cliAutonomousCommand.value=stored.aiCommandTemplateAutonomous||''
+   renderCliPreview()
+  }
   if(!agentConnected)return
   try{
    const status=await api.status()
@@ -964,6 +1113,8 @@ async function openProject(id){
  try{
   const info=await api.project(id)
   let config=info.server
+  let wsSettings={}
+  try{wsSettings=await api.settings()}catch{}
   dialogBody.querySelector('h2').textContent=config.projectName
 
   // A single Local panel had grown into one long scroll mixing the repository
@@ -1051,7 +1202,7 @@ async function openProject(id){
    controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Extra executions queue locally.':'Without worktrees, executions are limited to one.'
   }
   update()
-  let selectedProvider=info.aiProvider||config.aiProvider||'agy',inheritAiProvider=!info.aiProviderOverride
+  let selectedProvider=info.aiProvider||wsSettings.aiProvider||'agy',inheritAiProvider=!info.aiProviderOverride
   const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
   const PROVIDERS=[
     {id:'agy',label:'AGY CLI (Google Antigravity)'},
@@ -1067,35 +1218,28 @@ async function openProject(id){
     providerSelect.append(opt)
   }
   providerSelect.value=selectedProvider
-  const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to server default'},providerSelect)
+  const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to workstation default'},providerSelect)
   const providerReset=providerRow.reset,providerHint=providerRow.hint
   function updateProvider(){
-    providerHint.textContent=(inheritAiProvider?'Inherited from server':'Local override')+' · Server default: '+(config.aiProvider||'agy')
+    providerHint.textContent=(inheritAiProvider?'Inherited from workstation':'Local override')+' · Workstation default: '+(wsSettings.aiProvider||'agy')
     renderCommandPreview()
   }
   providerReset.onclick=()=>{
-    selectedProvider=config.aiProvider||'agy'
+    selectedProvider=wsSettings.aiProvider||'agy'
     providerSelect.value=selectedProvider
     inheritAiProvider=true
     updateProvider()
   }
 
-  let selectedModel=info.aiModel??config.aiModel??'',inheritAiModel=!info.aiModelOverride
+  let selectedModel=info.aiModel??wsSettings.aiModel??'',inheritAiModel=!info.aiModelOverride
   const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
   modelInput.value=selectedModel
   modelInput.placeholder='Empty: use provider default model'
-  const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to server default'},modelInput)
+  const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to workstation default'},modelInput)
   const modelReset=modelRow.reset,modelHint=modelRow.hint
 
-  const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
-  function validateModel(val){
-    const trimmed=String(val||'').trim()
-    if(trimmed==='')return true
-    return MODEL_REGEX.test(trimmed)
-  }
-
   function updateModel(){
-    modelHint.textContent=(inheritAiModel?'Inherited from server':'Local override')+' · Server default: '+(config.aiModel||'(none)')
+    modelHint.textContent=(inheritAiModel?'Inherited from workstation':'Local override')+' · Workstation default: '+(wsSettings.aiModel||'(none)')
     if(!validateModel(modelInput.value)){
       modelHint.textContent='Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
       modelInput.setAttribute('aria-invalid','true')
@@ -1111,7 +1255,7 @@ async function openProject(id){
     updateModel()
   }
   modelReset.onclick=()=>{
-    selectedModel=config.aiModel||''
+    selectedModel=wsSettings.aiModel||''
     modelInput.value=selectedModel
     inheritAiModel=true
     updateModel()
@@ -1119,13 +1263,13 @@ async function openProject(id){
 
   let inheritCommand=!info.commandOverride
   // The two execution modes run different command lines, so they get one field
-  // each. Overriding only the interactive one would leave the server's headless
+  // each. Overriding only the interactive one would leave the workstation's headless
   // command running beside it, which is not what an override means.
   const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
-  command.value=info.aiCommandTemplate??config.aiCommandTemplate??''
-  command.placeholder='Server provider default command'
+  command.value=info.aiCommandTemplate??wsSettings.aiCommandTemplate??config.aiCommandTemplate??''
+  command.placeholder='Workstation provider default command'
   const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
-  autonomousCommand.value=info.aiCommandTemplateAutonomous??config.aiCommandTemplateAutonomous??''
+  autonomousCommand.value=info.aiCommandTemplateAutonomous??wsSettings.aiCommandTemplateAutonomous??config.aiCommandTemplateAutonomous??''
   autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
   const commandPreviewBox=document.createElement('dl');commandPreviewBox.className='command-preview'
   function renderCommandPreview(){
@@ -1142,10 +1286,10 @@ async function openProject(id){
   const placeholderText=document.createElement('p')
   placeholderText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
   placeholderHelp.append(placeholderSummary,placeholderText)
-  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Both empty runs the provider default for each mode.';renderCommandPreview()}
+  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from workstation':'Local override')+' · Both empty runs the provider default for each mode.';renderCommandPreview()}
   command.oninput=()=>{inheritCommand=false;commandState()}
   autonomousCommand.oninput=()=>{inheritCommand=false;commandState()}
-  const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to server defaults',onReset:()=>{command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}},command,placeholderHelp)
+  const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to workstation defaults',onReset:()=>{command.value=wsSettings.aiCommandTemplate||config.aiCommandTemplate||'';autonomousCommand.value=wsSettings.aiCommandTemplateAutonomous||config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}},command,placeholderHelp)
   const commandHint=commandRow.hint
   const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,commandPreviewBox)
 
@@ -1294,7 +1438,7 @@ async function openProject(id){
     config=fresh.server
     dialogBody.querySelector('h2').textContent=config.projectName
     if(inheritWorktrees)useWorktrees=!!config.useWorktrees
-    if(inheritCommand){command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||''}
+    if(inheritCommand){command.value=wsSettings.aiCommandTemplate||config.aiCommandTemplate||'';autonomousCommand.value=wsSettings.aiCommandTemplateAutonomous||config.aiCommandTemplateAutonomous||''}
     if(inheritTerminal){
      selectedTerminal=fresh.terminal||fresh.server?.externalTerminalCommand||''
      if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){

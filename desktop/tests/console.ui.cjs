@@ -108,7 +108,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
    assert.ok(placeholderHelp.includes(token),`Missing placeholder help: ${token}`)
   }
   await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).fill('claude {prompt}')
-  await page.getByRole('button',{name:'Reset CLI commands to server defaults',exact:true}).click()
+  await page.getByRole('button',{name:'Reset CLI commands to workstation defaults',exact:true}).click()
   assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'codex {prompt}')
   await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).fill('local {prompt}')
   // Each mode has its own command; the override and the reset cover both fields.
@@ -119,7 +119,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByText('Server settings refreshed. Local overrides preserved.',{exact:true}).waitFor()
   assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'local {prompt}')
   assert.equal(await autonomous.inputValue(),'local exec {prompt}')
-  await page.getByRole('button',{name:'Reset CLI commands to server defaults',exact:true}).click()
+  await page.getByRole('button',{name:'Reset CLI commands to workstation defaults',exact:true}).click()
   assert.equal(await page.getByRole('textbox',{name:'Interactive CLI command',exact:true}).inputValue(),'updated {prompt}')
   assert.equal(await autonomous.inputValue(),'codex exec {prompt}')
   serverCommand='latest {prompt}'

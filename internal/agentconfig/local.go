@@ -54,28 +54,75 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 	serverCommand := c.AICommandTemplate
 	serverAutonomous := c.AICommandTemplateAutonomous
 	c.Skills = append([]Skill{}, c.Skills...)
+
+	baseProvider := c.AIProvider
+	baseCommand := serverCommand
+	baseAutonomous := serverAutonomous
+
 	if overrides.AIProvider != "" {
 		// A command written for another CLI cannot serve this one, so switching
 		// provider without bringing a command drops both.
-		if overrides.AIProvider != c.AIProvider && overrides.AICommandTemplate == "" {
-			c.AICommandTemplate = ""
-			c.AICommandTemplateAutonomous = ""
+		if overrides.AIProvider != baseProvider && overrides.AICommandTemplate == "" {
+			baseCommand = ""
+			baseAutonomous = ""
 		}
-		c.AIProvider = overrides.AIProvider
-	}
-	if projectProvider, ok := overrides.AIProviders[c.ProjectID]; ok && projectProvider != "" {
-		if projectProvider != c.AIProvider && overrides.AICommandTemplate == "" && overrides.Commands[c.ProjectID] == "" {
-			c.AICommandTemplate = ""
-			c.AICommandTemplateAutonomous = ""
-		}
-		c.AIProvider = projectProvider
+		baseProvider = overrides.AIProvider
 	}
 	if overrides.AICommandTemplate != "" {
-		c.AICommandTemplate = overrides.AICommandTemplate
+		baseCommand = overrides.AICommandTemplate
 	}
 	if overrides.AICommandTemplateAutonomous != "" {
-		c.AICommandTemplateAutonomous = overrides.AICommandTemplateAutonomous
+		baseAutonomous = overrides.AICommandTemplateAutonomous
 	}
+
+	c.AIProvider = baseProvider
+	c.AICommandTemplate = baseCommand
+	c.AICommandTemplateAutonomous = baseAutonomous
+
+	projectProvider, hasProjectProvider := overrides.AIProviders[c.ProjectID]
+	projectProvider = strings.TrimSpace(projectProvider)
+
+	projectCmd, hasProjectCmd := overrides.Commands[c.ProjectID]
+	projectAuto, hasProjectAuto := overrides.CommandsAutonomous[c.ProjectID]
+
+	if hasProjectProvider && projectProvider != "" {
+		c.AIProvider = projectProvider
+		if projectProvider != baseProvider {
+			if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
+				c.AICommandTemplate = projectCmd
+			} else {
+				c.AICommandTemplate = ""
+			}
+			if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
+				c.AICommandTemplateAutonomous = projectAuto
+			} else {
+				c.AICommandTemplateAutonomous = ""
+			}
+		} else {
+			if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
+				c.AICommandTemplate = projectCmd
+			} else {
+				c.AICommandTemplate = baseCommand
+			}
+			if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
+				c.AICommandTemplateAutonomous = projectAuto
+			} else {
+				c.AICommandTemplateAutonomous = baseAutonomous
+			}
+		}
+	} else {
+		if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
+			c.AICommandTemplate = projectCmd
+		} else {
+			c.AICommandTemplate = baseCommand
+		}
+		if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
+			c.AICommandTemplateAutonomous = projectAuto
+		} else {
+			c.AICommandTemplateAutonomous = baseAutonomous
+		}
+	}
+
 	if overrides.Terminal != "" {
 		c.ExternalTerminalCommand = overrides.Terminal
 	}
@@ -103,18 +150,6 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 			}
 			c.Skills[i].Content = content
 			c.Skills[i].CommandContent = content + "\n\n## Ticket\n$ARGUMENTS\n"
-		}
-	}
-	if command, ok := overrides.Commands[c.ProjectID]; ok {
-		c.AICommandTemplate = command
-		if command == "" {
-			c.AICommandTemplate = serverCommand
-		}
-	}
-	if command, ok := overrides.CommandsAutonomous[c.ProjectID]; ok {
-		c.AICommandTemplateAutonomous = command
-		if command == "" {
-			c.AICommandTemplateAutonomous = serverAutonomous
 		}
 	}
 	return c

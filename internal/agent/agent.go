@@ -952,8 +952,25 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
 	payload.Mode = liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
+	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
+	if autonomous && !models.SupportsAutonomousRun(config.AIProvider, config.AICommandTemplate, config.AICommandTemplateAutonomous) {
+		provider := strings.TrimSpace(config.AIProvider)
+		if provider == "" {
+			provider = "agy"
+		}
+		var preflightErr error
+		if strings.TrimSpace(config.AICommandTemplate) != "" {
+			preflightErr = fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively")
+		} else {
+			preflightErr = fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
+		}
+		launchFailure = preflightErr
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", preflightErr.Error())
+		return
+	}
 	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {
+		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
@@ -967,7 +984,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		go d.postRunEngine(payload.RunID, runProvider, runModel)
 	}
 
-	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
+	autonomous = models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
 	if payload.RunID != "" && !autonomous {
 		fullLine, err = d.wrapRun(taskRef, payload.RunID, fullLine)
 		if err != nil {
