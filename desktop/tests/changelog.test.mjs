@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {parseChangelog, plainText, releaseNotesFor} from '../src/changelog.mjs'
+import {isPublished, parseChangelog, plainText, releaseNotesFor} from '../src/changelog.mjs'
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -78,7 +78,18 @@ test('parsing survives an empty or missing changelog', () => {
 test('the repository changelog parses into at least one release with entries', () => {
   const releases = parseChangelog(fs.readFileSync(path.join(repositoryRoot, 'CHANGELOG.md'), 'utf8'))
   assert.ok(releases.length > 0, 'no release read from CHANGELOG.md')
-  const published = releases.find(release => release.sections.some(section => section.items.length > 0))
-  assert.ok(published, 'no release with entries in CHANGELOG.md')
+  const published = releases.find(isPublished)
+  assert.ok(published, 'no published release in CHANGELOG.md')
   assert.match(published.version, /^\d+\.\d+\.\d+$/)
+})
+
+// An Unreleased section with entries is the normal state of the repository
+// between two tags. What it must never become is the answer to "which version
+// do I have", which is what a fallback looking only for entries made it.
+test('a filled Unreleased section is not offered as the installed release', () => {
+  const releases = parseChangelog(sample.replace('## [Unreleased]', '## [Unreleased]\n\n### Security\n\n- Something not yet shipped.'))
+  assert.equal(releases[0].version, 'Unreleased')
+  assert.equal(releases[0].sections[0].items.length, 1)
+  assert.equal(releaseNotesFor(releases, 'dev').version, '1.2.0')
+  assert.equal(isPublished(releases[0]), false)
 })
