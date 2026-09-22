@@ -269,8 +269,11 @@ and reject cross-origin access. Keys are created from the web profile, shown
 once, and can be earned by spending a single-use, short-lived pairing code; see
 [ADR 0007](adrs/0007-user-identity-and-agent-binding.md) for the identity
 binding and [ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md) for the key.
-`SECTILE_SERVER_TOKEN` is deprecated for one release. Deploy the browser REST
-interface behind the appropriate access-control boundary.
+`SECTILE_SERVER_TOKEN` is deprecated for one release and is the only credential
+outside the key store that a machine surface accepts; see
+[ADR 0019](adrs/0019-the-machine-surfaces-have-no-open-mode.md) for the removal
+of the legacy open mode. Deploy the browser REST interface behind the
+appropriate access-control boundary.
 
 See [the complete interface contract](contracts/server-agent-v1.md),
 [the runtime ADR](adrs/0006-independent-server-agent-runtimes.md) and

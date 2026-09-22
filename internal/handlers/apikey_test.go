@@ -194,31 +194,75 @@ func TestProfileCreatesRenewsAndRevokesKeys(t *testing.T) {
 	}
 }
 
-// A personal deployment without SECTILE_SERVER_TOKEN accepted any nonempty
-// token. That stays true until the first key is issued, so an upgrade breaks
-// nothing; from then on only keys open the door, or revocation would be a
-// no-op.
-func TestOpenModeEndsWithTheFirstKey(t *testing.T) {
+// agentTestKey issues a real workstation key for the implicit user. A machine
+// surface no longer accepts an invented bearer, so every test that reaches one
+// needs a key the deployment actually issued.
+func agentTestKey(t *testing.T, h *Handler) string {
+	t.Helper()
+	if err := h.db.EnsureUser(ImplicitUser); err != nil {
+		t.Fatalf("seed the implicit user: %v", err)
+	}
+	key, _, err := h.db.CreateAPIKey(ImplicitUser, "test-workstation", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatalf("issue a workstation key: %v", err)
+	}
+	return key
+}
+
+// The legacy open mode is gone. A deployment that holds no key and pins no
+// shared token authenticates nobody, whatever bearer is presented: signing in
+// is mandatory (ADR 0015) and the machine surfaces are not an exception.
+func TestOpenModeIsGoneOnADeploymentWithoutKeys(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
 	t.Setenv("SECTILE_SERVER_TOKEN", "")
-	if h.resolveAgentUser("anything") != ImplicitUser {
-		t.Fatal("open mode refused a token before any key existed")
+	if h.resolveAgentUser("anything") != "" {
+		t.Fatal("an invented bearer authenticated on a deployment without keys")
 	}
 	key, _, err := database.CreateAPIKey(ImplicitUser, "laptop", db.DefaultAPIKeyTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if h.resolveAgentUser("anything") != "" {
-		t.Fatal("open mode survived the first key")
+		t.Fatal("an invented bearer authenticated once a key existed")
 	}
 	if h.resolveAgentUser(key) != ImplicitUser {
 		t.Fatal("the key itself does not authenticate")
 	}
-	// The deprecated shared token, when configured, still opens the door.
+	// The deprecated shared token, when configured, still opens the door: it is
+	// the one upgrade path that survives, and it is a pinned value rather than
+	// an open door.
 	t.Setenv("SECTILE_SERVER_TOKEN", "shared")
 	if h.resolveAgentUser("shared") != ImplicitUser || h.resolveAgentUser("anything") != "" {
 		t.Fatal("shared token handling changed with keys present")
+	}
+}
+
+// The key store losing its last key must decide nothing. Revocation only marks
+// a row today, but deleting the account that holds a key removes it outright,
+// and the door used to be armed by a live count of the rows: a deployment that
+// had long since left the open mode behind would have fallen back into it. The
+// resolver now consults no count at all, so neither shape of loss reopens it.
+func TestALastKeyGoingAwayDoesNotReopenTheDoor(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	t.Setenv("SECTILE_SERVER_TOKEN", "")
+	user, err := database.SignInLocal("ada@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, credential, err := database.CreateAPIKey(user.ID, "laptop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.RevokeDeviceCredential(user.ID, credential.ID); err != nil {
+		t.Fatal(err)
+	}
+	if h.resolveAgentUser(key) != "" {
+		t.Fatal("a revoked key still authenticates")
+	}
+	if h.resolveAgentUser("anything") != "" {
+		t.Fatal("a deployment whose only key is gone reopened the legacy door")
 	}
 }
 

@@ -479,8 +479,8 @@ func TestWorkstationKeyAuthenticatesInterfaceCalls(t *testing.T) {
 	if status, _ := withBearer(key, "/api/users"); status != http.StatusForbidden {
 		t.Fatalf("member's key on an admin route: %d, want 403", status)
 	}
-	// An invented bearer is not a key: the legacy open mode must not become a
-	// way around sign-in.
+	// An invented bearer is not a key, and there is no longer a mode in which it
+	// becomes one (ADR 0019): it must not be a way around sign-in.
 	if status, _ := withBearer("not-a-real-key", "/api/tasks"); status != http.StatusUnauthorized {
 		t.Fatalf("invented bearer: %d, want 401", status)
 	}

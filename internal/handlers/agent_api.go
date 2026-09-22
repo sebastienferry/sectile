@@ -81,16 +81,16 @@ func sharedServerTokenConfigured() bool {
 }
 
 // validAgentToken accepts the deprecated shared server credential. It stays
-// for one release so an upgrade does not cut off an agent started with it.
-// Without SECTILE_SERVER_TOKEN set, legacy single-user mode accepts any
-// nonempty token, as it always has; resolveAgentCredential closes that door
-// as soon as the deployment has issued an API key.
+// for one release so an upgrade does not cut off an agent started with it, and
+// it is now the only credential outside the key store that opens a machine
+// surface: the legacy open mode, where an unset SECTILE_SERVER_TOKEN made any
+// nonempty token name the implicit user, is gone (ADR 0019).
 func validAgentToken(token string) bool {
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(token) == "" || !sharedServerTokenConfigured() {
 		return false
 	}
 	expected := os.Getenv("SECTILE_SERVER_TOKEN")
-	return expected == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
 }
 
 // sharedTokenDeprecation is logged the first time the shared credential is
@@ -110,9 +110,17 @@ type agentCredential struct {
 }
 
 // resolveAgentCredential maps a bearer credential to the user it is bound to.
-// An API key resolves through the database; a deployment that still uses the
+// An API key resolves through the database; a deployment that still pins the
 // shared server token resolves to the single implicit user, with a deprecation
-// notice in the log.
+// notice in the log. Nothing else resolves to anyone.
+//
+// There is no longer a fallback for a deployment that holds no key at all.
+// Signing in is mandatory (ADR 0015) and the machine surfaces are not an
+// exception to it: a credential that names no key and matches no configured
+// shared token names nobody, on a fresh deployment as on an established one.
+// The count of issued keys is deliberately not consulted, because a count can
+// fall back to zero — an emptied key store would otherwise re-arm the open mode
+// on a deployment that had once left it behind.
 func (h *Handler) resolveAgentCredential(token string) (agentCredential, error) {
 	if strings.TrimSpace(token) == "" {
 		return agentCredential{}, db.ErrAPIKeyUnknown
@@ -127,14 +135,7 @@ func (h *Handler) resolveAgentCredential(token string) (agentCredential, error) 
 	if !validAgentToken(token) {
 		return agentCredential{}, db.ErrAPIKeyUnknown
 	}
-	if sharedServerTokenConfigured() {
-		sharedTokenDeprecation.Do(func() { log.Printf("[Identity] %s", SharedServerTokenWarning) })
-	} else if h.db.HasDeviceCredentials() {
-		// Legacy open mode, where any nonempty token named the implicit user,
-		// ends the moment a key exists: otherwise revoking a key would change
-		// nothing, since the revoked value would still pass here.
-		return agentCredential{}, db.ErrAPIKeyUnknown
-	}
+	sharedTokenDeprecation.Do(func() { log.Printf("[Identity] %s", SharedServerTokenWarning) })
 	return agentCredential{UserID: ImplicitUser}, nil
 }
 
