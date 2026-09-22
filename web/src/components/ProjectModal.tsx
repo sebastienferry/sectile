@@ -45,7 +45,7 @@ import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_
 import { AIModelField } from './AIModelField'
 import { isValidModel, providerModels } from '../lib/aiModels'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
-import { Antigravity, Claude, OpenAI } from '@lobehub/icons'
+import { Antigravity, Claude, OpenAI } from './icons'
 import { MCPEngineConfig } from './MCPEngineConfig'
 
 type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
