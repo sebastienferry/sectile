@@ -40,6 +40,12 @@ const (
 	// autoSyncMaxWindow borne la fenêtre quand la boucle a dormi longtemps
 	// (machine en veille): au delà, la passe complète est plus honnête.
 	autoSyncMaxWindow = 24 * 60
+	// autoSyncClosedSweepEvery espace la relecture des tickets que le tracker
+	// donne pour clos. La passe ordinaire les saute — interroger toutes les
+	// quelques minutes un ticket fermé n'apprend rien et laisse une activité sur
+	// sa fiche à chaque fois — mais pas définitivement: un ticket se rouvre, et
+	// rien d'autre dans la boucle ne le verrait.
+	autoSyncClosedSweepEvery = 60 * time.Minute
 )
 
 // AutoSyncState is what the interface shows about the loop.
@@ -70,6 +76,9 @@ type autoSync struct {
 	backoffUntil time.Time
 	lastFullSync map[string]time.Time
 	lastPassAt   map[string]time.Time
+	// lastClosedSweep date, par projet, la dernière passe qui a inclus les
+	// tickets clos.
+	lastClosedSweep map[string]time.Time
 }
 
 // StartAutoSync runs the loop until the process stops. It reads its settings on
@@ -77,7 +86,7 @@ type autoSync struct {
 // restart.
 func (d *DB) StartAutoSync() {
 	if d.auto == nil {
-		d.auto = &autoSync{lastFullSync: map[string]time.Time{}, lastPassAt: map[string]time.Time{}}
+		d.auto = &autoSync{lastFullSync: map[string]time.Time{}, lastPassAt: map[string]time.Time{}, lastClosedSweep: map[string]time.Time{}}
 	}
 
 	go func() {
@@ -195,6 +204,17 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 
 		d.auto.mu.Lock()
 		d.auto.lastPassAt[proj.ID] = time.Now()
+		// Les tickets clos ne sont relus que de loin en loin. La décision est
+		// prise une fois pour le projet, avant la boucle sur ses tickets, pour
+		// que la passe soit entière: ou elle les balaie tous, ou aucun.
+		lastSweep, hadSweep := d.auto.lastClosedSweep[proj.ID]
+		sweepClosed := !hadSweep || time.Since(lastSweep) >= autoSyncClosedSweepEvery
+		if sweepClosed {
+			if d.auto.lastClosedSweep == nil {
+				d.auto.lastClosedSweep = map[string]time.Time{}
+			}
+			d.auto.lastClosedSweep[proj.ID] = time.Now()
+		}
 		d.auto.mu.Unlock()
 
 		// Retrieve all non-finished tasks for this project
@@ -204,14 +224,30 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 			continue
 		}
 
+		// The pass runs under the project's owner. It is nobody's request, so
+		// there is no acting user to carry, and a tracker whose credential is
+		// personal has none of its own to fall back on: the owner is the person
+		// who turned this loop on, and it is their token it reads with. An
+		// ownerless project keeps the historical behaviour, the server
+		// credential, which is what SECTILE_JIRA_TOKEN is for.
+		owner := strings.TrimSpace(proj.OwnerUserID)
+
 		for _, t := range tasks {
 			// Skip finished tasks
-			if t.Status == models.StatusFinished || strings.EqualFold(t.TrackerStatus, "Done") {
+			if t.Status == models.StatusFinished {
+				continue
+			}
+			// Un ticket que le tracker donne pour clos garde sa place dans le
+			// tableau — c'est l'étiquette de workflow qui décide de la colonne,
+			// pas le tracker — mais il n'a plus rien à dire toutes les quelques
+			// minutes. Il attend le balayage espacé, qui reste là pour attraper
+			// une réouverture.
+			if !sweepClosed && closedTrackerStatus(&proj, t.TrackerStatus) {
 				continue
 			}
 
 			// Enqueue single task sync activity in the queue
-			if _, syncErr := d.EnqueueSingleTaskSync(&t); syncErr != nil {
+			if _, syncErr := d.EnqueueSingleTaskSyncAs(owner, &t); syncErr != nil {
 				failures = append(failures, fmt.Sprintf("%s (%s): %v", proj.Name, t.Key, syncErr))
 			} else {
 				imported++
@@ -228,6 +264,72 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 	if imported > 0 {
 		log.Printf("[autosync] %d tâche(s) de synchronisation en file d'attente", imported)
 	}
+}
+
+// closedTrackerStatusNames is the fallback set: the status names a tracker uses
+// for a work item nobody is going to touch again. It only serves a project that
+// declares no board column for the finished stage, which is every project
+// imported before the mapping existed and every tracker with no board at all.
+//
+// The list stays deliberately short. A name it misses costs a few background
+// reads; a name it claims wrongly freezes a live ticket until the spaced sweep,
+// which is the more expensive mistake of the two.
+var closedTrackerStatusNames = map[string]bool{
+	"done": true, "closed": true, "complete": true, "completed": true,
+	"resolved": true, "cancelled": true, "canceled": true,
+	"rejected": true, "declined": true, "abandoned": true, "duplicate": true,
+	"won't do": true, "wont do": true, "wontdo": true,
+	"won't fix": true, "wont fix": true, "wontfix": true,
+
+	"terminé": true, "termine": true, "fermé": true, "ferme": true,
+	"clos": true, "clôturé": true, "cloturé": true, "clôture": true, "cloture": true,
+	"résolu": true, "resolu": true, "annulé": true, "annule": true,
+	"rejeté": true, "rejete": true, "abandonné": true, "abandonne": true,
+	"doublon": true,
+}
+
+// closedTrackerStatus reports whether the tracker itself considers a work item
+// closed. It is not the same question as the workflow stage: a ticket labelled
+// #new whose Jira status is Closed stays in the clarify column, because the
+// label decides the column and the tracker does not. What it decides here is
+// only whether the background loop still has a reason to re-read it.
+//
+// The project's own board mapping answers first. "Closed" means what the
+// deployment says it means, and a project that declares which columns land on
+// the finished stage has already said it — guessing from a name list over a
+// declared mapping would be inventing an answer the configuration already
+// holds.
+func closedTrackerStatus(proj *models.Project, trackerStatus string) bool {
+	status := strings.ToLower(strings.TrimSpace(trackerStatus))
+	if status == "" {
+		// A work item with no tracker status has never been read from one, or
+		// comes from a tracker that has none. Either way there is nothing to
+		// call closed.
+		return false
+	}
+
+	if proj != nil {
+		for _, columnName := range proj.StageColumns["finished"] {
+			// The stage names columns, and a column groups statuses — but a
+			// board whose columns carry no status list still names them, and on
+			// GitHub the column and the status are the same word.
+			if strings.EqualFold(columnName, status) {
+				return true
+			}
+			for _, col := range proj.TrackerColumns {
+				if !strings.EqualFold(col.Name, columnName) {
+					continue
+				}
+				for _, declared := range col.Statuses {
+					if strings.EqualFold(declared, status) {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return closedTrackerStatusNames[status]
 }
 
 // autoSyncWindow returns the number of minutes to read back for a project: zero
@@ -269,6 +371,12 @@ func isRateLimited(err error) bool {
 // enterAutoSyncBackoff steps back for a while. A tracker that says it has had
 // enough is answered by waiting, not by trying again a minute later.
 func (d *DB) enterAutoSyncBackoff() {
+	// The backoff is asked for by any rate-limited tracker call, including one
+	// made before the loop was ever started; there is then nothing to step
+	// back from.
+	if d.auto == nil {
+		return
+	}
 	d.auto.mu.Lock()
 	defer d.auto.mu.Unlock()
 	d.auto.backoffUntil = time.Now().Add(10 * time.Minute)

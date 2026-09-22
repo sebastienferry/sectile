@@ -88,21 +88,23 @@ func decodeJiraIssue(raw json.RawMessage) (*jiraIssue, error) {
 	return &issue, nil
 }
 
-// jiraPriority maps Jira's named priorities onto the four Sectile has.
-func jiraPriority(name string) models.Priority {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "highest", "blocker", "critical":
-		return models.PriorityUrgent
-	case "high", "major":
-		return models.PriorityHigh
-	case "low", "lowest", "minor", "trivial":
-		return models.PriorityLow
-	default:
-		return models.PriorityMedium
+// jiraPriority maps one of a site's named priorities onto the four Sectile
+// has: by name when the name means something, else by the option's rank in the
+// site's own scheme. Reading "P2" as medium, which is what the name table
+// alone did with every name it had never met, put a whole board on one level.
+func jiraPriority(name string, scheme jiraPriorityScheme) models.Priority {
+	if p, ok := jiraPriorityOf(name); ok {
+		return p
 	}
+	if index := scheme.indexOf(name); index >= 0 {
+		return scheme.priorityAt(index)
+	}
+	return models.PriorityMedium
 }
 
-// jiraPriorityName is the reverse mapping, for a write.
+// jiraPriorityName is the reverse mapping by name, for a write to a site whose
+// scheme could not be read. A site that answered which priorities it has is
+// written to by id instead — see jiraPriorityValue.
 func jiraPriorityName(p models.Priority) string {
 	switch p {
 	case models.PriorityUrgent:
@@ -141,8 +143,9 @@ func jiraWorkflowStatus(labels []string) (models.Status, bool) {
 }
 
 // jiraTask converts a work item into a task. site is the base URL the browse
-// link is built on; fields carries the discovered custom field ids.
-func jiraTask(site string, issue *jiraIssue, fields jiraFieldIDs) *models.Task {
+// link is built on; fields carries the discovered custom field ids, and
+// priorities the site's own priority scheme, which may be empty.
+func jiraTask(site string, issue *jiraIssue, fields jiraFieldIDs, priorities jiraPriorityScheme) *models.Task {
 	key := strings.ToUpper(strings.TrimSpace(issue.Key))
 	status, decided := jiraWorkflowStatus(issue.Fields.Labels)
 	trackerStatus := ""
@@ -155,7 +158,7 @@ func jiraTask(site string, issue *jiraIssue, fields jiraFieldIDs) *models.Task {
 
 	priority := models.PriorityMedium
 	if issue.Fields.Priority != nil {
-		priority = jiraPriority(issue.Fields.Priority.Name)
+		priority = jiraPriority(issue.Fields.Priority.Name, priorities)
 	}
 	assignee := ""
 	if issue.Fields.Assignee != nil {

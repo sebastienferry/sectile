@@ -28,6 +28,7 @@ import {
 } from "lucide-react"
 import { useApp } from "../context/AppContext"
 import { TaskFilters } from "./TaskFilters"
+import { BoardGroupingToggle } from "./BoardGroupingToggle"
 import { issueTypeStyle } from "../lib/issueTypes"
 import { Avatar } from "./Avatar"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
@@ -50,7 +51,6 @@ export const ListView: React.FC = () => {
     hideDone,
     toggleHideDone,
     boardGrouping,
-    setBoardGrouping,
     moveTaskWorkflowStage,
     moveTaskToTrackerStatus,
     moveTask,
@@ -711,35 +711,7 @@ export const ListView: React.FC = () => {
               {visibleTasks.length} {visibleTasks.length > 1 ? "tâches dans le backlog" : "tâche dans le backlog"}
             </span>
 
-            {/* Toggle Status vs Workflow Mode */}
-            <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-xs">
-              <button
-                type="button"
-                onClick={() => setBoardGrouping("status")}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                  boardGrouping === "status"
-                    ? "bg-[var(--accent-color)] text-white shadow-xs font-bold"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                }`}
-                title="Vue groupée et colonne orientée Statuts"
-              >
-                <Kanban size={12} />
-                <span>Statuts</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setBoardGrouping("workflow")}
-                className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                  boardGrouping === "workflow"
-                    ? "bg-[var(--accent-color)] text-white shadow-xs font-bold"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                }`}
-                title="Vue groupée et colonne orientée Workflow Agentique"
-              >
-                <Sparkles size={12} />
-                <span>Workflow Agentique</span>
-              </button>
-            </div>
+            <BoardGroupingToggle size="sm" />
 
             <label className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-primary)] transition-colors">
               <input

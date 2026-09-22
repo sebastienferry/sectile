@@ -16,22 +16,22 @@ import (
 	"tasks/internal/taskmcp"
 )
 
-// defaultMCPSessionTimeout bounds a session whose client never says goodbye: a
-// process killed outright sends no termination, so only silence reveals it.
-// Sectile's own bridge pings well inside this window, which keeps a live but
-// idle conversation connected while still closing an abandoned one.
-const defaultMCPSessionTimeout = 15 * time.Minute
+// defaultMCPSilenceNotice is how long a client may say nothing before Sectile
+// remarks on it. Silence is not proof of death: a stage that compiles, tests or
+// waits for its owner is quiet for a long while and its run must survive it, so
+// crossing this bound only appends a sentence to the runs the session owns.
+const defaultMCPSilenceNotice = 4 * time.Hour
 
-// mcpSessionTimeout reads the deployment's override. An unparseable or
+// mcpSilenceNotice reads the deployment's override. An unparseable or
 // negative value keeps the default rather than disabling the bound silently.
-func mcpSessionTimeout() time.Duration {
+func mcpSilenceNotice() time.Duration {
 	raw := strings.TrimSpace(os.Getenv("SECTILE_MCP_SESSION_TIMEOUT"))
 	if raw == "" {
-		return defaultMCPSessionTimeout
+		return defaultMCPSilenceNotice
 	}
 	timeout, err := time.ParseDuration(raw)
 	if err != nil || timeout <= 0 {
-		return defaultMCPSessionTimeout
+		return defaultMCPSilenceNotice
 	}
 	return timeout
 }
@@ -71,6 +71,11 @@ func agentAuthMessage(err error) string {
 	if errors.Is(err, db.ErrAPIKeyExpired) {
 		return db.ErrAPIKeyExpired.Error()
 	}
+	// A blocked account is worth naming too: the key is valid, and its owner
+	// would otherwise hunt for a typo in a token that is perfectly good.
+	if errors.Is(err, db.ErrAccountBlocked) {
+		return msgBlocked
+	}
 	return "Valid agent bearer token required"
 }
 
@@ -81,16 +86,16 @@ func sharedServerTokenConfigured() bool {
 }
 
 // validAgentToken accepts the deprecated shared server credential. It stays
-// for one release so an upgrade does not cut off an agent started with it.
-// Without SECTILE_SERVER_TOKEN set, legacy single-user mode accepts any
-// nonempty token, as it always has; resolveAgentCredential closes that door
-// as soon as the deployment has issued an API key.
+// for one release so an upgrade does not cut off an agent started with it, and
+// it is now the only credential outside the key store that opens a machine
+// surface: the legacy open mode, where an unset SECTILE_SERVER_TOKEN made any
+// nonempty token name the implicit user, is gone (ADR 0019).
 func validAgentToken(token string) bool {
-	if strings.TrimSpace(token) == "" {
+	if strings.TrimSpace(token) == "" || !sharedServerTokenConfigured() {
 		return false
 	}
 	expected := os.Getenv("SECTILE_SERVER_TOKEN")
-	return expected == "" || subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
 }
 
 // sharedTokenDeprecation is logged the first time the shared credential is
@@ -110,15 +115,29 @@ type agentCredential struct {
 }
 
 // resolveAgentCredential maps a bearer credential to the user it is bound to.
-// An API key resolves through the database; a deployment that still uses the
+// An API key resolves through the database; a deployment that still pins the
 // shared server token resolves to the single implicit user, with a deprecation
-// notice in the log.
+// notice in the log. Nothing else resolves to anyone.
+//
+// There is no longer a fallback for a deployment that holds no key at all.
+// Signing in is mandatory (ADR 0015) and the machine surfaces are not an
+// exception to it: a credential that names no key and matches no configured
+// shared token names nobody, on a fresh deployment as on an established one.
+// The count of issued keys is deliberately not consulted, because a count can
+// fall back to zero — an emptied key store would otherwise re-arm the open mode
+// on a deployment that had once left it behind.
 func (h *Handler) resolveAgentCredential(token string) (agentCredential, error) {
 	if strings.TrimSpace(token) == "" {
 		return agentCredential{}, db.ErrAPIKeyUnknown
 	}
 	device, err := h.db.LookupDeviceToken(token)
 	if err == nil {
+		// A blocked account's workstation keys stop opening with it. Leaving
+		// them valid would make the block a browser-only measure, while the
+		// key is the credential that runs the agent and the MCP tools.
+		if user, lookupErr := h.db.GetUser(device.UserID); lookupErr == nil && user != nil && user.Blocked {
+			return agentCredential{}, db.ErrAccountBlocked
+		}
 		return agentCredential{UserID: device.UserID, Device: device}, nil
 	}
 	if !errors.Is(err, db.ErrAPIKeyUnknown) {
@@ -127,14 +146,7 @@ func (h *Handler) resolveAgentCredential(token string) (agentCredential, error) 
 	if !validAgentToken(token) {
 		return agentCredential{}, db.ErrAPIKeyUnknown
 	}
-	if sharedServerTokenConfigured() {
-		sharedTokenDeprecation.Do(func() { log.Printf("[Identity] %s", SharedServerTokenWarning) })
-	} else if h.db.HasDeviceCredentials() {
-		// Legacy open mode, where any nonempty token named the implicit user,
-		// ends the moment a key exists: otherwise revoking a key would change
-		// nothing, since the revoked value would still pass here.
-		return agentCredential{}, db.ErrAPIKeyUnknown
-	}
+	sharedTokenDeprecation.Do(func() { log.Printf("[Identity] %s", SharedServerTokenWarning) })
 	return agentCredential{UserID: ImplicitUser}, nil
 }
 
@@ -175,7 +187,10 @@ func (h *Handler) MCPHandler() http.Handler {
 	server := taskmcp.NewServerWithCallers(h.db, h.mcpSessions, h.mcpCaller)
 	return h.AgentAPIAuth(mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: mcpSessionTimeout()},
+		// The transport is given no bound of its own: its timeout closes the
+		// session, which would cancel every run it adopted. Sectile owns the
+		// bound instead and only marks the silence (see SessionRegistry).
+		&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: 0},
 	))
 }
 

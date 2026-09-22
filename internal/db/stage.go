@@ -151,8 +151,17 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 			}
 			links = models.AppendPullRequestLink(links, mrURL, linkBranch)
 		}
-		if _, err := tx.Exec(`UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, pr_links = ?, branch_name = ?, updated_at = ? WHERE id = ?`,
-			string(newStatus), string(labelsJSON), trackerStatus, pullRequestURLValue(links), encodePullRequestLinks(links), branchName, now, task.ID); err != nil {
+		// A stage that records a link undoes a past detachment: the workflow
+		// attached a pull request again, so rediscovery may speak once more. A
+		// stage that records none leaves the flag alone — most transitions
+		// carry no pull request, and raising it there would silence discovery
+		// on every task.
+		attached := 0
+		if len(links) > 0 {
+			attached = 1
+		}
+		if _, err := tx.Exec(`UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, pr_links = ?, pr_links_detached = CASE WHEN ? = 1 THEN 0 ELSE pr_links_detached END, branch_name = ?, updated_at = ? WHERE id = ?`,
+			string(newStatus), string(labelsJSON), trackerStatus, pullRequestURLValue(links), encodePullRequestLinks(links), attached, branchName, now, task.ID); err != nil {
 			return err
 		}
 		task.PrLinks = links

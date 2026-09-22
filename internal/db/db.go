@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -21,6 +20,7 @@ import (
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 	"tasks/internal/secrets"
+	"tasks/internal/skills"
 	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
@@ -122,10 +122,19 @@ type DB struct {
 	// server's lifetime only.
 	unlocked         unlockedKeys
 	prEvidenceLookup func(string, string) (trackerapi.PullRequest, error)
-	conn             *sql.DB
-	mu               sync.RWMutex
-	jobQueue         chan SkillJob
-	limiter          *ProjectLimiter
+	// prDiscoveryLookup stands in for the tracker read that answers which pull
+	// requests belong to an issue, so the discovery step is testable without a
+	// live forge. See internal/db/prdiscovery.go.
+	prDiscoveryLookup func(projectID, key string) ([]models.TaskPullRequest, error)
+	conn              *sqlConn
+	// dialect carries what differs between the engines: placeholder
+	// rebinding, DDL type names, whether the legacy migrations apply. Every
+	// query and all 210 methods below are shared. See docs/adrs/0016.
+	dialect  dialect
+	cfg      Config
+	mu       sync.RWMutex
+	jobQueue chan SkillJob
+	limiter  *ProjectLimiter
 	// auto porte l'état de la boucle de synchronisation de fond.
 	auto              *autoSync
 	cancelMap         map[string]context.CancelFunc
@@ -137,14 +146,42 @@ type DB struct {
 	jobs inFlightJobs
 }
 
+// NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the
+// desktop application and the tests use; Open is the general one.
 func NewDB(dbPath string) (*DB, error) {
-	conn, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)")
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
-	}
+	return Open(SQLiteConfig(dbPath))
+}
 
-	conn.SetMaxOpenConns(25)
-	conn.SetMaxIdleConns(10)
+// Open connects the store to whichever engine cfg names. SQLite is the default
+// and the only engine the desktop application ships with; PostgreSQL is the
+// alternative an operator can point a server at.
+func Open(cfg Config) (*DB, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	d, err := newDialect(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return openWith(cfg, d)
+}
+
+// openWith is Open once the dialect is chosen. It exists as its own function so
+// a test can open SQLite through a dialect that skips the legacy migrations and
+// compare the two schemas; nothing else should call it.
+func openWith(cfg Config, d dialect) (*DB, error) {
+	conn, err := d.Open(cfg)
+	if err != nil {
+		return nil, err
+	}
+	// A pool hands out connections lazily, so a DSN pointing nowhere would not
+	// be noticed until the first query — by which time the server is up and
+	// answering with errors. Failing here keeps a misconfiguration a startup
+	// failure.
+	if err := conn.Ping(); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("cannot reach the %s database: %w", d.Name(), err)
+	}
 
 	trackerClient := trackerapi.NewClient()
 	// The key sits beside the database: an operator who backs one up without the
@@ -153,14 +190,16 @@ func NewDB(dbPath string) (*DB, error) {
 	// It is not required to serve: a deployment on a read-only volume, or one
 	// that never stores a personal credential, must still start. Only the
 	// operations that need the key refuse, and they say why.
-	serverKey, serverKeyErr := secrets.ServerKey(filepath.Dir(dbPath))
+	serverKey, serverKeyErr := secrets.ServerKey(d.SecretKeyDir(cfg))
 	if serverKeyErr != nil {
 		log.Printf("⚠️  Clé de chiffrement indisponible (%v) : les accès tracker personnels non scellés seront refusés. Définissez %s pour la fournir.", serverKeyErr, secrets.KeyEnvVar)
 	}
 	db := &DB{
 		serverKey:       serverKey,
 		serverKeyErr:    serverKeyErr,
-		conn:            conn,
+		conn:            newSQLConn(conn, d),
+		dialect:         d,
+		cfg:             cfg,
 		trackers:        trackerClient,
 		trackerRegistry: trackerapi.NewDefaultRegistry(trackerClient),
 		jobQueue:        make(chan SkillJob, 100),
@@ -172,16 +211,24 @@ func NewDB(dbPath string) (*DB, error) {
 	trackerClient.Resolve = db.trackerCredentials
 	// And the acting user's own credential, where they stored one.
 	trackerClient.ResolveUser = db.UserTrackerCredentialsFor
-	if err := db.initIdentitySchema(); err != nil {
-		return nil, err
-	}
-	if err := db.initSessionSchema(); err != nil {
-		return nil, err
-	}
-	if err := db.initSchema(); err != nil {
+	// The one path that may change the schema: the baseline on a database this
+	// scheme has never seen, then every numbered migration it has not applied.
+	// A failure here stops the server rather than serving requests against a
+	// schema the code does not have. See internal/db/migrations.go.
+	if err := db.migrateSchema(); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
-	db.ensureUserCredentialsTable()
+
+	// Work the previous process was running when it stopped. This is not a
+	// migration and must never become one: it runs on every start, not once.
+	db.recoverInterruptedRuns()
+
+	// Says what it found and changes nothing: a token stored under an identity
+	// no account resolves is a person's problem to settle, not a migration's.
+	// See internal/db/orphancredentials.go for why neither deleting nor
+	// rebinding is done here.
+	db.reportOrphanedTrackerCredentials()
 
 	// Start background queue worker
 	go db.startQueueWorker()
@@ -292,7 +339,18 @@ func (d *DB) initSchema() error {
 			ui_scale INTEGER NOT NULL DEFAULT 100,
 			auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
 			auto_sync_interval_sec INTEGER NOT NULL DEFAULT 60,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			jira_url TEXT NOT NULL DEFAULT '',
+			jira_email TEXT NOT NULL DEFAULT '',
+			jira_api_token TEXT NOT NULL DEFAULT '',
+			jira_project TEXT NOT NULL DEFAULT '',
+			github_api_url TEXT NOT NULL DEFAULT '',
+			github_token TEXT NOT NULL DEFAULT '',
+			gitlab_url TEXT NOT NULL DEFAULT '',
+			gitlab_project TEXT NOT NULL DEFAULT '',
+			gitlab_token TEXT NOT NULL DEFAULT '',
+			spec_framework TEXT NOT NULL DEFAULT 'speckit',
+			external_terminal_command TEXT NOT NULL DEFAULT ''
 		);`,
 		// user_settings holds the personal half of the settings: one row per
 		// account, created on the first save and seeded, until then, from the
@@ -340,7 +398,27 @@ func (d *DB) initSchema() error {
 			auto_sync_enabled INTEGER NOT NULL DEFAULT 0,
 			auto_sync_interval_min INTEGER NOT NULL DEFAULT 5,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			git_remote_url TEXT NOT NULL DEFAULT '',
+			tracker_url TEXT NOT NULL DEFAULT '',
+			github_api_url TEXT NOT NULL DEFAULT '',
+			github_token TEXT NOT NULL DEFAULT '',
+			gitlab_url TEXT NOT NULL DEFAULT '',
+			gitlab_project TEXT NOT NULL DEFAULT '',
+			gitlab_token TEXT NOT NULL DEFAULT '',
+			jira_project TEXT NOT NULL DEFAULT '',
+			pr_creation_stage TEXT NOT NULL DEFAULT 'implemented',
+			skill_overrides TEXT NOT NULL DEFAULT '{}',
+			setup_providers TEXT NOT NULL DEFAULT '[]',
+			spec_framework TEXT NOT NULL DEFAULT '',
+			tty_mode TEXT NOT NULL DEFAULT 'integrated',
+			external_terminal_command TEXT NOT NULL DEFAULT '',
+			ai_provider TEXT NOT NULL DEFAULT '',
+			ai_command_template TEXT NOT NULL DEFAULT '',
+			ai_command_template_autonomous TEXT NOT NULL DEFAULT '',
+			ai_model TEXT NOT NULL DEFAULT '',
+			ai_skill_models TEXT NOT NULL DEFAULT '{}',
+			owner_user_id TEXT NOT NULL DEFAULT ''
 		);`,
 		`CREATE TABLE IF NOT EXISTS tasks (
 			id TEXT PRIMARY KEY,
@@ -359,6 +437,7 @@ func (d *DB) initSchema() error {
 			branch_name TEXT,
 			pr_url TEXT,
 			pr_links TEXT NOT NULL DEFAULT '[]',
+			pr_links_detached INTEGER NOT NULL DEFAULT 0,
 			repo_path TEXT NOT NULL DEFAULT '',
 			sprint TEXT NOT NULL DEFAULT '',
 			team TEXT NOT NULL DEFAULT '',
@@ -371,25 +450,13 @@ func (d *DB) initSchema() error {
 			external_url TEXT,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			issue_type TEXT NOT NULL DEFAULT '',
+			parent_key TEXT NOT NULL DEFAULT '',
+			parent_title TEXT NOT NULL DEFAULT '',
+			parent_type TEXT NOT NULL DEFAULT '',
 			UNIQUE(project_id, key)
 		);`,
-		`CREATE TABLE IF NOT EXISTS task_activities (
-			id TEXT PRIMARY KEY,
-			task_id TEXT NOT NULL,
-			skill_id TEXT NOT NULL,
-			skill_name TEXT NOT NULL,
-			action TEXT NOT NULL,
-			status TEXT NOT NULL DEFAULT 'completed',
-			summary TEXT NOT NULL DEFAULT '',
-			output TEXT NOT NULL DEFAULT '',
-			steps TEXT NOT NULL DEFAULT '[]',
-			prompt TEXT NOT NULL DEFAULT '',
-			started_at DATETIME,
-			completed_at DATETIME,
-			error TEXT NOT NULL DEFAULT '',
-			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
-		);`,
+		taskActivitiesSchema("task_activities"),
 		`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_position ON tasks(status, position);`,
 		`CREATE INDEX IF NOT EXISTS idx_activities_task ON task_activities(task_id, created_at DESC);`,
@@ -403,6 +470,13 @@ func (d *DB) initSchema() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_user_project_bookmarks_user ON user_project_bookmarks (user_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_user_project_bookmarks_project ON user_project_bookmarks (project_id);`,
+		// pinned_tasks was created lazily by the pin helpers, which reach an
+		// engine that skips the legacy migrations too late: the schema has to
+		// declare it like any other live table.
+		`CREATE TABLE IF NOT EXISTS pinned_tasks (
+			task_id   TEXT PRIMARY KEY,
+			pinned_at TEXT NOT NULL
+		);`,
 	}
 
 	for _, query := range queries {
@@ -411,181 +485,33 @@ func (d *DB) initSchema() error {
 		}
 	}
 
-	// stage_mapping is dead weight, kept only so the schema stays identical
-	// across versions; see the CREATE TABLE above.
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN stage_mapping TEXT NOT NULL DEFAULT '{}';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN git_remote_url TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tracker_url TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN skill_overrides TEXT NOT NULL DEFAULT '{}';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN setup_providers TEXT NOT NULL DEFAULT '[]';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN repo_paths TEXT NOT NULL DEFAULT '[]';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN pr_creation_stage TEXT NOT NULL DEFAULT 'implemented';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN use_worktrees INTEGER NOT NULL DEFAULT 1;")
-	// default_skill_mode : le mode d'exécution des skills quand ni le lancement
-	// ni la skill n'en fixe un. Vide vaut « interactif », le comportement
-	// historique, donc les projets existants ne changent pas.
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN default_skill_mode TEXT NOT NULL DEFAULT '';")
-	// full_chain_stop_stage : l'étape où s'arrête une exécution en chaîne.
-	// 'reviewed' est la constante historique.
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN board_id TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tracker_columns TEXT NOT NULL DEFAULT '[]';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN sprints TEXT NOT NULL DEFAULT '[]';")
-	// issue_types : les types de tickets qu'un projet importe. Une liste vide vaut
-	// « les types par défaut », ce qui laisse les projets existants inchangés.
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN issue_types TEXT NOT NULL DEFAULT '[]';")
-	// mono_repo : un projet tenu dans un seul dépôt. La branche courante et le
-	// sélecteur de branche n'ont de sens que là ; sur un projet dont les tickets
-	// s'étalent sur plusieurs dépôts, ils montrent la branche d'un dépôt choisi
-	// au hasard. Vrai par défaut, ce qui est le comportement d'avant ce réglage.
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1;")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN stage_columns TEXT NOT NULL DEFAULT '{}';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_provider TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_command_template TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_command_template_autonomous TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_model TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_skill_models TEXT NOT NULL DEFAULT '{}';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN spec_framework TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN jira_project TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated';")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN external_terminal_command TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN external_terminal_command TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default';")
-	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN branch_name TEXT;")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT;")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN repo_path TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN sprint TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN team TEXT NOT NULL DEFAULT '';")
-	// team_id : le nom d'équipe ne suffit pas pour lire ses membres, l'API des
-	// équipes est indexée par identifiant.
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN team_id TEXT NOT NULL DEFAULT '';")
-	// Dates du tracker, distinctes de created_at / updated_at qui portent l'heure
-	// d'import sur un ticket synchronisé. Sans elles, « ouvert depuis N jours »
-	// se calculerait sur la date d'import, ce qui serait inventé.
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN tracker_created_at DATETIME;")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN tracker_updated_at DATETIME;")
-	// Entrée dans la catégorie de statut : c'est de là que se compte « en cours
-	// depuis N jours ».
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN status_changed_at DATETIME;")
-	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team);")
-	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN tracker_status TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint);")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'local';")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN external_url TEXT;")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN issue_type TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN parent_key TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN parent_title TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN parent_type TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_key);")
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;")
-	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_pinned ON tasks(pinned);")
-	d.migrateTasksKeyUnique()
-	d.migratePinnedTasks()
-	// pr_links : l'ensemble ordonné des pull requests d'un ticket. Un ticket
-	// produit couramment plusieurs PR (une première fusionnée, puis une suite
-	// poussée sur la même branche) et pr_url seule ne peut en tenir qu'une.
-	// Déclarée après la reconstruction historique de `tasks`, qui ne la connaît
-	// pas et l'effacerait.
-	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pr_links TEXT NOT NULL DEFAULT '[]';")
-	// Reprise des lignes existantes : la PR déjà enregistrée devient le seul
-	// lien de l'ensemble. Le garde-fou `pr_links = '[]'` rend l'ordre idempotent,
-	// et n'exhume pas un lien qu'un humain a détaché depuis l'interface.
-	_, _ = d.conn.Exec(`UPDATE tasks
-		SET pr_links = json_array(json_object('url', TRIM(pr_url), 'branch', COALESCE(branch_name, '')))
-		WHERE pr_links = '[]' AND pr_url IS NOT NULL AND TRIM(pr_url) != '';`)
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN prompt TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN started_at DATETIME;")
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN completed_at DATETIME;")
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN error TEXT NOT NULL DEFAULT '';")
-	// How a run was launched, which is what tells, once it is over, whether it
-	// handed the workflow back. run_mode is the resolved execution mode,
-	// launch_stage the stage the task sat on when the run started, and
-	// chain_stop_stage is set only on a step of a full chain run, to the stage
-	// that chain stops at. All three default to empty, which reads as "unknown"
-	// on every run recorded before this.
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_mode TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN launch_stage TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN chain_stop_stage TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN waiting_since DATETIME;")
-	// The owner of an activity; empty on rows written before ownership existed.
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN user_id TEXT NOT NULL DEFAULT '';")
-	// The engine a run actually ran against. run_provider and run_model are
-	// written at launch from the server's own resolution, then corrected by the
-	// agent, which alone sees the workstation override. Empty reads as unknown.
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_provider TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_model TEXT NOT NULL DEFAULT '';")
-	// Work the server itself was running cannot survive its own restart.
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
-	// A remote run dispatched to an agent outlives the server: its supervisor
-	// watches the real process and reports the outcome on reconnection. A run a
-	// client started is owned by that client's MCP session, which the restart
-	// destroyed along with every other, so nothing is left that could ever close
-	// it. Canceled rather than failed: the work did not fail here, its outcome
-	// merely became unknowable.
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
-		"Interrupted by server restart: the client session that owned this run is gone", time.Now(), RunActionAgent)
-
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN detail_mode TEXT NOT NULL DEFAULT 'panel';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'agy';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_command_template TEXT NOT NULL DEFAULT 'agy -p \"{prompt}\"';")
-	// Additive: an older binary ignores the column, and an empty one means an
-	// autonomous launch falls back to the interactive command.
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_command_template_autonomous TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_model TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_skill_models TEXT NOT NULL DEFAULT '{}';")
-	// Which models each provider may run. Empty means "use the list Sectile
-	// ships", so an installation that never opened the setting still offers
-	// models at launch.
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_provider_models TEXT NOT NULL DEFAULT '{}';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN repo_path TEXT NOT NULL DEFAULT '.';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN issue_tracker TEXT NOT NULL DEFAULT 'local';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN github_repo TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_clarify TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_specify TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_implement TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_adjust TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_handoff TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_create_pr TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_pick TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN editor_command TEXT NOT NULL DEFAULT 'code';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN spec_framework TEXT NOT NULL DEFAULT 'speckit';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ui_scale INTEGER NOT NULL DEFAULT 100;")
-	// Boucle de synchronisation de fond : éteinte par défaut, c'est un appel
-	// périodique au tracker et personne ne doit le découvrir après coup.
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN auto_sync_enabled INTEGER NOT NULL DEFAULT 0;")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN auto_sync_interval_sec INTEGER NOT NULL DEFAULT 60;")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_project TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_url TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_email TEXT NOT NULL DEFAULT '';")
-	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_api_token TEXT NOT NULL DEFAULT '';")
-	// Tracker connection parameters, held in the user configuration so they no
-	// longer require a server environment variable and a restart.
-	for _, column := range []string{"github_api_url", "github_token", "gitlab_url", "gitlab_project", "gitlab_token"} {
-		_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN " + column + " TEXT NOT NULL DEFAULT '';")
-		_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN " + column + " TEXT NOT NULL DEFAULT '';")
+	// Everything below repairs databases created by earlier versions: columns
+	// added after their table, a table rebuilt for a constraint it lacked,
+	// statuses renamed, timestamps rewritten. A database created today starts
+	// complete, so the engines that have no such history skip all of it. See
+	// docs/adrs/0016.
+	if d.dialect.RunsLegacyMigrations() {
+		d.applyLegacyMigrations()
 	}
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_enabled INTEGER NOT NULL DEFAULT 0;")
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_interval_min INTEGER NOT NULL DEFAULT 5;")
+	// The columns an engine without those migrations still has to be given are
+	// reconciled from openWith, once every table exists. See lateColumns.
 
-	// Migrate the legacy 'openfeature' Spec-Driven Design option to 'openspec'.
-	// OpenFeature is a feature-flag standard, not an SDD framework: the two
-	// supported frameworks are GitHub Spec Kit and OpenSpec.
-	_, _ = d.conn.Exec("UPDATE projects SET spec_framework = 'openspec' WHERE spec_framework = 'openfeature';")
-	_, _ = d.conn.Exec("UPDATE settings SET spec_framework = 'openspec' WHERE spec_framework = 'openfeature';")
-
-	// Migrate legacy stage names to 5-stage workflow
-	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_clarify' WHERE status = 'backlog';")
-	// Retire le statut interne historique, qui ne doit plus apparaître dans les
-	// réponses ni dans l'interface. Les tickets déjà concernés gardent leur
-	// étape métier : ils deviennent `clarified`.
-	_, _ = d.conn.Exec("UPDATE tasks SET status = 'clarified' WHERE status = 'to_specify';")
-	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_implement' WHERE status = 'in_progress';")
-	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_test' WHERE status = 'to_validate';")
-	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_close' WHERE status = 'done';")
-
-	d.dropRetiredColumns()
+	// task_activities: task_id points at a task again, and project_id carries a
+	// project activity. This runs on both engines and outside the legacy block
+	// above — a PostgreSQL database created since #304 holds the very
+	// "sync-<x>" rows the backfill exists for, and leaving them behind would
+	// make the restored foreign key impossible to create. It runs after the
+	// legacy migrations so that, under SQLite, the table it rebuilds already has
+	// every column those migrations add.
+	if err := d.dialect.MigrateActivityAttachment(d.conn, backfillActivityAttachment); err != nil {
+		log.Printf("[task_activities] attachment migration failed: %v", err)
+	}
+	// After the migration, never with the other indexes: on a database that
+	// still has the old table, project_id does not exist yet and the statement
+	// would fail the whole schema initialisation.
+	if _, err := d.conn.Exec(`CREATE INDEX IF NOT EXISTS idx_activities_project ON task_activities(project_id, created_at DESC);`); err != nil {
+		log.Printf("[task_activities] idx_activities_project: %v", err)
+	}
 
 	// Seed default workspace only if projects table is completely empty
 	var projectsCount int
@@ -682,6 +608,267 @@ func (d *DB) migrateTasksKeyUnique() {
 			log.Printf("[migrateTasksKeyUnique] failed: %v", err)
 		}
 	}
+}
+
+// lateColumn is one column declared after PostgreSQL support shipped.
+//
+// The engines that skip the legacy migrations are given a complete schema when
+// their database is created, and nothing afterwards: CREATE TABLE IF NOT EXISTS
+// adds nothing to a table that already exists, and no ALTER is ever replayed. A
+// database created by an earlier version therefore keeps the schema it was born
+// with, and every write path naming a newer column fails on it with
+// `column "..." does not exist`.
+//
+// So each column added to a CREATE TABLE from that point on is listed here as
+// well. This is the whole list a reviewer has to read, and the list the upgrade
+// test drives; forgetting to extend it is what shipped #327's blocked_at to a
+// deployment that could no longer block an account.
+type lateColumn struct {
+	table      string
+	name       string
+	definition string
+}
+
+// addStatement is the idempotent form, which the SQLite spelling of ADD COLUMN
+// cannot express. The DATETIME in a definition is rewritten to the engine's own
+// type name on its way out, like every other schema statement.
+func (c lateColumn) addStatement() string {
+	return fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s;", c.table, c.name, c.definition)
+}
+
+// lateColumns is that list, oldest first.
+//
+// It deliberately starts at PostgreSQL support (#296) rather than at the first
+// column ever added: the ~90 columns before it only ever went missing from a
+// SQLite file, which the legacy migrations repair, and a PostgreSQL database
+// has never existed without them. See docs/adrs/0016.
+var lateColumns = []lateColumn{
+	{table: "tasks", name: "pr_links_detached", definition: "INTEGER NOT NULL DEFAULT 0"},
+	{table: "projects", name: "owner_user_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	// #327: a blocked account keeps its row, its history and its ownership of
+	// past executions, and only its sign-in stops opening. NULL is the normal
+	// state, so every account an upgrade finds stays open.
+	{table: "users", name: "blocked_at", definition: "DATETIME"},
+}
+
+// reconcileLateColumns gives the database whichever of lateColumns it lacks.
+//
+// It runs on every start, on the engines that have no legacy migrations, and
+// after every table is created so a statement may name any of them. The error
+// is ignored for the same reason the legacy migrations ignore theirs: SQLite
+// cannot spell IF NOT EXISTS, and this path is reached under SQLite only by the
+// dialect the schema-parity test opens.
+func (d *DB) reconcileLateColumns() {
+	for _, column := range lateColumns {
+		_, _ = d.conn.Exec(column.addStatement())
+	}
+}
+
+// recoverInterruptedRuns closes the work the previous process was still running
+// when it stopped. It runs on every start, on every engine.
+//
+// It used to live inside applyLegacyMigrations, which only ever runs on SQLite.
+// A PostgreSQL deployment therefore never recovered anything: a restart left
+// its activities `running` forever, with nothing able to close them. Being a
+// repair of data rather than of schema is what let it hide there; it is not a
+// migration, and the numbered scheme has no place for something that must run
+// every time. See docs/adrs/0021.
+func (d *DB) recoverInterruptedRuns() {
+	// Work the server itself was running cannot survive its own restart.
+	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
+	// A remote run dispatched to an agent outlives the server: its supervisor
+	// watches the real process and reports the outcome on reconnection. A run a
+	// client started is owned by that client's MCP session, which the restart
+	// destroyed along with every other, so nothing is left that could ever close
+	// it. Canceled rather than failed: the work did not fail here, its outcome
+	// merely became unknowable.
+	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
+		"Interrupted by server restart: the client session that owned this run is gone", time.Now(), RunActionAgent)
+}
+
+// applyLegacyMigrations brings a database written by an earlier version up to
+// the current schema. It is a no-op on an engine whose databases are always
+// created complete, and every statement in it is deliberately
+// error-tolerant: re-adding a column that is already there is how it detects
+// it has already run.
+func (d *DB) applyLegacyMigrations() {
+	// stage_mapping is dead weight, kept only so the schema stays identical
+	// across versions; see the CREATE TABLE above.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN stage_mapping TEXT NOT NULL DEFAULT '{}';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN git_remote_url TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tracker_url TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN skill_overrides TEXT NOT NULL DEFAULT '{}';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN setup_providers TEXT NOT NULL DEFAULT '[]';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN repo_paths TEXT NOT NULL DEFAULT '[]';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN pr_creation_stage TEXT NOT NULL DEFAULT 'implemented';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN use_worktrees INTEGER NOT NULL DEFAULT 1;")
+	// default_skill_mode : le mode d'exécution des skills quand ni le lancement
+	// ni la skill n'en fixe un. Vide vaut « interactif », le comportement
+	// historique, donc les projets existants ne changent pas.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN default_skill_mode TEXT NOT NULL DEFAULT '';")
+	// full_chain_stop_stage : l'étape où s'arrête une exécution en chaîne.
+	// 'reviewed' est la constante historique.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN full_chain_stop_stage TEXT NOT NULL DEFAULT 'reviewed';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN board_id TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tracker_columns TEXT NOT NULL DEFAULT '[]';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN sprints TEXT NOT NULL DEFAULT '[]';")
+	// issue_types : les types de tickets qu'un projet importe. Une liste vide vaut
+	// « les types par défaut », ce qui laisse les projets existants inchangés.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN issue_types TEXT NOT NULL DEFAULT '[]';")
+	// mono_repo : un projet tenu dans un seul dépôt. La branche courante et le
+	// sélecteur de branche n'ont de sens que là ; sur un projet dont les tickets
+	// s'étalent sur plusieurs dépôts, ils montrent la branche d'un dépôt choisi
+	// au hasard. Vrai par défaut, ce qui est le comportement d'avant ce réglage.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN mono_repo INTEGER NOT NULL DEFAULT 1;")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN stage_columns TEXT NOT NULL DEFAULT '{}';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_provider TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_command_template TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_command_template_autonomous TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_model TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_skill_models TEXT NOT NULL DEFAULT '{}';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN spec_framework TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN jira_project TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated';")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN external_terminal_command TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN external_terminal_command TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN project_id TEXT NOT NULL DEFAULT 'default';")
+	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id);")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN branch_name TEXT;")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pr_url TEXT;")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN repo_path TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN sprint TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN team TEXT NOT NULL DEFAULT '';")
+	// team_id : le nom d'équipe ne suffit pas pour lire ses membres, l'API des
+	// équipes est indexée par identifiant.
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN team_id TEXT NOT NULL DEFAULT '';")
+	// Dates du tracker, distinctes de created_at / updated_at qui portent l'heure
+	// d'import sur un ticket synchronisé. Sans elles, « ouvert depuis N jours »
+	// se calculerait sur la date d'import, ce qui serait inventé.
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN tracker_created_at DATETIME;")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN tracker_updated_at DATETIME;")
+	// Entrée dans la catégorie de statut : c'est de là que se compte « en cours
+	// depuis N jours ».
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN status_changed_at DATETIME;")
+	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_team ON tasks(team);")
+	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks(assignee);")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN tracker_status TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_sprint ON tasks(sprint);")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'local';")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN external_url TEXT;")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN issue_type TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN parent_key TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN parent_title TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN parent_type TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_key);")
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;")
+	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_tasks_pinned ON tasks(pinned);")
+	d.migrateTasksKeyUnique()
+	d.migratePinnedTasks()
+	// pr_links : l'ensemble ordonné des pull requests d'un ticket. Un ticket
+	// produit couramment plusieurs PR (une première fusionnée, puis une suite
+	// poussée sur la même branche) et pr_url seule ne peut en tenir qu'une.
+	// Déclarée après la reconstruction historique de `tasks`, qui ne la connaît
+	// pas et l'effacerait.
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pr_links TEXT NOT NULL DEFAULT '[]';")
+	// Reprise des lignes existantes : la PR déjà enregistrée devient le seul
+	// lien de l'ensemble. Le garde-fou `pr_links = '[]'` rend l'ordre idempotent,
+	// et n'exhume pas un lien qu'un humain a détaché depuis l'interface.
+	_, _ = d.conn.Exec(`UPDATE tasks
+		SET pr_links = json_array(json_object('url', TRIM(pr_url), 'branch', COALESCE(branch_name, '')))
+		WHERE pr_links = '[]' AND pr_url IS NOT NULL AND TRIM(pr_url) != '';`)
+	// pr_links_detached : un humain a retiré tous les liens depuis la fiche du
+	// ticket. La redécouverte automatique respecte ce geste et se tait, jusqu'à
+	// ce qu'une redécouverte soit demandée explicitement ou qu'un lien soit
+	// rattaché par le workflow. Voir internal/db/prdiscovery.go.
+	_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN pr_links_detached INTEGER NOT NULL DEFAULT 0;")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN prompt TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN started_at DATETIME;")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN completed_at DATETIME;")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN error TEXT NOT NULL DEFAULT '';")
+	// How a run was launched, which is what tells, once it is over, whether it
+	// handed the workflow back. run_mode is the resolved execution mode,
+	// launch_stage the stage the task sat on when the run started, and
+	// chain_stop_stage is set only on a step of a full chain run, to the stage
+	// that chain stops at. All three default to empty, which reads as "unknown"
+	// on every run recorded before this.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_mode TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN launch_stage TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN chain_stop_stage TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN waiting_since DATETIME;")
+	// The owner of an activity; empty on rows written before ownership existed.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN user_id TEXT NOT NULL DEFAULT '';")
+	// The engine a run actually ran against. run_provider and run_model are
+	// written at launch from the server's own resolution, then corrected by the
+	// agent, which alone sees the workstation override. Empty reads as unknown.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_provider TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_model TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN detail_mode TEXT NOT NULL DEFAULT 'panel';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'agy';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_command_template TEXT NOT NULL DEFAULT 'agy -p \"{prompt}\"';")
+	// Additive: an older binary ignores the column, and an empty one means an
+	// autonomous launch falls back to the interactive command.
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_command_template_autonomous TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_model TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_skill_models TEXT NOT NULL DEFAULT '{}';")
+	// Which models each provider may run. Empty means "use the list Sectile
+	// ships", so an installation that never opened the setting still offers
+	// models at launch.
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_provider_models TEXT NOT NULL DEFAULT '{}';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN repo_path TEXT NOT NULL DEFAULT '.';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN issue_tracker TEXT NOT NULL DEFAULT 'local';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN github_repo TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_clarify TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_specify TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_implement TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_adjust TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_handoff TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_create_pr TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN prompt_pick TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN editor_command TEXT NOT NULL DEFAULT 'code';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN spec_framework TEXT NOT NULL DEFAULT 'speckit';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ui_scale INTEGER NOT NULL DEFAULT 100;")
+	// Boucle de synchronisation de fond : éteinte par défaut, c'est un appel
+	// périodique au tracker et personne ne doit le découvrir après coup.
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN auto_sync_enabled INTEGER NOT NULL DEFAULT 0;")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN auto_sync_interval_sec INTEGER NOT NULL DEFAULT 60;")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_project TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_url TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_email TEXT NOT NULL DEFAULT '';")
+	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN jira_api_token TEXT NOT NULL DEFAULT '';")
+	// Tracker connection parameters, held in the user configuration so they no
+	// longer require a server environment variable and a restart.
+	for _, column := range []string{"github_api_url", "github_token", "gitlab_url", "gitlab_project", "gitlab_token"} {
+		_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN " + column + " TEXT NOT NULL DEFAULT '';")
+		_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN " + column + " TEXT NOT NULL DEFAULT '';")
+	}
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_enabled INTEGER NOT NULL DEFAULT 0;")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_interval_min INTEGER NOT NULL DEFAULT 5;")
+	// The owner the background synchronisation borrows a credential from. A
+	// project written before the column has none, and keeps the historical
+	// behaviour, the server credential, until somebody saves it.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT '';")
+
+	// Migrate the legacy 'openfeature' Spec-Driven Design option to 'openspec'.
+	// OpenFeature is a feature-flag standard, not an SDD framework: the two
+	// supported frameworks are GitHub Spec Kit and OpenSpec.
+	_, _ = d.conn.Exec("UPDATE projects SET spec_framework = 'openspec' WHERE spec_framework = 'openfeature';")
+	_, _ = d.conn.Exec("UPDATE settings SET spec_framework = 'openspec' WHERE spec_framework = 'openfeature';")
+
+	// Migrate legacy stage names to 5-stage workflow
+	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_clarify' WHERE status = 'backlog';")
+	// Retire le statut interne historique, qui ne doit plus apparaître dans les
+	// réponses ni dans l'interface. Les tickets déjà concernés gardent leur
+	// étape métier : ils deviennent `clarified`.
+	_, _ = d.conn.Exec("UPDATE tasks SET status = 'clarified' WHERE status = 'to_specify';")
+	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_implement' WHERE status = 'in_progress';")
+	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_test' WHERE status = 'to_validate';")
+	_, _ = d.conn.Exec("UPDATE tasks SET status = 'to_close' WHERE status = 'done';")
+
+	d.dropRetiredColumns()
+
+	// Runs last: it sweeps the date columns of the schema as it stands once
+	// every table and column above exists.
+	d.repairNumericZoneTimestamps()
 }
 
 func (d *DB) seedIfEmpty() error {
@@ -1750,23 +1937,11 @@ func GenerateTaskBranchName(key, title string) string {
 	return fmt.Sprintf("%s-%s", cleanKey, slug)
 }
 
-// SanitizeBranchName removes characters illegal in git branch names.
+// SanitizeBranchName removes characters illegal in git branch names. The rule
+// itself lives in models: the agent needs it too, and the agent binary must not
+// link the database package.
 func SanitizeBranchName(branch string) string {
-	branch = strings.TrimSpace(branch)
-	var b strings.Builder
-	for _, r := range branch {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' || r == '.' {
-			b.WriteRune(r)
-		} else {
-			b.WriteRune('-')
-		}
-	}
-	res := b.String()
-	for strings.Contains(res, "--") {
-		res = strings.ReplaceAll(res, "--", "-")
-	}
-	res = strings.Trim(res, "-")
-	return res
+	return models.SanitizeBranchName(branch)
 }
 
 func (d *DB) EnsureTaskWorktree(mainRepoPath string, task *models.Task) (string, string, error) {
@@ -2539,6 +2714,17 @@ func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		return nil, err
 	}
 
+	// Detaching every link is an explicit gesture, and the synchronisation
+	// remembers it: rediscovery would otherwise put back, a minute later, what
+	// a person just removed. Attaching one again clears the flag.
+	if req.PrLinks != nil || req.PrURL != nil {
+		detached := 0
+		if len(existing.PrLinks) == 0 {
+			detached = 1
+		}
+		_, _ = d.conn.Exec("UPDATE tasks SET pr_links_detached = ? WHERE id = ?", detached, existing.ID)
+	}
+
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
 	if req.Status != nil || req.Labels != nil || req.Title != nil || req.Description != nil || req.Priority != nil || req.TrackerStatus != nil {
 		d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, req.Status, existing.Labels, removedLabels, TrackerFieldChanges{
@@ -2970,9 +3156,9 @@ func insertTaskActivity(conn activityExecutor, act models.TaskActivity) error {
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model)
+		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model)
+		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model)
 	return err
 }
 
@@ -2993,11 +3179,27 @@ func ownerDisplayName(displayName, email string) string {
 }
 
 func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, error) {
+	return d.activitiesAttachedTo("a.task_id", taskID)
+}
+
+// getProjectActivitiesUnsafe is the project history: the activities attached to
+// a project rather than to one of its tickets — its synchronisations, above all.
+//
+// It is a reader of its own rather than a project identifier smuggled into
+// getTaskActivitiesUnsafe, which is exactly the overloading #310 removes from
+// the column.
+func (d *DB) getProjectActivitiesUnsafe(projectID string) ([]models.TaskActivity, error) {
+	return d.activitiesAttachedTo("a.project_id", projectID)
+}
+
+// activitiesAttachedTo reads one attachment's history. The column is a literal
+// chosen by its two callers, never a value coming from a request.
+func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
-		SELECT a.id, a.task_id, a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
+		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
-		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE a.task_id = ? ORDER BY a.created_at DESC
-	`, taskID)
+		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE `+column+` = ? ORDER BY a.created_at DESC
+	`, id)
 	if err != nil {
 		return []models.TaskActivity{}, nil
 	}
@@ -3011,7 +3213,7 @@ func (d *DB) getTaskActivitiesUnsafe(taskID string) ([]models.TaskActivity, erro
 		var startedAt, completedAt, waitingSince sql.NullTime
 		var ownerName, ownerEmail string
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel)
+		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel)
 		if err != nil {
 			continue
 		}
@@ -3058,6 +3260,13 @@ func (d *DB) GetTaskActivities(taskID string) ([]models.TaskActivity, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.getTaskActivitiesUnsafe(taskID)
+}
+
+// GetProjectActivities is a project's own activity history.
+func (d *DB) GetProjectActivities(projectID string) ([]models.TaskActivity, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.getProjectActivitiesUnsafe(projectID)
 }
 
 // TrackerTokenClearSentinel is what the UI sends to delete a stored token, since
@@ -3473,7 +3682,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 }
 
 // GetAvailableSkills exposes the workflow catalogue. It derives from the single
-// StageSkills table: the skill the UI offers, the file installed in the
+// skills.StageSkills table: the skill the UI offers, the file installed in the
 // repository and the step the worker runs are by construction the same thing.
 // The old pick-issue auto-pilot is gone, the autonomous run button replaced it.
 // UIScaleOptions are the four interface zoom levels the status bar switches
@@ -3517,8 +3726,8 @@ func NormalizeUIScale(scale int) int {
 }
 
 func (d *DB) GetAvailableSkills() []models.Skill {
-	out := make([]models.Skill, 0, len(StageSkills))
-	for _, s := range StageSkills {
+	out := make([]models.Skill, 0, len(skills.StageSkills))
+	for _, s := range skills.StageSkills {
 		name := s.Name
 		in, _ := InternalStatusForStage(s.FromStage)
 		outStatus, _ := InternalStatusForStage(s.ToStage)
@@ -3600,7 +3809,7 @@ func branchLabel(task *models.Task) string {
 }
 
 func (d *DB) processSkillJob(job SkillJob) {
-	if stage, ok := StageSkillByID(job.SkillID); ok {
+	if stage, ok := skills.StageSkillByID(job.SkillID); ok {
 		job.SkillID = stage.ID
 	}
 	// 1. Check if activity was canceled before starting
@@ -3731,13 +3940,20 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 			steps = append(steps, "4. Équipes : "+note)
 		}
 	}
-	if ts.Supports(tracker.CapBoard) && strings.TrimSpace(proj.BoardID) != "" {
+	// No board recorded yet is not a reason to skip: SyncProjectBoardColumns
+	// resolves the project's board itself and persists the one it retained, so
+	// the columns follow the tracker from the very first sync.
+	if ts.Supports(tracker.CapBoard) {
 		if note, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
 			steps = append(steps, fmt.Sprintf("⚠️ Board : %v", err))
 		} else {
 			steps = append(steps, "5. Board : "+note)
 		}
 	}
+	// Pull-request rediscovery runs here rather than in the import: the import
+	// must keep its property of never writing pr_url / pr_links, which is what
+	// protects the links a workflow produced.
+	steps = append(steps, d.rediscoverProjectPullRequests(ctx, proj, ts, tasks)...)
 	return steps
 }
 
@@ -4183,6 +4399,18 @@ func (d *DB) SyncSingleTask(taskID string) (*models.Task, error) {
 // SyncSingleTaskAs re-reads it on behalf of whoever asked, so a personal
 // tracker credential can be resolved for the read.
 func (d *DB) SyncSingleTaskAs(ctx context.Context, taskID string) (*models.Task, error) {
+	return d.syncSingleTask(ctx, taskID, false)
+}
+
+// ForceSyncSingleTask is the synchronisation a person asked for on one work
+// item. It rediscovers that item's pull requests whatever the bounding rule
+// says, which is how a task missing its link is repaired without waiting for a
+// full pass.
+func (d *DB) ForceSyncSingleTask(ctx context.Context, taskID string) (*models.Task, error) {
+	return d.syncSingleTask(ctx, taskID, true)
+}
+
+func (d *DB) syncSingleTask(ctx context.Context, taskID string, force bool) (*models.Task, error) {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	settings, _ := d.getSettingsUnsafe()
@@ -4238,14 +4466,37 @@ func (d *DB) SyncSingleTaskAs(ctx context.Context, taskID string) (*models.Task,
 		if impErr := d.ImportOrUpdateTasks([]models.Task{*syncedTask}); impErr != nil {
 			return nil, impErr
 		}
-		return d.GetTaskByID(task.ID)
+		imported, readErr := d.GetTaskByID(task.ID)
+		if readErr != nil || imported == nil {
+			return imported, readErr
+		}
+		// Only a rediscovery the person asked for runs here: the background
+		// loop re-reads every unfinished ticket one by one through this path,
+		// and discovering on each of them would cost one tracker call per
+		// ticket per pass.
+		if force {
+			if _, _, err := d.discoverAndApply(ctx, proj, ts, imported); err != nil {
+				log.Printf("[prdiscovery] %s : %v", imported.Key, err)
+			}
+		}
+		return imported, nil
 	}
 
 	return task, nil
 }
 
-// EnqueueSingleTaskSync enqueues a background sync activity for a single task.
+// EnqueueSingleTaskSync enqueues a background sync activity for a single task,
+// with nobody to attribute the read to.
 func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, error) {
+	return d.EnqueueSingleTaskSyncAs("", task)
+}
+
+// EnqueueSingleTaskSyncAs enqueues it on behalf of one account. The queue
+// outlives the request that filled it, so the user travels on the job rather
+// than in a context: without it the worker resolves the server credential, and
+// a deployment whose only Jira credential is personal fails every one of these
+// reads with "configure the Jira account e-mail".
+func (d *DB) EnqueueSingleTaskSyncAs(actingUserID string, task *models.Task) (*models.TaskActivity, error) {
 	if task == nil {
 		return nil, fmt.Errorf("task is nil")
 	}
@@ -4266,6 +4517,10 @@ func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, err
 			"Poussée dans la file d'attente d'exécution...",
 		},
 		CreatedAt: now,
+		// The account the read runs under, shown on the activity rather than
+		// left to be guessed: a background pass reads as the project's owner,
+		// and a failed one has to say whose credential was refused.
+		UserID: strings.TrimSpace(actingUserID),
 	}
 
 	d.mu.Lock()
@@ -4280,6 +4535,7 @@ func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, err
 		TaskID:     task.ID,
 		SkillID:    "sync_task",
 		ProjectID:  task.ProjectID,
+		ActingUser: strings.TrimSpace(actingUserID),
 	}
 
 	d.pushTrackerOpJob(job)
@@ -4287,6 +4543,10 @@ func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, err
 }
 
 func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
+	// Whoever the job was queued for travels with it: the background pass runs
+	// under the project's owner, and their credential is the only one a
+	// personal-credential deployment has.
+	ctx = tracker.WithActingUser(ctx, job.ActingUser)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(job.TaskID)
 	d.mu.RUnlock()
@@ -4296,13 +4556,92 @@ func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
 		return
 	}
 
-	syncedTask, syncErr := d.SyncSingleTask(task.ID)
+	// What the ticket looked like before the read, so the read can say whether
+	// it was worth recording.
+	before := trackerFacts(task)
+
+	syncedTask, syncErr := d.SyncSingleTaskAs(ctx, task.ID)
 	if syncErr != nil {
 		d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("❌ Échec : %v", syncErr)}, fmt.Sprintf("Échec de la synchronisation de %s", task.Key), syncErr)
 		return
 	}
 
+	// A re-read that changed nothing has nothing to say, and the background
+	// pass produces almost only those: one per unfinished work item, every few
+	// minutes, on the work item's own card. Four hundred tickets read every
+	// quarter of an hour buried every real entry — a run, a transition, a
+	// comment — under thousands of "synchronised successfully". The row is
+	// still written when the job is queued, so a pass in flight remains
+	// visible; it is dropped here once it turns out to have reported nothing.
+	//
+	// A failure is never dropped. It is the one outcome nobody can reconstruct
+	// afterwards, and a credential the tracker refuses is exactly what these
+	// rows are read for.
+	if syncedTask == nil || trackerFacts(syncedTask) == before {
+		if delErr := d.DeleteActivity(job.ActivityID); delErr != nil {
+			log.Printf("[autosync] activité de synchronisation non supprimée (%s) : %v", job.ActivityID, delErr)
+		}
+		return
+	}
+
 	d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("✅ Ticket %s synchronisé avec succès", syncedTask.Key)}, fmt.Sprintf("Synchronisation de %s effectuée avec succès", syncedTask.Key), nil)
+}
+
+// trackerFactsSeparator cannot appear in a tracker field, so two different sets
+// of facts cannot render as the same string by running into each other.
+const trackerFactsSeparator = "\x1f"
+
+// trackerFacts renders everything a re-read of one work item is able to change:
+// the fields the tracker owns, and nothing Sectile decides for itself. Two
+// reads rendering the same string found the same ticket.
+//
+// It deliberately leaves out UpdatedAt, which the import bumps on every write
+// and which would therefore report a change on every single pass, and the
+// pull request links, which a background read never touches — only a
+// rediscovery the person asked for does.
+func trackerFacts(t *models.Task) string {
+	if t == nil {
+		return ""
+	}
+
+	// The tracker does not promise an order for labels, and a reordering is not
+	// a change.
+	labels := append([]string(nil), t.Labels...)
+	sort.Strings(labels)
+
+	text := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	stamp := func(p *time.Time) string {
+		if p == nil {
+			return ""
+		}
+		return p.UTC().Format(time.RFC3339Nano)
+	}
+
+	return strings.Join([]string{
+		t.Title,
+		t.Description,
+		string(t.Status),
+		t.TrackerStatus,
+		string(t.Priority),
+		t.Assignee,
+		t.AssigneeAvatar,
+		t.Sprint,
+		t.Team,
+		t.TeamID,
+		t.IssueType,
+		t.ParentKey,
+		t.ParentTitle,
+		t.ParentType,
+		strings.Join(labels, ","),
+		text(t.DueDate),
+		text(t.ExternalURL),
+		stamp(t.TrackerUpdatedAt),
+	}, trackerFactsSeparator)
 }
 
 // EnqueueSync queues a synchronisation nobody in particular asked for, so it
@@ -4338,10 +4677,6 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 	var skillName string
 	var summary string
 	var steps []string
-	targetTaskID := "sync-" + syncType
-	if proj != nil {
-		targetTaskID = "sync-" + proj.ID
-	}
 
 	switch syncType {
 	case "github", "sync_github":
@@ -4381,9 +4716,17 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 		}
 	}
 
+	// A synchronisation belongs to a project, or to nothing when it covers every
+	// project or a whole tracker. It never belongs to a ticket, and until #310 it
+	// said so through a made-up task_id.
+	attachedProject := ""
+	if proj != nil {
+		attachedProject = proj.ID
+	}
+
 	act := models.TaskActivity{
 		ID:        activityID,
-		TaskID:    targetTaskID,
+		ProjectID: attachedProject,
 		SkillID:   syncType,
 		SkillName: skillName,
 		Action:    "Synchronisation des tickets distants",
@@ -4402,7 +4745,6 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 	// Push job to worker queue
 	d.enqueueJob(SkillJob{
 		ActivityID: activityID,
-		TaskID:     targetTaskID,
 		ProjectID:  projectID,
 		SkillID:    syncType,
 		Prompt:     param,
@@ -4623,6 +4965,27 @@ func (d *DB) resolveTaskSkillMode(projectID, skillID, modeOverride string) strin
 	return ResolveSkillMode(modeOverride, d.ProjectSkillMode(projectID, skillID), projectDefault)
 }
 
+// activityProjectFilter is the "belongs to this project" condition, shared by the
+// activity list and the activity statistics so the two cannot answer differently
+// about the same project. It returns an empty clause when no project is named.
+//
+// It matches the recorded attachment and nothing else. Before #310 it also ran
+// "a.task_id LIKE '%id%' OR a.prompt LIKE '%id%'", which caught project
+// activities by the shape of their made-up identifier — and caught, with them,
+// any activity whose prompt happened to mention another project.
+//
+// The identifier may be a project id or a project slug, as it always could, so
+// each side is resolved both ways.
+func activityProjectFilter(projectID string) (string, []interface{}) {
+	if projectID == "" || projectID == "all" {
+		return "", nil
+	}
+	clause := `(a.project_id = ? OR a.project_id = (SELECT id FROM projects WHERE slug = ?)
+		OR t.project_id = ? OR t.project_id = (SELECT slug FROM projects WHERE id = ?)
+		OR t.project_id = (SELECT id FROM projects WHERE slug = ?))`
+	return clause, []interface{}{projectID, projectID, projectID, projectID, projectID}
+}
+
 func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, limit int) ([]models.TaskActivity, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
@@ -4630,9 +4993,9 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 	var conditions []string
 	var args []interface{}
 
-	if projectID != "" && projectID != "all" {
-		conditions = append(conditions, "((t.project_id = ? OR t.project_id = (SELECT slug FROM projects WHERE id = ?) OR t.project_id = (SELECT id FROM projects WHERE slug = ?)) OR a.task_id LIKE ? OR a.prompt LIKE ?)")
-		args = append(args, projectID, projectID, projectID, "%"+projectID+"%", "%"+projectID+"%")
+	if clause, clauseArgs := activityProjectFilter(projectID); clause != "" {
+		conditions = append(conditions, clause)
+		args = append(args, clauseArgs...)
 	}
 
 	if status != "" && status != "all" {
@@ -4658,7 +5021,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 	}
 
 	sqlQuery := `
-		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
+		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
@@ -4691,6 +5054,7 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		err := rows.Scan(
 			&a.ID,
 			&a.TaskID,
+			&a.ProjectID,
 			&a.TaskKey,
 			&a.TaskTitle,
 			&a.SkillID,
@@ -4768,7 +5132,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 	var ownerName, ownerEmail string
 
 	err := d.conn.QueryRow(`
-		SELECT a.id, a.task_id, COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
+		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
 		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
@@ -4779,6 +5143,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 	`, id).Scan(
 		&a.ID,
 		&a.TaskID,
+		&a.ProjectID,
 		&a.TaskKey,
 		&a.TaskTitle,
 		&a.SkillID,
@@ -4851,15 +5216,15 @@ func (d *DB) GetActivityStats(projectID string) (*models.ActivityStats, error) {
 	var query string
 	var args []interface{}
 
-	if projectID != "" && projectID != "all" {
+	if clause, clauseArgs := activityProjectFilter(projectID); clause != "" {
 		query = `
-			SELECT a.status, COUNT(*) 
+			SELECT a.status, COUNT(*)
 			FROM task_activities a
 			LEFT JOIN tasks t ON a.task_id = t.id
-			WHERE ((t.project_id = ? OR t.project_id = (SELECT slug FROM projects WHERE id = ?) OR t.project_id = (SELECT id FROM projects WHERE slug = ?)) OR a.task_id LIKE ? OR a.prompt LIKE ?)
+			WHERE ` + clause + `
 			GROUP BY a.status
 		`
-		args = append(args, projectID, projectID, projectID, "%"+projectID+"%", "%"+projectID+"%")
+		args = append(args, clauseArgs...)
 	} else {
 		query = "SELECT status, COUNT(*) FROM task_activities GROUP BY status"
 	}
@@ -5342,7 +5707,7 @@ func parseStageColumns(raw string) map[string][]string {
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -5367,8 +5732,9 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var aiProv, aiCmd, aiCmdAuto, specFw, jiraProj, ttyMode, extTerm sql.NullString
 		var projModel, projSkillModelsJSON sql.NullString
 		var ghURL, ghTok, glURL, glProj, glTok sql.NullString
+		var ownerUserID sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -5412,6 +5778,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		p.GithubApiUrl, p.GithubToken = ghURL.String, ghTok.String
 		p.GitlabUrl, p.GitlabProject, p.GitlabToken = glURL.String, glProj.String, glTok.String
 		p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
+		p.OwnerUserID = strings.TrimSpace(ownerUserID.String)
 		projects = append(projects, p)
 	}
 	if projects == nil {
@@ -5476,13 +5843,14 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var aiProv, aiCmd, aiCmdAuto, specFw, jiraProj, ttyMode, extTerm sql.NullString
 	var projModel, projSkillModelsJSON sql.NullString
 	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
+	var ownerUserID sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -5529,10 +5897,23 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	p.GithubApiUrl, p.GithubToken = ghURL.String, ghTok.String
 	p.GitlabUrl, p.GitlabProject, p.GitlabToken = glURL.String, glProj.String, glTok.String
 	p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
+	p.OwnerUserID = strings.TrimSpace(ownerUserID.String)
 	return &p, nil
 }
 
+// CreateProject creates a project nobody signed for: its background
+// synchronisation keeps the server credential, which is what an unattended
+// deployment has.
 func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, error) {
+	return d.CreateProjectAs("", req)
+}
+
+// CreateProjectAs records who created the project as its owner. On a tracker
+// whose credential is personal that is not decoration: the background
+// synchronisation has no acting user of its own and borrows the owner's token,
+// so a project created by nobody can only reach a tracker the server itself is
+// configured for.
+func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
 
 	name := strings.TrimSpace(req.Name)
@@ -5645,9 +6026,9 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	}
 
 	_, err := d.conn.Exec(`
-		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiCmdAutonomous, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, now, now)
+		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, owner_user_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiCmdAutonomous, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, strings.TrimSpace(ownerUserID), now, now)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -5662,7 +6043,20 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	return withoutProjectTokens(project), nil
 }
 
+// UpdateProject saves a project without naming who saved it, so a project that
+// predates the owner column keeps having none.
 func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.Project, error) {
+	return d.UpdateProjectAs("", id, req)
+}
+
+// UpdateProjectAs saves it on behalf of whoever asked, and lets an ownerless
+// project adopt them. Every project created before the column has no owner, so
+// without that adoption their background synchronisation would stay on the
+// server credential for good: on a Jira deployment holding only personal
+// tokens, that is one failed activity per unfinished work item per pass. An
+// owner already recorded is never replaced: saving somebody else's project
+// would otherwise hand its synchronisation to the last person who touched it.
+func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
 
 	p, err := d.getProjectByIDUnsafe(id)
@@ -5673,6 +6067,9 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 	if p == nil {
 		d.mu.Unlock()
 		return nil, fmt.Errorf("projet non trouvé")
+	}
+	if strings.TrimSpace(p.OwnerUserID) == "" {
+		p.OwnerUserID = strings.TrimSpace(actingUserID)
 	}
 
 	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
@@ -5854,9 +6251,9 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 
 	_, err = d.conn.Exec(`
 		UPDATE projects
-		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_command_template_autonomous = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, updated_at = ?
+		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_command_template_autonomous = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AICommandTemplateAutonomous, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
+	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AICommandTemplateAutonomous, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -5895,6 +6292,10 @@ func (d *DB) DeleteProject(id string) error {
 	}
 	_, _ = d.conn.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID)
 	_, _ = d.conn.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID)
+	// Explicit, like DeleteTask's: the ON DELETE CASCADE on project_id only
+	// fires under PostgreSQL, because this package never turns SQLite's foreign
+	// keys on.
+	_, _ = d.conn.Exec("DELETE FROM task_activities WHERE project_id = ?", p.ID)
 	_, err = d.conn.Exec("DELETE FROM projects WHERE id = ?", p.ID)
 	return err
 }
@@ -5902,14 +6303,6 @@ func (d *DB) DeleteProject(id string) error {
 // -------------------------------------------------------------
 // PROJECT SKILLS MANAGEMENT & PROVISIONING
 // -------------------------------------------------------------
-
-type ProjectSkillTemplate struct {
-	ID          string
-	Name        string
-	DirName     string
-	Description string
-	Content     string
-}
 
 func (d *DB) GetProjectSkillsStatus(projectID string) (*models.ProjectSkillsStatus, error) {
 	var result models.ProjectSkillsStatus

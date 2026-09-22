@@ -27,13 +27,3 @@ export function nextTaskStep(task,project){
  if(!project.server?.skills?.some(skill=>skill.id===skillId))return {stage,message:'Next skill is unavailable: '+label}
  return {stage,skillId,label,message:'Ready for the next step'}
 }
-
-// A reviewed task has no agentic step left but its closing one: the pull request
-// is out of the agent's hands, and only the handoff skill takes it to finished.
-// The desktop never moves the stage itself.
-export function closingStep(task,project){
- if(!task||taskStage(task)!=='reviewed')return null
- if(!project?.configured)return null
- if(!project.server?.skills?.some(skill=>skill.id==='handoff'))return null
- return {skillId:'handoff',label:'Close the task'}
-}

@@ -22,7 +22,10 @@ test('header opens the current board safely and survives connection updates',asy
   await app.evaluate(({shell})=>{globalThis.opened=[];shell.openExternal=async url=>{globalThis.opened.push(url)}})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   const link=page.locator('#connection a'),destination='https://example.test/sectile/?view=board'
-  await expect(link).toHaveText(status.server)
+  // The row states the state; the address it would open rides in the tooltip.
+  await expect(link).toHaveText('Connected')
+  await expect(page.locator('#connection')).toHaveAttribute('title','Open '+status.server+' in the default browser')
+  await expect(page.locator('#connection')).toHaveAttribute('data-state','on')
   await expect(link).toHaveAttribute('href',destination)
   const desktopURL=page.url()
   await link.click()
@@ -35,7 +38,7 @@ test('header opens the current board safely and survives connection updates',asy
   await expect.poll(()=>app.evaluate(()=>globalThis.opened)).toEqual([destination,destination])
   assert.equal(page.url(),desktopURL)
   status.server='http://example.test:8090/other/'
-  await expect(link).toHaveText(status.server)
+  await expect(page.locator('#connection')).toHaveAttribute('title','Open '+status.server+' in the default browser')
   await link.click()
   await expect.poll(()=>app.evaluate(()=>globalThis.opened.length)).toBe(3)
   assert.equal((await app.evaluate(()=>globalThis.opened))[2],status.server)
@@ -49,12 +52,13 @@ test('header opens the current board safely and survives connection updates',asy
    await expect(link).toHaveCount(0)
   }
   status={connected:false,server:'http://example.test'}
-  await expect(page.locator('#connection')).toHaveText('Local agent ready · Server disconnected')
+  await expect(page.locator('#connection')).toHaveText('Not connected')
+  await expect(page.locator('#connection')).toHaveAttribute('data-state','off')
   assert.match(await page.evaluate(()=>window.localAgent.openBoard().catch(err=>err.message)),/Server disconnected/)
   status.connected=true
   await expect(link).toHaveCount(1)
   offline=true
-  await expect(page.locator('#connection')).toHaveText('Local agent stopped')
+  await expect(page.locator('#connection')).toHaveText('Not connected')
   await expect(link).toHaveCount(0)
   assert.equal(page.url(),desktopURL)
   assert.equal((await app.evaluate(()=>globalThis.opened)).length,3)

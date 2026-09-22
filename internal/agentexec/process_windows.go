@@ -17,8 +17,28 @@ var controlledJobs sync.Map
 // descendant, which is what the POSIX side gets from signalling a process group. The job is
 // created without KILL_ON_JOB_CLOSE, so a restarting agent does not take a running skill with it.
 func StartControlled(cmd *exec.Cmd) (func(), error) {
-	job, jobErr := windows.CreateJobObject(nil, nil)
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+	return startInJob(cmd)
+}
+
+// StartDetached starts a child the daemon supervises itself rather than one a
+// terminal owns: its own process group, no console window, and the same Job
+// Object. The job is what makes a forced stop reach the whole tree, and a
+// headless provider CLI is always reached through a shell and a launcher
+// script, so terminating the direct child alone leaves the CLI running - and
+// holding the output pipe open, which is worse than leaking it.
+func StartDetached(cmd *exec.Cmd) (func(), error) {
+	cmd.SysProcAttr = DetachedSession()
+	Hidden(cmd)
+	return startInJob(cmd)
+}
+
+// startInJob starts cmd and puts it in a Job Object of its own. A child created
+// inside a job carries its descendants into the same job, so terminating the job
+// terminates the tree. Only what the child manages to spawn between Start and
+// the assignment below can escape it.
+func startInJob(cmd *exec.Cmd) (func(), error) {
+	job, jobErr := windows.CreateJobObject(nil, nil)
 	if err := cmd.Start(); err != nil {
 		if jobErr == nil {
 			_ = windows.CloseHandle(job)
@@ -76,4 +96,19 @@ func StopControlled(cmd *exec.Cmd, force bool) {
 // stopping alone.
 func DetachedSession() *syscall.SysProcAttr {
 	return &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+}
+
+// Hidden keeps a command the agent runs for itself from opening a console window.
+// The desktop starts the agent detached, which on Windows means DETACHED_PROCESS:
+// the agent owns no console, so Windows allocates a fresh one — a visible, focus
+// stealing window — for every console child it starts. CREATE_NO_WINDOW says the
+// child needs no console of its own, which is true of anything whose output the
+// agent reads itself. The flag is OR-ed in, so a caller that already asked for its
+// own process group keeps it.
+func Hidden(cmd *exec.Cmd) *exec.Cmd {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
+	return cmd
 }

@@ -10,22 +10,29 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
-import { taskStage, nextTaskStep, closingStep } from './workflow.mjs'
+import { taskStage, nextTaskStep } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
 import { runEngine } from './run-engine.mjs'
+import { pollAction } from './agent-poll.mjs'
+// The repository changelog, inlined by Vite at build time. The app reads it
+// with no network at all: the renderer's content security policy forbids any
+// outgoing connection, and the release notes have to stay readable with the
+// agent stopped.
+import changelogSource from '../../CHANGELOG.md?raw'
+import { parseChangelog, releaseNotesFor } from './changelog.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
 const MAX_PARALLELISM=10
 document.querySelector('#app').innerHTML=`
-<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
-<section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
-<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><details id="advanced-credential"><summary>Advanced: connect with an API key instead</summary><label>API key<input name="token" type="password" autocomplete="off" placeholder="sectile_…"></label></details><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
-<dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
+<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
+<section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
+<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="run-state" class="run-state header-state" hidden></span><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
 // Windows every one of those glyphs fell back to a replacement box. The Mono variants are the ones
@@ -38,6 +45,22 @@ let nextStepData=null,nextStepGeneration=0,nextStepUpdated=0
 const submittingSteps=new Set()
 const submittedSteps=new Map()
 const nextStepErrors=new Map()
+// Task keys whose last launch was refused because a run is already active on
+// them. Only that refusal is forceable, so the offer is keyed on the marker the
+// server puts in its body, never on the 409 status alone: a finished task and a
+// disconnected agent answer 409 too, and neither is overridable.
+const forceableLaunches=new Set()
+// The renderer sees the refusal as a message: the structured body crosses the
+// IPC bridge inside the error text. Reading the marker back means finding the
+// JSON object in it, and giving up quietly when there is none.
+function refusedActiveRun(message){
+ const start=String(message||'').indexOf('{')
+ if(start<0)return null
+ try{
+  const body=JSON.parse(String(message).slice(start,String(message).lastIndexOf('}')+1))
+  return body&&body.activeRunId?body:null
+ }catch{return null}
+}
 const taskTitles=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 const pullRequests=new Map()
@@ -52,6 +75,16 @@ const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
+function formatTerminalName(term){
+ if(!term)return 'terminal'
+ const lower=term.toLowerCase().trim()
+ if(lower==='ghostty')return 'Ghostty'
+ if(lower==='iterm'||lower==='iterm2')return 'iTerm'
+ if(lower==='terminal'||lower==='apple-terminal'||lower==='terminal.app')return 'Terminal'
+ if(lower==='wt'||lower==='windows-terminal'||lower==='wt.exe')return 'Windows Terminal'
+ if(lower==='cmd'||lower==='cmd.exe')return 'Command Prompt'
+ return term
+}
 let disconnectedProjects=new Set(),projectStateVersion=0,refreshing=false
 // A background refresh must not reorder or rebuild the task list under the
 // user's pointer: it is deferred until the interaction ends.
@@ -69,12 +102,12 @@ const queueProjects=new Set()
 
 let linksLoading=false,lastLinksRefresh=0
 let selectedProject=null
-let logsOpen=false,ticketsOpen=false,agentConnected=false
+let ticketsOpen=false,agentConnected=false
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:()=>{resize();if(opened)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
-terminal.onData(data=>{if(!changes.active&&!logsOpen&&!ticketsOpen)api.input(data)})
-function resize(){if(opened&&!changes.active&&!logsOpen&&!ticketsOpen){fit.fit();api.resize(terminal.cols,terminal.rows)}}
+terminal.onData(data=>{if(!changes.active&&!ticketsOpen)api.input(data)})
+function resize(){if(opened&&!changes.active&&!ticketsOpen){fit.fit();api.resize(terminal.cols,terminal.rows)}}
 window.addEventListener('resize',resize)
 // The system buttons are painted over the header, so the header has to keep their strip clear.
 // Their geometry comes from the overlay itself rather than from a guess: it differs per platform,
@@ -94,45 +127,59 @@ navigator.windowControlsOverlay?.addEventListener('geometrychange',fitTitlebar)
 window.addEventListener('resize',fitTitlebar)
 fitTitlebar()
 function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
+// The status is a dot and a word beside the controls it describes: a colour
+// carries the state, the label names it, and the server address rides in the
+// tooltip rather than filling the row.
+const connectionDot=document.createElement('span');connectionDot.className='connection-dot';connectionDot.setAttribute('aria-hidden','true')
+const connectionLabel=document.createElement('span');connectionLabel.className='connection-label'
+// The dot sits inside the body rather than beside it, so a collapsed sidebar can
+// drop the words and keep a target that still opens the board.
+const connectionLink=document.createElement('a');connectionLink.className='connection-body';connectionLink.href='#'
+connectionLink.onclick=event=>{event.preventDefault();api.openBoard().catch(error)}
+const connectionPlain=document.createElement('span');connectionPlain.className='connection-body'
+// Only what changed is written: a poll that rebuilt the row would take focus
+// away from the link between two keystrokes.
+function connectionLabelled(container,text,href){
+ connectionLabel.textContent=text
+ const body=href?connectionLink:connectionPlain
+ if(href)connectionLink.href=href
+ if(body.firstChild!==connectionDot)body.replaceChildren(connectionDot,connectionLabel)
+ if(container.firstChild!==body||container.childNodes.length!==1)container.replaceChildren(body)
+}
 function connectionStatus(status){
  const container=document.querySelector('#connection')
  // A contract mismatch is not a dropped link: the server answers, but with a
- // build this agent cannot talk to. Reported as a disconnection it reads as a
- // network problem and nobody looks at the build, so name it and carry the
- // agent's own diagnosis in the tooltip.
+ // build this agent cannot talk to. Reported as a plain disconnection it reads
+ // as a network problem and nobody looks at the build, so it keeps a label of
+ // its own and carries the agent's diagnosis in the tooltip.
  if(!status.connected){
-  container.title=status.contractError||''
-  container.textContent=status.contractError?'Local agent ready · Server incompatible':status.text||'Local agent ready · Server disconnected'
+  container.dataset.state='off'
+  container.title=status.contractError||status.text||'The local agent does not reach the Sectile server.'
+  connectionLabelled(container,status.contractError?'Server incompatible':'Not connected',null)
   return
  }
- container.title=''
- let link=container.querySelector('a')
- if(!link){
-  link=document.createElement('a')
-  link.onclick=event=>{event.preventDefault();api.openBoard().catch(error)}
-  container.replaceChildren(document.createTextNode('Connected to '),link)
- }
- link.textContent=status.server
- link.title='Open board in default browser'
+ let board=''
  try{
   const url=new URL(status.server)
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
   url.searchParams.delete('task');url.hash=''
-  link.href=url.href
- }catch{container.textContent='Connected to '+status.server}
+  board=url.href
+ }catch{board=''}
+ container.dataset.state='on'
+ container.title=board?'Open '+status.server+' in the default browser':status.server
+ connectionLabelled(container,'Connected',board)
 }
 function agentUnavailable(){
  agentConnected=false
  changes.disconnect()
- document.querySelector('#start-agent').disabled=false
  document.querySelector('#start button').disabled=false
  document.querySelector('#start button').textContent='Start local agent'
  document.querySelector('#shutdown').hidden=true
  document.querySelector('#restart').hidden=true
  document.querySelector('#agent-offline').hidden=false
  closeTickets(false)
- document.querySelector('#setup').hidden=logsOpen
- document.querySelector('#workspace').hidden=!logsOpen
+ document.querySelector('#setup').hidden=false
+ document.querySelector('#workspace').hidden=true
  connectionStatus({text:'Local agent stopped'})
  projectsLoaded=false
  api.detach().catch(()=>{})
@@ -141,21 +188,21 @@ function ready(){
  agentConnected=true
  document.querySelector('#agent-offline').hidden=true
  if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false})}
- document.querySelector('#start-agent').disabled=true;document.querySelector('#start button').disabled=true;document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
+ document.querySelector('#start button').disabled=true;document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
- if(!background){closeLogs(false);closeTickets(false)}
+ if(!background)closeTickets(false)
  selectedProject=run.projectId
  selected=run.id
  changes.select(selected)
 
  refreshSkillResult()
  refreshNextStep()
- document.querySelector('#directory').textContent=run.directory
+ showDirectory(run.directory)
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
  terminal.reset()
  if(needsConsoleNotice(run)){
@@ -251,12 +298,59 @@ function renderTaskSkillStatuses(){
  for(const badge of document.querySelectorAll('.task-skill-status')){
   const run=runs.find(item=>item.id===badge.dataset.runId)
   const result=skillResult(run,skillResults.get(run?.id))
-  if(!result)continue
+  // No skill result is a state of its own: leaving the previous glyph in place
+  // would keep showing a verdict that no longer holds, beside a run state that
+  // has moved on.
+  if(!result){badge.className='status task-skill-status';badge.textContent='';badge.removeAttribute('title');badge.removeAttribute('aria-label');continue}
   badge.className='status task-skill-status '+result.kind
   if(badge.textContent!==result.icon)badge.textContent=result.icon
   badge.title=runLabel(run)+' · '+result.label
   badge.setAttribute('aria-label',badge.title)
  }
+}
+// The worktree path is the one piece of the header a user needs elsewhere - in a
+// shell, in an editor - so it is a control, not a caption: one click puts it on
+// the clipboard, and the text stays selectable for anyone who copies by hand.
+let copiedNotice
+function showDirectory(value){
+ const path=value||'',label=document.querySelector('#directory')
+ // A confirmation belongs to the path it was given for: showing another one
+ // leaves it pointing at a path nobody copied.
+ if(label.textContent!==path)clearCopiedNotice()
+ label.textContent=path
+ const button=document.querySelector('#worktree')
+ button.hidden=!path
+ button.title=path?'Copy this path':''
+}
+function clearCopiedNotice(){
+ clearTimeout(copiedNotice)
+ document.querySelector('#worktree-copied').textContent=''
+}
+document.querySelector('#worktree').onclick=async()=>{
+ const path=document.querySelector('#directory').textContent
+ if(!path)return
+ try{
+  await api.copyText(path)
+  clearTimeout(copiedNotice)
+  document.querySelector('#worktree-copied').textContent='Copied'
+  copiedNotice=setTimeout(clearCopiedNotice,2000)
+ }catch(err){clearCopiedNotice();error(err)}
+}
+// The state beside the title is the one the sidebar row and the notification
+// already show, drawn from the shared definition, with its label spelled out:
+// the header has the room the row does not.
+function renderHeaderState(run){
+ const element=document.querySelector('#run-state')
+ element.hidden=!run
+ if(!run)return
+ const state=runStateOf(run),label=runStateLabel(state)
+ if(element.dataset.runState!==state){
+  element.dataset.runState=state
+  element.innerHTML=runStateSvg(state,14)+'<span class="run-state-label"></span>'
+ }
+ const text=element.querySelector('.run-state-label')
+ if(text.textContent!==label)text.textContent=label
+ element.title=label
 }
 function renderHeader(){
  const run=runs.find(item=>item.id===selected)
@@ -268,6 +362,7 @@ function renderHeader(){
  }
  const title=document.querySelector('#title')
  title.textContent=text;title.title=text
+ renderHeaderState(run)
  const badge=document.querySelector('#skill-result'),result=skillResult(run,skillResults.get(run?.id))
  badge.hidden=!result
  if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title=result.label;badge.setAttribute('aria-label',result.label)}
@@ -359,9 +454,32 @@ function render(options){
  history.value=selected||'';history.onchange=()=>{const run=runs.find(run=>run.id===history.value);if(run)select(run)}
  const selectedPR=document.querySelector('#selected-pr'),link=current&&pullRequests.get(current.taskId)
  selectedPR.hidden=!link
- if(link){selectedPR.textContent=prLabel(link);selectedPR.title=link;selectedPR.onclick=()=>api.openPR(link).catch(error)}
+ if(link){
+  if(!selectedPR.querySelector('.pr-label'))selectedPR.innerHTML=PR_ICON+'<span class="pr-label"></span>'
+  const label=prLabel(link),text=selectedPR.querySelector('.pr-label')
+  if(text.textContent!==label)text.textContent=label
+  selectedPR.title=link;selectedPR.setAttribute('aria-label','Open '+label)
+  selectedPR.onclick=()=>api.openPR(link).catch(error)
+ }
  document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
+ const detachBtn=document.querySelector('#detach-terminal')
+ if(detachBtn){
+  const canDetach=current&&current.status==='running'&&!current.externalTerminal
+  detachBtn.hidden=!canDetach
+ }
+ const terminalBadge=document.querySelector('#native-terminal-badge')
+ if(terminalBadge){
+  if(current&&current.externalTerminal){
+   const termName=formatTerminalName(current.externalTerminal)
+   terminalBadge.textContent='Active in '+termName
+   terminalBadge.title='Running in host terminal emulator ('+termName+')'
+   terminalBadge.hidden=false
+  }else{
+   terminalBadge.hidden=true
+   terminalBadge.textContent=''
+  }
+ }
  renderNextStep()
  renderTicketRows()
 }
@@ -373,7 +491,7 @@ async function updateDisconnected(ids,force=false,deferrable=false){
  if(current&&hiddenProject(current.projectId)){
   selected=null;terminal.reset()
   document.querySelector('#title').textContent='Select an execution'
-  document.querySelector('#directory').textContent=''
+  showDirectory('')
   await api.detach().catch(error)
  }
  if(changed||force)render(deferrable?{deferrable:true}:undefined)
@@ -397,9 +515,6 @@ async function refresh(){
   const current=runs.find(run=>run.id===selected)
   if(current&&((current.status!==previous?.status&&(current.status==='running'||!current.sessionId))||current.sessionId!==previous?.sessionId))select(current,true,{deferrable:true})
   if(!selected){const visible=runs.find(run=>!hiddenRun(run));if(visible)select(visible,true,{deferrable:true})}
-  // Sessions Sectile did not launch have no run to compare; they report
-  // themselves and are announced as they are drained.
-  try{const alerts=await api.sessionAlerts();if(alerts?.length)announce(alerts.map(alert=>({id:'session:'+alert.session,state:alert.state,name:alert.session})))}catch{}
   if(changed||Date.now()-nextStepUpdated>15000)refreshNextStep()
   refreshVisibleSkillResults()
  }catch{agentUnavailable()}
@@ -412,35 +527,26 @@ document.querySelector('#start').onsubmit=async event=>{
 }
 document.querySelector('#stop').onclick=async()=>{
  if(!selected)return
- const run=runs.find(item=>item.id===selected)
  stopping=true;render()
- let stopped=false
- try{await api.stop(selected);await refresh();stopped=true}catch(err){error(err)}finally{stopping=false;render()}
- if(stopped&&run)await offerClosure(run)
+ try{await api.stop(selected);await refresh()}catch(err){error(err)}finally{stopping=false;render()}
 }
-// Stopping an execution is where the user stands when a task has reached
-// reviewed, and nothing else in the desktop proposes its closing step. The
-// offer comes after the stop so that stopping never depends on it: an
-// unreadable task, a project without the skill or a failed stop simply means
-// no dialog.
-async function offerClosure(run){
- if(freeConsole(run))return
- let task=null,step=null
- try{
-  const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
-  task=tasks.find(item=>item.id===run.taskId)
-  step=task?closingStep(task,project):null
- }catch{return}
- if(!step)return
- showDialog('Close '+(task.key||run.taskKey||run.taskId)+'?')
- paragraph('This task is reviewed: its pull request is in human hands. Closing it runs the handoff skill, which writes the handover report and takes the task to finished.')
- const confirm=document.createElement('button');confirm.textContent=step.label
- const notice=document.createElement('p');notice.setAttribute('role','status')
- dialogBody.append(confirm,notice);confirm.focus()
- confirm.onclick=async()=>{
-  confirm.disabled=true;notice.textContent='Launching the closing skill…'
-  try{await api.launchServerTask(run.projectId,run.taskId,step.skillId,'');dialog.close();await refresh()}
-  catch(err){notice.textContent=err.message;confirm.disabled=false}
+let detachingTerminal=false
+const detachTerminalBtn=document.querySelector('#detach-terminal')
+if(detachTerminalBtn){
+ detachTerminalBtn.onclick=async()=>{
+  if(!selected||detachingTerminal)return
+  const run=runs.find(item=>item.id===selected)
+  if(!run||run.status!=='running'||run.externalTerminal)return
+  detachingTerminal=true
+  detachTerminalBtn.disabled=true
+  try{
+   const res=await api.detachToNativeTerminal(selected)
+   if(res?.terminal){
+    run.externalTerminal=res.terminal
+   }
+   await refresh()
+  }catch(err){error(err)}
+  finally{detachingTerminal=false;detachTerminalBtn.disabled=false;render()}
  }
 }
 async function confirmDeclareReviewed(projectId,task){
@@ -475,9 +581,9 @@ sidebarList().addEventListener('pointerout',scheduleFlush)
 sidebarList().addEventListener('focusout',scheduleFlush)
 api.connect().then(connected=>{if(connected){ready();refresh()}else{agentUnavailable()}}).catch(error)
 setInterval(async()=>{
- if(restarting)return
- if(document.querySelector('#setup').hidden)refresh()
- else if(document.querySelector('#shutdown').hidden){
+ const action=pollAction({restarting,agentConnected,shutdownVisible:!document.querySelector('#shutdown').hidden})
+ if(action==='refresh')refresh()
+ else if(action==='connect'){
   try{if(await api.connect()){ready();refresh()}}catch{}
  }
 },2000)
@@ -495,7 +601,7 @@ document.querySelector('#restart').onclick=async()=>{
   if(await api.restart()){
    selected=null;runs=[];last='';terminal.reset();render()
    renderHeader()
-   document.querySelector('#directory').textContent=''
+   showDirectory('')
    document.querySelector('#error').textContent=''
   }
  }catch(err){error(err)}finally{restarting=false;button.disabled=false;await refresh()}
@@ -503,19 +609,10 @@ document.querySelector('#restart').onclick=async()=>{
 
 async function loadSettings(){
  const settings=await api.settings()
- for(const name of ['server','token']){
-  if(settings[name])document.querySelector('#start').elements[name].value=settings[name]
- }
- // A stored credential is shown where it lives, so a paired machine sees why the
- // code field can stay empty.
- if(settings.token)document.querySelector('#advanced-credential').open=true
+ if(settings.server)document.querySelector('#start').elements.server.value=settings.server
 }
 const settingsReady=loadSettings().catch(error)
-document.querySelector('#configure').onclick=()=>{
- if(logsOpen||ticketsOpen){closeLogs(false);closeTickets(false);document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true;return}
- const setup=document.querySelector('#setup');setup.hidden=!setup.hidden
- document.querySelector('#workspace').hidden=!setup.hidden
-}
+document.querySelector('#setup-logs').onclick=()=>openSettings('Logs')
 document.querySelector('#shutdown').onclick=async()=>{
  const button=document.querySelector('#shutdown');button.disabled=true;restarting=true
  try{
@@ -523,7 +620,7 @@ document.querySelector('#shutdown').onclick=async()=>{
    selected=null;runs=[];last='';terminal.reset();render()
    document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true
    document.querySelector('#restart').hidden=true;button.hidden=true
-   document.querySelector('#start-agent').disabled=false;document.querySelector('#start button').disabled=false
+   document.querySelector('#start button').disabled=false
    agentUnavailable()
    document.querySelector('#error').textContent=''
   }
@@ -541,74 +638,194 @@ document.querySelector('#clear-history').onclick=async()=>{
   if(removed.includes(selected)){
    selected=null;terminal.reset()
    renderHeader()
-   document.querySelector('#directory').textContent=''
+   showDirectory('')
   }
   await refresh()
  }catch(err){error(err)}finally{render()}
 }
 
 const dialog=document.querySelector('#project-dialog'),dialogBody=document.querySelector('#dialog-body')
+const dialogFooter=document.querySelector('.dialog-footer')
+const connectForm=document.querySelector('#start')
+function returnConnectForm(){if(connectForm.parentElement!==document.querySelector('#setup'))document.querySelector('#setup').append(connectForm)}
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
-document.querySelector('#dismiss-dialog').onclick=()=>dialog.close()
+// The footer carries only the actions a dialog puts there, so it stays out of
+// the way until one does: a bar whose single button repeated the cross is one
+// more thing to read and nothing to do.
+function syncDialogFooter(){dialogFooter.hidden=![...dialogFooter.children].some(child=>!child.hidden)}
+function clearDialogFooter(){
+ for(const extra of dialogFooter.querySelectorAll('.dialog-action'))extra.remove()
+ syncDialogFooter()
+}
+// A closed dialog keeps nothing on screen, so a read still in flight when it
+// closes writes into a detached node and is dropped. The close event is queued,
+// so a flow that reopens the dialog in the same task keeps its fresh content.
+dialog.addEventListener('close',()=>{
+ if(dialog.open)return
+ returnConnectForm()
+ dialogBody.replaceChildren()
+ clearDialogFooter()
+})
 function showDialog(title){
- closeLogs(false)
- document.querySelector('#dismiss-dialog').textContent='Close settings'
+ returnConnectForm()
+ // The footer is shared by every dialog, so a control one of them added there
+ // must go before the next one opens.
+ clearDialogFooter()
  dialogBody.replaceChildren()
  const heading=document.createElement('h2');heading.textContent=title;dialogBody.append(heading)
  if(!dialog.open)dialog.showModal()
 }
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
-const logPane=document.querySelector('#agent-log-pane')
-function closeLogs(restoreFocus=true){
- if(!logsOpen)return
- logsOpen=false;logPane.hidden=true;logPane.replaceChildren()
- document.querySelector('#workspace article').hidden=false
- document.querySelector('#workspace').hidden=!agentConnected
- document.querySelector('#setup').hidden=agentConnected
- document.querySelector('#agent-logs').setAttribute('aria-pressed','false')
- resize()
- if(restoreFocus)document.querySelector('#agent-logs').focus()
-}
 window.addEventListener('keydown',event=>{
- if(event.key==='Escape'&&!dialog.open){
-  if(logsOpen){event.preventDefault();closeLogs()}
-  else if(ticketsOpen){event.preventDefault();closeTickets()}
- }
+ if(event.key==='Escape'&&!dialog.open&&ticketsOpen){event.preventDefault();closeTickets()}
 })
-document.querySelector('#agent-logs').setAttribute('aria-pressed','false')
-document.querySelector('#agent-logs').onclick=()=>{
- if(dialog.open)dialog.close()
- closeTickets(false)
- logsOpen=true;logPane.hidden=false;logPane.replaceChildren()
- document.querySelector('#workspace article').hidden=true
- document.querySelector('#workspace').hidden=false
- document.querySelector('#setup').hidden=true
- document.querySelector('#agent-logs').setAttribute('aria-pressed','true')
- const heading=document.createElement('h2');heading.textContent='Agent logs'
- const close=document.createElement('button');close.type='button';close.textContent='Close logs';close.onclick=()=>closeLogs()
- const toolbar=document.createElement('div');toolbar.className='agent-log-toolbar';toolbar.append(heading,close)
+
+// Every setting reads as one row: its name on the left with the inherited value
+// in small type beneath, the control that changes it on the right. A control
+// that needs the whole width takes the stacked variant instead. Shared by the
+// project panel and the global one so both spell a setting the same way.
+const RESET_ICON='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4v6h6M4 10a8 8 0 1 1 1 8"/></svg>'
+function settingRow(name,options,...widgets){
+ const {resetLabel,onReset,stacked}=options||{}
+ const section=document.createElement('section');section.className='setting-row'+(stacked?' stacked':'')
+ const text=document.createElement('div');text.className='setting-text'
+ const line=document.createElement('div');line.className='setting-name'
+ const title=document.createElement('strong');title.textContent=name
+ const hint=document.createElement('p')
+ const control=document.createElement('div');control.className='setting-control'
+ let reset=null
+ if(resetLabel){
+  reset=document.createElement('button');reset.type='button';reset.className='reset-setting'
+  reset.setAttribute('aria-label',resetLabel);reset.title=resetLabel;reset.innerHTML=RESET_ICON
+  if(onReset)reset.onclick=onReset
+ }
+ // A stacked control owns the whole width, so its reset belongs on the name
+ // line rather than beside the control.
+ line.append(title);if(stacked&&reset)line.append(reset)
+ text.append(line,hint)
+ control.append(...widgets);if(!stacked&&reset)control.append(reset)
+ section.append(text,control)
+ return {section,control,hint,reset}
+}
+// A read-only row: the value the workstation holds, stated where the control
+// would sit, so the panel stays one grammar whether a setting is editable here.
+function readOnlyRow(name,hint){
+ const value=document.createElement('span');value.className='setting-value'
+ const row=settingRow(name,null,value)
+ row.hint.textContent=hint||''
+ row.value=value
+ return row
+}
+
+// The workstation's own settings, gathered where the project panel already puts
+// a project's: one dialog, a category per surface. The header carried three
+// unrelated controls for these; the sidebar now carries one.
+const SETTINGS_CATEGORIES=[
+ {id:'General',label:'General',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'},
+ {id:'Profile',label:'User profile',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
+ {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
+ {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'}
+]
+function openSettings(initial='General'){
+ showDialog('Settings')
+ const layout=document.createElement('div');layout.className='settings-layout'
+ const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
+ tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Settings categories')
+ const content=document.createElement('div');content.className='settings-content stretch'
+ layout.append(tabs,content);dialogBody.append(layout)
+ const panels={}
+ for(const category of SETTINGS_CATEGORIES){
+  const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id
+  tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+  const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+  tab.id='settings-tab-'+category.id;tab.setAttribute('aria-controls','settings-panel-'+category.id)
+  const panel=document.createElement('section');panel.id='settings-panel-'+category.id
+  panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panels[category.id]=panel
+  tab.onclick=()=>selectCategory(category.id)
+  tabs.append(tab);content.append(panel)
+ }
+ function selectCategory(name){
+  for(const [key,value] of Object.entries(panels))value.hidden=key!==name
+  for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
+  if(name==='Logs')loadLog()
+ }
+
+ // Nothing here is stored locally beyond the pairing the connection screen
+ // writes, so the profile states what this workstation knows about its account
+ // and sends the rest to the web interface, which owns the profile itself.
+ const account=readOnlyRow('Sectile server','The server this workstation is paired with.')
+ const device=readOnlyRow('Workstation','The identifier this machine was paired under.')
+ const credential=readOnlyRow('Credential','Where the pairing credential is kept.')
+ const openWeb=document.createElement('button');openWeb.type='button';openWeb.textContent='Open the web interface'
+ openWeb.onclick=()=>api.openBoard().catch(error)
+ const web=settingRow('Profile and API keys',null,openWeb)
+ web.hint.textContent='Display name, password and API keys live in the web interface.'
+ panels.Profile.append(account.section,device.section,web.section,credential.section)
+
+ const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
+ const link=readOnlyRow('Server link','Whether the local agent reaches the Sectile server.')
+ const pairing=settingRow('Pairing',{stacked:true},connectForm)
+ const pairingNote=document.createElement('p');pairingNote.setAttribute('role','status')
+ pairing.control.append(pairingNote)
+ panels.Connection.append(agentState.section,link.section,pairing.section)
+
+ fillGeneralPanel(panels.General)
+
+ const logs=document.createElement('div');logs.className='settings-logs'
+ const logHeading=document.createElement('h3');logHeading.textContent='Agent logs'
+ const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh'
+ const logToolbar=document.createElement('div');logToolbar.className='agent-log-toolbar';logToolbar.append(logHeading,reload)
  const description=document.createElement('p');description.textContent='Diagnostics captured by this desktop app. Agents started elsewhere may write to their original terminal instead.'
  const source=document.createElement('p');source.className='agent-log-source'
- const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh'
- const status=document.createElement('p');status.setAttribute('role','status')
+ const logStatus=document.createElement('p');logStatus.setAttribute('role','status')
  const output=document.createElement('pre');output.className='agent-log-output';output.tabIndex=0;output.setAttribute('aria-label','Agent log contents')
- logPane.append(toolbar,description,source,refresh,status,output)
- const load=async()=>{
-  refresh.disabled=true;output.textContent='';status.textContent='Loading agent log…'
+ logs.append(logToolbar,description,source,logStatus,output)
+ panels.Logs.append(logs)
+ // A read that lands after the dialog is gone, or after another panel replaced
+ // this one, writes into a detached node: isConnected is what tells them apart.
+ const loadLog=async()=>{
+  reload.disabled=true;output.textContent='';logStatus.textContent='Loading agent log…'
   try{
    const snapshot=await api.agentLogs()
    if(!output.isConnected)return
    source.textContent=snapshot.path
-   status.textContent=snapshot.missing?'No desktop agent log exists yet.':!snapshot.text?'The agent log is empty.':snapshot.truncated?'Showing the latest 256 KiB; earlier output omitted.':'Showing the current log snapshot.'
+   logStatus.textContent=snapshot.missing?'No desktop agent log exists yet.':!snapshot.text?'The agent log is empty.':snapshot.truncated?'Showing the latest 256 KiB; earlier output omitted.':'Showing the current log snapshot.'
    output.textContent=logText(snapshot.text)
    output.scrollTop=output.scrollHeight
-  }catch(err){if(output.isConnected)status.textContent='Unable to read agent log: '+(err.message||String(err))}
-  finally{refresh.disabled=false}
+  }catch(err){if(output.isConnected)logStatus.textContent='Unable to read agent log: '+(err.message||String(err))}
+  finally{if(reload.isConnected)reload.disabled=false}
  }
- refresh.onclick=load
- close.focus()
- load()
+ reload.onclick=loadLog
+
+ selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'General')
+ // The connection facts come from two sources the agent answers separately, and
+ // a stopped agent still has a paired server to report: the stored settings fill
+ // the panel first, the live status refines it when the agent answers.
+ const fill=async()=>{
+  let stored={}
+  try{stored=await api.settings()}catch{}
+  if(!account.value.isConnected)return
+  account.value.textContent=stored.server||'Not paired'
+  device.value.textContent=stored.deviceId||'Not paired'
+  credential.value.textContent=stored.token?'Stored on this machine':'None'
+  agentState.value.textContent=agentConnected?'Running':'Stopped'
+  link.value.textContent=agentConnected?'Connecting…':'Unreachable'
+  pairing.hint.textContent=stored.token
+   ?'This workstation is paired. Pasting a new code re-pairs it.'
+   :'In the web interface, under your profile, choose Pair a workstation and paste the code here.'
+  pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
+  if(!agentConnected)return
+  try{
+   const status=await api.status()
+   if(!link.value.isConnected)return
+   link.value.textContent=status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
+   if(status.contractError)link.hint.textContent=status.contractError
+   if(status.server)account.value.textContent=status.server
+  }catch{if(link.value.isConnected)link.value.textContent='Unreachable'}
+ }
+ fill()
 }
+document.querySelector('#settings').onclick=()=>openSettings('General')
 
 async function loadProjects(){
  const version=projectStateVersion
@@ -638,9 +855,75 @@ document.querySelector('#toggle-sidebar').onclick=()=>{
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
  renderSidebarToggle(hidden);localStorage.setItem('sidebarCollapsed',String(hidden));resize()
 }
-document.querySelector('#profile').onclick=()=>{
- showDialog('Profile')
+// The General pane: what is installed, and what changed. Both versions are
+// shown because the app and the agent are distributed separately, and a
+// workstation that upgraded one and not the other is exactly the case this
+// pane exists to make visible.
+function versionRow(label, value, help){
+ const row=document.createElement('div');row.className='setting-row'
+ const text=document.createElement('div');text.className='setting-text'
+ const name=document.createElement('div');name.className='setting-name'
+ const strong=document.createElement('strong');strong.textContent=label;name.append(strong)
+ text.append(name)
+ if(help){const p=document.createElement('p');p.textContent=help;text.append(p)}
+ const control=document.createElement('div');control.className='setting-control'
+ const version=document.createElement('code');version.className='version-value';version.textContent=value
+ control.append(version);row.append(text,control)
+ return row
+}
+function renderChangelog(container,releases){
+ for(const release of releases){
+  if(!release.sections.some(section=>section.items.length))continue
+  const entry=document.createElement('section');entry.className='changelog-release'
+  const heading=document.createElement('h3')
+  heading.textContent=release.date?release.version+' · '+release.date:release.version
+  entry.append(heading)
+  for(const section of release.sections){
+   if(!section.items.length)continue
+   const title=document.createElement('h4');title.textContent=section.title
+   const list=document.createElement('ul')
+   for(const item of section.items){const li=document.createElement('li');li.textContent=item;list.append(li)}
+   entry.append(title,list)
+  }
+  container.append(entry)
+ }
+ if(!container.childElementCount){
+  const empty=document.createElement('p');empty.textContent='No release notes in this build.';container.append(empty)
+ }
+}
+// The pane main built as the whole Settings dialog becomes one category of it:
+// what is installed sits beside the account, the connection and the logs
+// instead of replacing them.
+async function fillGeneralPanel(panel){
+ const versions=document.createElement('div');versions.className='settings-versions'
+ const desktopRow=versionRow('Sectile Desktop','…','The application window and its consoles.')
+ const agentRow=versionRow('Local agent','…','The workstation daemon that runs the tasks.')
+ versions.append(desktopRow,agentRow)
+ const notesHeading=document.createElement('h3');notesHeading.className='changelog-heading';notesHeading.textContent='Release notes'
+ const notes=document.createElement('div');notes.className='changelog'
+ panel.append(versions,notesHeading,notes)
 
+ const releases=parseChangelog(changelogSource)
+ renderChangelog(notes,releases)
+
+ let installed=null
+ try{
+  const reported=await api.version()
+  // The panel may be gone by the time the agent answers: a detached node is
+  // what says so, the same way the log reader tells a late read apart.
+  if(!panel.isConnected)return
+  installed=reported.desktop
+  desktopRow.querySelector('.version-value').textContent=reported.desktop||'unknown'
+  // A stopped agent has no version to give. Saying so beats leaving an
+  // ellipsis that reads as a load which never finishes.
+  agentRow.querySelector('.version-value').textContent=reported.agent||'not running'
+ }catch{
+  if(!panel.isConnected)return
+  desktopRow.querySelector('.version-value').textContent='unknown'
+  agentRow.querySelector('.version-value').textContent='not running'
+ }
+ const current=releaseNotesFor(releases,installed)
+ if(current)notesHeading.textContent='Release notes · '+current.version
 }
 document.querySelector('#add-project').onclick=async()=>{
  showDialog('Add project')
@@ -683,61 +966,81 @@ async function openProject(id){
   let config=info.server
   dialogBody.querySelector('h2').textContent=config.projectName
 
-  const tabs=document.createElement('div');tabs.className='project-tabs';tabs.setAttribute('role','tablist')
+  // A single Local panel had grown into one long scroll mixing the repository
+  // path, execution limits and the agent command lines. Categories in a side
+  // navigation name each group and keep the panel they open short, the way the
+  // project modal of the web interface does.
+  const CATEGORIES=[
+   {id:'General',label:'General',saves:true,icon:'<path d="M4 7a2 2 0 0 1 2-2h3l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/>'},
+   {id:'Execution',label:'Execution',saves:true,icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="2.4"/><circle cx="15" cy="17" r="2.4"/>'},
+   {id:'Agent',label:'AI agent',saves:true,icon:'<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/>'},
+   {id:'Deployment',label:'Deployment',saves:false,icon:'<path d="M12 20V7m0 0 4 4m-4-4-4 4"/><path d="M5 4h14"/>'},
+   {id:'Server',label:'Server',saves:false,icon:'<rect x="4" y="5" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 8h.01M8 17h.01"/>'}
+  ]
+  const layout=document.createElement('div');layout.className='settings-layout'
+  const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
+  tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Project settings categories')
+  const content=document.createElement('div');content.className='settings-content'
+  layout.append(tabs,content)
   const panels={}
-  for(const name of ['Local','Deployment','Server']){
-   const tab=document.createElement('button');tab.type='button';tab.textContent=name;tab.setAttribute('role','tab')
-   tab.id='project-tab-'+name;tab.setAttribute('aria-controls','project-panel-'+name)
-   const panel=document.createElement('section');panel.id='project-panel-'+name;panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panels[name]=panel
-   tab.onclick=()=>{for(const [key,value] of Object.entries(panels))value.hidden=key!==name;for(const item of tabs.children)item.setAttribute('aria-selected',String(item===tab))}
-   tab.setAttribute('aria-selected',String(name==='Local'));panel.hidden=name!=='Local';tabs.append(tab)
+  // The categories that store something share one form, so a single save keeps
+  // the whole local configuration consistent whichever one is open.
+  const form=document.createElement('form');form.id='project-local-form'
+  // The save control lives in the dialog footer, so it stays in view whichever
+  // storing category is open and however far its panel scrolls.
+  const save=document.createElement('button');save.textContent='Save local configuration';save.className='dialog-action primary'
+  save.setAttribute('form',form.id)
+  dialogFooter.prepend(save);syncDialogFooter()
+  function selectCategory(name){
+   const stores=CATEGORIES.find(category=>category.id===name).saves
+   for(const [key,value] of Object.entries(panels))value.hidden=key!==name
+   form.hidden=!stores;save.hidden=!stores;syncDialogFooter()
+   for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
   }
-  dialogBody.append(tabs,...Object.values(panels))
-  const form=document.createElement('form')
-  const label=document.createElement('label');label.textContent='Local repository'
-  const row=document.createElement('div');row.className='repository-picker'
+  for(const category of CATEGORIES){
+   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id
+   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+   tab.id='project-tab-'+category.id;tab.setAttribute('aria-controls','project-panel-'+category.id)
+   const panel=document.createElement('section');panel.id='project-panel-'+category.id
+   panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panels[category.id]=panel
+   tab.onclick=()=>selectCategory(category.id)
+   tabs.append(tab)
+  }
+  dialogBody.append(layout)
+  content.append(form)
+  for(const category of CATEGORIES){
+   if(category.saves)form.append(panels[category.id]);else content.append(panels[category.id])
+  }
+  selectCategory('General')
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
-  row.append(path,browse);label.append(row)
+  const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
+  const repository=settingRow('Local repository',{stacked:true},picker)
   let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
   let parallelism=info.parallelism||1
   const controls={}
-  // A setting without a server default (resetLabel omitted) carries no reset control.
-  function setting(name,values,resetLabel,onSelect,onReset){
-   const section=document.createElement('section');section.className='execution-setting'
-   const heading=document.createElement('div');heading.className='setting-heading'
-   const title=document.createElement('strong');title.textContent=name
-   let reset=null
-   if(resetLabel){
-    reset=document.createElement('button');reset.type='button';reset.className='reset-setting';reset.setAttribute('aria-label',resetLabel);reset.title=resetLabel
-    reset.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4v6h6M4 10a8 8 0 1 1 1 8"/></svg>'
-    reset.onclick=onReset
-   }
-   heading.append(title);if(reset)heading.append(reset)
-   const group=document.createElement('div');group.className='segmented';group.setAttribute('role','group');group.setAttribute('aria-label',name)
-   const buttons=values.map(value=>{const button=document.createElement('button');button.type='button';button.textContent=String(value);button.onclick=()=>onSelect(value);group.append(button);return button})
-   const hint=document.createElement('p');section.append(heading,group,hint)
-   return {section,buttons,hint,reset}
-  }
+  const worktreeGroup=document.createElement('div');worktreeGroup.className='segmented'
+  worktreeGroup.setAttribute('role','group');worktreeGroup.setAttribute('aria-label','Worktrees')
+  const worktreeButtons=['Yes','No'].map(value=>{
+   const button=document.createElement('button');button.type='button';button.textContent=value
+   button.onclick=()=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()}
+   worktreeGroup.append(button);return button
+  })
+  controls.worktrees=settingRow('Worktrees',{resetLabel:'Reset worktrees to server default',onReset:()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()}},worktreeGroup)
+  controls.worktrees.buttons=worktreeButtons
   // A magnitude between 1 and a ceiling, which a segmented control cannot show
-  // without overflowing the dialog once the ceiling grows.
-  function slider(name,max,onSelect){
-   const section=document.createElement('section');section.className='execution-setting'
-   const heading=document.createElement('div');heading.className='setting-heading'
-   const title=document.createElement('strong');title.textContent=name
-   const readout=document.createElement('span');readout.className='slider-value'
-   heading.append(title,readout)
-   const input=document.createElement('input');input.type='range';input.min='1';input.max=String(max);input.step='1'
-   input.className='slider-input';input.setAttribute('aria-label',name)
-   input.oninput=()=>onSelect(Number(input.value))
-   const scale=document.createElement('div');scale.className='slider-scale'
-   for(const mark of [1,Math.round(max/2),max]){const item=document.createElement('span');item.textContent=String(mark);scale.append(item)}
-   const hint=document.createElement('p');section.append(heading,input,scale,hint)
-   return {section,input,readout,hint}
-  }
-  controls.worktrees=setting('Worktrees',['Yes','No'],'Reset worktrees to server default',value=>{useWorktrees=value==='Yes';inheritWorktrees=false;update()},()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()})
-  controls.parallel=slider('Parallel executions',MAX_PARALLELISM,value=>{parallelism=value;update()})
+  // without overflowing the row once the ceiling grows. The readout states the
+  // value, so the slider needs no printed scale beneath it.
+  const parallelInput=document.createElement('input');parallelInput.type='range'
+  parallelInput.min='1';parallelInput.max=String(MAX_PARALLELISM);parallelInput.step='1'
+  parallelInput.className='slider-input';parallelInput.setAttribute('aria-label','Parallel executions')
+  parallelInput.oninput=()=>{parallelism=Number(parallelInput.value);update()}
+  const parallelReadout=document.createElement('span');parallelReadout.className='slider-value'
+  // Parallelism is workstation-owned: no server default, hence no reset control.
+  controls.parallel=settingRow('Parallel executions',null,parallelInput,parallelReadout)
+  controls.parallel.input=parallelInput;controls.parallel.readout=parallelReadout
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
    controls.worktrees.hint.textContent=(inheritWorktrees?'Inherited':'Local override')+' · Server default: '+(config.useWorktrees?'Yes':'No')
@@ -745,20 +1048,11 @@ async function openProject(id){
    controls.parallel.input.disabled=!useWorktrees
    controls.parallel.input.value=String(effective)
    controls.parallel.readout.textContent=effective+(effective===1?' execution':' executions')
-   controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Additional executions wait in the local queue.':'Without worktrees, executions are limited to one.'
+   controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Extra executions queue locally.':'Without worktrees, executions are limited to one.'
   }
   update()
   let selectedProvider=info.aiProvider||config.aiProvider||'agy',inheritAiProvider=!info.aiProviderOverride
-  const providerSection=document.createElement('section');providerSection.className='execution-setting'
-  const providerHeading=document.createElement('div');providerHeading.className='setting-heading'
-  const providerTitle=document.createElement('strong');providerTitle.textContent='AI Provider'
-  const providerReset=document.createElement('button');providerReset.type='button';providerReset.className='reset-setting'
-  providerReset.setAttribute('aria-label','Reset AI provider to server default');providerReset.title='Reset AI provider to server default'
-  providerReset.innerHTML=controls.worktrees.reset.innerHTML
-  providerHeading.append(providerTitle,providerReset)
-
   const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
-  providerSelect.style.width='100%';providerSelect.style.marginLeft='0';providerSelect.style.marginTop='7px'
   const PROVIDERS=[
     {id:'agy',label:'AGY CLI (Google Antigravity)'},
     {id:'claude',label:'Claude Code CLI'},
@@ -773,8 +1067,8 @@ async function openProject(id){
     providerSelect.append(opt)
   }
   providerSelect.value=selectedProvider
-  const providerHint=document.createElement('p')
-  providerSection.append(providerHeading,providerSelect,providerHint)
+  const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to server default'},providerSelect)
+  const providerReset=providerRow.reset,providerHint=providerRow.hint
   function updateProvider(){
     providerHint.textContent=(inheritAiProvider?'Inherited from server':'Local override')+' · Server default: '+(config.aiProvider||'agy')
     renderCommandPreview()
@@ -787,19 +1081,11 @@ async function openProject(id){
   }
 
   let selectedModel=info.aiModel??config.aiModel??'',inheritAiModel=!info.aiModelOverride
-  const modelSection=document.createElement('section');modelSection.className='execution-setting'
-  const modelHeading=document.createElement('div');modelHeading.className='setting-heading'
-  const modelTitle=document.createElement('strong');modelTitle.textContent='AI Model'
-  const modelReset=document.createElement('button');modelReset.type='button';modelReset.className='reset-setting'
-  modelReset.setAttribute('aria-label','Reset AI model to server default');modelReset.title='Reset AI model to server default'
-  modelReset.innerHTML=controls.worktrees.reset.innerHTML
-  modelHeading.append(modelTitle,modelReset)
-
   const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
   modelInput.value=selectedModel
   modelInput.placeholder='Empty: use provider default model'
-  const modelHint=document.createElement('p')
-  modelSection.append(modelHeading,modelInput,modelHint)
+  const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to server default'},modelInput)
+  const modelReset=modelRow.reset,modelHint=modelRow.hint
 
   const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
   function validateModel(val){
@@ -835,15 +1121,12 @@ async function openProject(id){
   // The two execution modes run different command lines, so they get one field
   // each. Overriding only the interactive one would leave the server's headless
   // command running beside it, which is not what an override means.
-  const commandLabel=document.createElement('label');commandLabel.textContent='Interactive CLI command'
   const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
   command.value=info.aiCommandTemplate??config.aiCommandTemplate??''
   command.placeholder='Server provider default command'
-  const autonomousLabel=document.createElement('label');autonomousLabel.textContent='Autonomous CLI command (headless)'
   const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
   autonomousCommand.value=info.aiCommandTemplateAutonomous??config.aiCommandTemplateAutonomous??''
   autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
-  const commandHint=document.createElement('p')
   const commandPreviewBox=document.createElement('dl');commandPreviewBox.className='command-preview'
   function renderCommandPreview(){
    commandPreviewBox.replaceChildren()
@@ -854,12 +1137,17 @@ async function openProject(id){
     commandPreviewBox.append(term,detail)
    }
   }
-  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Both empty runs the provider default for each mode. Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.';renderCommandPreview()}
+  const placeholderHelp=document.createElement('details');placeholderHelp.className='placeholder-help'
+  const placeholderSummary=document.createElement('summary');placeholderSummary.textContent='Placeholders'
+  const placeholderText=document.createElement('p')
+  placeholderText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
+  placeholderHelp.append(placeholderSummary,placeholderText)
+  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Both empty runs the provider default for each mode.';renderCommandPreview()}
   command.oninput=()=>{inheritCommand=false;commandState()}
   autonomousCommand.oninput=()=>{inheritCommand=false;commandState()}
-  const commandReset=document.createElement('button');commandReset.type='button';commandReset.className='reset-setting'
-  commandReset.setAttribute('aria-label','Reset CLI commands to server defaults');commandReset.title='Reset CLI commands to server defaults';commandReset.innerHTML=controls.worktrees.reset.innerHTML
-  commandReset.onclick=()=>{command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}
+  const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to server defaults',onReset:()=>{command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}},command,placeholderHelp)
+  const commandHint=commandRow.hint
+  const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,commandPreviewBox)
 
   const KNOWN_PRESETS=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'"]
   providerSelect.onchange=()=>{
@@ -878,16 +1166,79 @@ async function openProject(id){
 
   updateProvider()
   updateModel()
-  commandState();commandLabel.append(commandReset,command,commandHint)
-  autonomousLabel.append(autonomousCommand,commandPreviewBox)
-  const save=document.createElement('button');save.textContent='Save local configuration'
+  commandState()
+
+  let selectedTerminal=info.terminal??config.externalTerminalCommand??'',inheritTerminal=!info.terminalOverride
+  const terminalSelect=document.createElement('select');terminalSelect.className='terminal-select';terminalSelect.setAttribute('aria-label','Terminal emulator')
+  const TERMINALS=[
+    {id:'',label:'Auto-detect (Ghostty, iTerm, Terminal)'},
+    {id:'ghostty',label:'Ghostty'},
+    {id:'terminal',label:'Terminal.app'},
+    {id:'iterm',label:'iTerm'},
+    {id:'custom',label:'Custom command…'}
+  ]
+  for(const t of TERMINALS){
+    const opt=document.createElement('option');opt.value=t.id;opt.textContent=t.label
+    terminalSelect.append(opt)
+  }
+  const customTerminalInput=document.createElement('input');customTerminalInput.type='text';customTerminalInput.className='custom-terminal-input'
+  customTerminalInput.setAttribute('aria-label','Custom terminal command')
+  customTerminalInput.placeholder='e.g. alacritty -e {command}'
+
+  const standardTerminals=['','ghostty','terminal','iterm']
+  if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
+    terminalSelect.value='custom'
+    customTerminalInput.value=selectedTerminal
+    customTerminalInput.hidden=false
+  }else{
+    terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
+    customTerminalInput.value=''
+    customTerminalInput.hidden=true
+  }
+
+  const terminalRow=settingRow('Terminal emulator',{resetLabel:'Reset terminal emulator to workstation default'},terminalSelect,customTerminalInput)
+  const terminalReset=terminalRow.reset,terminalHint=terminalRow.hint
+
+  function updateTerminal(){
+    terminalHint.textContent=(inheritTerminal?'Inherited from workstation':'Local override')+' · Default: '+(config.externalTerminalCommand||'Auto-detect')
+    customTerminalInput.hidden=terminalSelect.value!=='custom'
+  }
+
+  terminalSelect.onchange=()=>{
+    inheritTerminal=false
+    if(terminalSelect.value!=='custom'){
+      selectedTerminal=terminalSelect.value
+    }else{
+      selectedTerminal=customTerminalInput.value.trim()
+    }
+    updateTerminal()
+  }
+  customTerminalInput.oninput=()=>{
+    inheritTerminal=false
+    selectedTerminal=customTerminalInput.value.trim()
+  }
+  terminalReset.onclick=()=>{
+    selectedTerminal=config.externalTerminalCommand||''
+    inheritTerminal=true
+    if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
+      terminalSelect.value='custom'
+      customTerminalInput.value=selectedTerminal
+    }else{
+      terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
+      customTerminalInput.value=''
+    }
+    updateTerminal()
+  }
+  updateTerminal()
+
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  form.append(label,controls.worktrees.section,controls.parallel.section,providerSection,modelSection,commandLabel,autonomousLabel,save)
-  panels.Local.append(form)
-  const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop'
+  panels.General.append(repository.section)
+  panels.Execution.append(controls.worktrees.section,controls.parallel.section,terminalRow.section)
+  panels.Agent.append(providerRow.section,modelRow.section,commandRow.section,autonomousRow.section)
+  const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
-  if(info.configured||runs.some(run=>run.projectId===id))panels.Local.append(remove)
-  dialogBody.append(notice)
+  if(info.configured||runs.some(run=>run.projectId===id))panels.General.append(remove)
+  content.append(notice)
   const tools=document.createElement('div');tools.className='deployment-actions'
   form.onsubmit=async event=>{
    event.preventDefault()
@@ -901,7 +1252,8 @@ async function openProject(id){
    }
    save.disabled=true
    try{
-    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand})
+    const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
+    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
     projectStateVersion++;disconnectedProjects.delete(id)
     notice.textContent='Local configuration saved';await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
@@ -933,7 +1285,7 @@ async function openProject(id){
   }
   renderServer(info.monoRepo)
   const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh from server';reload.className='refresh-project'
-  tabs.before(reload)
+  layout.before(reload)
   reload.onclick=async()=>{
    reload.disabled=true;notice.textContent='Refreshing server settings…'
    try{
@@ -943,6 +1295,17 @@ async function openProject(id){
     dialogBody.querySelector('h2').textContent=config.projectName
     if(inheritWorktrees)useWorktrees=!!config.useWorktrees
     if(inheritCommand){command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||''}
+    if(inheritTerminal){
+     selectedTerminal=fresh.terminal||fresh.server?.externalTerminalCommand||''
+     if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
+      terminalSelect.value='custom'
+      customTerminalInput.value=selectedTerminal
+     }else{
+      terminalSelect.value=selectedTerminal?selectedTerminal.toLowerCase():''
+      customTerminalInput.value=''
+     }
+     updateTerminal()
+    }
     update();commandState();renderServer(fresh.monoRepo)
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
@@ -959,26 +1322,21 @@ async function openProject(id){
 }
 
 const iconPaths={
+ 'detach-terminal':'<path d="M17 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h4.5"/><path d="m7.5 11.5 2 2-2 2"/><path d="M15 4h5v5"/><path d="m13.5 10.5 6.5-6.5"/>',
+ 'view-console':'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/>',
+ 'view-changes':'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v5"/><path d="M9.5 13.5h5"/><path d="M9.5 18.5h5"/>',
+ rerun:'<path d="M3.5 12a8.5 8.5 0 0 1 14.4-6.1L20.5 8"/><path d="M20.5 3.5V8h-4.5"/><path d="m10 9.4 5 2.9-5 2.9Z"/>',
+ 'save-log':'<path d="M12 3v11"/><path d="m7.5 10 4.5 4 4.5-4"/><path d="M5 20h14"/>',
  stop:'<circle cx="12" cy="12" r="9"/><path d="m8.2 12.4 2.6 2.6 5-5.4"/>',
- configure:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
- 'start-agent':'<path d="m8 5 11 7-11 7Z"/>',
  shutdown:'<path d="M12 4v8"/><path d="M7.4 7.4a6.5 6.5 0 1 0 9.2 0"/>',
  restart:'<path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5M20 7v5"/>',
- profile:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'
+ settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-1-1.4 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.4-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1Z"/>'
 }
 for(const [id,paths] of Object.entries(iconPaths)){
  document.getElementById(id).innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+paths+'</svg>'
 }
 if(localStorage.getItem('sidebarCollapsed')==='true')document.querySelector('#workspace').classList.add('sidebar-hidden')
 renderSidebarToggle(document.querySelector('#workspace').classList.contains('sidebar-hidden'))
-document.querySelector('#start-agent').onclick=async()=>{
- closeLogs(false)
- await settingsReady
- document.querySelector('#setup').hidden=false
- document.querySelector('#workspace').hidden=true
- const form=document.querySelector('#start')
- if(form.reportValidity())form.requestSubmit()
-}
 
 function newProjectTask(projectID){
  selectedProject=projectID
@@ -1015,7 +1373,6 @@ async function openTickets(projectID,initialQuery=''){
  if(!agentConnected){showDialog('Tickets');paragraph('Connect to the local agent to browse this project\u2019s tickets.');return}
  const opener=document.activeElement
  if(dialog.open)dialog.close()
- closeLogs(false)
  const project=projects.find(item=>item.id===projectID)
  const view={projectID,projectName:project?.name||projectID,sort:{...DEFAULT_SORT},tasks:[],info:null,query:'',rows:new Map(),submitting:new Set(),compose:null,generation:0,opener:opener&&opener!==document.body?opener:null}
  ticketsOpen=true;ticketsView=view;ticketsPane.hidden=false;ticketsPane.replaceChildren()
@@ -1122,6 +1479,26 @@ function ticketRow(view,task){
  }
  const openMenu=()=>{
   view.closeOpenMenu?.()
+  const activeRun=runs.find(r=>r.taskId===task.id&&r.status==='running'&&!r.externalTerminal)
+  let detachBtn=menu.querySelector('.ticket-detach')
+  if(activeRun){
+   if(!detachBtn){
+    detachBtn=document.createElement('button');detachBtn.type='button';detachBtn.className='ticket-detach';detachBtn.setAttribute('role','menuitem');detachBtn.textContent='Detach to native terminal'
+    const discussItem=menu.querySelector('[data-skill-id="discuss"]')
+    if(discussItem)menu.insertBefore(detachBtn,discussItem)
+    else menu.append(detachBtn)
+   }
+   detachBtn.onclick=async()=>{
+    closeMenu()
+    try{
+     const res=await api.detachToNativeTerminal(activeRun.id)
+     if(res?.terminal)activeRun.externalTerminal=res.terminal
+     render();await refresh()
+    }catch(err){view.status.textContent='Could not detach: '+err.message}
+   }
+  }else if(detachBtn){
+   detachBtn.remove()
+  }
   menu.hidden=false;more.setAttribute('aria-expanded','true')
   dismiss=event=>{if(!menu.contains(event.target)&&event.target!==more)closeMenu()}
   document.addEventListener('pointerdown',dismiss,true)
@@ -1140,14 +1517,15 @@ function ticketRow(view,task){
  if(taskStage(task)==='implemented'){
   items.push({label:'Declare code as reviewed…',transition:'reviewed'})
  }
- items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Custom instructions…',compose:true})
+ items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true})
  for(const item of items){
   const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!view.info.configured
+  if(item.skillId)button.dataset.skillId=item.skillId
   if(item.transition==='reviewed'){
    entry.declareReviewed=button
    button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
   }else{
-   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else submitTicketLaunch(view,entry,item.skillId,'','').catch(()=>{})}
+   button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'','').catch(()=>{})}
   }
   menu.append(button)
  }
@@ -1182,18 +1560,17 @@ function updateTicketRow(view,entry){
  if(representative)renderRunState(state,representative)
  else{state.innerHTML='';state.title='';state.removeAttribute('aria-label');delete state.dataset.runState}
  const step=nextTaskStep(task,view.info)
- const chosen=step.skillId?step:closingStep(task,view.info)
  const active=executions.some(activeRun),pending=view.submitting.has(task.id)
  if(entry.declareReviewed)entry.declareReviewed.disabled=!view.info.configured||active||pending
- if(chosen){run.textContent='Run: '+chosen.label;run.dataset.skillId=chosen.skillId}
+ if(step.skillId){run.textContent='Run: '+step.label;run.dataset.skillId=step.skillId}
  else{run.textContent='Run';delete run.dataset.skillId}
  const hadFocus=document.activeElement===run
- run.disabled=!chosen||active||pending
+ run.disabled=!step.skillId||active||pending
  // A disabled control loses focus to the body, which sends a keyboard user back
  // to the top of the page. The row's own menu is always available, so focus
  // stays where the user was working.
  if(run.disabled&&hadFocus)entry.more.focus()
- run.title=!chosen?step.message:active?'An execution is active on this task':pending?'Submitting execution…':'Launch '+chosen.label+' on '+key
+ run.title=!step.skillId?step.message:active?'An execution is active on this task':pending?'Submitting execution…':'Launch '+step.label+' on '+key
  // Chromium delivers no pointer events to a disabled control, so its own title
  // would never appear: the cell carries the explanation while it is unusable.
  if(run.disabled)entry.actions.title=run.title
@@ -1246,6 +1623,17 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
   view.status.textContent='Execution submitted for '+key
   await refresh()
  }catch(err){view.status.textContent='Could not launch '+key+': '+err.message;throw err}
+ finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
+}
+async function submitNativeDiscussion(view,entry){
+ const key=entry.task.key||entry.task.id
+ view.submitting.add(entry.task.id);updateTicketRow(view,entry)
+ view.status.textContent='Launching native terminal for '+key+'…'
+ try{
+  await api.launchNativeDiscussion(view.projectID,entry.task.id)
+  view.status.textContent='Native terminal launched for '+key
+  await refresh()
+ }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+err.message;throw err}
  finally{view.submitting.delete(entry.task.id);if(view.rows.get(entry.task.id)===entry)updateTicketRow(view,entry)}
 }
 
@@ -1329,7 +1717,21 @@ function taskMenu(run){
  rename.onsubmit=event=>{event.preventDefault();if(!name.value.trim())return;localTasks[taskKey(run)]={...taskState(run),name:name.value.trim()};saveLocalTasks();dialog.close();render()}
  const archive=document.createElement('button');archive.textContent='Archive'
  archive.onclick=()=>requestArchive(run)
- dialogBody.append(relaunch,rename,archive)
+ dialogBody.append(relaunch)
+ const active=related().find(item=>item.status==='running'&&!item.externalTerminal)
+ if(active){
+  const detach=document.createElement('button');detach.textContent='Detach to native terminal'
+  detach.onclick=async()=>{
+   detach.disabled=true
+   try{
+    const res=await api.detachToNativeTerminal(active.id)
+    if(res?.terminal)active.externalTerminal=res.terminal
+    dialog.close();render();await refresh()
+   }catch(err){paragraph(err.message);detach.disabled=false}
+  }
+  dialogBody.append(detach)
+ }
+ dialogBody.append(rename,archive)
 }
 function requestArchive(run){
  const active=runs.filter(item=>taskKey(item)===taskKey(run)&&activeRun(item))
@@ -1349,7 +1751,7 @@ async function archiveTask(run){
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
   selected=null;terminal.reset();await api.detach()
-  renderHeader();document.querySelector('#directory').textContent=''
+  renderHeader();showDirectory('')
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()
 }
@@ -1453,8 +1855,9 @@ function isFinishedTask(task){
 
 function currentTaskRun(){return runs.find(run=>run.id===selected)}
 function renderNextStep(){
- const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),markReviewed=document.querySelector('#mark-reviewed'),retry=document.querySelector('#retry-next-step')
+ const run=currentTaskRun(),status=document.querySelector('#next-step-status'),button=document.querySelector('#next-step'),markReviewed=document.querySelector('#mark-reviewed'),retry=document.querySelector('#retry-next-step'),force=document.querySelector('#force-next-step')
  button.hidden=true;button.disabled=true;retry.hidden=true
+ if(force){force.hidden=true;force.disabled=true}
  if(markReviewed){markReviewed.hidden=true;markReviewed.disabled=true}
  if(!run){status.textContent='Select a task to see its next step';return}
  if(freeConsole(run)){status.textContent='Free agent console · '+(run.cancelRequested?'Stopping':run.status);return}
@@ -1469,6 +1872,7 @@ function renderNextStep(){
  const message=submittingSteps.has(key)?'Submitting execution…':pending?'Execution submitted; waiting for its console':busy?'Execution in progress':nextStepErrors.get(key)||step.message
  status.textContent=(nextStepData.task.key||run.taskKey||run.taskId)+' · '+step.stage+' · '+message
  if(step.skillId){button.hidden=false;button.textContent='Next: '+step.label;button.disabled=busy||pending}
+ if(force&&step.skillId&&forceableLaunches.has(key)){force.hidden=false;force.disabled=busy||pending}
  if(markReviewed&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){
   markReviewed.hidden=false
   markReviewed.disabled=busy||pending
@@ -1497,26 +1901,35 @@ async function refreshNextStep(){
  if(generation===nextStepGeneration)renderNextStep()
 }
 document.querySelector('#retry-next-step').onclick=refreshNextStep
-document.querySelector('#next-step').onclick=async()=>{
+// force re-sends the very same launch with the duplicate check waived. It is
+// the only difference between the two buttons: everything else, from the
+// freshness recheck to the local busy guard, applies identically.
+async function launchNextStep(force){
  const run=currentTaskRun(),displayed=nextStepData
  if(!run||displayed?.key!==taskKey(run)||!displayed.step?.skillId)return
  const key=taskKey(run)
  if(submittingSteps.has(key)||submittedSteps.has(key)||runs.some(item=>taskKey(item)===key&&activeRun(item)))return
- nextStepGeneration++;nextStepErrors.delete(key);submittingSteps.add(key);renderNextStep()
+ nextStepGeneration++;nextStepErrors.delete(key);forceableLaunches.delete(key);submittingSteps.add(key);renderNextStep()
  try{
   const [fresh,latestRuns]=await Promise.all([readNextStep(run),api.runs()])
   if(taskKey(currentTaskRun()||{})!==key)return
   nextStepData=fresh
   if(fresh.step.skillId!==displayed.step.skillId||latestRuns.some(item=>taskKey(item)===key&&activeRun(item))){await refresh();return}
-  await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'')
+  await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'',undefined,force)
   submittedSteps.set(key,{skillId:fresh.step.skillId,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){
    const launched=runs.find(item=>taskKey(item)===key&&!latestRuns.some(previous=>previous.id===item.id))
    if(launched)select(launched)
   }
- }catch(err){nextStepErrors.set(key,'Could not launch next step: '+err.message)}finally{submittingSteps.delete(key);renderNextStep()}
+ }catch(err){
+  const refusal=refusedActiveRun(err.message)
+  if(refusal){nextStepErrors.set(key,refusal.error||'A run is already active on this task.');forceableLaunches.add(key)}
+  else nextStepErrors.set(key,'Could not launch next step: '+err.message)
+ }finally{submittingSteps.delete(key);renderNextStep()}
 }
+document.querySelector('#next-step').onclick=()=>launchNextStep(false)
+document.querySelector('#force-next-step').onclick=()=>launchNextStep(true)
 document.querySelector('#mark-reviewed').onclick=()=>{
  const run=currentTaskRun()
  if(run&&nextStepData?.task&&taskStage(nextStepData.task)==='implemented'){

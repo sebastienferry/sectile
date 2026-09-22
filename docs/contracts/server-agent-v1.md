@@ -314,7 +314,7 @@ liveness.
 `/mcp` is served statefully: each client holds one server session, identified by
 `Mcp-Session-Id` and told apart from any other session sharing the same bearer
 credential. A session begins when its client completes initialization and ends on
-client termination, a dropped connection, or silence beyond the idle timeout.
+client termination, a dropped connection, or a server restart.
 
 `GET /api/mcp/sessions` lists live sessions with the identity the client declared
 in `clientInfo`, its connection time, and the runs it owns. It is a browser-facing
@@ -332,10 +332,13 @@ not adopted: it belongs to the agent that dispatched it, whose supervisor report
 the real process exit. A client connected through a transport without sessions
 keeps the previous behaviour, where only `finish_run` closes a run.
 
-`SECTILE_MCP_SESSION_TIMEOUT` bounds a session whose client never announces its
-departure, defaulting to fifteen minutes of silence; an unusable value keeps the
-default rather than removing the bound. The stdio bridge pings inside that window,
-so an idle but live conversation stays connected. `SECTILE_MCP_CLIENT` names the
+`SECTILE_MCP_SESSION_TIMEOUT` bounds how long a client may say nothing before the
+silence is remarked upon, defaulting to four hours; an unusable value keeps the
+default. Crossing it never ends a session and never cancels a run: it appends one
+sentence to each run the session owns, once per silent stretch, and any later
+message rearms the observation. A run canceled by a real disconnection stays
+recoverable: its owner, or an administrator, may still report its outcome through
+`finish_run`, which replays the hand-back on the corrected status. `SECTILE_MCP_CLIENT` names the
 bridge in the session list, defaulting to host and process id.
 
 A restart destroys every session at once, so startup closes the runs those
@@ -511,9 +514,11 @@ than retyping it. Revocation cuts every surface at once.
 The agent gateway takes the same key on `/mcp` and `/api/`, and consoles it
 launches receive it as `SECTILE_AGENT_TOKEN` with `SECTILE_AGENT_URL` set to the
 server. Deprecated for one release: `SECTILE_SERVER_TOKEN`, accepted with a
-startup warning, and the open mode of a server without it, which accepts any
-nonempty token only until the first key is issued. Credentials issued before
-keys expired keep working as keys without expiry.
+startup warning. It is the only credential outside the key store that a machine
+surface accepts; the open mode of a server without it, which accepted any
+nonempty token, is removed, so a server that has issued no key refuses an
+invented token like any other. Credentials issued before keys expired keep
+working as keys without expiry.
 
 ## Roles and owned executions
 
@@ -539,8 +544,7 @@ reports `{"mode", "role", "signedIn", ...}`, where `mode` is `oidc`, `local` or
   process running on its owner's machine. An ownerless run stays closable.
 - The agent gateway's `/api/` forwarding authenticates with the workstation key,
   which stands in for a session and carries its user's role. The deprecated
-  shared token and the legacy open mode do not: they name no key and are refused
-  on the interface API once anyone can sign in.
+  shared token does not: it names no key and is refused on the interface API.
 
 Sign-in itself is either the OpenID Connect flow of ADR 0008 or, while no
 provider is configured, `POST /auth/local {"email"}`, which creates or finds an
@@ -670,6 +674,22 @@ cleared or the agent restarts. The desktop treats the resulting 404 as "no
 result" rather than an error: the main process returns null to the renderer
 instead of rejecting the IPC call, and clearing the history drops the removed
 runs locally before the next poll.
+
+### Traced autonomous runs
+
+An autonomous (headless) run has no PTY. When its engine was asked for its
+reasoning stream (the default `claude` headless line carries
+`--output-format stream-json --verbose`), the agent reads that stream line by
+line, keeps the last 2000 rendered lines in memory and reports the run with
+`trace: true` in `/desktop/runs`. For such a run `GET /desktop/terminal?id=<run-id>`
+upgrades to a read-only websocket that replays the trace and follows it live;
+anything the client sends on it is discarded. A headless run with no trace keeps
+answering 409 on that route, and the desktop shows its notice instead.
+
+The trace is a local copy for the pane only: the durable record stays the run
+activity on the server, fed by the unchanged incremental output transport, which
+receives the engine's final answer and any diagnostic printed beside the stream,
+never the stream's frames.
 
 ### Free desktop agent consoles
 

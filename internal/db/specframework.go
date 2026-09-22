@@ -147,16 +147,21 @@ func (d *DB) recordSpecFrameworkActivity(projectID string, res *models.SpecFrame
 
 	// Installations are project-scoped, not task-scoped: reuse the same
 	// synthetic task_id convention as the tracker sync activities.
-	targetTaskID := "spec-framework-" + res.Framework
-	if strings.TrimSpace(projectID) != "" {
-		targetTaskID = "spec-framework-" + strings.TrimSpace(projectID)
+	// Installing a framework is work on a project, never on a ticket. It used to
+	// say so through a "spec-framework-<x>" task_id, the same made-up identifier
+	// #310 removes from the column.
+	// projectID is a project identifier when the caller had one and a repository
+	// path otherwise (see InstallSpecFramework). Only the first is an
+	// attachment: a path is not a project, and project_id is a foreign key now.
+	attachedProject := ""
+	if p, err := d.GetProjectByID(strings.TrimSpace(projectID)); err == nil && p != nil {
+		attachedProject = p.ID
 	}
 
 	now := time.Now()
 	act := models.TaskActivity{
 		ID:          uuid.New().String(),
-		TaskID:      targetTaskID,
-		ProjectID:   projectID,
+		ProjectID:   attachedProject,
 		SkillID:     "install_spec_framework",
 		SkillName:   fmt.Sprintf("Install %s", res.FrameworkLabel),
 		Action:      fmt.Sprintf("Installation de %s dans %s", res.FrameworkLabel, res.RepoPath),

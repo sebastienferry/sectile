@@ -10,6 +10,12 @@ web/dist/
 build/
 .env
 .env.local
+# Written by scripts/set-env.sh before it rewrites the generated block.
+.env.bak
+
+# The filled-in environment manifest: it names a deployment's GCP projects,
+# hosts and secrets. Only the .sample is published.
+scripts/env-profiles.conf
 
 # Databases & local state
 *.db

@@ -1,8 +1,21 @@
 .DEFAULT_GOAL := help
 EXE := $(if $(filter windows,$(shell go env GOOS)),.exe,)
+
+# The release the binaries report. It comes from the tag the checkout is on,
+# never from a file: a version committed somewhere drifts from the tag the
+# moment somebody forgets to bump it, and the binary then claims a release it
+# is not. `git describe` says `v1.4.0` exactly on a tag and `v1.4.0-3-gabc1234`
+# three commits later, which is the honest answer in both cases; a checkout
+# with no tag at all says `dev`, because `git describe` has nothing to report
+# and a commit sha is not a version.
+VERSION ?= $(shell git describe --tags --dirty 2>/dev/null || echo dev)
+COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+VERSION_PKG := tasks/internal/version
+VERSION_FLAGS := -X $(VERSION_PKG).Version=$(VERSION) -X $(VERSION_PKG).Commit=$(COMMIT) -X $(VERSION_PKG).Date=$(BUILD_DATE)
 # electron/runtime.cjs resolves the agent under this name, packaged or not.
 DESKTOP_AGENT := desktop/bin/sectile-agent$(EXE)
-.PHONY: help build-all build-server build-agent build-app build-app-package build-release image \
+.PHONY: help version build-all build-server build-agent build-app build-app-package build-release image \
         all build server server-build agent agent-build binary-build desktop desktop-build desktop-package build-desktop build-desktop-package release \
         web-deps desktop-deps start serve run fmt-check test render-skills clean reset-db
 
@@ -47,13 +60,18 @@ build-server: web-deps ## Build the web UI and the server binary
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
 	@mkdir -p bin
-	go build -o bin/server$(EXE).new ./cmd/server
+	go build -ldflags "$(VERSION_FLAGS)" -o bin/server$(EXE).new ./cmd/server
 	mv -f bin/server$(EXE).new bin/server$(EXE)
 
 build-agent: ## Build the agent binary
 	@mkdir -p bin
-	go build -o bin/agent$(EXE).new ./cmd/agent
+	go build -ldflags "$(VERSION_FLAGS)" -o bin/agent$(EXE).new ./cmd/agent
 	mv -f bin/agent$(EXE).new bin/agent$(EXE)
+
+build-migrate: ## Build the one-shot SQLite to PostgreSQL migration tool
+	@mkdir -p bin
+	go build -o bin/sectile-migrate$(EXE).new ./cmd/sectile-migrate
+	mv -f bin/sectile-migrate$(EXE).new bin/sectile-migrate$(EXE)
 
 # The agent writes its own path into the MCP registration native clients read,
 # so it needs a stable one: `go run` would leave a build-cache path that stops
@@ -95,11 +113,15 @@ test: fmt-check web-deps ## Run Go and web test suites
 	go test ./...
 	cd web && npm test && npx tsc --noEmit -p tsconfig.app.json && npx oxlint src
 
+version: ## Print the version this checkout would build
+	@echo "$(VERSION)"
+
 render-skills: ## Render workflow skills to stdout or disk (ARGS=...)
 	go run ./cmd/render-skills $(ARGS)
 
 # Both components cross-compile with pure Go dependencies.
 build-release: web-deps ## Cross-compile every binary into dist/
+	@echo "Building release $(VERSION)"
 	@echo "Building interface..."
 	cd web && npm run build
 	@touch internal/webui/dist/.gitkeep
@@ -110,7 +132,7 @@ build-release: web-deps ## Cross-compile every binary into dist/
 			out=dist/$$component-$$os-$$arch; \
 			if [ "$$os" = "windows" ]; then out=$$out.exe; fi; \
 			echo "  $$component $$os/$$arch"; \
-			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o $$out ./cmd/$$component || exit 1; \
+			CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w $(VERSION_FLAGS)" -o $$out ./cmd/$$component || exit 1; \
 		done; \
 	done
 	@echo "Binaries in dist/:"

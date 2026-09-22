@@ -18,7 +18,7 @@ test('command presets include default, Claude, AGY and Codex', () => {
   const claude = presets.find(p => p.label === 'Claude')
   assert.ok(claude)
   assert.match(claude.cmd, /claude --model \{model\}/)
-  assert.match(claude.autonomous, /claude -p --permission-mode bypassPermissions --model \{model\}/)
+  assert.match(claude.autonomous, /claude -p --permission-mode bypassPermissions --output-format stream-json --verbose --model \{model\}/)
 
   const codex = presets.find(p => p.label === 'Codex')
   assert.ok(codex)

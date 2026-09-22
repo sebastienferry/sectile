@@ -2,6 +2,12 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { commandPreview, resolveTemplateMode, templateCarriesMode, modelArgs, dropModelSlot } from '../src/lib/commandTemplate.ts'
 
+// The autonomous fallback asks claude for its reasoning stream, so its expected
+// command line carries the flags the agent reads the trace off.
+const claudeAutonomous = model =>
+  'claude -p --permission-mode bypassPermissions --output-format stream-json --verbose' +
+  (model ? ' --model ' + model : '') + " '{prompt}'"
+
 test('claude without a template yields the two attested command lines', () => {
   const model = 'claude-opus-5'
   assert.equal(
@@ -10,7 +16,7 @@ test('claude without a template yields the two attested command lines', () => {
   )
   assert.equal(
     commandPreview('claude', '', model, true).command,
-    "claude -p --permission-mode bypassPermissions --model claude-opus-5 '{prompt}'"
+    claudeAutonomous('claude-opus-5')
   )
 })
 
@@ -20,7 +26,7 @@ test('an unset model drops the flag instead of passing an empty one', () => {
   assert.equal(commandPreview('claude', '', '', false).command, "claude '{prompt}'")
   assert.equal(
     commandPreview('claude', '', '', true).command,
-    "claude -p --permission-mode bypassPermissions '{prompt}'"
+    claudeAutonomous('')
   )
 })
 

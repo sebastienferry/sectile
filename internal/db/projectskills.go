@@ -9,6 +9,7 @@ import (
 
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 )
 
 // Contenu des skills édité dans l'outil.
@@ -20,6 +21,7 @@ import (
 // être réimportée.
 func (d *DB) ensureProjectSkillsTable() {
 	_, _ = d.conn.Exec(`CREATE TABLE IF NOT EXISTS project_skills (
+		mode TEXT NOT NULL DEFAULT '',
 		project_id TEXT NOT NULL,
 		skill_id   TEXT NOT NULL,
 		content    TEXT NOT NULL,
@@ -28,7 +30,9 @@ func (d *DB) ensureProjectSkillsTable() {
 	)`)
 	// mode : le mode d'exécution propre à la skill. Vide vaut « pas d'avis »,
 	// ce qui laisse la précédence retomber sur le défaut du projet.
-	_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN mode TEXT NOT NULL DEFAULT ''`)
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec(`ALTER TABLE project_skills ADD COLUMN mode TEXT NOT NULL DEFAULT ''`)
+	}
 }
 
 type projectSkillOverride struct {
@@ -67,11 +71,11 @@ func (d *DB) projectSkillOverrides(projectID string) map[string]projectSkillOver
 // catalogue entry. An empty result means the skill has no opinion, which lets
 // the precedence fall through to the project default.
 func (d *DB) ProjectSkillMode(projectIDOrPath, skillID string) string {
-	// Resolve the id the way the setter does. StageSkillByID knows the aliases
+	// Resolve the id the way the setter does. skills.StageSkillByID knows the aliases
 	// NormalizeSkillID does not (pickup-issue, pick, rewrite-story), and reading
 	// under a different key than the one written makes a pinned mode silently
 	// do nothing.
-	stage, known := StageSkillByID(skillID)
+	stage, known := skills.StageSkillByID(skillID)
 	if !known {
 		return models.SkillModeUnset
 	}
@@ -87,7 +91,7 @@ func (d *DB) ProjectSkillMode(projectIDOrPath, skillID string) string {
 // default. The row is created when the skill has no edited content yet: the
 // mode is a setting of its own, not a by-product of editing the content.
 func (d *DB) SetProjectSkillMode(projectIDOrPath, skillID, mode string) error {
-	stage, ok := StageSkillByID(skillID)
+	stage, ok := skills.StageSkillByID(skillID)
 	if !ok {
 		return fmt.Errorf("skill inconnue : %s", skillID)
 	}
@@ -139,7 +143,7 @@ func (d *DB) projectSkillContext(projectIDOrPath string) (projectID, repoPath, s
 // EffectiveProjectSkills returns what should actually be written for a project:
 // the built-in template, replaced by the project's edited content when there is
 // one. An empty specFramework is read from the project.
-func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []ProjectSkillTemplate {
+func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []skills.ProjectSkillTemplate {
 	projectID, _, framework := d.projectSkillContext(projectIDOrPath)
 	if strings.TrimSpace(specFramework) != "" {
 		framework = specFramework
@@ -150,13 +154,13 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []Pro
 	if project, err := d.GetProjectByID(projectID); err == nil && project != nil && project.PRCreationStage == "specified" {
 		timing = "specified"
 	}
-	out := ProjectSkillTemplates(framework)
+	out := skills.ProjectSkillTemplates(framework)
 	for i := range out {
 		if ov, ok := resolvedSkillOverride(overrides, out[i].ID); ok && strings.TrimSpace(ov.content) != "" {
 			out[i].Content = ov.content
 			if out[i].ID == "adjust" {
-				stage, _ := StageSkillByID("adjust")
-				contract := RenderSkillContent(stage, framework)
+				stage, _ := skills.StageSkillByID("adjust")
+				contract := skills.RenderSkillContent(stage, framework)
 				if strings.TrimSpace(out[i].Content) != strings.TrimSpace(contract) {
 					out[i].Content = adjustmentCustomContent(out[i].Content, contract)
 				}
@@ -182,15 +186,15 @@ func (d *DB) EffectiveProjectSkills(projectIDOrPath, specFramework string) []Pro
 func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEditorEntry, error) {
 	projectID, _, framework := d.projectSkillContext(projectIDOrPath)
 	overrides := d.projectSkillOverrides(projectID)
-	defaults := ProjectSkillTemplates(framework)
+	defaults := skills.ProjectSkillTemplates(framework)
 	var localFiles map[string]agentprotocol.SkillFile
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	// The server editor remains usable offline; disk evidence is optional.
 	_ = d.callAgentContext(ctx, agentprotocol.Operation{ProjectID: projectID, Action: "skill_files"}, &localFiles)
 
-	entries := make([]models.SkillEditorEntry, 0, len(StageSkills))
-	for i, stage := range StageSkills {
+	entries := make([]models.SkillEditorEntry, 0, len(skills.StageSkills))
+	for i, stage := range skills.StageSkills {
 		def := defaults[i]
 		content := def.Content
 		updatedAt := ""
@@ -265,7 +269,7 @@ func (d *DB) ListProjectSkillEditor(projectIDOrPath string) ([]models.SkillEdito
 // SaveProjectSkillContent stores the edited content and regenerates the file in
 // the repository, so the agent reads what the editor shows.
 func (d *DB) SaveProjectSkillContent(projectIDOrPath, skillID, content string) (*models.SkillEditorEntry, error) {
-	stage, ok := StageSkillByID(skillID)
+	stage, ok := skills.StageSkillByID(skillID)
 	if !ok {
 		return nil, fmt.Errorf("skill %q inconnue", skillID)
 	}
@@ -306,7 +310,7 @@ func (d *DB) SaveProjectSkillContent(projectIDOrPath, skillID, content string) (
 // ResetProjectSkillContent drops the override and puts the built-in template
 // back, in the database and in the repository.
 func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.SkillEditorEntry, error) {
-	stage, ok := StageSkillByID(skillID)
+	stage, ok := skills.StageSkillByID(skillID)
 	if !ok {
 		return nil, fmt.Errorf("skill %q inconnue", skillID)
 	}
@@ -317,7 +321,7 @@ func (d *DB) ResetProjectSkillContent(projectIDOrPath, skillID string) (*models.
 	var err error
 	if stage.ID == "adjust" {
 		// An explicit reset selects the default while retaining legacy entries.
-		_, err = d.conn.Exec(`INSERT INTO project_skills(project_id, skill_id, content, updated_at) VALUES (?, 'adjust', ?, ?) ON CONFLICT(project_id,skill_id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at`, projectID, RenderSkillContent(stage, ""), time.Now().Format(time.RFC3339))
+		_, err = d.conn.Exec(`INSERT INTO project_skills(project_id, skill_id, content, updated_at) VALUES (?, 'adjust', ?, ?) ON CONFLICT(project_id,skill_id) DO UPDATE SET content=excluded.content,updated_at=excluded.updated_at`, projectID, skills.RenderSkillContent(stage, ""), time.Now().Format(time.RFC3339))
 	} else {
 		_, err = d.conn.Exec(`DELETE FROM project_skills WHERE project_id = ? AND skill_id = ?`, projectID, stage.ID)
 	}
@@ -364,9 +368,9 @@ func (d *DB) projectSkillEntry(projectIDOrPath, skillID string) (*models.SkillEd
 
 // commandContentFromSkill builds the slash command of a skill from the content
 // actually stored, so an edited skill and its command never diverge.
-func commandContentFromSkill(stage StageSkill, content, specFramework string) (string, bool) {
+func commandContentFromSkill(stage skills.StageSkill, content, specFramework string) (string, bool) {
 	if strings.TrimSpace(content) == "" {
-		return CommandContentFor(stage.ID, specFramework)
+		return skills.CommandContentFor(stage.ID, specFramework)
 	}
 
 	body := content
@@ -378,7 +382,7 @@ func commandContentFromSkill(stage StageSkill, content, specFramework string) (s
 
 	var b strings.Builder
 	b.WriteString("---\n")
-	fmt.Fprintf(&b, "description: %s\n", skillYAMLString(stage.Description))
+	fmt.Fprintf(&b, "description: %s\n", skills.YAMLString(stage.Description))
 	b.WriteString("argument-hint: <TICKET-KEY> [contexte]\n")
 	b.WriteString("---\n")
 	b.WriteString(strings.TrimSpace(body))

@@ -262,6 +262,12 @@ export interface Project {
   autoSyncEnabled?: boolean
   /** Période de la synchronisation en arrière-plan (en minutes, entre 1 et 30 min). */
   autoSyncIntervalMin?: number
+  /**
+   * Compte propriétaire du projet, celui dont la synchronisation de fond
+   * emprunte l'accès tracker. Renseigné par le serveur, jamais envoyé par le
+   * client : le propriétaire décide du jeton emprunté (ADR 0018).
+   */
+  ownerUserId?: string
   /** Mode d'exécution des terminaux : 'integrated' (web xterm) ou 'external' (vrai terminal OS). */
   ttyMode?: TtyMode
   /** Commande ou application de terminal externe spécifique à ce projet (ex: 'Ghostty', 'iTerm', 'Terminal'). */

@@ -65,7 +65,7 @@ func TestWorkerLaunchDoesNotLockOrAdvanceWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	activity := models.TaskActivity{ID: "launch", TaskID: task.ID, ProjectID: task.ProjectID, SkillID: "clarify", Status: "queued", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "launch", TaskID: task.ID, SkillID: "clarify", Status: "queued", CreatedAt: time.Now()}
 	if err := d.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestWorkerLaunchDoesNotLockOrAdvanceWorkflow(t *testing.T) {
 		}
 		return json.RawMessage(`null`), nil
 	})
-	d.processSkillJob(SkillJob{ActivityID: activity.ID, TaskID: task.ID, ProjectID: task.ProjectID, SkillID: "clarify"})
+	d.processSkillJob(SkillJob{ActivityID: activity.ID, TaskID: task.ID, SkillID: "clarify"})
 	got, err := d.GetActivityByID(activity.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -143,7 +143,7 @@ func TestTrackerFailureDoesNotCreatePhantomTaskOrCompleteSync(t *testing.T) {
 	if err := d.conn.QueryRow("SELECT COUNT(*) FROM tasks WHERE project_id=?", p.ID).Scan(&count); err != nil || count != 0 {
 		t.Fatalf("phantom persisted: %d %v", count, err)
 	}
-	activity := models.TaskActivity{ID: "sync-failure", TaskID: "sync-all", SkillID: "sync_all", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-failure", SkillID: "sync_all", Status: "running", CreatedAt: time.Now()}
 	if err := d.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}

@@ -6,21 +6,36 @@
 # after the pipeline and the ref. The GitLab merge requests that do exist on the
 # mirror only spawn test environments (see the preview tag below).
 #
-# Two things come out of a green pipeline:
-#   - the server image, built by kaniko from ./Dockerfile and pushed to this
-#     project's container registry as <registry>/server:<iid>-<ref-slug>
-#     (plus <tag> on a tag and `latest` on the default branch). argocd-sp
-#     deploys it (apps/sectile). A branch other than the default one also gets
-#     server:preview-<commit sha>: argocd-sp's testenv feature deploys that tag
-#     for every merge request labelled `testenv` on the mirror, one ephemeral
-#     board per merge request, at the head commit of its source branch.
-#   - the workstation binaries, cross-compiled for every supported OS/arch and
-#     uploaded to this project's Generic Package Registry under the package
-#     `sectile`, version <iid>-<ref-slug> (or the tag). `sectile-agent-*` is
-#     the local app; `sectile-server-*` is the same server as the image, for
-#     bare-metal installs.
+# What a green pipeline produces depends on what it was run for:
+#   - the server image, on every ref. Built by kaniko from ./Dockerfile and
+#     pushed to this project's container registry as
+#     <registry>/server:<iid>-<ref-slug> (plus <tag> on a tag and `latest` on
+#     the default branch). argocd-sp deploys it (apps/sectile). A branch other
+#     than the default one also gets server:preview-<commit sha>: argocd-sp's
+#     testenv feature deploys that tag for every merge request labelled
+#     `testenv` on the mirror, one ephemeral board per merge request, at the
+#     head commit of its source branch. The image carries the interface, so
+#     the web UX is built on a merge into main and on every tag, which is what
+#     keeps dev and the testenvs current.
+#   - the workstation binaries, on a tag and on nothing else. Cross-compiled
+#     for every supported OS/arch and uploaded to this project's Generic
+#     Package Registry under the package `sectile`, version <tag>.
+#     `sectile-agent-*` is the local app; `sectile-server-*` is the same server
+#     as the image, for bare-metal installs.
+#
+#     They are tag-only because a binary that somebody installs is a release:
+#     an artefact named after a pipeline number is one nobody can report a bug
+#     against, and every branch publishing one turned the package registry into
+#     a list of builds rather than a list of versions. See
+#     docs/adrs/0018-semver-tags-and-changelog.md, and AGENTS.md for how a tag
+#     is cut.
 #
 # Both are gated on the Go, web and desktop test suites.
+#
+# On the default branch a third thing happens: the pipeline promotes the image
+# it just published to dev, by rewriting the pinned tag in argocd-sp and
+# merging that change (see promote:dev). ArgoCD deploys from the commit; this
+# pipeline never talks to a cluster.
 
 include:
   # Shared Go jobs (.go-test, runner tags, module cache); pulls in the kaniko
@@ -28,6 +43,13 @@ include:
   - project: 'smartadserver/templates/jobs/go'
     ref: v5.0.0
     file: '/go.yml'
+
+  # The shared automerge job, which is what moves the pinned tag in argocd-sp.
+  # Pinned to an exact ref on purpose: a floating `ref` would let another
+  # team's release change what this pipeline does to our cluster.
+  - project: 'smartadserver/templates/jobs/argocd'
+    ref: 6.0.1
+    file: '/automerge.yml'
 
 workflow:
   rules:
@@ -38,6 +60,7 @@ stages:
   - test
   - build
   - publish
+  - promote
 
 variables:
   NODE_IMAGE: "node:22"
@@ -54,9 +77,15 @@ variables:
   npm_config_cache: "${CI_PROJECT_DIR}/.npm-cache"
   # Skip the Electron binary download: the desktop unit tests are plain Node.
   ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
-  # One version string for the image tag and the package version.
+  # One version string for the image tag and the package version. On a tag the
+  # jobs below override it with the tag itself, which is also what the binaries
+  # are stamped with: what a user reports as their version has to be something
+  # this repository can check out.
   SECTILE_VERSION: "${CI_PIPELINE_IID}-${CI_COMMIT_REF_SLUG}"
   SERVER_IMAGE: "${CI_REGISTRY_IMAGE}/server"
+  # The link-time flags that put the release into every Go binary. A build
+  # without them says "dev"; see internal/version.
+  VERSION_PKG: "tasks/internal/version"
 
 # ── Caches ────────────────────────────────────────────────────────────────────
 # A job that declares `cache:` replaces the template's, so GOMODCACHE is
@@ -112,6 +141,31 @@ test:go:
     - go install gotest.tools/gotestsum@v1.13.0
     - $GOPATH/bin/gotestsum --junitfile ${TEST_RESULT_PATH_XML} --jsonfile ${TEST_RESULT_PATH} --format testname -- -race -covermode=atomic -coverprofile="${COVERAGE_RESULT_PATH}" ${GOLANG_TEST_PATH}
 
+test:postgres:
+  stage: test
+  extends: [.go-test, .go-cache]
+  needs: []
+  # Deliberately not allow_failure, unlike test:go above: this job is new, it
+  # starts green, and the whole point of it is to gate. The moment it is allowed
+  # to fail it stops being evidence that PostgreSQL still works.
+  services:
+    - name: postgres:16
+      alias: postgres
+  variables:
+    POSTGRES_DB: sectile_test
+    POSTGRES_USER: sectile
+    POSTGRES_PASSWORD: sectile
+    # trust keeps the service simple; it is reachable only from this job.
+    POSTGRES_HOST_AUTH_METHOD: trust
+    SECTILE_TEST_POSTGRES_DSN: "postgres://sectile@postgres:5432/sectile_test?sslmode=disable"
+    # Without it the smoke tests skip and the job passes having proved nothing.
+    CGO_ENABLED: "0"
+  script:
+    # The subset is chosen for what breaks silently rather than for what is easy
+    # to test: schema creation from empty, a CRUD round trip, an upsert, the
+    # timestamp round trip that #294 was about, and a migration round trip.
+    - go test ./internal/db/ -run 'TestPostgres|TestMigrate' -v
+
 test:web:
   stage: test
   image: ${NODE_IMAGE}
@@ -143,6 +197,11 @@ build:web:
   image: ${NODE_IMAGE}
   extends: .web-cache
   needs: []
+  # Only the cross-compiled binaries consume this artifact, and those are cut
+  # from tags. The image builds the interface inside kaniko from the same
+  # sources, so a merge into main still proves the UX compiles.
+  rules:
+    - if: $CI_COMMIT_TAG
   script:
     - cd web
     - npm ci --prefer-offline --no-audit --no-fund
@@ -161,11 +220,17 @@ build:binaries:
   needs:
     - job: build:web
       artifacts: true
+  rules:
+    - if: $CI_COMMIT_TAG
   variables:
     CGO_ENABLED: "0"
   script:
     - test -f internal/webui/dist/index.html || { echo "internal/webui/dist is empty, the server would embed no interface"; exit 1; }
     - mkdir -p dist
+    # The tag is what every binary reports for --version and on /api/version.
+    # It is read from CI_COMMIT_TAG rather than derived, so the string a user
+    # quotes in a bug report is a ref this repository can check out.
+    - VERSION_FLAGS="-X ${VERSION_PKG}.Version=${CI_COMMIT_TAG} -X ${VERSION_PKG}.Commit=${CI_COMMIT_SHA} -X ${VERSION_PKG}.Date=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     - |
       for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
         os=${target%/*}; arch=${target#*/}
@@ -173,9 +238,16 @@ build:binaries:
           out=dist/sectile-${component}-${os}-${arch}
           if [ "$os" = "windows" ]; then out=${out}.exe; fi
           echo "  ${component} ${os}/${arch}"
-          GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w" -o "$out" ./cmd/${component} || exit 1
+          GOOS=$os GOARCH=$arch go build -trimpath -ldflags "-s -w ${VERSION_FLAGS}" -o "$out" ./cmd/${component} || exit 1
         done
       done
+    # The build stamped a version; a binary that does not report it is a broken
+    # release, and finding that out after publication is finding it out too late.
+    # Only the runner's own OS/arch can be executed here, and both Linux
+    # architectures the loop produces are covered by whichever it turns out to be.
+    - HOST_ARCH=$(go env GOARCH)
+    - ./dist/sectile-server-linux-${HOST_ARCH} --version | grep -F "${CI_COMMIT_TAG}"
+    - ./dist/sectile-agent-linux-${HOST_ARCH} --version | grep -F "${CI_COMMIT_TAG}"
     - cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS
   artifacts:
     paths:
@@ -198,6 +270,11 @@ publish:image:
     DOCKER_CONTEXT_PATH: "."
     DOCKER_DOCKERFILE_PATH: "Dockerfile"
     DOCKER_IMAGE_NAME: "${SERVER_IMAGE}:${SECTILE_VERSION}"
+    # What the server inside the image reports on /api/version and in its
+    # startup log. The Dockerfile declares these as ARGs and defaults them to
+    # "dev", so an image built without them is honest rather than wrong; the
+    # published binaries are stamped by build:binaries and never depend on this.
+    DOCKER_BUILD_ARGS: "--build-arg SECTILE_VERSION=${SECTILE_VERSION} --build-arg SECTILE_COMMIT=${CI_COMMIT_SHA}"
   rules:
     - if: $CI_COMMIT_TAG
       variables:
@@ -232,8 +309,43 @@ publish:binaries:
         curl --fail --silent --show-error --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$file" "${PACKAGE_URL}/${name}" > /dev/null
         echo "  ${name}"
       done
+  # Tags only, like the build it uploads. The package version is the tag, so
+  # the registry lists releases rather than pipelines.
   rules:
     - if: $CI_COMMIT_TAG
       variables:
         SECTILE_VERSION: "${CI_COMMIT_TAG}"
-    - if: $CI_COMMIT_BRANCH
+
+# ── Promote ───────────────────────────────────────────────────────────────────
+
+# A merge into main promotes itself to dev. The job rewrites the pinned image
+# tag in argocd-sp (`apps/sectile/dev/values.yml`) and merges that change;
+# ArgoCD reads the commit and deploys. Nothing is derived or retyped: what it
+# pins is ${SECTILE_VERSION}, the exact string publish:image built the image
+# with.
+#
+# Why this exists: the tag used to be copied by hand into argocd-sp, which does
+# not fail loudly, it drifts — dev quietly runs something older than main while
+# nobody is looking. See docs/adrs/0016-promotion-automatique-en-dev.md.
+#
+# Dev only. There is no production deployment of sectile to promote, and adding
+# one is a decision rather than a follow-up.
+promote:dev:
+  stage: promote
+  extends: .automerge
+  needs:
+    - job: publish:image
+      artifacts: false
+  # The Go template's `default:` caches the module directory. The automerge
+  # image has no repository to set up and no modules to restore, so the cache
+  # would only be paid for, never used.
+  cache: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  variables:
+    ARGOCD_REPO_URL: "https://gitlab.com/smartadserver/private/shared-platform/argocd-sp.git"
+    PATH_TO_FILE: "apps/sectile/dev/values.yml"
+    # The meta-chart holds the tag under the feature rather than at the root,
+    # so the template's default `.image.tag` would find nothing to rewrite.
+    YQ_QUERY: ".features.main.image.tag"
+    TARGET_IMAGE_TAG: "${SECTILE_VERSION}"

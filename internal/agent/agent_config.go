@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"tasks/internal/agentexec"
 	"tasks/internal/agenthttp"
 
 	"tasks/internal/agentconfig"
@@ -133,7 +134,7 @@ func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string
 }
 
 func gitLocal(ctx context.Context, root string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	cmd := agentexec.Hidden(exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...))
 	raw, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(raw)))
@@ -244,6 +245,12 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if overrides.Terminal != "" {
 		local.Terminal = overrides.Terminal
 	}
+	if local.Terminals == nil {
+		local.Terminals = map[string]string{}
+	}
+	for id, terminal := range overrides.Terminals {
+		local.Terminals[id] = terminal
+	}
 	if local.Skills == nil {
 		local.Skills = map[string]string{}
 	}
@@ -251,6 +258,35 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 		local.Skills[id] = content
 	}
 	return root, local, nil
+}
+
+// worktreeForBranch returns the path of the worktree checked out on branch,
+// among every worktree of the repository at root, including the main checkout.
+// It returns "" when no worktree carries it. A detached or bare worktree
+// carries no branch and never matches.
+func worktreeForBranch(ctx context.Context, root, branch string) (string, error) {
+	out, err := gitLocal(ctx, root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	// The porcelain format is blank-line separated records, each opening with
+	// "worktree <path>" and carrying at most one of "branch refs/heads/<name>",
+	// "detached" or "bare".
+	path := ""
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			path = strings.TrimPrefix(line, "worktree ")
+		case strings.HasPrefix(line, "branch refs/heads/"):
+			if path != "" && strings.TrimPrefix(line, "branch refs/heads/") == branch {
+				return path, nil
+			}
+		case line == "":
+			path = ""
+		}
+	}
+	return "", nil
 }
 
 func ensureLocalWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool) (string, string, error) {
@@ -283,28 +319,43 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	if _, err := gitLocal(ctx, root, "check-ref-format", "--branch", branch); err != nil {
 		return "", "", err
 	}
-	target := filepath.Join(root, ".tasks", "worktrees", task.Key)
-	if _, err := os.Stat(target); err == nil {
-		top, err := gitLocal(ctx, target, "rev-parse", "--show-toplevel")
-		if err != nil || !sameDirectory(top, target) {
-			return "", "", fmt.Errorf("existing task path is not a worktree: %s", target)
-		}
-		current, err := gitLocal(ctx, target, "branch", "--show-current")
-		if err != nil || current != branch {
-			return "", "", fmt.Errorf("existing worktree does not use assigned branch %s", branch)
-		}
-		return target, branch, nil
-	} else if !os.IsNotExist(err) {
-		return "", "", err
-	}
-	// A task may already own the main checkout, including its uncommitted work.
-	// Git cannot check out that branch again in a new worktree.
-	current, err := gitLocal(ctx, root, "branch", "--show-current")
+	// The worktree is resolved by branch, not by path. git reports every linked
+	// worktree and the main checkout in one call, so the tree that carries the
+	// assigned branch is reused wherever it sits - under another key, or in the
+	// main checkout with its uncommitted work. A path nobody thought to probe is
+	// precisely what made a launch fail while the branch was alive next door.
+	existing, err := worktreeForBranch(ctx, root, branch)
 	if err != nil {
 		return "", "", err
 	}
-	if task.BranchName != nil && strings.TrimSpace(*task.BranchName) != "" && current == branch {
-		return root, branch, nil
+	if existing != "" {
+		// git reports fully resolved paths; on macOS the main checkout comes
+		// back through /private, so the caller's own root is preferred when the
+		// two name the same directory.
+		if sameDirectory(existing, root) {
+			return root, branch, nil
+		}
+		return existing, branch, nil
+	}
+
+	// The branch is checked out nowhere, so a worktree has to be created. The
+	// key path is the natural home; when it is taken by an unrelated branch the
+	// launch still proceeds, on a sibling path, and the stale path is named in
+	// the log rather than turned into a refusal.
+	target := filepath.Join(root, ".tasks", "worktrees", task.Key)
+	if _, err := os.Stat(target); err == nil {
+		occupant, occErr := gitLocal(ctx, target, "branch", "--show-current")
+		if occErr != nil {
+			occupant = "an unknown branch"
+		}
+		suffix := strings.ReplaceAll(models.SanitizeBranchName(branch), "/", "-")
+		if suffix == "" {
+			suffix = "branch"
+		}
+		log.Printf("[Agent] Stale worktree path %s carries %s, not the assigned branch %s; creating the worktree beside it", target, occupant, branch)
+		target = filepath.Join(root, ".tasks", "worktrees", task.Key+"-"+suffix)
+	} else if !os.IsNotExist(err) {
+		return "", "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		return "", "", err

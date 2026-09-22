@@ -25,6 +25,7 @@ func TestOpenDBDropsRetiredStorage(t *testing.T) {
 			t.Fatalf("%s: %v", statement, err)
 		}
 	}
+	forgetSchemaVersion(t, database)
 	database.Close()
 
 	reopened, err := NewDB(path)

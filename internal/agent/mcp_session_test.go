@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,12 +19,15 @@ import (
 
 // A bridge that is killed never gets to report anything: no tool call, no
 // protocol termination, not even a closed pipe the server could read. Only
-// silence reveals it, which is what the session timeout is for. This exercises
-// the documented chain end to end — client, stdio bridge process, loopback
-// proxy, server — because the proxy is the hop that must carry the session
-// identifier without knowing what it means.
-func TestKilledBridgeClosesItsRun(t *testing.T) {
-	// The handler reads the timeout when it is built, so this must precede it.
+// silence remains, and silence is not proof of death — the same silence a stage
+// that compiles or waits for its owner produces. The run therefore stays open
+// and is merely remarked upon, and its owner can still report the outcome. This
+// exercises the documented chain end to end — client, stdio bridge process,
+// loopback proxy, server — because the proxy is the hop that must carry the
+// session identifier without knowing what it means.
+func TestKilledBridgeLeavesItsRunOpenAndRemarkedUpon(t *testing.T) {
+	// The handler reads the silence bound when it is built, so this must
+	// precede it.
 	t.Setenv("SECTILE_MCP_SESSION_TIMEOUT", "1s")
 	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
@@ -35,7 +39,7 @@ func TestKilledBridgeClosesItsRun(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	daemon := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: "test-token"}}
+	daemon := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: upstreamAgentKey(t, database)}}
 	if err := daemon.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -76,14 +80,23 @@ func TestKilledBridgeClosesItsRun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read run: %v", err)
 		}
-		if activity != nil && activity.Status == "canceled" {
-			if activity.Summary == "" {
-				t.Fatalf("closed run carries no explanation: %+v", activity)
+		if activity != nil && activity.Status != "running" {
+			t.Fatalf("silence ended run %s as %q: %+v", run.ID, activity.Status, activity)
+		}
+		if activity != nil && strings.Contains(activity.Summary, models.RunSilencePrefix) {
+			// The observation is recorded; the run itself is untouched and its
+			// owner remains free to report the outcome it really reached.
+			if _, err := database.FinishRemoteRun(task.ID, run.ID, "completed", "reported after the silence"); err != nil {
+				t.Fatalf("finish_run after a silence: %v", err)
+			}
+			finished, _ := database.GetActivityByID(run.ID)
+			if finished.Status != "completed" || !strings.Contains(finished.Summary, models.RunSilencePrefix) {
+				t.Fatalf("finished run = %q/%q, want both halves of the story", finished.Status, finished.Summary)
 			}
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("run %s is %+v, want it closed after the bridge was killed", run.ID, activity)
+			t.Fatalf("run %s is %+v, want the silence remarked upon", run.ID, activity)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

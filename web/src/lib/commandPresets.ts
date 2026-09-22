@@ -30,7 +30,7 @@ export function getCommandPresets(): CommandPreset[] {
       ),
       autonomous: getEnv(
         'SECTILE_PRESET_CLAUDE_AUTONOMOUS',
-        "claude -p --permission-mode bypassPermissions --model {model} '{prompt}'",
+        "claude -p --permission-mode bypassPermissions --output-format stream-json --verbose --model {model} '{prompt}'",
         'VITE_PRESET_CLAUDE_AUTONOMOUS',
       ),
     },

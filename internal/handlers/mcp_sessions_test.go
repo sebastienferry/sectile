@@ -74,7 +74,7 @@ func startRun(t *testing.T, ctx context.Context, session *mcp.ClientSession, tas
 func TestDisconnectedSessionClosesItsRun(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "session-secret")
+	key := agentTestKey(t, h)
 	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "Owned run", Status: models.StatusToClarify})
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestDisconnectedSessionClosesItsRun(t *testing.T) {
 	defer srv.Close()
 	ctx := context.Background()
 
-	transport := &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{"session-secret"}}}
+	transport := &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{key}}}
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "sectile-stdio", Title: "desktop/1", Version: "1"}, nil).Connect(ctx, transport, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestDisconnectedSessionClosesItsRun(t *testing.T) {
 func TestReportedRunKeepsItsOutcome(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "session-secret")
+	key := agentTestKey(t, h)
 	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "Reported run", Status: models.StatusToClarify})
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestReportedRunKeepsItsOutcome(t *testing.T) {
 	defer srv.Close()
 	ctx := context.Background()
 
-	transport := &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{"session-secret"}}}
+	transport := &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{key}}}
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "sectile-stdio", Version: "1"}, nil).Connect(ctx, transport, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestReportedRunKeepsItsOutcome(t *testing.T) {
 func TestSessionsAreIndependent(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "session-secret")
+	key := agentTestKey(t, h)
 	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "Two clients", Status: models.StatusToClarify})
 	if err != nil {
 		t.Fatal(err)
@@ -170,7 +170,7 @@ func TestSessionsAreIndependent(t *testing.T) {
 	ctx := context.Background()
 	connect := func(title string) *mcp.ClientSession {
 		t.Helper()
-		transport := &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{"session-secret"}}}
+		transport := &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{key}}}
 		session, err := mcp.NewClient(&mcp.Implementation{Name: "sectile-stdio", Title: title, Version: "1"}, nil).Connect(ctx, transport, nil)
 		if err != nil {
 			t.Fatal(err)
@@ -210,7 +210,7 @@ func TestSessionsAreIndependent(t *testing.T) {
 func TestLauncherRunKeepsItsOwner(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
-	t.Setenv("TASKFLOW_SERVER_TOKEN", "session-secret")
+	key := agentTestKey(t, h)
 	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "Dispatched run", Status: models.StatusToClarify})
 	if err != nil {
 		t.Fatal(err)
@@ -223,7 +223,7 @@ func TestLauncherRunKeepsItsOwner(t *testing.T) {
 	defer srv.Close()
 	ctx := context.Background()
 
-	transport := &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{"session-secret"}}}
+	transport := &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{key}}}
 	session, err := mcp.NewClient(&mcp.Implementation{Name: "sectile-stdio", Version: "1"}, nil).Connect(ctx, transport, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -257,18 +257,18 @@ func TestMCPSessionsEndpointRejectsWrites(t *testing.T) {
 	}
 }
 
-func TestMCPSessionTimeoutOverride(t *testing.T) {
-	if got := mcpSessionTimeout(); got != defaultMCPSessionTimeout {
-		t.Fatalf("default timeout = %s, want %s", got, defaultMCPSessionTimeout)
+func TestMCPSilenceNoticeOverride(t *testing.T) {
+	if got := mcpSilenceNotice(); got != defaultMCPSilenceNotice {
+		t.Fatalf("default timeout = %s, want %s", got, defaultMCPSilenceNotice)
 	}
 	t.Setenv("SECTILE_MCP_SESSION_TIMEOUT", "90s")
-	if got := mcpSessionTimeout(); got != 90*time.Second {
+	if got := mcpSilenceNotice(); got != 90*time.Second {
 		t.Fatalf("configured timeout = %s, want 90s", got)
 	}
-	// An unusable value must not silently remove the bound on zombie sessions.
+	// An unusable value must not silently remove the silence observation.
 	for _, raw := range []string{"soon", "-1m", "0"} {
 		t.Setenv("SECTILE_MCP_SESSION_TIMEOUT", raw)
-		if got := mcpSessionTimeout(); got != defaultMCPSessionTimeout {
+		if got := mcpSilenceNotice(); got != defaultMCPSilenceNotice {
 			t.Fatalf("timeout for %q = %s, want the default", raw, got)
 		}
 	}

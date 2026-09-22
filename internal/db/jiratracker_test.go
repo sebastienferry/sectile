@@ -23,11 +23,18 @@ type fakeTracker struct {
 	tasks   []models.Task
 	boards  []models.TrackerBoard
 	columns []models.TrackerColumn
-	sprints []models.TrackerSprint
-	members map[string][]models.TeamMember
+	// statuses is what the project's workflows expose, a superset of what the
+	// board groups: the palette is fed from there.
+	statuses  []tracker.TrackerStatus
+	statusErr error
+	sprints   []models.TrackerSprint
+	members   map[string][]models.TeamMember
 	// memberErr makes the members endpoint fail, which must not fail a sync.
 	memberErr error
-	calls     []string
+	// getErr makes the single work item read fail, the way a refused credential
+	// does.
+	getErr error
+	calls  []string
 	// syncedAs and readAs record who the work ran as, which is what decides
 	// whether a personal tracker credential can be resolved at all.
 	syncedAs    string
@@ -71,6 +78,24 @@ func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	f.record("sync")
 	f.syncedAs = tracker.ActingUser(ctx)
 	return append([]models.Task{}, f.tasks...), nil
+}
+
+// GetIssue is the single-work-item read the background pass makes, one job per
+// unfinished card. It records who it ran as for the same reason SyncIssues
+// does: that is what decides which credential can be resolved.
+func (f *fakeTracker) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
+	f.record("get")
+	f.readAs = tracker.ActingUser(ctx)
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	for _, task := range f.tasks {
+		if strings.EqualFold(task.Key, req.Key) {
+			found := task
+			return &found, nil
+		}
+	}
+	return &models.Task{Key: req.Key, Title: "Remote", Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
 }
 
 func (f *fakeTracker) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRequest) error {
@@ -146,6 +171,14 @@ func (f *fakeTracker) ListBoardColumns(ctx context.Context, req tracker.BoardReq
 	return f.columns, nil
 }
 
+func (f *fakeTracker) ListStatuses(ctx context.Context, req tracker.ProjectRequest) ([]tracker.TrackerStatus, error) {
+	f.record("statuses")
+	if f.statusErr != nil {
+		return nil, f.statusErr
+	}
+	return f.statuses, nil
+}
+
 func (f *fakeTracker) ListSprints(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerSprint, error) {
 	f.record("sprints")
 	return f.sprints, nil
@@ -204,7 +237,7 @@ func TestSyncOnATrackerWithBoardsImportsRefreshesTeamsAndColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	activity := models.TaskActivity{ID: "sync-jira", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-jira", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +289,7 @@ func TestSyncSurvivesAnUnreadableTeam(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-2", Title: "Still imported", Status: models.StatusToClarify, Source: "jira", Team: "Platform", TeamID: "team-1", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 
 	database, project := jiraTestDB(t, fake)
-	activity := models.TaskActivity{ID: "sync-degraded", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-degraded", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +373,7 @@ func TestASyncRunsAsWhoeverAskedForIt(t *testing.T) {
 
 	// The job is run here rather than queued: the worker would run it in
 	// parallel and overwrite what this test is watching.
-	activity := models.TaskActivity{ID: "sync-as", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-as", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +425,7 @@ func TestACommentIsPostedUnderItsAuthorsCredential(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-comment", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-comment", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +453,7 @@ func TestAQueuedFieldUpdateCarriesItsActor(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-update", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-update", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +483,7 @@ func TestAQueuedSprintMoveCarriesItsAuthorAndItsProject(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-sprint", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-sprint", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}

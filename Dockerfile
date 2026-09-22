@@ -23,6 +23,13 @@ FROM golang:1.26-alpine AS build
 # The image pins GOTOOLCHAIN=local; go.mod may ask for a newer patch release
 # than it ships, so let Go download the toolchain go.mod requires.
 ENV GOTOOLCHAIN=auto
+# The release this image is. The pipeline passes the tag it publishes under
+# (--build-arg SECTILE_VERSION=$CI_COMMIT_TAG); a local `docker build` leaves
+# it at dev, which is what an untagged build is. A binary must never claim a
+# release it was not cut from, so there is no cleverer default here.
+ARG SECTILE_VERSION=dev
+ARG SECTILE_COMMIT=""
+ARG SECTILE_BUILD_DATE=""
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -31,7 +38,12 @@ COPY . .
 # replaces it so the binary never embeds a stale or empty interface.
 COPY --from=web /src/internal/webui/dist ./internal/webui/dist
 RUN test -f internal/webui/dist/index.html
-RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/sectile-server ./cmd/server
+RUN CGO_ENABLED=0 go build -trimpath \
+    -ldflags "-s -w \
+      -X tasks/internal/version.Version=${SECTILE_VERSION} \
+      -X tasks/internal/version.Commit=${SECTILE_COMMIT} \
+      -X tasks/internal/version.Date=${SECTILE_BUILD_DATE}" \
+    -o /out/sectile-server ./cmd/server
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
 # distroless/static carries CA certificates (tracker HTTPS calls) and nothing
@@ -47,6 +59,14 @@ FROM gcr.io/distroless/static-debian12:nonroot
 # together, which protects nothing on its own: set SECTILE_SECRET_KEY from the
 # platform's secret store to keep them apart. The server starts either way and
 # refuses only the credentials that would need the key.
+#
+# To back the server with PostgreSQL instead, set DB_DRIVER=postgres and either
+# DATABASE_URL or the standard PGHOST/PGDATABASE/PGUSER/PGPASSWORD variables
+# (the second form is what a deployment gets when its username and password are
+# two separate secrets), and supply SECTILE_SECRET_KEY from the secret store:
+# with no database file there is no directory to generate a key beside, and one
+# invented on each restart of a container without a volume would silently
+# orphan every stored token. DB_PATH is then ignored.
 ENV PORT=8090 \
     DB_PATH=/data/tasks.db \
     HOME=/data \

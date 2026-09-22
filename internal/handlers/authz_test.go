@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -104,10 +105,7 @@ func connectAgentAs(t *testing.T, server *httptest.Server, key, projectID string
 // out of their work, a route wrongly omitted hands members the deployment.
 func TestAdminOnlyRoutesAreExactlyTheseMutations(t *testing.T) {
 	adminOnly := []struct{ method, path string }{
-		{http.MethodPost, "/api/setup/tracker"}, {http.MethodPost, "/api/setup/tracker/check"},
-		{http.MethodPost, "/api/projects"},
-		{http.MethodPut, "/api/projects/p1"}, {http.MethodPatch, "/api/projects/p1"}, {http.MethodDelete, "/api/projects/p1"},
-		{http.MethodGet, "/api/users"}, {http.MethodPut, "/api/users/u1"},
+		{http.MethodGet, "/api/users"}, {http.MethodPut, "/api/users/u1"}, {http.MethodDelete, "/api/users/u1"},
 	}
 	for _, route := range adminOnly {
 		if !adminOnlyRoute(route.method, route.path) {
@@ -115,6 +113,11 @@ func TestAdminOnlyRoutesAreExactlyTheseMutations(t *testing.T) {
 		}
 	}
 	open := []struct{ method, path string }{
+		// The board is the members' workspace: opening a project and pointing it
+		// at its tracker are theirs, or the board waits on one person.
+		{http.MethodPost, "/api/setup/tracker"}, {http.MethodPost, "/api/setup/tracker/check"},
+		{http.MethodPost, "/api/projects"},
+		{http.MethodPut, "/api/projects/p1"}, {http.MethodPatch, "/api/projects/p1"}, {http.MethodDelete, "/api/projects/p1"},
 		{http.MethodGet, "/api/projects"}, {http.MethodGet, "/api/projects/p1"},
 		{http.MethodPost, "/api/tasks"}, {http.MethodPut, "/api/tasks/t1"}, {http.MethodPost, "/api/tasks/t1/run-skill"},
 		{http.MethodPost, "/api/tasks/t1/comment"}, {http.MethodPost, "/api/tasks/stage"},
@@ -150,14 +153,24 @@ func TestGuardTellsAnonymousFromMember(t *testing.T) {
 	if status, body := call(t, server, nil, http.MethodGet, "/api/me", ""); status != http.StatusOK || !strings.Contains(body, `"mode":"local"`) || !strings.Contains(body, `"signedIn":false`) {
 		t.Fatalf("/api/me stays public and names the mode: %d %s", status, body)
 	}
+	// The roster is what stays an admin's, whichever way it is touched.
 	for _, route := range []struct{ method, path string }{
-		{http.MethodPost, "/api/setup/tracker"}, {http.MethodPost, "/api/projects"}, {http.MethodPut, "/api/projects/p1"}, {http.MethodGet, "/api/users"},
+		{http.MethodGet, "/api/users"}, {http.MethodPut, "/api/users/u1"}, {http.MethodDelete, "/api/users/u1"},
 	} {
 		if status, body := call(t, server, bob, route.method, route.path, `{}`); status != http.StatusForbidden || !strings.Contains(body, msgAdminOnly) {
 			t.Errorf("member on %s %s: %d %s, want 403 naming the role", route.method, route.path, status, body)
 		}
-		if status, _ := call(t, server, alice, route.method, route.path, `{}`); status != http.StatusOK {
-			t.Errorf("admin on %s %s: %d, want 200", route.method, route.path, status)
+	}
+	if status, _ := call(t, server, alice, http.MethodGet, "/api/users", ""); status != http.StatusOK {
+		t.Errorf("admin cannot read the roster")
+	}
+	// The board itself is not on that list: a member opens a project and
+	// configures the tracker it reads from.
+	for _, route := range []struct{ method, path string }{
+		{http.MethodPost, "/api/setup/tracker"}, {http.MethodPost, "/api/projects"}, {http.MethodPut, "/api/projects/p1"},
+	} {
+		if status, body := call(t, server, bob, route.method, route.path, `{}`); status != http.StatusOK {
+			t.Errorf("member on %s %s: %d %s, want 200", route.method, route.path, status, body)
 		}
 	}
 	if status, _ := call(t, server, bob, http.MethodGet, "/api/tasks", ""); status != http.StatusOK {
@@ -479,8 +492,8 @@ func TestWorkstationKeyAuthenticatesInterfaceCalls(t *testing.T) {
 	if status, _ := withBearer(key, "/api/users"); status != http.StatusForbidden {
 		t.Fatalf("member's key on an admin route: %d, want 403", status)
 	}
-	// An invented bearer is not a key: the legacy open mode must not become a
-	// way around sign-in.
+	// An invented bearer is not a key, and there is no longer a mode in which it
+	// becomes one (ADR 0019): it must not be a way around sign-in.
 	if status, _ := withBearer("not-a-real-key", "/api/tasks"); status != http.StatusUnauthorized {
 		t.Fatalf("invented bearer: %d, want 401", status)
 	}
@@ -588,4 +601,177 @@ func callTool(t *testing.T, session *mcp.ClientSession, name string, args map[st
 	}
 	raw, _ := json.Marshal(result.StructuredContent)
 	return string(raw)
+}
+
+// Blocking is the measure that has to reach every door at once: the session
+// already open, the next sign-in, and the workstation key that runs the agent.
+func TestBlockingAnAccountClosesEveryDoor(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := guardedServer(t, h)
+
+	_, alice := account(t, database, "alice@example.com")
+	bobID, bob := account(t, database, "bob@example.com")
+
+	key, _, err := database.CreateAPIKey(bobID, "laptop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.resolveAgentCredential(key); err != nil {
+		t.Fatalf("the key does not open before the block: %v", err)
+	}
+	if status, _ := call(t, server, bob, http.MethodGet, "/api/tasks", ""); status != http.StatusOK {
+		t.Fatalf("bob cannot read the board before the block")
+	}
+
+	status, body := call(t, server, alice, http.MethodPut, "/api/users/"+bobID, `{"blocked":true}`)
+	if status != http.StatusOK || !strings.Contains(body, `"blocked":true`) {
+		t.Fatalf("block: %d %s", status, body)
+	}
+
+	// The session that was open stops working. It answers 401 rather than 403
+	// because the block revoked it outright: the request now names nobody, and
+	// the interface sends them to the sign-in, which is where the block is
+	// spelled out.
+	if status, body := call(t, server, bob, http.MethodGet, "/api/tasks", ""); status != http.StatusUnauthorized {
+		t.Errorf("the open session survived the block: %d %s", status, body)
+	}
+	// So does the key, which is the credential the agent and the MCP tools use.
+	if _, err := h.resolveAgentCredential(key); !errors.Is(err, db.ErrAccountBlocked) {
+		t.Errorf("the workstation key survived the block: %v", err)
+	}
+	// And signing in again does not reopen it.
+	if status, body := call(t, server, nil, http.MethodPost, "/auth/local", `{"email":"bob@example.com"}`); status != http.StatusForbidden || !strings.Contains(body, msgBlocked) {
+		t.Errorf("a blocked account signed back in: %d %s", status, body)
+	}
+
+	// Unblocking gives everything back.
+	if status, body := call(t, server, alice, http.MethodPut, "/api/users/"+bobID, `{"blocked":false}`); status != http.StatusOK {
+		t.Fatalf("unblock: %d %s", status, body)
+	}
+	if _, err := h.resolveAgentCredential(key); err != nil {
+		t.Errorf("the key stayed shut after the unblock: %v", err)
+	}
+	if status, _ := call(t, server, nil, http.MethodPost, "/auth/local", `{"email":"bob@example.com"}`); status != http.StatusOK {
+		t.Errorf("the account stayed shut after the unblock")
+	}
+}
+
+// The board must keep somebody able to administer it, and an admin must not be
+// able to shut the door on themselves from the inside.
+func TestTheLastAdminSurvivesEveryAccountOperation(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := guardedServer(t, h)
+
+	aliceID, alice := account(t, database, "alice@example.com")
+	bobID, _ := account(t, database, "bob@example.com")
+
+	for _, attempt := range []struct{ method, body string }{
+		{http.MethodPut, `{"role":"member"}`},
+		{http.MethodPut, `{"blocked":true}`},
+		{http.MethodDelete, ""},
+	} {
+		if status, body := call(t, server, alice, attempt.method, "/api/users/"+aliceID, attempt.body); status != http.StatusConflict {
+			t.Errorf("%s %s on the last admin: %d %s, want 409", attempt.method, attempt.body, status, body)
+		}
+	}
+
+	// With a second admin the board is no longer at stake, but self-blocking
+	// and self-deletion stay refused: the account that could undo them is the
+	// one being closed.
+	if status, body := call(t, server, alice, http.MethodPut, "/api/users/"+bobID, `{"role":"admin"}`); status != http.StatusOK {
+		t.Fatalf("promoting bob: %d %s", status, body)
+	}
+	if status, _ := call(t, server, alice, http.MethodPut, "/api/users/"+aliceID, `{"blocked":true}`); status != http.StatusConflict {
+		t.Errorf("an admin blocked their own account")
+	}
+	if status, _ := call(t, server, alice, http.MethodDelete, "/api/users/"+aliceID, ""); status != http.StatusConflict {
+		t.Errorf("an admin deleted their own account")
+	}
+	// Demoting themselves is another matter: somebody else holds the role.
+	if status, body := call(t, server, alice, http.MethodPut, "/api/users/"+aliceID, `{"role":"member"}`); status != http.StatusOK {
+		t.Errorf("demoting oneself with a second admin present: %d %s", status, body)
+	}
+}
+
+// Deleting an account takes its credentials with it and leaves its work alone.
+func TestDeletingAnAccountRemovesItsCredentialsOnly(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := guardedServer(t, h)
+
+	aliceID, alice := account(t, database, "alice@example.com")
+	bobID, bob := account(t, database, "bob@example.com")
+	key, _, err := database.CreateAPIKey(bobID, "laptop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Alice keeps a key of her own, which the deletion must leave alone: that
+	// is the "only" in this test's name. It used to be here for another reason
+	// — a board with no key at all fell back to the legacy open mode and the
+	// assertion below passed for the wrong reason — and that mode is gone
+	// (ADR 0019), so the key now carries an assertion instead of a workaround.
+	aliceKey, _, err := database.CreateAPIKey(aliceID, "desktop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := call(t, server, alice, http.MethodDelete, "/api/users/"+bobID, ""); status != http.StatusOK {
+		t.Fatalf("delete: %d %s", status, body)
+	}
+	if user, err := database.GetUser(bobID); err != nil || user != nil {
+		t.Errorf("the account survived the deletion: %v %v", user, err)
+	}
+	if status, _ := call(t, server, bob, http.MethodGet, "/api/tasks", ""); status != http.StatusUnauthorized {
+		t.Errorf("the session of a deleted account still names somebody")
+	}
+	if _, err := h.resolveAgentCredential(key); err == nil {
+		t.Errorf("the workstation key of a deleted account still opens")
+	}
+	if credential, err := h.resolveAgentCredential(aliceKey); err != nil || credential.UserID != aliceID {
+		t.Errorf("another account's key did not survive the deletion: %+v %v", credential, err)
+	}
+	if status, _ := call(t, server, alice, http.MethodDelete, "/api/users/"+bobID, ""); status != http.StatusNotFound {
+		t.Errorf("deleting an unknown account is not a 404")
+	}
+	// The implicit account is not a person and is not deletable.
+	if err := database.EnsureUser(db.ImplicitUserID); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := call(t, server, alice, http.MethodDelete, "/api/users/"+db.ImplicitUserID, ""); status != http.StatusConflict {
+		t.Errorf("the implicit account was deletable")
+	}
+}
+
+// The tracker keys sit on the shared row but are a member's to change: a
+// member who may open a project may point it at the tracker it reads from.
+// The rest of that row, the AI configuration and the prompts, stays an admin's.
+func TestMembersConfigureTheTrackerOnTheSharedRow(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := guardedServer(t, h)
+	_, _ = account(t, database, "alice@example.com")
+	_, bob := account(t, database, "bob@example.com")
+
+	current, _ := database.GetSettings()
+	current.IssueTracker = "jira"
+	current.JiraUrl = "https://acme.atlassian.net"
+	current.JiraProject = "PE"
+	payload, _ := json.Marshal(current)
+	if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
+		t.Fatalf("member configuring the tracker: %d %s", status, body)
+	}
+	saved, _ := database.GetSettings()
+	if saved.IssueTracker != "jira" || saved.JiraUrl != "https://acme.atlassian.net" || saved.JiraProject != "PE" {
+		t.Fatalf("the tracker did not reach the shared row: %+v", saved)
+	}
+
+	// The same payload carrying a prompt is still refused, by name.
+	current = saved
+	current.PromptClarify = "whatever"
+	payload, _ = json.Marshal(current)
+	if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusForbidden || !strings.Contains(body, "promptClarify") {
+		t.Fatalf("member changing a prompt: %d %s", status, body)
+	}
 }

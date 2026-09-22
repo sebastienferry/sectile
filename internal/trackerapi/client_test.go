@@ -282,7 +282,14 @@ func TestNewClientResolvesTrackerCredentials(t *testing.T) {
 	}
 }
 
-func TestMissingCredentialErrorNamesNoProvider(t *testing.T) {
+// Every call that needs a credential and has none must say the same thing, and
+// it must point at the credential the person can actually set. It used to name
+// SECTILE_TRACKER_TOKEN, which sends them to a deployment they usually cannot
+// reach to fix something they can: this product attributes a tracker write to
+// whoever made it, so each person stores their own token (ADR 0014). The
+// server-wide variable survives for work nobody asked for, and is deliberately
+// not advertised here.
+func TestMissingCredentialErrorPointsAtThePersonalToken(t *testing.T) {
 	c := &Client{HTTP: http.DefaultClient}
 	for _, call := range []struct {
 		name string
@@ -293,8 +300,29 @@ func TestMissingCredentialErrorNamesNoProvider(t *testing.T) {
 		{"githubGraphQL", func() error { _, err := c.GithubGraphQL("{viewer{login}}"); return err }},
 	} {
 		err := call.run()
-		if err == nil || err.Error() != "configure SECTILE_TRACKER_TOKEN on the server" {
-			t.Errorf("%s: got %v, want the tracker-agnostic credential error", call.name, err)
+		if err == nil {
+			t.Errorf("%s: a call with no credential must fail", call.name)
+			continue
 		}
+		if got, want := err.Error(), missingCredential("GitHub"); got != want {
+			t.Errorf("%s: got %q, want %q", call.name, got, want)
+		}
+		if strings.Contains(err.Error(), genericTokenVar) {
+			t.Errorf("%s: the error still names the server variable: %v", call.name, err)
+		}
+	}
+}
+
+// The message a person sees when nothing could be resolved must point at the
+// credential they can actually set. Sending them to a server environment
+// variable asks them to change a deployment they usually cannot reach, to fix
+// something they can.
+func TestMissingCredentialPointsAtThePersonalToken(t *testing.T) {
+	msg := missingCredential("GitHub")
+	if strings.Contains(msg, genericTokenVar) || strings.Contains(strings.ToLower(msg), "server") {
+		t.Fatalf("the message sends the user to the server credential: %q", msg)
+	}
+	if !strings.Contains(msg, "GitHub") {
+		t.Fatalf("the message does not name the tracker: %q", msg)
 	}
 }

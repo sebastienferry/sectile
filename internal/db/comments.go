@@ -21,6 +21,7 @@ const commentsTimeout = 90 * time.Second
 
 func (d *DB) ensureCommentsTable() {
 	_, _ = d.conn.Exec(`CREATE TABLE IF NOT EXISTS task_comments (
+		user_id TEXT NOT NULL DEFAULT '',
 		id TEXT PRIMARY KEY,
 		task_id TEXT NOT NULL,
 		author TEXT NOT NULL DEFAULT '',
@@ -30,7 +31,9 @@ func (d *DB) ensureCommentsTable() {
 	);`)
 	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_task_comments_task ON task_comments(task_id, created_at ASC);")
 	// The Sectile user behind a local comment; empty on rows written before.
-	_, _ = d.conn.Exec("ALTER TABLE task_comments ADD COLUMN user_id TEXT NOT NULL DEFAULT '';")
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec("ALTER TABLE task_comments ADD COLUMN user_id TEXT NOT NULL DEFAULT '';")
+	}
 }
 
 func (d *DB) taskTrackerSource(task *models.Task) string {
