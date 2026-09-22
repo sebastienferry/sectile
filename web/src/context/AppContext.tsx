@@ -234,6 +234,11 @@ interface AppContextType {
    * d'échelle se voit à l'écran, l'annoncer à chaque clic ne fait que du bruit.
    */
   updateSettings: (newSettings: Partial<UserSettings>, options?: { silent?: boolean }) => Promise<void>
+  /**
+   * Re-reads `/api/settings`. `userName` and `userEmail` are projections of the
+   * account, so a change made through `/api/me` only reaches the chrome this way.
+   */
+  reloadSettings: () => Promise<void>
   t: TranslationSchema
   toasts: ToastMessage[]
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
@@ -3437,6 +3442,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsAdminOpen,
         settings,
         updateSettings,
+        reloadSettings: fetchSettings,
         t,
         toasts,
         addToast,

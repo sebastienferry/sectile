@@ -16,7 +16,7 @@ interface SignInStatusProps {
  */
 export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }: SignInStatusProps = {}) {
   const { user, reload, rename } = useCurrentUser()
-  const { t } = useApp()
+  const { t, reloadSettings } = useApp()
   const [status, setStatus] = useState('')
   const [draftName, setDraftName] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -26,7 +26,12 @@ export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }:
     setStatus('')
     const failure = await rename((draftName ?? '').trim())
     setSaving(false)
-    if (!failure) setDraftName(null)
+    if (!failure) {
+      setDraftName(null)
+      // The sidebar and the status bar read the name from the settings, which
+      // project it from the account: re-read them so the rename shows there too.
+      void reloadSettings()
+    }
     setStatus(failure || t.account.saved)
   }
 

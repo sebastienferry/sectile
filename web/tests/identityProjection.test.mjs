@@ -47,3 +47,11 @@ test('saving the profile no longer posts the projected name', () => {
   const handleSave = profileModal.slice(start, profileModal.indexOf('setIsProfileOpen(false)', start))
   assert.ok(!handleSave.includes('userName:'), 'handleSave still sends userName, which the server ignores')
 })
+
+test('a rename in the account tab re-reads the settings the chrome shows', () => {
+  const start = signInStatus.indexOf('async function saveName')
+  assert.ok(start >= 0, 'saveName was not found in SignInStatus')
+  const saveName = signInStatus.slice(start, signInStatus.indexOf('async function signOut', start))
+  assert.ok(saveName.includes('reloadSettings()'), 'a rename leaves the sidebar and the status bar on the old name')
+  assert.match(appContext, /reloadSettings: fetchSettings,/, 'AppContext does not expose the settings re-read')
+})

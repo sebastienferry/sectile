@@ -87,3 +87,8 @@ against the wrong one. References: [`spec.md`](./spec.md), [`plan.md`](./plan.md
   issue.
 - **`AppContext`'s `userEmail: 'dev@example.com'` was left as it is.** It is the address's
   pre-fetch placeholder, not the name's, and the clarification named only `userName`.
+- **Review (adjust): a rename did not reach the chrome until a reload.** `SignInStatus`
+  renamed through `PATCH /api/me` and refreshed only its own `useCurrentUser` state, so the
+  sidebar and the status bar kept the old `settings.userName` until the page was reloaded.
+  `AppContext` now exposes `reloadSettings` (its existing `fetchSettings`) and `saveName`
+  calls it after a successful rename, which is the "settings are re-read" step US1 assumes.
