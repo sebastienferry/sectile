@@ -13,6 +13,19 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- **The desktop discussion header now leads with the task and its state.** The
+  title, the execution's state and the skill result share one line; below them
+  the worktree path is a control you click to copy. Relaunch, log export and the
+  Console/Changes switch became icons, and that switch moved into the toolbar,
+  so the header takes two rows instead of four.
+- **The skill indicator no longer repeats the execution state.** It reported a
+  running execution a second time as `In progress` and a stopped console as
+  `Console stopped`. It now speaks only when it has something the state does not
+  say: the server's verdict on the skill, a stop that has not taken effect, or
+  an execution that ended cleanly without the skill being recorded.
+
 ### Security
 
 - **An agent, MCP client or machine API call now needs a real workstation key.**

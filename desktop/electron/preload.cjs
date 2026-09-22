@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  version:()=>ipcRenderer.invoke('version'),
  shutdown:()=>ipcRenderer.invoke('shutdown'),
  restart:()=>ipcRenderer.invoke('restart'),
+ copyText:text=>ipcRenderer.invoke('copy-text',text),
  status:()=>ipcRenderer.invoke('status'),
  chooseRepository:()=>ipcRenderer.invoke('choose-repository'),
  serverTasks:(id,q,launchable=false)=>ipcRenderer.invoke('server-tasks',id,q,launchable),

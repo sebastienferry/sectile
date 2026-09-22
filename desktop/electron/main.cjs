@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell}=require('electron')
+const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell,clipboard}=require('electron')
 const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
@@ -176,6 +176,12 @@ ipcMain.handle('save-log',async(_,text)=>{
  if(typeof text!=='string'||text.length>10_000_000)throw Error('Invalid log')
  const result=await dialog.showSaveDialog(window,{defaultPath:'sectile-execution.log'})
  if(!result.canceled&&result.filePath)fs.writeFileSync(result.filePath,text,{mode:0o600})
+})
+// The renderer has no clipboard permission of its own; copying goes through the
+// main process, which writes exactly the string it was handed and nothing else.
+ipcMain.handle('copy-text',(_,text)=>{
+ if(typeof text!=='string'||!text)throw Error('Nothing to copy')
+ clipboard.writeText(text)
 })
 ipcMain.handle('status',()=>api('/desktop/status'))
 ipcMain.handle('choose-repository',async()=>{
