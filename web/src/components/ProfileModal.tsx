@@ -150,7 +150,6 @@ export const ProfileModal: React.FC = () => {
   const handleSave = async () => {
     if (!modelIsValid) return
     await updateSettings({
-      userName: settings.userName,
       userEmail: settings.userEmail,
       theme,
       language,

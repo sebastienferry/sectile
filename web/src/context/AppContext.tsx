@@ -365,7 +365,7 @@ const defaultSettings: UserSettings = {
   uiScale: 100,
   defaultView: 'board',
   detailMode: 'panel',
-  userName: 'Developer',
+  userName: '',
   userEmail: 'dev@example.com',
   userAvatar: '',
   aiProvider: 'agy',

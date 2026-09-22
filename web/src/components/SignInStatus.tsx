@@ -42,7 +42,7 @@ export function SignInStatus({ projects: _projects, onOpenAdmin: _onOpenAdmin }:
 
   if (!user) return null
 
-  const initials = (user.displayName || user.email || user.userId || 'SF').substring(0, 2).toUpperCase()
+  const initials = (user.displayName || user.email || user.userId || '').substring(0, 2).toUpperCase()
 
   return (
     <section className="space-y-5 rounded-xl border border-[var(--border-color)] bg-[var(--bg-secondary)] p-5 text-xs" aria-labelledby="account-title">
