@@ -247,6 +247,18 @@ func jiraProjectKey(p *models.Project) string {
 // The project key is quoted like the types: it comes from configuration rather
 // than from a stranger, but a key derived from a slug can land on a JQL reserved
 // word, and the site then answers a parse error that names nothing useful.
+// jiraUpdatedWithin is the clause that turns a full read into an incremental
+// one: the work items the site has touched in the last so many minutes. JQL
+// takes that relative form directly, so the site dates it with its own clock
+// and no timezone has to be agreed on. Zero, or anything negative, is no clause
+// at all — the caller wants the whole project.
+func jiraUpdatedWithin(minutes int) string {
+	if minutes <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("updated >= -%dm", minutes)
+}
+
 func jiraJQL(projectKey string, issueTypes []string, extra string) string {
 	jql := `project = "` + strings.ReplaceAll(strings.TrimSpace(projectKey), `"`, `\"`) + `"`
 	var quoted []string

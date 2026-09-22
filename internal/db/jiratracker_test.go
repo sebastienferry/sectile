@@ -34,7 +34,14 @@ type fakeTracker struct {
 	// getErr makes the single work item read fail, the way a refused credential
 	// does.
 	getErr error
-	calls  []string
+	// syncErr makes the project read fail, the way a refused credential does on
+	// a background pass.
+	syncErr error
+	// syncWindow records how far back the last synchronisation was asked to
+	// read: zero for the whole project, minutes for an incremental pass.
+	syncWindow int
+	syncs      int
+	calls      []string
 	// syncedAs and readAs record who the work ran as, which is what decides
 	// whether a personal tracker credential can be resolved at all.
 	syncedAs    string
@@ -53,6 +60,7 @@ func newFakeTracker() *fakeTracker {
 			Capabilities: []tracker.Capability{
 				tracker.CapSync, tracker.CapGet, tracker.CapUpdate, tracker.CapBoard,
 				tracker.CapTeam, tracker.CapSprint, tracker.CapEpic, tracker.CapComment,
+				tracker.CapIncrementalSync,
 			},
 		},
 		members: map[string][]models.TeamMember{},
@@ -75,9 +83,32 @@ func (f *fakeTracker) FormatTaskID(projectID, key, rawID string) string {
 }
 
 func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) ([]models.Task, error) {
-	f.record("sync")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "sync")
 	f.syncedAs = tracker.ActingUser(ctx)
+	f.syncWindow = req.UpdatedWithinMin
+	f.syncs++
+	if f.syncErr != nil {
+		return nil, f.syncErr
+	}
 	return append([]models.Task{}, f.tasks...), nil
+}
+
+// syncedWithin waits for the queue worker to run the synchronisation, and
+// answers the window it asked the tracker for.
+func (f *fakeTracker) syncedWithin(t *testing.T) (int, bool) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		f.mu.Lock()
+		window, done := f.syncWindow, f.syncs > 0
+		f.mu.Unlock()
+		if done {
+			return window, true
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return 0, false
 }
 
 // GetIssue is the single-work-item read the background pass makes, one job per

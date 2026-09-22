@@ -133,6 +133,16 @@ type SyncRequest struct {
 	Team     string
 	Repo     string
 	RepoPath string
+	// UpdatedWithinMin narrows the read to the work items the tracker has
+	// touched in the last so many minutes. Zero means the whole project, which
+	// is what a synchronisation somebody asked for wants, and what a tracker
+	// without CapIncrementalSync gets whatever is asked.
+	//
+	// It is a duration rather than an instant on purpose: Jira's JQL takes a
+	// relative `-15m`, which no clock difference between Sectile and the site
+	// can shift, whereas an absolute timestamp would have to be expressed in
+	// the site's own timezone.
+	UpdatedWithinMin int
 }
 
 // AddCommentRequest holds comment body and issue key.

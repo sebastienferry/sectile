@@ -32,7 +32,7 @@ func NewJiraAdapter(client *Client) *JiraAdapter {
 				tracker.CapCreate, tracker.CapUpdate, tracker.CapDelete, tracker.CapSync,
 				tracker.CapGet, tracker.CapComment, tracker.CapLabels, tracker.CapAssign,
 				tracker.CapTransition, tracker.CapSprint, tracker.CapTeam, tracker.CapEpic,
-				tracker.CapBoard,
+				tracker.CapBoard, tracker.CapIncrementalSync,
 			},
 		},
 		client: client,
@@ -162,7 +162,10 @@ func (j *JiraAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	if err != nil {
 		return nil, err
 	}
-	return j.search(ctx, c, jiraJQL(key, types, ""))
+	// An incremental read is the same search with one more clause. It comes
+	// back ordered by `updated` like the full one, so a window that turns out
+	// to hold more work items than a page is paginated the same way.
+	return j.search(ctx, c, jiraJQL(key, types, jiraUpdatedWithin(req.UpdatedWithinMin)))
 }
 
 func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {

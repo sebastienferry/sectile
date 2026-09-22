@@ -10,6 +10,20 @@ Sectile operates the development workflow for this repository. Use `.taskflow/co
 Development work follows Sectile's stages: clarify, specify, implement, adjust the existing pull request, then human merge and handoff. Keep the assigned branch/worktree, use Sectile's local stage handler for standalone runs, and let managed Sectile runs own stage transitions and tracker synchronization.
 <!-- sectile:project-context:end -->
 
+## Everything written in the repository is in English
+
+Code comments, doc comments, identifiers, test names and failure messages,
+commit messages, pull request descriptions, `CHANGELOG.md`, `docs/` and the
+ADRs are written in English, whatever language the conversation is held in.
+This holds for a file whose neighbouring comments are still in French: a
+comment being touched is rewritten in English rather than continued in French.
+
+The exception is what a user reads at runtime. The interface, the activity
+steps and summaries, the log lines and the error messages Sectile shows are
+written in the language that surface already speaks, which is French today.
+Translating one of those in passing changes what the product says, so it is a
+decision of its own, never a side effect of an edit.
+
 ## Releases: cutting a tag
 
 A release of Sectile is a Git tag, and nothing else. The tag is what the

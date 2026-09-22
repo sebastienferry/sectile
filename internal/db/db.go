@@ -66,6 +66,21 @@ type SkillJob struct {
 	// Op porte l'écriture tracker à effectuer quand SkillID vaut "tracker_op" :
 	// assignation, rattachement à un épic, découpe d'épic, labels d'horizon.
 	Op *TrackerOp
+	// Sync carries what tells a background synchronisation from one somebody
+	// asked for, when SkillID starts with "sync_".
+	Sync SyncOptions
+}
+
+// SyncOptions is what the background loop adds to a synchronisation: how far
+// back to read, and the fact that nobody is watching it.
+type SyncOptions struct {
+	// WindowMin narrows the read to the work items the tracker has touched in
+	// the last so many minutes. Zero reads the whole project.
+	WindowMin int
+	// Background marks a pass nobody asked for. Such a pass that brings nothing
+	// back leaves no activity: it runs every few minutes, and a row per pass
+	// per project buries the entries the feed exists for.
+	Background bool
 }
 
 // ProjectLimiter serializes background AI agent skill workers per project.
@@ -3848,7 +3863,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 	d.mu.Unlock()
 
 	// 3. Special handling for background Sync jobs
-	if job.SkillID != "sync_task" && (strings.HasPrefix(job.SkillID, "sync_") || job.SkillID == "sync_all") {
+	if strings.HasPrefix(job.SkillID, "sync_") {
 		d.mu.RLock()
 		settings, _ := d.getSettingsUnsafe()
 		d.mu.RUnlock()
@@ -3868,13 +3883,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 		return
 	}
 
-	// 3c. Synchronisation unitaire d'un ticket en arrière-plan
-	if job.SkillID == "sync_task" {
-		d.processSyncTaskJob(ctx, job)
-		return
-	}
-
-	// 3d. Écritures tracker unitaires : assignation, épic, labels d'horizon.
+	// 3c. Single tracker writes: assignment, epic, roadmap horizon labels.
 	if job.SkillID == "tracker_op" {
 		d.processTrackerOpJob(ctx, job)
 		return
@@ -3925,15 +3934,34 @@ func trackerDisplayName(name string) string {
 	return strings.ToUpper(name[:1]) + name[1:]
 }
 
+// syncWindow is how far back one job reads. A tracker that cannot narrow a
+// search is asked for the whole project whatever the loop wanted: a full
+// paginated read is still one request per hundred work items, where the unit
+// re-read it replaces was one per work item.
+func syncWindow(ts tracker.TicketingSystem, opts SyncOptions) int {
+	if ts == nil || !ts.Supports(tracker.CapIncrementalSync) {
+		return 0
+	}
+	return opts.WindowMin
+}
+
 // afterTrackerSync follows an import with what the tracker can tell about the
-// project's structure: the teams met on the work items and the board columns
-// and sprints, when the tracker has them. Neither failure undoes the import.
-func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, tasks []models.Task) []string {
+// project's structure: the teams met on the work items, the board columns and
+// sprints when the tracker has them, and the pull requests of what was just
+// imported. Neither failure undoes the import.
+//
+// The first two describe the project rather than its work items, and cost the
+// same whether one ticket moved or none. A background pass therefore only asks
+// for them on a full read — every half hour — while a synchronisation somebody
+// asked for always does. Pull request rediscovery follows the imported work
+// items, so an incremental pass pays for exactly what changed.
+func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, tasks []models.Task, opts SyncOptions) []string {
 	if proj == nil || ts == nil {
 		return nil
 	}
+	describesProject := !opts.Background || opts.WindowMin == 0
 	var steps []string
-	if ts.Supports(tracker.CapTeam) {
+	if describesProject && ts.Supports(tracker.CapTeam) {
 		if note, err := d.RefreshProjectTeamMembers(ctx, proj.ID, tasks); err != nil {
 			steps = append(steps, fmt.Sprintf("⚠️ Équipes : %v", err))
 		} else {
@@ -3943,7 +3971,7 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 	// No board recorded yet is not a reason to skip: SyncProjectBoardColumns
 	// resolves the project's board itself and persists the one it retained, so
 	// the columns follow the tracker from the very first sync.
-	if ts.Supports(tracker.CapBoard) {
+	if describesProject && ts.Supports(tracker.CapBoard) {
 		if note, err := d.SyncProjectBoardColumns(ctx, proj.ID); err != nil {
 			steps = append(steps, fmt.Sprintf("⚠️ Board : %v", err))
 		} else {
@@ -4000,9 +4028,10 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 			}
 
 			syncTasks, syncErr := ts.SyncIssues(ctx, tracker.SyncRequest{
-				Project:  &p,
-				Repo:     tRepo,
-				RepoPath: tPath,
+				Project:          &p,
+				Repo:             tRepo,
+				RepoPath:         tPath,
+				UpdatedWithinMin: syncWindow(ts, job.Sync),
 			})
 			if syncErr != nil {
 				hasError = true
@@ -4017,7 +4046,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 					hasError = true
 					steps = append(steps, fmt.Sprintf("⚠️ %s: écriture locale échouée: %v", tName, impErr))
 				} else {
-					steps = append(steps, d.afterTrackerSync(ctx, &p, ts, syncTasks)...)
+					steps = append(steps, d.afterTrackerSync(ctx, &p, ts, syncTasks, job.Sync)...)
 				}
 				steps = append(steps, fmt.Sprintf("✅ %s (%s): %d issues imported", tName, p.Name, len(syncTasks)))
 				outputLines = append(outputLines, fmt.Sprintf("✅ %s (%s): %d issues synced", tName, p.Name, len(syncTasks)))
@@ -4081,9 +4110,10 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 		}
 
 		tasks, err := ts.SyncIssues(ctx, tracker.SyncRequest{
-			Project:  proj,
-			Repo:     repo,
-			RepoPath: repoPath,
+			Project:          proj,
+			Repo:             repo,
+			RepoPath:         repoPath,
+			UpdatedWithinMin: syncWindow(ts, job.Sync),
 		})
 		if err != nil {
 			hasError = true
@@ -4105,7 +4135,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 				outputLines = append(outputLines, "**Error:** "+impErr.Error())
 			} else {
 				steps = append(steps, "3. Local database updated successfully")
-				steps = append(steps, d.afterTrackerSync(ctx, proj, ts, tasks)...)
+				steps = append(steps, d.afterTrackerSync(ctx, proj, ts, tasks, job.Sync)...)
 			}
 			totalImported = len(tasks)
 			summary = fmt.Sprintf("%d %s issues synchronized successfully", len(tasks), trackerTitle)
@@ -4114,6 +4144,24 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 			for _, t := range tasks {
 				outputLines = append(outputLines, fmt.Sprintf("- **[%s]** %s *(Status: %s, Priority: %s)*", t.Key, t.Title, t.Status, t.Priority))
 			}
+		}
+	}
+
+	if job.Sync.Background {
+		// The loop counts what its passes actually wrote, rather than what they
+		// queued: the job outlives the pass, so this is the only place that
+		// knows.
+		d.recordAutoSyncPass(job.ProjectID, job.Sync.WindowMin, totalImported, hasError, summary)
+
+		// A pass nobody asked for that brought nothing back has nothing to
+		// say, and it runs every few minutes on every project that opted in.
+		// A failure is never dropped: a credential the tracker refuses is
+		// exactly what these rows are read for.
+		if !hasError && totalImported == 0 {
+			if delErr := d.DeleteActivity(job.ActivityID); delErr != nil {
+				log.Printf("[autosync] activité de synchronisation non supprimée (%s) : %v", job.ActivityID, delErr)
+			}
+			return
 		}
 	}
 
@@ -4485,165 +4533,6 @@ func (d *DB) syncSingleTask(ctx context.Context, taskID string, force bool) (*mo
 	return task, nil
 }
 
-// EnqueueSingleTaskSync enqueues a background sync activity for a single task,
-// with nobody to attribute the read to.
-func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, error) {
-	return d.EnqueueSingleTaskSyncAs("", task)
-}
-
-// EnqueueSingleTaskSyncAs enqueues it on behalf of one account. The queue
-// outlives the request that filled it, so the user travels on the job rather
-// than in a context: without it the worker resolves the server credential, and
-// a deployment whose only Jira credential is personal fails every one of these
-// reads with "configure the Jira account e-mail".
-func (d *DB) EnqueueSingleTaskSyncAs(actingUserID string, task *models.Task) (*models.TaskActivity, error) {
-	if task == nil {
-		return nil, fmt.Errorf("task is nil")
-	}
-
-	activityID := uuid.New().String()
-	now := time.Now()
-	act := models.TaskActivity{
-		ID:        activityID,
-		TaskID:    task.ID,
-		TaskKey:   task.Key,
-		SkillID:   "sync_task",
-		SkillName: "Sync Ticket",
-		Action:    fmt.Sprintf("Synchronisation de %s (arrière-plan)", task.Key),
-		Status:    string(models.ActivityStatusQueued),
-		Summary:   fmt.Sprintf("Synchronisation de %s en file d'attente", task.Key),
-		Steps: []string{
-			fmt.Sprintf("Cible : Ticket %s", task.Key),
-			"Poussée dans la file d'attente d'exécution...",
-		},
-		CreatedAt: now,
-		// The account the read runs under, shown on the activity rather than
-		// left to be guessed: a background pass reads as the project's owner,
-		// and a failed one has to say whose credential was refused.
-		UserID: strings.TrimSpace(actingUserID),
-	}
-
-	d.mu.Lock()
-	err := d.addTaskActivityDirect(act)
-	d.mu.Unlock()
-	if err != nil {
-		return nil, err
-	}
-
-	job := SkillJob{
-		ActivityID: activityID,
-		TaskID:     task.ID,
-		SkillID:    "sync_task",
-		ProjectID:  task.ProjectID,
-		ActingUser: strings.TrimSpace(actingUserID),
-	}
-
-	d.pushTrackerOpJob(job)
-	return &act, nil
-}
-
-func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
-	// Whoever the job was queued for travels with it: the background pass runs
-	// under the project's owner, and their credential is the only one a
-	// personal-credential deployment has.
-	ctx = tracker.WithActingUser(ctx, job.ActingUser)
-	d.mu.RLock()
-	task, err := d.getTaskByIDUnsafe(job.TaskID)
-	d.mu.RUnlock()
-
-	if err != nil || task == nil {
-		d.finishTrackerOp(job.ActivityID, []string{"❌ Ticket introuvable"}, "Ticket introuvable pour la synchronisation unitaire", fmt.Errorf("ticket introuvable"))
-		return
-	}
-
-	// What the ticket looked like before the read, so the read can say whether
-	// it was worth recording.
-	before := trackerFacts(task)
-
-	syncedTask, syncErr := d.SyncSingleTaskAs(ctx, task.ID)
-	if syncErr != nil {
-		d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("❌ Échec : %v", syncErr)}, fmt.Sprintf("Échec de la synchronisation de %s", task.Key), syncErr)
-		return
-	}
-
-	// A re-read that changed nothing has nothing to say, and the background
-	// pass produces almost only those: one per unfinished work item, every few
-	// minutes, on the work item's own card. Four hundred tickets read every
-	// quarter of an hour buried every real entry — a run, a transition, a
-	// comment — under thousands of "synchronised successfully". The row is
-	// still written when the job is queued, so a pass in flight remains
-	// visible; it is dropped here once it turns out to have reported nothing.
-	//
-	// A failure is never dropped. It is the one outcome nobody can reconstruct
-	// afterwards, and a credential the tracker refuses is exactly what these
-	// rows are read for.
-	if syncedTask == nil || trackerFacts(syncedTask) == before {
-		if delErr := d.DeleteActivity(job.ActivityID); delErr != nil {
-			log.Printf("[autosync] activité de synchronisation non supprimée (%s) : %v", job.ActivityID, delErr)
-		}
-		return
-	}
-
-	d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("✅ Ticket %s synchronisé avec succès", syncedTask.Key)}, fmt.Sprintf("Synchronisation de %s effectuée avec succès", syncedTask.Key), nil)
-}
-
-// trackerFactsSeparator cannot appear in a tracker field, so two different sets
-// of facts cannot render as the same string by running into each other.
-const trackerFactsSeparator = "\x1f"
-
-// trackerFacts renders everything a re-read of one work item is able to change:
-// the fields the tracker owns, and nothing Sectile decides for itself. Two
-// reads rendering the same string found the same ticket.
-//
-// It deliberately leaves out UpdatedAt, which the import bumps on every write
-// and which would therefore report a change on every single pass, and the
-// pull request links, which a background read never touches — only a
-// rediscovery the person asked for does.
-func trackerFacts(t *models.Task) string {
-	if t == nil {
-		return ""
-	}
-
-	// The tracker does not promise an order for labels, and a reordering is not
-	// a change.
-	labels := append([]string(nil), t.Labels...)
-	sort.Strings(labels)
-
-	text := func(p *string) string {
-		if p == nil {
-			return ""
-		}
-		return *p
-	}
-	stamp := func(p *time.Time) string {
-		if p == nil {
-			return ""
-		}
-		return p.UTC().Format(time.RFC3339Nano)
-	}
-
-	return strings.Join([]string{
-		t.Title,
-		t.Description,
-		string(t.Status),
-		t.TrackerStatus,
-		string(t.Priority),
-		t.Assignee,
-		t.AssigneeAvatar,
-		t.Sprint,
-		t.Team,
-		t.TeamID,
-		t.IssueType,
-		t.ParentKey,
-		t.ParentTitle,
-		t.ParentType,
-		strings.Join(labels, ","),
-		text(t.DueDate),
-		text(t.ExternalURL),
-		stamp(t.TrackerUpdatedAt),
-	}, trackerFactsSeparator)
-}
-
 // EnqueueSync queues a synchronisation nobody in particular asked for, so it
 // runs with the server credential.
 func (d *DB) EnqueueSync(syncType string, param string, projectID string) (*models.TaskActivity, error) {
@@ -4655,6 +4544,12 @@ func (d *DB) EnqueueSync(syncType string, param string, projectID string) (*mode
 // site at all: the queue outlives the request, and the token belongs to the
 // person rather than to the server.
 func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, projectID string) (*models.TaskActivity, error) {
+	return d.EnqueueSyncWith(userID, syncType, param, projectID, SyncOptions{})
+}
+
+// EnqueueSyncWith is the same queueing with the background loop's two extras:
+// the window to read back, and the fact that nobody is watching.
+func (d *DB) EnqueueSyncWith(userID string, syncType string, param string, projectID string, opts SyncOptions) (*models.TaskActivity, error) {
 	d.mu.RLock()
 	settings, _ := d.getSettingsUnsafe()
 	var proj *models.Project
@@ -4707,6 +4602,23 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 			"Poussée dans la file d'attente d'exécution...",
 		}
 	default:
+		// A tracker that has a name of its own keeps its own job. Falling
+		// through to the global synchronisation would silently widen a pass
+		// asked for one project into a pass over every project of the
+		// deployment, the day a tracker other than GitHub or Jira is
+		// registered.
+		if name := strings.TrimPrefix(strings.TrimSpace(syncType), "sync_"); name != "" && name != "all" {
+			if ts, ok := d.TrackerRegistry().Get(name); ok && ts != nil {
+				syncType = "sync_" + name
+				skillName = "Sync " + strings.ToUpper(name[:1]) + name[1:]
+				summary = fmt.Sprintf("Synchronisation %s en file d'attente", skillName[5:])
+				steps = []string{
+					fmt.Sprintf("Cible : %s", skillName[5:]),
+					"Poussée dans la file d'attente d'exécution...",
+				}
+				break
+			}
+		}
 		syncType = "sync_all"
 		skillName = "Sync Globale"
 		summary = "Synchronisation multi-trackers en file d'attente"
@@ -4724,6 +4636,10 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 		attachedProject = proj.ID
 	}
 
+	if opts.WindowMin > 0 {
+		steps = append(steps, fmt.Sprintf("Lecture incrémentale : les tickets modifiés depuis %d minute(s)", opts.WindowMin))
+	}
+
 	act := models.TaskActivity{
 		ID:        activityID,
 		ProjectID: attachedProject,
@@ -4736,6 +4652,10 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 		Steps:     steps,
 		Prompt:    param,
 		CreatedAt: now,
+		// The account the read runs under. A background pass borrows the
+		// project's owner (ADR 0018), and a refusal has to say whose credential
+		// was refused rather than leave it to be guessed.
+		UserID: strings.TrimSpace(userID),
 	}
 
 	d.mu.Lock()
@@ -4749,6 +4669,7 @@ func (d *DB) EnqueueSyncAs(userID string, syncType string, param string, project
 		SkillID:    syncType,
 		Prompt:     param,
 		ActingUser: userID,
+		Sync:       opts,
 	})
 
 	return &act, nil

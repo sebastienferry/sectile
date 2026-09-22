@@ -12,12 +12,22 @@ import (
 	"time"
 )
 
-func (c *Client) SyncFromGithub(repo, repoPath string) ([]models.Task, error) {
+// SyncFromGithub reads a repository's issues. updatedWithinMin narrows the read
+// to the ones GitHub has touched in the last so many minutes, through the
+// `since` parameter of the issues endpoint; zero reads the whole repository.
+func (c *Client) SyncFromGithub(repo, repoPath string, updatedWithinMin int) ([]models.Task, error) {
 	repo, err := repository(repo)
 	if err != nil {
 		return nil, err
 	}
-	pages, err := c.githubPages(context.Background(), "repos/"+repo+"/issues?per_page=100&state=all")
+	path := "repos/" + repo + "/issues?per_page=100&state=all"
+	if updatedWithinMin > 0 {
+		// GitHub dates `updated_at` in UTC and takes the same here, so the
+		// instant travels without a timezone having to be agreed on.
+		since := time.Now().UTC().Add(-time.Duration(updatedWithinMin) * time.Minute)
+		path += "&since=" + url.QueryEscape(since.Format(time.RFC3339))
+	}
+	pages, err := c.githubPages(context.Background(), path)
 	if err != nil {
 		return nil, err
 	}
