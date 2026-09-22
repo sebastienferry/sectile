@@ -46,6 +46,24 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A ticket's activity list shows what happened to it, not how often it was
+  read.** The background synchronisation left one entry on a ticket every time
+  it re-read it, whether or not anything had moved. On a project of a few
+  hundred tickets that is tens of thousands of "synchronised successfully" a
+  day, and a card's real history — a run, a transition, a comment — was buried
+  under them. A background read that finds the ticket unchanged now leaves
+  nothing behind. A read that finds a change still records it, and a read the
+  tracker refuses is still kept: that one is the reason these entries are
+  looked at.
+- **A closed ticket no longer fills its own activity list.** The background
+  synchronisation re-read every work item that was not marked finished in
+  Sectile, and left one activity on the ticket each time. A ticket the tracker
+  had closed — Jira's *Closed*, *Resolved*, *Won't Do*, GitHub's *closed* —
+  counted as unfinished for as long as its workflow label said otherwise, so it
+  was read again every few minutes, for ever. Sectile now asks the project's own
+  board which columns land on the finished stage, falls back on the status name
+  when a project declares none, and comes back to those tickets once an hour so
+  a reopened one is still noticed.
 - **A PostgreSQL deployment no longer leaves runs stuck after a restart.**
   Marking interrupted work as failed, and cancelling the remote runs whose
   client session died with the server, only ever ran on SQLite. On PostgreSQL

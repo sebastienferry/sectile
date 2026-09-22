@@ -113,6 +113,51 @@ export SECTILE_TRACKER_TOKEN='<tracker API token>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/server
 ```
 
+### Switching between environments
+
+A workstation that talks to more than one deployment does not retype its
+secrets. `scripts/set-env.sh` points `.env` at one environment and fills in
+what that environment needs, reading it from Google Secret Manager under your
+own `gcloud` credentials:
+
+```sh
+scripts/set-env.sh dev            # activate the dev profile
+scripts/set-env.sh prod           # activate prod, after confirming
+scripts/set-env.sh --status       # which profile .env currently carries
+scripts/set-env.sh dev --dry-run  # show the block, fetch nothing
+```
+
+Which secret feeds which variable is declared in `scripts/env-profiles.conf`, a
+file that names secrets and holds none. It is gitignored and starts from
+[`scripts/env-profiles.conf.sample`](./scripts/env-profiles.conf.sample):
+a project id, a host name and the names of a deployment's secrets say enough
+about an infrastructure to stay out of a public repository.
+
+```sh
+cp scripts/env-profiles.conf.sample scripts/env-profiles.conf
+```
+
+The script rewrites only the block between its markers at the top of `.env`;
+everything you wrote outside it is preserved, and the previous file is kept as
+`.env.bak`.
+
+For a shell rather than a file:
+
+```sh
+eval "$(scripts/set-env.sh dev --export)"
+```
+
+One variable is deliberately absent from every profile.
+`SECTILE_TEST_POSTGRES_DSN` feeds the PostgreSQL suite, and that suite empties
+the database it is given — it truncates every table before each test. It belongs
+to a throwaway server and nothing else:
+
+```sh
+createdb sectile_test
+SECTILE_TEST_POSTGRES_DSN='postgres://localhost/sectile_test?sslmode=disable' \
+    go test ./internal/db/ -run Postgres
+```
+
 ### PostgreSQL instead of SQLite
 
 SQLite is the default and the only engine the desktop application ships with. A

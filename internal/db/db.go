@@ -4556,13 +4556,92 @@ func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
 		return
 	}
 
+	// What the ticket looked like before the read, so the read can say whether
+	// it was worth recording.
+	before := trackerFacts(task)
+
 	syncedTask, syncErr := d.SyncSingleTaskAs(ctx, task.ID)
 	if syncErr != nil {
 		d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("❌ Échec : %v", syncErr)}, fmt.Sprintf("Échec de la synchronisation de %s", task.Key), syncErr)
 		return
 	}
 
+	// A re-read that changed nothing has nothing to say, and the background
+	// pass produces almost only those: one per unfinished work item, every few
+	// minutes, on the work item's own card. Four hundred tickets read every
+	// quarter of an hour buried every real entry — a run, a transition, a
+	// comment — under thousands of "synchronised successfully". The row is
+	// still written when the job is queued, so a pass in flight remains
+	// visible; it is dropped here once it turns out to have reported nothing.
+	//
+	// A failure is never dropped. It is the one outcome nobody can reconstruct
+	// afterwards, and a credential the tracker refuses is exactly what these
+	// rows are read for.
+	if syncedTask == nil || trackerFacts(syncedTask) == before {
+		if delErr := d.DeleteActivity(job.ActivityID); delErr != nil {
+			log.Printf("[autosync] activité de synchronisation non supprimée (%s) : %v", job.ActivityID, delErr)
+		}
+		return
+	}
+
 	d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("✅ Ticket %s synchronisé avec succès", syncedTask.Key)}, fmt.Sprintf("Synchronisation de %s effectuée avec succès", syncedTask.Key), nil)
+}
+
+// trackerFactsSeparator cannot appear in a tracker field, so two different sets
+// of facts cannot render as the same string by running into each other.
+const trackerFactsSeparator = "\x1f"
+
+// trackerFacts renders everything a re-read of one work item is able to change:
+// the fields the tracker owns, and nothing Sectile decides for itself. Two
+// reads rendering the same string found the same ticket.
+//
+// It deliberately leaves out UpdatedAt, which the import bumps on every write
+// and which would therefore report a change on every single pass, and the
+// pull request links, which a background read never touches — only a
+// rediscovery the person asked for does.
+func trackerFacts(t *models.Task) string {
+	if t == nil {
+		return ""
+	}
+
+	// The tracker does not promise an order for labels, and a reordering is not
+	// a change.
+	labels := append([]string(nil), t.Labels...)
+	sort.Strings(labels)
+
+	text := func(p *string) string {
+		if p == nil {
+			return ""
+		}
+		return *p
+	}
+	stamp := func(p *time.Time) string {
+		if p == nil {
+			return ""
+		}
+		return p.UTC().Format(time.RFC3339Nano)
+	}
+
+	return strings.Join([]string{
+		t.Title,
+		t.Description,
+		string(t.Status),
+		t.TrackerStatus,
+		string(t.Priority),
+		t.Assignee,
+		t.AssigneeAvatar,
+		t.Sprint,
+		t.Team,
+		t.TeamID,
+		t.IssueType,
+		t.ParentKey,
+		t.ParentTitle,
+		t.ParentType,
+		strings.Join(labels, ","),
+		text(t.DueDate),
+		text(t.ExternalURL),
+		stamp(t.TrackerUpdatedAt),
+	}, trackerFactsSeparator)
 }
 
 // EnqueueSync queues a synchronisation nobody in particular asked for, so it
