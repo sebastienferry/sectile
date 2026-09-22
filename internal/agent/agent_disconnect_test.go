@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/testhome"
 )
 
 func disconnectRequest(d *agentDaemon, method, target, body string) *httptest.ResponseRecorder {
@@ -24,7 +25,7 @@ func disconnectRequest(d *agentDaemon, method, target, body string) *httptest.Re
 
 func disconnectFixture(t *testing.T) (*agentDaemon, agentconfig.Config) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
 		if _, err := gitLocal(context.Background(), root, args...); err != nil {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"tasks/internal/testhome"
 	"testing"
 )
 
@@ -47,7 +48,7 @@ func hookCommands(t *testing.T, settings map[string]any, event string) []string 
 
 func TestHooksAreInstalledExecutableAndRegistered(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestHooksAreInstalledExecutableAndRegistered(t *testing.T) {
 // registration pointing at a removed script is a hook error on every turn.
 func TestLegacyHookScriptsAreRetiredWithTheirRegistrations(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if err := os.MkdirAll(filepath.Join(home, claudeHookDir), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +143,7 @@ func TestLegacyHookScriptsAreRetiredWithTheirRegistrations(t *testing.T) {
 
 func TestHookRegistrationPreservesEverythingElse(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +185,7 @@ func TestHookRegistrationPreservesEverythingElse(t *testing.T) {
 
 func TestHookRegistrationIsIdempotent(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +210,7 @@ func TestHookRegistrationIsIdempotent(t *testing.T) {
 
 func TestUnparseableSettingsAreLeftUntouchedAndReported(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -237,7 +238,7 @@ func TestUnparseableSettingsAreLeftUntouchedAndReported(t *testing.T) {
 
 func TestNoHookIsWrittenForAnotherProvider(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	config := claudeConfig()
 	config.AIProvider = "codex"
 	if _, err := Scaffold(root, config); err != nil {

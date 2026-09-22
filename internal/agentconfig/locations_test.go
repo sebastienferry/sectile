@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"os"
 	"path/filepath"
+	"tasks/internal/testhome"
 	"testing"
 )
 
@@ -24,7 +25,7 @@ func TestEffectiveProviderResolvesCustomTemplates(t *testing.T) {
 
 func TestResolveLocationsCoversEverySupportedProvider(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	for _, tc := range []struct {
 		provider, skills, mcp string
 		substitutes           bool
@@ -56,7 +57,7 @@ func TestResolveLocationsCoversEverySupportedProvider(t *testing.T) {
 
 func TestScaffoldInstallsOnlyForTheSelectedProvider(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, AIProvider: "claude", Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/clarify-issue", Content: "skill", CommandContent: "command"}}}
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
@@ -91,7 +92,7 @@ func TestScaffoldInstallsOnlyForTheSelectedProvider(t *testing.T) {
 
 func TestScaffoldInstallsNothingWithoutASkillConvention(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, AIProvider: "gemini", Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Content: "skill"}}}
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatalf("a provider without a skill convention must still prepare: %v", err)
@@ -109,7 +110,7 @@ func TestScaffoldInstallsNothingWithoutASkillConvention(t *testing.T) {
 
 func TestScaffoldRejectsUnsupportedProvider(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, AIProvider: "custom", AICommandTemplate: "my-own-cli {prompt}"}
 	if _, err := Scaffold(root, c); err == nil {
 		t.Fatal("unsupported provider silently accepted")
@@ -117,7 +118,7 @@ func TestScaffoldRejectsUnsupportedProvider(t *testing.T) {
 }
 
 func TestSetupProvidersAlwaysIncludeTheRunningAgent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	got, err := SetupProviders(Config{AIProvider: "claude", SetupProviders: []string{"codex", "claude", " AGY ", ""}})
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +139,7 @@ func TestSetupProvidersAlwaysIncludeTheRunningAgent(t *testing.T) {
 
 func TestScaffoldInstallsForEveryRequestedAgent(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, AIProvider: "claude", SetupProviders: []string{"codex", "agy"},
 		Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/clarify-issue", Content: "skill", CommandContent: "command"}}}
 	if _, err := Scaffold(root, c); err != nil {

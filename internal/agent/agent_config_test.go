@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,8 +14,11 @@ import (
 	"tasks/internal/agentmcp"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/testhome"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"tasks/internal/mcptest"
 	"tasks/internal/models"
@@ -246,7 +248,7 @@ func TestMCPStdioBridge(t *testing.T) {
 func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	for _, args := range [][]string{{"init"}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial"}} {
 		if _, err := gitLocal(ctx, root, args...); err != nil {
 			t.Fatal(err)
@@ -328,11 +330,11 @@ func TestExternalTerminalCommandWithoutSkill(t *testing.T) {
 }
 
 func TestNativePickupBootstrapAndLaunch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	for _, provider := range []string{"codex", "claude"} {
 		t.Run(provider, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			d := &agentDaemon{link: serverLink{serverURL: "http://sectile.example.test:8090", token: "sectile_test_key"}}
 			config := agentconfig.Config{AIProvider: provider, Skills: []agentconfig.Skill{{ID: "pickup-issue", Directory: "pickup-issue", Command: "/pickup-issue"}}}
 			if err := d.bootstrapLocalMCP(&config); err != nil {

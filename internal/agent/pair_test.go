@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/testhome"
 )
 
 // pairingServer answers the one call pairing makes, recording what it was sent.
@@ -37,7 +38,7 @@ func pairingServer(t *testing.T, code string) (*httptest.Server, *map[string]str
 }
 
 func TestPairStoresTheKeyTheDaemonThenStartsFrom(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	srv, seen := pairingServer(t, "code-1")
 
 	message, err := Pair([]string{"--url", srv.URL + "/", "--code", " code-1 ", "--label", "laptop"})
@@ -83,7 +84,7 @@ func TestPairStoresTheKeyTheDaemonThenStartsFrom(t *testing.T) {
 
 func TestPairKeepsTheOtherSettingsAndRefusesABadCode(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	path := filepath.Join(home, ".config", "sectile", "settings.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		t.Fatal(err)
