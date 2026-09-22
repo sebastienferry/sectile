@@ -42,7 +42,8 @@ import type {
 } from '../types'
 import { translations, type TranslationSchema } from '../locales/translations'
 import { resolveAccentAttribute } from '../lib/accents'
-import type { StoredUserCredential } from '../lib/trackers'
+import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trackers'
+import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import {
   INTERNAL_STATUS_BY_STAGE,
@@ -118,12 +119,20 @@ interface AppContextType {
   checkTrackerCredentials: (params: TrackerCredentials) => Promise<TrackerCheck>
   /** Les accès personnels de la personne connectée, jetons exclus. */
   userCredentials: StoredUserCredential[]
+  /**
+   * Les accès laissés sous une identité qu'aucun compte ne résout. Le serveur
+   * ne les supprime ni ne les rattache de lui-même : il les signale, et c'est
+   * ici qu'une personne en fait quelque chose.
+   */
+  orphanedCredentials: OrphanedCredentialReport
   refreshUserCredentials: () => Promise<void>
   saveUserCredential: (params: { tracker: string; siteUrl?: string; email?: string; token: string; passphrase?: string }) => Promise<boolean>
   unlockUserCredential: (tracker: string, passphrase: string) => Promise<boolean>
   unlockAllUserCredentials: (passphrase: string) => Promise<boolean>
   lockAllUserCredentials: () => Promise<boolean>
   clearUserCredential: (tracker: string) => Promise<boolean>
+  /** Supprime une ligne orpheline. Réservée aux admins, refusée par le serveur sinon. */
+  discardOrphanedCredential: (userId: string, tracker: string) => Promise<boolean>
   /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
   saveTrackerCredentials: (params: TrackerCredentials) => Promise<boolean>
   /**
@@ -1139,6 +1148,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   )
 
   const [userCredentials, setUserCredentials] = useState<StoredUserCredential[]>([])
+  const [orphanedCredentials, setOrphanedCredentials] = useState<OrphanedCredentialReport>(NO_ORPHANED_CREDENTIALS)
 
   // Les accès personnels ne transitent jamais avec le jeton : l'API renvoie
   // seulement ce qu'elle sait d'eux, et cet état ne sert qu'à l'afficher.
@@ -1148,6 +1158,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (!res.ok) return
       const data = await res.json().catch(() => ({}))
       setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
+      setOrphanedCredentials(orphanedCredentialsFrom(data))
     } catch {
       // Un serveur injoignable n'est pas une absence d'accès : on garde l'état.
     }
@@ -1164,6 +1175,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         const data = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(data.error || failure || 'Opération refusée')
         setUserCredentials(Array.isArray(data.credentials) ? data.credentials : [])
+        setOrphanedCredentials(orphanedCredentialsFrom(data))
         if (success) addToast({ type: 'success', title: success })
         return true
       } catch (err: any) {
@@ -1201,6 +1213,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const clearUserCredential = useCallback(
     (tracker: string) =>
       userCredentialCall(`?tracker=${encodeURIComponent(tracker)}`, 'DELETE', undefined, 'Suppression refusée', 'Accès oublié'),
+    [userCredentialCall]
+  )
+
+  const discardOrphanedCredential = useCallback(
+    (userId: string, tracker: string) =>
+      userCredentialCall(
+        `/orphaned?userId=${encodeURIComponent(userId)}&tracker=${encodeURIComponent(tracker)}`,
+        'DELETE',
+        undefined,
+        translations.fr.trackerCredentials.orphanDiscardFailed,
+        translations.fr.trackerCredentials.orphanDiscarded
+      ),
     [userCredentialCall]
   )
 
@@ -3340,6 +3364,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsTrackerSetupOpen,
         checkTrackerCredentials,
         userCredentials,
+        orphanedCredentials,
+        discardOrphanedCredential,
         refreshUserCredentials,
         saveUserCredential,
         unlockUserCredential,
