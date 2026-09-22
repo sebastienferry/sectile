@@ -3950,6 +3950,21 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 			steps = append(steps, "5. Board : "+note)
 		}
 	}
+	// Les horizons de roadmap sont portés par les labels des épics, et la
+	// synchro ne les voit pas autrement : elle importe les tickets, jamais
+	// l'épic qui les porte. Sans cette lecture, un projet dont tous les épics
+	// sont classés sur le tracker s'ouvre avec sa roadmap entièrement « non
+	// classée », et rien à l'écran ne dit pourquoi.
+	//
+	// L'échec n'est pas fatal, comme pour les équipes et le board : un tracker
+	// injoignable ne doit pas défaire un import qui a réussi.
+	if ts.Supports(tracker.CapEpic) {
+		if note, err := d.ImportMacroHorizons(ctx, proj.ID); err != nil {
+			steps = append(steps, fmt.Sprintf("⚠️ Roadmap : horizons non importés : %v", err))
+		} else {
+			steps = append(steps, "6. Roadmap : "+note)
+		}
+	}
 	// Pull-request rediscovery runs here rather than in the import: the import
 	// must keep its property of never writing pr_url / pr_links, which is what
 	// protects the links a workflow produced.

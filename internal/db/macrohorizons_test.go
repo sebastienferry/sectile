@@ -101,7 +101,7 @@ func TestPushMacroHorizonLabelWritesTheAxisExclusively(t *testing.T) {
 	fake := newHorizonTracker(nil)
 	database, proj := jiraProjectWithTracker(t, fake)
 
-	note, err := database.PushMacroHorizonLabel(proj.ID, "PE-1141", "next")
+	note, err := database.PushMacroHorizonLabel(t.Context(), proj.ID, "PE-1141", "next")
 	if err != nil {
 		t.Fatalf("poussée refusée : %v", err)
 	}
@@ -140,7 +140,7 @@ func TestPushMacroHorizonLabelClearsTheAxisWhenUnclassified(t *testing.T) {
 	fake := newHorizonTracker(nil)
 	database, proj := jiraProjectWithTracker(t, fake)
 
-	if _, err := database.PushMacroHorizonLabel(proj.ID, "PE-1141", ""); err != nil {
+	if _, err := database.PushMacroHorizonLabel(t.Context(), proj.ID, "PE-1141", ""); err != nil {
 		t.Fatalf("retrait refusé : %v", err)
 	}
 	write := fake.writes[0]
@@ -156,10 +156,10 @@ func TestPushMacroHorizonLabelRefusesWhatCannotCarryALabel(t *testing.T) {
 	fake := newHorizonTracker(nil)
 	database, proj := jiraProjectWithTracker(t, fake)
 
-	if _, err := database.PushMacroHorizonLabel(proj.ID, "M-3", "now"); err == nil {
+	if _, err := database.PushMacroHorizonLabel(t.Context(), proj.ID, "M-3", "now"); err == nil {
 		t.Error("un jalon devrait être refusé")
 	}
-	if _, err := database.PushMacroHorizonLabel(proj.ID, "DS-12", "now"); err == nil {
+	if _, err := database.PushMacroHorizonLabel(t.Context(), proj.ID, "DS-12", "now"); err == nil {
 		t.Error("un épic d'un autre projet devrait être refusé")
 	}
 	if len(fake.writes) != 0 {
@@ -182,7 +182,7 @@ func TestImportMacroHorizonsReadsTheLabelsBack(t *testing.T) {
 		t.Fatalf("classement local non enregistré : %v", err)
 	}
 
-	if _, err := database.ImportMacroHorizons(proj.ID); err != nil {
+	if _, err := database.ImportMacroHorizons(t.Context(), proj.ID); err != nil {
 		t.Fatalf("lecture refusée : %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestPendingHorizonPushesListsOnlyWhatIsBehind(t *testing.T) {
 	mustSaveMacro(t, database, proj.ID, "M-9", &now)
 	mustSaveMacro(t, database, proj.ID, "DS-7", &now)
 
-	pending, err := database.PendingHorizonPushes(proj.ID)
+	pending, err := database.PendingHorizonPushes(t.Context(), proj.ID)
 	if err != nil {
 		t.Fatalf("liste refusée : %v", err)
 	}
@@ -251,7 +251,7 @@ func TestPendingHorizonPushesSkipsTheTrackerWhenNothingIsClassified(t *testing.T
 	unclassified := ""
 	mustSaveMacro(t, database, proj.ID, "PE-1", &unclassified)
 
-	pending, err := database.PendingHorizonPushes(proj.ID)
+	pending, err := database.PendingHorizonPushes(t.Context(), proj.ID)
 	if err != nil {
 		t.Fatalf("liste refusée : %v", err)
 	}
@@ -270,7 +270,7 @@ func TestPushPendingHorizonsNamesEachFailureAndKeepsGoing(t *testing.T) {
 	mustSaveMacro(t, database, proj.ID, "PE-2", &now)
 	mustSaveMacro(t, database, proj.ID, "PE-3", &now)
 
-	pushed, failures, err := database.PushPendingHorizons(proj.ID)
+	pushed, failures, err := database.PushPendingHorizons(t.Context(), proj.ID)
 	if err != nil {
 		t.Fatalf("poussée refusée : %v", err)
 	}
