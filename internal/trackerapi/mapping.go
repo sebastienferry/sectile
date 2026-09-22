@@ -17,11 +17,11 @@ type GithubIssueItem struct {
 	URL         string          `json:"url"`
 	HTMLURL     string          `json:"html_url"`
 	State       string          `json:"state"`
-	User *struct {
+	User        *struct {
 		Login     string `json:"login"`
 		AvatarURL string `json:"avatar_url"`
 	} `json:"user"`
-	Milestone   *struct {
+	Milestone *struct {
 		Title  string `json:"title"`
 		Number int    `json:"number"`
 	} `json:"milestone"`

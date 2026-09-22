@@ -627,4 +627,3 @@ func TestCreateTaskPopulatesCreatorFromAuthenticatedPrincipal(t *testing.T) {
 		}
 	}
 }
-

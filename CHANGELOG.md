@@ -15,6 +15,10 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Ticket creator and author attribution.** Synchronisation with GitHub and
+  Jira captures the original issue creator and avatar, and local task creation
+  attributes the task to the authenticated user. Authorship is displayed in the
+  task detail panel and list view.
 - **A macro's roadmap horizon now reaches the tracker.** Classifying a macro as
   NOW, NEXT or LATER writes a `roadmap:now`, `roadmap:next` or `roadmap:later`
   label on its epic and removes the other three, so the classification is
