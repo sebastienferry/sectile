@@ -103,7 +103,10 @@ Sprint value parsing keeps the retired rule: several sprints on an issue, the
 (`{id, name}`) and the bare id.
 
 ### Sprints, boards, columns
-`ListBoards` → `GET /rest/agile/1.0/board?projectKeyOrId=<KEY>&type=scrum,kanban`.
+`ListBoards` → `GET /rest/agile/1.0/board?projectKeyOrId=<KEY>&type=scrum,kanban,simple`.
+The three types are the ones exposing a column configuration; `simple` is what the
+Agile API calls the board of a team-managed project, and leaving it out gave such a
+project no board at all.
 `ListSprints(boardID)` → `GET /rest/agile/1.0/board/{id}/sprint?state=active,future,closed`
 paginated, mapped to `models.TrackerSprint` with `startDate` / `endDate`.
 `ListBoardColumns(boardID)` → `GET /rest/agile/1.0/board/{id}/configuration`,

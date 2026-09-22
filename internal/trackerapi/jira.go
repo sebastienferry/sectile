@@ -713,9 +713,12 @@ func (j *JiraAdapter) ListBoards(ctx context.Context, req tracker.BoardsRequest)
 	}
 	query := url.Values{}
 	query.Set("projectKeyOrId", key)
-	// Only the board kinds whose columns and sprints mean something here, as the
-	// design says: without the filter the site also returns its simple boards.
-	query.Set("type", "scrum,kanban")
+	// The three board kinds that carry a column configuration. "simple" is what
+	// the Agile API calls the board of a team-managed project: it exposes the
+	// same columnConfig as the others, so excluding it left every team-managed
+	// project with no board at all, and its column detection failing with
+	// "no board on project <KEY>".
+	query.Set("type", "scrum,kanban,simple")
 	c, err := j.forProject(ctx, req.Project)
 	if err != nil {
 		return nil, err
