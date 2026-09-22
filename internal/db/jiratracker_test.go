@@ -31,7 +31,10 @@ type fakeTracker struct {
 	members   map[string][]models.TeamMember
 	// memberErr makes the members endpoint fail, which must not fail a sync.
 	memberErr error
-	calls     []string
+	// getErr makes the single work item read fail, the way a refused credential
+	// does.
+	getErr error
+	calls  []string
 	// syncedAs and readAs record who the work ran as, which is what decides
 	// whether a personal tracker credential can be resolved at all.
 	syncedAs    string
@@ -83,6 +86,9 @@ func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 func (f *fakeTracker) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
 	f.record("get")
 	f.readAs = tracker.ActingUser(ctx)
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
 	for _, task := range f.tasks {
 		if strings.EqualFold(task.Key, req.Key) {
 			found := task
