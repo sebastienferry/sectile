@@ -60,7 +60,7 @@ test('sidebar orders tasks across refreshes while retaining selection and histor
   // Rows are held while the pointer rests on them; move it off the list.
   await page.locator('#terminal').hover()
   runs=runs.map(item=>item.id==='queued'?{...item,status:'running',startedAt:'2026-09-13T13:00:00Z'}:item).reverse()
-  await page.waitForFunction(()=>document.querySelector('.task-number').textContent==='#2')
+  await page.waitForFunction(()=>document.querySelector('.task-number')?.textContent==='#2')
   await page.waitForFunction(()=>document.querySelectorAll('.task-number')[1]?.textContent==='#4')
   assert.deepEqual(await order(),['#2','#4','#1','#5','#3'])
   await expect(alphaQueue.locator('.queue-count')).toHaveText('1')
