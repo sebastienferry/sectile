@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- Refreshed the web interface with Graphite light and dark surfaces, quieter navigation, and softer board cards that respect the selected density and project accent.
+
 - **The desktop discussion header now leads with the task and its state.** The
   title, the execution's state and the skill result share one line; below them
   the worktree path is a control you click to copy. Relaunch, log export and the

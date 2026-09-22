@@ -549,10 +549,10 @@ export const BoardView: React.FC = () => {
                   onDragOver={e => handleDragOver(e, col.id)}
                   onDragLeave={e => handleDragLeave(e, col.id)}
                   onDrop={e => handleDropWorkflow(e, col.id)}
-                  className={`kanban-column w-[320px] min-w-[290px] shrink-0 flex flex-col rounded-2xl bg-[var(--bg-secondary)]/70 border column-neon-${col.id} transition-all duration-200 ${
+                  className={`kanban-column w-[320px] min-w-[290px] shrink-0 flex flex-col rounded-2xl border transition-all duration-200 ${
                     isOver
                       ? 'border-[var(--accent-color)] ring-2 ring-[var(--accent-glow)] bg-[var(--accent-light)]/20'
-                      : 'border-[var(--border-color)]'
+                      : 'border-[var(--border-color)] bg-[var(--bg-primary)]'
                   }`}
                 >
                   {/* Column Header */}
@@ -669,10 +669,10 @@ export const BoardView: React.FC = () => {
                   onDragOver={e => handleDragOver(e, col.id)}
                   onDragLeave={e => handleDragLeave(e, col.id)}
                   onDrop={onDropColumn}
-                  className={`kanban-column w-[320px] min-w-[290px] shrink-0 flex flex-col rounded-2xl bg-[var(--bg-secondary)]/70 border transition-all duration-200 ${
+                  className={`kanban-column w-[320px] min-w-[290px] shrink-0 flex flex-col rounded-2xl border transition-all duration-200 ${
                     isOver
                       ? 'border-[var(--accent-color)] ring-2 ring-[var(--accent-glow)] bg-[var(--accent-light)]/20'
-                      : 'border-[var(--border-color)]'
+                      : 'border-[var(--border-color)] bg-[var(--bg-primary)]'
                   }`}
                 >
                   {/* Column Header */}
