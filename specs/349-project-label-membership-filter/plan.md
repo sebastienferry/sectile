@@ -25,7 +25,7 @@ ProjectModal (Général tab)        [A] new "Label du projet" input, whitespace 
   │  POST/PATCH /api/projects
   ▼
 models.Project.ProjectLabel        [B] new field + Create/UpdateProjectRequest
-db: projects.project_label         [C] new column + idempotent ALTER + 3 SQL statements
+db: projects.project_label         [C] migration 2 + the SELECT/INSERT/UPDATE statements
   ▼
 TaskFilters                        [D] new "Tout le board" toggle (shown when label set)
 AppContext.buildTaskQuery          [E] membership=all when the toggle is on
@@ -33,33 +33,51 @@ AppContext.buildTaskQuery          [E] membership=all when the toggle is on
   │  GET /api/tasks/facets?membership=...
   ▼
 handlers.handleTasks / facets      [F] parse membership
-db.GetTasksForUser / FacetsForUser [G] extra AND term from projectMembershipFilter()
+db.GetTasksForUser / FacetsForUser [G] extra AND term from membershipConditionUnsafe()
   ▼
 TaskCard burger menu               [H] "Ajouter au projet" / "Retirer du projet"
   │  PATCH /api/tasks/:id {labels}
   ▼
 db.UpdateTask                      (unchanged — already diffs and queues add/remove)
 
-db.CreateTaskAs / PushTaskToTracker [I] stamp the project label before creating
+db.CreateTaskAs / ConvertTaskToRemote [I] stamp the project label before creating
 ```
 
 ## Decisions
 
-### D1 — Storage, mirroring `jira_project`
+### D1 — Storage, as a numbered migration (ADR 0021)
 
 `models.Project` gains `ProjectLabel string \`json:"projectLabel"\``, next to `IssueTypes`
 since both are "what this project holds", not connection parameters.
 `CreateProjectRequest` gains `ProjectLabel string`, `UpdateProjectRequest` gains
 `ProjectLabel *string` (the pointer convention of that struct: absent means "leave alone").
 
-`internal/db/db.go` gets:
+The column is **one numbered migration and nothing else**. ADR 0021 froze the baseline —
+the `CREATE TABLE`, the legacy `ALTER` block and `lateColumns` all describe schema version 1
+and are never edited again — and it is also the only form that reaches a PostgreSQL database
+created before the column existed, since PostgreSQL does not run the legacy block at all:
 
-- `project_label TEXT NOT NULL DEFAULT ''` in the `projects` CREATE TABLE (l. ~409);
-- `_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN project_label TEXT NOT NULL DEFAULT '';")`
-  next to the `jira_project` one (l. ~730) — idempotent by the surrounding convention of
-  ignoring the error;
-- the column named in the two project SELECTs (l. 5710, 5848), the INSERT (l. 6029) and the
-  UPDATE (l. 6254), with its scan target and argument.
+```go
+var migrations = []migration{{
+    version:    2,
+    name:       "projects.project_label",
+    statements: []string{"ALTER TABLE projects ADD COLUMN project_label TEXT NOT NULL DEFAULT '';"},
+}}
+```
+
+`internal/db/db.go` then only names the column where it is read and written: the two project
+SELECTs (l. 5710, 5848) with their scan targets, the INSERT (l. 6029) and the UPDATE
+(l. 6254) with their arguments.
+
+This is the repository's first numbered migration, which the test harness had not met yet.
+`forgetSchemaVersion`, the helper eight test files use to make a current-schema database look
+pre-versioning, deletes the version rows but leaves the columns the migrations added, so
+migration 2 was replayed over a database that already carried it. The helper now also drops
+the post-baseline columns, which is what "pre-versioning" actually means, and the two
+synthetic migrations in `migrations_test.go` are numbered from `latestVersion()` rather than
+from `baselineVersion` so they no longer collide with version 2. Hedging the migration with
+`IF NOT EXISTS` was rejected: SQLite has no such form for `ADD COLUMN`, and idempotent-by-
+failure is precisely what ADR 0021 replaces.
 
 Rejected: a user-level fallback like `JiraProject` has. A label whose purpose is to separate
 two Sectile projects sharing one tracker key is meaningless at user level — a global value
@@ -81,9 +99,10 @@ The error message is English, per the repository policy for Go strings:
 New file `internal/db/projectlabel.go`.
 
 ```go
-// membershipCondition returns an extra WHERE term restricting the task list to the
-// tickets that belong to their project, or "" when no project in scope has a label.
-func (d *DB) membershipCondition(projectID, userID string) (string, []interface{})
+// membershipConditionUnsafe returns an extra WHERE term restricting the task list to
+// the tickets that belong to their project, or "" when no project in scope has a
+// label. Unsafe: the caller already holds d.mu.
+func (d *DB) membershipConditionUnsafe(projectID, userID string) (string, []interface{})
 ```
 
 It reads the labelled projects in scope with one query —
@@ -119,7 +138,7 @@ Rejected alternatives:
 ### D4 — One parameter, two endpoints
 
 `GetTasksForUser` and `GetTaskFacetsForUser` take a trailing `membershipAll bool`; when it
-is false they append `membershipCondition(...)` to their conditions. `GetTasks` and
+is false they append `membershipConditionUnsafe(...)` to their conditions. `GetTasks` and
 `GetTaskFacets` (the no-user wrappers) pass `false`, so the default is "this project only"
 everywhere, including the callers inside `internal/db` that use them for other purposes.
 
@@ -132,13 +151,14 @@ appended to that same string so all nine facet queries inherit it without touchi
 
 ### D5 — Creation stamps the label once, at the top
 
-`CreateTaskAs` (`db.go:2294`) already normalises the labels at one point:
+`CreateTaskAs` (`db.go:2322`) already normalises the labels at one point:
 `req.Labels = SetWorkflowLabel(req.Labels, "#new")`. The stamp goes immediately after —
 `req.Labels = addProjectLabel(req.Labels, proj)` — so it reaches both the `CreateIssue` call
 and the `labelsJSON` written locally, with no second insertion point to keep in step.
 
-`PushTaskToTracker` (`db.go:5369`) gets the same line after its `SetWorkflowLabel` call, on
-`task.Labels`.
+`ConvertTaskToRemote` (`db.go:5402`) — the other path that calls `CreateIssue`, named
+`PushTaskToTracker` in the clarification, which no function carries — gets the same line
+after its `SetWorkflowLabel` call, on `task.Labels`.
 
 `addProjectLabel(labels []string, proj *models.Project) []string` lives in
 `projectlabel.go` and is a no-op when the project is nil, has no label, or already carries
