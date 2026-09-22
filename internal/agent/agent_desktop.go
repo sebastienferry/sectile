@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/agenthttp"
@@ -65,6 +64,12 @@ type desktopRun struct {
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
 	// captured output read-only instead of reporting a missing console.
 	Headless bool `json:"headless,omitempty"`
+	// Trace marks a headless run whose engine is reporting what it does as it
+	// does it. The desktop attaches to it read-only rather than answering the
+	// selection with the notice it shows for a run that has nothing to watch.
+	// An agent that cannot trace sends nothing here, and that notice is what its
+	// runs keep showing.
+	Trace bool `json:"trace,omitempty"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
@@ -145,10 +150,6 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopRunResult(w, r)
 		return
 	}
-	if r.URL.Path == "/desktop/run-output" && r.Method == http.MethodGet {
-		d.desktopRunOutput(w, r)
-		return
-	}
 	if r.URL.Path == "/desktop/tasks/transition" {
 		d.desktopTaskTransition(w, r)
 		return
@@ -221,6 +222,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := run.desktop
+	trace := run.trace
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
 		d.queue.mu.Unlock()
@@ -244,6 +246,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !exists {
+			// A run with no console can still have something to watch: an
+			// autonomous run reports what it is doing, and the desktop attaches
+			// to that trace over this same route rather than opening a second
+			// kind of connection for it.
+			if trace != nil {
+				serveRunTrace(w, r, trace)
+				return
+			}
 			http.Error(w, "Console is not ready", 409)
 			return
 		}
@@ -910,46 +920,6 @@ func desktopTaskFinished(task models.Task) bool {
 		}
 	}
 	return false
-}
-
-// desktopRunOutput serves what a headless run has printed since offset. An
-// autonomous run has no PTY for the console pane to attach to, and the bytes
-// are already here, on the same workstation as the desktop: reading them from
-// the agent spares a hop through the server, a second credential and the
-// server's own lag on data held locally.
-func (d *agentDaemon) desktopRunOutput(w http.ResponseWriter, r *http.Request) {
-	offset, err := strconv.Atoi(r.URL.Query().Get("offset"))
-	if err != nil {
-		offset = 0
-	}
-	var output, status string
-	var next int
-	var truncated, headless bool
-	if !d.queue.read(r.URL.Query().Get("id"), func(run *controlledRun) {
-		// offset counts bytes of the run's whole output, not bytes of the window
-		// still held: the window slides when the head is dropped, and a reader
-		// that kept counting into it would be handed output it has already shown.
-		local := offset - run.dropped
-		if local < 0 || local > len(run.transcript) {
-			// The reader is behind the window, or past an output the agent no
-			// longer holds. Replaying what is left beats reporting nothing, and
-			// the marker says the head is missing rather than empty.
-			local = 0
-			if run.transcriptTruncated {
-				output = headlessTranscriptTruncated
-			}
-		}
-		output, next = output+run.transcript[local:], run.dropped+len(run.transcript)
-		truncated, headless, status = run.transcriptTruncated, run.desktop.Headless, run.desktop.Status
-	}) {
-		http.Error(w, "Run not found", 404)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"output": output, "offset": next, "status": status,
-		"truncated": truncated, "headless": headless,
-	})
 }
 
 // Resolve the selected execution against server activity, independently of PTY exit.

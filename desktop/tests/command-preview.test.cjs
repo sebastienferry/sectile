@@ -3,12 +3,11 @@ const assert=require('node:assert/strict')
 
 async function load(){return import('../src/command-preview.mjs')}
 
-// The autonomous fallback renders the provider's event stream, so the expected
-// line is built from the same constant the preview splices in: what is asserted
-// here is the invocation, not the filter.
+// The autonomous fallback asks claude for its reasoning stream, so the expected
+// line is built from the same constant the preview splices in.
 async function claudeAutonomous(model){
- const {CLAUDE_STREAM_FILTER,CLAUDE_STREAM_FLAGS}=await load()
- return 'claude -p --permission-mode bypassPermissions '+CLAUDE_STREAM_FLAGS+(model?' --model '+model:'')+" '{prompt}' | "+CLAUDE_STREAM_FILTER
+ const {CLAUDE_REASONING_FLAGS}=await load()
+ return 'claude -p --permission-mode bypassPermissions '+CLAUDE_REASONING_FLAGS+(model?' --model '+model:'')+" '{prompt}'"
 }
 
 test('claude with no template gives the two attested command lines',async()=>{

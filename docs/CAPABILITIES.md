@@ -246,10 +246,33 @@ is made in either shape.
 
 | Provider | Headless invocation |
 | --- | --- |
-| `claude` | `claude -p --permission-mode bypassPermissions` |
+| `claude` | `claude -p --permission-mode bypassPermissions --output-format stream-json --verbose` |
 | `codex` | `codex exec` (approval bypass not attested here yet) |
 | `vibe` | `vibe -p --auto-approve` |
 | `agy`, `gemini`, `cursor` | None attested: an autonomous launch is refused by name |
+
+### Watching an autonomous run
+
+A headless run has no terminal, but it is not silent. Claude is launched with
+`--output-format stream-json --verbose`, which makes it print what it is doing as
+it does it — the prose it writes and the tools it calls, one JSON object per
+line. The agent reads that stream, renders it, and serves it to the desktop on
+the route a console is attached to (`/desktop/terminal?id=<runId>`), so selecting
+an autonomous run shows it working instead of the sentence explaining that it
+cannot be answered.
+
+The trace is **read-only**: the agent discards anything the pane sends, because
+nobody is answering an autonomous run. It is **local to the workstation** that
+ran the skill — it is held in the agent's memory, bounded, and forgotten with the
+run; the web board is unchanged and shows what it always showed.
+
+What the task activity records does not change: the engine's final answer, plus
+any diagnostic printed beside the stream, which is where a failed run explains
+itself. None of the protocol lines reach it.
+
+Only Claude streams today. The other engines, and any project that configures its
+own command template, keep exactly the command line they had, and the desktop
+keeps showing them the notice.
 
 A headless run carries the provider's non-interactive approval mode because
 there is no terminal and no stdin: without it the CLI is denied every tool it

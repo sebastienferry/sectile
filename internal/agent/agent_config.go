@@ -467,30 +467,6 @@ func words(parts ...string) string {
 	return strings.Join(kept, " ")
 }
 
-// The rendering half of an autonomous command line, mirrored character for
-// character in web/src/lib/autonomousStream.ts and desktop/src/command-preview.mjs.
-//
-// A headless run has no terminal: what its command line prints is all a user
-// ever sees of it. Each provider CLI is asked for its event stream and jq
-// renders that stream line by line, here rather than in the supervisor, so the
-// agent keeps knowing no provider's event schema and a fourth CLI is a preset
-// instead of a release.
-//
-// Every filter reads raw lines (-R) and never slurps (-s): slurping holds the
-// whole run back until the CLI exits, which is the defect these constants exist
-// to remove. A line that is not JSON, or an event shape the filter does not
-// know, falls back to the original line rather than aborting the pipeline and
-// leaving an empty panel.
-const (
-	claudeStreamFilter = `jq --unbuffered -Rr '. as $raw | try (fromjson | if .type=="result" then "\n--- result ---\n"+((.result // "")|if type=="string" then . else tostring end) elif .type=="assistant" then ([.message.content[]? | if .type=="text" then .text elif .type=="tool_use" then "[tool] "+((.name // "")|tostring) else empty end]|join("\n")) else "["+((.type // "event")|tostring)+"/"+((.subtype // "-")|tostring)+"]" end | select(length>0)) catch $raw'`
-	codexStreamFilter  = `jq --unbuffered -Rr '. as $raw | try (fromjson | if .item.type=="agent_message" then "\n--- result ---\n"+((.item.text // "")|if type=="string" then . else tostring end) else ("["+((.type // "event")|tostring)+"] "+((.item.type // "")|if type=="string" then . else tostring end)|sub(" +$";"")) end) catch $raw'`
-
-	// claude refuses --output-format stream-json without --verbose, so the pair
-	// travels together.
-	claudeStreamFlags = "--output-format stream-json --verbose"
-	codexStreamFlags  = "--json"
-)
-
 func agentCommandLine(provider, template, model, prompt string, contexts ...agentCommandContext) (string, error) {
 	return modeCommandLine(provider, template, model, prompt, models.SkillModeInteractive, contexts...)
 }
@@ -510,19 +486,52 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 // the same reason the provider list itself is attested.
 func headlessCommandLine(provider, model, prompt string) (string, error) {
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
+	reasoning := ""
+	if engineStreamsReasoning(provider) {
+		reasoning = strings.Join(reasoningOptions, " ")
+	}
 	switch provider {
 	case "claude":
-		return words("claude", "-p", "--permission-mode", "bypassPermissions", claudeStreamFlags, modelFlag, quoteShell(prompt), "|", claudeStreamFilter), nil
+		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt)), nil
 	case "codex":
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
-		return words("codex", "exec", codexStreamFlags, modelFlag, quoteShell(prompt), "|", codexStreamFilter), nil
+		return words("codex", "exec", reasoning, modelFlag, quoteShell(prompt)), nil
 	case "vibe":
 		// vibe takes no model flag, so ModelArgs returns nothing for it.
-		return "vibe -p --auto-approve " + quoteShell(prompt), nil
+		return words("vibe", "-p", "--auto-approve", reasoning, quoteShell(prompt)), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
+}
+
+// reasoningOptions make an engine print what it is doing as it does it: one
+// JSON object per line — the prose, the tool calls, then a final result message
+// carrying the answer — instead of the answer alone. They are only ever added to
+// a headless launch: an interactive session already shows all of this to the
+// human watching it.
+var reasoningOptions = []string{"--output-format", "stream-json", "--verbose"}
+
+// engineStreamsReasoning says whether an engine can be asked for that stream.
+// Only an engine that can is ever handed the options, so nothing is passed a
+// flag it does not have, and adding an engine here is a one-line change once its
+// stream format is attested — the reader in internal/runner is Claude's shape.
+func engineStreamsReasoning(provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), "claude")
+}
+
+// commandReadsReasoning says whether a command line asks its engine for the
+// reasoning stream, which is the same question as "is this run's standard output
+// a stream of JSON objects rather than an answer".
+//
+// It is read off the line that will really run rather than re-derived from the
+// provider: the decision was made while building that line, through branches a
+// configured template and a dedicated autonomous command leave early, and asking
+// the provider again at the far end would answer for a branch that was not
+// taken. A template asking for the stream itself is read as one, which is
+// exactly right — its output is that stream.
+func commandReadsReasoning(commandLine string) bool {
+	return strings.Contains(commandLine, strings.Join(reasoningOptions, " "))
 }
 
 // liveSessionMode pins the mode of a launch that opens a live provider session.

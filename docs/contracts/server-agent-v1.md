@@ -675,28 +675,22 @@ result" rather than an error: the main process returns null to the renderer
 instead of rejecting the IPC call, and clearing the history drops the removed
 runs locally before the next poll.
 
-### Headless run output lookup
+### Traced autonomous runs
 
-`GET /desktop/run-output?id=<run-id>&offset=<bytes>` is authenticated with the
-same loopback agent credential and serves what an autonomous (headless) run has
-printed. Such a run has no PTY for the console pane to attach to, so the pane
-polls this endpoint instead of `/desktop/terminal`. It returns `output` (the
-text after `offset`), `offset` (the position to poll with next), `status`,
-`headless` and `truncated`. Unknown runs return 404, which the desktop treats as
-"no output" rather than an error, the same way it treats a missing run result.
+An autonomous (headless) run has no PTY. When its engine was asked for its
+reasoning stream (the default `claude` headless line carries
+`--output-format stream-json --verbose`), the agent reads that stream line by
+line, keeps the last 2000 rendered lines in memory and reports the run with
+`trace: true` in `/desktop/runs`. For such a run `GET /desktop/terminal?id=<run-id>`
+upgrades to a read-only websocket that replays the trace and follows it live;
+anything the client sends on it is discarded. A headless run with no trace keeps
+answering 409 on that route, and the desktop shows its notice instead.
 
-`offset` counts bytes of the run's whole output, not bytes of the copy the agent
-still holds. That copy is bounded by 256 KiB and loses its head first, so the
-window slides under a reader: a position expressed in the window would silently
-point elsewhere after a truncation and the pane would reprint what it already
-shows. A reader whose position has fallen out of the window is served what is
-left, headed by a marker stating that earlier output was dropped. The marker is
-not part of the run's output and does not count towards `offset`.
-
-The transcript lives in agent memory alongside the run registry, so it
-disappears when the history is cleared or the agent restarts. It is a local copy
-for the pane only: the durable record stays the run activity on the server, fed
-by the unchanged incremental output transport.
+The trace is a local copy for the pane only: the durable record stays the run
+activity on the server, fed by the unchanged incremental output transport, which
+receives the engine's final answer and any diagnostic printed beside the stream,
+never the stream's frames. A run that ends without an answer reports the reason
+its result frame carries, so a failure is not recorded as an empty entry.
 
 ### Free desktop agent consoles
 

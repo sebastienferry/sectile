@@ -1,14 +1,13 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os/exec"
-	"regexp"
 	"strings"
 	"sync"
 	"tasks/internal/agentexec"
@@ -23,41 +22,6 @@ import (
 // still running. A headless run can take many minutes, and a user watching the
 // activity should not have to wait for the exit to see anything.
 const headlessFlushInterval = 3 * time.Second
-
-// headlessTranscriptLimit bounds the copy of the output the agent keeps for the
-// desktop pane. It is the server's cap on the activity record (db.RemoteRunOutputLimit),
-// held again here because the two are independent: the desktop reads the local
-// transcript, not the activity.
-const headlessTranscriptLimit = 256 * 1024
-
-// headlessTranscriptTruncated stands where the head of a long run was dropped,
-// on the surface that dropped it, so a user reading a shortened transcript knows
-// the run is not what was cut. It heads the output desktopRunOutput serves, and
-// is never part of the transcript itself.
-const headlessTranscriptTruncated = "[agent] earlier output dropped: the local transcript keeps only the last 256 KiB\n"
-
-// pipelinePrefix makes a pipeline report the failure of any of its stages. A
-// command line ending in a filter exits with the filter's status, so a provider
-// CLI that dies behind a jq that exits zero would be recorded as a completed
-// run that printed nothing.
-const pipelinePrefix = "set -o pipefail; "
-
-// jqWord matches jq invoked as a command word, so a command line that only
-// mentions jq inside a prompt is not mistaken for one that pipes through it.
-var jqWord = regexp.MustCompile(`(^|[\s|;&(])jq([\s|;&)]|$)`)
-
-// missingPipelineTool names the tool a command line needs and the workstation
-// does not have. It is deliberately shallow: a false positive asks for a tool
-// the user was about to need anyway, and a false negative falls back to the
-// shell's own "command not found", which pipefail now makes fatal.
-func missingPipelineTool(line string) string {
-	if jqWord.MatchString(line) {
-		if _, err := exec.LookPath("jq"); err != nil {
-			return "jq"
-		}
-	}
-	return ""
-}
 
 // headlessStopGrace bounds the two waits a stop must never hang on: how long the
 // output pipe is given to close after a forced stop, and how long reaping the
@@ -76,16 +40,7 @@ const headlessStopGrace = 2 * time.Second
 // The run is still registered like any other, so the desktop lists it, can
 // select it, and can stop it. What it cannot do is type into it.
 func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch string, envVars map[string]string, fullLine, provider, model string) error {
-	if missing := missingPipelineTool(fullLine); missing != "" {
-		run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model)
-		note := missing + " is not installed, and this autonomous command line pipes through it. Install " + missing + " on this workstation, or configure a command that does not need it."
-		d.appendHeadlessTranscript(run, "[agent] "+note+"\n")
-		d.postRunOutput(taskRef, payload.RunID, "[agent] "+note+"\n")
-		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", note)
-		return errors.New(note)
-	}
-
-	cmd := exec.Command("bash", "-lc", pipelinePrefix+fullLine)
+	cmd := exec.Command("bash", "-lc", fullLine)
 	cmd.Dir = workDir
 	cmd.Stdin = nil
 	cmd.Env = commandEnv(envVars)
@@ -98,7 +53,9 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 	// than split in two.
 	cmd.Stderr = cmd.Stdout
 
-	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model)
+	// Whether this run is traced is read off the command line that is about to
+	// run: it is the line that decides what its standard output will be.
+	run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model, commandReadsReasoning(fullLine))
 	// StartDetached owns the child: its own session or process group, so a stop
 	// reaches it rather than the daemon, no window on Windows, and a handle on
 	// the whole tree. A stop that only reached this shell would leave the
@@ -120,7 +77,10 @@ func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispa
 // registerHeadlessRun records the run the way the PTY path does, minus the
 // session: an autonomous run has no terminal to attach to, and the desktop must
 // not present it as an execution whose console is missing.
-func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch, provider, model string) *controlledRun {
+//
+// traced says the engine was asked for its reasoning stream, so the run gets the
+// trace the desktop attaches to in place of a console.
+func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch, provider, model string, traced bool) *controlledRun {
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	if d.queue.runs == nil {
@@ -132,12 +92,19 @@ func (d *agentDaemon) registerHeadlessRun(taskRef string, payload agentconfig.Di
 		d.queue.runs[payload.RunID] = run
 	}
 	run.taskID = taskRef
+	if traced && run.trace == nil {
+		run.trace = newRunTrace()
+		// The pane is attached to before the engine has said anything. One line
+		// says what it is looking at, so an empty trace reads as a run starting
+		// rather than as a console that failed to open.
+		run.trace.write(traceLine(traceDim + "Autonomous execution · read-only trace" + traceReset))
+	}
 	run.desktop = desktopRun{
 		CreatedAt: run.desktop.CreatedAt, Prompt: run.desktop.Prompt,
 		ID: payload.RunID, TaskID: taskRef, TaskKey: payload.TaskKey, ProjectID: config.ProjectID,
 		Skill: payload.SkillID, Directory: workDir, Branch: branch, Status: "running",
 		Provider: provider, Model: model,
-		Headless: true,
+		Headless: true, Trace: run.trace != nil,
 	}
 	return run
 }
@@ -149,20 +116,39 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	var mu sync.Mutex
 	var pending bytes.Buffer
 
+	// The run's trace, read once under the queue lock like every other field of
+	// the run. Nil means the engine was not asked for its reasoning, and this
+	// run's output is read byte by byte as it always was.
+	d.queue.mu.Lock()
+	var trace *runTrace
+	if run != nil {
+		trace = run.trace
+	}
+	d.queue.mu.Unlock()
+
 	flush := func() {
 		mu.Lock()
 		chunk := pending.String()
 		pending.Reset()
 		mu.Unlock()
 		if chunk != "" {
-			d.appendHeadlessTranscript(run, chunk)
 			d.postRunOutput(taskRef, runID, chunk)
 		}
+	}
+
+	record := func(text string) {
+		mu.Lock()
+		pending.WriteString(text)
+		mu.Unlock()
 	}
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		if trace != nil {
+			readTracedOutput(trace, output, record)
+			return
+		}
 		buf := make([]byte, 4096)
 		for {
 			n, err := output.Read(buf)
@@ -224,27 +210,62 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 	d.finishHeadlessRun(taskRef, runID, run, status, note)
 }
 
-// appendHeadlessTranscript keeps the run's output on the agent, so the desktop
-// can show a headless run live without a second trip through the server. The
-// head is dropped first: the tail is where a run explains how it ended.
-func (d *agentDaemon) appendHeadlessTranscript(run *controlledRun, chunk string) {
-	if run == nil || chunk == "" {
-		return
+// readTracedOutput reads the output of a run whose engine was asked for its
+// reasoning stream, and sends each line where it belongs: the events to the
+// trace the desktop watches, and to the task activity exactly what the activity
+// received before the stream existed.
+//
+// Lines are read with a bufio.Reader and not a bufio.Scanner: one object of the
+// stream can carry a whole tool result and go past the scanner's 64 KB token
+// ceiling, which would end the reading for the size of what the engine said
+// rather than for anything wrong.
+func readTracedOutput(trace *runTrace, output io.Reader, record func(string)) {
+	reader := bufio.NewReader(output)
+	for {
+		line, err := reader.ReadString('\n')
+		if line != "" {
+			routeTracedLine(trace, strings.TrimRight(line, "\r\n"), record)
+		}
+		if err != nil {
+			return
+		}
 	}
-	d.queue.mu.Lock()
-	defer d.queue.mu.Unlock()
-	run.transcript += chunk
-	if len(run.transcript) <= headlessTranscriptLimit {
-		return
+}
+
+// routeTracedLine places one line of a traced run.
+//
+// The result message carries the answer, which is what the engine printed on its
+// own before it was asked for a stream, so that is what the activity receives.
+// Anything the parser showed belongs to the trace alone. What is left is the
+// interesting case: standard error shares this pipe, so a missing binary, a
+// crash or a shell error arrives here as plain text, and that is where a failed
+// run explains itself — it goes to the activity untouched.
+func routeTracedLine(trace *runTrace, line string, record func(string)) {
+	events, result, done := runner.ParseReasoningLine(line)
+	for _, event := range events {
+		trace.publish(event)
 	}
-	// The marker is not stored with the kept bytes: it is not something the run
-	// printed, and counting it as output would offset every later position by
-	// its own length. desktopRunOutput writes it when it serves the window from
-	// the start.
-	kept := run.transcript[len(run.transcript)-headlessTranscriptLimit:]
-	run.dropped += len(run.transcript) - len(kept)
-	run.transcript = kept
-	run.transcriptTruncated = true
+	switch {
+	case done:
+		if strings.TrimSpace(result) != "" {
+			record(result + "\n")
+		}
+	case len(events) > 0 || isStreamFrame(line):
+		// Shown in the trace, or protocol the reader had nothing to show for:
+		// either way it is not the activity's business.
+	case strings.TrimSpace(line) == "":
+	default:
+		record(line + "\n")
+	}
+}
+
+// isStreamFrame says whether a line the parser showed nothing for is still part
+// of the engine's protocol — the session banner, a user message carrying a tool
+// result, the tail of a stream cut mid-object — as opposed to a diagnostic
+// printed beside it. Only the second kind is worth recording on the task.
+func isStreamFrame(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	return strings.HasPrefix(trimmed, "{") && strings.Contains(trimmed, `"type":`)
 }
 
 // waitForExit reaps the child, giving up after grace. cmd.Wait is left running
@@ -263,11 +284,19 @@ func waitForExit(cmd *exec.Cmd, grace time.Duration) error {
 
 func (d *agentDaemon) finishHeadlessRun(taskRef, runID string, run *controlledRun, status, note string) {
 	d.queue.mu.Lock()
+	var trace *runTrace
 	if run != nil {
 		run.desktop.Status = status
 		run.once.Do(func() { close(run.exited) })
+		// Read under the lock, like every other field of the run, and closed
+		// outside it: closing wakes the watchers, and they have no business
+		// waiting on the queue.
+		trace = run.trace
 	}
 	d.queue.mu.Unlock()
+	// The run is over: a watcher sees the trace end rather than a socket left
+	// open on a process that exited. What it showed stays readable.
+	trace.close()
 	if runID == "" {
 		return
 	}

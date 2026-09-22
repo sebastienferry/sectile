@@ -5,36 +5,35 @@
 // on the task activity. Reporting it as "no console available" would send the
 // user looking for a launch error that never happened.
 //
-// A headless run still gets no PTY, so needsConsoleNotice keeps returning true
-// for it, but the pane no longer stops at a notice: select() writes the banner
-// below and then polls the agent for what the run has printed.
+// Such a run can still have something to watch. When its engine reports what it
+// is doing, the agent serves that trace on the same route a console is attached
+// to, and the pane shows the run working instead of a sentence saying it cannot
+// be answered. An agent that does not send a trace — an older one, or an engine
+// whose stream is not read — keeps the notice.
+
+// tracedRun says whether an autonomous run has a trace to attach to.
+function tracedRun(run){
+ return run.headless===true&&run.trace===true
+}
 
 // needsConsoleNotice says whether the pane shows a message instead of attaching.
 export function needsConsoleNotice(run){
- return run.status==='queued'||run.status==='preparing'||run.headless===true||!run.sessionId
+ if(run.status==='queued'||run.status==='preparing')return true
+ if(run.headless===true)return !tracedRun(run)
+ return !run.sessionId
 }
 
-// showsHeadlessOutput says whether the pane reads the run's transcript instead
-// of writing a notice. A run still waiting for its slot has printed nothing and
-// is not yet autonomous in any visible way: it keeps the waiting notice, the
-// same order consoleNotice reads its branches in.
-export function showsHeadlessOutput(run){
- return run.headless===true&&run.status!=='queued'&&run.status!=='preparing'
-}
-
-// headlessBanner heads the read-only transcript. It says the pane takes no
-// input before any output appears, so a user who types into it knows why
-// nothing happens, and names the activity as the durable record.
-export const HEADLESS_EMPTY='Nothing printed yet.'
-export function headlessBanner(empty=false){
- const head='Autonomous execution: read-only, no terminal to answer. Its output is also recorded on the task activity.'
- return empty?head+'\n'+HEADLESS_EMPTY:head
+// readOnlyConsole says whether what the pane attached to only shows the run.
+// Nobody is answering an autonomous run, so its pane is never given the focus:
+// a cursor waiting in it is an invitation to type at a process with no ear.
+export function readOnlyConsole(run){
+ return tracedRun(run)
 }
 
 export function consoleNotice(run){
  if(run.status==='queued')return 'Execution queued. Waiting for a console.'
  if(run.status==='preparing')return 'Preparing execution. Waiting for a console.'
- if(run.headless===true)return headlessBanner()
+ if(run.headless===true)return 'Autonomous execution: no terminal to answer. Its output is recorded on the task activity.'
  if(run.status==='canceled')return 'Execution canceled before a console was created.'
  return 'No console is available for this execution. Check the task activity and local agent.log for launch errors.'
 }

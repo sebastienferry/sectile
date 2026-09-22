@@ -1,15 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { commandPreview, resolveTemplateMode, templateCarriesMode, modelArgs, dropModelSlot } from '../src/lib/commandTemplate.ts'
-import { CLAUDE_STREAM_FILTER } from '../src/lib/autonomousStream.ts'
 
-// The autonomous fallback renders the provider's event stream, so its expected
-// command line is built from the same constant the preview splices in: the test
-// is about the invocation, not about the filter, which autonomousStream.test.mjs
-// runs for real.
+// The autonomous fallback asks claude for its reasoning stream, so its expected
+// command line carries the flags the agent reads the trace off.
 const claudeAutonomous = model =>
   'claude -p --permission-mode bypassPermissions --output-format stream-json --verbose' +
-  (model ? ' --model ' + model : '') + " '{prompt}' | " + CLAUDE_STREAM_FILTER
+  (model ? ' --model ' + model : '') + " '{prompt}'"
 
 test('claude without a template yields the two attested command lines', () => {
   const model = 'claude-opus-5'

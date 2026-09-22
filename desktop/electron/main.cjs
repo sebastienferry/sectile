@@ -265,14 +265,6 @@ ipcMain.handle('run-result',async(_,id)=>{
  try{return await api('/desktop/run-result?id='+encodeURIComponent(id))}
  catch(failure){if(failure.status===404)return null;throw failure}
 })
-// What a headless run has printed since `offset`. The run has no PTY to attach
-// to, so this is how the console pane shows it. A forgotten run answers 404 the
-// same way run-result does, and for the same reason it is reported as no output
-// rather than as a rejected IPC call.
-ipcMain.handle('run-output',async(_,{id,offset})=>{
- try{return await api('/desktop/run-output?id='+encodeURIComponent(id)+'&offset='+encodeURIComponent(offset||0))}
- catch(failure){if(failure.status===404)return null;throw failure}
-})
 ipcMain.handle('stop',(_,id)=>api('/desktop/stop?id='+encodeURIComponent(id),'POST'))
 ipcMain.handle('detach',()=>{if(socket){socket.removeAllListeners();socket.close();socket=null}})
 ipcMain.handle('attach',(_,id)=>{
