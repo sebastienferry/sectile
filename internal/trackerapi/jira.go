@@ -122,6 +122,9 @@ func (j *JiraAdapter) search(ctx context.Context, c *Client, jql string) ([]mode
 	if err != nil {
 		return nil, err
 	}
+	// Asked once for the whole page, not once per work item: the scheme is a
+	// property of the site, and it is cached across calls anyway.
+	priorities := c.jiraPriorities(ctx)
 	tasks := make([]models.Task, 0, len(pages))
 	unreadable := 0
 	for _, raw := range pages {
@@ -133,7 +136,7 @@ func (j *JiraAdapter) search(ctx context.Context, c *Client, jql string) ([]mode
 			unreadable++
 			continue
 		}
-		task := jiraTask(c.JiraURL, issue, ids)
+		task := jiraTask(c.JiraURL, issue, ids, priorities)
 		task.Position = len(tasks)
 		tasks = append(tasks, *task)
 	}
@@ -185,7 +188,7 @@ func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest)
 	if err != nil {
 		return nil, err
 	}
-	return jiraTask(c.JiraURL, issue, ids), nil
+	return jiraTask(c.JiraURL, issue, ids, c.jiraPriorities(ctx)), nil
 }
 
 func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRequest) (*models.Task, error) {
@@ -217,9 +220,6 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	if labels := cleanLabels(req.Labels); len(labels) > 0 {
 		fields["labels"] = labels
 	}
-	if req.Priority != "" {
-		fields["priority"] = map[string]string{"name": jiraPriorityName(req.Priority)}
-	}
 	if parent := strings.TrimSpace(req.ParentKey); parent != "" {
 		fields["parent"] = map[string]string{"key": strings.ToUpper(parent)}
 	}
@@ -249,6 +249,9 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	c, err := j.forProject(ctx, req.Project)
 	if err != nil {
 		return nil, err
+	}
+	if req.Priority != "" {
+		fields["priority"] = c.jiraPriorityValue(ctx, req.Priority)
 	}
 	var created struct {
 		Key string `json:"key"`
@@ -312,7 +315,7 @@ func (j *JiraAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 		fields["description"] = MarkdownToADF(*req.Description)
 	}
 	if req.Priority != nil && *req.Priority != "" {
-		fields["priority"] = map[string]string{"name": jiraPriorityName(*req.Priority)}
+		fields["priority"] = c.jiraPriorityValue(ctx, *req.Priority)
 	}
 	update := map[string]any{}
 	if ops := labelOps(req.Labels, req.RemovedLabels); len(ops) > 0 {

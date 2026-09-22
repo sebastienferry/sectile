@@ -35,6 +35,7 @@ type recordedRequest struct {
 func newJiraSite(t *testing.T) *jiraSite {
 	t.Helper()
 	resetJiraFieldCache()
+	resetJiraPriorityCache()
 	site := &jiraSite{t: t, routes: map[string]http.HandlerFunc{}}
 	site.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -59,12 +60,26 @@ func newJiraSite(t *testing.T) *jiraSite {
 			fmt.Fprint(w, `[]`)
 			return
 		}
+		// So is the priority scheme, on every read and on every write that
+		// carries one. Unless a test says otherwise, the site runs Atlassian's
+		// default scheme.
+		if r.Method == "GET" && r.URL.Path == "/rest/api/3/priority/search" {
+			fmt.Fprint(w, jiraDefaultPriorities)
+			return
+		}
 		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(site.server.Close)
 	return site
 }
+
+// jiraDefaultPriorities is what an untouched Jira Cloud site serves, most
+// urgent first.
+const jiraDefaultPriorities = `{"isLast":true,"values":[
+	{"id":"1","name":"Highest"},{"id":"2","name":"High"},{"id":"3","name":"Medium"},
+	{"id":"4","name":"Low"},{"id":"5","name":"Lowest"}
+]}`
 
 func (s *jiraSite) on(method, path string, handler http.HandlerFunc) {
 	s.routes[method+" "+path] = handler
@@ -664,11 +679,18 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 			fmt.Fprint(w, `[]`)
 			return
 		}
+		if r.URL.Path == "/rest/api/3/priority/search" {
+			// So does the priority scheme, and it is cached per site rather
+			// than per credential.
+			fmt.Fprint(w, jiraDefaultPriorities)
+			return
+		}
 		seen = append(seen, r.Header.Get("Authorization"))
 		fmt.Fprint(w, `{"issues":[],"isLast":true}`)
 	}))
 	t.Cleanup(server.Close)
 	resetJiraFieldCache()
+	resetJiraPriorityCache()
 
 	c := &Client{HTTP: server.Client(), JiraURL: server.URL, JiraEmail: "service@example.com", JiraToken: "service-token"}
 	c.ResolveUser = func(userID, tracker string) (string, string, string, error) {

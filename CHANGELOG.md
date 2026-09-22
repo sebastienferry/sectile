@@ -13,6 +13,15 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Jira priorities follow the site's own scheme.** Sectile used to write the
+  four names of Atlassian's default scheme, so any site that renamed, numbered
+  or translated its priorities refused every creation and every update with
+  "The priority selected is invalid". Sectile now reads the priorities the site
+  offers and writes one of them; on import, a priority it cannot name by word is
+  placed by its rank in that scheme rather than landing on medium.
+
 ## [0.1.0] - 2026-09-22
 
 First tagged release. Sectile had been running from `main` since its first
