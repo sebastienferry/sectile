@@ -25,7 +25,7 @@ ProjectModal (Général tab)        [A] new "Label du projet" input, whitespace 
   │  POST/PATCH /api/projects
   ▼
 models.Project.ProjectLabel        [B] new field + Create/UpdateProjectRequest
-db: projects.project_label         [C] migration 2 + the SELECT/INSERT/UPDATE statements
+db: projects.project_label         [C] migration 3 + the SELECT/INSERT/UPDATE statements
   ▼
 TaskFilters                        [D] new "Tout le board" toggle (shown when label set)
 AppContext.buildTaskQuery          [E] membership=all when the toggle is on
@@ -58,24 +58,25 @@ and are never edited again — and it is also the only form that reaches a Postg
 created before the column existed, since PostgreSQL does not run the legacy block at all:
 
 ```go
-var migrations = []migration{{
-    version:    2,
+{
+    version:    3, // 2 is tasks.creator, merged on main first (#358)
     name:       "projects.project_label",
     statements: []string{"ALTER TABLE projects ADD COLUMN project_label TEXT NOT NULL DEFAULT '';"},
-}}
+},
 ```
 
 `internal/db/db.go` then only names the column where it is read and written: the two project
 SELECTs (l. 5710, 5848) with their scan targets, the INSERT (l. 6029) and the UPDATE
 (l. 6254) with their arguments.
 
-This is the repository's first numbered migration, which the test harness had not met yet.
+When this was written it was the repository's first numbered migration, which the test
+harness had not met yet; `tasks.creator` (#358) has since taken version 2 on main.
 `forgetSchemaVersion`, the helper eight test files use to make a current-schema database look
 pre-versioning, deletes the version rows but leaves the columns the migrations added, so
-migration 2 was replayed over a database that already carried it. The helper now also drops
+the migration was replayed over a database that already carried it. The helper now also drops
 the post-baseline columns, which is what "pre-versioning" actually means, and the two
 synthetic migrations in `migrations_test.go` are numbered from `latestVersion()` rather than
-from `baselineVersion` so they no longer collide with version 2. Hedging the migration with
+from `baselineVersion` so they no longer collide with a real version. Hedging the migration with
 `IF NOT EXISTS` was rejected: SQLite has no such form for `ADD COLUMN`, and idempotent-by-
 failure is precisely what ADR 0021 replaces.
 

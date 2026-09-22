@@ -12,7 +12,7 @@ Choices: [`plan.md`](./plan.md).
       — trim, accept empty, refuse inner whitespace with `project label cannot contain whitespace`.
 - [x] T3 — `internal/models/projectlabel_test.go` (new): empty, trimmed, valid, inner space,
       inner tab. **Run `go test ./internal/models/...`.**
-- [x] T4 — `internal/db/migrations.go`: migration 2 `projects.project_label`, the only place
+- [x] T4 — `internal/db/migrations.go`: migration 3 `projects.project_label` (2 is `tasks.creator`, from main), the only place
       the column is declared (ADR 0021 froze the baseline, and it is the only form that
       reaches an existing PostgreSQL database). `internal/db/db.go`: the column in the two
       project SELECTs, the INSERT and the UPDATE, with its scan target and argument.
@@ -20,7 +20,7 @@ Choices: [`plan.md`](./plan.md).
       update, returning HTTP 400 with the error message; store the normalised value.
 - [x] T6 — `internal/db/migrations_test.go`: `forgetSchemaVersion` drops the post-baseline
       columns so a fixture really looks pre-versioning, and the two synthetic migrations are
-      numbered from `latestVersion()` instead of colliding with version 2.
+      numbered from `latestVersion()` instead of colliding with a real version.
       **Run `go test ./internal/db/...`.**
 
 ## 2. The membership filter
