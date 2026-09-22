@@ -25,6 +25,23 @@ test fixtures or internal plumbing.
   `Console stopped`. It now speaks only when it has something the state does not
   say: the server's verdict on the skill, a stop that has not taken effect, or
   an execution that ended cleanly without the skill being recorded.
+- **Jira's Blocker/Critical/Major/Minor/Trivial priorities are read one level
+  lower.** On the sites running that scheme, `Major` is where most work items
+  sit, so it now arrives as medium rather than high, and `Critical` as high
+  rather than urgent; `Blocker` stays urgent and `Minor` and `Trivial` stay low.
+  Boards importing from such a project will see their ordinary work items move
+  off the high level on the next synchronisation.
+
+### Fixed
+
+- **Jira priorities follow the project's own scheme.** Sectile used to write the
+  four names of Atlassian's default scheme, so a project whose priorities are
+  named otherwise — the Blocker/Critical/Major/Minor/Trivial set, a renamed or
+  translated one — refused every creation and every update with "The priority
+  selected is invalid". Sectile now asks the screen that will receive the write
+  which priorities it takes, and sends one of those. A project whose creation
+  screen has no priority field at all is created without one — instead of being
+  refused — and the level is set straight afterwards, so it is not lost.
 
 ### Security
 
