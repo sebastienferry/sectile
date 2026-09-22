@@ -505,12 +505,15 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err := h.db.CreateProject(req)
+		// The creator owns the project: the background synchronisation has no
+		// acting user of its own and reads under that account.
+		userID := h.webSessionUser(r)
+		project, err := h.db.CreateProjectAs(userID, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if userID := h.webSessionUser(r); userID != "" && project != nil {
+		if userID != "" && project != nil {
 			_ = h.db.BookmarkProject(userID, project.ID)
 			project.Bookmarked = true
 		}
@@ -1299,7 +1302,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err := h.db.UpdateProject(id, req)
+		// Saving an ownerless project adopts the person saving it, so its
+		// background synchronisation stops running as the server.
+		project, err := h.db.UpdateProjectAs(h.webSessionUser(r), id, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2492,7 +2497,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if subAction == "sync" && (r.Method == http.MethodPost || r.Method == http.MethodGet) {
 		// A synchronisation a person triggered on one ticket also rediscovers
 		// its pull requests, whatever the bounding rule of the background pass.
-		task, err := h.db.ForceSyncSingleTask(r.Context(), id)
+		task, err := h.db.ForceSyncSingleTask(h.actingContext(r), id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Échec de la synchronisation unitaire: "+err.Error())
 			return

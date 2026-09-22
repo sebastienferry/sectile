@@ -418,7 +418,8 @@ func (d *DB) initSchema() error {
 			ai_command_template TEXT NOT NULL DEFAULT '',
 			ai_command_template_autonomous TEXT NOT NULL DEFAULT '',
 			ai_model TEXT NOT NULL DEFAULT '',
-			ai_skill_models TEXT NOT NULL DEFAULT '{}'
+			ai_skill_models TEXT NOT NULL DEFAULT '{}',
+			owner_user_id TEXT NOT NULL DEFAULT ''
 		);`,
 		`CREATE TABLE IF NOT EXISTS tasks (
 			id TEXT PRIMARY KEY,
@@ -500,6 +501,7 @@ func (d *DB) initSchema() error {
 		// or every write path naming it fails on an upgraded deployment. The
 		// statement is idempotent, which the SQLite spelling cannot be.
 		_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pr_links_detached INTEGER NOT NULL DEFAULT 0;")
+		_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_user_id TEXT NOT NULL DEFAULT '';")
 	}
 
 	// task_activities: task_id points at a task again, and project_id carries a
@@ -784,6 +786,10 @@ func (d *DB) applyLegacyMigrations() {
 	}
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_enabled INTEGER NOT NULL DEFAULT 0;")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN auto_sync_interval_min INTEGER NOT NULL DEFAULT 5;")
+	// The owner the background synchronisation borrows a credential from. A
+	// project written before the column has none, and keeps the historical
+	// behaviour, the server credential, until somebody saves it.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN owner_user_id TEXT NOT NULL DEFAULT '';")
 
 	// Migrate the legacy 'openfeature' Spec-Driven Design option to 'openspec'.
 	// OpenFeature is a feature-flag standard, not an SDD framework: the two
@@ -4422,8 +4428,18 @@ func (d *DB) syncSingleTask(ctx context.Context, taskID string, force bool) (*mo
 	return task, nil
 }
 
-// EnqueueSingleTaskSync enqueues a background sync activity for a single task.
+// EnqueueSingleTaskSync enqueues a background sync activity for a single task,
+// with nobody to attribute the read to.
 func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, error) {
+	return d.EnqueueSingleTaskSyncAs("", task)
+}
+
+// EnqueueSingleTaskSyncAs enqueues it on behalf of one account. The queue
+// outlives the request that filled it, so the user travels on the job rather
+// than in a context: without it the worker resolves the server credential, and
+// a deployment whose only Jira credential is personal fails every one of these
+// reads with "configure the Jira account e-mail".
+func (d *DB) EnqueueSingleTaskSyncAs(actingUserID string, task *models.Task) (*models.TaskActivity, error) {
 	if task == nil {
 		return nil, fmt.Errorf("task is nil")
 	}
@@ -4444,6 +4460,10 @@ func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, err
 			"Poussée dans la file d'attente d'exécution...",
 		},
 		CreatedAt: now,
+		// The account the read runs under, shown on the activity rather than
+		// left to be guessed: a background pass reads as the project's owner,
+		// and a failed one has to say whose credential was refused.
+		UserID: strings.TrimSpace(actingUserID),
 	}
 
 	d.mu.Lock()
@@ -4458,6 +4478,7 @@ func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, err
 		TaskID:     task.ID,
 		SkillID:    "sync_task",
 		ProjectID:  task.ProjectID,
+		ActingUser: strings.TrimSpace(actingUserID),
 	}
 
 	d.pushTrackerOpJob(job)
@@ -4465,6 +4486,10 @@ func (d *DB) EnqueueSingleTaskSync(task *models.Task) (*models.TaskActivity, err
 }
 
 func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
+	// Whoever the job was queued for travels with it: the background pass runs
+	// under the project's owner, and their credential is the only one a
+	// personal-credential deployment has.
+	ctx = tracker.WithActingUser(ctx, job.ActingUser)
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(job.TaskID)
 	d.mu.RUnlock()
@@ -4474,7 +4499,7 @@ func (d *DB) processSyncTaskJob(ctx context.Context, job SkillJob) {
 		return
 	}
 
-	syncedTask, syncErr := d.SyncSingleTask(task.ID)
+	syncedTask, syncErr := d.SyncSingleTaskAs(ctx, task.ID)
 	if syncErr != nil {
 		d.finishTrackerOp(job.ActivityID, []string{fmt.Sprintf("❌ Échec : %v", syncErr)}, fmt.Sprintf("Échec de la synchronisation de %s", task.Key), syncErr)
 		return
@@ -5546,7 +5571,7 @@ func parseStageColumns(raw string) map[string][]string {
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -5571,8 +5596,9 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var aiProv, aiCmd, aiCmdAuto, specFw, jiraProj, ttyMode, extTerm sql.NullString
 		var projModel, projSkillModelsJSON sql.NullString
 		var ghURL, ghTok, glURL, glProj, glTok sql.NullString
+		var ownerUserID sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -5616,6 +5642,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		p.GithubApiUrl, p.GithubToken = ghURL.String, ghTok.String
 		p.GitlabUrl, p.GitlabProject, p.GitlabToken = glURL.String, glProj.String, glTok.String
 		p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
+		p.OwnerUserID = strings.TrimSpace(ownerUserID.String)
 		projects = append(projects, p)
 	}
 	if projects == nil {
@@ -5680,13 +5707,14 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var aiProv, aiCmd, aiCmdAuto, specFw, jiraProj, ttyMode, extTerm sql.NullString
 	var projModel, projSkillModelsJSON sql.NullString
 	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
+	var ownerUserID sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -5733,10 +5761,23 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	p.GithubApiUrl, p.GithubToken = ghURL.String, ghTok.String
 	p.GitlabUrl, p.GitlabProject, p.GitlabToken = glURL.String, glProj.String, glTok.String
 	p.SpecFramework = models.NormalizeSpecFramework(specFw.String)
+	p.OwnerUserID = strings.TrimSpace(ownerUserID.String)
 	return &p, nil
 }
 
+// CreateProject creates a project nobody signed for: its background
+// synchronisation keeps the server credential, which is what an unattended
+// deployment has.
 func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, error) {
+	return d.CreateProjectAs("", req)
+}
+
+// CreateProjectAs records who created the project as its owner. On a tracker
+// whose credential is personal that is not decoration: the background
+// synchronisation has no acting user of its own and borrows the owner's token,
+// so a project created by nobody can only reach a tracker the server itself is
+// configured for.
+func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
 
 	name := strings.TrimSpace(req.Name)
@@ -5849,9 +5890,9 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	}
 
 	_, err := d.conn.Exec(`
-		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiCmdAutonomous, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, now, now)
+		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, owner_user_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiCmdAutonomous, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, strings.TrimSpace(ownerUserID), now, now)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -5866,7 +5907,20 @@ func (d *DB) CreateProject(req models.CreateProjectRequest) (*models.Project, er
 	return withoutProjectTokens(project), nil
 }
 
+// UpdateProject saves a project without naming who saved it, so a project that
+// predates the owner column keeps having none.
 func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.Project, error) {
+	return d.UpdateProjectAs("", id, req)
+}
+
+// UpdateProjectAs saves it on behalf of whoever asked, and lets an ownerless
+// project adopt them. Every project created before the column has no owner, so
+// without that adoption their background synchronisation would stay on the
+// server credential for good: on a Jira deployment holding only personal
+// tokens, that is one failed activity per unfinished work item per pass. An
+// owner already recorded is never replaced: saving somebody else's project
+// would otherwise hand its synchronisation to the last person who touched it.
+func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
 
 	p, err := d.getProjectByIDUnsafe(id)
@@ -5877,6 +5931,9 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 	if p == nil {
 		d.mu.Unlock()
 		return nil, fmt.Errorf("projet non trouvé")
+	}
+	if strings.TrimSpace(p.OwnerUserID) == "" {
+		p.OwnerUserID = strings.TrimSpace(actingUserID)
 	}
 
 	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
@@ -6058,9 +6115,9 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 
 	_, err = d.conn.Exec(`
 		UPDATE projects
-		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_command_template_autonomous = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, updated_at = ?
+		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_command_template_autonomous = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AICommandTemplateAutonomous, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, p.UpdatedAt, p.ID)
+	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AICommandTemplateAutonomous, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err

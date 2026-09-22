@@ -169,11 +169,18 @@ type Project struct {
 	SpecFramework               string            `json:"specFramework,omitempty"`               // "speckit", "openspec"
 	AutoSyncEnabled             bool              `json:"autoSyncEnabled"`                       // Enable background sync for non-finished tickets
 	AutoSyncIntervalMin         int               `json:"autoSyncIntervalMin"`                   // Period in minutes (1 to 30)
-	TtyMode                     string            `json:"ttyMode,omitempty"`                     // "integrated" or "external"
-	ExternalTerminalCommand     string            `json:"externalTerminalCommand,omitempty"`     // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
-	TaskCount                   int               `json:"taskCount"`
-	CreatedAt                   time.Time         `json:"createdAt"`
-	UpdatedAt                   time.Time         `json:"updatedAt"`
+	// OwnerUserID is whoever owns this project: its creator, or whoever first
+	// saved it when it predates the field. The background synchronisation runs
+	// under that account, because on a tracker whose credential is personal
+	// there is no other one to run under: the owner is the person who turned
+	// the loop on, so it is their token the loop borrows. It is never read from
+	// a payload: a client naming its own owner would borrow anybody's token.
+	OwnerUserID             string    `json:"ownerUserId,omitempty"`
+	TtyMode                 string    `json:"ttyMode,omitempty"`                 // "integrated" or "external"
+	ExternalTerminalCommand string    `json:"externalTerminalCommand,omitempty"` // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
+	TaskCount               int       `json:"taskCount"`
+	CreatedAt               time.Time `json:"createdAt"`
+	UpdatedAt               time.Time `json:"updatedAt"`
 }
 
 // TrackerColumn is one column of the tracker's own board, with the tracker
