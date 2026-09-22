@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Step-closing control presented as a workflow step
-The desktop SHALL present the control that ends the selected task's running execution as the closing step of the current stage, not as a destructive action, and SHALL NOT change what that control does: it still ends the running execution and still offers the reviewed task's closing step afterwards.
+The desktop SHALL present the control that ends the selected task's running execution as the closing step of the current stage, not as a destructive action, and SHALL NOT change what that control does: it ends the running execution and nothing else.
 
 #### Scenario: Appearance of the closing control
 - **GIVEN** a selected task execution in the toolbar
@@ -17,10 +17,11 @@ The desktop SHALL present the control that ends the selected task's running exec
 - **AND** `Next: <skill>` becomes available for that task once no execution is active
 - **AND** the desktop does not transition the task's workflow stage itself.
 
-#### Scenario: Reviewed task keeps its closing offer
+#### Scenario: Reviewed task is not closed by the control
 - **GIVEN** a reviewed task whose project exposes the handoff skill
 - **WHEN** its execution is ended through the closing control
-- **THEN** the existing offer to run the task's closing step is shown unchanged.
+- **THEN** nothing but the execution ends, and the task stays at reviewed
+- **AND** `Next: Handoff` remains the one way to run its closing step.
 
 ### Requirement: Toolbar order and colour separate closing from continuing
 The toolbar SHALL place the step-closing control before the `Next: <skill>` control and SHALL colour them distinctly, so that ending the current step and launching the next one are never mistaken for one another.

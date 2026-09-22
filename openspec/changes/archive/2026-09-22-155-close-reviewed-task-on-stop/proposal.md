@@ -22,3 +22,10 @@ desktop app. Tasks therefore stay at `reviewed` long after the work is done.
 `desktop/src/main.js` (stop handler and a new closing dialog),
 `desktop/src/workflow.mjs` (expose the closing step alongside `nextTaskStep`),
 `desktop/tests` (new UI test). No server, agent, contract or database change.
+
+## Status
+Archived as superseded on 2026-09-22. The closing offer described here was
+removed: stopping an execution now ends it and nothing more, and `Next: Handoff`
+is the one path from `reviewed` to `finished`. The `desktop-task-closure`
+capability added by this proposal never reached `openspec/specs/`, so nothing
+was folded in at archive time.
