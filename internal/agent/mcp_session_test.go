@@ -39,7 +39,7 @@ func TestKilledBridgeLeavesItsRunOpenAndRemarkedUpon(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	daemon := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: "test-token"}}
+	daemon := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: upstreamAgentKey(t, database)}}
 	if err := daemon.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}

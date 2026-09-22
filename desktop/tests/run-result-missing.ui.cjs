@@ -33,8 +33,10 @@ test('a run the agent no longer holds yields no result and no logged error',asyn
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   page.on('console',message=>{if(message.type()==='warning')warnings.push(message.text())})
   const gone=page.locator('.task-skill-status[data-run-id="gone"]'),live=page.locator('.task-skill-status[data-run-id="live"]')
+  // The finished run reports the unconfirmed skill; the running one has nothing
+  // to report beyond its run state, and is polled all the same.
   await expect(gone).toHaveText('◷')
-  await expect(live).toHaveText('◷')
+  await expect(live).toHaveText('')
   await expect.poll(()=>resultReads.filter(read=>read.id==='gone').length).toBeGreaterThan(0)
   await expect.poll(()=>resultReads.filter(read=>read.id==='live').length).toBeGreaterThan(0)
   // The finished run may legitimately be gone; the live one is the anomaly.

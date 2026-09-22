@@ -13,6 +13,25 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- **The desktop discussion header now leads with the task and its state.** The
+  title, the execution's state and the skill result share one line; below them
+  the worktree path is a control you click to copy. Relaunch, log export and the
+  Console/Changes switch became icons, and that switch moved into the toolbar,
+  so the header takes two rows instead of four.
+- **The skill indicator no longer repeats the execution state.** It reported a
+  running execution a second time as `In progress` and a stopped console as
+  `Console stopped`. It now speaks only when it has something the state does not
+  say: the server's verdict on the skill, a stop that has not taken effect, or
+  an execution that ended cleanly without the skill being recorded.
+- **Jira's Blocker/Critical/Major/Minor/Trivial priorities are read one level
+  lower.** On the sites running that scheme, `Major` is where most work items
+  sit, so it now arrives as medium rather than high, and `Critical` as high
+  rather than urgent; `Blocker` stays urgent and `Minor` and `Trivial` stay low.
+  Boards importing from such a project will see their ordinary work items move
+  off the high level on the next synchronisation.
+
 ### Fixed
 
 - **Jira priorities follow the project's own scheme.** Sectile used to write the
@@ -24,14 +43,14 @@ test fixtures or internal plumbing.
   screen has no priority field at all is created without one — instead of being
   refused — and the level is set straight afterwards, so it is not lost.
 
-### Changed
+### Security
 
-- **Jira's Blocker/Critical/Major/Minor/Trivial priorities are read one level
-  lower.** On the sites running that scheme, `Major` is where most work items
-  sit, so it now arrives as medium rather than high, and `Critical` as high
-  rather than urgent; `Blocker` stays urgent and `Minor` and `Trivial` stay low.
-  Boards importing from such a project will see their ordinary work items move
-  off the high level on the next synchronisation.
+- **An agent, MCP client or machine API call now needs a real workstation key.**
+  A server that had issued no key used to accept any nonempty token and treat
+  its holder as the `default` account, which may be an administrator. That
+  fallback is gone, and deleting the last account holding a key no longer
+  reopens it. `SECTILE_SERVER_TOKEN`, still deprecated, remains the one way to
+  keep an agent running while you pair a workstation for it.
 
 ## [0.1.0] - 2026-09-22
 

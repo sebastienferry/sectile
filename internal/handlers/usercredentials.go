@@ -15,11 +15,16 @@ import (
 // person hold their own, and never hand one back: the answer carries what is
 // stored about a credential, never the credential.
 //
-//	GET    /api/me/tracker-credentials          what this person stored
-//	PUT    /api/me/tracker-credentials          store or replace one
-//	DELETE /api/me/tracker-credentials?tracker= forget one
-//	POST   /api/me/tracker-credentials/unlock   supply the sealing passphrase
-//	POST   /api/me/tracker-credentials/lock     forget the derived key
+//	GET    /api/me/tracker-credentials           what this person stored
+//	PUT    /api/me/tracker-credentials           store or replace one
+//	DELETE /api/me/tracker-credentials?tracker=  forget one
+//	POST   /api/me/tracker-credentials/unlock    supply the sealing passphrase
+//	POST   /api/me/tracker-credentials/lock      forget the derived key
+//	DELETE /api/me/tracker-credentials/orphaned  discard a leftover, admin only
+//
+// The GET also reports the credentials stored under an identity no account
+// resolves, because that is the answer to "my tracker says to configure an
+// e-mail I did configure". See internal/db/orphancredentials.go.
 func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Request) {
 	userID := h.webSessionUser(r)
 	if userID == "" {
@@ -32,7 +37,7 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 
 	switch {
 	case action == "" && r.Method == http.MethodGet:
-		h.listUserCredentials(w, userID)
+		h.listUserCredentials(w, r, userID)
 
 	case action == "" && (r.Method == http.MethodPut || r.Method == http.MethodPost):
 		var req struct {
@@ -55,7 +60,7 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		h.listUserCredentials(w, userID)
+		h.listUserCredentials(w, r, userID)
 
 	case action == "" && r.Method == http.MethodDelete:
 		switch err := h.db.ClearUserTrackerCredential(userID, r.URL.Query().Get("tracker")); {
@@ -66,7 +71,7 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		h.listUserCredentials(w, userID)
+		h.listUserCredentials(w, r, userID)
 
 	case action == "unlock" && r.Method == http.MethodPost:
 		var req struct {
@@ -97,7 +102,7 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 					unlockedCount++
 				}
 			}
-			h.listUserCredentials(w, userID)
+			h.listUserCredentials(w, r, userID)
 			return
 		}
 		switch err := h.db.UnlockUserTrackerCredential(userID, req.Tracker, req.Passphrase); {
@@ -116,7 +121,28 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		h.listUserCredentials(w, userID)
+		h.listUserCredentials(w, r, userID)
+
+	case action == "orphaned" && r.Method == http.MethodDelete:
+		// Removing a leftover is a deployment decision, not a personal one, so
+		// it is an admin's. The storage layer refuses any target that still has
+		// an owner, which is what stops this from being a way to delete a
+		// colleague's token by naming their id.
+		if _, ok := h.requireAdmin(w, r); !ok {
+			return
+		}
+		switch err := h.db.DiscardOrphanedTrackerCredential(r.URL.Query().Get("userId"), r.URL.Query().Get("tracker")); {
+		case errors.Is(err, db.ErrNoUserCredential):
+			writeError(w, http.StatusNotFound, "Aucun accès enregistré sous cette identité pour ce tracker")
+			return
+		case errors.Is(err, db.ErrCredentialNotOrphaned):
+			writeError(w, http.StatusConflict, "Cet accès appartient à un compte existant : son propriétaire est seul à pouvoir le supprimer.")
+			return
+		case err != nil:
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		h.listUserCredentials(w, r, userID)
 
 	case action == "lock" && r.Method == http.MethodPost:
 		var req struct {
@@ -131,18 +157,37 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 		} else {
 			h.db.LockUserTrackerCredential(userID, req.Tracker)
 		}
-		h.listUserCredentials(w, userID)
+		h.listUserCredentials(w, r, userID)
 
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
 }
 
-func (h *Handler) listUserCredentials(w http.ResponseWriter, userID string) {
+func (h *Handler) listUserCredentials(w http.ResponseWriter, r *http.Request, userID string) {
 	credentials, err := h.db.UserTrackerCredentials(userID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"credentials": credentials})
+	body := map[string]interface{}{"credentials": credentials}
+
+	// Everyone signed in is told a leftover exists and for which tracker: it is
+	// why their own access looks absent while the tracker behaves as if one was
+	// configured, and they can act on it themselves by registering their token.
+	// Who it is registered under, and for which account, is an admin's business,
+	// as is discarding it.
+	orphans, err := h.db.OrphanedTrackerCredentials()
+	if err == nil && len(orphans) > 0 {
+		trackers := make([]string, 0, len(orphans))
+		for _, orphan := range orphans {
+			trackers = append(trackers, orphan.Tracker)
+		}
+		body["orphanedCount"] = len(orphans)
+		body["orphanedTrackers"] = trackers
+		if h.webPrincipal(r).IsAdmin() {
+			body["orphaned"] = orphans
+		}
+	}
+	writeJSON(w, http.StatusOK, body)
 }

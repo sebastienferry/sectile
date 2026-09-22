@@ -231,6 +231,12 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 	db.ensureProjectSkillsTable()
 	db.ensureMacrosTable()
 
+	// Says what it found and changes nothing: a token stored under an identity
+	// no account resolves is a person's problem to settle, not a migration's.
+	// See internal/db/orphancredentials.go for why neither deleting nor
+	// rebinding is done here.
+	db.reportOrphanedTrackerCredentials()
+
 	// Start background queue worker
 	go db.startQueueWorker()
 

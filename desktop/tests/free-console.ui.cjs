@@ -60,7 +60,9 @@ test('free consoles launch without prompts, reconnect and stop independently',as
   await app.close();app=null;page=await open()
   await page.locator('.local-task .run').first().waitFor();assert.equal(await page.locator('.local-task').count(),2)
   await page.locator('.local-task .run').first().click();await page.getByRole('button',{name:'Stop execution',exact:true}).click()
-  await page.waitForFunction(()=>document.querySelector('#skill-result').textContent.includes('Console stopped'))
+  // A console runs no skill: its end is reported by the run state alone.
+  await page.waitForFunction(()=>document.querySelector('#run-state').textContent.includes('Cancelled'))
+  await page.waitForFunction(()=>document.querySelector('#skill-result').hidden)
   assert.ok(attachments>before);assert.equal(runs[0].status,'canceled');assert.equal(runs[1].status,'running')
   await page.getByRole('button',{name:'Relaunch',exact:true}).click()
   await page.waitForFunction(()=>document.querySelector('[aria-label="Console agent"]').value==='codex')

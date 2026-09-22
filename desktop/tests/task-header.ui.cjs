@@ -65,8 +65,9 @@ test('TTY header follows metadata and selection without disturbing the console',
   reported={activity:{id:'current',taskId:'a',skillId:'implement',status:'completed'},task:{labels:['implemented']}}
   await expect(currentBadge).toHaveText('✓')
   await expect(currentBadge).toHaveAttribute('title','implement · Skill completed')
+  // A withdrawn verdict leaves a still-running execution with nothing to report.
   reported=null
-  await expect(otherBadge).toHaveText('◷')
+  await expect(otherBadge).toHaveText('')
   await select('full-task-id')
   await expect(header()).toHaveText('full-task-id · specify')
   tasks=[{id:'a',title:'Delayed title',prUrl:'https://github.com/example/repo/pull/82'}]
@@ -142,9 +143,12 @@ test('TTY header follows metadata and selection without disturbing the console',
   reported.activity.status='failed'
   await expect(page.locator('#skill-result')).toHaveText('! Skill failed')
   await expect(page.locator('.task-skill-status')).toHaveText('!')
+  // Without a server verdict a running execution has nothing to add to its run
+  // state, so the badge goes rather than restating it.
   resultUnavailable=true
-  await expect(page.locator('#skill-result')).toHaveText('◷ In progress')
-  await expect(page.locator('.task-skill-status')).toHaveText('◷')
+  await expect(page.locator('#skill-result')).toBeHidden()
+  await expect(page.locator('.task-skill-status')).toHaveText('')
+  await expect(page.locator('#run-state')).toHaveText('Running')
   runs=[];await page.reload()
   await expect(header()).toHaveText('Select an execution')
   await expect(header()).toHaveAttribute('title','Select an execution')

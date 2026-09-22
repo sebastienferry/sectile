@@ -514,9 +514,11 @@ than retyping it. Revocation cuts every surface at once.
 The agent gateway takes the same key on `/mcp` and `/api/`, and consoles it
 launches receive it as `SECTILE_AGENT_TOKEN` with `SECTILE_AGENT_URL` set to the
 server. Deprecated for one release: `SECTILE_SERVER_TOKEN`, accepted with a
-startup warning, and the open mode of a server without it, which accepts any
-nonempty token only until the first key is issued. Credentials issued before
-keys expired keep working as keys without expiry.
+startup warning. It is the only credential outside the key store that a machine
+surface accepts; the open mode of a server without it, which accepted any
+nonempty token, is removed, so a server that has issued no key refuses an
+invented token like any other. Credentials issued before keys expired keep
+working as keys without expiry.
 
 ## Roles and owned executions
 
@@ -542,8 +544,7 @@ reports `{"mode", "role", "signedIn", ...}`, where `mode` is `oidc`, `local` or
   process running on its owner's machine. An ownerless run stays closable.
 - The agent gateway's `/api/` forwarding authenticates with the workstation key,
   which stands in for a session and carries its user's role. The deprecated
-  shared token and the legacy open mode do not: they name no key and are refused
-  on the interface API once anyone can sign in.
+  shared token does not: it names no key and is refused on the interface API.
 
 Sign-in itself is either the OpenID Connect flow of ADR 0008 or, while no
 provider is configured, `POST /auth/local {"email"}`, which creates or finds an

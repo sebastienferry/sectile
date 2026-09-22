@@ -492,8 +492,8 @@ func TestWorkstationKeyAuthenticatesInterfaceCalls(t *testing.T) {
 	if status, _ := withBearer(key, "/api/users"); status != http.StatusForbidden {
 		t.Fatalf("member's key on an admin route: %d, want 403", status)
 	}
-	// An invented bearer is not a key: the legacy open mode must not become a
-	// way around sign-in.
+	// An invented bearer is not a key, and there is no longer a mode in which it
+	// becomes one (ADR 0019): it must not be a way around sign-in.
 	if status, _ := withBearer("not-a-real-key", "/api/tasks"); status != http.StatusUnauthorized {
 		t.Fatalf("invented bearer: %d, want 401", status)
 	}
@@ -707,11 +707,13 @@ func TestDeletingAnAccountRemovesItsCredentialsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Alice keeps a key of her own so the deployment still holds one after
-	// bob's is gone: a board with no key at all falls back to the legacy open
-	// mode, where any token names the implicit user, and the assertion below
-	// would then pass for the wrong reason.
-	if _, _, err := database.CreateAPIKey(aliceID, "desktop", db.DefaultAPIKeyTTL); err != nil {
+	// Alice keeps a key of her own, which the deletion must leave alone: that
+	// is the "only" in this test's name. It used to be here for another reason
+	// — a board with no key at all fell back to the legacy open mode and the
+	// assertion below passed for the wrong reason — and that mode is gone
+	// (ADR 0019), so the key now carries an assertion instead of a workaround.
+	aliceKey, _, err := database.CreateAPIKey(aliceID, "desktop", db.DefaultAPIKeyTTL)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -726,6 +728,9 @@ func TestDeletingAnAccountRemovesItsCredentialsOnly(t *testing.T) {
 	}
 	if _, err := h.resolveAgentCredential(key); err == nil {
 		t.Errorf("the workstation key of a deleted account still opens")
+	}
+	if credential, err := h.resolveAgentCredential(aliceKey); err != nil || credential.UserID != aliceID {
+		t.Errorf("another account's key did not survive the deletion: %+v %v", credential, err)
 	}
 	if status, _ := call(t, server, alice, http.MethodDelete, "/api/users/"+bobID, ""); status != http.StatusNotFound {
 		t.Errorf("deleting an unknown account is not a 404")

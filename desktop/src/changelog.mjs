@@ -78,6 +78,22 @@ export function parseChangelog(markdown) {
 }
 
 /**
+ * isPublished says whether a release has actually been cut: it carries entries
+ * and a version number rather than the `Unreleased` heading Keep a Changelog
+ * reserves for work that has shipped to nobody.
+ *
+ * The distinction only started to matter once `Unreleased` held entries. Until
+ * then "the first release with entries" and "the most recent published
+ * release" named the same thing, and the fallback below read as correct while
+ * being one entry away from answering `Unreleased` to somebody asking which
+ * version they have installed.
+ */
+export function isPublished(release) {
+  if (!release || String(release.version).trim().toLowerCase() === 'unreleased') return false
+  return release.sections.some(section => section.items.length > 0)
+}
+
+/**
  * releaseNotesFor returns the requested release, or the most recent published
  * one when the installed version does not appear in the file — which is the
  * case of every build made outside a tag.
@@ -86,5 +102,5 @@ export function releaseNotesFor(releases, version) {
   const wanted = String(version || '').replace(/^v/, '')
   const match = releases.find(entry => entry.version.replace(/^v/, '') === wanted)
   if (match) return match
-  return releases.find(entry => entry.sections.some(section => section.items.length > 0)) || null
+  return releases.find(isPublished) || null
 }

@@ -18,7 +18,7 @@ func connectAgent(t *testing.T, h *Handler) (*websocket.Conn, func()) {
 	server := httptest.NewServer(http.HandlerFunc(h.HandleAgentConnect))
 	u, _ := url.Parse(server.URL)
 	u.Scheme = "ws"
-	u.RawQuery = "token=test-secret&deviceId=test-laptop&projectId=default"
+	u.RawQuery = "token=" + agentTestKey(t, h) + "&deviceId=test-laptop&projectId=default"
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		server.Close()

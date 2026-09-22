@@ -462,6 +462,14 @@ export interface TranslationSchema {
   }
   trackerCredentials: {
     description: string
+    orphanTitle: string
+    orphanBody: string
+    orphanAdminHint: string
+    orphanOwner: string
+    orphanDiscard: string
+    orphanDiscarding: string
+    orphanDiscarded: string
+    orphanDiscardFailed: string
     masterPassphraseTitle: string
     statusLocked: string
     statusActive: string
@@ -1142,6 +1150,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     trackerCredentials: {
       description: 'Vos accès personnels aux trackers. Les jetons saisis sont strictement individuels et protégés par votre compte.',
+      orphanTitle: 'Un accès subsiste sous une identité sans compte',
+      orphanBody: "Un jeton reste enregistré sous l'identifiant utilisé avant que la connexion ne devienne obligatoire. Aucun compte ne le résout : il n'est ni utilisable ni révocable depuis cette page, et il occupe le nom du tracker. Ressaisissez votre propre jeton ci-dessous — c'est la seule sortie, car le serveur ne peut pas établir à qui celui-ci appartient.",
+      orphanAdminHint: 'Une fois votre accès ressaisi, vous pouvez supprimer la ligne restante.',
+      orphanOwner: 'enregistré sous',
+      orphanDiscard: 'Supprimer la ligne',
+      orphanDiscarding: 'Suppression...',
+      orphanDiscarded: 'Accès orphelin supprimé.',
+      orphanDiscardFailed: 'Accès orphelin non supprimé',
       masterPassphraseTitle: 'Phrase de scellement unique',
       statusLocked: 'Verrouillée',
       statusActive: 'Active',
@@ -1820,6 +1836,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     trackerCredentials: {
       description: 'Your personal tracker credentials. Entered tokens are strictly individual and protected by your account.',
+      orphanTitle: 'A credential is left under an identity with no account',
+      orphanBody: 'A token is still stored under the identifier used before sign-in became mandatory. No account resolves it: it can neither be used nor revoked from this page, and it occupies the tracker name. Register your own token below — that is the only way out, because the server cannot establish whose this one is.',
+      orphanAdminHint: 'Once your own credential is registered, you can discard the leftover row.',
+      orphanOwner: 'stored under',
+      orphanDiscard: 'Discard the row',
+      orphanDiscarding: 'Discarding...',
+      orphanDiscarded: 'Leftover credential discarded.',
+      orphanDiscardFailed: 'Leftover credential not discarded',
       masterPassphraseTitle: 'Master sealing passphrase',
       statusLocked: 'Locked',
       statusActive: 'Active',

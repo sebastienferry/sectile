@@ -78,9 +78,10 @@ the agent reuses that checkout and preserves its local changes.
 
 ### Inspect worktree changes
 
-Select a local execution and open **Changes**. Choose a file to read its unified
-patch, or use **Refresh** after edits. **Console** restores terminal focus without
-restarting, stopping, or detaching the execution. Inspection also works for stopped
+Select a local execution and open **Changes** from the pair of view icons in the
+toolbar. Choose a file to read its unified patch, or use **Refresh** after edits.
+**Console** restores terminal focus without restarting, stopping, or detaching
+the execution. Inspection also works for stopped
 runs while their recorded checkout and agent session remain available.
 
 The comparison includes committed, staged, unstaged, and non-ignored untracked
@@ -121,7 +122,15 @@ process. A checkmark means the server reports that exact execution completed;
 for workflow stages, the task must also have reached the corresponding stage.
 An open console can therefore show **Skill completed**. Process exit alone shows
 **Execution ended · skill completion unconfirmed**, and pending stage validation,
-failures, cancellations and in-progress executions have distinct labels.
+failures and cancellations have distinct labels.
+
+The indicator reports only what the run state beside it cannot. A queued,
+preparing or running execution with no server verdict yet, and an execution that
+failed or was cancelled without one, show no indicator at all: their state is
+already carried by the run state, and a second glyph restating it in other words
+only looks like a second fact. A free console runs no skill and shows no
+indicator either, except while a requested stop has not taken effect — the one
+transient the run state has no word for.
 Task-row icons use the same completion rules as the header, with the skill name
 and result in their tooltip and accessible label. Visible rows refresh even when
 they are not selected, with at most four concurrent result lookups. A task row
@@ -417,6 +426,18 @@ persist alongside archive visibility in companion storage. Titles refresh withou
 reconnecting the console; unavailable titles fall back to identity and skill.
 Long headers truncate on one line, with their full text available on hover and
 to assistive technology. Toolbar controls wrap at narrow window widths.
+
+Beside the title, the header shows the selected execution's run state with the
+same glyph and wording as the sidebar row and the desktop notification. Below
+it, the execution's checkout path is a control: click it to copy the path to
+the clipboard, confirmed by a short **Copied**; the text also stays selectable
+for a manual copy.
+
+The controls whose action does not depend on the workflow stage — relaunch, log
+export, the **Console** / **Changes** switch, and the linked pull request — are
+icons, with their wording kept as tooltip and accessible name; the pull request
+keeps its number. **Next: <skill>**, **Mark reviewed**, **Retry** and **Launch
+anyway** stay labelled, because their meaning depends on the stage.
 
 ### Desktop Quick add
 
