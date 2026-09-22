@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   X,
   Palette,
@@ -37,6 +37,7 @@ import { AIModelField } from './AIModelField'
 import { ProviderModelsField } from './ProviderModelsField'
 import { CommandModePreview } from './CommandModePreview'
 import { isValidModel, providerModels } from '../lib/aiModels'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 type SettingsTab = 'account' | 'appearance' | 'trackers' | 'aiEngine' | 'sdd' | 'workstations'
 
@@ -109,16 +110,19 @@ export const ProfileModal: React.FC = () => {
     }
   }, [isProfileOpen, settings])
 
+  const handleClose = useCallback(() => setIsProfileOpen(false), [setIsProfileOpen])
+  const backdrop = useBackdropDismiss(handleClose)
+
   useEffect(() => {
     if (!isProfileOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsProfileOpen(false)
+        handleClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isProfileOpen, setIsProfileOpen])
+  }, [isProfileOpen, handleClose])
 
   if (!isProfileOpen) return null
 
@@ -182,9 +186,7 @@ export const ProfileModal: React.FC = () => {
   return (
     <div
       className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={e => {
-        if (e.target === e.currentTarget) setIsProfileOpen(false)
-      }}
+      {...backdrop}
     >
       <div
         className="relative w-[960px] h-[650px] max-w-[calc(var(--app-w)-32px)] max-h-[calc(var(--app-h)-32px)] rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"
