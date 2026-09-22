@@ -91,6 +91,15 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **The sidebar shows the name you set, not `Developer`.** The account button at
+  the foot of the sidebar and the button in the status bar displayed a name that
+  no screen could edit any more, so they stayed on the seeded `Developer`
+  whatever you typed in Settings → Account. They now show the name your account
+  carries — the same one your executions and your comments are signed with —
+  falling back to your address, then your account id, for an account that has
+  never been named. Settings → Account remains the one place to change it: a name
+  sent to `/api/settings` is accepted and ignored, as the address already was.
+  (#348)
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the

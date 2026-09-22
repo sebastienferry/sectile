@@ -47,7 +47,8 @@ still takes the role, the unchanged ADR 0013 rule.
 
 **The settings row is split in two.** The personal half — `theme`,
 `accentColor`, `language`, `density`, `defaultView`, `uiScale`, `detailMode`,
-`userName`, `userEmail`, `userAvatar`, `editorCommand`,
+`userName` and `userEmail` (projections of the account, see below),
+`userAvatar`, `editorCommand`,
 `externalTerminalCommand` — moves to a `user_settings` table, one row per
 account. The deployment half — trackers, `repoPath`, auto-sync, the whole AI
 configuration, the prompts and `specFramework` — stays in the single row and
@@ -65,8 +66,15 @@ a row reads the deployment row's personal columns, writing its own on the first
 save. An existing deployment therefore shows exactly what it showed before, per
 account, from the first render.
 
-**`userEmail` is a projection.** The read answers the account's address; a write
-ignores it. This is the retirement of the free-text identity ADR 0013 asked for.
+**`userName` and `userEmail` are projections.** The read answers the account's
+own name and address; a write ignores both. This is the retirement of the
+free-text identity ADR 0013 asked for. The name follows the same chain every
+other reader of a user follows — the chosen name, then the one the sign-in
+supplied, then the address, then the id — so the chrome names a person exactly
+as an execution owner or a comment author is named, and Settings → Account stays
+the one place a name is changed. Both keys stay in `memberSettingsKeys`: a member
+posting the whole row is answered `200` and the two fields are dropped from the
+payload, rather than the post being refused as an admin-only change.
 
 **The workstation commands follow the execution's owner.** The external terminal
 and the editor read the owner's `externalTerminalCommand` / `editorCommand`,
