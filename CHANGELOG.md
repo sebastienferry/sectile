@@ -17,6 +17,11 @@ test fixtures or internal plumbing.
 
 - Refreshed the web interface with Graphite light and dark surfaces, quieter navigation, and softer board cards that respect the selected density and project accent.
 
+- **The desktop settings panel dropped its bottom bar.** Its only button,
+  **Close settings**, repeated the cross in the corner on every category, and
+  the same bar showed up under dialogs that had nothing to put on it. The cross
+  and Escape still close the panel, and the bar now appears only where a dialog
+  really has something to save, such as a project's local configuration.
 - **The desktop discussion header now leads with the task and its state.** The
   title, the execution's state and the skill result share one line; below them
   the worktree path is a control you click to copy. Relaunch, log export and the
@@ -36,6 +41,16 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A PostgreSQL deployment upgraded from an earlier version gets the columns it
+  is missing.** On a PostgreSQL database created before accounts could be
+  blocked, the roster refused to open and blocking or unblocking an account
+  failed with `column "blocked_at" does not exist`; an administrator could also
+  silently read as an ordinary member, losing the screens their role opens. A
+  new column only ever reached a newly created database, because the schema is
+  created once and never altered on that engine. Sectile now adds the columns an
+  older PostgreSQL database lacks each time the server starts, so restarting it
+  is all this takes. Installations on SQLite, which includes the desktop
+  application, were never affected.
 - **Jira priorities follow the project's own scheme.** Sectile used to write the
   four names of Atlassian's default scheme, so a project whose priorities are
   named otherwise — the Blocker/Critical/Major/Minor/Trivial set, a renamed or
