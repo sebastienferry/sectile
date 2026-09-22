@@ -60,8 +60,10 @@ change to GitHub's observable behaviour.
 As the owner of a Jira-tracked project, I open the project settings and choose which Jira
 board drives the columns, so that Sectile knows what to mirror.
 
-- **Given** a project whose tracker is Jira and which has at least one scrum or kanban
-  board, **when** I open the board section of the project settings, **then** a board
+- **Given** a project whose tracker is Jira and which has at least one scrum, kanban or
+  simple board — `simple` being how the Agile API types the board of a team-managed
+  project, which carries the same column configuration as the other two —
+  **when** I open the board section of the project settings, **then** a board
   selector lists the boards returned by `GET /api/projects/{id}/boards` with their name
   and type, and the project's first scrum board is pre-selected when `BoardID` is empty.
 - **Given** a project whose `BoardID` is already set, **when** I open the same section,

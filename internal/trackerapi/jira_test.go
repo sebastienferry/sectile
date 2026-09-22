@@ -718,3 +718,30 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 		t.Fatal("nothing must reach Jira when the acting user's credential is locked")
 	}
 }
+
+// A team-managed project has one board, and the Agile API types it "simple".
+// Filtering it out left such a project with no board at all, so its column
+// detection failed with "no board on project <KEY>" even though the board
+// exposes the very same columnConfig as a scrum or kanban one.
+func TestJiraListBoardsKeepsTheSimpleBoardOfATeamManagedProject(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/agile/1.0/board", `{"values":[{"id":549,"name":"SFE board","type":"simple"}],"isLast":true}`)
+	site.reply("GET", "/rest/agile/1.0/board/549/configuration", `{"columnConfig":{"columns":[{"name":"To Do","statuses":[{"id":"1"}]},{"name":"Done","statuses":[{"id":"3"}]}]}}`)
+	site.reply("GET", "/rest/api/3/status", `[{"id":"1","name":"To Do"},{"id":"3","name":"Done"}]`)
+
+	j := site.adapter()
+	ctx := context.Background()
+	proj := jiraProject()
+	boards, err := j.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+	if err != nil || len(boards) != 1 || boards[0].ID != "549" || boards[0].Type != "simple" {
+		t.Fatalf("a simple board is a board: %v %+v", err, boards)
+	}
+	calls := site.calls("GET", "/rest/agile/1.0/board")
+	if len(calls) != 1 || !strings.Contains(calls[0].Query, "type=scrum%2Ckanban%2Csimple") {
+		t.Fatalf("the board filter must ask for the three kinds carrying columns: %+v", calls)
+	}
+	columns, err := j.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: "549"})
+	if err != nil || len(columns) != 2 || columns[0].Name != "To Do" || columns[1].Statuses[0] != "Done" {
+		t.Fatalf("columns of a simple board: %v %+v", err, columns)
+	}
+}
