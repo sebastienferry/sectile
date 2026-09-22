@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Target,
   CalendarRange,
@@ -35,6 +35,8 @@ import {
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { sprintLookup, isProjectCompatible } from '../lib/lookups'
@@ -165,6 +167,20 @@ export const RoadmapView: React.FC = () => {
   const [createMacroTitle, setCreateMacroTitle] = useState('')
   const [createMacroHorizon, setCreateMacroHorizon] = useState<MacroHorizon>('now')
   const [createMacroProjectId, setCreateMacroProjectId] = useState<string>('')
+
+  // Les trois dialogues de cette vue se ferment comme leur croix : clic à côté
+  // et Échap appellent le setter que le bouton appelle déjà.
+  const closeCreateMacro = useCallback(() => setShowCreateMacroModal(false), [])
+  const createMacroBackdrop = useBackdropDismiss(closeCreateMacro)
+  useEscapeKey(showCreateMacroModal, closeCreateMacro)
+
+  const closeMigrate = useCallback(() => setShowMigrateModal(false), [])
+  const migrateBackdrop = useBackdropDismiss(closeMigrate)
+  useEscapeKey(showMigrateModal, closeMigrate)
+
+  const closeRefinePreview = useCallback(() => setRefinePreview(null), [])
+  const refinePreviewBackdrop = useBackdropDismiss(closeRefinePreview)
+  useEscapeKey(refinePreview !== null, closeRefinePreview)
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editingTitleValue, setEditingTitleValue] = useState('')
@@ -1843,7 +1859,7 @@ export const RoadmapView: React.FC = () => {
       </div>
 
       {showCreateMacroModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150" {...createMacroBackdrop}>
           <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
@@ -1955,7 +1971,7 @@ export const RoadmapView: React.FC = () => {
       )}
 
       {showMigrateModal && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150" {...migrateBackdrop}>
           <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
@@ -2061,7 +2077,7 @@ export const RoadmapView: React.FC = () => {
 
       {/* Modal d'aperçu du raffinage de macro (AI) */}
       {refinePreview && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" {...refinePreviewBackdrop}>
           <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-2xl p-5 max-w-lg w-full shadow-2xl flex flex-col max-h-[85vh]">
             <div className="flex items-start justify-between border-b border-[var(--border-color)] pb-3">
               <div>

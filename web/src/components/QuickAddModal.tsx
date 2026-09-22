@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   X,
   Plus,
@@ -9,6 +9,7 @@ import { useApp } from '../context/AppContext'
 import type { Status, Priority, TaskSource, TrackerSprint } from '../types'
 import { LookupField } from './LookupField'
 import { sprintLookup } from '../lib/lookups'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 export const QuickAddModal: React.FC = () => {
   const {
@@ -82,16 +83,19 @@ export const QuickAddModal: React.FC = () => {
     }
   }, [isQuickAddOpen, quickAddInitialStatus, selectedProjectId, projects])
 
+  const handleClose = useCallback(() => setIsQuickAddOpen(false), [setIsQuickAddOpen])
+  const backdrop = useBackdropDismiss(handleClose)
+
   useEffect(() => {
     if (!isQuickAddOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsQuickAddOpen(false)
+        handleClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isQuickAddOpen, setIsQuickAddOpen])
+  }, [isQuickAddOpen, handleClose])
 
   const activeProject = projects.find(p => p.id === taskProjectId) || projects[0]
 
@@ -142,7 +146,7 @@ export const QuickAddModal: React.FC = () => {
   }
 
   return (
-    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150" {...backdrop}>
       <div className="relative w-full max-w-lg rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/40">

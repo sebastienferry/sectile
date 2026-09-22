@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useClickOutside } from '../hooks/useClickOutside'
 import { Loader2, Search, X } from 'lucide-react'
 import { Avatar } from './Avatar'
 
@@ -82,19 +83,11 @@ export const LookupField: React.FC<{
 
   // Fermeture au clic extérieur : le champ vit dans une grille dense, un panneau
   // resté ouvert masque les champs voisins.
-  useEffect(() => {
-    if (!isOpen) return
-    const onDocClick = (e: MouseEvent) => {
-      const target = e.target as Node
-      const insideAnchor = wrapRef.current?.contains(target)
-      const insidePanel = panelRef.current?.contains(target)
-      if (!insideAnchor && !insidePanel) {
-        setIsOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [isOpen])
+  // Le panneau est rendu dans un portail : il n'est pas dans l'ancre, et les
+  // deux comptent comme « dedans ».
+  const closePanel = useCallback(() => setIsOpen(false), [])
+  const outsideTargets = useMemo(() => [wrapRef, panelRef], [])
+  useClickOutside(outsideTargets, closePanel, isOpen)
 
   // La frappe est amortie : chaque caractère est sinon une requête au tracker.
   useEffect(() => {

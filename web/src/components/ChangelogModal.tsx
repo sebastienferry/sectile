@@ -2,6 +2,7 @@ import React, { useEffect } from 'react'
 import { ScrollText, X, Loader2 } from 'lucide-react'
 import { MarkdownView } from './Markdown'
 import { useChangelog, type VersionInfo } from '../hooks/useVersion'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 /**
  * The release notes, as the server embeds them.
@@ -15,6 +16,7 @@ export const ChangelogModal: React.FC<{
   version: VersionInfo | null
 }> = ({ open, onClose, version }) => {
   const { markdown, isLoading, error } = useChangelog(open)
+  const backdrop = useBackdropDismiss(onClose)
 
   useEffect(() => {
     if (!open) return
@@ -30,9 +32,7 @@ export const ChangelogModal: React.FC<{
   return (
     <div
       className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={e => {
-        if (e.target === e.currentTarget) onClose()
-      }}
+      {...backdrop}
     >
       <div
         className="relative w-full max-w-3xl rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col max-h-[calc(var(--app-h)*0.92)] animate-in zoom-in-95 duration-150"

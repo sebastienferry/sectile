@@ -74,6 +74,16 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
+  quick add, the clone, the command palette, the task sheet and its expanded
+  specification reader, the three roadmap dialogs, the sprint closing and the
+  tracker setup — rendered a dark backdrop that reacted to nothing, and five of
+  them had no `Escape` either, so the × was the only way out. All of them now
+  close on a click beside them and on `Escape`, through the same path as their
+  close button: the task sheet still saves what was edited. A dialog opened over
+  another closes alone, and a selection begun inside a dialog and released on
+  the backdrop no longer closes it — which the dialogs that already dismissed
+  used to do, taking the form with them.
 - **Cutting stories out of a macro no longer answers success without moving
   anything.** The move, the horizon push and the required-field lookup were
   served under `/epics/` only, while the interface asked for them under

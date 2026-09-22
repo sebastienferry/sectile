@@ -1,5 +1,5 @@
 import { RemoteRunBadge } from './RemoteRunBadge'
-import React, { useState, useMemo, useRef, useEffect } from "react"
+import React, { useState, useMemo, useRef, useCallback } from "react"
 import {
   Flame,
   Clock,
@@ -27,6 +27,7 @@ import {
   X,
 } from "lucide-react"
 import { useApp } from "../context/AppContext"
+import { useClickOutside } from "../hooks/useClickOutside"
 import { TaskFilters } from "./TaskFilters"
 import { BoardGroupingToggle } from "./BoardGroupingToggle"
 import { issueTypeStyle } from "../lib/issueTypes"
@@ -75,19 +76,8 @@ export const ListView: React.FC = () => {
   const bulkDropdownRef = useRef<HTMLDivElement>(null)
 
   // Close bulk popover when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (bulkDropdownRef.current && !bulkDropdownRef.current.contains(e.target as Node)) {
-        setActiveBulkDropdown(null)
-      }
-    }
-    if (activeBulkDropdown) {
-      document.addEventListener("mousedown", handleClickOutside)
-    }
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside)
-    }
-  }, [activeBulkDropdown])
+  const closeBulkDropdown = useCallback(() => setActiveBulkDropdown(null), [])
+  useClickOutside(bulkDropdownRef, closeBulkDropdown, activeBulkDropdown !== null)
 
   const handleSort = (field: typeof sortField) => {
     if (sortField === field) {

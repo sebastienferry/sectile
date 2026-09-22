@@ -3,6 +3,8 @@ import { X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { getTrackers, initialTracker, type TrackerKind } from '../lib/trackers'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 
 /**
  * Premier démarrage : ce qu'il faut savoir avant que quoi que ce soit
@@ -18,12 +20,16 @@ export const TrackerSetup: React.FC<{ onClose: () => void }> = ({ onClose }) => 
   const [tracker, setTracker] = useState<TrackerKind>(initialTracker(settings.issueTracker))
   const trackers = getTrackers(t)
 
+  const backdrop = useBackdropDismiss(onClose)
+
   useEffect(() => {
     void refreshUserCredentials()
   }, [refreshUserCredentials])
 
+  useEscapeKey(true, onClose)
+
   return (
-    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs" {...backdrop}>
       <div className="relative w-full max-w-lg rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col max-h-[calc(var(--app-h)*0.9)]">
         <div className="flex items-start justify-between px-5 py-4 border-b border-[var(--border-color)]">
           <div className="min-w-0">
