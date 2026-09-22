@@ -204,6 +204,14 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 			continue
 		}
 
+		// The pass runs under the project's owner. It is nobody's request, so
+		// there is no acting user to carry, and a tracker whose credential is
+		// personal has none of its own to fall back on: the owner is the person
+		// who turned this loop on, and it is their token it reads with. An
+		// ownerless project keeps the historical behaviour, the server
+		// credential, which is what SECTILE_JIRA_TOKEN is for.
+		owner := strings.TrimSpace(proj.OwnerUserID)
+
 		for _, t := range tasks {
 			// Skip finished tasks
 			if t.Status == models.StatusFinished || strings.EqualFold(t.TrackerStatus, "Done") {
@@ -211,7 +219,7 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 			}
 
 			// Enqueue single task sync activity in the queue
-			if _, syncErr := d.EnqueueSingleTaskSync(&t); syncErr != nil {
+			if _, syncErr := d.EnqueueSingleTaskSyncAs(owner, &t); syncErr != nil {
 				failures = append(failures, fmt.Sprintf("%s (%s): %v", proj.Name, t.Key, syncErr))
 			} else {
 				imported++

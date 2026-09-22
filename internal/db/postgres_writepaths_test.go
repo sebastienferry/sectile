@@ -189,6 +189,37 @@ func TestPostgresUserRoleAndProfile(t *testing.T) {
 	}
 }
 
+// users.blocked_at is the latest column added by an ALTER its CREATE TABLE
+// also has to carry, so the reads and writes that touch it are exercised here
+// against the engine that would not have it.
+func TestPostgresBlockAndDeleteAccount(t *testing.T) {
+	d := openPostgres(t)
+	seedProjectAndUser(t, d)
+
+	user, err := d.SetUserBlocked("u1", true)
+	if err != nil {
+		t.Fatalf("SetUserBlocked: %v", err)
+	}
+	if !user.Blocked || user.BlockedAt == nil {
+		t.Fatalf("the account did not come back blocked: %+v", user)
+	}
+	if user, err = d.SetUserBlocked("u1", false); err != nil || user.Blocked {
+		t.Fatalf("unblocking: %+v, %v", user, err)
+	}
+
+	// A blocked admin does not count, which is the read AdminCount does on the
+	// same column.
+	if _, err := d.SetUserRole("u1", RoleMember); err != nil {
+		t.Fatalf("SetUserRole: %v", err)
+	}
+	if err := d.DeleteUser("u1"); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	if user, err = d.GetUser("u1"); err != nil || user != nil {
+		t.Fatalf("the account survived the deletion: %+v, %v", user, err)
+	}
+}
+
 func TestPostgresTaskComments(t *testing.T) {
 	d := openPostgres(t)
 	seedProjectAndUser(t, d)
@@ -277,5 +308,37 @@ func TestPostgresPullRequestDetachmentFlag(t *testing.T) {
 	}
 	if d.pullRequestLinksDetached("t1") {
 		t.Fatal("attaching a link again must clear the flag")
+	}
+}
+
+// owner_user_id is the column the background synchronisation reads to know
+// whose credential to borrow. It is the second column added after PostgreSQL
+// support shipped, so it takes the route ADR 0017 opened: reconciled in
+// initSchema rather than in the legacy migrations PostgreSQL never replays.
+func TestPostgresProjectOwner(t *testing.T) {
+	d := openPostgres(t)
+
+	created, err := d.CreateProjectAs("u-ada", models.CreateProjectRequest{Name: "Owned", IssueTracker: "jira", JiraProject: "PE"})
+	if err != nil {
+		t.Fatalf("creating a project: %v", err)
+	}
+	if created.OwnerUserID != "u-ada" {
+		t.Fatalf("owner = %q, want u-ada", created.OwnerUserID)
+	}
+
+	read, err := d.GetProjectByID(created.ID)
+	if err != nil || read == nil {
+		t.Fatalf("reading the project back: %v", err)
+	}
+	if read.OwnerUserID != "u-ada" {
+		t.Fatalf("owner read back = %q, want u-ada", read.OwnerUserID)
+	}
+
+	saved, err := d.UpdateProjectAs("u-grace", created.ID, models.UpdateProjectRequest{})
+	if err != nil {
+		t.Fatalf("saving the project: %v", err)
+	}
+	if saved.OwnerUserID != "u-ada" {
+		t.Fatalf("owner after another person saved it = %q, want u-ada", saved.OwnerUserID)
 	}
 }

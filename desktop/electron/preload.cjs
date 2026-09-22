@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('localAgent',{
  agentLogs:()=>ipcRenderer.invoke('agent-logs'),
  saveLog:text=>ipcRenderer.invoke('save-log',text),
  settings:()=>ipcRenderer.invoke('settings'),
+ version:()=>ipcRenderer.invoke('version'),
  shutdown:()=>ipcRenderer.invoke('shutdown'),
  restart:()=>ipcRenderer.invoke('restart'),
  status:()=>ipcRenderer.invoke('status'),

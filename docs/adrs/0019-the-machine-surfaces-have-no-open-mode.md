@@ -33,8 +33,10 @@ whoever sets one header.
 
 **The condition became re-armable.** `HasDeviceCredentials()` is a live count of
 `device_credentials`. Revocation only marks a row, so the count never used to
-fall; account deletion removes rows outright. Deleting the last account that
-holds a workstation key therefore empties the table and silently puts the
+fall — but the account deletion of
+[ADR 0018](0018-the-admin-owns-the-roster-not-the-board.md) runs
+`DELETE FROM device_credentials WHERE user_id = ?`. Deleting the last account
+that holds a workstation key therefore empties the table and silently puts the
 deployment back into the open mode it had left behind, years of keys later. A
 security boundary that a routine roster edit can reopen is not a boundary.
 
@@ -74,6 +76,11 @@ the open mode was load-bearing in the suite without any test naming it.
 `internal/handlers/mcp_sessions_test.go` was pinning `TASKFLOW_SERVER_TOKEN`, a
 name the server stopped reading long ago, and passed only because of the open
 mode.
+
+`TestDeletingAnAccountRemovesItsCredentialsOnly` seeded a second account's key
+purely so the deployment would not fall into the open mode and let the test
+pass for the wrong reason. That key now carries an assertion — the other
+account's credential survives the deletion — instead of a workaround.
 
 `webSessionUser` is unaffected: it already required `credential.Device != nil`,
 so neither the open mode nor the shared token ever stood in for a session on the

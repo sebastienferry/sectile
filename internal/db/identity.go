@@ -59,6 +59,7 @@ func (d *DB) initIdentitySchema() error {
 			role TEXT NOT NULL DEFAULT 'member',
 			last_sign_in DATETIME,
 			chosen_name TEXT NOT NULL DEFAULT '',
+			blocked_at DATETIME,
 			id TEXT PRIMARY KEY,
 			subject TEXT NOT NULL UNIQUE,
 			email TEXT NOT NULL DEFAULT '',
@@ -113,6 +114,12 @@ func (d *DB) initIdentitySchema() error {
 	// so an account that never renamed itself reads exactly as it did before.
 	if d.dialect.RunsLegacyMigrations() {
 		_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN chosen_name TEXT NOT NULL DEFAULT '';`)
+	}
+	// A blocked account keeps its row, its history and its ownership of past
+	// executions; only the sign-in stops opening. NULL is the normal state, so
+	// every existing account stays open across the upgrade.
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec(`ALTER TABLE users ADD COLUMN blocked_at DATETIME;`)
 	}
 	return nil
 }
@@ -394,7 +401,9 @@ func (d *DB) PurgeExpiredPairingCodes() error {
 	return err
 }
 
-// User is the stored identity behind a session.
+// User is the stored identity behind a session. Blocked is BlockedAt read as a
+// question, so a caller asking whether the account opens does not have to know
+// that the answer is stored as the instant it stopped.
 type User struct {
 	ID          string     `json:"id"`
 	Subject     string     `json:"subject"`
@@ -403,6 +412,8 @@ type User struct {
 	Role        string     `json:"role"`
 	CreatedAt   time.Time  `json:"createdAt"`
 	LastSignIn  *time.Time `json:"lastSignIn,omitempty"`
+	Blocked     bool       `json:"blocked"`
+	BlockedAt   *time.Time `json:"blockedAt,omitempty"`
 }
 
 // Name is what the interface shows for the user: the display name, then the
@@ -422,7 +433,7 @@ func (u User) Name() string {
 // DisplayName resolves to the name its owner chose, falling back to the one the
 // sign-in supplied: every reader of a user therefore shows the chosen name
 // without knowing the column exists.
-const userColumns = `id, subject, email, COALESCE(NULLIF(chosen_name, ''), display_name), role, created_at, last_sign_in`
+const userColumns = `id, subject, email, COALESCE(NULLIF(chosen_name, ''), display_name), role, created_at, last_sign_in, blocked_at`
 
 type userScanner interface {
 	Scan(dest ...any) error
@@ -430,14 +441,19 @@ type userScanner interface {
 
 func scanUser(row userScanner) (*User, error) {
 	var user User
-	var lastSignIn sql.NullTime
-	if err := row.Scan(&user.ID, &user.Subject, &user.Email, &user.DisplayName, &user.Role, &user.CreatedAt, &lastSignIn); err != nil {
+	var lastSignIn, blockedAt sql.NullTime
+	if err := row.Scan(&user.ID, &user.Subject, &user.Email, &user.DisplayName, &user.Role, &user.CreatedAt, &lastSignIn, &blockedAt); err != nil {
 		return nil, err
 	}
 	user.Role = NormalizeRole(user.Role)
 	if lastSignIn.Valid {
 		at := lastSignIn.Time
 		user.LastSignIn = &at
+	}
+	if blockedAt.Valid {
+		at := blockedAt.Time
+		user.BlockedAt = &at
+		user.Blocked = true
 	}
 	return &user, nil
 }

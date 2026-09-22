@@ -21,6 +21,10 @@ type principal struct {
 	// Mode is the deployment's sign-in mode: oidc or local.
 	Mode string
 	Name string
+	// Blocked is an account an admin has closed. It is resolved here rather
+	// than checked at each door so that a block takes hold everywhere at once,
+	// including on the sessions that were already open.
+	Blocked bool
 }
 
 // Anonymous reports a request with no identity at all.
@@ -37,6 +41,7 @@ const (
 	msgSignIn    = "Sign in to use this interface"
 	msgAdminOnly = "This action is reserved to admins"
 	msgNotOwner  = "Only the owner of this execution or an admin can act on it"
+	msgBlocked   = "This account is blocked: ask an admin to open it again"
 )
 
 // signInMode is the deployment's mode. A configured provider is the only
@@ -63,6 +68,7 @@ func (h *Handler) principalFor(userID string) principal {
 		if user, err := h.db.GetUser(p.UserID); err == nil && user != nil {
 			p.Role = user.Role
 			p.Name = user.Name()
+			p.Blocked = user.Blocked
 		}
 	}
 	return p
@@ -73,11 +79,17 @@ func (h *Handler) webPrincipal(r *http.Request) principal {
 	return h.principalFor(h.webSessionUser(r))
 }
 
-// requireSession refuses an anonymous request with 401.
+// requireSession refuses an anonymous request with 401, and a blocked account
+// with 403. The two answers differ because the remedies do: one is a sign-in,
+// the other is a word with an admin.
 func (h *Handler) requireSession(w http.ResponseWriter, r *http.Request) (principal, bool) {
 	p := h.webPrincipal(r)
 	if p.Anonymous() {
 		writeError(w, http.StatusUnauthorized, msgSignIn)
+		return p, false
+	}
+	if p.Blocked {
+		writeError(w, http.StatusForbidden, msgBlocked)
 		return p, false
 	}
 	return p, true
@@ -114,18 +126,14 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 // adminOnlyRoute names the interface mutations reserved to admins. It is the
 // table the guard enforces and the test reads; a mutation that needs the
 // request body to decide, settings and dispatch, is checked in its handler.
-func adminOnlyRoute(method, path string) bool {
-	switch {
-	case path == "/api/users" || strings.HasPrefix(path, "/api/users/"):
-		return true
-	case strings.HasPrefix(path, "/api/setup/tracker"):
-		return method == http.MethodPost || method == http.MethodPut
-	case path == "/api/projects":
-		return method == http.MethodPost
-	case strings.HasPrefix(path, "/api/projects/"):
-		return method == http.MethodPut || method == http.MethodPatch || method == http.MethodDelete
-	}
-	return false
+//
+// Only the accounts themselves are on it. The board is a shared workspace: a
+// member creates, renames and deletes a project and configures the tracker it
+// reads from, because a board where only an admin can open a project is a board
+// that waits on one person. What stays an admin's is the roster, who exists,
+// what role they hold, and whether their account still opens.
+func adminOnlyRoute(_ string, path string) bool {
+	return path == "/api/users" || strings.HasPrefix(path, "/api/users/")
 }
 
 // personalSettingsKeys is the routing table between the two settings stores
@@ -140,8 +148,33 @@ var personalSettingsKeys = map[string]bool{
 	"editorCommand": true, "externalTerminalCommand": true,
 }
 
-// memberSettingsKeys is the same table read as an authorization rule.
-var memberSettingsKeys = personalSettingsKeys
+// trackerSettingsKeys are deployment keys a member may nonetheless write. They
+// describe which tracker the board reads from and the credential it reads with,
+// and they are the settings half of the same rule as the route table: opening a
+// project and pointing it at its tracker are one act, so refusing the second to
+// a member who may do the first would only make the board unusable in a
+// different place. They stay in the shared row: there is one tracker per
+// deployment, not one per person (a *personal* credential is another mechanism,
+// ADR 0014). The token fields are included because a credential is what makes
+// the configuration work; the Set / FromEnv flags are projections the API
+// answers rather than values anyone writes, and are listed so a whole-row post
+// carrying them is not read as an offence.
+var trackerSettingsKeys = map[string]bool{
+	"issueTracker": true,
+	"githubRepo":   true, "githubApiUrl": true,
+	"githubToken": true, "githubTokenSet": true, "githubTokenFromEnv": true,
+	"gitlabUrl": true, "gitlabProject": true,
+	"gitlabToken": true, "gitlabTokenSet": true, "gitlabTokenFromEnv": true,
+	"jiraUrl": true, "jiraProject": true, "jiraEmail": true,
+	"jiraApiToken": true, "jiraApiTokenSet": true, "jiraApiTokenFromEnv": true,
+}
+
+// memberSettingsKeys is the authorization rule: what a member may change, in
+// either store. It is no longer the personal table alone, which is why the two
+// are now named apart.
+func memberSettingsKeys(key string) bool {
+	return personalSettingsKeys[key] || trackerSettingsKeys[key]
+}
 
 // memberSettingsViolations names the admin-only keys a member's payload would
 // change. The interface always posts the whole row, so a key is only offending
@@ -155,7 +188,7 @@ func memberSettingsViolations(current models.Settings, sent map[string]json.RawM
 	_ = json.Unmarshal(stored, &storedKeys)
 	var offending []string
 	for key, value := range sent {
-		if memberSettingsKeys[key] || key == "id" || key == "updatedAt" {
+		if memberSettingsKeys(key) || key == "id" || key == "updatedAt" {
 			continue
 		}
 		if bytes.Equal(canonicalJSON(value), canonicalJSON(storedKeys[key])) {
@@ -178,9 +211,17 @@ func memberSettingsPayload(current models.Settings, sent map[string]json.RawMess
 
 // deploymentSettingsPayload is the other half of the routing: the stored
 // deployment row overlaid with the deployment keys the request carried, so a
-// personal key in the same payload never reaches the shared row.
-func deploymentSettingsPayload(current models.Settings, sent map[string]json.RawMessage) (models.Settings, error) {
-	return settingsOverlay(current, sent, func(key string) bool { return !personalSettingsKeys[key] })
+// personal key in the same payload never reaches the shared row. A member
+// reaches the row too, for the tracker keys only; everything else on it, the AI
+// configuration, the prompts, the repository path and the sync loop, answers to
+// an admin.
+func deploymentSettingsPayload(current models.Settings, sent map[string]json.RawMessage, admin bool) (models.Settings, error) {
+	return settingsOverlay(current, sent, func(key string) bool {
+		if personalSettingsKeys[key] {
+			return false
+		}
+		return admin || trackerSettingsKeys[key]
+	})
 }
 
 // settingsOverlay merges the keys wanted names over the stored row, through

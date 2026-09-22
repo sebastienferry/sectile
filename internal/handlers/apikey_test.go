@@ -238,31 +238,52 @@ func TestOpenModeIsGoneOnADeploymentWithoutKeys(t *testing.T) {
 	}
 }
 
-// The key store losing its last key must decide nothing. Revocation only marks
-// a row today, but deleting the account that holds a key removes it outright,
-// and the door used to be armed by a live count of the rows: a deployment that
-// had long since left the open mode behind would have fallen back into it. The
-// resolver now consults no count at all, so neither shape of loss reopens it.
+// The key store losing its last key must decide nothing. Revocation marks the
+// row; deleting the account that holds the key removes it outright and leaves
+// device_credentials empty. The door used to be armed by a live count of those
+// rows, so a deployment that had long since left the open mode behind fell back
+// into it on a routine roster edit. The resolver consults no count at all now,
+// and neither shape of loss reopens anything.
 func TestALastKeyGoingAwayDoesNotReopenTheDoor(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()
 	t.Setenv("SECTILE_SERVER_TOKEN", "")
+	// The first account takes the admin role and holds no key, so deleting the
+	// second is a routine roster edit rather than the last-admin refusal.
+	if _, err := database.SignInLocal("root@example.com"); err != nil {
+		t.Fatal(err)
+	}
 	user, err := database.SignInLocal("ada@example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
-	key, credential, err := database.CreateAPIKey(user.ID, "laptop", db.DefaultAPIKeyTTL)
+	revoked, credential, err := database.CreateAPIKey(user.ID, "laptop", db.DefaultAPIKeyTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := database.RevokeDeviceCredential(user.ID, credential.ID); err != nil {
 		t.Fatal(err)
 	}
-	if h.resolveAgentUser(key) != "" {
+	if h.resolveAgentUser(revoked) != "" {
 		t.Fatal("a revoked key still authenticates")
 	}
 	if h.resolveAgentUser("anything") != "" {
-		t.Fatal("a deployment whose only key is gone reopened the legacy door")
+		t.Fatal("a deployment whose only key is revoked reopened the legacy door")
+	}
+
+	// Deleting the last account holding a key empties the table for real.
+	deleted, _, err := database.CreateAPIKey(user.ID, "desktop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.DeleteUser(user.ID); err != nil {
+		t.Fatal(err)
+	}
+	if h.resolveAgentUser(deleted) != "" {
+		t.Fatal("the key of a deleted account still authenticates")
+	}
+	if h.resolveAgentUser("anything") != "" {
+		t.Fatal("an emptied key store reopened the legacy door")
 	}
 }
 

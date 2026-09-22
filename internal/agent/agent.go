@@ -30,6 +30,7 @@ import (
 	"tasks/internal/models"
 	"tasks/internal/runner"
 	"tasks/internal/terminal"
+	"tasks/internal/version"
 
 	"github.com/gorilla/websocket"
 )
@@ -444,7 +445,11 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ok","agent":"sectile-local","device":%q,"server":%q}`, d.link.deviceID, d.link.serverURL)))
+		// The version travels with the liveness answer because the first
+		// question asked of a misbehaving workstation is which build it runs,
+		// and this route is the one that answers without a credential.
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"status":"ok","agent":"sectile-local","version":%q,"device":%q,"server":%q}`,
+			version.Current().Version, d.link.deviceID, d.link.serverURL)))
 	})
 
 	server := &http.Server{

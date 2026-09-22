@@ -17,12 +17,18 @@ import { consoleNotice, headlessBanner, HEADLESS_EMPTY, needsConsoleNotice, show
 import { previewLines } from './command-preview.mjs'
 import { runEngine } from './run-engine.mjs'
 import { pollAction } from './agent-poll.mjs'
+// The repository changelog, inlined by Vite at build time. The app reads it
+// with no network at all: the renderer's content security policy forbids any
+// outgoing connection, and the release notes have to stay readable with the
+// agent stopped.
+import changelogSource from '../../CHANGELOG.md?raw'
+import { parseChangelog, releaseNotesFor } from './changelog.mjs'
 const api=window.localAgent
 // Concurrent execution workers ceiling per project, aligned with agentconfig.MaxParallelism.
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
 const MAX_PARALLELISM=10
 document.querySelector('#app').innerHTML=`
-<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Profile" title="Profile"></button></nav></header>
+<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Settings" title="Settings"></button></nav></header>
 <section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><details id="advanced-credential"><summary>Advanced: connect with an API key instead</summary><label>API key<input name="token" type="password" autocomplete="off" placeholder="sectile_…"></label></details><button>Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="native-terminal-badge" class="native-terminal-badge" hidden></span><span id="skill-result" role="status" hidden></span></div><small id="directory"></small></div><select id="execution-history" aria-label="Execution history" hidden></select><button id="selected-pr" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" hidden>Relaunch</button><button id="save-log">Export log</button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" type="button" aria-pressed="true" disabled>Console</button><button id="view-changes" type="button" aria-pressed="false" disabled>Changes</button></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
@@ -721,9 +727,69 @@ document.querySelector('#toggle-sidebar').onclick=()=>{
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
  renderSidebarToggle(hidden);localStorage.setItem('sidebarCollapsed',String(hidden));resize()
 }
-document.querySelector('#profile').onclick=()=>{
- showDialog('Profile')
+// The General pane: what is installed, and what changed. Both versions are
+// shown because the app and the agent are distributed separately, and a
+// workstation that upgraded one and not the other is exactly the case this
+// pane exists to make visible.
+function versionRow(label, value, help){
+ const row=document.createElement('div');row.className='setting-row'
+ const text=document.createElement('div');text.className='setting-text'
+ const name=document.createElement('div');name.className='setting-name'
+ const strong=document.createElement('strong');strong.textContent=label;name.append(strong)
+ text.append(name)
+ if(help){const p=document.createElement('p');p.textContent=help;text.append(p)}
+ const control=document.createElement('div');control.className='setting-control'
+ const version=document.createElement('code');version.className='version-value';version.textContent=value
+ control.append(version);row.append(text,control)
+ return row
+}
+function renderChangelog(container,releases){
+ for(const release of releases){
+  if(!release.sections.some(section=>section.items.length))continue
+  const entry=document.createElement('section');entry.className='changelog-release'
+  const heading=document.createElement('h3')
+  heading.textContent=release.date?release.version+' · '+release.date:release.version
+  entry.append(heading)
+  for(const section of release.sections){
+   if(!section.items.length)continue
+   const title=document.createElement('h4');title.textContent=section.title
+   const list=document.createElement('ul')
+   for(const item of section.items){const li=document.createElement('li');li.textContent=item;list.append(li)}
+   entry.append(title,list)
+  }
+  container.append(entry)
+ }
+ if(!container.childElementCount){
+  const empty=document.createElement('p');empty.textContent='No release notes in this build.';container.append(empty)
+ }
+}
+document.querySelector('#profile').onclick=async()=>{
+ showDialog('Settings')
+ const versions=document.createElement('div');versions.className='settings-versions'
+ const desktopRow=versionRow('Sectile Desktop','…','The application window and its consoles.')
+ const agentRow=versionRow('Local agent','…','The workstation daemon that runs the tasks.')
+ versions.append(desktopRow,agentRow)
+ const notesHeading=document.createElement('h3');notesHeading.className='changelog-heading';notesHeading.textContent='Release notes'
+ const notes=document.createElement('div');notes.className='changelog'
+ dialogBody.append(versions,notesHeading,notes)
 
+ const releases=parseChangelog(changelogSource)
+ renderChangelog(notes,releases)
+
+ let installed=null
+ try{
+  const reported=await api.version()
+  installed=reported.desktop
+  desktopRow.querySelector('.version-value').textContent=reported.desktop||'unknown'
+  // A stopped agent has no version to give. Saying so beats leaving an
+  // ellipsis that reads as a load which never finishes.
+  agentRow.querySelector('.version-value').textContent=reported.agent||'not running'
+ }catch{
+  desktopRow.querySelector('.version-value').textContent='unknown'
+  agentRow.querySelector('.version-value').textContent='not running'
+ }
+ const current=releaseNotesFor(releases,installed)
+ if(current)notesHeading.textContent='Release notes · '+current.version
 }
 document.querySelector('#add-project').onclick=async()=>{
  showDialog('Add project')

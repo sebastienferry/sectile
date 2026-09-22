@@ -19,6 +19,7 @@ import (
 	"tasks/internal/agenthttp"
 	"tasks/internal/models"
 	"tasks/internal/runner"
+	"tasks/internal/version"
 	"time"
 )
 
@@ -70,6 +71,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if r.Header.Get("Origin") != "" || d.loopback.desktopToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(d.loopback.desktopToken)) != 1 {
 		http.Error(w, "Unauthorized", 401)
+		return
+	}
+	// The build the companion is talking to. It is its own route rather than a
+	// field on /desktop/status because status is polled every few seconds and
+	// the version never changes while the process lives.
+	if r.URL.Path == "/desktop/version" && r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(version.Current())
 		return
 	}
 	if r.URL.Path == "/desktop/status" && r.Method == http.MethodGet {

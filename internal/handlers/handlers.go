@@ -505,12 +505,15 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err := h.db.CreateProject(req)
+		// The creator owns the project: the background synchronisation has no
+		// acting user of its own and reads under that account.
+		userID := h.webSessionUser(r)
+		project, err := h.db.CreateProjectAs(userID, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if userID := h.webSessionUser(r); userID != "" && project != nil {
+		if userID != "" && project != nil {
 			_ = h.db.BookmarkProject(userID, project.ID)
 			project.Bookmarked = true
 		}
@@ -1299,7 +1302,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err := h.db.UpdateProject(id, req)
+		// Saving an ownerless project adopts the person saving it, so its
+		// background synchronisation stops running as the server.
+		project, err := h.db.UpdateProjectAs(h.webSessionUser(r), id, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2492,7 +2497,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	if subAction == "sync" && (r.Method == http.MethodPost || r.Method == http.MethodGet) {
 		// A synchronisation a person triggered on one ticket also rediscovers
 		// its pull requests, whatever the bounding rule of the background pass.
-		task, err := h.db.ForceSyncSingleTask(r.Context(), id)
+		task, err := h.db.ForceSyncSingleTask(h.actingContext(r), id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Échec de la synchronisation unitaire: "+err.Error())
 			return
@@ -2662,8 +2667,8 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The payload carries both halves. A member may change the personal
-		// one; touching the deployment's is refused by naming the keys, so the
-		// interface can say which.
+		// keys and the tracker ones; touching the rest of the deployment's is
+		// refused by naming the keys, so the interface can say which.
 		if !caller.IsAdmin() {
 			if offending := memberSettingsViolations(*current, sent); len(offending) > 0 {
 				writeError(w, http.StatusForbidden, msgAdminOnly+": "+strings.Join(offending, ", "))
@@ -2690,18 +2695,21 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// The deployment keys go to the shared row, and only an admin ever
-		// reaches this: a member's payload was just checked to change none.
-		if caller.IsAdmin() {
-			deploymentReq, err := deploymentSettingsPayload(*current, sent)
+		// The deployment keys go to the shared row. A member reaches it for the
+		// tracker keys only; the payload filter, not this branch, is what keeps
+		// the rest of the row theirs to read and an admin's to change.
+		{
+			deploymentReq, err := deploymentSettingsPayload(*current, sent, caller.IsAdmin())
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			var clear []string
-			for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
-				if _, ok := sent[name]; ok {
-					clear = append(clear, name)
+			if caller.IsAdmin() {
+				for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
+					if _, ok := sent[name]; ok {
+						clear = append(clear, name)
+					}
 				}
 			}
 			if _, err := h.db.UpdateSettings(deploymentReq, clear...); err != nil {
