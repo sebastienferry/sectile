@@ -106,6 +106,10 @@ func TestOnlyIntendedPathsBypassTheSessionGuard(t *testing.T) {
 		"/api/me/project-bookmarks",
 		// Both probes are matched exactly: nothing below them is public.
 		"/api/health/details",
+		// The build and the release notes are for whoever is signed in. They
+		// are harmless on their own, and exactly what an unauthenticated scan
+		// collects first.
+		"/api/version", "/api/changelog",
 	}
 	for _, path := range guarded {
 		if publicPath(path) {

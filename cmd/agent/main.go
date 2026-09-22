@@ -16,12 +16,19 @@ import (
 	"tasks/internal/agentattach"
 	"tasks/internal/agentexec"
 	"tasks/internal/agentmcp"
+	"tasks/internal/version"
 )
 
 func main() {
 	args := os.Args[1:]
 	if len(args) > 0 {
 		switch args[0] {
+		// The version comes before every role: whoever is asking which build
+		// they have is asking about the executable, not about what it can do,
+		// and must not have to pair or connect to find out.
+		case "--version", "-version", "version":
+			fmt.Println("sectile-agent " + version.String())
+			return
 		case "attach":
 			if err := agentattach.Run(args[1:]); err != nil {
 				log.Fatal(err)

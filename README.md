@@ -355,6 +355,46 @@ mirror for the mirrored branch and labelled `testenv` gets its own board at
 own database, following the head of the branch until the merge request closes.
 The GitHub pull request alone spawns nothing: the generator only reads GitLab.
 
+## Versioning and changelog
+
+A release of Sectile is a Git tag `vX.Y.Z` following
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html), and nothing else.
+The tag is the only source of the version: it is injected into the Go binaries
+at link time, and no file in the repository declares the product version. A
+build made outside a tag reports `dev`, which is exactly what it is.
+
+Every component can say what it is running:
+
+```bash
+sectile-server --version
+sectile-agent --version
+curl -s http://localhost:8090/api/version   # {"version":"v0.1.0","commit":"…"}
+```
+
+In the interfaces: the version sits in the web footer, and clicking it opens
+the release notes; the desktop app shows them in its settings, next to its own
+version and the local agent's — the two are distributed separately, so a
+workstation may have upgraded only one of them.
+
+The release notes live in [`CHANGELOG.md`](./CHANGELOG.md), in
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format and **in
+English only**. The server embeds it and serves it on `GET /api/changelog`; the
+desktop app inlines it at build time.
+
+What a pipeline produces depends on its ref:
+
+| Ref | Server image | Workstation binaries |
+|---|---|---|
+| tag `vX.Y.Z` | `server:vX.Y.Z` | published under version `vX.Y.Z` |
+| merge into `main` | `server:<iid>-main` + `latest` | none |
+| any other branch | `server:<iid>-<slug>` + `preview-<sha>` | none |
+
+The procedure for cutting a tag — deriving the number, writing the changelog
+entries, bumping the manifests, committing, creating the annotated tag — is
+written in [`AGENTS.md`](./AGENTS.md) and is meant to be executed as written
+whenever somebody asks for a release. See
+[ADR 0018](docs/adrs/0018-semver-tags-and-changelog.md).
+
 ## 📚 Documentation Technique Complète
 
 Une suite documentaire complète pour développeurs et LLMs est disponible dans le dossier [`/docs`](./docs) :

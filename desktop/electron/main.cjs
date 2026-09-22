@@ -73,6 +73,17 @@ ipcMain.handle('settings',()=>{
   return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
  }catch{return {}}
 })
+// What this installation is running. The desktop's own version comes from the
+// package the app was built from; the agent's comes from the agent itself,
+// because the two are distributed separately and a workstation that upgraded
+// one and not the other is exactly the case this panel has to make visible.
+// An agent that is not running leaves its version null rather than failing the
+// call: the desktop version is the answer somebody stopped to look for.
+ipcMain.handle('version',async()=>{
+ let agent=null
+ try{agent=(await api('/desktop/version')).version||null}catch{}
+ return {desktop:app.getVersion(),agent}
+})
 ipcMain.handle('start',async(_,settings)=>{
  if(starting)throw Error('Agent is starting')
  starting=true
