@@ -30,8 +30,8 @@ type fakeTracker struct {
 	sprints   []models.TrackerSprint
 	// epics is what ListEpics answers: the containers the sync never imports as
 	// cards, and which carry the roadmap labels.
-	epics []models.Task
-	members   map[string][]models.TeamMember
+	epics   []models.Task
+	members map[string][]models.TeamMember
 	// memberErr makes the members endpoint fail, which must not fail a sync.
 	memberErr error
 	// getErr makes the single work item read fail, the way a refused credential
