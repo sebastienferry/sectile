@@ -94,6 +94,16 @@ type dialect interface {
 	// creating the foreign key, which no engine accepts over dirty data. The
 	// backfill itself stays engine-independent.
 	MigrateActivityAttachment(conn *sqlConn, backfill func(*sqlConn) error) error
+	// Engine names the engine itself, for the rare piece of code that must
+	// choose a statement by engine rather than by capability: a numbered
+	// migration the two cannot express the same way. Everything else asks a
+	// question about behaviour instead, which is why this arrived last.
+	Engine() Driver
+	// LockForMigration serialises the migration run against another process
+	// holding the same database, and returns the release. One server instance
+	// per database is the invariant, and a rolling deploy still overlaps two of
+	// them for a few seconds, which is exactly when both would migrate.
+	LockForMigration(conn *sqlConn) (func(), error)
 	// RunsLegacyMigrations reports whether the repairs written for databases
 	// created by older versions apply. They only ever applied to SQLite files
 	// that predate a schema change; a database created today starts complete.

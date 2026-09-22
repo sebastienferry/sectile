@@ -16,7 +16,12 @@ test fixtures or internal plumbing.
 ### Changed
 
 - Refreshed the web interface with Graphite light and dark surfaces, quieter navigation, and softer board cards that respect the selected density and project accent.
-
+- **The server refuses to start rather than run on a half-applied schema.** It
+  now records which schema changes a database has received and applies the ones
+  it lacks when it starts; a change that fails leaves the database exactly as it
+  was and stops the server, instead of letting it answer requests against a
+  schema it does not have. A deployment upgrading from an earlier version is
+  brought up to date on its first start, whichever database engine it uses.
 - **The desktop settings panel dropped its bottom bar.** Its only button,
   **Close settings**, repeated the cross in the corner on every category, and
   the same bar showed up under dialogs that had nothing to put on it. The cross
@@ -41,6 +46,12 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A PostgreSQL deployment no longer leaves runs stuck after a restart.**
+  Marking interrupted work as failed, and cancelling the remote runs whose
+  client session died with the server, only ever ran on SQLite. On PostgreSQL
+  those activities stayed `In progress` for good, holding their task and
+  stalling any chain they belonged to, with nothing able to close them. They are
+  now closed on every start, on both engines.
 - **A PostgreSQL deployment upgraded from an earlier version gets the columns it
   is missing.** On a PostgreSQL database created before accounts could be
   blocked, the roster refused to open and blocking or unblocking an account
