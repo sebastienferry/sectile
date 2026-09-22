@@ -26,8 +26,9 @@ a number that will eventually be wrong, late, or forgotten.
 **A merge into `main` promotes itself to dev. There is no production
 promotion.**
 
-- **The trigger is the merge, not a tag.** Sectile has no release-tag
-  convention; `main` is what the team's board runs, and every merge into it
+- **The trigger is the merge, not a tag.** Sectile had no release-tag
+  convention when this was written; `main` is what the team's board runs, and
+  every merge into it
   already builds an image. The `promote:dev` job runs on the default branch
   only, after `publish:image` has pushed the image it will pin.
 - **What it promotes is `${SECTILE_VERSION}`**, the exact string the image was
@@ -86,7 +87,9 @@ GitLab merge requests and never this job.
 - **Promoting on a git tag, as platform-portal does.** Rejected because that
   repository releases by tagging and this one does not; a tag convention would
   have to be invented first, and inventing one to justify a deployment trigger
-  is the wrong way round.
+  is the wrong way round. (ADR 0018 has since invented one. The answer here is
+  unchanged: dev shows what `main` holds, which is a statement about the branch
+  and not about releases.)
 - **Keeping the copy manual and adding it to a checklist.** Costs no secret.
   Rejected because the checklist is the part that drifts, and the failure it
   guards against is silent.
