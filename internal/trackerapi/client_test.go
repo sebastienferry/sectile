@@ -10,6 +10,7 @@ import (
 	"strings"
 	"tasks/internal/models"
 	"testing"
+	"time"
 )
 
 func fixture(t *testing.T, handle http.HandlerFunc) *Client {
@@ -35,12 +36,46 @@ func TestGithubSyncUsesServerHTTPAndPaginatesIssues(t *testing.T) {
 		fmt.Fprint(w, `[{"number":1,"title":"Build","body":"Details","state":"open","labels":[{"name":"#specified"}],"assignees":[{"login":"owner"}],"milestone":{"title":"Sprint 1","number":1}},{"number":2,"pull_request":{"url":"ignored"}}]`)
 	})
 	t.Setenv("PATH", t.TempDir())
-	tasks, err := c.SyncFromGithub("acme/app", "/nonexistent/server/checkout")
+	tasks, err := c.SyncFromGithub("acme/app", "/nonexistent/server/checkout", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 || len(tasks) != 2 || tasks[0].Key != "#1" || tasks[0].Status != models.StatusToImplement || tasks[0].Assignee != "owner" || tasks[0].Sprint != "Sprint 1" || tasks[1].Status != models.StatusFinished {
 		t.Fatalf("unexpected imported issues: %#v (%d calls)", tasks, calls)
+	}
+}
+
+// GitHub filters the same read on the same idea under another name: `since`
+// takes the instant, in UTC, which is the timezone its own `updated_at` is
+// written in. A background pass asks for what moved; a read somebody asked for
+// carries no parameter at all.
+func TestGithubSyncBoundsAnIncrementalPassOnTheUpdateDate(t *testing.T) {
+	var since string
+	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		since = r.URL.Query().Get("since")
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[{"number":1,"title":"Moved","state":"open"}]`)
+	})
+	before := time.Now().UTC()
+	if _, err := c.SyncFromGithub("acme/app", "", 20); err != nil {
+		t.Fatal(err)
+	}
+	stamp, err := time.Parse(time.RFC3339, since)
+	if err != nil {
+		t.Fatalf("an incremental pass must carry a since parameter, got %q (%v)", since, err)
+	}
+	// Twenty minutes back from the call, with a second of slack for the clock
+	// that moved between the two.
+	if delta := before.Add(-20 * time.Minute).Sub(stamp); delta > time.Second || delta < -time.Second {
+		t.Fatalf("since must be the window back from now, got %s (%s off)", stamp, delta)
+	}
+
+	since = "untouched"
+	if _, err := c.SyncFromGithub("acme/app", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if since != "" {
+		t.Fatalf("a full read carries no since, got %q", since)
 	}
 }
 
@@ -78,7 +113,7 @@ func TestTrackerFailuresNeverSucceedOrExposeSecrets(t *testing.T) {
 	for _, status := range []int{401, 403, 429, 500} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			c := fixture(t, func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status); fmt.Fprint(w, "github-secret") })
-			if _, err := c.SyncFromGithub("acme/app", ""); err == nil || strings.Contains(err.Error(), "github-secret") {
+			if _, err := c.SyncFromGithub("acme/app", "", 0); err == nil || strings.Contains(err.Error(), "github-secret") {
 				t.Fatalf("unsafe or missing error: %v", err)
 			}
 		})
@@ -86,7 +121,7 @@ func TestTrackerFailuresNeverSucceedOrExposeSecrets(t *testing.T) {
 	calls := 0
 	c := fixture(t, func(w http.ResponseWriter, r *http.Request) { calls++; fmt.Fprint(w, `[]`) })
 	c.GithubToken = ""
-	if _, err := c.SyncFromGithub("acme/app", ""); err == nil || calls != 0 {
+	if _, err := c.SyncFromGithub("acme/app", "", 0); err == nil || calls != 0 {
 		t.Fatalf("missing credentials sent request: %v", err)
 	}
 }
@@ -157,7 +192,7 @@ func TestTrackerRejectsForeignRedirectsAndPagination(t *testing.T) {
 			w.Header().Set("Link", "<"+other.URL+">; rel=\"next\"")
 			fmt.Fprint(w, `[]`)
 		})
-		if _, err := c.SyncFromGithub("acme/app", ""); err == nil {
+		if _, err := c.SyncFromGithub("acme/app", "", 0); err == nil {
 			t.Fatal("accepted foreign response")
 		}
 	}

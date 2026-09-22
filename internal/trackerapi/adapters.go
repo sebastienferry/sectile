@@ -39,6 +39,7 @@ func NewGithubAdapter(client *Client) *GithubAdapter {
 				tracker.CapLabels,
 				tracker.CapAssign,
 				tracker.CapPullRequests,
+				tracker.CapIncrementalSync,
 			},
 		},
 		client: client,
@@ -163,7 +164,7 @@ func (g *GithubAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest)
 	if repoPath == "" && req.Project != nil {
 		repoPath = req.Project.RepoPath
 	}
-	return g.forProject(ctx, req.Project).SyncFromGithub(repo, repoPath)
+	return g.forProject(ctx, req.Project).SyncFromGithub(repo, repoPath, req.UpdatedWithinMin)
 }
 
 func (g *GithubAdapter) AddComment(ctx context.Context, req tracker.AddCommentRequest) error {

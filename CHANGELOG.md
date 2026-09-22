@@ -43,6 +43,18 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **The background synchronisation asks the tracker what moved, instead of
+  re-reading every ticket one by one.** A pass used to queue one read per
+  unfinished work item, every few minutes: four hundred tickets meant four
+  hundred requests and four hundred activity rows a pass, for ever. It now
+  files one single synchronisation per project, bounded on the update date —
+  Jira is asked for `updated >= -15m`, GitHub for issues changed `since` the
+  previous pass — so the cost follows what actually changed rather than how
+  large the project is. A full read still runs every half hour, which is what
+  notices a ticket that left the project's perimeter, and a tracker that cannot
+  narrow a search is simply read in full. A pass that finds nothing leaves no
+  activity behind; one the tracker refuses is still recorded, with the account
+  whose credential was refused.
 - Refreshed the web interface with Graphite light and dark surfaces, quieter navigation, and softer board cards that respect the selected density and project accent.
 - **The server refuses to start rather than run on a half-applied schema.** It
   now records which schema changes a database has received and applies the ones

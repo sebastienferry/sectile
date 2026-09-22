@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -57,36 +58,29 @@ func TestAnOwnerlessProjectAdoptsWhoeverSavesIt(t *testing.T) {
 // The queue outlives the pass that filled it, so the account travels on the
 // job. Without it the worker resolved the server credential, and a deployment
 // whose only Jira credential is personal failed every one of these reads with
-// "configure the Jira account e-mail", one per unfinished work item, per pass.
-func TestTheBackgroundReadOfOneTaskRunsAsTheJobsUser(t *testing.T) {
+// "configure the Jira account e-mail", pass after pass.
+func TestTheBackgroundSynchronisationRunsAsTheJobsUser(t *testing.T) {
 	fake := newFakeTracker()
 	database, project := jiraTestDB(t, fake)
 
-	task, err := database.CreateTask(models.CreateTaskRequest{Title: "Seed", Source: "local", ProjectID: project.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = database.conn.Exec("UPDATE tasks SET source='jira', key='PE-1' WHERE id=?", task.ID); err != nil {
-		t.Fatal(err)
-	}
-
-	activity := models.TaskActivity{ID: "sync-owner", TaskID: task.ID, SkillID: "sync_task", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-owner", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
 
 	// Run the job here rather than queue it: the worker would run it in
 	// parallel and overwrite what this test is watching.
-	database.processSyncTaskJob(context.Background(), SkillJob{SkillID: "sync_task", ActivityID: activity.ID, TaskID: task.ID, ProjectID: project.ID, ActingUser: "u-ada"})
-	if fake.readAs != "u-ada" {
-		t.Fatalf("the background read must run as the job's user, got %q", fake.readAs)
+	settings, _ := database.GetSettings()
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID, ActingUser: "u-ada"}, settings)
+	if fake.syncedAs != "u-ada" {
+		t.Fatalf("the background read must run as the job's user, got %q", fake.syncedAs)
 	}
 
 	// A job queued for nobody keeps the server credential.
-	fake.readAs = "sentinel"
-	database.processSyncTaskJob(context.Background(), SkillJob{SkillID: "sync_task", ActivityID: activity.ID, TaskID: task.ID, ProjectID: project.ID})
-	if fake.readAs != "" {
-		t.Fatalf("an unattended read must name nobody, got %q", fake.readAs)
+	fake.syncedAs = "sentinel"
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
+	if fake.syncedAs != "" {
+		t.Fatalf("an unattended read must name nobody, got %q", fake.syncedAs)
 	}
 }
 
@@ -95,36 +89,43 @@ func TestTheBackgroundReadOfOneTaskRunsAsTheJobsUser(t *testing.T) {
 // on. The activity carries it, so a refusal says whose credential was refused.
 func TestTheAutoSyncPassQueuesUnderTheProjectOwner(t *testing.T) {
 	fake := newFakeTracker()
-	database, project := jiraTestDB(t, fake)
-	database.auto = &autoSync{lastFullSync: map[string]time.Time{}, lastPassAt: map[string]time.Time{}}
-
-	enabled := true
-	if _, err := database.UpdateProjectAs("u-ada", project.ID, models.UpdateProjectRequest{AutoSyncEnabled: &enabled}); err != nil {
-		t.Fatal(err)
-	}
-	task, err := database.CreateTask(models.CreateTaskRequest{Title: "Unfinished", Source: "local", ProjectID: project.ID})
-	if err != nil {
-		t.Fatal(err)
-	}
+	// A refused read is kept, which is what lets this assert on the activity.
+	fake.syncErr = errors.New("configure the Jira account e-mail")
+	database, project := autoSyncTestDB(t, fake)
+	seedTrackerTask(t, database, project.ID, "PE-1", "Open")
 
 	settings, _ := database.GetSettings()
 	database.runAutoSyncPass(settings)
 
-	activities, err := database.GetTaskActivities(task.ID)
-	if err != nil {
-		t.Fatal(err)
+	activities := syncActivities(t, database, project.ID, true)
+	if len(activities) == 0 {
+		t.Fatal("the pass queued no synchronisation for the project")
 	}
-	queued := 0
 	for _, act := range activities {
-		if act.SkillID != "sync_task" {
-			continue
-		}
-		queued++
 		if act.UserID != "u-ada" {
 			t.Fatalf("the pass must queue under the owner, got %q", act.UserID)
 		}
+		if act.Status != string(models.ActivityStatusFailed) {
+			t.Fatalf("a refused read is kept as a failure, got %q", act.Status)
+		}
 	}
-	if queued == 0 {
-		t.Fatal("the pass queued no synchronisation for the unfinished work item")
+}
+
+// A pass nobody asked for that finds nothing leaves nothing: it runs every few
+// minutes on every project that opted in, and a row per pass would bury the
+// entries the feed exists for.
+func TestABackgroundPassThatFoundNothingLeavesNoTrace(t *testing.T) {
+	fake := newFakeTracker()
+	database, project := autoSyncTestDB(t, fake)
+	seedTrackerTask(t, database, project.ID, "PE-1", "Open")
+
+	settings, _ := database.GetSettings()
+	database.runAutoSyncPass(settings)
+
+	if _, ran := fake.syncedWithin(t); !ran {
+		t.Fatal("the pass never reached the tracker")
+	}
+	if left := syncActivities(t, database, project.ID, false); len(left) != 0 {
+		t.Fatalf("a pass that imported nothing must leave nothing behind, got %d activity(ies)", len(left))
 	}
 }

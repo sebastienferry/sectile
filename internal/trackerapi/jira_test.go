@@ -768,3 +768,44 @@ func TestJiraListBoardsKeepsTheSimpleBoardOfATeamManagedProject(t *testing.T) {
 		t.Fatalf("columns of a simple board: %v %+v", err, columns)
 	}
 }
+
+// The background loop re-reads a project every few minutes. Asking for all of
+// it costs one request per hundred work items, and asking for each work item
+// one by one costs one per ticket: an incremental read asks the site what it
+// has touched since the previous pass, and pays for that answer only.
+//
+// The clause is relative on purpose. JQL dates `-15m` with the site's own
+// clock, so nothing has to agree on a timezone, and no drift between Sectile
+// and Atlassian can shift the window.
+func TestJiraSyncBoundsAnIncrementalPassOnTheUpdateDate(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("GET", "/rest/api/3/search/jql", func(w http.ResponseWriter, r *http.Request) {
+		jql := r.URL.Query().Get("jql")
+		if !strings.Contains(jql, "updated >= -18m") {
+			t.Errorf("an incremental pass must bound the search: %s", jql)
+		}
+		if !strings.HasPrefix(jql, `project = "PE"`) {
+			t.Errorf("the project clause must survive: %s", jql)
+		}
+		fmt.Fprint(w, `{"issues":[{"key":"PE-1","fields":{"summary":"Moved","status":{"name":"To Do","statusCategory":{"key":"new"}}}}],"isLast":true}`)
+	})
+	tasks, err := site.adapter().SyncIssues(context.Background(), tracker.SyncRequest{Project: jiraProject(), UpdatedWithinMin: 18})
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("incremental sync: %v %+v", err, tasks)
+	}
+}
+
+// A synchronisation somebody asked for reads the whole project, and so does a
+// pass the loop decided to make full: no window, no clause.
+func TestJiraSyncWithoutAWindowAsksForTheWholeProject(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("GET", "/rest/api/3/search/jql", func(w http.ResponseWriter, r *http.Request) {
+		if jql := r.URL.Query().Get("jql"); strings.Contains(jql, "updated >=") {
+			t.Errorf("a full read carries no window: %s", jql)
+		}
+		fmt.Fprint(w, `{"issues":[],"isLast":true}`)
+	})
+	if _, err := site.adapter().SyncIssues(context.Background(), tracker.SyncRequest{Project: jiraProject()}); err != nil {
+		t.Fatal(err)
+	}
+}
