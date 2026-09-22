@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -14,15 +15,31 @@ import (
 // database genuinely written by an earlier binary carries no version at all, and
 // that is the state those tests mean to put under test: without this, the
 // reopen skips the baseline and the repair they are checking never runs.
+//
+// Forgetting the version means forgetting what the numbered migrations did too.
+// A migration after the baseline is applied exactly once and is therefore not
+// written to survive a second run (ADR 0021); replaying one over a database that
+// already carries its column is a state no real deployment reaches, and only
+// this helper can produce it. postBaselineColumns is what it undoes.
 func forgetSchemaVersion(t *testing.T, d *DB) {
 	t.Helper()
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations"); err != nil {
 		t.Fatalf("forgetting the schema version: %v", err)
 	}
-	// A database genuinely written by an earlier binary carries no post-baseline
-	// migrations. Drop columns added by migrations so that reopen can replay them.
-	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator")
-	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator_avatar")
+	for _, column := range postBaselineColumns {
+		if _, err := d.conn.Exec(fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", column.table, column.name)); err != nil {
+			t.Fatalf("dropping %s.%s to look pre-versioning: %v", column.table, column.name, err)
+		}
+	}
+}
+
+// postBaselineColumns lists the columns the numbered migrations add, so that
+// forgetSchemaVersion can take a database back to the baseline shape. One line
+// per column-adding migration.
+var postBaselineColumns = []struct{ table, name string }{
+	{table: "tasks", name: "creator"},
+	{table: "tasks", name: "creator_avatar"},
+	{table: "projects", name: "project_label"},
 }
 
 // appliedVersions is what the database says it has applied, in order.
@@ -105,19 +122,20 @@ func TestAMigrationIsAppliedOnceAndRecorded(t *testing.T) {
 	}
 	defer d.Close()
 
-	startVersion := latestVersion()
-	nextVersion := startVersion + 1
+	// Past the migrations the database already carries: creating it applied and
+	// recorded every one of them.
+	next := latestVersion() + 1
 	list := []migration{{
-		version:    nextVersion,
+		version:    next,
 		name:       "test.marker",
 		statements: []string{"ALTER TABLE tasks ADD COLUMN test_marker TEXT NOT NULL DEFAULT '';"},
 	}}
-	if err := d.applyMigrations(list, startVersion); err != nil {
+	if err := d.applyMigrations(list, latestVersion()); err != nil {
 		t.Fatalf("applying: %v", err)
 	}
 	version, err := d.schemaVersion()
-	if err != nil || version != nextVersion {
-		t.Fatalf("version = %d (%v), want %d", version, err, nextVersion)
+	if err != nil || version != next {
+		t.Fatalf("version = %d (%v), want %d", version, err, next)
 	}
 
 	// A second pass starts from the recorded version and therefore does nothing.
@@ -126,8 +144,8 @@ func TestAMigrationIsAppliedOnceAndRecorded(t *testing.T) {
 	if err := d.applyMigrations(list, version); err != nil {
 		t.Fatalf("second pass: %v", err)
 	}
-	if got := appliedVersions(t, d); len(got) != 1+len(migrations)+1 {
-		t.Fatalf("applied versions = %v, want exactly the baseline and migrations plus one", got)
+	if got := appliedVersions(t, d); len(got) != latestVersion()+1 {
+		t.Fatalf("applied versions = %v, want the baseline, every migration and the test one", got)
 	}
 }
 

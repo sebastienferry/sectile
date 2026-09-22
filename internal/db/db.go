@@ -402,7 +402,6 @@ func (d *DB) initSchema() error {
 			tracker_columns TEXT NOT NULL DEFAULT '[]',
 			sprints TEXT NOT NULL DEFAULT '[]',
 			issue_types TEXT NOT NULL DEFAULT '[]',
-			project_label TEXT NOT NULL DEFAULT '',
 			mono_repo INTEGER NOT NULL DEFAULT 1,
 			stage_columns TEXT NOT NULL DEFAULT '{}',
 			github_repo TEXT NOT NULL DEFAULT '',
@@ -744,10 +743,6 @@ func (d *DB) applyLegacyMigrations() {
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN ai_skill_models TEXT NOT NULL DEFAULT '{}';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN spec_framework TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN jira_project TEXT NOT NULL DEFAULT '';")
-	// project_label : le label qui marque les tickets appartenant au projet quand
-	// plusieurs projets Sectile partagent un projet du tracker. Vide vaut « aucun
-	// filtre d'appartenance », donc les projets existants ne changent pas.
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN project_label TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN tty_mode TEXT NOT NULL DEFAULT 'integrated';")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN external_terminal_command TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN external_terminal_command TEXT NOT NULL DEFAULT '';")

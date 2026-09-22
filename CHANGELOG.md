@@ -19,6 +19,21 @@ test fixtures or internal plumbing.
   Jira captures the original issue creator and avatar, and local task creation
   attributes the task to the authenticated user. Authorship is displayed in the
   task detail panel and list view.
+- **Several Sectile projects can now share one tracker project.** A project can
+  carry a membership label: its board then shows only the tickets that carry it,
+  so two teams working on the same Jira key — or the same GitHub repository —
+  each see their own slice instead of one another's tickets. The setting is in
+  the project's general settings, and leaving it empty keeps the board showing
+  everything, which is what every project does today.
+- **A ticket is attributed to a project from its card.** "Ajouter au projet" and
+  "Retirer du projet" in the card's menu write the project's membership label on
+  the ticket — on the tracker too, so the attribution is visible to the team
+  outside Sectile and survives a resynchronisation. A ticket created from a
+  project that has a membership label already carries it.
+- **A quick filter shows the whole imported board.** The synchronisation keeps
+  importing the entire tracker project, so "Tout le board" is where the tickets
+  nobody has attributed yet are found and attached. The choice is remembered per
+  project.
 - **A macro's roadmap horizon now reaches the tracker.** Classifying a macro as
   NOW, NEXT or LATER writes a `roadmap:now`, `roadmap:next` or `roadmap:later`
   label on its epic and removes the other three, so the classification is

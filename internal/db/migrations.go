@@ -54,8 +54,8 @@ func (m migration) statementsFor(engine Driver) []string {
 
 // migrations lists every change made since the baseline, in order.
 //
-// It is empty because the baseline is the schema as it stands: this list starts
-// filling with the next change. A new column goes here, and nowhere else. Not
+// The baseline is the schema as it stood when this scheme shipped; everything
+// since is here. A new column goes here, and nowhere else. Not
 // in a CREATE TABLE, which now describes version 1 and not the current schema;
 // not in applyLegacyMigrations, which repairs SQLite files written before the
 // baseline; not in lateColumns, which is frozen for the same reason.
@@ -68,6 +68,7 @@ func (m migration) statementsFor(engine Driver) []string {
 //
 // Versions are contiguous from baselineVersion + 1 and never reordered or
 // renumbered once merged: a database that has applied 2 and 3 decides what to
+// run next by number alone. TestMigrationsAreNumberedInOrder holds that.
 var migrations = []migration{
 	{
 		version: 2,
@@ -75,6 +76,13 @@ var migrations = []migration{
 		statements: []string{
 			"ALTER TABLE tasks ADD COLUMN creator TEXT NOT NULL DEFAULT '';",
 			"ALTER TABLE tasks ADD COLUMN creator_avatar TEXT NOT NULL DEFAULT '';",
+		},
+	},
+	{
+		version: 3,
+		name:    "projects.project_label",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN project_label TEXT NOT NULL DEFAULT '';",
 		},
 	},
 }
