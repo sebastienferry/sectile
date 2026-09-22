@@ -15,6 +15,11 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **The desktop settings panel dropped its bottom bar.** Its only button,
+  **Close settings**, repeated the cross in the corner on every category, and
+  the same bar showed up under dialogs that had nothing to put on it. The cross
+  and Escape still close the panel, and the bar now appears only where a dialog
+  really has something to save, such as a project's local configuration.
 - **The desktop discussion header now leads with the task and its state.** The
   title, the execution's state and the skill result share one line; below them
   the worktree path is a control you click to copy. Relaunch, log export and the
