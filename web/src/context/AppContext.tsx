@@ -178,6 +178,13 @@ interface AppContextType {
   setShowAllTickets: (value: boolean) => void
   /** Le label d'appartenance du projet sélectionné, vide quand il n'y en a pas. */
   projectLabel: string
+  /**
+   * Un projet du périmètre courant filtre sur un label : le bouton « tout le
+   * board » a quelque chose à élargir. Distinct de `projectLabel`, qui est vide
+   * sur « tous les projets » alors que le filtre, lui, s'y applique projet par
+   * projet.
+   */
+  membershipFilterApplies: boolean
   /** Les tickets portant une exécution distante vivante, pour le filtre et son compteur. */
   activeTasks: Set<string>
   sprintFilter: string | null
@@ -684,6 +691,23 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setActiveOnlyState(value)
     persistFilter({ activeOnly: value ? '1' : null })
   }, [persistFilter])
+
+  // Le label d'appartenance du projet affiché : il nomme le filtre dans l'infobulle
+  // du bouton et décide des entrées de menu d'une carte.
+  const projectLabel = useMemo(() => {
+    if (!selectedProjectId || selectedProjectId === 'all') return ''
+    const project = projects.find(p => p.id === selectedProjectId || p.slug === selectedProjectId)
+    return (project?.projectLabel || '').trim()
+  }, [projects, selectedProjectId])
+
+  // Sur « tous les projets » aucun label unique ne nomme le filtre, mais il
+  // s'applique quand même, projet par projet : le bouton doit rester offert dès
+  // qu'un projet suivi en porte un.
+  const membershipFilterApplies = useMemo(() => {
+    if (projectLabel !== '') return true
+    if (selectedProjectId && selectedProjectId !== 'all') return false
+    return projects.some(p => Boolean(p.bookmarked) && (p.projectLabel || '').trim() !== '')
+  }, [projectLabel, projects, selectedProjectId])
 
   // C'est l'élargissement qui est mémorisé, pas la restriction : la clé absente
   // vaut « ce projet seulement », qui est le défaut voulu.
@@ -3404,6 +3428,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         showAllTickets,
         setShowAllTickets,
         projectLabel,
+        membershipFilterApplies,
         activeTasks,
         sprintFilter,
         setSprintFilter,

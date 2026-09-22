@@ -51,6 +51,7 @@ export const TaskFilters: React.FC = () => {
     showAllTickets,
     setShowAllTickets,
     projectLabel,
+    membershipFilterApplies,
     activeTasks,
     t,
   } = useApp()
@@ -210,7 +211,7 @@ export const TaskFilters: React.FC = () => {
           les tickets portant le label d'appartenance sont affichés par défaut.
           Ce bouton lève la restriction, ce qui est là qu'on va chercher un ticket
           à rattacher au projet. Rien à lever quand le projet n'a pas de label. */}
-      {projectLabel !== '' && (
+      {membershipFilterApplies && (
         <button
           type="button"
           onClick={() => setShowAllTickets(!showAllTickets)}
@@ -221,7 +222,9 @@ export const TaskFilters: React.FC = () => {
           }`}
           title={
             showAllTickets
-              ? `N'afficher que les tickets du projet (label « ${projectLabel} »)`
+              ? projectLabel !== ''
+                ? `N'afficher que les tickets du projet (label « ${projectLabel} »)`
+                : "N'afficher que les tickets rattachés à leur projet"
               : 'Afficher tous les tickets du board, y compris ceux qui ne sont pas rattachés au projet'
           }
         >
