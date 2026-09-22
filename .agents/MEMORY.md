@@ -60,7 +60,10 @@
   project and type), `issue/{key}/editmeta` for an update (never cached — a key
   alone does not name its project and type). **A screen without the priority
   field is written without a priority**, not refused: on PE the field is on no
-  creation screen at all, and sending it fails the whole creation. The site
+  creation screen at all, and sending it fails the whole creation —
+  `setPriorityAfterCreate` then puts the level on with a PUT resolved against
+  the *edit* screen, which PE does carry, and a refusal there is logged rather
+  than returned, since the work item already exists. The site
   list, then the default names, are the fallbacks when no screen answers.
   Resolution inside a scheme is by name (`jiraPriorityAliases`, accents folded,
   English and French), then by **rank** in the scheme's order, most urgent

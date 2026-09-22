@@ -252,11 +252,14 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	}
 	// The creation screen decides: which options this project's scheme has,
 	// and whether it carries the field at all. A project whose screen has no
-	// priority is created without one rather than refused over it.
+	// priority is created without one rather than refused over it, and the
+	// level is put on afterwards.
+	priorityCarried := false
 	if req.Priority != "" {
 		screen, readable := c.jiraCreatePriorities(ctx, projectKey, issueType)
 		if value, ok := c.priorityFieldFor(ctx, screen, readable, req.Priority, projectKey+"/"+issueType); ok {
 			fields["priority"] = value
+			priorityCarried = true
 		}
 	}
 	var created struct {
@@ -273,6 +276,9 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 			return nil, err
 		}
 	}
+	if req.Priority != "" && !priorityCarried {
+		j.setPriorityAfterCreate(ctx, c, created.Key, req.Priority)
+	}
 	task, err := j.GetIssue(ctx, tracker.GetIssueRequest{Project: req.Project, Key: created.Key})
 	if err != nil {
 		// The work item exists: answer with what is known rather than failing
@@ -282,6 +288,27 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		return &models.Task{ID: "jira-" + key, Key: key, Title: title, Description: req.Description, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: cleanLabels(req.Labels), Source: "jira", IssueType: issueType, ExternalURL: &u}, nil
 	}
 	return task, nil
+}
+
+// setPriorityAfterCreate puts the level on a work item whose creation screen
+// would not carry it. Such projects exist — their creation screen has no
+// priority field while their edit screen does — and one extra request beats
+// dropping the level the caller asked for.
+//
+// A refusal here is logged and not returned: the work item exists, and failing
+// its creation over a field the site would not take on the way in is exactly
+// what this whole path avoids. The read that follows answers with the priority
+// the site actually holds, so nothing claims a level that did not stick.
+func (j *JiraAdapter) setPriorityAfterCreate(ctx context.Context, c *Client, key string, p models.Priority) {
+	screen, readable := c.jiraEditPriorities(ctx, key)
+	value, ok := c.priorityFieldFor(ctx, screen, readable, p, key)
+	if !ok {
+		return
+	}
+	payload := map[string]any{"fields": map[string]any{"priority": value}}
+	if err := c.jira(ctx, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(key), nil, payload, nil); err != nil {
+		log.Printf("[jira] %s was created, but its priority could not be set: %v", key, err)
+	}
 }
 
 func cleanLabels(labels []string) []string {

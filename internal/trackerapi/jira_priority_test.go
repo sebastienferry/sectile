@@ -196,16 +196,23 @@ func TestJiraWritesAPriorityTheProjectsSchemeHas(t *testing.T) {
 	}
 }
 
-// Project PE carries no priority on its creation screens at all. Sending the
-// field anyway is refused ("Field 'priority' cannot be set"), which would fail
-// a creation over something the site was never going to accept.
-func TestJiraOmitsThePriorityWhenTheScreenHasNoSuchField(t *testing.T) {
+// Project PE carries no priority on its creation screens at all, while its
+// edit screen does. Sending the field on creation is refused ("Field
+// 'priority' cannot be set"), which would fail the whole creation; leaving it
+// out and stopping there would drop the level the caller asked for. So the
+// creation goes out without it and the level is put on afterwards.
+func TestJiraPutsThePriorityOnAfterACreationScreenRefusesIt(t *testing.T) {
 	site := jiraSiteWithScreens(t)
 	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3", `{"total":1,"fields":[{"fieldId":"summary","name":"Summary","required":true}]}`)
-	var created map[string]any
+	site.reply("GET", "/rest/api/3/issue/PE-42/editmeta", `{"fields":{"priority":{"allowedValues":`+jiraPEScheme+`}}}`)
+	var created, put map[string]any
 	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&created)
 		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
+	})
+	site.on("PUT", "/rest/api/3/issue/PE-42", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&put)
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	if _, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
@@ -213,6 +220,57 @@ func TestJiraOmitsThePriorityWhenTheScreenHasNoSuchField(t *testing.T) {
 	}
 	if _, ok := created["fields"].(map[string]any)["priority"]; ok {
 		t.Fatalf("a screen without the field must receive no priority: %#v", created["fields"])
+	}
+	if got := put["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "1"}) {
+		t.Fatalf("the level must be put on afterwards, from the edit screen: %#v", put)
+	}
+	if _, ok := put["fields"].(map[string]any)["summary"]; ok {
+		t.Fatalf("nothing but the priority must travel: %#v", put)
+	}
+}
+
+// Neither screen takes the field, or the site refuses the follow-up: the work
+// item exists, so the creation stands. The caller is answered with the
+// priority the site actually holds rather than the one it asked for.
+func TestJiraKeepsACreationThatCouldNotTakeItsPriority(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		editmeta http.HandlerFunc
+		put      http.HandlerFunc
+		wantPuts int
+	}{
+		{"the edit screen has no priority either", func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, `{"fields":{"summary":{}}}`)
+		}, nil, 0},
+		{"the site refuses the follow-up", func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, `{"fields":{"priority":{"allowedValues":`+jiraPEScheme+`}}}`)
+		}, func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"errors":{"priority":"The priority selected is invalid."}}`)
+		}, 1},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			site := jiraSiteWithScreens(t)
+			site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/3", `{"total":1,"fields":[{"fieldId":"summary","name":"Summary","required":true}]}`)
+			site.on("GET", "/rest/api/3/issue/PE-42/editmeta", c.editmeta)
+			site.reply("POST", "/rest/api/3/issue", `{"id":"1","key":"PE-42"}`)
+			if c.put != nil {
+				site.on("PUT", "/rest/api/3/issue/PE-42", c.put)
+			}
+
+			task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent})
+			if err != nil {
+				t.Fatalf("the work item exists; its creation must stand: %v", err)
+			}
+			// PE-42 comes back carrying Blocker in this fixture, which is what
+			// the site holds — the answer is never the level that did not stick.
+			if task.Key != "PE-42" || task.Priority != models.PriorityUrgent {
+				t.Fatalf("created task: %+v", task)
+			}
+			if puts := site.calls("PUT", "/rest/api/3/issue/PE-42"); len(puts) != c.wantPuts {
+				t.Fatalf("got %d follow-up writes, want %d", len(puts), c.wantPuts)
+			}
+		})
 	}
 }
 

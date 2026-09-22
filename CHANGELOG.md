@@ -20,8 +20,9 @@ test fixtures or internal plumbing.
   named otherwise — the Blocker/Critical/Major/Minor/Trivial set, a renamed or
   translated one — refused every creation and every update with "The priority
   selected is invalid". Sectile now asks the screen that will receive the write
-  which priorities it takes, and sends one of those. A project whose screen has
-  no priority field at all is created without one instead of being refused.
+  which priorities it takes, and sends one of those. A project whose creation
+  screen has no priority field at all is created without one — instead of being
+  refused — and the level is set straight afterwards, so it is not lost.
 
 ### Changed
 
