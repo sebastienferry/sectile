@@ -35,11 +35,16 @@ test fixtures or internal plumbing.
   another without unfolding anything. The choice is remembered per browser. The
   **Hidden** tab keeps the unfolded row: none of the three buttons applies
   there, and every macro would read as unclassified.
-- **Roadmap labels can be read back from the tracker.** **Re-read labels** in
-  the roadmap toolbar imports the `roadmap:` labels the epics already carry,
-  along with each epic's own title and whether it is closed, which the
-  synchronisation never imported. A macro classified on the tracker wins; one
-  carrying no label keeps the classification made here.
+- **Roadmap labels are read back on every synchronisation.** The horizon lives
+  on the epic, which the sync imports as a container and never as a card, so a
+  project whose epics are all classified on the tracker used to open with an
+  entirely unclassified roadmap and nothing on screen saying why. Each sync now
+  reads the `roadmap:` labels, along with each epic's own title and whether it
+  is closed, and reports it as a step of the synchronisation activity. A tracker
+  that cannot be reached leaves a note rather than undoing the import.
+  **Re-read labels** in the roadmap toolbar runs the same read on demand. A
+  macro classified on the tracker wins; one carrying no label keeps the
+  classification made here.
 
 ### Changed
 

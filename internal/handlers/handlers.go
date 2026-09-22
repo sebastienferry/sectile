@@ -821,7 +821,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "push-horizons" {
 		switch r.Method {
 		case http.MethodGet:
-			pending, err := h.db.PendingHorizonPushes(id)
+			pending, err := h.db.PendingHorizonPushes(r.Context(), id)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -852,7 +852,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// Synchronous, unlike the push: it writes nothing on the tracker, and its
 	// answer is the report the caller came for.
 	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "import-horizons" && r.Method == http.MethodPost {
-		note, err := h.db.ImportMacroHorizons(id)
+		note, err := h.db.ImportMacroHorizons(r.Context(), id)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return

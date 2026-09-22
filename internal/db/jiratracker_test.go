@@ -28,6 +28,9 @@ type fakeTracker struct {
 	statuses  []tracker.TrackerStatus
 	statusErr error
 	sprints   []models.TrackerSprint
+	// epics is what ListEpics answers: the containers the sync never imports as
+	// cards, and which carry the roadmap labels.
+	epics []models.Task
 	members   map[string][]models.TeamMember
 	// memberErr makes the members endpoint fail, which must not fail a sync.
 	memberErr error
@@ -96,6 +99,11 @@ func (f *fakeTracker) GetIssue(ctx context.Context, req tracker.GetIssueRequest)
 		}
 	}
 	return &models.Task{Key: req.Key, Title: "Remote", Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+}
+
+func (f *fakeTracker) ListEpics(ctx context.Context, req tracker.ProjectRequest) ([]models.Task, error) {
+	f.record("epics")
+	return append([]models.Task{}, f.epics...), nil
 }
 
 func (f *fakeTracker) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRequest) error {
@@ -501,5 +509,64 @@ func TestAQueuedSprintMoveCarriesItsAuthorAndItsProject(t *testing.T) {
 	}
 	if where != project.ID {
 		t.Fatalf("the queued sprint move must name its project, got %q", where)
+	}
+}
+
+// The roadmap horizon lives on the epic, which the sync never imports as a card:
+// without reading the epics, a project whose epics are all classified on the
+// tracker opens with an entirely unclassified roadmap, and nothing on screen
+// says why.
+func TestSyncReadsTheRoadmapHorizonFromTheEpicLabels(t *testing.T) {
+	fake := newFakeTracker()
+	fake.tasks = []models.Task{{
+		Key: "PE-10", Title: "Child", Status: models.StatusToClarify, Source: "jira",
+		ParentKey: "PE-1", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}}
+	fake.epics = []models.Task{
+		{Key: "PE-1", Title: "Maintenance", Labels: []string{"platform", "roadmap:next"}, Status: models.StatusToClarify, TrackerStatus: "Open"},
+		{Key: "PE-2", Title: "Shipped", Labels: []string{"ROADMAP:Now"}, Status: models.StatusFinished, TrackerStatus: "Done"},
+		{Key: "PE-3", Title: "No axis", Labels: []string{"platform"}, Status: models.StatusToClarify},
+	}
+
+	database, project := jiraTestDB(t, fake)
+	activity := models.TaskActivity{ID: "sync-horizons", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := database.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := database.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
+
+	if !fake.called("epics") {
+		t.Fatalf("the sync must read the epics: %v", fake.calls)
+	}
+
+	metas, err := database.GetProjectMacros(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := map[string]models.MacroMeta{}
+	for _, m := range metas {
+		byKey[m.Key] = m
+	}
+	if got := byKey["PE-1"].Horizon; got != "next" {
+		t.Errorf("PE-1 horizon = %q, want next", got)
+	}
+	// The prefix is matched whatever the case the tracker stores it in.
+	if got := byKey["PE-2"].Horizon; got != "now" {
+		t.Errorf("PE-2 horizon = %q, want now", got)
+	}
+	if !byKey["PE-2"].Closed {
+		t.Error("PE-2 carries a finished status and should be marked closed")
+	}
+	// The epic's own title arrives too: the roadmap used to guess it from the
+	// children.
+	if got := byKey["PE-1"].Title; got != "Maintenance" {
+		t.Errorf("PE-1 title = %q", got)
+	}
+	if got := byKey["PE-3"].Horizon; got != "" {
+		t.Errorf("PE-3 carries no roadmap label and should stay unclassified, got %q", got)
 	}
 }
