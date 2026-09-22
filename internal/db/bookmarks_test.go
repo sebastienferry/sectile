@@ -198,7 +198,7 @@ func TestUserBookmarkTaskAndFacetScoping(t *testing.T) {
 
 	user := "user-scope"
 	// User has default project bookmarked (seeded automatically). Does NOT have p2 bookmarked yet.
-	tasks, err := database.GetTasksForUser(user, "", "", "", "", "all", "", "", "", "", nil, nil, false)
+	tasks, err := database.GetTasksForUser(user, "", "", "", "", "all", "", "", "", "", nil, nil, false, false)
 	if err != nil {
 		t.Fatalf("GetTasksForUser failed: %v", err)
 	}
@@ -206,7 +206,7 @@ func TestUserBookmarkTaskAndFacetScoping(t *testing.T) {
 		t.Fatalf("Expected only t1 for user without p2 bookmark, got %d tasks", len(tasks))
 	}
 
-	facets, err := database.GetTaskFacetsForUser(user, "all")
+	facets, err := database.GetTaskFacetsForUser(user, "all", false)
 	if err != nil {
 		t.Fatalf("GetTaskFacetsForUser failed: %v", err)
 	}
@@ -217,7 +217,7 @@ func TestUserBookmarkTaskAndFacetScoping(t *testing.T) {
 	// Now bookmark p2
 	_ = database.BookmarkProject(user, p2.ID)
 
-	tasks, err = database.GetTasksForUser(user, "", "", "", "", "all", "", "", "", "", nil, nil, false)
+	tasks, err = database.GetTasksForUser(user, "", "", "", "", "all", "", "", "", "", nil, nil, false, false)
 	if err != nil {
 		t.Fatalf("GetTasksForUser failed: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestUserBookmarkTaskAndFacetScoping(t *testing.T) {
 		t.Fatalf("Expected 2 tasks after bookmarking p2, got %d", len(tasks))
 	}
 
-	facets, err = database.GetTaskFacetsForUser(user, "all")
+	facets, err = database.GetTaskFacetsForUser(user, "all", false)
 	if err != nil {
 		t.Fatalf("GetTaskFacetsForUser failed: %v", err)
 	}

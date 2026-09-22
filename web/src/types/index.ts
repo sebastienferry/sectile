@@ -222,6 +222,13 @@ export interface Project {
    */
   issueTypes?: string[]
   /**
+   * Label d'appartenance : le label qui marque les tickets de ce projet quand
+   * plusieurs projets Sectile partagent un projet du tracker. La synchro importe
+   * toujours tout le board ; c'est l'affichage qui se restreint. Vide vaut « pas
+   * de filtre d'appartenance ».
+   */
+  projectLabel?: string
+  /**
    * Le projet tient dans un seul dépôt. La branche courante, son sélecteur et la
    * branche affichée sur une carte n'ont de sens que dans ce cas.
    */

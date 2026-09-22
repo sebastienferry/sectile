@@ -136,6 +136,12 @@ type Project struct {
 	// its own type imports nothing without it: a feedback project may carry a
 	// single custom type, which the default list would match on no ticket.
 	IssueTypes []string `json:"issueTypes,omitempty"`
+	// ProjectLabel marks the work items that belong to this project when several
+	// Sectile projects share one tracker project. The sync still imports the whole
+	// tracker project; the board shows only the tickets carrying this label, and a
+	// quick filter widens it back. Empty means no membership filter, which is what
+	// every project had before the setting existed.
+	ProjectLabel string `json:"projectLabel"`
 	// Sprints mirrors the board's sprints with their state, refreshed by the sync.
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
@@ -317,6 +323,9 @@ type CreateProjectRequest struct {
 	// IssueTypes names the tracker work item types to import. Empty means the
 	// default list.
 	IssueTypes []string `json:"issueTypes,omitempty"`
+	// ProjectLabel marks the work items belonging to this project. Empty means no
+	// membership filter.
+	ProjectLabel string `json:"projectLabel,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
 	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
@@ -373,6 +382,7 @@ type UpdateProjectRequest struct {
 	TrackerColumns              *[]TrackerColumn     `json:"trackerColumns,omitempty"`
 	Sprints                     *[]TrackerSprint     `json:"sprints,omitempty"`
 	IssueTypes                  *[]string            `json:"issueTypes,omitempty"`
+	ProjectLabel                *string              `json:"projectLabel,omitempty"`
 	MonoRepo                    *bool                `json:"monoRepo,omitempty"`
 	StageColumns                *map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl                *string              `json:"gitRemoteUrl,omitempty"`

@@ -23,6 +23,8 @@ import {
   Copy,
   CopyPlus,
   Pin,
+  Tag,
+  TagsIcon,
   Terminal,
   Cpu,
   Check,
@@ -36,6 +38,7 @@ import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
 import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
+import { projectLabelState, withProjectLabel, withoutProjectLabel } from '../lib/projectLabel'
 
 interface TaskCardProps {
   task: Task
@@ -64,7 +67,14 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     t,
     addToast,
     setTaskSprint,
+    updateTask,
   } = useApp()
+
+  // Appartenance au projet : le label que porte la carte quand elle est rattachée
+  // au projet. Le board n'affiche que les tickets qui le portent, et ces deux
+  // entrées de menu sont le geste qui les rattache ou les détache.
+  const cardProject = projects.find(p => p.id === task.projectId || p.slug === task.projectId)
+  const membership = projectLabelState(task.labels, cardProject?.projectLabel)
 
   // Le menu est rendu dans un portail avec un positionnement fixe : les colonnes
   // du board défilent en overflow-y-auto, ce qui découpait un menu en position
@@ -675,6 +685,37 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
             <Copy size={12} className="text-slate-400" />
             <span>Copier la référence</span>
           </button>
+
+          {membership.applicable && (
+            <button
+              type="button"
+              onClick={async () => {
+                setIsMenuOpen(false)
+                const labels = membership.carries
+                  ? withoutProjectLabel(task.labels, membership.label)
+                  : withProjectLabel(task.labels, membership.label)
+                const updated = await updateTask(task.id, { labels })
+                addToast(
+                  updated
+                    ? {
+                        type: 'success',
+                        title: membership.carries ? 'Retiré du projet' : 'Ajouté au projet',
+                        description: `Label « ${membership.label} » ${membership.carries ? 'retiré de' : 'posé sur'} ${task.key}`,
+                      }
+                    : { type: 'error', title: 'Échec', description: `Le label « ${membership.label} » n'a pas pu être écrit sur ${task.key}` },
+                )
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+              title={
+                membership.carries
+                  ? `Retirer le label « ${membership.label} » du ticket, sur le tracker aussi`
+                  : `Poser le label « ${membership.label} » sur le ticket, sur le tracker aussi`
+              }
+            >
+              {membership.carries ? <TagsIcon size={12} className="text-amber-400" /> : <Tag size={12} className="text-emerald-400" />}
+              <span>{membership.carries ? 'Retirer du projet' : 'Ajouter au projet'}</span>
+            </button>
+          )}
 
           {Boolean(task.sprint) && (
             <button

@@ -127,6 +127,9 @@ export const ProjectModal: React.FC = () => {
   // Section 1: Général (Titre, description, icône, couleur, projet par défaut)
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
+  // Label d'appartenance : il marque les tickets de ce projet quand plusieurs
+  // projets Sectile partagent un projet du tracker. Vide vaut « tout le board ».
+  const [projectLabel, setProjectLabel] = useState('')
   const [description, setDescription] = useState('')
   const [icon, setIcon] = useState('Folder')
   const [color, setColor] = useState<AccentColor>(DEFAULT_PROJECT_ACCENT)
@@ -251,6 +254,7 @@ export const ProjectModal: React.FC = () => {
       // conserve celui qui est enregistré.
       setGithubToken('')
       setJiraProject(editingProject.jiraProject || '')
+      setProjectLabel(editingProject.projectLabel || '')
       setIssueTypes(editingProject.issueTypes || [])
       setSkillOverrides(editingProject.skillOverrides || {})
 
@@ -290,6 +294,7 @@ export const ProjectModal: React.FC = () => {
       setTrackerUrl('')
       setGithubRepo('')
       setJiraProject('')
+      setProjectLabel('')
       setSkillOverrides({})
       setSkillsStatus(null)
       setSddStatuses([])
@@ -394,6 +399,7 @@ export const ProjectModal: React.FC = () => {
         githubApiUrl: githubApiUrl.trim(),
         githubToken: githubToken.trim(),
         jiraProject: jiraProject.trim().toUpperCase(),
+        projectLabel: projectLabel.trim(),
         issueTypes,
         skillOverrides,
       }
@@ -588,6 +594,26 @@ export const ProjectModal: React.FC = () => {
                       placeholder="mon-projet"
                       className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Label du projet
+                    </label>
+                    <input
+                      type="text"
+                      value={projectLabel}
+                      // Le label est écrit tel quel sur le tracker, et Jira refuse
+                      // les espaces : on les retire à la frappe plutôt que de
+                      // stocker une valeur que le tracker réécrirait.
+                      onChange={e => setProjectLabel(e.target.value.replace(/\s+/g, ''))}
+                      placeholder="team-alpha"
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                    />
+                    <p className="mt-1 text-[10px] text-[var(--text-muted)]">
+                      Les tickets portant ce label appartiennent au projet. Vide, le board
+                      affiche tout ce qui est importé.
+                    </p>
                   </div>
 
                   <div className="flex items-center gap-2">

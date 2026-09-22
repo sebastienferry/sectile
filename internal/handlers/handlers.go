@@ -504,6 +504,14 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		// The membership label is written verbatim to the tracker, so a value the
+		// tracker would rewrite is refused here rather than stored and never matched.
+		projectLabel, err := models.NormalizeProjectLabel(req.ProjectLabel)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		req.ProjectLabel = projectLabel
 
 		// The creator owns the project: the background synchronisation has no
 		// acting user of its own and reads under that account.
@@ -1329,6 +1337,14 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if req.ProjectLabel != nil {
+			label, err := models.NormalizeProjectLabel(*req.ProjectLabel)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			req.ProjectLabel = &label
+		}
 
 		// Saving an ownerless project adopts the person saving it, so its
 		// background synchronisation stops running as the server.
@@ -1498,8 +1514,12 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		// pinned=1 : les seuls tickets épinglés, le raccourci vers les chantiers
 		// en cours quand le board en porte trois cents.
 		pinnedOnly := r.URL.Query().Get("pinned") == "1" || r.URL.Query().Get("pinned") == "true"
+		// membership=all : tout le board importé, y compris les tickets qui ne
+		// portent pas le label d'appartenance du projet. Toute autre valeur, y
+		// compris l'absence, vaut « ce projet seulement ».
+		membershipAll := r.URL.Query().Get("membership") == "all"
 
-		tasks, err := h.db.GetTasksForUser(h.webSessionUser(r), q, status, priority, label, projectID, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+		tasks, err := h.db.GetTasksForUser(h.webSessionUser(r), q, status, priority, label, projectID, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly, membershipAll)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1643,7 +1663,7 @@ func (h *Handler) HandleTaskFacets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	facets, err := h.db.GetTaskFacetsForUser(h.webSessionUser(r), r.URL.Query().Get("projectId"))
+	facets, err := h.db.GetTaskFacetsForUser(h.webSessionUser(r), r.URL.Query().Get("projectId"), r.URL.Query().Get("membership") == "all")
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

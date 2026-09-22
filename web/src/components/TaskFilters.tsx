@@ -1,5 +1,5 @@
 import React from 'react'
-import { Flame, Calendar, Layers, Pin, User, SlidersHorizontal, Check, Shapes, Settings2, Target, Loader2 } from 'lucide-react'
+import { Flame, Calendar, Layers, LayoutGrid, Pin, User, SlidersHorizontal, Check, Shapes, Settings2, Target, Loader2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { LookupField, type LookupOption } from './LookupField'
@@ -48,6 +48,9 @@ export const TaskFilters: React.FC = () => {
     pinnedTasks,
     activeOnly,
     setActiveOnly,
+    showAllTickets,
+    setShowAllTickets,
+    projectLabel,
     activeTasks,
     t,
   } = useApp()
@@ -202,6 +205,30 @@ export const TaskFilters: React.FC = () => {
           <span className="font-mono text-[10px] opacity-70">{activeTasks.size}</span>
         )}
       </button>
+
+      {/* Tout le board : la synchro importe tout le projet du tracker, et seuls
+          les tickets portant le label d'appartenance sont affichés par défaut.
+          Ce bouton lève la restriction, ce qui est là qu'on va chercher un ticket
+          à rattacher au projet. Rien à lever quand le projet n'a pas de label. */}
+      {projectLabel !== '' && (
+        <button
+          type="button"
+          onClick={() => setShowAllTickets(!showAllTickets)}
+          className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium border transition-colors cursor-pointer ${
+            showAllTickets
+              ? 'accent-text bg-[var(--accent-light)] border-[var(--accent-color)]/50 font-bold'
+              : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]'
+          }`}
+          title={
+            showAllTickets
+              ? `N'afficher que les tickets du projet (label « ${projectLabel} »)`
+              : 'Afficher tous les tickets du board, y compris ceux qui ne sont pas rattachés au projet'
+          }
+        >
+          <LayoutGrid size={12} />
+          <span>Tout le board</span>
+        </button>
+      )}
 
       {/* Priorité en pastilles plutôt qu'en liste déroulante : un select natif ne
           sait afficher que du texte, et la couleur est justement l'information.

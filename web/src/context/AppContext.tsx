@@ -45,6 +45,7 @@ import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
+import { membershipParam } from '../lib/projectLabel'
 import {
   INTERNAL_STATUS_BY_STAGE,
   resolveTaskStage, skillForStage,
@@ -168,6 +169,15 @@ interface AppContextType {
   /** N'afficher que les tickets qu'un agent est en train de traiter. */
   activeOnly: boolean
   setActiveOnly: (value: boolean) => void
+  /**
+   * Afficher tout le board importé, et pas seulement les tickets portant le label
+   * d'appartenance du projet. Faux par défaut : un projet qui configure un label
+   * voit sa part sans rien toucher.
+   */
+  showAllTickets: boolean
+  setShowAllTickets: (value: boolean) => void
+  /** Le label d'appartenance du projet sélectionné, vide quand il n'y en a pas. */
+  projectLabel: string
   /** Les tickets portant une exécution distante vivante, pour le filtre et son compteur. */
   activeTasks: Set<string>
   sprintFilter: string | null
@@ -530,6 +540,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [sprintFilter, setSprintFilterState] = useState<string | null>(null)
   const [pinnedOnly, setPinnedOnlyState] = useState<boolean>(false)
   const [activeOnly, setActiveOnlyState] = useState<boolean>(false)
+  const [showAllTickets, setShowAllTicketsState] = useState<boolean>(false)
   const [teamFilter, setTeamFilterState] = useState<string | null>(null)
   const [assigneeFilter, setAssigneeFilterState] = useState<string | null>(null)
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskSource>('all')
@@ -672,6 +683,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const setActiveOnly = useCallback((value: boolean) => {
     setActiveOnlyState(value)
     persistFilter({ activeOnly: value ? '1' : null })
+  }, [persistFilter])
+
+  // C'est l'élargissement qui est mémorisé, pas la restriction : la clé absente
+  // vaut « ce projet seulement », qui est le défaut voulu.
+  const setShowAllTickets = useCallback((value: boolean) => {
+    setShowAllTicketsState(value)
+    persistFilter({ showAllTickets: value ? '1' : null })
   }, [persistFilter])
 
   const setTrackerStatusFilters = useCallback((values: string[]) => {
@@ -997,8 +1015,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     trackerStatusFilters.forEach(status => params.append('trackerStatus', status))
     issueTypeFilters.forEach(type => params.append('issueType', type))
     if (pinnedOnly) params.append('pinned', '1')
+    // Appartenance : « ce projet seulement » est le défaut, donc rien n'est
+    // envoyé dans ce cas.
+    const membership = membershipParam(showAllTickets)
+    if (membership) params.append('membership', membership)
     return params.toString()
-  }, [selectedProjectId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, trackerStatusFilters, issueTypeFilters, pinnedOnly])
+  }, [selectedProjectId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, trackerStatusFilters, issueTypeFilters, pinnedOnly, showAllTickets])
 
   // Resolve desktop deep links independently of board filters and pagination.
   useEffect(() => {
@@ -1059,6 +1081,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     setPinnedOnlyState(stored.pinnedOnly === '1')
     setActiveOnlyState(stored.activeOnly === '1')
+    setShowAllTicketsState(stored.showAllTickets === '1')
   }, [selectedProjectId])
 
   const fetchTaskFacets = useCallback(async () => {
@@ -1067,6 +1090,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       if (selectedProjectId && selectedProjectId !== 'all') {
         params.append('projectId', selectedProjectId)
       }
+      // Les facettes suivent le même périmètre que la liste, sans quoi les
+      // compteurs décriraient une liste que personne ne voit.
+      const membership = membershipParam(showAllTickets)
+      if (membership) params.append('membership', membership)
       const res = await fetch(`${API_BASE}/tasks/facets?${params.toString()}`)
       if (!res.ok) return
       const data = await res.json()
@@ -1087,7 +1114,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch {
       // A tracker that feeds neither field simply leaves the filters hidden.
     }
-  }, [selectedProjectId])
+  }, [selectedProjectId, showAllTickets])
 
   useEffect(() => {
     fetchTaskFacets()
@@ -3374,6 +3401,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setPinnedOnly,
         activeOnly,
         setActiveOnly,
+        showAllTickets,
+        setShowAllTickets,
+        projectLabel,
         activeTasks,
         sprintFilter,
         setSprintFilter,
