@@ -64,6 +64,7 @@ func openLegacyDatabase(t *testing.T) string {
 			t.Fatalf("seeding the legacy database (%s): %v", stmt, err)
 		}
 	}
+	forgetSchemaVersion(t, d)
 	if err := d.Close(); err != nil {
 		t.Fatalf("closing the legacy database: %v", err)
 	}
@@ -143,6 +144,7 @@ func TestMigrationIsANoOpOnASecondStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first start: %v", err)
 	}
+	forgetSchemaVersion(t, first)
 	first.Close()
 
 	second, err := NewDB(path)

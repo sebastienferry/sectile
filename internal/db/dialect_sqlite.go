@@ -49,6 +49,13 @@ func (sqliteDialect) RewriteDDL(stmt string) string { return stmt }
 // up with a copy that opens nothing, which ADR 0014 says is the intended shape.
 func (sqliteDialect) SecretKeyDir(cfg Config) string { return filepath.Dir(cfg.Path) }
 
+func (sqliteDialect) Engine() Driver { return DriverSQLite }
+
+// LockForMigration has nothing to take. A SQLite database is opened by one
+// process, and the connection already carries busy_timeout for the writes that
+// cross within it.
+func (sqliteDialect) LockForMigration(*sqlConn) (func(), error) { return func() {}, nil }
+
 // RunsLegacyMigrations is true: a SQLite file may have been created by any
 // earlier version, and the additive migrations are what bring it up to date.
 func (sqliteDialect) RunsLegacyMigrations() bool { return true }

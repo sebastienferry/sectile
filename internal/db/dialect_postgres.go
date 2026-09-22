@@ -1,8 +1,10 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"log"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -63,6 +65,37 @@ func (postgresDialect) RewriteDDL(stmt string) string { return rewriteDDLTypes(s
 // SecretKeyDir is empty: there is no database file to sit beside, and a
 // generated key would differ on every restart of a stateless container.
 func (postgresDialect) SecretKeyDir(Config) string { return "" }
+
+func (postgresDialect) Engine() Driver { return DriverPostgres }
+
+// migrationLockKey identifies the migration lock. Any constant does, as long as
+// every version of Sectile uses the same one.
+const migrationLockKey int64 = 0x5EC71
+
+// LockForMigration takes a session advisory lock, and holds it on a connection
+// reserved for that alone.
+//
+// The reservation is the point: an advisory lock belongs to the connection that
+// took it, and a pool hands out whichever connection is free, so a lock taken
+// through the pool would be released on a different connection than it was
+// taken on, or not at all. The migrations themselves keep running on the pool.
+func (postgresDialect) LockForMigration(conn *sqlConn) (func(), error) {
+	ctx := context.Background()
+	held, err := conn.db.Conn(ctx)
+	if err != nil {
+		return func() {}, err
+	}
+	if _, err := held.ExecContext(ctx, "SELECT pg_advisory_lock($1)", migrationLockKey); err != nil {
+		held.Close()
+		return func() {}, err
+	}
+	return func() {
+		if _, err := held.ExecContext(ctx, "SELECT pg_advisory_unlock($1)", migrationLockKey); err != nil {
+			log.Printf("[schema] releasing the migration lock: %v", err)
+		}
+		held.Close()
+	}, nil
+}
 
 func (postgresDialect) RunsLegacyMigrations() bool { return false }
 

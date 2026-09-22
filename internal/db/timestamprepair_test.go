@@ -100,6 +100,7 @@ func TestOpeningRepairsTimestampsWrittenWithANumericZone(t *testing.T) {
 		if err := database.conn.QueryRow(`SELECT tracker_created_at FROM tasks WHERE id = ?`, "t-1").Scan(&scanned); err == nil {
 			t.Fatal("expected the unrepaired value to fail the scan, which is the bug being fixed")
 		}
+		forgetSchemaVersion(t, database)
 		database.Close()
 
 		repaired, err := NewDB(path)

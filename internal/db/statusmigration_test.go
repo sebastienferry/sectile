@@ -33,6 +33,7 @@ func TestOpenDBMigratesOnlyRetiredToSpecifyStatus(t *testing.T) {
 	if _, err := database.conn.Exec("UPDATE tasks SET status = CASE id WHEN ? THEN 'to_specify' WHEN ? THEN 'specified' END WHERE id IN (?, ?)", retired.ID, specified.ID, retired.ID, specified.ID); err != nil {
 		t.Fatal(err)
 	}
+	forgetSchemaVersion(t, database)
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}

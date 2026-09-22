@@ -133,6 +133,7 @@ func TestExistingPullRequestURLIsMigratedOnce(t *testing.T) {
 	if _, err = d.conn.Exec("UPDATE tasks SET branch_name='ticket', pr_url='https://forge/pull/1', pr_links='[]' WHERE id=?", task.ID); err != nil {
 		t.Fatal(err)
 	}
+	forgetSchemaVersion(t, d)
 	if err = d.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -169,6 +169,7 @@ func TestPostgresMigratesLegacyActivityRows(t *testing.T) {
 			t.Fatalf("seeding the legacy table (%s): %v", stmt, err)
 		}
 	}
+	forgetSchemaVersion(t, d)
 	d.Close()
 
 	migrated, err := Open(Config{Driver: DriverPostgres, DSN: dsn})
@@ -249,6 +250,7 @@ func TestPostgresResumesAHalfMigratedTable(t *testing.T) {
 			t.Fatalf("seeding the half-migrated table (%s): %v", stmt, err)
 		}
 	}
+	forgetSchemaVersion(t, d)
 	d.Close()
 
 	migrated, err := Open(Config{Driver: DriverPostgres, DSN: dsn})
