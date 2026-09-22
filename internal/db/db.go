@@ -3978,6 +3978,28 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 			steps = append(steps, "5. Board : "+note)
 		}
 	}
+	// The roadmap horizons are carried by the labels of the tracker's epics,
+	// and the sync has no other way of seeing them: it imports the work items,
+	// never the container that holds them. Without this read, a project whose
+	// epics are all classified on the tracker opens with its roadmap entirely
+	// unclassified, and nothing on screen says why.
+	//
+	// The capability is CapEpic and not a macro one because it is a question
+	// put to the tracker, in the tracker's own words: Jira has epics, GitLab
+	// has epics, GitHub has milestones, and CapEpic is how a tracker says it
+	// exposes such a container at all. "Macro" is this product's word for the
+	// same thing on its own side of the seam, which is why the answer is
+	// written by ImportMacroHorizons into the macros table.
+	//
+	// The failure is not fatal, as for the teams and the board: a tracker that
+	// cannot be reached must not undo an import that succeeded.
+	if ts.Supports(tracker.CapEpic) {
+		if note, err := d.ImportMacroHorizons(ctx, proj.ID); err != nil {
+			steps = append(steps, fmt.Sprintf("⚠️ Roadmap : horizons non importés : %v", err))
+		} else {
+			steps = append(steps, "6. Roadmap : "+note)
+		}
+	}
 	// Pull-request rediscovery runs here rather than in the import: the import
 	// must keep its property of never writing pr_url / pr_links, which is what
 	// protects the links a workflow produced.

@@ -128,18 +128,18 @@ export const RoadmapView: React.FC = () => {
   const [onlyIssues, setOnlyIssues] = useState(false)
   const [showClosed, setShowClosed] = useState(false)
 
-  // La forme des lignes. Elle est mémorisée par navigateur : c'est un réglage de
-  // lecture, il ne dépend ni du projet ni de l'onglet, et le reposer à chaque
-  // rechargement était la raison pour laquelle personne ne s'en servait.
+  // The shape of the rows. Remembered per browser: it is a reading setting, it
+  // depends neither on the project nor on the tab, and resetting it on every
+  // reload is the reason nobody used it.
   const [rowMode, setRowMode] = useState<RoadmapRowDisplayMode>(() => loadRoadmapRowDisplayMode())
   const chooseRowMode = (next: RoadmapRowDisplayMode) => {
     setRowMode(next)
     saveRoadmapRowDisplayMode(next)
   }
 
-  // Les macros classées ici dont le label « roadmap: » n'est pas encore posé sur
-  // le tracker, ou ne dit plus la même chose. Le compte est relu à chaque passage
-  // de la file d'activités, puisque c'est elle qui pousse.
+  // The macros classified here whose "roadmap:" label is not on the tracker
+  // yet, or no longer says the same thing. The count is read again on every
+  // move of the activity queue, since the queue is what pushes.
   const [pendingPushes, setPendingPushes] = useState(0)
   const [isPushing, setIsPushing] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -311,16 +311,17 @@ export const RoadmapView: React.FC = () => {
     fetchProjectMacros(currentProject.id).then(setMacroMeta)
   }, [currentProject?.id, fetchProjectMacros, activeJobCount])
 
-  // Le retard de poussée se lit sur le tracker, pas en local : un échec laisse le
-  // classement en base exactement comme une réussite, et seul le label distant
-  // départage. Un projet sans tracker, ou dont la lecture échoue, rend zéro plutôt
-  // qu'une alerte que rien ne permettrait de lever.
+  // Whether a push is late is read from the tracker, not locally: a failure
+  // leaves the classification in the database exactly as a success does, and
+  // only the remote label tells the two apart. A project with no tracker, or
+  // one whose read fails, answers zero rather than raising an alert that
+  // nothing could clear.
   //
-  // La fonction passe par une référence plutôt que par les dépendances. Les
-  // actions du contexte sont recréées à chaque rendu du fournisseur : les lister
-  // relancerait cette lecture à chaque toast et à chaque tâche mise à jour, et
-  // celle-ci interroge le tracker. Le projet et la file d'activités suffisent à
-  // dire quand le retard a pu changer, la file étant ce qui pousse.
+  // The function goes through a ref rather than the dependency array. The
+  // context actions are rebuilt on every render of the provider: listing them
+  // would fire this read on every toast and every updated work item, and this
+  // read queries the tracker. The project and the activity queue are enough to
+  // say when the lateness can have changed, the queue being what pushes.
   const readPendingPushes = useRef(pendingHorizonPushes)
   useEffect(() => {
     readPendingPushes.current = pendingHorizonPushes
@@ -375,10 +376,10 @@ export const RoadmapView: React.FC = () => {
   // Les onglets « non classés » et « masqués » n'ont pas d'horizon propre : le
   // panneau y montre le cadrage, pas la vérification de sprint.
   /**
-   * L'onglet « Masqués » garde la forme dépliée, quelle que soit la préférence.
-   * La ligne condensée ne propose que NOW, NEXT et LATER : sur cet onglet aucun
-   * des trois n'est actif, et chaque macro s'y lirait comme non classée alors
-   * qu'elle porte justement un classement.
+   * The "Masqués" tab keeps the unfolded shape, whatever the preference says.
+   * A condensed row only offers NOW, NEXT and LATER: on that tab none of the
+   * three is active, and every macro would read as unclassified there when it
+   * is precisely the one carrying a classification.
    */
   const condensedHere = isRoadmapRowCondensed(rowMode) && tab !== 'hidden'
 
@@ -505,15 +506,15 @@ export const RoadmapView: React.FC = () => {
   const todosOf = (row: MacroRow | null): MacroTodo[] => row?.meta?.todos || []
 
   /**
-   * Les deux formes d'une ligne de macro.
+   * The two shapes of a macro row.
    *
-   * La forme dépliée porte tout ce que la roadmap est venue vérifier : le
-   * placement des tickets en sprint, la maturité, l'avancement. La forme
-   * condensée tient sur une ligne et ne garde que ce qui sert à parcourir : la
-   * clé, le titre, la priorité, un signal d'anomalie et les trois boutons de
-   * classement. Classer sans déplier est tout l'intérêt : c'est dans une longue
-   * liste qu'on veut pousser une macro d'un horizon à l'autre, et il fallait
-   * jusqu'ici parcourir des cartes de six lignes pour le faire.
+   * The unfolded shape carries everything one came to the roadmap to check:
+   * the sprint placement of the work items, the maturity, the progress. The
+   * condensed shape fits on one line and keeps only what serves browsing: the
+   * key, the title, the priority, an anomaly signal and the three classifying
+   * buttons. Classifying without unfolding is the whole point: a long list is
+   * exactly where one wants to move a macro from one horizon to another, and
+   * doing so meant scrolling through six-line cards.
    */
   const renderMacroRow = (row: MacroRow) => {
     const isSel = selected?.key === row.key
@@ -636,11 +637,11 @@ export const RoadmapView: React.FC = () => {
         <span className="shrink-0 text-[9.5px] font-mono text-[var(--text-muted)]">
           {row.open.length}/{row.tasks.length}
         </span>
-        {/* L'anomalie de placement se réduit à son compte : c'est le seul signal
-            de la forme dépliée qui demande une action, et le perdre ferait de la
-            forme condensée une vue où l'on ne voit plus ce qui ne va pas.
-            Ailleurs qu'en NOW et NEXT, placementIssues ne rend rien et le badge
-            ne s'affiche pas. */}
+        {/* The placement anomaly shrinks to its count: it is the only signal of
+            the unfolded shape that calls for an action, and losing it would make
+            the condensed shape a view where one no longer sees what is wrong.
+            Outside NOW and NEXT, placementIssues answers nothing and the badge
+            does not show. */}
         {issues.length > 0 && (
           <span
             className="shrink-0 text-[9.5px] font-bold px-1 rounded inline-flex items-center gap-0.5"
@@ -795,15 +796,15 @@ export const RoadmapView: React.FC = () => {
           )}
 
           {/*
-            Le classement d'une macro est écrit sur le tracker comme un label
-            « roadmap:now / next / later », posé à chaque changement d'horizon.
-            Ces deux boutons rattrapent les deux moments où le local et le
-            tracker ne disent pas la même chose : ce qui a été classé avant que
-            le miroir existe ou pendant une panne d'écriture, et ce que
-            quelqu'un a classé sur le tracker sans passer par ici.
+            The classification of a macro is written on the tracker as a
+            "roadmap:now / next / later" label, posed on every horizon change.
+            These two buttons catch up the two moments where the local side and
+            the tracker disagree: what was classified before the mirroring
+            existed or during a write outage, and what somebody classified on
+            the tracker without coming through here.
 
-            Le bouton de poussée ne s'affiche que s'il y a du retard : offert en
-            permanence, il inviterait à écrire là où il n'y a rien à écrire.
+            The push button only shows when something is late: offered
+            permanently, it would invite a write where there is nothing to write.
           */}
           {pendingPushes > 0 && currentProject && (
             <button
@@ -939,10 +940,10 @@ export const RoadmapView: React.FC = () => {
             </button>
           )}
 
-          {/* La forme des lignes. Le bouton reste offert sur l'onglet « Masqués »
-              et y garde son état : la préférence vaut pour la roadmap entière, et
-              l'éteindre parce qu'un onglet ne l'applique pas donnerait à croire
-              qu'on l'a perdue en changeant d'onglet. */}
+          {/* The shape of the rows. The button stays offered on the "Masqués"
+              tab and keeps its state there: the preference holds for the whole
+              roadmap, and turning it off because one tab does not apply it would
+              suggest it was lost by changing tab. */}
           <button
             type="button"
             onClick={() => chooseRowMode(toggleRoadmapRowDisplayMode(rowMode))}

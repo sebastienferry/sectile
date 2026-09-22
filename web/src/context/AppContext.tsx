@@ -272,7 +272,7 @@ interface AppContextType {
   pendingHorizonPushes: (projectId: string) => Promise<MacroMeta[]>
   /** Met la poussée des labels d'horizon en file d'activités. Retourne true si la file a accepté. */
   pushPendingHorizons: (projectId: string) => Promise<boolean>
-  /** Relit les labels `roadmap:` du tracker et en tire l'horizon local. */
+  /** Reads the tracker's `roadmap:` labels back and derives the local horizon. */
   importMacroHorizons: (projectId: string) => Promise<boolean>
   /**
    * Met le rattachement à une macro en file d'activités et renvoie le ticket tel
@@ -2787,12 +2787,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }
 
   /**
-   * Relit les labels `roadmap:` portés par les épics du tracker.
+   * Reads back the `roadmap:` labels carried by the tracker's epics.
    *
-   * Synchrone, contrairement à la poussée : rien n'est écrit sur le tracker, et
-   * la réponse est le compte rendu qu'on est venu chercher. Les macros sont
-   * relues ensuite, l'import ayant pu changer l'horizon, le titre et l'état
-   * terminé de chacune.
+   * Synchronous, unlike the push: nothing is written on the tracker, and the
+   * answer is the report one came for. The macros are re-read afterwards, the
+   * import having possibly changed the horizon, the title and the closed state
+   * of each.
    */
   const importMacroHorizons = async (projectId: string): Promise<boolean> => {
     try {

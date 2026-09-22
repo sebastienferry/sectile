@@ -786,7 +786,7 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 }
 
 func (d *DB) runEpicHorizonOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
-	note, err := d.PushEpicHorizonLabel(op.ProjectID, op.EpicKey, op.Horizon)
+	note, err := d.PushEpicHorizonLabel(ctx, op.ProjectID, op.EpicKey, op.Horizon)
 	if err != nil {
 		return "", err
 	}
@@ -795,7 +795,7 @@ func (d *DB) runEpicHorizonOp(ctx context.Context, op TrackerOp, steps *[]string
 }
 
 func (d *DB) runPushHorizonsOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
-	pushed, failures, err := d.PushPendingHorizons(op.ProjectID)
+	pushed, failures, err := d.PushPendingHorizons(ctx, op.ProjectID)
 	if err != nil {
 		return "", err
 	}

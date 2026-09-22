@@ -1,21 +1,21 @@
 import type { Horizon } from './roadmap'
 
 /**
- * La forme des lignes de la roadmap, et ce que la forme condensée montre.
+ * The shape of a roadmap row, and what the condensed shape shows.
  *
- * Les deux vivent ensemble parce qu'elles n'ont de sens que l'une par l'autre :
- * l'abréviation d'un horizon et la liste de ceux qu'une ligne dense propose ne
- * servent nulle part ailleurs, et les garder ici les rend vérifiables sans
- * monter un rendu.
+ * The two live together because neither means anything without the other: the
+ * two-letter form of a horizon and the list of the ones a dense row offers
+ * serve nowhere else, and keeping them here makes them testable without
+ * mounting a render.
  */
 export type RoadmapRowDisplayMode = 'condensed' | 'expanded'
 
 /**
- * L'horizon en deux lettres, pour la forme condensée.
+ * A horizon in two letters, for the condensed shape.
  *
- * Une ligne condensée tient sur une ligne, et « NOW NEXT LATER » y prend la
- * place du titre. Deux lettres suffisent à reconnaître ce qu'on connaît déjà, et
- * le libellé entier reste dans l'infobulle et dans la forme dépliée.
+ * A condensed row fits on one line, and "NOW NEXT LATER" takes the title's
+ * place on it. Two letters are enough to recognise what one already knows, and
+ * the whole label stays in the tooltip and in the unfolded shape.
  */
 export const HORIZON_SHORT: Record<Horizon, string> = {
   now: 'No',
@@ -25,11 +25,11 @@ export const HORIZON_SHORT: Record<Horizon, string> = {
 }
 
 /**
- * Les horizons qu'une ligne condensée propose.
+ * The horizons a condensed row offers.
  *
- * « masqué » n'y est pas : masquer une macro est un geste qu'on ne veut pas à
- * portée de clic dans une liste dense, et il reste offert par la forme dépliée
- * et par le panneau.
+ * "hidden" is not among them: hiding a macro is not a gesture one wants within
+ * a click's reach in a dense list, and it stays offered by the unfolded shape
+ * and by the panel.
  */
 export const CONDENSED_HORIZONS: Horizon[] = ['now', 'next', 'later']
 
@@ -55,16 +55,15 @@ function resolveStorage(customStorage?: StorageLike): StorageLike | null {
 }
 
 /**
- * Lit la forme des lignes de la roadmap.
+ * Reads the shape of the roadmap rows.
  *
- * Le défaut est la forme dépliée, contrairement au board : une ligne de macro
- * porte le placement de ses tickets en sprint, et c'est ce que la roadmap est
- * venue vérifier. La forme condensée sert à parcourir beaucoup de macros, ce
- * qu'on demande plutôt qu'on ne subit.
+ * The default is the unfolded shape, unlike the board: a macro row carries the
+ * sprint placement of its work items, and that is what one came to the roadmap
+ * to check. The condensed shape is for browsing many macros, which is something
+ * one asks for rather than something one is given.
  *
- * Une valeur relue qui n'est plus une forme connue rend le défaut : une
- * préférence écrite par une version antérieure ne doit pas laisser la liste
- * vide.
+ * A stored value that is no longer a known shape answers the default: a
+ * preference written by an earlier version must not leave the list empty.
  */
 export function loadRoadmapRowDisplayMode(customStorage?: StorageLike): RoadmapRowDisplayMode {
   const storage = resolveStorage(customStorage)
@@ -83,7 +82,7 @@ export function loadRoadmapRowDisplayMode(customStorage?: StorageLike): RoadmapR
   }
 }
 
-/** Enregistre la forme des lignes. Un stockage indisponible est sans effet. */
+/** Stores the shape of the rows. An unavailable storage is a no-op. */
 export function saveRoadmapRowDisplayMode(
   mode: RoadmapRowDisplayMode,
   customStorage?: StorageLike
@@ -96,16 +95,16 @@ export function saveRoadmapRowDisplayMode(
   try {
     storage.setItem(ROADMAP_DISPLAY_MODE_STORAGE_KEY, mode)
   } catch {
-    // Stockage indisponible : la forme vaut pour la session, et rien de plus.
+    // Storage unavailable: the shape holds for the session, and no longer.
   }
 }
 
-/** Bascule entre les deux formes. */
+/** Toggles between the two shapes. */
 export function toggleRoadmapRowDisplayMode(mode: RoadmapRowDisplayMode): RoadmapRowDisplayMode {
   return mode === 'condensed' ? 'expanded' : 'condensed'
 }
 
-/** La forme est-elle celle d'une ligne unique. */
+/** Whether the shape is the single-line one. */
 export function isRoadmapRowCondensed(mode: RoadmapRowDisplayMode): boolean {
   return mode === 'condensed'
 }

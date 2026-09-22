@@ -118,7 +118,7 @@ func (d *DB) macroTracker(projectID string, macroKey string) (tracker.TicketingS
 // activity (TrackerOpEpicHorizon or TrackerOpPushHorizons): a click must not
 // wait on it, and its failure has to stay readable in the activity rather than
 // vanish behind an HTTP timeout.
-func (d *DB) PushMacroHorizonLabel(projectID string, macroKey string, horizon string) (string, error) {
+func (d *DB) PushMacroHorizonLabel(ctx context.Context, projectID string, macroKey string, horizon string) (string, error) {
 	ts, proj, err := d.macroTracker(projectID, macroKey)
 	if err != nil {
 		return "", err
@@ -131,7 +131,7 @@ func (d *DB) PushMacroHorizonLabel(projectID string, macroKey string, horizon st
 		added = []string{target}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), macroWriteTimeout)
+	ctx, cancel := context.WithTimeout(ctx, macroWriteTimeout)
 	defer cancel()
 	// Only the labels travel. No status, no title, no description: an axis write
 	// that also carried the rest would push back whatever the local copy held,
@@ -153,8 +153,8 @@ func (d *DB) PushMacroHorizonLabel(projectID string, macroKey string, horizon st
 
 // PushEpicHorizonLabel is the epic-named alias kept for the callers that speak
 // of epics rather than macros.
-func (d *DB) PushEpicHorizonLabel(projectID string, epicKey string, horizon string) (string, error) {
-	return d.PushMacroHorizonLabel(projectID, epicKey, horizon)
+func (d *DB) PushEpicHorizonLabel(ctx context.Context, projectID string, epicKey string, horizon string) (string, error) {
+	return d.PushMacroHorizonLabel(ctx, projectID, epicKey, horizon)
 }
 
 // remoteMacros reads a project's epics from its tracker, keyed by epic key.
@@ -162,7 +162,7 @@ func (d *DB) PushEpicHorizonLabel(projectID string, epicKey string, horizon stri
 // The read goes through the interface rather than naming a tracker: a tracker
 // with no notion of epics says so through its capabilities, instead of failing
 // with an authentication error belonging to another product.
-func (d *DB) remoteMacros(proj *models.Project) (map[string]models.Task, error) {
+func (d *DB) remoteMacros(ctx context.Context, proj *models.Project) (map[string]models.Task, error) {
 	if proj == nil {
 		return nil, fmt.Errorf("projet non trouvé")
 	}
@@ -174,7 +174,7 @@ func (d *DB) remoteMacros(proj *models.Project) (map[string]models.Task, error) 
 		return nil, tracker.Unsupported(ts.Name(), tracker.CapEpic)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), macroReadTimeout)
+	ctx, cancel := context.WithTimeout(ctx, macroReadTimeout)
 	defer cancel()
 	epics, err := ts.ListEpics(ctx, tracker.ProjectRequest{Project: proj})
 	if err != nil {
@@ -200,12 +200,12 @@ func (d *DB) remoteMacros(proj *models.Project) (map[string]models.Task, error) 
 // The tracker wins when an epic carries a label, that being the shared source.
 // An epic without one keeps whatever was decided locally, and that decision
 // will be pushed the next time it is touched.
-func (d *DB) ImportMacroHorizons(projectID string) (string, error) {
+func (d *DB) ImportMacroHorizons(ctx context.Context, projectID string) (string, error) {
 	proj, err := d.GetProjectByID(strings.TrimSpace(projectID))
 	if err != nil || proj == nil {
 		return "", fmt.Errorf("projet non trouvé")
 	}
-	found, err := d.remoteMacros(proj)
+	found, err := d.remoteMacros(ctx, proj)
 	if err != nil {
 		return "", err
 	}
@@ -235,8 +235,8 @@ func (d *DB) ImportMacroHorizons(projectID string) (string, error) {
 }
 
 // ImportEpicHorizons is the epic-named alias of ImportMacroHorizons.
-func (d *DB) ImportEpicHorizons(projectID string) (string, error) {
-	return d.ImportMacroHorizons(projectID)
+func (d *DB) ImportEpicHorizons(ctx context.Context, projectID string) (string, error) {
+	return d.ImportMacroHorizons(ctx, projectID)
 }
 
 // PendingHorizonPushes lists the macros classified locally whose epic does not
@@ -247,7 +247,7 @@ func (d *DB) ImportEpicHorizons(projectID string) (string, error) {
 // Macros that can never be pushed — milestones, local keys, epics of another
 // project — are left out rather than listed as late: a list that only grows is
 // one nobody acts on.
-func (d *DB) PendingHorizonPushes(projectID string) ([]models.MacroMeta, error) {
+func (d *DB) PendingHorizonPushes(ctx context.Context, projectID string) ([]models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
@@ -272,7 +272,7 @@ func (d *DB) PendingHorizonPushes(projectID string) ([]models.MacroMeta, error) 
 		return []models.MacroMeta{}, nil
 	}
 
-	remote, err := d.remoteMacros(proj)
+	remote, err := d.remoteMacros(ctx, proj)
 	if err != nil {
 		return nil, err
 	}
@@ -293,8 +293,8 @@ func (d *DB) PendingHorizonPushes(projectID string) ([]models.MacroMeta, error) 
 //
 // One failure does not stop the others, and each is named: a run that stopped
 // at the first refusal would leave the rest silently unpushed.
-func (d *DB) PushPendingHorizons(projectID string) (int, []string, error) {
-	pending, err := d.PendingHorizonPushes(projectID)
+func (d *DB) PushPendingHorizons(ctx context.Context, projectID string) (int, []string, error) {
+	pending, err := d.PendingHorizonPushes(ctx, projectID)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -302,7 +302,7 @@ func (d *DB) PushPendingHorizons(projectID string) (int, []string, error) {
 	pushed := 0
 	failures := []string{}
 	for _, meta := range pending {
-		if _, err := d.PushMacroHorizonLabel(projectID, meta.Key, meta.Horizon); err != nil {
+		if _, err := d.PushMacroHorizonLabel(ctx, projectID, meta.Key, meta.Horizon); err != nil {
 			failures = append(failures, fmt.Sprintf("%s : %v", meta.Key, err))
 			continue
 		}
