@@ -80,7 +80,7 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .terminal-title-line{display:flex;align-items:center;flex-wrap:wrap;gap:8px;min-width:0}.terminal-title-line #title{min-width:0}
 .skill-result{font-size:11px;color:#91a1b7;white-space:nowrap}.skill-result.completed{color:#80e6ce}.skill-result.failed{color:#ff9292}.skill-result.canceled{color:#b1a7b2}
 .native-terminal-badge{font-size:11px;font-weight:500;color:#79c0ff;background:rgba(56,139,253,0.15);border:1px solid rgba(56,139,253,0.35);border-radius:9999px;padding:1px 7px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
-#detach-terminal{font-size:12px;padding:4px 8px;border-radius:4px;background:transparent;color:#8dc4ff;border:1px solid rgba(141,196,255,0.35);cursor:pointer;white-space:nowrap}
+#detach-terminal{flex-shrink:0;background:transparent;color:#8dc4ff;border:1px solid rgba(141,196,255,0.35);cursor:pointer}
 #detach-terminal:hover:not(:disabled){background:rgba(141,196,255,0.1);border-color:#8dc4ff}
 #detach-terminal:disabled{opacity:0.5;cursor:not-allowed}
 
