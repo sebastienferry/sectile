@@ -8,8 +8,10 @@ import {
   Circle,
   KeyRound,
   Check,
+  AlertTriangle,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { personalTrackers, credentialState, type TrackerKind } from '../lib/trackers'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
 
@@ -21,6 +23,8 @@ import { TrackerCredentialForm } from './TrackerCredentialForm'
 export const TrackerCredentialsTab: React.FC = () => {
   const {
     userCredentials,
+    orphanedCredentials,
+    discardOrphanedCredential,
     refreshUserCredentials,
     unlockAllUserCredentials,
     lockAllUserCredentials,
@@ -28,6 +32,8 @@ export const TrackerCredentialsTab: React.FC = () => {
     addToast,
     t,
   } = useApp()
+
+  const { user: currentUser } = useCurrentUser()
 
   const [open, setOpen] = useState<TrackerKind | null>(null)
   const [unlockPhrase, setUnlockPhrase] = useState('')
@@ -37,6 +43,7 @@ export const TrackerCredentialsTab: React.FC = () => {
   const [isApplying, setIsApplying] = useState(false)
   const [showChangePassphrase, setShowChangePassphrase] = useState(false)
   const [newPassphraseInput, setNewPassphraseInput] = useState('')
+  const [discarding, setDiscarding] = useState<string | null>(null)
 
   useEffect(() => {
     void refreshUserCredentials()
@@ -108,6 +115,72 @@ export const TrackerCredentialsTab: React.FC = () => {
       <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
         {t.trackerCredentials.description}
       </p>
+
+      {/*
+        Un accès resté sous une identité qu'aucun compte ne résout. Le serveur
+        le signale et ne le touche pas : il ne peut pas établir à qui le jeton
+        appartient, et le rattacher de lui-même reviendrait à ouvrir le chemin
+        de récupération que l'ADR 0014 a refusé. La sortie est de ressaisir son
+        propre jeton ; un admin peut ensuite supprimer la ligne restante.
+      */}
+      {orphanedCredentials.count > 0 && (
+        <div className="p-3 rounded-xl border border-[var(--warning-color,#f59e0b)]/40 bg-[var(--warning-color,#f59e0b)]/5 space-y-2">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0 text-[var(--warning-color,#f59e0b)]" />
+            <div className="space-y-1">
+              <p className="text-xs font-bold text-[var(--text-primary)]">
+                {t.trackerCredentials.orphanTitle}
+                {orphanedCredentials.trackers.length > 0 && (
+                  <span className="ml-1.5 font-normal text-[var(--text-secondary)]">
+                    ({orphanedCredentials.trackers.join(', ')})
+                  </span>
+                )}
+              </p>
+              <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
+                {t.trackerCredentials.orphanBody}
+              </p>
+            </div>
+          </div>
+
+          {/* Le détail et la suppression ne sont servis qu'à un admin. */}
+          {currentUser?.role === 'admin' && orphanedCredentials.rows.length > 0 && (
+            <div className="space-y-1.5 pl-6">
+              <p className="text-[11px] text-[var(--text-secondary)]">
+                {t.trackerCredentials.orphanAdminHint}
+              </p>
+              {orphanedCredentials.rows.map(row => (
+                <div
+                  key={`${row.userId}:${row.tracker}`}
+                  className="flex items-center justify-between gap-3 text-[11px] text-[var(--text-secondary)]"
+                >
+                  <span className="truncate">
+                    <span className="font-mono text-[var(--text-primary)]">{row.tracker}</span>
+                    {' — '}
+                    {t.trackerCredentials.orphanOwner}{' '}
+                    <span className="font-mono">{row.userId}</span>
+                    {row.email && <> ({row.email})</>}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={discarding !== null}
+                    onClick={async () => {
+                      const key = `${row.userId}:${row.tracker}`
+                      setDiscarding(key)
+                      await discardOrphanedCredential(row.userId, row.tracker)
+                      setDiscarding(null)
+                    }}
+                    className="shrink-0 px-2 py-1 rounded-lg border border-[var(--border-color)] hover:bg-[var(--bg-tertiary)] disabled:opacity-50"
+                  >
+                    {discarding === `${row.userId}:${row.tracker}`
+                      ? t.trackerCredentials.orphanDiscarding
+                      : t.trackerCredentials.orphanDiscard}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Section Globale Dédiée : Phrase de scellement unique */}
       <div className="p-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-tertiary)]/50 space-y-3">

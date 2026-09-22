@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"tasks/internal/agentexec"
 )
 
 const diffMetadataLimit = 8 << 20
@@ -98,7 +100,7 @@ func (g diffGit) command(input []byte, limit int, args ...string) ([]byte, error
 	if len(args) > 0 && args[0] == "check-ignore" {
 		prefix = prefix[1:]
 	}
-	cmd := exec.CommandContext(g.ctx, "git", append(prefix, args...)...)
+	cmd := agentexec.Hidden(exec.CommandContext(g.ctx, "git", append(prefix, args...)...))
 	// Do not inherit caller-selected indexes, repositories, or external helpers.
 	for _, v := range os.Environ() {
 		if !strings.HasPrefix(v, "GIT_") {

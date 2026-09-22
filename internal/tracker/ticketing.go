@@ -64,6 +64,23 @@ type TicketingSystem interface {
 	RequiredCreateFields(ctx context.Context, req CreateMetaRequest) ([]RequiredField, error)
 }
 
+// PullRequestDiscoverer is the optional read that answers "which pull requests
+// belong to this work item". It is deliberately not part of TicketingSystem and
+// not implemented by BaseTicketingSystem: a tracker that cannot answer must be
+// skipped silently by a synchronisation, not made to fail, so every call site
+// type-asserts it and moves on when the assertion does not hold.
+type PullRequestDiscoverer interface {
+	// IssuePullRequests returns the pull requests attached to one work item,
+	// oldest first, so the last one is the current pull request.
+	IssuePullRequests(ctx context.Context, req IssuePullRequestsRequest) ([]models.TaskPullRequest, error)
+}
+
+// IssuePullRequestsRequest names the work item whose pull requests are read.
+type IssuePullRequestsRequest struct {
+	Project *models.Project
+	Key     string
+}
+
 // CreateIssueRequest holds the parameters needed to create an issue.
 type CreateIssueRequest struct {
 	Project     *models.Project
@@ -116,6 +133,16 @@ type SyncRequest struct {
 	Team     string
 	Repo     string
 	RepoPath string
+	// UpdatedWithinMin narrows the read to the work items the tracker has
+	// touched in the last so many minutes. Zero means the whole project, which
+	// is what a synchronisation somebody asked for wants, and what a tracker
+	// without CapIncrementalSync gets whatever is asked.
+	//
+	// It is a duration rather than an instant on purpose: Jira's JQL takes a
+	// relative `-15m`, which no clock difference between Sectile and the site
+	// can shift, whereas an absolute timestamp would have to be expressed in
+	// the site's own timezone.
+	UpdatedWithinMin int
 }
 
 // AddCommentRequest holds comment body and issue key.

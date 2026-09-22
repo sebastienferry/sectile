@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"tasks/internal/agentexec"
 	"tasks/internal/agenthttp"
 
 	"tasks/internal/agentconfig"
@@ -133,7 +134,7 @@ func (d *agentDaemon) fetchConfig(ctx context.Context, projectID, taskKey string
 }
 
 func gitLocal(ctx context.Context, root string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...)
+	cmd := agentexec.Hidden(exec.CommandContext(ctx, "git", append([]string{"-C", root}, args...)...))
 	raw, err := cmd.CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(string(raw)))
@@ -244,6 +245,12 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if overrides.Terminal != "" {
 		local.Terminal = overrides.Terminal
 	}
+	if local.Terminals == nil {
+		local.Terminals = map[string]string{}
+	}
+	for id, terminal := range overrides.Terminals {
+		local.Terminals[id] = terminal
+	}
 	if local.Skills == nil {
 		local.Skills = map[string]string{}
 	}
@@ -251,6 +258,35 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 		local.Skills[id] = content
 	}
 	return root, local, nil
+}
+
+// worktreeForBranch returns the path of the worktree checked out on branch,
+// among every worktree of the repository at root, including the main checkout.
+// It returns "" when no worktree carries it. A detached or bare worktree
+// carries no branch and never matches.
+func worktreeForBranch(ctx context.Context, root, branch string) (string, error) {
+	out, err := gitLocal(ctx, root, "worktree", "list", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	// The porcelain format is blank-line separated records, each opening with
+	// "worktree <path>" and carrying at most one of "branch refs/heads/<name>",
+	// "detached" or "bare".
+	path := ""
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimRight(line, "\r")
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			path = strings.TrimPrefix(line, "worktree ")
+		case strings.HasPrefix(line, "branch refs/heads/"):
+			if path != "" && strings.TrimPrefix(line, "branch refs/heads/") == branch {
+				return path, nil
+			}
+		case line == "":
+			path = ""
+		}
+	}
+	return "", nil
 }
 
 func ensureLocalWorktree(ctx context.Context, root string, task models.Task, useWorktrees bool) (string, string, error) {
@@ -283,28 +319,43 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	if _, err := gitLocal(ctx, root, "check-ref-format", "--branch", branch); err != nil {
 		return "", "", err
 	}
-	target := filepath.Join(root, ".tasks", "worktrees", task.Key)
-	if _, err := os.Stat(target); err == nil {
-		top, err := gitLocal(ctx, target, "rev-parse", "--show-toplevel")
-		if err != nil || !sameDirectory(top, target) {
-			return "", "", fmt.Errorf("existing task path is not a worktree: %s", target)
-		}
-		current, err := gitLocal(ctx, target, "branch", "--show-current")
-		if err != nil || current != branch {
-			return "", "", fmt.Errorf("existing worktree does not use assigned branch %s", branch)
-		}
-		return target, branch, nil
-	} else if !os.IsNotExist(err) {
-		return "", "", err
-	}
-	// A task may already own the main checkout, including its uncommitted work.
-	// Git cannot check out that branch again in a new worktree.
-	current, err := gitLocal(ctx, root, "branch", "--show-current")
+	// The worktree is resolved by branch, not by path. git reports every linked
+	// worktree and the main checkout in one call, so the tree that carries the
+	// assigned branch is reused wherever it sits - under another key, or in the
+	// main checkout with its uncommitted work. A path nobody thought to probe is
+	// precisely what made a launch fail while the branch was alive next door.
+	existing, err := worktreeForBranch(ctx, root, branch)
 	if err != nil {
 		return "", "", err
 	}
-	if task.BranchName != nil && strings.TrimSpace(*task.BranchName) != "" && current == branch {
-		return root, branch, nil
+	if existing != "" {
+		// git reports fully resolved paths; on macOS the main checkout comes
+		// back through /private, so the caller's own root is preferred when the
+		// two name the same directory.
+		if sameDirectory(existing, root) {
+			return root, branch, nil
+		}
+		return existing, branch, nil
+	}
+
+	// The branch is checked out nowhere, so a worktree has to be created. The
+	// key path is the natural home; when it is taken by an unrelated branch the
+	// launch still proceeds, on a sibling path, and the stale path is named in
+	// the log rather than turned into a refusal.
+	target := filepath.Join(root, ".tasks", "worktrees", task.Key)
+	if _, err := os.Stat(target); err == nil {
+		occupant, occErr := gitLocal(ctx, target, "branch", "--show-current")
+		if occErr != nil {
+			occupant = "an unknown branch"
+		}
+		suffix := strings.ReplaceAll(models.SanitizeBranchName(branch), "/", "-")
+		if suffix == "" {
+			suffix = "branch"
+		}
+		log.Printf("[Agent] Stale worktree path %s carries %s, not the assigned branch %s; creating the worktree beside it", target, occupant, branch)
+		target = filepath.Join(root, ".tasks", "worktrees", task.Key+"-"+suffix)
+	} else if !os.IsNotExist(err) {
+		return "", "", err
 	}
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		return "", "", err
@@ -435,19 +486,52 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 // the same reason the provider list itself is attested.
 func headlessCommandLine(provider, model, prompt string) (string, error) {
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
+	reasoning := ""
+	if engineStreamsReasoning(provider) {
+		reasoning = strings.Join(reasoningOptions, " ")
+	}
 	switch provider {
 	case "claude":
-		return words("claude", "-p", "--permission-mode", "bypassPermissions", modelFlag, quoteShell(prompt)), nil
+		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt)), nil
 	case "codex":
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
-		return words("codex", "exec", modelFlag, quoteShell(prompt)), nil
+		return words("codex", "exec", reasoning, modelFlag, quoteShell(prompt)), nil
 	case "vibe":
 		// vibe takes no model flag, so ModelArgs returns nothing for it.
-		return "vibe -p --auto-approve " + quoteShell(prompt), nil
+		return words("vibe", "-p", "--auto-approve", reasoning, quoteShell(prompt)), nil
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
+}
+
+// reasoningOptions make an engine print what it is doing as it does it: one
+// JSON object per line — the prose, the tool calls, then a final result message
+// carrying the answer — instead of the answer alone. They are only ever added to
+// a headless launch: an interactive session already shows all of this to the
+// human watching it.
+var reasoningOptions = []string{"--output-format", "stream-json", "--verbose"}
+
+// engineStreamsReasoning says whether an engine can be asked for that stream.
+// Only an engine that can is ever handed the options, so nothing is passed a
+// flag it does not have, and adding an engine here is a one-line change once its
+// stream format is attested — the reader in internal/runner is Claude's shape.
+func engineStreamsReasoning(provider string) bool {
+	return strings.EqualFold(strings.TrimSpace(provider), "claude")
+}
+
+// commandReadsReasoning says whether a command line asks its engine for the
+// reasoning stream, which is the same question as "is this run's standard output
+// a stream of JSON objects rather than an answer".
+//
+// It is read off the line that will really run rather than re-derived from the
+// provider: the decision was made while building that line, through branches a
+// configured template and a dedicated autonomous command leave early, and asking
+// the provider again at the far end would answer for a branch that was not
+// taken. A template asking for the stream itself is read as one, which is
+// exactly right — its output is that stream.
+func commandReadsReasoning(commandLine string) bool {
+	return strings.Contains(commandLine, strings.Join(reasoningOptions, " "))
 }
 
 // liveSessionMode pins the mode of a launch that opens a live provider session.

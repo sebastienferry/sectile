@@ -17,7 +17,7 @@ flowchart TB
 
     subgraph host["Server host"]
         Server["sectile-server<br/>REST · SSE · /mcp · agent relay"]
-        Store[("SQLite<br/>tasks · projects · activities · settings")]
+        Store[("SQLite or PostgreSQL<br/>tasks · projects · activities · settings")]
         Server --- Store
     end
 
@@ -101,7 +101,9 @@ requires a ready PR and a clean checkout reported by the agent.
 One API key per workstation is the credential every machine surface takes: the
 agent, the desktop app, `/mcp` on the server and the agent gateway. The user
 creates it from the profile, where it is shown once, or earns it by spending a
-pairing code, which is worth nothing on its own and short lived. Keys expire
+pairing code, which is worth nothing on its own and short lived. The desktop app
+takes the pairing code only: it never asks for a key to paste, and reuses the one
+an earlier pairing stored when it restarts its agent. Keys expire
 after 90 days by default, can be renewed without changing the secret, and are
 revocable one workstation at a time ([ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md)).
 
@@ -150,7 +152,7 @@ binding and [ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md) for the key.
 
 | Component | Responsibility |
 | --- | --- |
-| `cmd/server` | HTTP routes, embedded web assets and SQLite startup; no command dispatch or browser launch |
+| `cmd/server` | HTTP routes, embedded web assets and database startup; no command dispatch or browser launch |
 | `internal/db` | Persisted tasks, projects, board/roadmap/sprint configuration, workflow and tracker queues |
 | `internal/handlers` | Server API, upstream MCP and authenticated agent relay |
 | `internal/trackerapi` | GitHub REST/GraphQL with explicit server credentials |
@@ -172,7 +174,14 @@ the subprocess runner, workspace and terminal packages.
 
 ## Server persistence and queues
 
-SQLite stores projects, tasks, activities, settings and tracker operation state.
+The store holds projects, tasks, activities, settings and tracker operation
+state. It is SQLite by default, and PostgreSQL when `DB_DRIVER=postgres` names
+it. The two share one `*db.DB`, one schema and one set of queries: a small
+unexported `dialect` inside `internal/db` carries the six things that differ
+(connection, placeholder rebinding, DDL type names, catalogue introspection, the
+encryption key directory, and whether the historical migrations apply). See
+[ADR 0016](adrs/0016-postgresql-as-an-alternative-store.md) for why the seam is
+below `*db.DB` rather than an interface above it.
 The established database lookup order remains unchanged. `DB` uses an RWMutex;
 helpers suffixed `Unsafe` assume the caller already holds the appropriate lock.
 Avoid calling public locking methods while holding that lock.
@@ -262,8 +271,11 @@ and reject cross-origin access. Keys are created from the web profile, shown
 once, and can be earned by spending a single-use, short-lived pairing code; see
 [ADR 0007](adrs/0007-user-identity-and-agent-binding.md) for the identity
 binding and [ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md) for the key.
-`SECTILE_SERVER_TOKEN` is deprecated for one release. Deploy the browser REST
-interface behind the appropriate access-control boundary.
+`SECTILE_SERVER_TOKEN` is deprecated for one release and is the only credential
+outside the key store that a machine surface accepts; see
+[ADR 0019](adrs/0019-the-machine-surfaces-have-no-open-mode.md) for the removal
+of the legacy open mode. Deploy the browser REST interface behind the
+appropriate access-control boundary.
 
 See [the complete interface contract](contracts/server-agent-v1.md),
 [the runtime ADR](adrs/0006-independent-server-agent-runtimes.md) and

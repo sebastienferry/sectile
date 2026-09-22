@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS settings (
 | `PUT` | `/api/tasks/{id}` | Updates task fields (status, title, description, priority, etc.). |
 | `DELETE` | `/api/tasks/{id}` | Deletes task and prunes associated Git worktree. |
 | `POST` | `/api/tasks/{id}/skills/{skillId}` | Enqueues or immediately executes an AI skill on the task. |
-| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?}`. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. |
+| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?, force?}`. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. A task already carrying an active run answers `409` with `{error, activeRunId}` and records nothing; `force` waives that refusal and only that one, for the active run's owner or an admin, and answers `403` for anyone else. |
 | `POST` | `/api/tasks/{id}/advance` | Advances one workflow step, or the full chain with `{"auto": true}`. Body also accepts `mode`, the one-off override for the single step; a full chain run ignores it and is always autonomous. |
 | `POST` | `/api/tasks/{id}/advance/confirm` | Closes an interactive step. A step the worker already transitioned is accepted as a no-op. |
 | `POST` | `/api/tasks/{id}/comment` | Publishes a comment to the GitHub issue tracker. |
@@ -208,6 +208,23 @@ latter is rewritten at every sign-in from the provider's claim, or from the
 e-mail address for a local account, so a chosen name stored there would be
 erased at the next visit. Every read of a user resolves
 `COALESCE(NULLIF(chosen_name, ''), display_name)`.
+
+### 2.3.0.1 Accounts API
+
+The one part of the interface reserved to admins. Everything else on the board,
+projects included, is a member's to use; what stays here is the roster: who
+exists, what role they hold, and whether their account still opens.
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/users` | (none) | Every account with its role, its last sign-in and whether it is blocked, plus `rolesFromProvider` when the identity provider supplies the roles. |
+| `PUT` | `/api/users/{id}` | `{role?, blocked?}` | Changes the role, the blocked state, or both. An absent field is left alone. `400` on neither field and on a role that is not `admin` or `member`; `404` on an unknown account; `409` on the last admin, on blocking or deleting your own account, and on the implicit account. |
+| `DELETE` | `/api/users/{id}` | (none) | Removes the account, its sessions and its workstation keys. Same refusals as above. The tasks, comments and executions it owns stay on the board and read as having no owner. |
+
+Blocking keeps everything the account owns and only closes the door: the open
+sessions are revoked at once, the workstation keys stop authenticating, and the
+next sign-in answers `403`. Unblocking gives all three back. Deleting is the
+irreversible one, and is why the two are separate actions rather than a switch.
 
 ### 2.3.1 Personal Tracker Credentials API
 

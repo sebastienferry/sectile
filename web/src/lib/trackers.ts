@@ -223,6 +223,41 @@ export interface StoredUserCredential {
 }
 
 /**
+ * Un accès laissé sous une identité qu'aucun compte ne résout, tel que l'API le
+ * décrit. Le détail — sous quelle identité, pour quel compte de tracker — n'est
+ * servi qu'aux admins ; tout le monde reçoit le compte et les trackers occupés,
+ * parce que c'est ce qui explique pourquoi son propre accès semble absent.
+ */
+export interface OrphanedCredential {
+  userId: string
+  tracker: string
+  siteUrl?: string
+  email?: string
+  sealed: boolean
+  updatedAt?: string
+}
+
+export interface OrphanedCredentialReport {
+  count: number
+  trackers: string[]
+  /** Renseigné pour un admin seulement. */
+  rows: OrphanedCredential[]
+}
+
+export const NO_ORPHANED_CREDENTIALS: OrphanedCredentialReport = { count: 0, trackers: [], rows: [] }
+
+/** Lit le rapport d'accès orphelins d'une réponse de l'API, tolérante à son absence. */
+export function orphanedCredentialsFrom(data: any): OrphanedCredentialReport {
+  const count = typeof data?.orphanedCount === 'number' ? data.orphanedCount : 0
+  if (count <= 0) return NO_ORPHANED_CREDENTIALS
+  return {
+    count,
+    trackers: Array.isArray(data?.orphanedTrackers) ? data.orphanedTrackers : [],
+    rows: Array.isArray(data?.orphaned) ? data.orphaned : [],
+  }
+}
+
+/**
  * L'invitation à sceller, dite en termes de ce que la personne y gagne et de ce
  * qu'elle devra faire. Ce qui se passe sous le capot, clé et chiffrement, ne lui
  * apprend rien d'actionnable et n'a donc pas sa place ici.

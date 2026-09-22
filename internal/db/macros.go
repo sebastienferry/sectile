@@ -73,6 +73,7 @@ func normalizeHorizon(value string) string {
 
 func (d *DB) ensureMacrosTable() {
 	_, _ = d.conn.Exec(`CREATE TABLE IF NOT EXISTS macros (
+		framing_comment TEXT NOT NULL DEFAULT '',
 		project_id TEXT NOT NULL,
 		key TEXT NOT NULL,
 		horizon TEXT NOT NULL DEFAULT '',
@@ -85,15 +86,18 @@ func (d *DB) ensureMacrosTable() {
 		PRIMARY KEY (project_id, key)
 	);`)
 	_, _ = d.conn.Exec("CREATE INDEX IF NOT EXISTS idx_macros_project ON macros(project_id, horizon);")
-	_, _ = d.conn.Exec("ALTER TABLE macros ADD COLUMN framing_comment TEXT NOT NULL DEFAULT '';")
+	if d.dialect.RunsLegacyMigrations() {
+		_, _ = d.conn.Exec("ALTER TABLE macros ADD COLUMN framing_comment TEXT NOT NULL DEFAULT '';")
+	}
 
 	// Migrate from legacy epics table if it exists
 	var hasEpics int
 	_ = d.conn.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='epics';").Scan(&hasEpics)
 	if hasEpics > 0 {
 		_, _ = d.conn.Exec(`
-			INSERT OR IGNORE INTO macros (project_id, key, horizon, description, todos, title, status, closed, updated_at)
-			SELECT project_id, key, horizon, description, todos, title, status, closed, updated_at FROM epics;
+			INSERT INTO macros (project_id, key, horizon, description, todos, title, status, closed, updated_at)
+			SELECT project_id, key, horizon, description, todos, title, status, closed, updated_at FROM epics
+			ON CONFLICT DO NOTHING;
 		`)
 	}
 }
@@ -380,38 +384,6 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 
 func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID string) (*models.EpicMeta, string, error) {
 	return d.CreateStoryFromMacroTodo(projectID, epicKey, todoID)
-}
-
-// PushMacroHorizonLabel mirrors the classification onto the macro.
-func (d *DB) PushMacroHorizonLabel(projectID string, macroKey string, horizon string) (string, error) {
-	return "classification gardée en local", nil
-}
-
-func (d *DB) PushEpicHorizonLabel(projectID string, epicKey string, horizon string) (string, error) {
-	return d.PushMacroHorizonLabel(projectID, epicKey, horizon)
-}
-
-// ImportMacroHorizons reads the roadmap labels of a project's macros.
-func (d *DB) ImportMacroHorizons(projectID string) (string, error) {
-	proj, err := d.GetProjectByID(projectID)
-	if err != nil || proj == nil {
-		return "", fmt.Errorf("projet non trouvé")
-	}
-	return "0 macros lues", nil
-}
-
-func (d *DB) ImportEpicHorizons(projectID string) (string, error) {
-	return d.ImportMacroHorizons(projectID)
-}
-
-// PendingHorizonPushes lists the macros classified locally.
-func (d *DB) PendingHorizonPushes(projectID string) ([]models.MacroMeta, error) {
-	return []models.MacroMeta{}, nil
-}
-
-// PushPendingHorizons mirrors every locally classified macro.
-func (d *DB) PushPendingHorizons(projectID string) (int, []string, error) {
-	return 0, nil, nil
 }
 
 // SetTaskMacro queues the attachment of a ticket to a macro.

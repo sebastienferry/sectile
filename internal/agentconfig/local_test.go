@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"os"
 	"path/filepath"
+	"tasks/internal/testhome"
 	"testing"
 )
 
@@ -18,7 +19,7 @@ func installed(t *testing.T, home, provider, relative string) string {
 
 func TestScaffoldRefreshBacksUpEdits(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "implement", Directory: "code-issue", Content: "remote v1", CommandContent: "command v1"}}}
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
@@ -47,7 +48,7 @@ func TestScaffoldRefreshBacksUpEdits(t *testing.T) {
 
 func TestScaffoldRejectsEscapeAndUnknownVersion(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: 99}
 	if _, err := Scaffold(root, c); err == nil {
 		t.Fatal("unknown version accepted")
@@ -77,7 +78,7 @@ func TestOverridesDoNotMutateContract(t *testing.T) {
 
 func TestScaffoldValidatesAllSkillsBeforeWriting(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "valid", Directory: "valid", Content: "should not be written"}, {ID: "invalid", Directory: "../escape"}}}
 	if _, err := Scaffold(root, c); err == nil {
 		t.Fatal("invalid contract accepted")
@@ -88,7 +89,7 @@ func TestScaffoldValidatesAllSkillsBeforeWriting(t *testing.T) {
 }
 func TestScaffoldRetiresOwnedFilesAndPreservesPersonalSkills(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "old", Directory: "old", Content: "old skill"}}}
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
@@ -116,7 +117,7 @@ func TestScaffoldRetiresOwnedFilesAndPreservesPersonalSkills(t *testing.T) {
 }
 func TestScaffoldRejectsUnsafeManifest(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	path, err := ManifestPath()
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +192,7 @@ func TestProjectCommandOverrideAndServerReset(t *testing.T) {
 
 func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue", Content: "adjustment contract", CommandContent: "adjustment contract"}}}
 	if _, err := Scaffold(root, c); err != nil {
 		t.Fatal(err)
@@ -218,7 +219,7 @@ func TestAdjustmentScaffoldPreservesLegacyEdits(t *testing.T) {
 
 func TestScaffoldInstallsSeparatePRSkills(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, Skills: []Skill{
 		{ID: "adjust", Directory: "adjust-issue", Command: "/adjust-issue", Content: "Adjust the existing PR", CommandContent: "Adjust the existing PR"},
 		{ID: "create_pr", Directory: "create-pr", Command: "/create-pr", Content: "Create a draft PR", CommandContent: "Create a draft PR"},
@@ -302,5 +303,40 @@ func TestProjectAIProviderAndModelOverrides(t *testing.T) {
 	effectiveWithCmd := ApplyOverrides(c1, overridesWithCmd)
 	if effectiveWithCmd.AIProvider != "claude" || effectiveWithCmd.AICommandTemplate != "my-claude {prompt}" {
 		t.Fatalf("expected claude with custom command, got provider=%q cmd=%q", effectiveWithCmd.AIProvider, effectiveWithCmd.AICommandTemplate)
+	}
+}
+
+func TestTerminalOverridesPrecedence(t *testing.T) {
+	c1 := Config{ProjectID: "proj-1", ExternalTerminalCommand: "pty"}
+	c2 := Config{ProjectID: "proj-2", ExternalTerminalCommand: "pty"}
+
+	// Fallback to server setting when overrides are empty
+	base := ApplyOverrides(c1, Overrides{})
+	if base.ExternalTerminalCommand != "pty" {
+		t.Fatalf("expected 'pty', got %q", base.ExternalTerminalCommand)
+	}
+
+	// Workstation terminal override takes effect
+	withGlobal := ApplyOverrides(c1, Overrides{Terminal: "terminal"})
+	if withGlobal.ExternalTerminalCommand != "terminal" {
+		t.Fatalf("expected 'terminal', got %q", withGlobal.ExternalTerminalCommand)
+	}
+
+	// Project terminal override takes precedence over workstation terminal override
+	withProject := ApplyOverrides(c1, Overrides{
+		Terminal:  "terminal",
+		Terminals: map[string]string{"proj-1": "ghostty"},
+	})
+	if withProject.ExternalTerminalCommand != "ghostty" {
+		t.Fatalf("expected 'ghostty', got %q", withProject.ExternalTerminalCommand)
+	}
+
+	// Another project without override falls back to workstation terminal
+	withOtherProject := ApplyOverrides(c2, Overrides{
+		Terminal:  "terminal",
+		Terminals: map[string]string{"proj-1": "ghostty"},
+	})
+	if withOtherProject.ExternalTerminalCommand != "terminal" {
+		t.Fatalf("expected 'terminal', got %q", withOtherProject.ExternalTerminalCommand)
 	}
 }

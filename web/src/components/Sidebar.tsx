@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import {
   Inbox,
   HelpCircle,
@@ -35,6 +35,7 @@ import {
   Star,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useClickOutside } from '../hooks/useClickOutside'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentBadgeStyle } from '../lib/accents'
 import type { Status, TaskSource } from '../types'
@@ -158,16 +159,11 @@ export const Sidebar: React.FC = () => {
   const [projectSearch, setProjectSearch] = useState('')
   const projectDropdownRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (projectDropdownRef.current && !projectDropdownRef.current.contains(e.target as Node)) {
-        setIsProjectDropdownOpen(false)
-        setProjectSearch('')
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+  const closeProjectDropdown = useCallback(() => {
+    setIsProjectDropdownOpen(false)
+    setProjectSearch('')
   }, [])
+  useClickOutside(projectDropdownRef, closeProjectDropdown)
 
   const { searchBookmarked, searchOthers } = React.useMemo(() => {
     const q = projectSearch.trim().toLowerCase()
@@ -306,15 +302,15 @@ export const Sidebar: React.FC = () => {
         sidebarCollapsed ? 'w-16' : 'w-64'
       } h-full z-20 shrink-0 shadow-xs`}
       style={{
-        background: 'linear-gradient(180deg, var(--sidebar-accent-tint) 0%, var(--bg-secondary) 85%)',
+        background: 'var(--bg-secondary)',
       }}
     >
-      {/* Brand Header with Accent Glow */}
-      <div className="flex items-center justify-between h-14 px-3 border-b border-[var(--sidebar-border)]/50 bg-[var(--accent-light)]/20 backdrop-blur-xs">
+      {/* Brand header */}
+      <div className="flex items-center justify-between h-14 px-3 border-b border-[var(--sidebar-border)]/50 bg-[var(--bg-secondary)]">
         {!sidebarCollapsed ? (
           <>
             <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
-              <div className="p-0.5 rounded-xl bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shadow-[0_0_12px_var(--accent-glow)]">
+              <div className="p-0.5 rounded-xl bg-[var(--accent-light)] border border-[var(--accent-color)]/30">
                 <SectileLogo size={28} className="shrink-0" />
               </div>
               <span className="font-bold tracking-tight text-base text-[var(--text-primary)] truncate">

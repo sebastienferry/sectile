@@ -99,6 +99,11 @@ revoked keys counted: otherwise revoking a key would change nothing, since the r
 value would still pass as "any nonempty token". A personal deployment that never creates a
 key is therefore untouched by the upgrade, and one that does gets real revocation.
 
+> **Superseded.** The open mode is removed outright, not ended at the first key: a live
+> count of issued keys can fall back to zero when the last account holding one is deleted,
+> which would re-arm it. `SECTILE_SERVER_TOKEN` remains the sole upgrade path. See
+> [ADR 0019](../../../docs/adrs/0019-the-machine-surfaces-have-no-open-mode.md).
+
 ### Telling the user before it expires
 The agent logs the remaining validity at connect when under ten days, and the web profile
 flags such keys. A rejected key returns `401 {"error":"API key expired"}` distinct from an

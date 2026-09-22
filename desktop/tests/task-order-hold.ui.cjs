@@ -42,7 +42,7 @@ test('sidebar holds its order while the pointer or focus stays on the task list'
   assert.deepEqual(await order(),['#7','#8'])
 
   await page.locator('#save-log').focus()
-  await page.waitForFunction(()=>document.querySelector('.task-number').textContent==='#8')
+  await page.waitForFunction(()=>document.querySelector('.task-number')?.textContent==='#8')
   assert.deepEqual(await order(),['#8','#7'])
   assert.equal(await page.locator('.run.selected').count(),1)
   await page.screenshot({path:path.join(root,'task-hold.png')})

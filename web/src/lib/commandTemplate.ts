@@ -7,6 +7,13 @@
  * preview is to be right: keep the two in step.
  */
 
+/**
+ * The words that make claude report what it is doing while it does it, one JSON
+ * object per line, so the agent can trace a headless run. Mirrors
+ * reasoningOptions in internal/agent/agent_config.go: only claude is handed them.
+ */
+export const CLAUDE_REASONING_FLAGS = '--output-format stream-json --verbose'
+
 /** How a template says which words depend on the mode: {mode:AUTONOMOUS|INTERACTIVE}. */
 export const TEMPLATE_MODE_PLACEHOLDER = '{mode:'
 
@@ -203,7 +210,7 @@ export function commandPreview(
   if (autonomous) {
     switch (cli) {
       case 'claude':
-        return { command: words('claude', '-p', '--permission-mode', 'bypassPermissions', flag, PROMPT) }
+        return { command: words('claude', '-p', '--permission-mode', 'bypassPermissions', CLAUDE_REASONING_FLAGS, flag, PROMPT) }
       case 'codex':
         return { command: words('codex', 'exec', flag, PROMPT) }
       case 'vibe':

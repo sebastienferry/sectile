@@ -1,6 +1,6 @@
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import {
   X,
   Trash2,
@@ -42,6 +42,7 @@ import {
   Plus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowStage, MacroMeta, SkillMode, PullRequestLink } from '../types'
 import { WORKFLOW_ORDER, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
 import { addPullRequestLink, taskPullRequestLinks } from '../lib/pullRequests'
@@ -466,6 +467,13 @@ export const TaskDetailModal: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedTask, isTtyExpanded, isExpandedSpec, title, description, status, priority, taskProjectId, branchName, prLinks, repoPath, assignee, dueDate, labels])
+
+  // Le clic à côté ferme comme la croix : handleClose pour la fiche, qui
+  // enregistre en sortant, et le seul lecteur de spécification pour sa propre
+  // couche, qui laisse la fiche ouverte dessous.
+  const backdrop = useBackdropDismiss(handleClose)
+  const closeExpandedSpec = useCallback(() => setIsExpandedSpec(false), [setIsExpandedSpec])
+  const expandedSpecBackdrop = useBackdropDismiss(closeExpandedSpec)
 
   if (!selectedTask) return null
 
@@ -1648,7 +1656,7 @@ export const TaskDetailModal: React.FC = () => {
       <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 overflow-hidden select-none">
         {/* Backdrop overlay */}
         <div
-          onClick={handleClose}
+          {...backdrop}
           className="absolute inset-0 bg-black/40 backdrop-blur-2xs animate-in fade-in duration-200"
         />
 
@@ -1862,7 +1870,7 @@ export const TaskDetailModal: React.FC = () => {
   // With tab navigation & switcher back to right panel
   // -------------------------------------------------------------
   return (
-    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 select-none">
+    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 select-none" {...backdrop}>
       <div
         className={`relative w-full transition-all duration-200 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col ${
           isMaximized
@@ -2081,7 +2089,7 @@ export const TaskDetailModal: React.FC = () => {
 
       {/* Fullscreen Expanded Specification Reader Modal */}
       {isExpandedSpec && specifyActivity?.output && (
-        <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-60 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-60 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-xs animate-in fade-in duration-150" {...expandedSpecBackdrop}>
           <div className="relative w-full max-w-5xl h-[calc(var(--app-h)*0.88)] rounded-2xl bg-[var(--bg-secondary)] border border-blue-500/40 shadow-2xl flex flex-col overflow-hidden">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/70 shrink-0">

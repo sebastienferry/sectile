@@ -9,36 +9,39 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 )
 
-// Boucle de synchronisation de fond.
+// The background synchronisation loop.
 //
-// Une passe complète d'un projet coûte une requête par tranche de cent tickets:
-// quatorze pour un projet de mille quatre cents. La répéter toutes les minutes
-// serait à la fois inutile et grossier envers l'instance. La boucle met donc en
-// file une relecture unitaire de chaque ticket non terminé du projet, par le
-// GetIssue de son tracker; la lecture incrémentale par JQL bornée sur `updated`
-// que la fenêtre ci-dessous calcule n'est pas encore branchée sur l'adaptateur.
+// Reading a whole project costs one request per hundred work items: fourteen
+// for a project of fourteen hundred. Repeating that every minute is both
+// pointless and rude to the instance. The loop therefore queues one single
+// synchronisation per project, bounded on the update date — `updated >= -Nm` in
+// JQL, `since` on GitHub — which brings back only what the tracker has touched
+// since the previous pass. A tracker that cannot narrow a search is asked for
+// all of it, which is still one request per hundred work items where the unit
+// re-read it replaces cost one per work item.
 //
-// Trois garde-fous complètent cela: une seule passe à la fois par projet, un
-// recul progressif quand l'instance répond qu'elle en a assez (429), et une
-// passe complète espacée qui rattrape ce qu'une lecture incrémentale ne peut pas
-// voir, à savoir un ticket sorti du périmètre.
+// Three guards complete it: one pass at a time per project, a step back when
+// the instance answers that it has had enough (429), and a spaced full pass
+// that catches what a read by update date cannot see, namely a work item that
+// left the perimeter.
 
 const (
-	// autoSyncMinInterval borne l'intervalle réglable. Sous trente secondes, on
-	// interroge le tracker plus vite qu'il ne change.
+	// autoSyncMinInterval bounds the configurable interval. Under thirty
+	// seconds, the tracker is polled faster than it changes.
 	autoSyncMinInterval = 30 * time.Second
-	// autoSyncFullEvery espace les passes complètes. Elles rattrapent les
-	// disparitions, qu'aucune lecture par date de mise à jour ne signale.
+	// autoSyncFullEvery spaces the full passes. They catch the disappearances,
+	// which no read by update date ever reports.
 	autoSyncFullEvery = 30 * time.Minute
-	// autoSyncOverlap élargit la fenêtre incrémentale. La JQL raisonne à la
-	// minute et les horloges dérivent: sans marge, un ticket modifié pile entre
-	// deux passes passerait au travers.
+	// autoSyncOverlap widens the incremental window. JQL reasons to the minute
+	// and clocks drift: with no margin, a work item changed exactly between two
+	// passes would fall through.
 	autoSyncOverlap = 3
-	// autoSyncMaxWindow borne la fenêtre quand la boucle a dormi longtemps
-	// (machine en veille): au delà, la passe complète est plus honnête.
+	// autoSyncMaxWindow bounds the window when the loop has slept for a long
+	// time (a machine suspended): beyond it, the full pass is the honest read.
 	autoSyncMaxWindow = 24 * 60
 )
 
@@ -111,8 +114,8 @@ func (d *DB) StartAutoSync() {
 			d.auto.mu.Unlock()
 
 			if busy {
-				// La passe précédente n'a pas fini: en lancer une seconde ne
-				// ferait qu'empiler des requêtes sur une instance déjà lente.
+				// The previous pass has not finished: starting a second one
+				// would only pile requests onto an already slow instance.
 				continue
 			}
 			if time.Now().Before(backoff) {
@@ -158,8 +161,8 @@ func (d *DB) runAutoSyncPassGuarded(settings *models.Settings) {
 	d.runAutoSyncPass(settings)
 }
 
-// runAutoSyncPass queues a re-read of every unfinished work item of every
-// project that opted in, through the project's own tracker.
+// runAutoSyncPass queues one synchronisation per project that opted in, bounded
+// on what the tracker has touched since the previous pass.
 func (d *DB) runAutoSyncPass(settings *models.Settings) {
 	defer func() {
 		d.auto.mu.Lock()
@@ -175,7 +178,7 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 		return
 	}
 
-	imported := 0
+	queued := 0
 	var failures []string
 
 	for _, proj := range projects {
@@ -193,40 +196,75 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 			continue
 		}
 
+		ts, tsErr := d.TrackerForProject(&proj)
+		if tsErr != nil || ts == nil || ts.Name() == "local" || !ts.Supports(tracker.CapSync) {
+			continue
+		}
+
+		// The window is read before the pass is dated, since it is computed
+		// from the previous one. A tracker that cannot narrow a search reads
+		// the whole project, and that read counts as the full pass it is.
+		window := 0
+		if ts.Supports(tracker.CapIncrementalSync) {
+			window = d.autoSyncWindow(proj.ID)
+		}
+
 		d.auto.mu.Lock()
 		d.auto.lastPassAt[proj.ID] = time.Now()
 		d.auto.mu.Unlock()
 
-		// Retrieve all non-finished tasks for this project
-		tasks, taskErr := d.GetTasks("", "", "", "", proj.ID, "", "", "", "", nil, nil, false)
-		if taskErr != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", proj.Name, taskErr))
+		// The pass runs under the project's owner. It is nobody's request, so
+		// there is no acting user to carry, and a tracker whose credential is
+		// personal has none of its own to fall back on: the owner is the person
+		// who turned this loop on, and it is their token it reads with. An
+		// ownerless project keeps the historical behaviour, the server
+		// credential, which is what SECTILE_JIRA_TOKEN is for.
+		owner := strings.TrimSpace(proj.OwnerUserID)
+
+		if _, syncErr := d.EnqueueSyncWith(owner, ts.Name(), "", proj.ID, SyncOptions{WindowMin: window, Background: true}); syncErr != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", proj.Name, syncErr))
 			continue
 		}
-
-		for _, t := range tasks {
-			// Skip finished tasks
-			if t.Status == models.StatusFinished || strings.EqualFold(t.TrackerStatus, "Done") {
-				continue
-			}
-
-			// Enqueue single task sync activity in the queue
-			if _, syncErr := d.EnqueueSingleTaskSync(&t); syncErr != nil {
-				failures = append(failures, fmt.Sprintf("%s (%s): %v", proj.Name, t.Key, syncErr))
-			} else {
-				imported++
-			}
-		}
+		queued++
 	}
 
+	if len(failures) > 0 {
+		d.auto.mu.Lock()
+		d.auto.lastError = strings.Join(failures, " | ")
+		d.auto.mu.Unlock()
+	}
+
+	if queued > 0 {
+		log.Printf("[autosync] %d synchronisation(s) de projet en file d'attente", queued)
+	}
+}
+
+// recordAutoSyncPass is how a queued pass reports back. The job outlives the
+// pass that filed it, so what a pass actually imported is only known here — and
+// so is whether it succeeded, which is what dates the full read.
+//
+// A full pass that failed is not one: dating it would narrow every pass that
+// follows for half an hour, on a project whose copy the failure just left
+// incomplete. It stays undated, so the loop keeps asking for the whole project
+// until one read comes back.
+func (d *DB) recordAutoSyncPass(projectID string, window int, imported int, failed bool, message string) {
+	if d.auto == nil {
+		return
+	}
 	d.auto.mu.Lock()
+	defer d.auto.mu.Unlock()
 	d.auto.lastImported = imported
 	d.auto.imported += imported
-	d.auto.lastError = strings.Join(failures, " | ")
-	d.auto.mu.Unlock()
-
-	if imported > 0 {
-		log.Printf("[autosync] %d tâche(s) de synchronisation en file d'attente", imported)
+	if failed {
+		d.auto.lastError = message
+		return
+	}
+	d.auto.lastError = ""
+	if window == 0 && projectID != "" {
+		if d.auto.lastFullSync == nil {
+			d.auto.lastFullSync = map[string]time.Time{}
+		}
+		d.auto.lastFullSync[projectID] = time.Now()
 	}
 }
 
@@ -269,6 +307,12 @@ func isRateLimited(err error) bool {
 // enterAutoSyncBackoff steps back for a while. A tracker that says it has had
 // enough is answered by waiting, not by trying again a minute later.
 func (d *DB) enterAutoSyncBackoff() {
+	// The backoff is asked for by any rate-limited tracker call, including one
+	// made before the loop was ever started; there is then nothing to step
+	// back from.
+	if d.auto == nil {
+		return
+	}
 	d.auto.mu.Lock()
 	defer d.auto.mu.Unlock()
 	d.auto.backoffUntil = time.Now().Add(10 * time.Minute)

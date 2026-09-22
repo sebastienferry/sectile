@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"tasks/internal/testhome"
 	"testing"
 )
 
@@ -57,7 +58,7 @@ func TestResolveDBPathPrecedence(t *testing.T) {
 
 		// Mock user config dir via HOME and XDG_CONFIG_HOME
 		mockHome := tempDir
-		t.Setenv("HOME", mockHome)
+		testhome.Set(t, mockHome)
 		mockConfigDir := filepath.Join(tempDir, "mock_config")
 		t.Setenv("XDG_CONFIG_HOME", mockConfigDir)
 

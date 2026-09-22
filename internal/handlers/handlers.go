@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"tasks/internal/tracker"
 	"tasks/internal/trackerapi"
 	"time"
 
@@ -67,14 +68,15 @@ func NewHandler(database *db.DB) *Handler {
 	// A typed nil database would satisfy the closer interface and panic on the
 	// first disconnection, so the registry is given one only when it exists.
 	var runs taskmcp.RunCloser
+	var notes taskmcp.RunNoter
 	if database != nil {
-		runs = database
+		runs, notes = database, database
 	}
 	h := &Handler{
 		db:                database,
 		subscribers:       make(map[chan Event]bool),
 		agentDispatcher:   NewAgentDispatcher(),
-		mcpSessions:       taskmcp.NewSessionRegistry(runs),
+		mcpSessions:       taskmcp.NewSessionRegistryWith(runs, notes, mcpSilenceNotice()),
 		agentPingInterval: defaultAgentPingInterval,
 		agentReadTimeout:  defaultAgentReadTimeout,
 	}
@@ -152,6 +154,23 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 
 func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
+}
+
+// describeActiveRun names the run that blocks a launch, and when it started,
+// so the refusal says what is already happening rather than that something is.
+func describeActiveRun(a *models.TaskActivity) string {
+	name := a.SkillName
+	if strings.TrimSpace(name) == "" {
+		name = a.SkillID
+	}
+	started := "an unknown time"
+	if a.StartedAt != nil {
+		started = a.StartedAt.Format(time.RFC3339)
+	}
+	if a.WaitingSince != nil {
+		return fmt.Sprintf("A run of %s started at %s is still active on this task, waiting for user input.", name, started)
+	}
+	return fmt.Sprintf("A run of %s started at %s is still active on this task.", name, started)
 }
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
@@ -486,12 +505,15 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err := h.db.CreateProject(req)
+		// The creator owns the project: the background synchronisation has no
+		// acting user of its own and reads under that account.
+		userID := h.webSessionUser(r)
+		project, err := h.db.CreateProjectAs(userID, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if userID := h.webSessionUser(r); userID != "" && project != nil {
+		if userID != "" && project != nil {
 			_ = h.db.BookmarkProject(userID, project.ID)
 			project.Bookmarked = true
 		}
@@ -500,6 +522,18 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 	}
+}
+
+// isMacroSegment tells the path segment that introduces a macro sub-action.
+//
+// The two spellings are the same route. "epics" is what the tracker calls the
+// container and what the URLs were written with; "macros" is what the product
+// calls it and what the interface asks for. A sub-action that only answered one
+// of them fell through to the generic macro handler, where "move" and
+// "push-horizons" were read as a macro key: the call answered 200 and created a
+// macro named after the action it was supposed to run.
+func isMacroSegment(segment string) bool {
+	return segment == "macros" || segment == "epics"
 }
 
 func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
@@ -518,17 +552,52 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/projects/detected-statuses: live status detection for draft project
 	if id == "detected-statuses" && r.Method == http.MethodGet {
-		tracker := r.URL.Query().Get("tracker")
+		trackerName := r.URL.Query().Get("tracker")
 		repo := r.URL.Query().Get("repo")
 		repoPath := r.URL.Query().Get("repoPath")
 		projID := r.URL.Query().Get("projectId")
 
 		var statuses []string
+		// columns is filled only for a saved project on a tracker with boards:
+		// there, detection mirrors the board instead of inventing one column per
+		// status. detectErr travels with the payload so a failed read is shown
+		// rather than read as "no column".
+		var columns []models.TrackerColumn
+		detectErr := ""
 		if projID != "" {
-			statuses, _ = h.db.GetProjectTrackerStatuses(h.actingContext(r), projID)
+			var statusErr error
+			statuses, statusErr = h.db.GetProjectTrackerStatuses(h.actingContext(r), projID)
+			if statusErr != nil {
+				detectErr = statusErr.Error()
+			}
+			cols, err := h.db.DetectProjectBoardColumns(h.actingContext(r), projID)
+			switch {
+			case tracker.IsUnsupported(err):
+				// A tracker without boards keeps the historical payload.
+			case err != nil:
+				if detectErr == "" {
+					detectErr = err.Error()
+				}
+			default:
+				columns = cols
+				// The palette must hold everything the board groups, even a
+				// status the project status list did not return.
+				seen := map[string]bool{}
+				for _, st := range statuses {
+					seen[strings.ToLower(st)] = true
+				}
+				for _, col := range cols {
+					for _, st := range col.Statuses {
+						if key := strings.ToLower(strings.TrimSpace(st)); key != "" && !seen[key] {
+							seen[key] = true
+							statuses = append(statuses, st)
+						}
+					}
+				}
+			}
 		} else {
 			dummyProj := &models.Project{
-				IssueTracker: tracker,
+				IssueTracker: trackerName,
 				GithubRepo:   repo,
 				RepoPath:     repoPath,
 			}
@@ -536,7 +605,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			_ = dummyProj
 			// Query tracker HTTP metadata for a draft project
 			seen := map[string]bool{}
-			if tracker == "github" {
+			if trackerName == "github" {
 				rRepo := models.CleanGithubRepo(repo)
 				if rRepo != "" {
 
@@ -618,13 +687,20 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				Name: s,
 			})
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"statuses": result})
+		payload := map[string]interface{}{"statuses": result}
+		if columns != nil {
+			payload["columns"] = columns
+		}
+		if detectErr != "" {
+			payload["error"] = detectErr
+		}
+		writeJSON(w, http.StatusOK, payload)
 		return
 	}
 
 	// Sub-action: /api/projects/{id}/epics/create: create an epic, the container
 	// a split needs as a target
-	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "create" && r.Method == http.MethodPost {
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "create" && r.Method == http.MethodPost {
 		var req struct {
 			Title   string            `json:"title"`
 			Horizon string            `json:"horizon"`
@@ -646,14 +722,14 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/projects/{id}/epics/fields: ce que l'instance impose pour
 	// créer un épic, au delà du titre. PE exige « Epic Type » et la création
 	// échouait en 400 sans que l'interface puisse le demander.
-	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "fields" && r.Method == http.MethodGet {
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "fields" && r.Method == http.MethodGet {
 		writeJSON(w, http.StatusOK, []string{})
 		return
 	}
 
 	// Sub-action: /api/projects/{id}/epics/move: cut stories out of an epic into
 	// another one, created on the fly when only a title is given
-	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "move" && r.Method == http.MethodPost {
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "move" && r.Method == http.MethodPost {
 		var req struct {
 			TaskIDs       []string          `json:"taskIds"`
 			TargetEpicKey string            `json:"targetEpicKey"`
@@ -742,10 +818,10 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/projects/{id}/epics/push-horizons: mirror the locally
 	// classified epics whose Jira label is missing or stale
-	if len(parts) >= 3 && parts[1] == "epics" && parts[2] == "push-horizons" {
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "push-horizons" {
 		switch r.Method {
 		case http.MethodGet:
-			pending, err := h.db.PendingHorizonPushes(id)
+			pending, err := h.db.PendingHorizonPushes(r.Context(), id)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -767,6 +843,22 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			return
 		}
+	}
+
+	// Sub-action: /api/projects/{id}/macros/import-horizons: read the roadmap
+	// labels back from the tracker, so a classification made there wins over
+	// ours instead of being overwritten by the next push.
+	//
+	// Synchronous, unlike the push: it writes nothing on the tracker, and its
+	// answer is the report the caller came for.
+	if len(parts) >= 3 && isMacroSegment(parts[1]) && parts[2] == "import-horizons" && r.Method == http.MethodPost {
+		note, err := h.db.ImportMacroHorizons(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]interface{}{"imported": true, "note": note})
+		return
 	}
 
 	// Sub-action: /api/projects/{id}/macros/{key}/migrate: migrate macro and attached tasks to another project
@@ -1238,7 +1330,9 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		project, err := h.db.UpdateProject(id, req)
+		// Saving an ownerless project adopts the person saving it, so its
+		// background synchronisation stops running as the server.
+		project, err := h.db.UpdateProjectAs(h.webSessionUser(r), id, req)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1801,6 +1895,30 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if err != nil || task == nil {
 			writeError(w, http.StatusNotFound, "Task not found")
 			return
+		}
+
+		// A task already carrying an active run is busy: a second launch would
+		// start an agent in parallel on the same work. The check happens before
+		// anything is recorded, so a refused launch leaves no trace at all.
+		active, activeErr := h.db.ActiveRunOnTask(task.ID)
+		if activeErr != nil {
+			writeError(w, http.StatusInternalServerError, "Cannot check the task for an active run")
+			return
+		}
+		if active != nil {
+			if !req.Force {
+				writeJSON(w, http.StatusConflict, map[string]string{
+					"error":       describeActiveRun(active),
+					"activeRunId": active.ID,
+				})
+				return
+			}
+			// Forcing steps over another session's run, so it follows the rule
+			// cancel-run enforces: the owner, or an admin. The active run is
+			// left exactly as it is; force is not a cancellation.
+			if _, ok := h.requireOwnerOrAdmin(w, r, active.UserID); !ok {
+				return
+			}
 		}
 
 		projectID := "default"
@@ -2405,7 +2523,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/tasks/{id}/sync: perform a unit two-way sync (update tracker and rsync local state)
 	if subAction == "sync" && (r.Method == http.MethodPost || r.Method == http.MethodGet) {
-		task, err := h.db.SyncSingleTask(id)
+		// A synchronisation a person triggered on one ticket also rediscovers
+		// its pull requests, whatever the bounding rule of the background pass.
+		task, err := h.db.ForceSyncSingleTask(h.actingContext(r), id)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "Échec de la synchronisation unitaire: "+err.Error())
 			return
@@ -2575,8 +2695,8 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The payload carries both halves. A member may change the personal
-		// one; touching the deployment's is refused by naming the keys, so the
-		// interface can say which.
+		// keys and the tracker ones; touching the rest of the deployment's is
+		// refused by naming the keys, so the interface can say which.
 		if !caller.IsAdmin() {
 			if offending := memberSettingsViolations(*current, sent); len(offending) > 0 {
 				writeError(w, http.StatusForbidden, msgAdminOnly+": "+strings.Join(offending, ", "))
@@ -2603,18 +2723,21 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// The deployment keys go to the shared row, and only an admin ever
-		// reaches this: a member's payload was just checked to change none.
-		if caller.IsAdmin() {
-			deploymentReq, err := deploymentSettingsPayload(*current, sent)
+		// The deployment keys go to the shared row. A member reaches it for the
+		// tracker keys only; the payload filter, not this branch, is what keeps
+		// the rest of the row theirs to read and an admin's to change.
+		{
+			deploymentReq, err := deploymentSettingsPayload(*current, sent, caller.IsAdmin())
 			if err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
 			var clear []string
-			for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
-				if _, ok := sent[name]; ok {
-					clear = append(clear, name)
+			if caller.IsAdmin() {
+				for _, name := range []string{"aiCommandTemplate", "aiCommandTemplateAutonomous"} {
+					if _, ok := sent[name]; ok {
+						clear = append(clear, name)
+					}
 				}
 			}
 			if _, err := h.db.UpdateSettings(deploymentReq, clear...); err != nil {

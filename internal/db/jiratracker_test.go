@@ -23,11 +23,28 @@ type fakeTracker struct {
 	tasks   []models.Task
 	boards  []models.TrackerBoard
 	columns []models.TrackerColumn
-	sprints []models.TrackerSprint
+	// statuses is what the project's workflows expose, a superset of what the
+	// board groups: the palette is fed from there.
+	statuses  []tracker.TrackerStatus
+	statusErr error
+	sprints   []models.TrackerSprint
+	// epics is what ListEpics answers: the containers the sync never imports as
+	// cards, and which carry the roadmap labels.
+	epics   []models.Task
 	members map[string][]models.TeamMember
 	// memberErr makes the members endpoint fail, which must not fail a sync.
 	memberErr error
-	calls     []string
+	// getErr makes the single work item read fail, the way a refused credential
+	// does.
+	getErr error
+	// syncErr makes the project read fail, the way a refused credential does on
+	// a background pass.
+	syncErr error
+	// syncWindow records how far back the last synchronisation was asked to
+	// read: zero for the whole project, minutes for an incremental pass.
+	syncWindow int
+	syncs      int
+	calls      []string
 	// syncedAs and readAs record who the work ran as, which is what decides
 	// whether a personal tracker credential can be resolved at all.
 	syncedAs    string
@@ -46,6 +63,7 @@ func newFakeTracker() *fakeTracker {
 			Capabilities: []tracker.Capability{
 				tracker.CapSync, tracker.CapGet, tracker.CapUpdate, tracker.CapBoard,
 				tracker.CapTeam, tracker.CapSprint, tracker.CapEpic, tracker.CapComment,
+				tracker.CapIncrementalSync,
 			},
 		},
 		members: map[string][]models.TeamMember{},
@@ -68,9 +86,55 @@ func (f *fakeTracker) FormatTaskID(projectID, key, rawID string) string {
 }
 
 func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) ([]models.Task, error) {
-	f.record("sync")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "sync")
 	f.syncedAs = tracker.ActingUser(ctx)
+	f.syncWindow = req.UpdatedWithinMin
+	f.syncs++
+	if f.syncErr != nil {
+		return nil, f.syncErr
+	}
 	return append([]models.Task{}, f.tasks...), nil
+}
+
+// syncedWithin waits for the queue worker to run the synchronisation, and
+// answers the window it asked the tracker for.
+func (f *fakeTracker) syncedWithin(t *testing.T) (int, bool) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		f.mu.Lock()
+		window, done := f.syncWindow, f.syncs > 0
+		f.mu.Unlock()
+		if done {
+			return window, true
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return 0, false
+}
+
+// GetIssue is the single-work-item read the background pass makes, one job per
+// unfinished card. It records who it ran as for the same reason SyncIssues
+// does: that is what decides which credential can be resolved.
+func (f *fakeTracker) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
+	f.record("get")
+	f.readAs = tracker.ActingUser(ctx)
+	if f.getErr != nil {
+		return nil, f.getErr
+	}
+	for _, task := range f.tasks {
+		if strings.EqualFold(task.Key, req.Key) {
+			found := task
+			return &found, nil
+		}
+	}
+	return &models.Task{Key: req.Key, Title: "Remote", Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+}
+
+func (f *fakeTracker) ListEpics(ctx context.Context, req tracker.ProjectRequest) ([]models.Task, error) {
+	f.record("epics")
+	return append([]models.Task{}, f.epics...), nil
 }
 
 func (f *fakeTracker) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRequest) error {
@@ -146,6 +210,14 @@ func (f *fakeTracker) ListBoardColumns(ctx context.Context, req tracker.BoardReq
 	return f.columns, nil
 }
 
+func (f *fakeTracker) ListStatuses(ctx context.Context, req tracker.ProjectRequest) ([]tracker.TrackerStatus, error) {
+	f.record("statuses")
+	if f.statusErr != nil {
+		return nil, f.statusErr
+	}
+	return f.statuses, nil
+}
+
 func (f *fakeTracker) ListSprints(ctx context.Context, req tracker.BoardRequest) ([]models.TrackerSprint, error) {
 	f.record("sprints")
 	return f.sprints, nil
@@ -204,7 +276,7 @@ func TestSyncOnATrackerWithBoardsImportsRefreshesTeamsAndColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	activity := models.TaskActivity{ID: "sync-jira", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-jira", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -256,7 +328,7 @@ func TestSyncSurvivesAnUnreadableTeam(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-2", Title: "Still imported", Status: models.StatusToClarify, Source: "jira", Team: "Platform", TeamID: "team-1", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 
 	database, project := jiraTestDB(t, fake)
-	activity := models.TaskActivity{ID: "sync-degraded", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-degraded", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +412,7 @@ func TestASyncRunsAsWhoeverAskedForIt(t *testing.T) {
 
 	// The job is run here rather than queued: the worker would run it in
 	// parallel and overwrite what this test is watching.
-	activity := models.TaskActivity{ID: "sync-as", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-as", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -392,7 +464,7 @@ func TestACommentIsPostedUnderItsAuthorsCredential(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-comment", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-comment", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +492,7 @@ func TestAQueuedFieldUpdateCarriesItsActor(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-update", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-update", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -450,7 +522,7 @@ func TestAQueuedSprintMoveCarriesItsAuthorAndItsProject(t *testing.T) {
 	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
 	database, project := jiraTestDB(t, fake)
 
-	activity := models.TaskActivity{ID: "sync-for-sprint", TaskID: "sync-" + project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	activity := models.TaskActivity{ID: "sync-for-sprint", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
@@ -468,5 +540,64 @@ func TestAQueuedSprintMoveCarriesItsAuthorAndItsProject(t *testing.T) {
 	}
 	if where != project.ID {
 		t.Fatalf("the queued sprint move must name its project, got %q", where)
+	}
+}
+
+// The roadmap horizon lives on the epic, which the sync never imports as a card:
+// without reading the epics, a project whose epics are all classified on the
+// tracker opens with an entirely unclassified roadmap, and nothing on screen
+// says why.
+func TestSyncReadsTheRoadmapHorizonFromTheEpicLabels(t *testing.T) {
+	fake := newFakeTracker()
+	fake.tasks = []models.Task{{
+		Key: "PE-10", Title: "Child", Status: models.StatusToClarify, Source: "jira",
+		ParentKey: "PE-1", CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}}
+	fake.epics = []models.Task{
+		{Key: "PE-1", Title: "Maintenance", Labels: []string{"platform", "roadmap:next"}, Status: models.StatusToClarify, TrackerStatus: "Open"},
+		{Key: "PE-2", Title: "Shipped", Labels: []string{"ROADMAP:Now"}, Status: models.StatusFinished, TrackerStatus: "Done"},
+		{Key: "PE-3", Title: "No axis", Labels: []string{"platform"}, Status: models.StatusToClarify},
+	}
+
+	database, project := jiraTestDB(t, fake)
+	activity := models.TaskActivity{ID: "sync-horizons", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
+	if err := database.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, err := database.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
+
+	if !fake.called("epics") {
+		t.Fatalf("the sync must read the epics: %v", fake.calls)
+	}
+
+	metas, err := database.GetProjectMacros(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byKey := map[string]models.MacroMeta{}
+	for _, m := range metas {
+		byKey[m.Key] = m
+	}
+	if got := byKey["PE-1"].Horizon; got != "next" {
+		t.Errorf("PE-1 horizon = %q, want next", got)
+	}
+	// The prefix is matched whatever the case the tracker stores it in.
+	if got := byKey["PE-2"].Horizon; got != "now" {
+		t.Errorf("PE-2 horizon = %q, want now", got)
+	}
+	if !byKey["PE-2"].Closed {
+		t.Error("PE-2 carries a finished status and should be marked closed")
+	}
+	// The epic's own title arrives too: the roadmap used to guess it from the
+	// children.
+	if got := byKey["PE-1"].Title; got != "Maintenance" {
+		t.Errorf("PE-1 title = %q", got)
+	}
+	if got := byKey["PE-3"].Horizon; got != "" {
+		t.Errorf("PE-3 carries no roadmap label and should stay unclassified, got %q", got)
 	}
 }

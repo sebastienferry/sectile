@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"tasks/internal/agenthttp"
 	"tasks/internal/models"
 	"tasks/internal/runner"
+	"tasks/internal/version"
 	"time"
 )
 
@@ -57,32 +59,31 @@ type desktopRun struct {
 	SessionID       string    `json:"sessionId"`
 	Directory       string    `json:"directory"`
 	Status          string    `json:"status"`
+	// ExternalTerminal marks the terminal emulator currently attached to or running this session.
+	ExternalTerminal string `json:"externalTerminal,omitempty"`
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
 	// captured output read-only instead of reporting a missing console.
 	Headless bool `json:"headless,omitempty"`
-	// WaitingSince is set while the session is blocked on the user. The desktop
-	// reads it to raise its notification and to mark the run in its list.
-	WaitingSince time.Time `json:"waitingSince,omitzero"`
+	// Trace marks a headless run whose engine is reporting what it does as it
+	// does it. The desktop attaches to it read-only rather than answering the
+	// selection with the notice it shows for a run that has nothing to watch.
+	// An agent that cannot trace sends nothing here, and that notice is what its
+	// runs keep showing.
+	Trace bool `json:"trace,omitempty"`
 }
-
-// sessionAlert is a report from a Claude Code session Sectile did not launch.
-// It has no run, so it names itself; the desktop drains these on its poll and
-// raises the same notification it would for a run.
-type sessionAlert struct {
-	Session string    `json:"session"`
-	State   string    `json:"state"`
-	At      time.Time `json:"at"`
-}
-
-// sessionAlertLimit bounds what the daemon retains when nothing drains it. The
-// alerts are a notification backlog, not a record: past the limit the oldest go,
-// because a banner nobody collected for that long is no longer worth raising.
-const sessionAlertLimit = 32
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if r.Header.Get("Origin") != "" || d.loopback.desktopToken == "" || subtle.ConstantTimeCompare([]byte(token), []byte(d.loopback.desktopToken)) != 1 {
 		http.Error(w, "Unauthorized", 401)
+		return
+	}
+	// The build the companion is talking to. It is its own route rather than a
+	// field on /desktop/status because status is polled every few seconds and
+	// the version never changes while the process lives.
+	if r.URL.Path == "/desktop/version" && r.Method == http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(version.Current())
 		return
 	}
 	if r.URL.Path == "/desktop/status" && r.Method == http.MethodGet {
@@ -153,6 +154,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopTaskTransition(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/tasks/terminal-external" {
+		d.desktopTasksTerminalExternal(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/terminal/detach" {
+		d.desktopTerminalDetach(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/tasks" {
 		d.desktopTasks(w, r)
 		return
@@ -184,41 +193,6 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"removed": removed})
 		return
 	}
-	// A session Sectile did not launch reports itself here, with the same
-	// companion credential the desktop uses. POST files an alert, and the
-	// desktop's poll drains them.
-	if r.URL.Path == "/desktop/session-alert" {
-		if r.Method == http.MethodPost {
-			var alert sessionAlert
-			if err := json.NewDecoder(r.Body).Decode(&alert); err != nil || strings.TrimSpace(alert.Session) == "" {
-				http.Error(w, "Body must name a session and a state", 400)
-				return
-			}
-			alert.At = time.Now().UTC()
-			d.queue.mu.Lock()
-			d.queue.sessionAlerts = append(d.queue.sessionAlerts, alert)
-			if len(d.queue.sessionAlerts) > sessionAlertLimit {
-				d.queue.sessionAlerts = d.queue.sessionAlerts[len(d.queue.sessionAlerts)-sessionAlertLimit:]
-			}
-			d.queue.mu.Unlock()
-			w.WriteHeader(http.StatusAccepted)
-			return
-		}
-		if r.Method == http.MethodGet {
-			d.queue.mu.Lock()
-			pending := d.queue.sessionAlerts
-			d.queue.sessionAlerts = nil
-			d.queue.mu.Unlock()
-			if pending == nil {
-				pending = []sessionAlert{}
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(pending)
-			return
-		}
-		http.Error(w, "Method not allowed", 405)
-		return
-	}
 	if r.URL.Path != "/desktop/runs" && r.URL.Path != "/desktop/stop" && r.URL.Path != "/desktop/terminal" {
 		http.Error(w, "Unknown local agent endpoint", 404)
 		return
@@ -248,6 +222,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	entry := run.desktop
+	trace := run.trace
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
 		d.queue.mu.Unlock()
@@ -271,6 +246,14 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if !exists {
+			// A run with no console can still have something to watch: an
+			// autonomous run reports what it is doing, and the desktop attaches
+			// to that trace over this same route rather than opening a second
+			// kind of connection for it.
+			if trace != nil {
+				serveRunTrace(w, r, trace)
+				return
+			}
 			http.Error(w, "Console is not ready", 409)
 			return
 		}
@@ -399,6 +382,8 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		InheritWorktrees            bool    `json:"inheritWorktrees"`
 		Parallelism                 *int    `json:"parallelism"`
 		UseWorktrees                *bool   `json:"useWorktrees"`
+		Terminal                    *string `json:"terminal"`
+		InheritTerminal             bool    `json:"inheritTerminal"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
@@ -524,6 +509,19 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	if input.InheritWorktrees {
 		delete(overrides.Worktrees, input.ProjectID)
+	}
+	if input.InheritTerminal {
+		delete(overrides.Terminals, input.ProjectID)
+	} else if input.Terminal != nil {
+		termChoice := strings.TrimSpace(*input.Terminal)
+		if termChoice == "" {
+			delete(overrides.Terminals, input.ProjectID)
+		} else {
+			if overrides.Terminals == nil {
+				overrides.Terminals = map[string]string{}
+			}
+			overrides.Terminals[input.ProjectID] = termChoice
+		}
 	}
 	delete(overrides.DisconnectedProjects, input.ProjectID)
 	if err := agentconfig.WriteSettings(overrides); err != nil {
@@ -663,6 +661,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"aiModel":                     effective.AIModel,
 			"aiProviderOverride":          overrides.AIProviders[id] != "",
 			"aiModelOverride":             overrides.AIModels[id] != "",
+			"terminal":                    effective.ExternalTerminalCommand,
+			"terminalOverride":            overrides.Terminals[id] != "",
 		})
 		return
 	}
@@ -758,6 +758,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Relaunch dialog. Empty means no override: the server's precedence
 		// still applies. The agent does not interpret it, it passes it on.
 		Mode string
+		// Force asks the server to skip its duplicate-launch refusal. As with
+		// Mode, the agent does not interpret it, it passes it on.
+		Force bool
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -788,7 +791,7 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown execution mode", 400)
 		return
 	}
-	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode})
+	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force})
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -956,4 +959,223 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"activity": activity, "task": map[string]any{"status": task.Status, "labels": task.Labels}})
+}
+
+// resolveTerminalForProject determines the terminal emulator based on precedence:
+// 1. Explicit call override
+// 2. Project local override (overrides.Terminals[projectID])
+// 3. Workstation setting (overrides.Terminal)
+// 4. Server project configuration (config.ExternalTerminalCommand)
+// 5. Agent daemon flag (d.terminal.app)
+// 6. System auto-detection (detectDefaultTerminal())
+func (d *agentDaemon) resolveTerminalForProject(ctx context.Context, projectID, override string) string {
+	override = strings.TrimSpace(override)
+	if override != "" {
+		return override
+	}
+	base := d.repoRoot
+	if base == "" {
+		base, _ = os.Getwd()
+		base = findRepoRoot(base)
+	}
+	overrides, err := agentconfig.ReadSettings(base)
+	if err == nil {
+		if projectID != "" && overrides.Terminals[projectID] != "" {
+			return overrides.Terminals[projectID]
+		}
+		if overrides.Terminal != "" {
+			return overrides.Terminal
+		}
+	}
+	if projectID != "" {
+		if config, err := d.fetchConfig(ctx, projectID, ""); err == nil && config.ExternalTerminalCommand != "" {
+			return config.ExternalTerminalCommand
+		}
+	}
+	if d.terminal.app != "" {
+		return d.terminal.app
+	}
+	return detectDefaultTerminal()
+}
+
+func (d *agentDaemon) desktopTerminalDetach(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var input struct {
+		RunID    string `json:"runId"`
+		Terminal string `json:"terminal"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input); err != nil || strings.TrimSpace(input.RunID) == "" {
+		http.Error(w, "Run ID required", http.StatusBadRequest)
+		return
+	}
+
+	d.queue.mu.Lock()
+	run := d.queue.runs[input.RunID]
+	if run == nil {
+		d.queue.mu.Unlock()
+		http.Error(w, "Run not found", http.StatusNotFound)
+		return
+	}
+
+	select {
+	case <-run.exited:
+		d.queue.mu.Unlock()
+		http.Error(w, "Run already exited", http.StatusConflict)
+		return
+	default:
+	}
+
+	sessionID := run.desktop.SessionID
+	if sessionID == "" {
+		sessionID = run.desktop.ID
+	}
+	projectID := run.desktop.ProjectID
+	d.queue.mu.Unlock()
+
+	termChoice := d.resolveTerminalForProject(r.Context(), projectID, input.Terminal)
+
+	if err := d.launchExternalTerminal(termChoice, sessionID); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	d.queue.mu.Lock()
+	run.desktop.ExternalTerminal = termChoice
+	d.queue.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":  true,
+		"detached": true,
+		"terminal": termChoice,
+	})
+}
+
+func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var input struct {
+		ProjectID string `json:"projectId"`
+		TaskID    string `json:"taskId"`
+		SkillID   string `json:"skillId"`
+		Terminal  string `json:"terminal"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input); err != nil || strings.TrimSpace(input.ProjectID) == "" || strings.TrimSpace(input.TaskID) == "" {
+		http.Error(w, "Project and task required", http.StatusBadRequest)
+		return
+	}
+	if input.SkillID == "" {
+		input.SkillID = "discuss"
+	}
+
+	config, err := d.fetchConfig(r.Context(), input.ProjectID, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	var task models.Task
+	if err := d.readAPI(r.Context(), "/api/tasks/"+url.PathEscape(input.TaskID), &task); err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if desktopTaskFinished(task) {
+		http.Error(w, "This task is finished. Reopen it on the server before launching an execution.", http.StatusConflict)
+		return
+	}
+	if task.ProjectID != input.ProjectID {
+		http.Error(w, "Task does not belong to project", http.StatusBadRequest)
+		return
+	}
+
+	d.prepareMu.Lock()
+	root, overrides, err := d.localProjectRoot(r.Context(), config)
+	d.prepareMu.Unlock()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	workDir := root
+	branch := "main"
+	if task.BranchName != nil && *task.BranchName != "" {
+		branch = *task.BranchName
+	}
+	if config.UseWorktrees {
+		worktreeDir := filepath.Join(root, ".tasks", "worktrees", task.Key)
+		if info, err := os.Stat(worktreeDir); err == nil && info.IsDir() {
+			workDir = worktreeDir
+		}
+	}
+
+	runID := uuid.NewString()
+
+	d.queue.mu.Lock()
+	limit := agentconfig.ExecutionLimit(input.ProjectID, config.UseWorktrees, overrides)
+	run, err := d.enqueueRunLocked(task.ID, agentconfig.Dispatch{RunID: runID}, input.ProjectID, workDir, limit, false)
+	if err != nil {
+		d.queue.mu.Unlock()
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	termChoice := d.resolveTerminalForProject(r.Context(), input.ProjectID, input.Terminal)
+
+	run.desktop = desktopRun{
+		ID:               runID,
+		TaskID:           task.ID,
+		TaskKey:          task.Key,
+		ProjectID:        input.ProjectID,
+		Skill:            input.SkillID,
+		SessionID:        runID,
+		Directory:        workDir,
+		Branch:           branch,
+		Status:           "running",
+		CreatedAt:        time.Now().UTC(),
+		StartedAt:        time.Now().UTC(),
+		ExternalTerminal: termChoice,
+	}
+	d.queue.mu.Unlock()
+
+	envVars := map[string]string{
+		"SECTILE_TASK_KEY":      task.Key,
+		"SECTILE_TASK_BRANCH":   branch,
+		"SECTILE_TASK_WORKTREE": workDir,
+		"SECTILE_TASK_ID":       task.ID,
+		"SECTILE_RUN_ID":        runID,
+		"SECTILE_REMOTE_MODE":   "true",
+		"SECTILE_AGENT_URL":     d.link.serverURL,
+		"SECTILE_SERVER_URL":    d.link.serverURL,
+		"SECTILE_AGENT_TOKEN":   d.link.token,
+		"SECTILE_LOOPBACK_URL":  d.loopback.url,
+		"SECTILE_PROJECT_ID":    input.ProjectID,
+	}
+
+	if d.terminal.manager != nil {
+		if _, err := d.terminal.manager.GetOrCreateSession(runID, workDir, envVars); err != nil {
+			d.queue.mu.Lock()
+			delete(d.queue.runs, runID)
+			d.queue.mu.Unlock()
+			http.Error(w, fmt.Sprintf("Failed to initialize PTY session: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := d.launchExternalTerminal(termChoice, runID); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to launch external terminal: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"success":  true,
+		"runId":    runID,
+		"terminal": termChoice,
+	})
 }

@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell}=require('electron')
+const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell,clipboard}=require('electron')
 const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
@@ -73,6 +73,17 @@ ipcMain.handle('settings',()=>{
   return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
  }catch{return {}}
 })
+// What this installation is running. The desktop's own version comes from the
+// package the app was built from; the agent's comes from the agent itself,
+// because the two are distributed separately and a workstation that upgraded
+// one and not the other is exactly the case this panel has to make visible.
+// An agent that is not running leaves its version null rather than failing the
+// call: the desktop version is the answer somebody stopped to look for.
+ipcMain.handle('version',async()=>{
+ let agent=null
+ try{agent=(await api('/desktop/version')).version||null}catch{}
+ return {desktop:app.getVersion(),agent}
+})
 ipcMain.handle('start',async(_,settings)=>{
  if(starting)throw Error('Agent is starting')
  starting=true
@@ -82,7 +93,11 @@ ipcMain.handle('start',async(_,settings)=>{
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Use an HTTP or HTTPS server URL')
   // A pairing code is spent here, once the server address is known to be usable:
   // burning a single-use code on a malformed URL would cost the user a new one.
-  const credential=await resolveConnectCredential(settings)
+  // With no code, the credential an earlier pairing left behind restarts the
+  // agent: the form asks for a code, never for a key to paste back in.
+  let kept=''
+  try{kept=storedKey(readSettings())}catch{}
+  const credential=await resolveConnectCredential({...settings,token:kept})
   const token=credential.token
   await checkServer(url,token)
   // Preserve existing mappings when upgrading; new installations use private app data.
@@ -166,6 +181,12 @@ ipcMain.handle('save-log',async(_,text)=>{
  const result=await dialog.showSaveDialog(window,{defaultPath:'sectile-execution.log'})
  if(!result.canceled&&result.filePath)fs.writeFileSync(result.filePath,text,{mode:0o600})
 })
+// The renderer has no clipboard permission of its own; copying goes through the
+// main process, which writes exactly the string it was handed and nothing else.
+ipcMain.handle('copy-text',(_,text)=>{
+ if(typeof text!=='string'||!text)throw Error('Nothing to copy')
+ clipboard.writeText(text)
+})
 ipcMain.handle('status',()=>api('/desktop/status'))
 ipcMain.handle('choose-repository',async()=>{
  const result=await dialog.showOpenDialog(window,{title:'Select local repository',properties:['openDirectory']})
@@ -175,7 +196,9 @@ ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId
 ipcMain.handle('launch-console',(_,projectId,provider)=>api('/desktop/consoles','POST',{projectId,provider}))
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
-ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',mode?{taskID,skillID,prompt,mode}:{taskID,skillID,prompt}))
+ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
+ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
+ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
 ipcMain.handle('open-board',async()=>{
  const status=await api('/desktop/status')
  if(!status.connected)throw Error('Server disconnected')
@@ -234,10 +257,6 @@ ipcMain.handle('git-diff',async(_,id)=>{
  }
 })
 ipcMain.handle('runs',()=>api('/desktop/runs'))
-// Alerts from Claude Code sessions Sectile did not launch. Draining is
-// destructive on the agent side, so a failure yields an empty list rather than
-// an error the poll would have to handle.
-ipcMain.handle('session-alerts',async()=>{try{return await api('/desktop/session-alert')}catch{return []}})
 // The agent forgets a run once its history is cleared or it restarts, and
 // answers 404 by contract. Report "no result" instead of rejecting the IPC
 // promise: Electron logs every rejected handler with a stack, and this outcome

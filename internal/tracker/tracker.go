@@ -49,6 +49,15 @@ const (
 	// CapBoard reads the project's structure: boards, columns, statuses and
 	// issue types.
 	CapBoard Capability = "board"
+	// CapPullRequests reads the pull requests attached to a work item, so a
+	// synchronisation can rediscover links an instance never recorded.
+	CapPullRequests Capability = "pull_requests"
+	// CapIncrementalSync narrows a synchronisation to the work items the
+	// tracker itself has touched recently. It is what lets the background loop
+	// re-read a project without asking for all of it: a tracker that does not
+	// declare it is asked for everything, which is still one paginated read
+	// rather than one read per work item.
+	CapIncrementalSync Capability = "incremental_sync"
 )
 
 // CapabilityLabel names an operation in the language the interface speaks, for
@@ -81,6 +90,10 @@ func CapabilityLabel(c Capability) string {
 		return "les commentaires"
 	case CapBoard:
 		return "la lecture du board"
+	case CapPullRequests:
+		return "la découverte des pull requests"
+	case CapIncrementalSync:
+		return "la synchronisation incrémentale"
 	}
 	return string(c)
 }

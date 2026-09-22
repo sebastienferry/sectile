@@ -10,7 +10,7 @@ Resolve the project by repository and verify the full task ID and external URL b
 
 A managed run's supplied result contract takes precedence over standalone transitions. The agent validates local evidence and the server owns tracker synchronization. An active run with no usable completion contract must be reported; do not clear its activity or use another endpoint to bypass validation. A successful terminal launch is not proof that a workflow step completed.
 
-These instructions are maintained in `internal/db/skilltemplates.go` and mirrored in the repository's skill and command files. Project-specific skill overrides remain authoritative and must receive the same correction through the supported project skill editor before redistribution. The known local-agent integration gap is tracked in [issue #50](https://github.com/sebastienferry/sectile/issues/50).
+These instructions are maintained in `internal/skills/catalog.go` and mirrored in the repository's skill and command files. Project-specific skill overrides remain authoritative and must receive the same correction through the supported project skill editor before redistribution. The known local-agent integration gap is tracked in [issue #50](https://github.com/sebastienferry/sectile/issues/50).
 
 ---
 
@@ -42,13 +42,22 @@ who started what.
   provider. Signing in is mandatory: a deployment with no account shows the
   sign-in screen and no board, and the first person to sign in becomes the admin.
 - **Personal and deployment settings.** Presentation, displayed identity and the
-  workstation commands are personal to each account; trackers, auto-sync, the AI
-  configuration and the prompts are the deployment's and an admin's to change.
-- **Two roles.** An admin manages users and roles, projects, global settings,
-  tracker credentials, anyone's workstations and anyone's execution. A member
-  does everything else, including the board, its tasks, its transitions, its
-  comments and executions on their own agent. When the provider supplies a role
-  claim, that claim is the authority at every sign-in.
+  workstation commands are personal to each account; auto-sync, the AI
+  configuration, the repository path and the prompts are the deployment's and an
+  admin's to change. The tracker keys sit on the deployment's row too, but a
+  member may write them: configuring a project's tracker is part of opening it.
+- **Two roles.** An admin owns the roster: who exists, what role they hold, and
+  whether their account still opens. A member does everything else, including the
+  board, its projects, its tasks, its transitions, its comments and executions on
+  their own agent. When the provider supplies a role claim, that claim is the
+  authority at every sign-in.
+- **An account can be blocked or deleted, by an admin.** Blocking closes the door
+  and keeps everything else: the open sessions are revoked at once, the
+  workstation keys stop working, the next sign-in is refused, and unblocking
+  gives all three back. Deleting removes the account and its credentials for
+  good; the tasks, comments and executions it owns stay on the board with no
+  owner. The last admin can be neither demoted, blocked nor deleted, and nobody
+  closes their own account.
 - **The board stays shared.** Everyone sees every project, task and running
   execution. The user-to-project binding is the agent registration that routes a
   run to the right machine, not a visibility rule.
@@ -57,7 +66,8 @@ who started what.
   is closed as orphaned only when the agent that should hold it says it does
   not. A member's dispatch reaches their own agent whatever the request names.
 
-See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md).
+See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md) and
+[ADR 0018](adrs/0018-the-admin-owns-the-roster-not-the-board.md).
 
 ## 2. Issue Tracker Abstraction Layer
 
@@ -72,6 +82,18 @@ operations and issue transfer. Jira additionally exposes what a board is made of
 — boards, columns, sprints, statuses, issue types, epics and teams — through the
 read side of the ticketing abstraction, and writes sprint, team and epic. Local
 tasks stay in SQLite.
+
+GitHub also answers which pull requests belong to an issue, through its closing
+references. A full synchronisation uses it to **rediscover pull requests** a
+local store never recorded, which is what lets a project recreated on a second
+instance come back with its links instead of empty ones. The read is a declared
+capability, so a tracker that cannot answer is skipped silently; discovery is
+additive, never removes or reorders a recorded link, is limited to tasks with no
+link at or beyond the project's pull request creation stage, and its failures
+are warnings on the synchronisation activity rather than synchronisation
+failures. Detaching every link from a task suppresses automatic rediscovery for
+it; a synchronisation triggered on that single task rediscovers anyway. See
+[ADR 0017](adrs/0017-pull-requests-are-rediscovered-on-sync.md).
 
 Projects specify `githubRepo` (`owner/repository`) or `jiraProject` (the Jira
 project key) with `trackerUrl` (the site).
@@ -224,10 +246,33 @@ is made in either shape.
 
 | Provider | Headless invocation |
 | --- | --- |
-| `claude` | `claude -p --permission-mode bypassPermissions` |
+| `claude` | `claude -p --permission-mode bypassPermissions --output-format stream-json --verbose` |
 | `codex` | `codex exec` (approval bypass not attested here yet) |
 | `vibe` | `vibe -p --auto-approve` |
 | `agy`, `gemini`, `cursor` | None attested: an autonomous launch is refused by name |
+
+### Watching an autonomous run
+
+A headless run has no terminal, but it is not silent. Claude is launched with
+`--output-format stream-json --verbose`, which makes it print what it is doing as
+it does it — the prose it writes and the tools it calls, one JSON object per
+line. The agent reads that stream, renders it, and serves it to the desktop on
+the route a console is attached to (`/desktop/terminal?id=<runId>`), so selecting
+an autonomous run shows it working instead of the sentence explaining that it
+cannot be answered.
+
+The trace is **read-only**: the agent discards anything the pane sends, because
+nobody is answering an autonomous run. It is **local to the workstation** that
+ran the skill — it is held in the agent's memory, bounded, and forgotten with the
+run; the web board is unchanged and shows what it always showed.
+
+What the task activity records does not change: the engine's final answer, plus
+any diagnostic printed beside the stream, which is where a failed run explains
+itself. None of the protocol lines reach it.
+
+Only Claude streams today. The other engines, and any project that configures its
+own command template, keep exactly the command line they had, and the desktop
+keeps showing them the notice.
 
 A headless run carries the provider's non-interactive approval mode because
 there is no terminal and no stdin: without it the CLI is denied every tool it
@@ -331,51 +376,38 @@ and do not create a shell.
 Several agent sessions run in parallel across worktrees and desktop tabs, and a
 session blocked on a permission prompt looks exactly like one still working.
 
-**The hooks report, they do not alert.** Setting up the Claude provider installs
-one script, `~/.claude/hooks/sectile-hook.sh`, and registers it in
-`~/.claude/settings.json` on five Claude Code events. It is POSIX shell, needs no
-`jq`, exits 0 on every path and writes nothing on standard output — a hook must
-never interrupt the session it reports on. The script reads the event from its
-payload and turns it into a state, so the wait is bracketed from both sides:
+**Sectile installs no Claude Code hook.** Until #260, setting up the Claude
+provider installed a script under `~/.claude/hooks`, registered it in
+`~/.claude/settings.json` on five Claude Code events, and had it report to the
+local agent whether the session was waiting for the user or working. That was
+withdrawn. It made Sectile a writer of a file it otherwise only reads, and it
+ran a process on every tool call of every Claude Code session on the
+workstation, launched by Sectile or not — too intrusive for what it answered.
+A workstation that still carries the script and its registrations has both
+removed the next time a project is set up, whichever provider that project
+uses: the script is retired through the managed-file manifest, and only the
+registrations Sectile wrote are dropped from the settings file. Third-party
+hooks and every other key are left as they are, a file Sectile never touched
+is not rewritten, and an unparseable file is left alone and reported.
 
-| Event | Meaning | State reported |
-|---|---|---|
-| `Notification` (`permission_prompt`, `idle_prompt`, an elicitation) | the agent asks the user for something | waiting |
-| `Stop` | the turn ended; the agent awaits the next prompt | waiting |
-| `UserPromptSubmit`, `PreToolUse`, `PostToolUse` | the agent is working | working |
+**The waiting state is kept as a model, without a reporter.** A run still
+carries `waitingSince`, the server still accepts
+`POST /api/activities/{id}/waiting` to set or clear it, and the board badge,
+the activities filter and the desktop row still render a waiting run ahead of a
+running one. Nothing calls that route today, so a blocked session shows as
+running until something reports otherwise. The model is additive and costs
+nothing to keep; a future reporter that is not a per-tool-call hook can feed it
+without touching the UI.
 
-The other `Notification` types — a sign-in, a quota notice, a finished
-sub-agent — are not prompts and report nothing. A payload with no
-`notification_type` comes from an older Claude Code and is read as a prompt.
-The three "working" events matter as much as the two "waiting" ones: without
-them, a permission granted or a question answered left the session marked as
-waiting for the whole turn that followed.
-
-What the report does depends on what the session carries:
-
-| Session | Report | Effect |
-|---|---|---|
-| Launched by Sectile (`SECTILE_RUN_ID` present) | `POST <loopback>/control/runs/{id}/waiting` | the run is marked waiting, or working again, everywhere |
-| Any other Claude Code session | `POST <loopback>/desktop/session-alert`, authenticated with `~/.taskflow/agent-connection.json`, on `Notification` and `Stop` only | a banner, and nothing else |
-| A workstation that was never paired | none | silent no-op |
-
-The agent applies two rules to a run report. An autonomous run never waits: its
-`Stop` hook fires as the process ends, and a waiting mark there would raise a
-false banner in the poll before the exit is observed, so only the exit reports
-on such a run. And only a transition is relayed to the server: every tool call
-reports "working" again, and a row update plus a `task_updated` event per tool
-call is not a price worth paying. Relays are serialised per run and each sends
-the state current when it is sent, so two reports a few milliseconds apart
-cannot cross on the wire.
-
-**The desktop raises the banner.** The notification comes from the desktop
-application, through Electron's notification API — a thin binding over
-`UNUserNotificationCenter` on macOS, toast notifications on Windows and the
-freedesktop specification on Linux. The banner is therefore a real system
-notification, attributed to Sectile and carrying an icon, on the three platforms
-and with no external binary. The desktop already polls `/desktop/runs` every two
-seconds; it is the *transition* that notifies — not waiting to waiting, or
-running to a terminal status — so a repeated poll raises nothing.
+**The desktop raises the banner on a run transition.** The notification comes
+from the desktop application, through Electron's notification API — a thin
+binding over `UNUserNotificationCenter` on macOS, toast notifications on Windows
+and the freedesktop specification on Linux. The banner is therefore a real
+system notification, attributed to Sectile and carrying an icon, on the three
+platforms and with no external binary. The desktop polls `/desktop/runs` every
+two seconds; it is the *transition* that notifies — a run reaching a terminal
+status, or a run starting to wait should anything mark it so — and a repeated
+poll of the same state raises nothing.
 
 A workstation that denies notifications is checked once and then left alone: the
 state is still in the list, which is what answers the question.
@@ -386,12 +418,11 @@ renders it as an inline SVG; the desktop renders the same definition into the
 notification's icon. The glyph on the banner is therefore the glyph on the task
 row, by construction rather than by convention.
 
-**The state itself.** A waiting report stamps `waitingSince` on the run. The run
-keeps the status `running`: waiting is a phase of a run, not a status of its
-own. Any terminal status clears the stamp, so a session killed while blocked
-cannot leave a run waiting forever. The board indicator shows waiting ahead of
-running, with how long the wait has lasted, and the activities view has a
-matching filter.
+**The state itself.** A waiting report, when there is one, stamps `waitingSince`
+on the run. The run keeps the status `running`: waiting is a phase of a run, not
+a status of its own. Any terminal status clears the stamp, so a run cannot be
+left waiting forever. The board indicator shows waiting ahead of running, with
+how long the wait has lasted, and the activities view has a matching filter.
 
 ## 5. Live Git Diff & Branch Management
 

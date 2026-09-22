@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"tasks/internal/testhome"
 	"testing"
 )
 
 func TestUserSettingsPreserveConnectionAndMigrate(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".taskflow"), 0700)
 	os.WriteFile(filepath.Join(root, ".taskflow", "agent.json"), []byte("{\"projects\":{\"p\":\"/repo\"},\"parallelism\":{\"p\":3}}"), 0600)
@@ -44,7 +45,7 @@ func TestUserSettingsPreserveConnectionAndMigrate(t *testing.T) {
 }
 
 func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".taskflow"), 0700)
 	os.WriteFile(filepath.Join(root, ".taskflow", "agent.json"), []byte(`{"projects":{"p":"/legacy"},"worktrees":{"p":true},"disconnectedProjects":{"other":true}}`), 0600)
@@ -82,7 +83,7 @@ func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
 }
 
 func TestSettingsAIProvidersAndModelsRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	path, _ := SettingsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)
@@ -132,5 +133,58 @@ func TestSettingsAIProvidersAndModelsRoundTrip(t *testing.T) {
 	}
 	if len(reloaded.AIModels) != 0 {
 		t.Fatalf("expected AIModels to be empty, got %v", reloaded.AIModels)
+	}
+}
+
+func TestSettingsTerminalAndTerminalsRoundTrip(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	path, _ := SettingsPath()
+	os.MkdirAll(filepath.Dir(path), 0700)
+	os.WriteFile(path, []byte(`{"server":"https://example.test","secret":"saved"}`), 0600)
+
+	settings := Overrides{
+		Terminal:  "ghostty",
+		Terminals: map[string]string{"p1": "iterm", "p2": "terminal"},
+	}
+	if err := WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := ReadSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Terminal != "ghostty" {
+		t.Fatalf("expected Terminal 'ghostty', got %q", loaded.Terminal)
+	}
+	if loaded.Terminals["p1"] != "iterm" || loaded.Terminals["p2"] != "terminal" {
+		t.Fatalf("expected Terminals round-trip, got %v", loaded.Terminals)
+	}
+
+	// Verify connection fields preserved
+	raw, _ := os.ReadFile(path)
+	var fields map[string]any
+	json.Unmarshal(raw, &fields)
+	if fields["secret"] != "saved" {
+		t.Fatal("connection secret was lost")
+	}
+
+	// Now delete project overrides
+	delete(loaded.Terminals, "p1")
+	delete(loaded.Terminals, "p2")
+	if err := WriteSettings(loaded); err != nil {
+		t.Fatal(err)
+	}
+
+	reloaded, err := ReadSettings(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reloaded.Terminals) != 0 {
+		t.Fatalf("expected Terminals to be empty, got %v", reloaded.Terminals)
+	}
+	if reloaded.Terminal != "ghostty" {
+		t.Fatalf("expected Terminal 'ghostty', got %q", reloaded.Terminal)
 	}
 }

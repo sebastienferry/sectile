@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { Check, Copy, Cpu, Laptop, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { Antigravity, Claude, OpenAI, Cursor } from '@lobehub/icons'
+import { Antigravity, Claude, OpenAI, Cursor } from './icons'
 import { useApp } from '../context/AppContext'
 import { DEFAULT_KEY_TTL_DAYS, describeExpiry, expiryState, type ApiKey } from '../lib/apiKeys'
 

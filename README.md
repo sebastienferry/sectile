@@ -1,4 +1,4 @@
-# Sectile (React + Go + SQLite)
+# Sectile (React + Go + SQLite or PostgreSQL)
 
 Desktop now provides a read-only **Changes** view for each local execution, comparing current worktree contents with the default-branch common ancestor. See [Inspect worktree changes](desktop/README.md#inspect-worktree-changes).
 
@@ -113,6 +113,98 @@ export SECTILE_TRACKER_TOKEN='<tracker API token>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/server
 ```
 
+### Switching between environments
+
+A workstation that talks to more than one deployment does not retype its
+secrets. `scripts/set-env.sh` points `.env` at one environment and fills in
+what that environment needs, reading it from Google Secret Manager under your
+own `gcloud` credentials:
+
+```sh
+scripts/set-env.sh dev            # activate the dev profile
+scripts/set-env.sh prod           # activate prod, after confirming
+scripts/set-env.sh --status       # which profile .env currently carries
+scripts/set-env.sh dev --dry-run  # show the block, fetch nothing
+```
+
+Which secret feeds which variable is declared in `scripts/env-profiles.conf`, a
+file that names secrets and holds none. It is gitignored and starts from
+[`scripts/env-profiles.conf.sample`](./scripts/env-profiles.conf.sample):
+a project id, a host name and the names of a deployment's secrets say enough
+about an infrastructure to stay out of a public repository.
+
+```sh
+cp scripts/env-profiles.conf.sample scripts/env-profiles.conf
+```
+
+The script rewrites only the block between its markers at the top of `.env`;
+everything you wrote outside it is preserved, and the previous file is kept as
+`.env.bak`.
+
+For a shell rather than a file:
+
+```sh
+eval "$(scripts/set-env.sh dev --export)"
+```
+
+One variable is deliberately absent from every profile.
+`SECTILE_TEST_POSTGRES_DSN` feeds the PostgreSQL suite, and that suite empties
+the database it is given — it truncates every table before each test. It belongs
+to a throwaway server and nothing else:
+
+```sh
+createdb sectile_test
+SECTILE_TEST_POSTGRES_DSN='postgres://localhost/sectile_test?sslmode=disable' \
+    go test ./internal/db/ -run Postgres
+```
+
+### PostgreSQL instead of SQLite
+
+SQLite is the default and the only engine the desktop application ships with. A
+server deployment that already runs PostgreSQL can use it instead, for managed
+backups, point-in-time recovery and the ops tooling that comes with them:
+
+```sh
+export DB_DRIVER=postgres
+export DATABASE_URL='postgres://sectile:password@db.internal:5432/sectile?sslmode=require'
+# Or, when the username and the password arrive as two separate secrets — which
+# is what a Kubernetes deployment gets, since a secret cannot be interpolated
+# into a string — leave DATABASE_URL empty and set the standard variables
+# instead: PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD, PGSSLMODE.
+# The only source of the encryption key under PostgreSQL. There is no database
+# file to generate one beside, and a key invented on each restart would silently
+# make every stored tracker token unreadable. Generate: openssl rand -hex 32
+export SECTILE_SECRET_KEY='<64 hex characters>'
+./bin/server
+```
+
+`DB_PATH` is ignored in this mode. `DATABASE_URL` wins when both it and the
+standard variables are set. A PostgreSQL configuration that cannot be opened —
+or that names neither source — stops the server rather than falling back to
+SQLite: falling back would serve an empty board out of an unexpected store,
+which reads as data loss.
+
+One server instance per database. The job queue and the synchronisation loop run
+in-process and are not coordinated between instances, so two servers sharing a
+database would run every queued skill twice.
+
+Upgrading needs no schema step: a PostgreSQL database is created at the schema of
+the version that created it, and the server adds on each start whichever columns
+newer versions have declared since.
+
+To move an existing SQLite database across, once:
+
+```sh
+SECTILE_SECRET_KEY='<the same key the SQLite server uses>' \
+  ./bin/sectile-migrate -from ./tasks.db -to "$DATABASE_URL"
+```
+
+The key matters: a stored tracker token is sealed to its owner and its tracker,
+not to the database, so the rows copy perfectly well under a different key and
+nobody notices until a tracker call fails. The migration opens one sealed
+credential as a check before it copies a single row, and refuses a destination
+that already holds data.
+
 Open **http://localhost:8090**. The server never opens a browser or starts local
 Git, tracker CLI, terminal, editor or LLM processes. A server deployment needs
 only its binary, writable database/configuration storage and network access to
@@ -180,8 +272,11 @@ a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credential
 
 The background queue carries whoever asked: a sync, a field update and every
 tracker operation record the acting user on the job, and the worker puts them
-back before resolving a credential. Only work nobody asked for — the auto-sync
-timer — names nobody and keeps the server credential.
+back before resolving a credential. Work nobody asked for, the auto-sync timer,
+reads as the project's owner instead: the owner is its creator, or whoever first
+saves a project older than the field, and the loop borrows their token for the
+re-reads it queues. A project with no owner keeps the server credential. See
+[ADR 0018](./docs/adrs/0018-the-background-synchronisation-runs-as-the-project-owner.md).
 
 Jira asks for the site (`mon-org.atlassian.net`), the account e-mail and an
 Atlassian API token, which authenticate as `email:token`. Its environment
@@ -290,6 +385,65 @@ tag name on a tag) and the cross-compiled `sectile-server-*` /
 under the package `sectile` with the same version string. The agent is never
 part of the image: it runs on workstations, next to the coding CLIs.
 
+A merge into `main` promotes itself to dev. Once the image is published, the
+pipeline's `promote:dev` job rewrites the pinned tag in argocd-sp
+(`apps/sectile/dev/values.yml`, `features.main.image.tag`) through the shared
+automerge template and merges that change; ArgoCD deploys from the resulting
+commit, so the pipeline never talks to a cluster. What it pins is the same
+version string the image carries, never a number retyped by hand. Production
+is not promoted: there is none yet. Pinning an older tag by hand in argocd-sp
+therefore only holds until the next merge into `main` — to hold dev back,
+revert here. See
+[ADR 0016](docs/adrs/0016-promotion-automatique-en-dev.md).
+
+A branch other than `main` is also published as `server:preview-<commit sha>`,
+the tag the test environments pull. Those are declared in argocd-sp
+(`apps/sectile/dev`, feature `testenv`): a merge request opened on the GitLab
+mirror for the mirrored branch and labelled `testenv` gets its own board at
+`https://testenv-<merge request number>-sectile.internal.eqtv.dev`, with its
+own database, following the head of the branch until the merge request closes.
+The GitHub pull request alone spawns nothing: the generator only reads GitLab.
+
+## Versioning and changelog
+
+A release of Sectile is a Git tag `vX.Y.Z` following
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html), and nothing else.
+The tag is the only source of the version: it is injected into the Go binaries
+at link time, and no file in the repository declares the product version. A
+build made outside a tag reports `dev`, which is exactly what it is.
+
+Every component can say what it is running:
+
+```bash
+sectile-server --version
+sectile-agent --version
+curl -s http://localhost:8090/api/version   # {"version":"v0.1.0","commit":"…"}
+```
+
+In the interfaces: the version sits in the web footer, and clicking it opens
+the release notes; the desktop app shows them in its settings, next to its own
+version and the local agent's — the two are distributed separately, so a
+workstation may have upgraded only one of them.
+
+The release notes live in [`CHANGELOG.md`](./CHANGELOG.md), in
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format and **in
+English only**. The server embeds it and serves it on `GET /api/changelog`; the
+desktop app inlines it at build time.
+
+What a pipeline produces depends on its ref:
+
+| Ref | Server image | Workstation binaries |
+|---|---|---|
+| tag `vX.Y.Z` | `server:vX.Y.Z` | published under version `vX.Y.Z` |
+| merge into `main` | `server:<iid>-main` + `latest` | none |
+| any other branch | `server:<iid>-<slug>` + `preview-<sha>` | none |
+
+The procedure for cutting a tag — deriving the number, writing the changelog
+entries, bumping the manifests, committing, creating the annotated tag — is
+written in [`AGENTS.md`](./AGENTS.md) and is meant to be executed as written
+whenever somebody asks for a release. See
+[ADR 0018](docs/adrs/0018-semver-tags-and-changelog.md).
+
 ## 📚 Documentation Technique Complète
 
 Une suite documentaire complète pour développeurs et LLMs est disponible dans le dossier [`/docs`](./docs) :
@@ -333,10 +487,13 @@ authentication and workflow validation retain their existing contracts.
 `/mcp` is stateful: every connected client holds one server session, so two
 clients sharing the same credential stay distinct and a client that goes away is
 noticed. A run started with `start_run` belongs to the session that started it.
-When that session ends — the client quits, its process is killed, or it falls
-silent past the idle timeout — the server closes the runs it still owns as
-canceled, with a note saying the client disconnected. `finish_run` remains how a
-run reports its own outcome and always wins over that fallback. A run reused from
+When that session ends — the client quits, its process is killed, or its
+connection breaks — the server closes the runs it still owns as canceled, with a
+note saying the client disconnected. Silence alone ends nothing: a client that
+says nothing past `SECTILE_MCP_SESSION_TIMEOUT` (four hours by default) gets one
+sentence appended to its runs, which keep running. `finish_run` remains how a run
+reports its own outcome and always wins over that fallback, and a run a
+disconnection canceled can still be reported by its owner afterwards. A run reused from
 a launcher keeps its dispatching agent as owner, since that agent already watches
 the real process.
 
@@ -449,10 +606,13 @@ MCP registration and install managed skills for a specific provider locally
 without launching the background daemon.
 
 `SECTILE_SERVER_TOKEN`, the former shared agent credential, is still accepted
-for one release with a startup warning; a server without it that has issued no
-key yet also keeps accepting any nonempty token, and closes that door with the
-first key. Workstations paired before keys expired keep working as keys without
-expiry, and the profile offers to set one.
+for one release with a startup warning, and it is now the only credential
+outside the key store that opens a machine surface: the legacy open mode, where
+a server without it accepted any nonempty token, is gone
+([ADR 0019](docs/adrs/0019-the-machine-surfaces-have-no-open-mode.md)). A server
+that has issued no key refuses an invented token like any other. Workstations
+paired before keys expired keep working as keys without expiry, and the profile
+offers to set one.
 
 The agent fetches `GET /api/v1/agent/config`, creates or validates local Git
 worktrees, installs effective project skills, and launches the configured AI CLI.
@@ -578,7 +738,7 @@ never used as an offline fallback. These generated files are ignored by Git.
 
 The machine endpoints and the agent handshake validate the workstation API key.
 `SECTILE_SERVER_TOKEN`, when configured, is still accepted for one release; a
-server without it accepts any nonempty token only until its first key is issued.
+server without it accepts nothing else, whether or not it has ever issued a key.
 This does not add multi-user login or authentication to the existing web/REST UI;
 remote deployments still need their existing access-control boundary.
 

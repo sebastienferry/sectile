@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"tasks/internal/testhome"
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
@@ -39,7 +40,7 @@ func readRegistration(t *testing.T, path string) map[string]any {
 func TestBootstrapMCPPreservesConfigAndRefreshesServerAndKey(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
 		t.Run(provider, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testhome.Temp(t)
 			path, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey)
 			if err != nil {
 				t.Fatal(err)
@@ -104,7 +105,7 @@ func TestBootstrapMCPPreservesConfigAndRefreshesServerAndKey(t *testing.T) {
 func TestBootstrapMCPTransportPerProvider(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
 		t.Run(provider, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			testhome.Temp(t)
 			path, err := BootstrapMCP(provider, "/opt/sectile", testServer+"/", testKey)
 			if err != nil {
 				t.Fatal(err)
@@ -156,7 +157,7 @@ func TestBootstrapMCPTransportPerProvider(t *testing.T) {
 
 func TestBootstrapMCPRejectsInvalidConfigWithoutOverwriting(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("HOME", root)
+	testhome.Set(t, root)
 	path := filepath.Join(root, ".claude.json")
 	raw := []byte("invalid json")
 	if err := os.WriteFile(path, raw, 0600); err != nil {
@@ -192,7 +193,7 @@ func TestBootstrapMCPVisibleToAgy(t *testing.T) {
 	if err != nil {
 		t.Skip("agy is not installed")
 	}
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	if _, err := BootstrapMCP("agy", "/usr/bin/true", testServer, testKey); err != nil {
 		t.Fatal(err)

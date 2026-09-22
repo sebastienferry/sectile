@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"tasks/internal/testhome"
 	"testing"
 
 	"github.com/pelletier/go-toml/v2"
@@ -16,7 +17,7 @@ func TestMCPRegistrationMigration(t *testing.T) {
 	for _, provider := range []string{"codex", "claude", "agy", "gemini", "cursor", "vibe"} {
 		for _, state := range []string{"fresh", "legacy", "canonical", "both"} {
 			t.Run(provider+"/"+state, func(t *testing.T) {
-				t.Setenv("HOME", t.TempDir())
+				testhome.Temp(t)
 				path, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey)
 				if err != nil {
 					t.Fatal(err)
@@ -137,7 +138,7 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 				continue
 			}
 			t.Run(provider+"/"+issue, func(t *testing.T) {
-				t.Setenv("HOME", t.TempDir())
+				testhome.Temp(t)
 				path, err := BootstrapMCP(provider, "/opt/sectile", testServer, testKey)
 				if err != nil {
 					t.Fatal(err)
@@ -191,7 +192,7 @@ func TestMCPMigrationRejectsUnsafeConfiguration(t *testing.T) {
 
 func TestMCPMigrationPreservesExternalPolicyFile(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("HOME", root)
+	testhome.Set(t, root)
 	path, err := BootstrapMCP("claude", "/opt/sectile", testServer, testKey)
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +273,7 @@ func TestMCPBootstrapRejectsMalformedRegistrationFile(t *testing.T) {
 	for _, existing := range []string{"invalid = [", "mcp_servers = 'not a table'"} {
 		t.Run(existing, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			if err := os.MkdirAll(filepath.Join(home, ".codex"), 0755); err != nil {
 				t.Fatal(err)
 			}

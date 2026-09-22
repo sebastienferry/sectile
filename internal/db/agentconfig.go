@@ -5,6 +5,7 @@ import (
 	"strings"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
+	"tasks/internal/skills"
 )
 
 // AgentConfig exposes only execution settings, never server paths or tracker credentials.
@@ -90,7 +91,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		reconcile = true
 	}
 	for _, skill := range d.EffectiveProjectSkills(p.ID, c.SpecFramework) {
-		stage, ok := StageSkillByID(skill.ID)
+		stage, ok := skills.StageSkillByID(skill.ID)
 		if !ok {
 			continue
 		}

@@ -13,10 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 	"tasks/internal/terminal"
+	"tasks/internal/testhome"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
@@ -307,7 +309,7 @@ func TestLaunchAdmissionOfReservedSkills(t *testing.T) {
 }
 
 func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
 		if _, err := gitLocal(context.Background(), root, args...); err != nil {
@@ -484,7 +486,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 }
 
 func TestDesktopTaskTransitionAndCapabilities(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 
 	var forwardedBody map[string]string
@@ -590,5 +592,269 @@ func TestDesktopTaskTransitionAndCapabilities(t *testing.T) {
 	}
 	if forwardedBody["stage"] != "reviewed" || forwardedBody["note"] != "Code declared as reviewed from desktop app" {
 		t.Fatalf("unexpected forwarded payload: %v", forwardedBody)
+	}
+}
+
+func TestDesktopProjectTerminalSettings(t *testing.T) {
+	root := t.TempDir()
+	testhome.Set(t, root)
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
+		if _, err := gitLocal(context.Background(), root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
+			json.NewEncoder(w).Encode(agentconfig.Config{
+				SchemaVersion:           agentconfig.Version,
+				ProjectID:               "p",
+				GitRemoteURL:            "https://example.test/project.git",
+				ExternalTerminalCommand: "terminal",
+			})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/projects/") {
+			json.NewEncoder(w).Encode(models.Project{
+				ID:   "p",
+				Name: "Project P",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	d := &agentDaemon{
+		repoRoot: root,
+		loopback: loopbackServer{desktopToken: "private"},
+		link:     serverLink{serverURL: srv.URL, projectID: "p"},
+	}
+
+	doReq := func(method, path string, body any) *httptest.ResponseRecorder {
+		var r *http.Request
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			r = httptest.NewRequest(method, path, bytes.NewReader(raw))
+		} else {
+			r = httptest.NewRequest(method, path, nil)
+		}
+		r.Header.Set("Authorization", "Bearer private")
+		w := httptest.NewRecorder()
+		d.desktopHandler(w, r)
+		return w
+	}
+
+	// 1. Initial GET returns server default terminal and false override
+	w := doReq("GET", "/desktop/project?id=p", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+	}
+	var projResp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
+		t.Fatal(err)
+	}
+	if projResp["terminal"] != "terminal" || projResp["terminalOverride"] != false {
+		t.Fatalf("unexpected terminal response: %+v", projResp)
+	}
+
+	// 2. Set terminal override via POST /desktop/projects
+	w = doReq("POST", "/desktop/projects", map[string]any{
+		"projectId": "p",
+		"path":      root,
+		"terminal":  "ghostty",
+	})
+	if w.Code != 204 {
+		t.Fatalf("POST /desktop/projects returned %d: %s", w.Code, w.Body.String())
+	}
+
+	s, _ := agentconfig.ReadSettings(root)
+	if s.Terminals["p"] != "ghostty" {
+		t.Fatalf("expected Terminals[p] to be ghostty, got %+v", s.Terminals)
+	}
+
+	// 3. GET /desktop/project?id=p should reflect new terminal override
+	w = doReq("GET", "/desktop/project?id=p", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+	}
+	projResp = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
+		t.Fatal(err)
+	}
+	if projResp["terminal"] != "ghostty" || projResp["terminalOverride"] != true {
+		t.Fatalf("unexpected terminal after override: %v / %v", projResp["terminal"], projResp["terminalOverride"])
+	}
+
+	// 4. Reset via inheritTerminal
+	w = doReq("POST", "/desktop/projects", map[string]any{
+		"projectId":       "p",
+		"path":            root,
+		"inheritTerminal": true,
+	})
+	if w.Code != 204 {
+		t.Fatalf("POST /desktop/projects inherit returned %d: %s", w.Code, w.Body.String())
+	}
+
+	w = doReq("GET", "/desktop/project?id=p", nil)
+	if w.Code != 200 {
+		t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+	}
+	projResp = nil
+	if err := json.Unmarshal(w.Body.Bytes(), &projResp); err != nil {
+		t.Fatal(err)
+	}
+	if projResp["terminal"] != "terminal" || projResp["terminalOverride"] != false {
+		t.Fatalf("expected reset terminal: %v / %v", projResp["terminal"], projResp["terminalOverride"])
+	}
+}
+
+func TestDesktopTerminalDetach(t *testing.T) {
+	var launchedApp, launchedSess string
+	run := &controlledRun{
+		desktop: desktopRun{
+			ID:        "run-1",
+			SessionID: "sess-1",
+			ProjectID: "p1",
+			Status:    "running",
+		},
+		exited: make(chan struct{}),
+	}
+
+	d := &agentDaemon{
+		loopback: loopbackServer{desktopToken: "private"},
+		queue: runQueue{
+			runs: map[string]*controlledRun{"run-1": run},
+		},
+		launchTerminalFn: func(terminalApp, sessionID string) error {
+			launchedApp = terminalApp
+			launchedSess = sessionID
+			return nil
+		},
+	}
+
+	// 1. Unauthorized
+	req := httptest.NewRequest("POST", "/desktop/terminal/detach", bytes.NewReader([]byte(`{"runId":"run-1"}`)))
+	w := httptest.NewRecorder()
+	d.desktopHandler(w, req)
+	if w.Code != 401 {
+		t.Fatalf("expected 401, got %d", w.Code)
+	}
+
+	// 2. Not found
+	req = httptest.NewRequest("POST", "/desktop/terminal/detach", bytes.NewReader([]byte(`{"runId":"unknown"}`)))
+	req.Header.Set("Authorization", "Bearer private")
+	w = httptest.NewRecorder()
+	d.desktopHandler(w, req)
+	if w.Code != 404 {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+
+	// 3. Successful detach
+	req = httptest.NewRequest("POST", "/desktop/terminal/detach", bytes.NewReader([]byte(`{"runId":"run-1","terminal":"ghostty"}`)))
+	req.Header.Set("Authorization", "Bearer private")
+	w = httptest.NewRecorder()
+	d.desktopHandler(w, req)
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if launchedApp != "ghostty" || launchedSess != "sess-1" {
+		t.Fatalf("unexpected launch params: app=%s sess=%s", launchedApp, launchedSess)
+	}
+	if run.desktop.ExternalTerminal != "ghostty" {
+		t.Fatalf("expected ExternalTerminal to be ghostty, got %s", run.desktop.ExternalTerminal)
+	}
+
+	// 4. Exited run
+	close(run.exited)
+	req = httptest.NewRequest("POST", "/desktop/terminal/detach", bytes.NewReader([]byte(`{"runId":"run-1","terminal":"ghostty"}`)))
+	req.Header.Set("Authorization", "Bearer private")
+	w = httptest.NewRecorder()
+	d.desktopHandler(w, req)
+	if w.Code != 409 {
+		t.Fatalf("expected 409 for exited run, got %d", w.Code)
+	}
+}
+
+func TestDesktopTasksTerminalExternal(t *testing.T) {
+	root := t.TempDir()
+	testhome.Set(t, root)
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
+		if _, err := gitLocal(context.Background(), root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	branchName := "feat/1"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/v1/agent/config") {
+			json.NewEncoder(w).Encode(agentconfig.Config{
+				SchemaVersion:           agentconfig.Version,
+				ProjectID:               "p",
+				GitRemoteURL:            "https://example.test/project.git",
+				ExternalTerminalCommand: "terminal",
+			})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/projects/") {
+			json.NewEncoder(w).Encode(models.Project{
+				ID:   "p",
+				Name: "Project P",
+			})
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/tasks/task-1") {
+			json.NewEncoder(w).Encode(models.Task{
+				ID:         "task-1",
+				Key:        "#1",
+				ProjectID:  "p",
+				Title:      "Task 1",
+				Status:     "in_progress",
+				BranchName: &branchName,
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	var launchedApp, launchedSess string
+	d := &agentDaemon{
+		repoRoot: root,
+		loopback: loopbackServer{desktopToken: "private"},
+		link:     serverLink{serverURL: srv.URL, projectID: "p"},
+		terminal: terminalChoice{manager: terminal.NewManager()},
+		launchTerminalFn: func(terminalApp, sessionID string) error {
+			launchedApp = terminalApp
+			launchedSess = sessionID
+			return nil
+		},
+	}
+
+	body, _ := json.Marshal(map[string]any{
+		"projectId": "p",
+		"taskId":    "task-1",
+		"skillId":   "discuss",
+		"terminal":  "ghostty",
+	})
+	req := httptest.NewRequest("POST", "/desktop/tasks/terminal-external", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer private")
+	w := httptest.NewRecorder()
+	d.desktopHandler(w, req)
+
+	if w.Code != 200 {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+
+	var res map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &res); err != nil {
+		t.Fatal(err)
+	}
+	if res["success"] != true || res["terminal"] != "ghostty" || res["runId"] == "" {
+		t.Fatalf("unexpected response: %+v", res)
+	}
+	runID := res["runId"].(string)
+	if launchedApp != "ghostty" || launchedSess != runID {
+		t.Fatalf("unexpected launch: app=%s sess=%s wantSess=%s", launchedApp, launchedSess, runID)
 	}
 }

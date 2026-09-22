@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import {
   X,
   Folder,
@@ -27,6 +27,7 @@ import {
   Info,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { BoardColumnsEditor } from './BoardColumnsEditor'
 import { CommandModePreview } from './CommandModePreview'
 import type {
@@ -45,7 +46,7 @@ import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_
 import { AIModelField } from './AIModelField'
 import { isValidModel, providerModels } from '../lib/aiModels'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
-import { Antigravity, Claude, OpenAI } from '@lobehub/icons'
+import { Antigravity, Claude, OpenAI } from './icons'
 import { MCPEngineConfig } from './MCPEngineConfig'
 
 type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
@@ -299,17 +300,22 @@ export const ProjectModal: React.FC = () => {
   }, [editingProject, isProjectModalOpen, settings.specFramework])
 
 
+  const handleClose = useCallback(() => {
+    setIsProjectModalOpen(false)
+    setEditingProject(null)
+  }, [setIsProjectModalOpen, setEditingProject])
+  const backdrop = useBackdropDismiss(handleClose)
+
   useEffect(() => {
     if (!isProjectModalOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsProjectModalOpen(false)
-        setEditingProject(null)
+        handleClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isProjectModalOpen, setIsProjectModalOpen, setEditingProject])
+  }, [isProjectModalOpen, handleClose])
 
   if (!isProjectModalOpen) return null
 
@@ -429,12 +435,7 @@ export const ProjectModal: React.FC = () => {
   return (
     <div
       className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 select-none"
-      onClick={e => {
-        if (e.target === e.currentTarget) {
-          setIsProjectModalOpen(false)
-          setEditingProject(null)
-        }
-      }}
+      {...backdrop}
     >
       <div
         className="relative w-[980px] h-[680px] max-w-[calc(var(--app-w)-32px)] max-h-[calc(var(--app-h)-32px)] rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150"

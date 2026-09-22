@@ -35,6 +35,8 @@ type recordedRequest struct {
 func newJiraSite(t *testing.T) *jiraSite {
 	t.Helper()
 	resetJiraFieldCache()
+	resetJiraPriorityCache()
+	resetJiraCreatePriorityCache()
 	site := &jiraSite{t: t, routes: map[string]http.HandlerFunc{}}
 	site.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -59,12 +61,26 @@ func newJiraSite(t *testing.T) *jiraSite {
 			fmt.Fprint(w, `[]`)
 			return
 		}
+		// So is the priority scheme, on every read and on every write that
+		// carries one. Unless a test says otherwise, the site runs Atlassian's
+		// default scheme.
+		if r.Method == "GET" && r.URL.Path == "/rest/api/3/priority/search" {
+			fmt.Fprint(w, jiraDefaultPriorities)
+			return
+		}
 		t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 	}))
 	t.Cleanup(site.server.Close)
 	return site
 }
+
+// jiraDefaultPriorities is what an untouched Jira Cloud site serves, most
+// urgent first.
+const jiraDefaultPriorities = `{"isLast":true,"values":[
+	{"id":"1","name":"Highest"},{"id":"2","name":"High"},{"id":"3","name":"Medium"},
+	{"id":"4","name":"Low"},{"id":"5","name":"Lowest"}
+]}`
 
 func (s *jiraSite) on(method, path string, handler http.HandlerFunc) {
 	s.routes[method+" "+path] = handler
@@ -137,8 +153,9 @@ func TestJiraRefusesToWorkWithoutCredentials(t *testing.T) {
 	c := site.client()
 	c.JiraToken = ""
 	_, err := NewJiraAdapter(c).GetIssue(context.Background(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
-	if err == nil || !strings.Contains(err.Error(), "token") {
-		t.Fatalf("expected a credential error, got %v", err)
+	// The caller wraps it, so the guidance has to be contained rather than equal.
+	if err == nil || !strings.Contains(err.Error(), missingCredential("Jira")) {
+		t.Fatalf("expected the credential error %q, got %v", missingCredential("Jira"), err)
 	}
 	if len(site.requests) != 0 {
 		t.Fatalf("no network call is allowed without credentials: %v", site.requests)
@@ -663,11 +680,18 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 			fmt.Fprint(w, `[]`)
 			return
 		}
+		if r.URL.Path == "/rest/api/3/priority/search" {
+			// So does the priority scheme, and it is cached per site rather
+			// than per credential.
+			fmt.Fprint(w, jiraDefaultPriorities)
+			return
+		}
 		seen = append(seen, r.Header.Get("Authorization"))
 		fmt.Fprint(w, `{"issues":[],"isLast":true}`)
 	}))
 	t.Cleanup(server.Close)
 	resetJiraFieldCache()
+	resetJiraPriorityCache()
 
 	c := &Client{HTTP: server.Client(), JiraURL: server.URL, JiraEmail: "service@example.com", JiraToken: "service-token"}
 	c.ResolveUser = func(userID, tracker string) (string, string, string, error) {
@@ -715,5 +739,73 @@ func TestTheActingUsersOwnTokenIsWhatReachesJira(t *testing.T) {
 	}
 	if len(seen) != before {
 		t.Fatal("nothing must reach Jira when the acting user's credential is locked")
+	}
+}
+
+// A team-managed project has one board, and the Agile API types it "simple".
+// Filtering it out left such a project with no board at all, so its column
+// detection failed with "no board on project <KEY>" even though the board
+// exposes the very same columnConfig as a scrum or kanban one.
+func TestJiraListBoardsKeepsTheSimpleBoardOfATeamManagedProject(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/agile/1.0/board", `{"values":[{"id":549,"name":"SFE board","type":"simple"}],"isLast":true}`)
+	site.reply("GET", "/rest/agile/1.0/board/549/configuration", `{"columnConfig":{"columns":[{"name":"To Do","statuses":[{"id":"1"}]},{"name":"Done","statuses":[{"id":"3"}]}]}}`)
+	site.reply("GET", "/rest/api/3/status", `[{"id":"1","name":"To Do"},{"id":"3","name":"Done"}]`)
+
+	j := site.adapter()
+	ctx := context.Background()
+	proj := jiraProject()
+	boards, err := j.ListBoards(ctx, tracker.BoardsRequest{Project: proj})
+	if err != nil || len(boards) != 1 || boards[0].ID != "549" || boards[0].Type != "simple" {
+		t.Fatalf("a simple board is a board: %v %+v", err, boards)
+	}
+	calls := site.calls("GET", "/rest/agile/1.0/board")
+	if len(calls) != 1 || !strings.Contains(calls[0].Query, "type=scrum%2Ckanban%2Csimple") {
+		t.Fatalf("the board filter must ask for the three kinds carrying columns: %+v", calls)
+	}
+	columns, err := j.ListBoardColumns(ctx, tracker.BoardRequest{Project: proj, BoardID: "549"})
+	if err != nil || len(columns) != 2 || columns[0].Name != "To Do" || columns[1].Statuses[0] != "Done" {
+		t.Fatalf("columns of a simple board: %v %+v", err, columns)
+	}
+}
+
+// The background loop re-reads a project every few minutes. Asking for all of
+// it costs one request per hundred work items, and asking for each work item
+// one by one costs one per ticket: an incremental read asks the site what it
+// has touched since the previous pass, and pays for that answer only.
+//
+// The clause is relative on purpose. JQL dates `-15m` with the site's own
+// clock, so nothing has to agree on a timezone, and no drift between Sectile
+// and Atlassian can shift the window.
+func TestJiraSyncBoundsAnIncrementalPassOnTheUpdateDate(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("GET", "/rest/api/3/search/jql", func(w http.ResponseWriter, r *http.Request) {
+		jql := r.URL.Query().Get("jql")
+		if !strings.Contains(jql, "updated >= -18m") {
+			t.Errorf("an incremental pass must bound the search: %s", jql)
+		}
+		if !strings.HasPrefix(jql, `project = "PE"`) {
+			t.Errorf("the project clause must survive: %s", jql)
+		}
+		fmt.Fprint(w, `{"issues":[{"key":"PE-1","fields":{"summary":"Moved","status":{"name":"To Do","statusCategory":{"key":"new"}}}}],"isLast":true}`)
+	})
+	tasks, err := site.adapter().SyncIssues(context.Background(), tracker.SyncRequest{Project: jiraProject(), UpdatedWithinMin: 18})
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("incremental sync: %v %+v", err, tasks)
+	}
+}
+
+// A synchronisation somebody asked for reads the whole project, and so does a
+// pass the loop decided to make full: no window, no clause.
+func TestJiraSyncWithoutAWindowAsksForTheWholeProject(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("GET", "/rest/api/3/search/jql", func(w http.ResponseWriter, r *http.Request) {
+		if jql := r.URL.Query().Get("jql"); strings.Contains(jql, "updated >=") {
+			t.Errorf("a full read carries no window: %s", jql)
+		}
+		fmt.Fprint(w, `{"issues":[],"isLast":true}`)
+	})
+	if _, err := site.adapter().SyncIssues(context.Background(), tracker.SyncRequest{Project: jiraProject()}); err != nil {
+		t.Fatal(err)
 	}
 }

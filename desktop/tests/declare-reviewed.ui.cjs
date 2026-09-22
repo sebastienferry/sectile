@@ -60,13 +60,21 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   assert.equal(await declareBtn.count(),1)
   assert.equal(await declareBtn.isEnabled(),true)
 
-  // Test active execution disables the menu item
+  // Test active execution disables the menu item and offers Detach to native terminal
   activeRuns=[{id:'run-act',taskId:'task-1',projectId:'project-a',skill:'adjust',status:'running'}]
   // Wait for poll to refresh row
-  await page.waitForFunction(()=>document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-run').disabled)
+  await page.waitForFunction(()=>document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-run')?.disabled)
   assert.equal(await declareBtn.isDisabled(),true,'Active run disables Declare code as reviewed')
+  await page.keyboard.press('Escape')
+  await row1.locator('.ticket-more').click()
+  const detachTicketBtn=row1.locator('.ticket-menu').getByRole('menuitem',{name:'Detach to native terminal'})
+  assert.equal(await detachTicketBtn.count(),1)
+  assert.equal(await detachTicketBtn.isVisible(),true)
+  await page.keyboard.press('Escape')
   activeRuns=[]
-  await page.waitForFunction(()=>!document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-run').disabled)
+  await page.waitForFunction(()=>document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-run')?.disabled===false)
+  await row1.locator('.ticket-more').click()
+  assert.equal(await row1.locator('.ticket-menu').getByRole('menuitem',{name:'Detach to native terminal'}).count(),0)
   assert.equal(await declareBtn.isEnabled(),true)
 
   // Test Escape dismisses dialog without transitioning
@@ -75,7 +83,7 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   assert.match(await page.locator('#dialog-body h2').textContent(),/Declare #1 as reviewed\?/)
   assert.match(await page.locator('#dialog-body p').first().textContent(),/This transitions the task to #reviewed and proposes Handoff after human merge\./)
   await page.keyboard.press('Escape')
-  await page.waitForFunction(()=>!document.querySelector('#project-dialog').open)
+  await page.waitForFunction(()=>document.querySelector('#project-dialog')?.open===false)
   assert.equal(transitions.length,0,'Escape closes dialog without transition')
 
   // Test outdated agent capability error
@@ -85,19 +93,19 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   await page.waitForSelector('#project-dialog[open]')
   const confirmBtn=page.locator('#dialog-body button')
   await confirmBtn.click()
-  await page.waitForFunction(()=>document.querySelector('#dialog-body [role=status]').textContent.includes('does not support stage transitions'))
+  await page.waitForFunction(()=>document.querySelector('#dialog-body [role=status]')?.textContent.includes('does not support stage transitions'))
   assert.equal(await confirmBtn.isEnabled(),true,'Confirm re-enabled on capability failure')
   assert.equal(transitions.length,0)
 
   // Test successful transition with capability present
   capabilities=['transition-stage']
   await confirmBtn.click()
-  await page.waitForFunction(()=>!document.querySelector('#project-dialog').open)
+  await page.waitForFunction(()=>document.querySelector('#project-dialog')?.open===false)
   assert.equal(transitions.length,1)
   assert.equal(transitions[0].stage,'reviewed')
 
   // The ticket row refreshed: stage is reviewed, run action is Run: Handoff
-  await page.waitForFunction(()=>document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-stage').textContent.includes('reviewed'))
+  await page.waitForFunction(()=>document.querySelector('.ticket-row[data-task-id="task-1"] .ticket-stage')?.textContent.includes('reviewed'))
   const runBtn=row1.locator('.ticket-run')
   assert.equal(await runBtn.textContent(),'Run: Handoff')
 

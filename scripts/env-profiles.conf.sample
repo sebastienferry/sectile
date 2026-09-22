@@ -1,0 +1,101 @@
+# MODEL — copy to scripts/env-profiles.conf and fill it in.
+#
+#     cp scripts/env-profiles.conf.sample scripts/env-profiles.conf
+#
+# The copy is gitignored: a project id, a host name and the names of a
+# deployment's secrets say enough about an infrastructure to be worth keeping
+# out of a public repository, even though none of them is a credential.
+#
+# Which secret feeds which variable, per environment.
+#
+# This file names secrets; it never holds one. The values live in Google Secret
+# Manager and are fetched by scripts/set-env.sh, which writes them into the
+# generated block of .env — a file git ignores.
+#
+# Grammar, one directive per line:
+#
+#   project <profile> <gcp-project-id>
+#       The Google Cloud project the profile's secrets are read from.
+#
+#   var <profile> <VARIABLE> value:<literal>
+#       A plain value. Use it for anything that is not a secret: a host name, a
+#       driver, an e-mail address.
+#
+#   var <profile> <VARIABLE> secret:<secret-name>[#<version>]
+#       Read from Secret Manager. The version defaults to "latest".
+#
+#   var <profile> <VARIABLE> compose:<template>
+#       Assembled from variables this profile has already declared, written
+#       ${LIKE_THIS}. Every substitution is percent-encoded, so a password
+#       carrying an @ or a / cannot cut a connection string in two; the literal
+#       part of the template is left alone. Declare the inputs first.
+#
+# Order matters: a variable declared twice for the same profile keeps the last
+# declaration, which is what lets a profile override a shared block.
+#
+# Lines starting with # and blank lines are ignored.
+
+# =============================================================================
+# dev
+# =============================================================================
+project dev CHANGEME-dev-project
+
+var dev DB_DRIVER   value:postgres
+
+# The deployment hands out its user name and its password as two secrets, which
+# is what the PG* variables exist for: nothing here has to interpolate a secret
+# into a string.
+#
+# The host is internal: it resolves on the corporate network and nowhere else,
+# so a server started off it fails to dial rather than to authenticate.
+var dev PGHOST      value:CHANGEME-dev-db-host
+var dev PGPORT      value:5432
+var dev PGDATABASE  value:CHANGEME-dev-db-name
+var dev PGUSER      secret:CHANGEME-dev-db-user-name
+var dev PGPASSWORD  secret:CHANGEME-dev-db-password
+var dev PGSSLMODE   value:require
+
+# SECTILE_TEST_POSTGRES_DSN is deliberately NOT set from this profile, and must
+# never be: the suite it feeds empties the database it is handed. openPostgres
+# opens the DSN and TRUNCATEs every table CASCADE before each test, so pointing
+# it at a shared environment destroys that environment. Point it at a throwaway
+# server instead, in the shell rather than here:
+#
+#     createdb sectile_test
+#     SECTILE_TEST_POSTGRES_DSN='postgres://localhost/sectile_test?sslmode=disable' \
+#         go test ./internal/db/ -run Postgres
+#
+# The line below shows how a profile would assemble one, for a profile that
+# names a disposable database of its own. It stays commented.
+#var dev SECTILE_TEST_POSTGRES_DSN compose:postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=${PGSSLMODE}
+
+# Under PostgreSQL this key is the only source of the one encrypting personal
+# tracker tokens: a key invented at each restart would orphan every stored
+# token. Fill in the secret that holds it.
+#var dev SECTILE_SECRET_KEY secret:CHANGEME-dev-secret-key
+
+# Server-level Jira fallback, used when a user has no personal credential of
+# their own. The site authenticates the e-mail and the token as a pair.
+var dev SECTILE_JIRA_URL   value:CHANGEME.atlassian.net
+var dev SECTILE_JIRA_EMAIL value:CHANGEME@example.com
+#var dev SECTILE_JIRA_TOKEN secret:CHANGEME-dev-jira-token
+
+# =============================================================================
+# prod
+# =============================================================================
+project prod CHANGEME-prod-project
+
+var prod DB_DRIVER   value:postgres
+
+var prod PGHOST      value:CHANGEME-prod-db-host
+var prod PGPORT      value:5432
+var prod PGDATABASE  value:CHANGEME-prod-db-name
+var prod PGUSER      secret:CHANGEME-prod-db-user-name
+var prod PGPASSWORD  secret:CHANGEME-prod-db-password
+var prod PGSSLMODE   value:require
+
+#var prod SECTILE_SECRET_KEY secret:CHANGEME-prod-secret-key
+
+var prod SECTILE_JIRA_URL   value:CHANGEME.atlassian.net
+var prod SECTILE_JIRA_EMAIL value:CHANGEME@example.com
+#var prod SECTILE_JIRA_TOKEN secret:CHANGEME-prod-jira-token

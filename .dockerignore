@@ -35,3 +35,7 @@ docs/
 openspec/
 specs/
 *.md
+# The changelog is not documentation here: the root package embeds it into the
+# binary and the server serves it, so a build context without it does not
+# compile. Keeping it out of the image was the bug this line answers.
+!CHANGELOG.md

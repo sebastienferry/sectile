@@ -18,8 +18,20 @@ import (
 	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/version"
 	"tasks/internal/webui"
 )
+
+// isVersionArgument reports whether the single accepted argument was asked for.
+// The three spellings are the ones people actually type; anything else is a
+// configuration flag the server refuses rather than ignores.
+func isVersionArgument(arg string) bool {
+	switch arg {
+	case "--version", "-version", "version":
+		return true
+	}
+	return false
+}
 
 // loadDotEnv reads KEY=VALUE lines from a .env file next to the binary's working
 // directory. A real environment variable always wins, so exporting a value in
@@ -146,13 +158,29 @@ func main() {
 		port = "8090"
 	}
 
+	// The version is the one argument the server takes. Everything else is
+	// configuration, and configuration arrives through the environment: a flag
+	// the server silently ignored is how a deployment ends up running with
+	// settings nobody applied.
 	if len(os.Args) > 1 {
+		if isVersionArgument(os.Args[1]) {
+			fmt.Println("sectile-server " + version.String())
+			return
+		}
 		log.Fatal("sectile-server accepts configuration through environment variables; use sectile-agent for local execution and MCP")
 	}
 
-	dbPath, dbOrigin := resolveDBPath(os.Getenv("DB_PATH"))
+	log.Printf("Sectile server %s", version.String())
 
-	database, err := db.NewDB(dbPath)
+	dbConfig, dbTarget, dbOrigin, err := resolveDBConfig(osGetenv)
+	if err != nil {
+		log.Fatalf("Database configuration: %v", err)
+	}
+
+	// A PostgreSQL configuration that cannot open must stop the server rather
+	// than fall back to SQLite. Falling back would serve an empty board out of
+	// an unexpected store, which reads as data loss to whoever is looking at it.
+	database, err := db.Open(dbConfig)
 	if err != nil {
 		log.Fatalf("Fatal database error: %v", err)
 	}
@@ -188,6 +216,8 @@ func main() {
 
 	// API Routes
 	mux.HandleFunc(handlers.HealthPath, h.HandleHealth)
+	mux.HandleFunc(handlers.VersionPath, h.HandleVersion)
+	mux.HandleFunc(handlers.ChangelogPath, h.HandleChangelog)
 	mux.HandleFunc("/api/cli-status", h.HandleCliStatus)
 	mux.HandleFunc("/api/git-status", h.HandleGitStatus)
 	mux.HandleFunc("/api/git/status", h.HandleGitStatus)
@@ -356,7 +386,7 @@ func main() {
 	}
 
 	log.Printf("🚀 Sectile Server listening on %s", url)
-	log.Printf("   base : %s (%s)", dbPath, dbOrigin)
+	log.Printf("   base : %s — %s (%s)", database.EngineName(), dbTarget, dbOrigin)
 
 	if err := http.Serve(listener, handlerWithCORS); err != nil {
 		log.Fatalf("Server failed: %v", err)

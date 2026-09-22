@@ -1,6 +1,6 @@
 # ADR 0012: The waiting state is a timestamp on the run, reported through the loopback
 
-Status: Accepted
+Status: Accepted, then revised — the hook transport is withdrawn (see the last revision)
 
 ## Context
 
@@ -189,3 +189,38 @@ The cost is one `sh` plus one `curl` to the loopback per tool call, measured
 under 50 ms on a 200 KB payload. It was preferred to an `async` registration, which would let a
 "working" report land after the "waiting" one it is meant to precede, and to a
 marker file that the script would have to keep in step with the agent.
+
+## Revision (#260): the hooks are withdrawn
+
+The Claude Code hook was the reporter of this ADR's transport, and it is gone.
+Sectile installs no hook any more, writes nothing new to
+`~/.claude/settings.json`, and the agent no longer exposes
+`/control/runs/{id}/waiting` or `/desktop/session-alert`.
+
+#260 began as a Windows defect: the registered command was the path of a `.sh`
+file, which `cmd.exe` resolves through its file association, so the hook had
+never run there. The first answer was to port it into the agent binary as a
+subcommand. The decision taken instead was to remove it, for two reasons that
+the port would not have changed:
+
+- **It was intrusive.** The hook made Sectile a writer of a user file it had no
+  other business writing, and it ran a process on every tool call of every
+  Claude Code session on the workstation — launched by Sectile or not, since
+  the registration is user-level by the rule this ADR itself adopted.
+- **It was not needed.** The desktop already raises a banner when a run reaches
+  a terminal status, from the run list it polls; the agent observes that exit
+  itself. What the hook added was the waiting mark and the banner for sessions
+  Sectile did not launch, and neither was judged worth the cost above.
+
+What stays is the model, deliberately: `waitingSince` on the run, the server
+sub-action that sets and clears it, the board and activities rendering of a
+waiting run, and the desktop's banner on a waiting transition. They are
+additive and idle. A future reporter that is not a per-tool-call hook can feed
+them without touching the interface; until then a blocked session shows as
+running, which is what it showed before #174.
+
+The retirement is the part that must keep working: a workstation upgraded from
+any release that installed a hook has the script removed through the managed
+manifest and its registrations dropped from the settings file, on the next
+project setup and for whichever provider that project uses, leaving third-party
+hooks, every other key, and an unparseable file exactly as they were.

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Target,
   CalendarRange,
@@ -29,9 +29,14 @@ import {
   ChevronDown,
   ChevronRight,
   MessageSquare,
+  Tag,
+  RefreshCw,
+  Rows3,
 } from 'lucide-react'
 import type { RefineMacroResult } from '../types'
 import { useApp } from '../context/AppContext'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { sprintLookup, isProjectCompatible } from '../lib/lookups'
@@ -50,6 +55,15 @@ import {
   tasksBySprintOrder,
   sprintLabelOf,
 } from '../lib/roadmap'
+import {
+  CONDENSED_HORIZONS,
+  HORIZON_SHORT,
+  isRoadmapRowCondensed,
+  loadRoadmapRowDisplayMode,
+  saveRoadmapRowDisplayMode,
+  toggleRoadmapRowDisplayMode,
+  type RoadmapRowDisplayMode,
+} from '../lib/roadmapDisplayMode'
 import type { MacroHorizon, MacroMeta, MacroTodo } from '../types'
 
 /**
@@ -101,6 +115,9 @@ export const RoadmapView: React.FC = () => {
     addToast,
     migrateMacro,
     refineMacro,
+    pendingHorizonPushes,
+    pushPendingHorizons,
+    importMacroHorizons,
     createBatchTasks,
   } = useApp()
 
@@ -110,6 +127,22 @@ export const RoadmapView: React.FC = () => {
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [onlyIssues, setOnlyIssues] = useState(false)
   const [showClosed, setShowClosed] = useState(false)
+
+  // The shape of the rows. Remembered per browser: it is a reading setting, it
+  // depends neither on the project nor on the tab, and resetting it on every
+  // reload is the reason nobody used it.
+  const [rowMode, setRowMode] = useState<RoadmapRowDisplayMode>(() => loadRoadmapRowDisplayMode())
+  const chooseRowMode = (next: RoadmapRowDisplayMode) => {
+    setRowMode(next)
+    saveRoadmapRowDisplayMode(next)
+  }
+
+  // The macros classified here whose "roadmap:" label is not on the tracker
+  // yet, or no longer says the same thing. The count is read again on every
+  // move of the activity queue, since the queue is what pushes.
+  const [pendingPushes, setPendingPushes] = useState(0)
+  const [isPushing, setIsPushing] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
 
   const [isRefining, setIsRefining] = useState(false)
   const [refinePreview, setRefinePreview] = useState<RefineMacroResult | null>(null)
@@ -134,6 +167,20 @@ export const RoadmapView: React.FC = () => {
   const [createMacroTitle, setCreateMacroTitle] = useState('')
   const [createMacroHorizon, setCreateMacroHorizon] = useState<MacroHorizon>('now')
   const [createMacroProjectId, setCreateMacroProjectId] = useState<string>('')
+
+  // Les trois dialogues de cette vue se ferment comme leur croix : clic à côté
+  // et Échap appellent le setter que le bouton appelle déjà.
+  const closeCreateMacro = useCallback(() => setShowCreateMacroModal(false), [])
+  const createMacroBackdrop = useBackdropDismiss(closeCreateMacro)
+  useEscapeKey(showCreateMacroModal, closeCreateMacro)
+
+  const closeMigrate = useCallback(() => setShowMigrateModal(false), [])
+  const migrateBackdrop = useBackdropDismiss(closeMigrate)
+  useEscapeKey(showMigrateModal, closeMigrate)
+
+  const closeRefinePreview = useCallback(() => setRefinePreview(null), [])
+  const refinePreviewBackdrop = useBackdropDismiss(closeRefinePreview)
+  useEscapeKey(refinePreview !== null, closeRefinePreview)
 
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [editingTitleValue, setEditingTitleValue] = useState('')
@@ -264,6 +311,36 @@ export const RoadmapView: React.FC = () => {
     fetchProjectMacros(currentProject.id).then(setMacroMeta)
   }, [currentProject?.id, fetchProjectMacros, activeJobCount])
 
+  // Whether a push is late is read from the tracker, not locally: a failure
+  // leaves the classification in the database exactly as a success does, and
+  // only the remote label tells the two apart. A project with no tracker, or
+  // one whose read fails, answers zero rather than raising an alert that
+  // nothing could clear.
+  //
+  // The function goes through a ref rather than the dependency array. The
+  // context actions are rebuilt on every render of the provider: listing them
+  // would fire this read on every toast and every updated work item, and this
+  // read queries the tracker. The project and the activity queue are enough to
+  // say when the lateness can have changed, the queue being what pushes.
+  const readPendingPushes = useRef(pendingHorizonPushes)
+  useEffect(() => {
+    readPendingPushes.current = pendingHorizonPushes
+  })
+
+  useEffect(() => {
+    if (!currentProject?.id) {
+      setPendingPushes(0)
+      return
+    }
+    let alive = true
+    readPendingPushes.current(currentProject.id).then(list => {
+      if (alive) setPendingPushes(list.length)
+    })
+    return () => {
+      alive = false
+    }
+  }, [currentProject?.id, activeJobCount])
+
   const allRows = useMemo(() => buildMacroRows(tasks, currentProject, macroMeta), [tasks, currentProject, macroMeta])
 
   const rows = useMemo(() => {
@@ -298,6 +375,14 @@ export const RoadmapView: React.FC = () => {
 
   // Les onglets « non classés » et « masqués » n'ont pas d'horizon propre : le
   // panneau y montre le cadrage, pas la vérification de sprint.
+  /**
+   * The "Masqués" tab keeps the unfolded shape, whatever the preference says.
+   * A condensed row only offers NOW, NEXT and LATER: on that tab none of the
+   * three is active, and every macro would read as unclassified there when it
+   * is precisely the one carrying a classification.
+   */
+  const condensedHere = isRoadmapRowCondensed(rowMode) && tab !== 'hidden'
+
   const horizonOfTab: Horizon =
     tab === 'next' ? 'next' : tab === 'later' ? 'later' : tab === 'hidden' ? 'hidden' : 'now'
 
@@ -420,6 +505,199 @@ export const RoadmapView: React.FC = () => {
 
   const todosOf = (row: MacroRow | null): MacroTodo[] => row?.meta?.todos || []
 
+  /**
+   * The two shapes of a macro row.
+   *
+   * The unfolded shape carries everything one came to the roadmap to check:
+   * the sprint placement of the work items, the maturity, the progress. The
+   * condensed shape fits on one line and keeps only what serves browsing: the
+   * key, the title, the priority, an anomaly signal and the three classifying
+   * buttons. Classifying without unfolding is the whole point: a long list is
+   * exactly where one wants to move a macro from one horizon to another, and
+   * doing so meant scrolling through six-line cards.
+   */
+  const renderMacroRow = (row: MacroRow) => {
+    const isSel = selected?.key === row.key
+    const issues = placementIssues(row, horizonOfTab)
+    const mat = MATURITY_META[row.maturity]
+    const prio = PRIORITY_META[row.priority]
+    return (
+      <div
+        key={row.key}
+        onClick={() => setSelectedKey(row.key)}
+        className="rounded-xl border p-2.5 cursor-pointer transition-colors"
+        style={{
+          background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
+          borderColor: isSel ? 'rgb(var(--accent-rgb) / 0.45)' : 'var(--border-color)',
+        }}
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
+          <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
+            {row.squad}
+          </span>
+          <span className="text-[9.5px] px-1 rounded font-bold" style={{ color: prio.color, background: prio.bg }}>
+            {prio.label}
+          </span>
+          <span className="text-[9px] font-bold px-1.5 rounded uppercase tracking-[.06em]"
+            style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
+            {row.maturity}
+          </span>
+
+          {displayMode === 'execution' ? (
+            issues.length > 0 ? (
+              <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                style={{ color: 'var(--status-danger)', background: 'rgb(var(--status-danger-rgb) / 0.13)', border: '1px solid rgb(var(--status-danger-rgb) / 0.32)' }}>
+                <AlertTriangle size={10} />
+                {issues.length} à corriger
+              </span>
+            ) : (
+              <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                style={{ color: 'var(--status-ok)', background: 'rgb(var(--status-ok-rgb) / 0.13)', border: '1px solid rgb(var(--status-ok-rgb) / 0.32)' }}>
+                <Check size={10} />
+                tout placé
+              </span>
+            )
+          ) : (
+            <span className="ml-auto text-[10px] font-mono text-[var(--text-muted)]">
+              {todosOf(row).filter(t => t.done).length}/{todosOf(row).length} todos
+            </span>
+          )}
+        </div>
+
+        <div className="text-[12px] font-semibold leading-snug mt-1.5">{row.title}</div>
+
+        <div className="flex items-center gap-2 mt-2 flex-wrap text-[10px] font-mono text-[var(--text-muted)]">
+          <span>{row.open.length} ouverts / {row.tasks.length}</span>
+          {row.inActiveSprint.length > 0 && (
+            <span style={{ color: 'var(--status-ok)' }}>{row.inActiveSprint.length} sprint actif</span>
+          )}
+          {row.inFutureSprint.length > 0 && (
+            <span style={{ color: 'var(--status-info)' }}>{row.inFutureSprint.length} sprint futur</span>
+          )}
+          {row.inStaleSprint.length > 0 && (
+            <span style={{ color: 'var(--status-warn)' }}>{row.inStaleSprint.length} sprint clos</span>
+          )}
+          {row.unscheduled.length > 0 && (
+            <span style={{ color: 'var(--status-danger)' }}>{row.unscheduled.length} sans sprint</span>
+          )}
+        </div>
+
+        {/* Classification : un clic, et la suggestion est mise en avant */}
+        <div className="flex items-center gap-1.5 mt-2">
+          {(['now', 'next', 'later', 'hidden'] as MacroHorizon[]).map(h => {
+            const active = row.horizon === h
+            const isSuggestion = !row.horizon && row.suggested === h
+            return (
+              <button
+                key={h}
+                type="button"
+                onClick={e => {
+                  e.stopPropagation()
+                  persist(row.key, { horizon: h })
+                }}
+                className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] border transition-colors cursor-pointer"
+                style={{
+                  color: active ? '#fff' : HORIZON_META[h].color,
+                  background: active ? HORIZON_META[h].color : isSuggestion ? HORIZON_META[h].bg : 'transparent',
+                  borderColor: active || isSuggestion ? HORIZON_META[h].border : 'var(--border-color)',
+                }}
+                title={isSuggestion ? `Suggéré d'après les sprints : ${HORIZON_META[h].label}` : `Classer en ${HORIZON_META[h].label}`}
+              >
+                {HORIZON_META[h].label}
+                {isSuggestion && ' ?'}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  const renderCondensedRow = (row: MacroRow) => {
+    const isSel = selected?.key === row.key
+    const issues = placementIssues(row, horizonOfTab)
+    const prio = PRIORITY_META[row.priority]
+    return (
+      <div
+        key={row.key}
+        onClick={() => setSelectedKey(row.key)}
+        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors"
+        style={{
+          background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
+          borderColor: isSel ? 'var(--accent-color)' : 'var(--border-color)',
+        }}
+      >
+        <span className="shrink-0 text-[10.5px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>
+          {row.key}
+        </span>
+        <span className="flex-1 min-w-0 truncate text-[11.5px] text-[var(--text-primary)]" title={row.title}>
+          {row.title}
+        </span>
+        <span className="shrink-0 text-[9.5px] font-mono text-[var(--text-muted)]">
+          {row.open.length}/{row.tasks.length}
+        </span>
+        {/* The placement anomaly shrinks to its count: it is the only signal of
+            the unfolded shape that calls for an action, and losing it would make
+            the condensed shape a view where one no longer sees what is wrong.
+            Outside NOW and NEXT, placementIssues answers nothing and the badge
+            does not show. */}
+        {issues.length > 0 && (
+          <span
+            className="shrink-0 text-[9.5px] font-bold px-1 rounded inline-flex items-center gap-0.5"
+            style={{
+              color: 'var(--status-danger)',
+              background: 'rgb(var(--status-danger-rgb) / 0.13)',
+              border: '1px solid rgb(var(--status-danger-rgb) / 0.32)',
+            }}
+            title={`${issues.length} ticket(s) sans sprint ou dans un sprint clos`}
+          >
+            <AlertTriangle size={9} />
+            {issues.length}
+          </span>
+        )}
+        <span
+          className="shrink-0 text-[9.5px] px-1 rounded font-bold"
+          style={{ color: prio.color, background: prio.bg }}
+        >
+          {prio.label}
+        </span>
+        <span className="shrink-0 flex items-center gap-0.5">
+          {CONDENSED_HORIZONS.map(h => {
+            const active = row.horizon === h
+            const isSuggestion = !row.horizon && row.suggested === h
+            return (
+              <button
+                key={h}
+                type="button"
+                onClick={e => {
+                  e.stopPropagation()
+                  persist(row.key, { horizon: h })
+                }}
+                className="px-1 py-0.5 rounded text-[9px] font-bold border transition-colors cursor-pointer"
+                style={{
+                  color: active ? '#fff' : HORIZON_META[h].color,
+                  background: active ? HORIZON_META[h].color : isSuggestion ? HORIZON_META[h].bg : 'transparent',
+                  borderColor: active || isSuggestion ? HORIZON_META[h].border : 'var(--border-color)',
+                }}
+                title={
+                  isSuggestion
+                    ? `Suggéré d'après les sprints : ${HORIZON_META[h].label}`
+                    : `Classer en ${HORIZON_META[h].label}`
+                }
+                aria-label={`Classer en ${HORIZON_META[h].label}`}
+                aria-pressed={active}
+              >
+                {HORIZON_SHORT[h]}
+              </button>
+            )
+          })}
+        </span>
+      </div>
+    )
+  }
+
+
   const addTodo = (row: MacroRow) => {
     const text = newTodo.trim()
     if (!text) return
@@ -517,6 +795,64 @@ export const RoadmapView: React.FC = () => {
             </button>
           )}
 
+          {/*
+            The classification of a macro is written on the tracker as a
+            "roadmap:now / next / later" label, posed on every horizon change.
+            These two buttons catch up the two moments where the local side and
+            the tracker disagree: what was classified before the mirroring
+            existed or during a write outage, and what somebody classified on
+            the tracker without coming through here.
+
+            The push button only shows when something is late: offered
+            permanently, it would invite a write where there is nothing to write.
+          */}
+          {pendingPushes > 0 && currentProject && (
+            <button
+              type="button"
+              disabled={isPushing}
+              onClick={async () => {
+                setIsPushing(true)
+                await pushPendingHorizons(currentProject.id)
+                setIsPushing(false)
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border disabled:opacity-60"
+              style={{
+                background: 'rgb(var(--status-warn-rgb) / 0.14)',
+                borderColor: 'rgb(var(--status-warn-rgb) / 0.4)',
+                color: 'var(--status-warn)',
+              }}
+              title={`${pendingPushes} macro(s) classée(s) ici dont le label roadmap n'est pas encore posé sur le tracker`}
+            >
+              {isPushing ? <Loader2 size={12} className="animate-spin" /> : <Tag size={12} />}
+              {pendingPushes} label(s) à pousser
+            </button>
+          )}
+
+          {currentProject && (
+            <button
+              type="button"
+              disabled={isImporting}
+              onClick={async () => {
+                setIsImporting(true)
+                const ok = await importMacroHorizons(currentProject.id)
+                if (ok) fetchProjectMacros(currentProject.id).then(setMacroMeta)
+                const pending = await pendingHorizonPushes(currentProject.id)
+                setPendingPushes(pending.length)
+                setIsImporting(false)
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border disabled:opacity-60"
+              style={{
+                background: 'var(--bg-tertiary)',
+                borderColor: 'var(--border-color)',
+                color: 'var(--text-secondary)',
+              }}
+              title="Relire les labels roadmap: portés par les épics du tracker et en tirer le classement local"
+            >
+              {isImporting ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              Relire les labels
+            </button>
+          )}
+
           {/* Les filtres globaux */}
           {activeFilterChips.length > 0 && (
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -604,6 +940,30 @@ export const RoadmapView: React.FC = () => {
             </button>
           )}
 
+          {/* The shape of the rows. The button stays offered on the "Masqués"
+              tab and keeps its state there: the preference holds for the whole
+              roadmap, and turning it off because one tab does not apply it would
+              suggest it was lost by changing tab. */}
+          <button
+            type="button"
+            onClick={() => chooseRowMode(toggleRoadmapRowDisplayMode(rowMode))}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer border"
+            style={{
+              background: isRoadmapRowCondensed(rowMode) ? 'var(--accent-light)' : 'var(--bg-tertiary)',
+              borderColor: isRoadmapRowCondensed(rowMode) ? 'rgb(var(--accent-rgb) / 0.4)' : 'var(--border-color)',
+              color: isRoadmapRowCondensed(rowMode) ? 'var(--accent-color)' : 'var(--text-secondary)',
+            }}
+            title={
+              tab === 'hidden'
+                ? "Une ligne par macro : sa clé, son titre, sa priorité et son classement. L'onglet « Masqués » garde la forme dépliée."
+                : 'Une ligne par macro : sa clé, son titre, sa priorité et son classement'
+            }
+            aria-pressed={isRoadmapRowCondensed(rowMode)}
+          >
+            <Rows3 size={12} />
+            Condensé
+          </button>
+
           {/* La barre de recherche est dans l'en-tête, loin de la liste : sans
               ce rappel, on ne comprend pas pourquoi la roadmap est réduite. */}
           {searchQuery.trim() && (
@@ -669,103 +1029,7 @@ export const RoadmapView: React.FC = () => {
                 </p>
               </div>
             ) : (
-              visibleRows.map(row => {
-                const isSel = selected?.key === row.key
-                const issues = placementIssues(row, horizonOfTab)
-                const mat = MATURITY_META[row.maturity]
-                const prio = PRIORITY_META[row.priority]
-                return (
-                  <div
-                    key={row.key}
-                    onClick={() => setSelectedKey(row.key)}
-                    className="rounded-xl border p-2.5 cursor-pointer transition-colors"
-                    style={{
-                      background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
-                      borderColor: isSel ? 'rgb(var(--accent-rgb) / 0.45)' : 'var(--border-color)',
-                    }}
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
-                      <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
-                        {row.squad}
-                      </span>
-                      <span className="text-[9.5px] px-1 rounded font-bold" style={{ color: prio.color, background: prio.bg }}>
-                        {prio.label}
-                      </span>
-                      <span className="text-[9px] font-bold px-1.5 rounded uppercase tracking-[.06em]"
-                        style={{ color: mat.color, background: mat.bg, border: `1px solid ${mat.border}` }}>
-                        {row.maturity}
-                      </span>
-
-                      {displayMode === 'execution' ? (
-                        issues.length > 0 ? (
-                          <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-                            style={{ color: 'var(--status-danger)', background: 'rgb(var(--status-danger-rgb) / 0.13)', border: '1px solid rgb(var(--status-danger-rgb) / 0.32)' }}>
-                            <AlertTriangle size={10} />
-                            {issues.length} à corriger
-                          </span>
-                        ) : (
-                          <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded inline-flex items-center gap-1"
-                            style={{ color: 'var(--status-ok)', background: 'rgb(var(--status-ok-rgb) / 0.13)', border: '1px solid rgb(var(--status-ok-rgb) / 0.32)' }}>
-                            <Check size={10} />
-                            tout placé
-                          </span>
-                        )
-                      ) : (
-                        <span className="ml-auto text-[10px] font-mono text-[var(--text-muted)]">
-                          {todosOf(row).filter(t => t.done).length}/{todosOf(row).length} todos
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="text-[12px] font-semibold leading-snug mt-1.5">{row.title}</div>
-
-                    <div className="flex items-center gap-2 mt-2 flex-wrap text-[10px] font-mono text-[var(--text-muted)]">
-                      <span>{row.open.length} ouverts / {row.tasks.length}</span>
-                      {row.inActiveSprint.length > 0 && (
-                        <span style={{ color: 'var(--status-ok)' }}>{row.inActiveSprint.length} sprint actif</span>
-                      )}
-                      {row.inFutureSprint.length > 0 && (
-                        <span style={{ color: 'var(--status-info)' }}>{row.inFutureSprint.length} sprint futur</span>
-                      )}
-                      {row.inStaleSprint.length > 0 && (
-                        <span style={{ color: 'var(--status-warn)' }}>{row.inStaleSprint.length} sprint clos</span>
-                      )}
-                      {row.unscheduled.length > 0 && (
-                        <span style={{ color: 'var(--status-danger)' }}>{row.unscheduled.length} sans sprint</span>
-                      )}
-                    </div>
-
-                    {/* Classification : un clic, et la suggestion est mise en avant */}
-                    <div className="flex items-center gap-1.5 mt-2">
-                      {(['now', 'next', 'later', 'hidden'] as MacroHorizon[]).map(h => {
-                        const active = row.horizon === h
-                        const isSuggestion = !row.horizon && row.suggested === h
-                        return (
-                          <button
-                            key={h}
-                            type="button"
-                            onClick={e => {
-                              e.stopPropagation()
-                              persist(row.key, { horizon: h })
-                            }}
-                            className="px-1.5 py-0.5 rounded text-[9.5px] font-bold uppercase tracking-[.06em] border transition-colors cursor-pointer"
-                            style={{
-                              color: active ? '#fff' : HORIZON_META[h].color,
-                              background: active ? HORIZON_META[h].color : isSuggestion ? HORIZON_META[h].bg : 'transparent',
-                              borderColor: active || isSuggestion ? HORIZON_META[h].border : 'var(--border-color)',
-                            }}
-                            title={isSuggestion ? `Suggéré d'après les sprints : ${HORIZON_META[h].label}` : `Classer en ${HORIZON_META[h].label}`}
-                          >
-                            {HORIZON_META[h].label}
-                            {isSuggestion && ' ?'}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })
+              visibleRows.map(row => (condensedHere ? renderCondensedRow(row) : renderMacroRow(row)))
             )}
           </div>
         )}
@@ -1596,7 +1860,7 @@ export const RoadmapView: React.FC = () => {
       </div>
 
       {showCreateMacroModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150" {...createMacroBackdrop}>
           <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
@@ -1708,7 +1972,7 @@ export const RoadmapView: React.FC = () => {
       )}
 
       {showMigrateModal && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150" {...migrateBackdrop}>
           <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)]">
@@ -1814,7 +2078,7 @@ export const RoadmapView: React.FC = () => {
 
       {/* Modal d'aperçu du raffinage de macro (AI) */}
       {refinePreview && selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" {...refinePreviewBackdrop}>
           <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-2xl p-5 max-w-lg w-full shadow-2xl flex flex-col max-h-[85vh]">
             <div className="flex items-start justify-between border-b border-[var(--border-color)] pb-3">
               <div>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Search,
   Plus,
@@ -25,6 +25,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentTextStyle } from '../lib/accents'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 export const CommandPalette: React.FC = () => {
   const {
@@ -68,16 +69,19 @@ export const CommandPalette: React.FC = () => {
     }
   }, [isCommandPaletteOpen])
 
+  const handleClose = useCallback(() => setIsCommandPaletteOpen(false), [setIsCommandPaletteOpen])
+  const backdrop = useBackdropDismiss(handleClose)
+
   useEffect(() => {
     if (!isCommandPaletteOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsCommandPaletteOpen(false)
+        handleClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isCommandPaletteOpen, setIsCommandPaletteOpen])
+  }, [isCommandPaletteOpen, handleClose])
 
   if (!isCommandPaletteOpen) return null
 
@@ -449,7 +453,7 @@ export const CommandPalette: React.FC = () => {
   }
 
   return (
-    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-start justify-center pt-20 p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-start justify-center pt-20 p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150" {...backdrop}>
       <div className="relative w-full max-w-xl rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col max-h-[calc(var(--app-h)*0.7)]">
         {/* Search Header */}
         <div className="flex items-center gap-3 px-4 py-3.5 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/30">

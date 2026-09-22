@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,8 +15,11 @@ import (
 	"tasks/internal/agentmcp"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/testhome"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"tasks/internal/mcptest"
 	"tasks/internal/models"
@@ -53,9 +56,18 @@ func TestLocalWorktreeCreationAndBranchGuard(t *testing.T) {
 	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err != nil {
 		t.Fatal(err)
 	}
+	// A key path sitting on another branch no longer refuses the launch: the
+	// assigned branch is nowhere, so a worktree is created beside the stale one.
 	branch = "feat/other"
-	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err == nil {
-		t.Fatal("mismatched branch reused")
+	beside, got, err := ensureLocalWorktree(ctx, root, task, true)
+	if err != nil || got != branch {
+		t.Fatalf("stale key path refused the launch: %s %s %v", beside, got, err)
+	}
+	if beside == filepath.Join(root, ".tasks/worktrees/#46") {
+		t.Fatalf("new worktree collided with the stale path: %s", beside)
+	}
+	if current, err := gitLocal(ctx, beside, "branch", "--show-current"); err != nil || current != branch {
+		t.Fatalf("worktree beside the stale path is on %s: %v", current, err)
 	}
 	task.Key = "../../escape"
 	if _, _, err := ensureLocalWorktree(ctx, root, task, true); err == nil {
@@ -88,6 +100,28 @@ func TestLocalWorktreeReusesAssignedMainCheckout(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".tasks", "worktrees", "#46")); !os.IsNotExist(err) {
 		t.Fatalf("unexpected duplicate worktree: %v", err)
+	}
+}
+
+// A task whose branch the server never named still resolves to a branch derived
+// from its key. When the main checkout already sits on it, git refuses a second
+// worktree and the dispatch used to fail before a console ever existed.
+func TestLocalWorktreeReusesMainCheckoutForDerivedBranch(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, args := range [][]string{{"init", "-b", "feat/281"}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial"}} {
+		if _, err := gitLocal(ctx, root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, task := range []models.Task{{Key: "#281"}, {Key: "#281", BranchName: new(string)}} {
+		workDir, got, err := ensureLocalWorktree(ctx, root, task, true)
+		if err != nil || workDir != root || got != "feat/281" {
+			t.Fatalf("derived branch not reused: %s %s %v", workDir, got, err)
+		}
+		if _, err := os.Stat(filepath.Join(root, ".tasks", "worktrees", "#281")); !os.IsNotExist(err) {
+			t.Fatalf("unexpected duplicate worktree: %v", err)
+		}
 	}
 }
 
@@ -156,6 +190,21 @@ func TestMCPStdioHelper(t *testing.T) {
 	os.Exit(0)
 }
 
+// upstreamAgentKey issues the workstation key a test agent reaches the server
+// with. The legacy open mode, where any nonempty token named the implicit user,
+// is gone, so the upstream only opens to a key it actually issued.
+func upstreamAgentKey(t *testing.T, database *db.DB) string {
+	t.Helper()
+	if err := database.EnsureUser(db.ImplicitUserID); err != nil {
+		t.Fatalf("ensure user: %v", err)
+	}
+	key, _, err := database.CreateAPIKey(db.ImplicitUserID, "test-workstation", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+	return key
+}
+
 func TestMCPStdioBridge(t *testing.T) {
 	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
@@ -167,7 +216,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer upstream.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	d := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: "test-token"}}
+	d := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: upstreamAgentKey(t, database)}}
 	if err := d.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +273,7 @@ func TestMCPStdioBridge(t *testing.T) {
 func TestDispatchPreparesFromAPIContract(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	for _, args := range [][]string{{"init"}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial"}} {
 		if _, err := gitLocal(ctx, root, args...); err != nil {
 			t.Fatal(err)
@@ -306,11 +355,11 @@ func TestExternalTerminalCommandWithoutSkill(t *testing.T) {
 }
 
 func TestNativePickupBootstrapAndLaunch(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	for _, provider := range []string{"codex", "claude"} {
 		t.Run(provider, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			testhome.Set(t, home)
 			d := &agentDaemon{link: serverLink{serverURL: "http://sectile.example.test:8090", token: "sectile_test_key"}}
 			config := agentconfig.Config{AIProvider: provider, Skills: []agentconfig.Skill{{ID: "pickup-issue", Directory: "pickup-issue", Command: "/pickup-issue"}}}
 			if err := d.bootstrapLocalMCP(&config); err != nil {
@@ -466,5 +515,114 @@ func TestDiscussionLaunchesTheProviderAlone(t *testing.T) {
 	}
 	if _, err = dispatchCommand(config, "TASK-46", "discussion", "discussion", "", "", models.SkillModeInteractive, ""); err == nil {
 		t.Fatal("unknown identifier accepted as a discussion")
+	}
+}
+
+// The failure this ticket is about: the assigned branch lives in a worktree at
+// a path nobody would think to probe, while .tasks/worktrees/<key> is occupied
+// by an unrelated branch. The launch must land in the tree that holds the work.
+func TestLocalWorktreeResolvesBranchWhereverItLives(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, args := range [][]string{{"init", "-b", "main"}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial"}} {
+		if _, err := gitLocal(ctx, root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	elsewhere := filepath.Join(t.TempDir(), "unrelated-path")
+	branch := "claude/clarify-issue-workflow-bbb85f"
+	if _, err := gitLocal(ctx, root, "worktree", "add", "-b", branch, elsewhere, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(root, ".tasks", "worktrees", "#296")
+	if _, err := gitLocal(ctx, root, "worktree", "add", "-b", "feat/296", stale, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+
+	workDir, got, err := ensureLocalWorktree(ctx, root, models.Task{Key: "#296", BranchName: &branch}, true)
+	if err != nil || got != branch {
+		t.Fatalf("branch not resolved where it lives: %s %s %v", workDir, got, err)
+	}
+	if !sameDirectory(workDir, elsewhere) {
+		t.Fatalf("resolved %s, want the worktree at %s", workDir, elsewhere)
+	}
+	// The stale path is a warning, not a move: it keeps its own branch.
+	if current, err := gitLocal(ctx, stale, "branch", "--show-current"); err != nil || current != "feat/296" {
+		t.Fatalf("stale worktree disturbed: %s %v", current, err)
+	}
+}
+
+// A detached worktree carries no branch and must never be matched as one, or a
+// launch would land in a tree checked out at an arbitrary commit.
+func TestWorktreeForBranchIgnoresDetachedWorktrees(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	for _, args := range [][]string{{"init", "-b", "main"}, {"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial"}} {
+		if _, err := gitLocal(ctx, root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	detached := filepath.Join(t.TempDir(), "detached")
+	if _, err := gitLocal(ctx, root, "worktree", "add", "--detach", detached, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+	if path, err := worktreeForBranch(ctx, root, "feat/nowhere"); err != nil || path != "" {
+		t.Fatalf("a branch that lives nowhere resolved to %q: %v", path, err)
+	}
+	if path, err := worktreeForBranch(ctx, root, "main"); err != nil || !sameDirectory(path, root) {
+		t.Fatalf("main checkout not resolved: %q %v", path, err)
+	}
+}
+
+// A branch derived from the task key is written back onto the task, once, so a
+// later launch resolves the same branch instead of deriving it again against a
+// record that has since been assigned one.
+func TestDerivedBranchIsRecordedOnceOnTheTask(t *testing.T) {
+	assigned := "feat/already-there"
+	blank := "   "
+	worktrees := agentconfig.Config{UseWorktrees: true}
+	for _, c := range []struct {
+		name   string
+		config agentconfig.Config
+		task   models.Task
+		branch string
+		want   string
+	}{
+		{"no branch on the task", worktrees, models.Task{Key: "#308"}, "feat/308", "feat/308"},
+		{"blank branch on the task", worktrees, models.Task{Key: "#308", BranchName: &blank}, "feat/308", "feat/308"},
+		{"branch already assigned", worktrees, models.Task{Key: "#308", BranchName: &assigned}, assigned, ""},
+		{"project without worktrees", agentconfig.Config{}, models.Task{Key: "#308"}, "main", ""},
+		{"no branch resolved", worktrees, models.Task{Key: "#308"}, "", ""},
+	} {
+		if got := derivedBranchToRecord(c.config, c.task, c.branch); got != c.want {
+			t.Fatalf("%s: recorded %q, want %q", c.name, got, c.want)
+		}
+	}
+
+	var patched []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.EscapedPath() != "/api/tasks/%23308" {
+			t.Errorf("unexpected call %s %s", r.Method, r.URL.Path)
+		}
+		body, _ := io.ReadAll(r.Body)
+		patched = append(patched, string(body))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
+	if err := d.patchTask(context.Background(), "#308", map[string]string{"branchName": "feat/308"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(patched) != 1 || !strings.Contains(patched[0], `"branchName":"feat/308"`) {
+		t.Fatalf("task update: %#v", patched)
+	}
+
+	refused := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer refused.Close()
+	d = &agentDaemon{link: serverLink{serverURL: refused.URL, token: "token"}}
+	if err := d.patchTask(context.Background(), "#308", map[string]string{"branchName": "feat/308"}); err == nil {
+		t.Fatal("a refused update reported success")
 	}
 }

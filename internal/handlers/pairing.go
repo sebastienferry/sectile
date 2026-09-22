@@ -44,9 +44,8 @@ const ImplicitUser = "default"
 // A workstation API key answers for the machine surfaces that reach the same
 // routes: the agent gateway forwards the consoles' `/api/` calls with the key
 // rather than with a cookie, and that key names a user just as a session does.
-// Only a real key counts here, never the deprecated shared token nor the legacy
-// open mode where any value named the implicit user: those would hand anyone a
-// way past sign-in by setting one header.
+// Only a real key counts here, never the deprecated shared token: it would hand
+// anyone who knows it a way past sign-in by setting one header.
 //
 // Without either, the caller is a stranger and the answer is empty: signing in
 // is mandatory on every deployment (ADR 0015), including a fresh one, whose

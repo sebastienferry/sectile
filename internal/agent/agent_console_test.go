@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"tasks/internal/agentexec"
+	"tasks/internal/testhome"
 	"testing"
 	"time"
 
@@ -217,6 +218,7 @@ func TestFreeConsoleQueueCancellation(t *testing.T) {
 }
 
 func TestConsoleAdmissionUsesLocalMappingAndQueue(t *testing.T) {
+	testhome.Temp(t)
 	d, config := disconnectFixture(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" || r.URL.Path != "/api/v1/agent/config" {

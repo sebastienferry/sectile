@@ -32,7 +32,7 @@ func NewJiraAdapter(client *Client) *JiraAdapter {
 				tracker.CapCreate, tracker.CapUpdate, tracker.CapDelete, tracker.CapSync,
 				tracker.CapGet, tracker.CapComment, tracker.CapLabels, tracker.CapAssign,
 				tracker.CapTransition, tracker.CapSprint, tracker.CapTeam, tracker.CapEpic,
-				tracker.CapBoard,
+				tracker.CapBoard, tracker.CapIncrementalSync,
 			},
 		},
 		client: client,
@@ -122,6 +122,9 @@ func (j *JiraAdapter) search(ctx context.Context, c *Client, jql string) ([]mode
 	if err != nil {
 		return nil, err
 	}
+	// Asked once for the whole page, not once per work item: the scheme is a
+	// property of the site, and it is cached across calls anyway.
+	priorities := c.jiraPriorities(ctx)
 	tasks := make([]models.Task, 0, len(pages))
 	unreadable := 0
 	for _, raw := range pages {
@@ -133,7 +136,7 @@ func (j *JiraAdapter) search(ctx context.Context, c *Client, jql string) ([]mode
 			unreadable++
 			continue
 		}
-		task := jiraTask(c.JiraURL, issue, ids)
+		task := jiraTask(c.JiraURL, issue, ids, priorities)
 		task.Position = len(tasks)
 		tasks = append(tasks, *task)
 	}
@@ -159,7 +162,10 @@ func (j *JiraAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	if err != nil {
 		return nil, err
 	}
-	return j.search(ctx, c, jiraJQL(key, types, ""))
+	// An incremental read is the same search with one more clause. It comes
+	// back ordered by `updated` like the full one, so a window that turns out
+	// to hold more work items than a page is paginated the same way.
+	return j.search(ctx, c, jiraJQL(key, types, jiraUpdatedWithin(req.UpdatedWithinMin)))
 }
 
 func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest) (*models.Task, error) {
@@ -185,7 +191,7 @@ func (j *JiraAdapter) GetIssue(ctx context.Context, req tracker.GetIssueRequest)
 	if err != nil {
 		return nil, err
 	}
-	return jiraTask(c.JiraURL, issue, ids), nil
+	return jiraTask(c.JiraURL, issue, ids, c.jiraPriorities(ctx)), nil
 }
 
 func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRequest) (*models.Task, error) {
@@ -217,9 +223,6 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	if labels := cleanLabels(req.Labels); len(labels) > 0 {
 		fields["labels"] = labels
 	}
-	if req.Priority != "" {
-		fields["priority"] = map[string]string{"name": jiraPriorityName(req.Priority)}
-	}
 	if parent := strings.TrimSpace(req.ParentKey); parent != "" {
 		fields["parent"] = map[string]string{"key": strings.ToUpper(parent)}
 	}
@@ -250,6 +253,18 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 	if err != nil {
 		return nil, err
 	}
+	// The creation screen decides: which options this project's scheme has,
+	// and whether it carries the field at all. A project whose screen has no
+	// priority is created without one rather than refused over it, and the
+	// level is put on afterwards.
+	priorityCarried := false
+	if req.Priority != "" {
+		screen, readable := c.jiraCreatePriorities(ctx, projectKey, issueType)
+		if value, ok := c.priorityFieldFor(ctx, screen, readable, req.Priority, projectKey+"/"+issueType); ok {
+			fields["priority"] = value
+			priorityCarried = true
+		}
+	}
 	var created struct {
 		Key string `json:"key"`
 	}
@@ -264,6 +279,9 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 			return nil, err
 		}
 	}
+	if req.Priority != "" && !priorityCarried {
+		j.setPriorityAfterCreate(ctx, c, created.Key, req.Priority)
+	}
 	task, err := j.GetIssue(ctx, tracker.GetIssueRequest{Project: req.Project, Key: created.Key})
 	if err != nil {
 		// The work item exists: answer with what is known rather than failing
@@ -273,6 +291,27 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		return &models.Task{ID: "jira-" + key, Key: key, Title: title, Description: req.Description, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: cleanLabels(req.Labels), Source: "jira", IssueType: issueType, ExternalURL: &u}, nil
 	}
 	return task, nil
+}
+
+// setPriorityAfterCreate puts the level on a work item whose creation screen
+// would not carry it. Such projects exist — their creation screen has no
+// priority field while their edit screen does — and one extra request beats
+// dropping the level the caller asked for.
+//
+// A refusal here is logged and not returned: the work item exists, and failing
+// its creation over a field the site would not take on the way in is exactly
+// what this whole path avoids. The read that follows answers with the priority
+// the site actually holds, so nothing claims a level that did not stick.
+func (j *JiraAdapter) setPriorityAfterCreate(ctx context.Context, c *Client, key string, p models.Priority) {
+	screen, readable := c.jiraEditPriorities(ctx, key)
+	value, ok := c.priorityFieldFor(ctx, screen, readable, p, key)
+	if !ok {
+		return
+	}
+	payload := map[string]any{"fields": map[string]any{"priority": value}}
+	if err := c.jira(ctx, http.MethodPut, "/rest/api/3/issue/"+url.PathEscape(key), nil, payload, nil); err != nil {
+		log.Printf("[jira] %s was created, but its priority could not be set: %v", key, err)
+	}
 }
 
 func cleanLabels(labels []string) []string {
@@ -312,7 +351,10 @@ func (j *JiraAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 		fields["description"] = MarkdownToADF(*req.Description)
 	}
 	if req.Priority != nil && *req.Priority != "" {
-		fields["priority"] = map[string]string{"name": jiraPriorityName(*req.Priority)}
+		screen, readable := c.jiraEditPriorities(ctx, key)
+		if value, ok := c.priorityFieldFor(ctx, screen, readable, *req.Priority, key); ok {
+			fields["priority"] = value
+		}
 	}
 	update := map[string]any{}
 	if ops := labelOps(req.Labels, req.RemovedLabels); len(ops) > 0 {
@@ -713,9 +755,12 @@ func (j *JiraAdapter) ListBoards(ctx context.Context, req tracker.BoardsRequest)
 	}
 	query := url.Values{}
 	query.Set("projectKeyOrId", key)
-	// Only the board kinds whose columns and sprints mean something here, as the
-	// design says: without the filter the site also returns its simple boards.
-	query.Set("type", "scrum,kanban")
+	// The three board kinds that carry a column configuration. "simple" is what
+	// the Agile API calls the board of a team-managed project: it exposes the
+	// same columnConfig as the others, so excluding it left every team-managed
+	// project with no board at all, and its column detection failing with
+	// "no board on project <KEY>".
+	query.Set("type", "scrum,kanban,simple")
 	c, err := j.forProject(ctx, req.Project)
 	if err != nil {
 		return nil, err

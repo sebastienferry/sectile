@@ -1,6 +1,7 @@
 import React from 'react'
 import { Flame, Calendar, Layers, Pin, User, SlidersHorizontal, Check, Shapes, Settings2, Target, Loader2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useClickOutside } from '../hooks/useClickOutside'
 import { LookupField, type LookupOption } from './LookupField'
 import { valueLookup } from '../lib/lookups'
 import type { Priority } from '../types'
@@ -65,28 +66,12 @@ export const TaskFilters: React.FC = () => {
   const [isTypeMenuOpen, setIsTypeMenuOpen] = React.useState(false)
   const typeMenuRef = React.useRef<HTMLDivElement>(null)
 
-  React.useEffect(() => {
-    if (!isTypeMenuOpen) return
-    const onDocClick = (e: MouseEvent) => {
-      if (typeMenuRef.current && !typeMenuRef.current.contains(e.target as Node)) {
-        setIsTypeMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [isTypeMenuOpen])
+  const closeTypeMenu = React.useCallback(() => setIsTypeMenuOpen(false), [])
+  useClickOutside(typeMenuRef, closeTypeMenu, isTypeMenuOpen)
 
   // Fermeture au clic extérieur : ce menu vit dans une barre d'outils dense.
-  React.useEffect(() => {
-    if (!isStatusMenuOpen) return
-    const onDocClick = (e: MouseEvent) => {
-      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
-        setIsStatusMenuOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
-  }, [isStatusMenuOpen])
+  const closeStatusMenu = React.useCallback(() => setIsStatusMenuOpen(false), [])
+  useClickOutside(statusMenuRef, closeStatusMenu, isStatusMenuOpen)
 
   // Les valeurs proposées sont celles que le board porte réellement, filtrées en
   // mémoire : elles arrivent déjà avec les facettes, aucun appel n'est utile.

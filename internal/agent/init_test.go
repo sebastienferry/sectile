@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/testhome"
 )
 
 func initMockServer(t *testing.T, projectID string, skills []agentconfig.Skill) *httptest.Server {
@@ -61,7 +62,7 @@ func TestInitRejectsUnsupportedProvider(t *testing.T) {
 }
 
 func TestInitRequiresServerURLAndToken(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	t.Setenv("REMOTE_URL", "")
 	t.Setenv("TOKEN", "")
 
@@ -78,7 +79,7 @@ func TestInitRequiresServerURLAndToken(t *testing.T) {
 
 func TestInitBootstrapsMCPAndSkills(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 
 	skills := []agentconfig.Skill{
 		{ID: "specify", Directory: "specify-issue", Command: "/specify-issue", Content: "Specification instructions"},
@@ -129,7 +130,7 @@ func TestInitBootstrapsMCPAndSkills(t *testing.T) {
 
 func TestInitProviderWithoutSkillsOnlyRegistersMCP(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 
 	srv := initMockServer(t, "proj-cursor", nil)
 
@@ -165,7 +166,7 @@ func TestInitProviderWithoutSkillsOnlyRegistersMCP(t *testing.T) {
 
 func TestInitPositionalProviderAndAutoDiscovery(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 
 	skills := []agentconfig.Skill{
 		{ID: "specify", Directory: "specify-issue", Command: "/specify-issue", Content: "Spec instructions", CommandContent: "Spec command $ARGUMENTS"},

@@ -13,7 +13,7 @@ The desktop execution toolbar SHALL present its stop control with a cross glyph 
 - **GIVEN** the stop control is enabled
 - **WHEN** the user activates it
 - **THEN** the execution is requested to stop exactly as before
-- **AND** the subsequent closure offer is unchanged
+- **AND** nothing else is proposed or launched by that activation
 
 ### Requirement: Agent stop control is visually distinct from the execution control
 The desktop header SHALL present its agent stop control with a disconnect glyph, distinct from the execution stop glyph, while keeping its accessible name and tooltip describing stopping the agent.

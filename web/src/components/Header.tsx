@@ -47,7 +47,7 @@ export const Header: React.FC = () => {
     <header
       className="h-14 border-b border-[var(--header-border)] px-4 flex items-center justify-between gap-3 shrink-0 z-10 select-none text-[var(--header-text)] shadow-xs"
       style={{
-        background: 'linear-gradient(90deg, var(--header-accent-tint) 0%, var(--header-bg) 100%)',
+        background: 'var(--header-bg)',
       }}
     >
       {/* Left: Project Configuration Button (Settings icon only) */}

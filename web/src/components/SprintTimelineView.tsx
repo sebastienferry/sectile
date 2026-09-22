@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react'
+import React, { useState, useMemo, useRef, useCallback } from 'react'
 import {
   CalendarDays,
   Clock,
@@ -25,6 +25,8 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import {
   calculateSprintDates,
   shiftSubsequentSprintDates,
@@ -84,6 +86,10 @@ export const SprintTimelineView: React.FC = () => {
   const [closeSprintDestination, setCloseSprintDestination] = useState<'next' | 'backlog' | 'keep'>('next')
   const [closeSprintActivateNext, setCloseSprintActivateNext] = useState<boolean>(true)
   const [isClosingSprintBusy, setIsClosingSprintBusy] = useState<boolean>(false)
+
+  const closeSprintDialog = useCallback(() => setClosingSprint(null), [])
+  const closeSprintBackdrop = useBackdropDismiss(closeSprintDialog)
+  useEscapeKey(closingSprint !== null, closeSprintDialog)
 
   // Fold/Collapse Closed Sprints State
   const [collapsedSprints, setCollapsedSprints] = useState<Record<string, boolean>>({})
@@ -1645,7 +1651,7 @@ export const SprintTimelineView: React.FC = () => {
 
       {/* Close Sprint Modal Dialog */}
       {closingSprint && (
-        <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+        <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150" {...closeSprintBackdrop}>
           <div className="relative w-full max-w-lg rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col animate-in zoom-in-95 duration-150">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/40">

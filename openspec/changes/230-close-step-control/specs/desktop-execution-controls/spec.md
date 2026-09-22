@@ -14,4 +14,4 @@ The desktop execution toolbar SHALL present its stop control with a completion m
 - **GIVEN** the stop control is enabled
 - **WHEN** the user activates it
 - **THEN** the execution is requested to stop exactly as before
-- **AND** the subsequent closure offer is unchanged
+- **AND** nothing else is proposed or launched by that activation

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentexec"
 	"tasks/internal/models"
 )
 
@@ -61,7 +62,9 @@ func FindCliTool(tool string) (string, error) {
 
 // Helper to execute command with timeout and full environment
 func (r *Runner) runCommand(ctx context.Context, dir string, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	// Hidden: the agent reads this output itself, and on Windows it runs with no
+	// console, so an unflagged child would pop one of its own.
+	cmd := agentexec.Hidden(exec.CommandContext(ctx, name, args...))
 	if dir != "" {
 		cmd.Dir = dir
 	}

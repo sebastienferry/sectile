@@ -15,6 +15,7 @@ import { useApp } from '../context/AppContext'
 import type { Status, Priority, TaskSource, TrackerSprint, CloneTaskRequest } from '../types'
 import { LookupField } from './LookupField'
 import { sprintLookup } from '../lib/lookups'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 export const CloneTaskModal: React.FC = () => {
   const {
@@ -90,6 +91,13 @@ export const CloneTaskModal: React.FC = () => {
     }
   }, [isCloneModalOpen, cloneSourceTask])
 
+  const handleClose = () => {
+    setIsCloneModalOpen(false)
+    setCloneSourceTask(null)
+  }
+
+  const backdrop = useBackdropDismiss(handleClose)
+
   useEffect(() => {
     if (!isCloneModalOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -102,11 +110,6 @@ export const CloneTaskModal: React.FC = () => {
   }, [isCloneModalOpen])
 
   if (!isCloneModalOpen || !cloneSourceTask) return null
-
-  const handleClose = () => {
-    setIsCloneModalOpen(false)
-    setCloneSourceTask(null)
-  }
 
   const handleProjectChange = (projId: string) => {
     setTaskProjectId(projId)
@@ -146,11 +149,8 @@ export const CloneTaskModal: React.FC = () => {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div
-        className="w-full max-w-xl rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]"
-        onClick={e => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150" {...backdrop}>
+      <div className="w-full max-w-xl rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/50">
           <div className="flex items-center gap-2.5 min-w-0">

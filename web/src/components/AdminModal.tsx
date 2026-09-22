@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react'
+import React, { useCallback, useEffect } from 'react'
 import { Shield, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { UsersPanel } from './UsersPanel'
+import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 /**
  * Dedicated administration modal window, accessible strictly to users holding
@@ -12,16 +13,19 @@ export const AdminModal: React.FC = () => {
   const { isAdminOpen, setIsAdminOpen } = useApp()
   const { user: currentUser } = useCurrentUser()
 
+  const handleClose = useCallback(() => setIsAdminOpen(false), [setIsAdminOpen])
+  const backdrop = useBackdropDismiss(handleClose)
+
   useEffect(() => {
     if (!isAdminOpen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsAdminOpen(false)
+        handleClose()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isAdminOpen, setIsAdminOpen])
+  }, [isAdminOpen, handleClose])
 
   // Strictly refuse display if the modal is not requested or if the user is not an admin
   if (!isAdminOpen || currentUser?.role !== 'admin') {
@@ -31,9 +35,7 @@ export const AdminModal: React.FC = () => {
   return (
     <div
       className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
-      onClick={e => {
-        if (e.target === e.currentTarget) setIsAdminOpen(false)
-      }}
+      {...backdrop}
     >
       <div
         className="relative w-full max-w-2xl rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col max-h-[calc(var(--app-h)*0.92)] animate-in zoom-in-95 duration-150"
