@@ -93,7 +93,11 @@ ipcMain.handle('start',async(_,settings)=>{
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Use an HTTP or HTTPS server URL')
   // A pairing code is spent here, once the server address is known to be usable:
   // burning a single-use code on a malformed URL would cost the user a new one.
-  const credential=await resolveConnectCredential(settings)
+  // With no code, the credential an earlier pairing left behind restarts the
+  // agent: the form asks for a code, never for a key to paste back in.
+  let kept=''
+  try{kept=storedKey(readSettings())}catch{}
+  const credential=await resolveConnectCredential({...settings,token:kept})
   const token=credential.token
   await checkServer(url,token)
   // Preserve existing mappings when upgrading; new installations use private app data.

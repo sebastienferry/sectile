@@ -73,8 +73,8 @@ test('a workstation that is already paired connects on its token alone', async (
  assert.strictEqual(credential.paired, false)
 })
 
-// Typing a code is a deliberate act of re-pairing, so it outranks a token the
-// form kept from an earlier connection.
+// Typing a code is a deliberate act of re-pairing, so it outranks the credential
+// an earlier pairing stored.
 test('a pairing code outranks a token left in the form', async () => {
  const credential = await resolveConnectCredential(
   {server: 'http://127.0.0.1:8090', code: 'code-4', token: 'stale-token'},
@@ -83,11 +83,11 @@ test('a pairing code outranks a token left in the form', async () => {
  assert.strictEqual(credential.paired, true)
 })
 
-test('an empty form is refused before anything is spent', async () => {
+test('an empty form with no stored credential is refused before anything is spent', async () => {
  await assert.rejects(
   resolveConnectCredential({server: 'http://127.0.0.1:8090', code: '  ', token: '  '},
    () => { throw Error('the network must not be reached') }),
-  /pairing code, or an API key/)
+  /Enter a pairing code/)
 })
 
 test('a server that answers nothing is reported as unreachable, pointing at the address', async () => {

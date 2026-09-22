@@ -30,15 +30,15 @@ async function exchangePairingCode(server, code, label = os.hostname(), fetcher 
  return {token: body.token, deviceId: body.deviceId, userId: body.userId}
 }
 
-// The connect form offers two ways in: a pairing code, which is spent once for
-// an API key, or an API key created in the web profile or kept from an earlier
-// pairing. The code wins when both are filled, because typing one is a
-// deliberate re-pairing.
+// Pairing is the only way in: the form asks for a code, which is spent once for
+// a device credential. `token` is not something a user types any more, it is the
+// credential an earlier pairing stored; the code wins when both are present,
+// because typing one is a deliberate re-pairing.
 async function resolveConnectCredential(settings, exchange = exchangePairingCode, label = os.hostname()) {
  const code = String(settings.code || '').trim()
  if (!code) {
   const token = String(settings.token || '').trim()
-  if (!token) throw Error('Enter a pairing code, or an API key from your profile in the web interface')
+  if (!token) throw Error('Enter a pairing code from your profile in the web interface')
   return {token, paired: false}
  }
  const credential = await exchange(settings.server, code, label)

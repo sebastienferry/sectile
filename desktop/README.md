@@ -53,11 +53,24 @@ remains visible. The project directory browser discovers server projects and
 saves local Git repository mappings.
 
 Closing the window or quitting Electron keeps the detached agent and tasks alive.
-Reopening restores the connection. Open **Agent logs** in the top toolbar to read
-agent diagnostics, including while disconnected or after a failed start. Logs fill
-the content area beside the usable project sidebar, retaining its width and collapse
-preference. **Close logs** or Escape returns to the execution or offline setup;
-selecting an execution in the sidebar returns to its execution view. Terminal colors, cursor
+Reopening restores the connection. The gear at the bottom of the project sidebar
+opens **Settings**, the workstation-wide panel: **General** (the installed
+versions and the release notes, opened first), **User profile**, **Agent
+connection** and **Agent logs**. Stop and restart sit in that same footer, and
+the connection state leads it: a green dot reading **Connected**, an orange one
+reading **Not connected** or **Server incompatible**. The server address is the
+tooltip, and **Connected** is the link that opens the board. One corner of the
+window owns the workstation, the footer glyphs carry no frame, and the header is
+a title bar again. **Hide projects** collapses the sidebar to that footer alone,
+a narrow rail: the list goes, the controls and the dot stay, and the dot still
+opens the board once the words are dropped. Starting the agent belongs to the connection screen's own
+**Start local agent** button, because the sidebar is hidden exactly while the
+agent is stopped. Open the **Agent logs**
+category to read agent diagnostics; while the
+agent is stopped the sidebar is hidden, so the connection screen carries its own
+**Agent logs** button and opens the panel on that category. **Close settings** or
+Escape returns to the execution or the offline setup, leaving the selected
+execution and its console untouched. Terminal colors, cursor
 commands and title sequences are removed from the display while readable Unicode
 and line breaks are preserved. The stored log is unchanged. The viewer
 shows the desktop-owned `agent.log` path and the latest 256 KiB, with a notice when
@@ -72,7 +85,7 @@ exported logs contain plain text scrollback.
 
 Executions that fail or are canceled before a console is created show an
 explanation instead of opening a terminal connection. For launch failures, check
-the task activity and **Agent logs** in the top toolbar.
+the task activity and **Agent logs** in the settings panel.
 When a task's assigned branch is already open in the main repository checkout,
 the agent reuses that checkout and preserves its local changes.
 
@@ -243,7 +256,10 @@ directory. Local worktree preferences are stored per project in
 `~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
-The profile is a placeholder for future account management.
+**Settings → User profile** states what this workstation knows about the
+account: the paired server, the workstation identifier, and whether a pairing
+credential is stored here. Display name, password and API keys stay server-owned;
+**Open the web interface** goes there.
 
 ### Remove a local project
 
@@ -312,6 +328,17 @@ The `serve`, `start` and `run` targets run from source and need no prior build. 
 arguments with, for example, `make start ARGS="--url http://localhost:8090"`; provide
 authentication through `TOKEN`.
 
+Workstation settings open from the gear at the bottom of the project sidebar and
+use the same side navigation: **User profile**, **Agent connection** and **Agent
+logs**, with **User profile** first. **Agent connection** reports the local
+agent, the server link, and the connect form itself: the same form the
+connection screen shows, borrowed while the category is open and returned when
+the panel closes. Pairing is the only credential the desktop asks for — paste a
+code from **Pair a workstation** in the web interface. There is no API key field;
+the credential a pairing leaves behind is what restarts a stopped agent, with no
+code to type again. A running agent owns the link, so **Connect** stays disabled
+until the agent is stopped, and the panel says so.
+
 Project configuration lists its categories in a side navigation, one panel at a
 time: **General** (local repository, removal from the desktop), **Execution**
 (worktrees, parallel executions, terminal emulator), **AI agent** (provider,
@@ -328,8 +355,8 @@ whichever category is open; **Deployment** and **Server** hide it because they
 store nothing. Server metadata and skill content remain read-only.
 
 Hover or keyboard-focus a project row and activate **Open tasks** to list its
-open server tasks in the **Tickets** pane, which takes the console's place the
-way **Agent logs** does; the **+** menu's **Run an existing ticket** and the
+open server tasks in the **Tickets** pane, which takes the console's place; the
+**+** menu's **Run an existing ticket** and the
 command palette's **Tasks list** action open the same pane. **Tasks list** uses
 the selected project, or the only configured one, and otherwise asks which
 project to browse. **Close tickets** or Escape returns to the selected execution and
