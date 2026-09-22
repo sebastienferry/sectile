@@ -17,6 +17,10 @@ type GithubIssueItem struct {
 	URL         string          `json:"url"`
 	HTMLURL     string          `json:"html_url"`
 	State       string          `json:"state"`
+	User *struct {
+		Login     string `json:"login"`
+		AvatarURL string `json:"avatar_url"`
+	} `json:"user"`
 	Milestone   *struct {
 		Title  string `json:"title"`
 		Number int    `json:"number"`
@@ -100,23 +104,32 @@ func githubTask(repo string, item GithubIssueItem) (*models.Task, error) {
 		}
 	}
 
+	creator := ""
+	creatorAvatar := ""
+	if item.User != nil {
+		creator = item.User.Login
+		creatorAvatar = item.User.AvatarURL
+	}
+
 	task := &models.Task{
-		ID:          fmt.Sprintf("gh-%d", item.Number),
-		Key:         fmt.Sprintf("#%d", item.Number),
-		Title:       item.Title,
-		Description: item.Body,
-		Status:      status,
-		Priority:    models.PriorityMedium,
-		Labels:      labels,
-		Assignee:    assignee,
-		Sprint:      sprint,
-		ParentKey:   parentKey,
-		ParentTitle: parentTitle,
-		ParentType:  "macro",
-		Source:      "github",
-		ExternalURL: &extURL,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		ID:            fmt.Sprintf("gh-%d", item.Number),
+		Key:           fmt.Sprintf("#%d", item.Number),
+		Title:         item.Title,
+		Description:   item.Body,
+		Status:        status,
+		Priority:      models.PriorityMedium,
+		Labels:        labels,
+		Assignee:      assignee,
+		Creator:       creator,
+		CreatorAvatar: creatorAvatar,
+		Sprint:        sprint,
+		ParentKey:     parentKey,
+		ParentTitle:   parentTitle,
+		ParentType:    "macro",
+		Source:        "github",
+		ExternalURL:   &extURL,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 
 	return task, nil

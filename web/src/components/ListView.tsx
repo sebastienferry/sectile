@@ -597,16 +597,25 @@ export const ListView: React.FC = () => {
           </div>
         </td>
 
-        {/* Assignee */}
+        {/* Assignee & Creator */}
         <td className="py-2.5 px-3 whitespace-nowrap text-xs text-[var(--text-secondary)]">
-          {task.assignee ? (
-            <div className="flex items-center gap-1.5">
-              <Avatar name={task.assignee} url={task.assigneeAvatar} size={20} />
-              <span className="truncate max-w-[90px]">{task.assignee}</span>
-            </div>
-          ) : (
-            <span className="text-[var(--text-muted)] text-[11px]">-</span>
-          )}
+          <div className="flex flex-col gap-0.5">
+            {task.assignee ? (
+              <div className="flex items-center gap-1.5" title={`Assigné : ${task.assignee}`}>
+                <Avatar name={task.assignee} url={task.assigneeAvatar} size={18} />
+                <span className="truncate max-w-[90px]">{task.assignee}</span>
+              </div>
+            ) : (
+              <span className="text-[var(--text-muted)] text-[11px]">-</span>
+            )}
+            {task.creator && (
+              <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" title={`Créé par : ${task.creator}`}>
+                <span className="opacity-70">par</span>
+                <Avatar name={task.creator} url={task.creatorAvatar} size={14} />
+                <span className="truncate max-w-[80px]">{task.creator}</span>
+              </div>
+            )}
+          </div>
         </td>
 
         {/* Due Date & Git / PR / MR */}

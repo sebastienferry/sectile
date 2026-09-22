@@ -809,3 +809,82 @@ func TestJiraSyncWithoutAWindowAsksForTheWholeProject(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestJiraSyncMapsCreatorAndReporterFallback(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("GET", "/rest/api/3/search/jql", `{
+		"issues": [
+			{
+				"key": "PE-1",
+				"fields": {
+					"summary": "Creator present",
+					"status": {"name": "To Do", "statusCategory": {"key": "new"}},
+					"creator": {
+						"displayName": "Ada Lovelace",
+						"accountId": "ada-123",
+						"avatarUrls": {"48x48": "https://jira.example.com/avatar/ada.png"}
+					},
+					"reporter": {
+						"displayName": "Reporter Name",
+						"accountId": "rep-123",
+						"avatarUrls": {"48x48": "https://jira.example.com/avatar/rep.png"}
+					}
+				}
+			},
+			{
+				"key": "PE-2",
+				"fields": {
+					"summary": "Reporter fallback",
+					"status": {"name": "To Do", "statusCategory": {"key": "new"}},
+					"creator": null,
+					"reporter": {
+						"displayName": "Charles Babbage",
+						"accountId": "charles-456",
+						"avatarUrls": {"48x48": "https://jira.example.com/avatar/charles.png"}
+					}
+				}
+			},
+			{
+				"key": "PE-3",
+				"fields": {
+					"summary": "Creator accountId fallback when displayName empty",
+					"status": {"name": "To Do", "statusCategory": {"key": "new"}},
+					"creator": {
+						"displayName": "",
+						"accountId": "alan-turing",
+						"avatarUrls": {"32x32": "https://jira.example.com/avatar/alan.png"}
+					}
+				}
+			}
+		],
+		"isLast": true
+	}`)
+	tasks, err := site.adapter().SyncIssues(context.Background(), tracker.SyncRequest{Project: jiraProject()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("len(tasks) = %d, want 3", len(tasks))
+	}
+	// Task 1: Creator used
+	if tasks[0].Creator != "Ada Lovelace" {
+		t.Errorf("task[0].Creator = %q, want %q", tasks[0].Creator, "Ada Lovelace")
+	}
+	if tasks[0].CreatorAvatar != "https://jira.example.com/avatar/ada.png" {
+		t.Errorf("task[0].CreatorAvatar = %q, want %q", tasks[0].CreatorAvatar, "https://jira.example.com/avatar/ada.png")
+	}
+	// Task 2: Reporter fallback
+	if tasks[1].Creator != "Charles Babbage" {
+		t.Errorf("task[1].Creator = %q, want %q", tasks[1].Creator, "Charles Babbage")
+	}
+	if tasks[1].CreatorAvatar != "https://jira.example.com/avatar/charles.png" {
+		t.Errorf("task[1].CreatorAvatar = %q, want %q", tasks[1].CreatorAvatar, "https://jira.example.com/avatar/charles.png")
+	}
+	// Task 3: AccountId fallback and non-48x48 avatar fallback
+	if tasks[2].Creator != "alan-turing" {
+		t.Errorf("task[2].Creator = %q, want %q", tasks[2].Creator, "alan-turing")
+	}
+	if tasks[2].CreatorAvatar != "https://jira.example.com/avatar/alan.png" {
+		t.Errorf("task[2].CreatorAvatar = %q, want %q", tasks[2].CreatorAvatar, "https://jira.example.com/avatar/alan.png")
+	}
+}

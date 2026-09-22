@@ -68,8 +68,16 @@ func (m migration) statementsFor(engine Driver) []string {
 //
 // Versions are contiguous from baselineVersion + 1 and never reordered or
 // renumbered once merged: a database that has applied 2 and 3 decides what to
-// run next by number alone. TestMigrationsAreNumberedInOrder holds that.
-var migrations []migration
+var migrations = []migration{
+	{
+		version: 2,
+		name:    "tasks.creator",
+		statements: []string{
+			"ALTER TABLE tasks ADD COLUMN creator TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE tasks ADD COLUMN creator_avatar TEXT NOT NULL DEFAULT '';",
+		},
+	},
+}
 
 // migrateSchema brings the database to the schema this binary expects, and is
 // the only path that may change it.
