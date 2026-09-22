@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import {
   Inbox,
   HelpCircle,
@@ -35,6 +35,7 @@ import {
   Star,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { useClickOutside } from '../hooks/useClickOutside'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentBadgeStyle } from '../lib/accents'
 import type { Status, TaskSource } from '../types'
@@ -158,16 +159,11 @@ export const Sidebar: React.FC = () => {
   const [projectSearch, setProjectSearch] = useState('')
   const projectDropdownRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (projectDropdownRef.current && !projectDropdownRef.current.contains(e.target as Node)) {
-        setIsProjectDropdownOpen(false)
-        setProjectSearch('')
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+  const closeProjectDropdown = useCallback(() => {
+    setIsProjectDropdownOpen(false)
+    setProjectSearch('')
   }, [])
+  useClickOutside(projectDropdownRef, closeProjectDropdown)
 
   const { searchBookmarked, searchOthers } = React.useMemo(() => {
     const q = projectSearch.trim().toLowerCase()

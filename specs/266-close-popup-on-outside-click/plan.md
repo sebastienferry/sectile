@@ -24,19 +24,23 @@ Rejected: a shared `useDismissOnOutsideClick(ref)` installing a document listene
 dialog is open. It reintroduces the layering problem (both dialogs' listeners fire on one
 click) and puts a listener in the path of every board drag.
 
-### D2 — The gesture is a press *and* a release on the backdrop
+### D2 — The whole gesture is watched: press, release, then click
 
 A bare `onClick` with `e.target === e.currentTarget` is not enough: `click` fires on the
 nearest common ancestor of `mousedown` and `mouseup`, which for a selection dragged out of the
 dialog *is* the backdrop. The dialog would close on a gesture that never meant to close it
 (US2).
 
-So the backdrop carries two props: `onMouseDown` records whether the press landed on the
-backdrop itself, and `onClick` closes only if that flag is set *and* the click target is the
-backdrop. The flag is cleared on every press, so a press inside followed by a press outside
-behaves as expected.
+Watching the press alone is not enough either, and the browser regression is what showed it:
+pressing beside the dialog and releasing over it reports the same click target as pressing and
+releasing beside it. Both halves of US2 need both halves of the gesture.
 
-The state is a `useRef`, not `useState` — it must never cause a render, and it is read
+So the backdrop carries three props. `onMouseDown` records whether the press landed on the
+backdrop, `onMouseUp` records the same for the release, and `onClick` closes only when the
+press, the release and the click itself all landed on the backdrop. A press starts a fresh
+gesture and a click spends it, so no verdict is ever carried over.
+
+The gesture is held in a `useMemo`, not in state — it must never cause a render, and it is read
 synchronously in the click that follows the press.
 
 ### D3 — One hook, one pure predicate
@@ -44,12 +48,12 @@ synchronously in the click that follows the press.
 - `web/src/lib/backdropDismiss.ts` — the decision, pure and DOM-free enough to unit-test:
 
   ```ts
-  export const pressLandedOnBackdrop = (target: EventTarget | null, backdrop: EventTarget | null): boolean
-  export const shouldDismiss = (pressedBackdrop: boolean, clickTarget: EventTarget | null, backdrop: EventTarget | null): boolean
+  export const landedOnBackdrop = (target: EventTarget | null, backdrop: EventTarget | null): boolean
+  export const createBackdropGesture = (): BackdropGesture  // press / release / dismisses
   ```
 
-  Both are total functions over `null`, since a press outside the window can leave a click with
-  no usable target.
+  `landedOnBackdrop` is total over `null`, since a press begun outside the window can leave an
+  event with no usable target.
 
 - `web/src/hooks/useBackdropDismiss.ts` — a hook returning the two props to spread on the
   backdrop element:
@@ -59,22 +63,28 @@ synchronously in the click that follows the press.
   // <div className="fixed …" {...backdrop}>
   ```
 
-  It holds the `useRef` of D2 and nothing else. Spreading keeps the call sites to one line and
-  makes it impossible to wire `onClick` while forgetting `onMouseDown`.
+  It holds the gesture of D2 and nothing else. Spreading keeps the call sites to one line and
+  makes it impossible to wire `onClick` while forgetting the press and the release.
 
 `onClose` is called as given. No dialog's close path is rewritten, which is what keeps US4
 true: `TaskDetailModal` passes its `handleClose`, so the autosave-on-close still runs.
 
-### D4 — `Escape` follows the existing per-dialog pattern
+### D4 — `Escape` is caught on the way down, in `useEscapeKey`
 
-The five dialogs without `Escape` get the same `useEffect` + `window.addEventListener('keydown')`
-that their eleven siblings already use, guarded by the same "am I open?" condition. No shared
-hook for this: the guards differ (`isOpen` flags, nullable state objects, nested layers), and
-factoring them would cost more than it saves.
+The plan first had each of the five dialogs repeat the `useEffect` +
+`window.addEventListener('keydown')` of its siblings. Reading the code that would run
+alongside it changed that: `AppContext` keeps a ranked `Escape` handler of its own
+(`AppContext.tsx:3279`) on top of the eleven per-dialog ones, and listeners on the same target
+fire in registration order — so `TrackerSetup`, opened *over* `ProjectModal`, would have closed
+both on one key press. That is exactly the layering US3 forbids for the click.
 
-For the nested cases the topmost handler wins because its dialog is the only one mounted with
-that state — `TrackerSetup` and the spec reader already sit behind their own condition, and
-`TaskDetailModal` already ranks its layers inside a single handler.
+`web/src/hooks/useEscapeKey.ts` catches the key in the capture phase on `document` and stops it
+there, so the topmost dialog spends it before any `window` handler sees it. The five dialogs
+adopting it hold no nested `Escape` of their own (checked: none of them renders a `LookupField`
+or any other keyboard-dismissed widget), so nothing inside them loses the key.
+
+The eleven existing handlers are left alone: rewiring dialogs that already behave correctly is
+not this ticket's business.
 
 ### D5 — Anchored menus: mechanical deduplication only
 
@@ -110,6 +120,7 @@ handling.
 |---|---|
 | `web/src/lib/backdropDismiss.ts` | new — the two predicates of D3 |
 | `web/src/hooks/useBackdropDismiss.ts` | new — the hook of D3 |
+| `web/src/hooks/useEscapeKey.ts` | new — the capture-phase `Escape` of D4 |
 | `web/src/hooks/useClickOutside.ts` | new — the shared effect of D5 |
 | `web/src/components/CloneTaskModal.tsx` | backdrop dismissal |
 | `web/src/components/QuickAddModal.tsx` | backdrop dismissal |
@@ -131,9 +142,10 @@ handling.
 
 ## Test plan
 
-- **Unit (`node --test`)** — `backdropDismiss.test.mjs` over the pure predicates: press on the
-  backdrop then click on it closes; press inside then release on the backdrop does not; press
-  on the backdrop then release inside does not; a `null` target never closes.
+- **Unit (`node --test`)** — `backdropDismiss.test.mjs` over the pure gesture: press and release
+  on the backdrop closes; press inside then release on the backdrop does not; press on the
+  backdrop then release inside does not; a click inside does not; a spent gesture does not
+  close twice; a `null` target never closes.
 - **Browser (Playwright, run by hand)** — `outside-click.browser.mjs` mounts a dialog wired
   with `useBackdropDismiss` over the real stylesheet and drives the four gestures of US1/US2
   plus the two-layer case of US3, asserting the close callback count each time. It follows the
