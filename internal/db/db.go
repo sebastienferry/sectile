@@ -472,6 +472,32 @@ func (d *DB) initSchema() error {
 			UNIQUE(project_id, key)
 		);`,
 		taskActivitiesSchema("task_activities"),
+		// skill_marketplaces is the deployment-wide registry of sources a
+		// project may take its workflow skill bodies from. The name is the key
+		// a project pins against, and the cache directory the agent derives.
+		`CREATE TABLE IF NOT EXISTS skill_marketplaces (
+			name TEXT PRIMARY KEY,
+			kind TEXT NOT NULL,
+			locator TEXT NOT NULL,
+			owner TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			last_commit TEXT NOT NULL DEFAULT '',
+			last_fetched_at TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL
+		);`,
+		// project_skill_packs is the pin: one plugin, at one revision, per
+		// project. It is a project fact rather than a per-skill one, and it is
+		// read by the skills screen alone, so it stays out of the already wide
+		// projects row.
+		`CREATE TABLE IF NOT EXISTS project_skill_packs (
+			project_id TEXT PRIMARY KEY,
+			marketplace TEXT NOT NULL,
+			plugin TEXT NOT NULL,
+			version TEXT NOT NULL DEFAULT '',
+			commit_sha TEXT NOT NULL DEFAULT '',
+			applied_at TEXT NOT NULL,
+			applied_skills TEXT NOT NULL DEFAULT '[]'
+		);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_position ON tasks(status, position);`,
 		`CREATE INDEX IF NOT EXISTS idx_activities_task ON task_activities(task_id, created_at DESC);`,

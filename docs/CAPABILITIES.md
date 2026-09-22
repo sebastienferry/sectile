@@ -202,6 +202,61 @@ framework value; the database migrates that value to `openspec` on startup.
 
 ---
 
+## 2c. Workflow skills sourced from a marketplace
+
+The ten workflow skills come from the catalogue compiled into the binary. A
+project may edit any of them, and it may also take their **bodies** from an
+external source: a **marketplace** in the official Claude plugin format — a git
+repository, or a plain directory, carrying `.claude-plugin/marketplace.json`.
+See [ADR 0016](adrs/0016-skills-can-come-from-a-marketplace.md).
+
+Vocabulary, shared with the packaging work: a **marketplace** is the repository,
+a **plugin** is the unit a project selects, a **pack** is that plugin's skill
+bodies resolved at one commit, and **applying** is the explicit action that
+makes a pack the project's baseline.
+
+- **Registered once for the deployment.** An administrator registers a source by
+  GitHub repository (`owner/repo`), by git URL, or by local directory path.
+  Registration resolves the source first, so an unusable locator is refused with
+  its reason. Reading the registry is open to anyone signed in.
+- **Sectile parses the format itself.** It never invokes the `claude` CLI, so a
+  project running codex, agy, gemini, cursor or vibe uses a marketplace exactly
+  as a `claude` project does.
+- **Bodies only, for the ten known skills.** An entry is accepted when its skill
+  directory name is one of `clarify-issue`, `specify-issue`, `code-issue`,
+  `adjust-issue`, `handoff-issue`, `create-pr`, `pickup-issue`, `pickup-issues`,
+  `rewrite-story`, `refine-macro`. Any other directory — another skill, a
+  command, an agent, a hook — is reported as ignored and installed nowhere. A
+  pack cannot create a workflow step.
+- **The generated contracts always survive.** Sectile keeps producing the
+  frontmatter, the title, the stage line, the task-access and session-title
+  contracts, the ticket-transition contract and the project's pull request
+  policy; the pack body sits between them under `## Project instructions`. The
+  batch skills keep composing their stage sections from the resolved bodies, so
+  a pack that updates `clarify` updates `pickup` too.
+- **Precedence is built-in → pack → project edit**, the project's own edit always
+  winning. The skill editor shows the resolved baseline as the default content,
+  so a reset lands on the pack body when there is one, and on the catalogue when
+  there is not.
+- **Applying is explicit, and nothing re-resolves on its own.** Fetching and
+  previewing write nothing. The project records the marketplace, the plugin, its
+  version and the resolved commit, then reads its own cache: the marketplace can
+  move without changing what the project runs, and a pinned project installs its
+  skills with the network gone. The format's `autoUpdate` flag is read as
+  information and never acted upon.
+- **Reversible.** Unpinning restores the built-in catalogue and leaves every
+  hand-edited skill alone. Removing a marketplace from the registry keeps the
+  projects that pinned it running the bodies they applied and reports their pin
+  as orphaned.
+
+Every repository read runs on the workstation through the local agent
+(`marketplace_catalog`, `marketplace_pack`; cache under
+`~/.taskflow/marketplaces/`), beside `sync_config` and `spec_install`. Each
+application is recorded as an activity (`skillId: apply_skill_pack`) carrying
+what was applied, ignored and refused.
+
+---
+
 ## 3bis. Execution modes
 
 A skill run is executed in one of two modes.

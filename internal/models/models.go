@@ -574,6 +574,113 @@ type SkillEditorEntry struct {
 	Diverged       bool     `json:"diverged"`
 	RepoContent    string   `json:"repoContent,omitempty"`
 	RepoPath       string   `json:"repoPath,omitempty"`
+	// Origin says where the baseline under the project's own edits comes from:
+	// SkillOriginBuiltin or SkillOriginMarketplace. PackOrigin names the pack
+	// when it is a marketplace one.
+	Origin     string `json:"origin,omitempty"`
+	PackOrigin string `json:"packOrigin,omitempty"`
+}
+
+// Where the baseline of a skill comes from, under whatever the project edited.
+const (
+	SkillOriginBuiltin     = "builtin"
+	SkillOriginMarketplace = "marketplace"
+)
+
+// The three ways a marketplace is registered, mirroring the official format's
+// own source kinds.
+const (
+	MarketplaceKindGithub = "github"
+	MarketplaceKindGit    = "git"
+	MarketplaceKindPath   = "path"
+)
+
+// SkillMarketplace is one registered source of workflow skill bodies: a git
+// repository, or a directory, carrying `.claude-plugin/marketplace.json`. The
+// registry is deployment-wide; what a project uses out of it is its pin.
+type SkillMarketplace struct {
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`    // github | git | path
+	Locator       string `json:"locator"` // owner/repo, git URL, or absolute path
+	Owner         string `json:"owner,omitempty"`
+	Description   string `json:"description,omitempty"`
+	LastCommit    string `json:"lastCommit,omitempty"`
+	LastFetchedAt string `json:"lastFetchedAt,omitempty"`
+	CreatedAt     string `json:"createdAt,omitempty"`
+	// PinnedBy names the projects that pin a plugin of this marketplace. It is
+	// filled when removal is refused or reported, not on every read.
+	PinnedBy []string `json:"pinnedBy,omitempty"`
+}
+
+// MarketplacePlugin is one plugin of a catalogue, with what it would actually
+// give a project: the workflow skills it supplies, and the directories Sectile
+// would ignore.
+type MarketplacePlugin struct {
+	Name        string   `json:"name"`
+	Source      string   `json:"source"`
+	Description string   `json:"description,omitempty"`
+	Version     string   `json:"version,omitempty"`
+	Skills      []string `json:"skills"`            // accepted workflow directories
+	Ignored     []string `json:"ignored,omitempty"` // other directories, never installed
+	Error       string   `json:"error,omitempty"`   // why this plugin supplies nothing
+}
+
+// MarketplaceCatalog is a marketplace read at one revision.
+type MarketplaceCatalog struct {
+	Name        string              `json:"name"`
+	Owner       string              `json:"owner,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Commit      string              `json:"commit,omitempty"`
+	Plugins     []MarketplacePlugin `json:"plugins"`
+}
+
+// SkillPack is one plugin resolved at one revision: the bodies it supplies,
+// keyed by workflow skill directory, plus everything it could not give.
+//
+// The key is the directory name and not the skill id: the directory name is
+// what the format carries, and it is the only thing the agent can match
+// without the server's catalogue.
+type SkillPack struct {
+	Marketplace string            `json:"marketplace"`
+	Plugin      string            `json:"plugin"`
+	Version     string            `json:"version,omitempty"`
+	Commit      string            `json:"commit,omitempty"`
+	Bodies      map[string]string `json:"bodies"`
+	Ignored     []string          `json:"ignored,omitempty"`
+	Rejected    map[string]string `json:"rejected,omitempty"` // directory -> reason
+	Warnings    []string          `json:"warnings,omitempty"`
+}
+
+// SkillPackPreviewEntry is what one workflow skill would become.
+type SkillPackPreviewEntry struct {
+	SkillID  string `json:"skillId"`
+	DirName  string `json:"dirName"`
+	Name     string `json:"name"`
+	Current  string `json:"current"`
+	Proposed string `json:"proposed"`
+	Changed  bool   `json:"changed"`
+}
+
+// SkillPackPreview is the read-only answer of a fetch: nothing it describes has
+// been written anywhere.
+type SkillPackPreview struct {
+	Pack    SkillPack               `json:"pack"`
+	Entries []SkillPackPreviewEntry `json:"entries"`
+	Missing []string                `json:"missing,omitempty"` // workflow skills the pack does not supply
+}
+
+// SkillPackPin is what a project recorded when it applied a pack. Orphaned
+// means its marketplace is no longer registered: the applied bodies keep
+// working, and the coordinates are reported as unresolvable.
+type SkillPackPin struct {
+	ProjectID   string   `json:"projectId"`
+	Marketplace string   `json:"marketplace"`
+	Plugin      string   `json:"plugin"`
+	Version     string   `json:"version,omitempty"`
+	Commit      string   `json:"commit,omitempty"`
+	AppliedAt   string   `json:"appliedAt,omitempty"`
+	Skills      []string `json:"skills"`
+	Orphaned    bool     `json:"orphaned,omitempty"`
 }
 
 type ProjectSkillsStatus struct {

@@ -1094,6 +1094,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/skill-pack: the marketplace pack this
+	// project runs, what another one would change, and applying it.
+	if len(parts) >= 2 && parts[1] == "skill-pack" {
+		h.handleProjectSkillPack(w, r, id, parts)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/skill-editor
 	//   GET                          → the five workflow skills, content included
 	//   PUT    /{skillId}            → save the edited content and regenerate the files

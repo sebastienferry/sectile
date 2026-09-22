@@ -1,0 +1,33 @@
+{
+  "name": "acme-workflow",
+  "owner": { "name": "Acme Platform", "email": "platform@acme.example" },
+  "metadata": { "description": "Acme's workflow prompts" },
+  "plugins": [
+    {
+      "name": "acme-flow",
+      "source": "./plugins/workflow",
+      "description": "The four stages Acme runs",
+      "version": "2.1.0"
+    },
+    {
+      "name": "acme-extras",
+      "source": "./plugins/mixed",
+      "description": "Handoff plus prompts Sectile does not own"
+    },
+    {
+      "name": "acme-broken",
+      "source": "./plugins/broken",
+      "description": "One good body, one refused"
+    },
+    {
+      "name": "acme-docs",
+      "source": "./plugins/unrelated",
+      "description": "Nothing Sectile can use"
+    },
+    {
+      "name": "acme-escape",
+      "source": "../outside",
+      "description": "Points out of the marketplace"
+    }
+  ]
+}

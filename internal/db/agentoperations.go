@@ -95,6 +95,12 @@ func operationTimeout(action string) time.Duration {
 	if action == "spec_install" {
 		return 7 * time.Minute
 	}
+	// Reading a marketplace clones or fetches a repository, so it gets the
+	// network budget rather than the read-only one; three minutes is ample for
+	// a blobless clone and still fails while someone is watching.
+	if action == "marketplace_catalog" || action == "marketplace_pack" {
+		return 3 * time.Minute
+	}
 	if action == "run_prompt" {
 		return 12 * time.Minute
 	}
