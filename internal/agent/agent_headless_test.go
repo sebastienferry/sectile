@@ -136,3 +136,61 @@ func TestHeadlessRunIsStoppable(t *testing.T) {
 		t.Fatalf("status = %q, want canceled", run.desktop.Status)
 	}
 }
+
+// A pipeline reports the failure of any of its stages. Without pipefail a dying
+// provider CLI behind a filter that exits zero is recorded as a run that
+// completed and printed nothing, which is the silence this change removes.
+func TestHeadlessRunFailsWhenAStageOfThePipelineFails(t *testing.T) {
+	_, run := runHeadless(t, "echo hello; exit 3 | cat")
+	if run.desktop.Status != "failed" {
+		t.Fatalf("status = %q, want failed: a broken pipeline must not report success", run.desktop.Status)
+	}
+}
+
+// The agent keeps its own copy of the output so the desktop can show a run that
+// has no console to attach to.
+func TestHeadlessRunKeepsATranscript(t *testing.T) {
+	_, run := runHeadless(t, "echo transcribed")
+	if !strings.Contains(run.transcript, "transcribed") {
+		t.Fatalf("transcript = %q, want the run output", run.transcript)
+	}
+}
+
+// jq is a prerequisite of the shipped autonomous presets. A workstation without
+// it must say so, on the run, before anything is spawned.
+func TestHeadlessRunRefusesAMissingPipelineTool(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	server := newHeadlessServer(t)
+	d := &agentDaemon{link: serverLink{serverURL: server.server.URL}}
+	payload := agentconfig.Dispatch{RunID: "run-jq", TaskKey: "#7", SkillID: "clarify"}
+	err := d.startHeadlessRun("task-a", payload, agentconfig.Config{ProjectID: "project"}, t.TempDir(), "feat/x", map[string]string{}, `echo hi | jq .`, "claude", "claude-opus-5")
+	if err == nil {
+		t.Fatal("a command line needing an absent jq must not be launched")
+	}
+	if !strings.Contains(err.Error(), "jq") {
+		t.Fatalf("the refusal must name the missing tool, got %q", err)
+	}
+	d.queue.mu.Lock()
+	run := d.queue.runs["run-jq"]
+	d.queue.mu.Unlock()
+	if run == nil || run.desktop.Status != "failed" {
+		t.Fatalf("the run must be recorded as failed, got %+v", run)
+	}
+	if !strings.Contains(server.captured(), "jq") {
+		t.Fatalf("the run output must name jq, got %q", server.captured())
+	}
+}
+
+// The detection is a word match, so a command line that only mentions jq inside
+// its prompt is not held back by a tool it never invokes.
+func TestMissingPipelineToolMatchesAnInvocationNotAWord(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	if got := missingPipelineTool(`claude -p 'explain jqueries and jq-like tools'`); got != "" {
+		t.Fatalf("missingPipelineTool = %q, want no missing tool for a prompt that merely mentions it", got)
+	}
+	for _, line := range []string{"echo x | jq .", "jq . file", "echo x|jq ."} {
+		if got := missingPipelineTool(line); got != "jq" {
+			t.Fatalf("missingPipelineTool(%q) = %q, want jq", line, got)
+		}
+	}
+}

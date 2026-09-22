@@ -69,7 +69,18 @@ type controlledRun struct {
 	token    string
 	canceled bool
 	exited   chan struct{}
-	once     sync.Once
+	// transcript is the output of a headless run, kept so the desktop can show
+	// it: that run has no PTY session to read from. Bounded by
+	// headlessTranscriptLimit, head dropped first, guarded by queue.mu.
+	//
+	// dropped counts the bytes the head has lost, so a position in the run's
+	// output keeps meaning the same place after a truncation. The desktop polls
+	// with such a position; an index into transcript alone would silently point
+	// somewhere else as soon as the window slides.
+	transcript          string
+	dropped             int
+	transcriptTruncated bool
+	once                sync.Once
 }
 
 func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {

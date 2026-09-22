@@ -674,6 +674,29 @@ result" rather than an error: the main process returns null to the renderer
 instead of rejecting the IPC call, and clearing the history drops the removed
 runs locally before the next poll.
 
+### Headless run output lookup
+
+`GET /desktop/run-output?id=<run-id>&offset=<bytes>` is authenticated with the
+same loopback agent credential and serves what an autonomous (headless) run has
+printed. Such a run has no PTY for the console pane to attach to, so the pane
+polls this endpoint instead of `/desktop/terminal`. It returns `output` (the
+text after `offset`), `offset` (the position to poll with next), `status`,
+`headless` and `truncated`. Unknown runs return 404, which the desktop treats as
+"no output" rather than an error, the same way it treats a missing run result.
+
+`offset` counts bytes of the run's whole output, not bytes of the copy the agent
+still holds. That copy is bounded by 256 KiB and loses its head first, so the
+window slides under a reader: a position expressed in the window would silently
+point elsewhere after a truncation and the pane would reprint what it already
+shows. A reader whose position has fallen out of the window is served what is
+left, headed by a marker stating that earlier output was dropped. The marker is
+not part of the run's output and does not count towards `offset`.
+
+The transcript lives in agent memory alongside the run registry, so it
+disappears when the history is cleared or the agent restarts. It is a local copy
+for the pane only: the durable record stays the run activity on the server, fed
+by the unchanged incremental output transport.
+
 ### Free desktop agent consoles
 
 `GET /desktop/status` advertises `free-console`. Authenticated

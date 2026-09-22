@@ -3,10 +3,12 @@ package agent
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"tasks/internal/agentexec"
@@ -22,6 +24,41 @@ import (
 // activity should not have to wait for the exit to see anything.
 const headlessFlushInterval = 3 * time.Second
 
+// headlessTranscriptLimit bounds the copy of the output the agent keeps for the
+// desktop pane. It is the server's cap on the activity record (db.RemoteRunOutputLimit),
+// held again here because the two are independent: the desktop reads the local
+// transcript, not the activity.
+const headlessTranscriptLimit = 256 * 1024
+
+// headlessTranscriptTruncated stands where the head of a long run was dropped,
+// on the surface that dropped it, so a user reading a shortened transcript knows
+// the run is not what was cut. It heads the output desktopRunOutput serves, and
+// is never part of the transcript itself.
+const headlessTranscriptTruncated = "[agent] earlier output dropped: the local transcript keeps only the last 256 KiB\n"
+
+// pipelinePrefix makes a pipeline report the failure of any of its stages. A
+// command line ending in a filter exits with the filter's status, so a provider
+// CLI that dies behind a jq that exits zero would be recorded as a completed
+// run that printed nothing.
+const pipelinePrefix = "set -o pipefail; "
+
+// jqWord matches jq invoked as a command word, so a command line that only
+// mentions jq inside a prompt is not mistaken for one that pipes through it.
+var jqWord = regexp.MustCompile(`(^|[\s|;&(])jq([\s|;&)]|$)`)
+
+// missingPipelineTool names the tool a command line needs and the workstation
+// does not have. It is deliberately shallow: a false positive asks for a tool
+// the user was about to need anyway, and a false negative falls back to the
+// shell's own "command not found", which pipefail now makes fatal.
+func missingPipelineTool(line string) string {
+	if jqWord.MatchString(line) {
+		if _, err := exec.LookPath("jq"); err != nil {
+			return "jq"
+		}
+	}
+	return ""
+}
+
 // startHeadlessRun launches the provider CLI with no terminal at all: no PTY
 // session, no foreground process group, no window. Output is read from the
 // process pipes and posted onto the run activity, which is the only channel an
@@ -30,7 +67,16 @@ const headlessFlushInterval = 3 * time.Second
 // The run is still registered like any other, so the desktop lists it, can
 // select it, and can stop it. What it cannot do is type into it.
 func (d *agentDaemon) startHeadlessRun(taskRef string, payload agentconfig.Dispatch, config agentconfig.Config, workDir, branch string, envVars map[string]string, fullLine, provider, model string) error {
-	cmd := exec.Command("bash", "-lc", fullLine)
+	if missing := missingPipelineTool(fullLine); missing != "" {
+		run := d.registerHeadlessRun(taskRef, payload, config, workDir, branch, provider, model)
+		note := missing + " is not installed, and this autonomous command line pipes through it. Install " + missing + " on this workstation, or configure a command that does not need it."
+		d.appendHeadlessTranscript(run, "[agent] "+note+"\n")
+		d.postRunOutput(taskRef, payload.RunID, "[agent] "+note+"\n")
+		d.finishHeadlessRun(taskRef, payload.RunID, run, "failed", note)
+		return errors.New(note)
+	}
+
+	cmd := exec.Command("bash", "-lc", pipelinePrefix+fullLine)
 	cmd.Dir = workDir
 	cmd.Stdin = nil
 	cmd.Env = commandEnv(envVars)
@@ -98,6 +144,7 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 		pending.Reset()
 		mu.Unlock()
 		if chunk != "" {
+			d.appendHeadlessTranscript(run, chunk)
 			d.postRunOutput(taskRef, runID, chunk)
 		}
 	}
@@ -152,6 +199,29 @@ func (d *agentDaemon) superviseHeadlessRun(taskRef, runID string, run *controlle
 		status, note = "canceled", "Headless run canceled"
 	}
 	d.finishHeadlessRun(taskRef, runID, run, status, note)
+}
+
+// appendHeadlessTranscript keeps the run's output on the agent, so the desktop
+// can show a headless run live without a second trip through the server. The
+// head is dropped first: the tail is where a run explains how it ended.
+func (d *agentDaemon) appendHeadlessTranscript(run *controlledRun, chunk string) {
+	if run == nil || chunk == "" {
+		return
+	}
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	run.transcript += chunk
+	if len(run.transcript) <= headlessTranscriptLimit {
+		return
+	}
+	// The marker is not stored with the kept bytes: it is not something the run
+	// printed, and counting it as output would offset every later position by
+	// its own length. desktopRunOutput writes it when it serves the window from
+	// the start.
+	kept := run.transcript[len(run.transcript)-headlessTranscriptLimit:]
+	run.dropped += len(run.transcript) - len(kept)
+	run.transcript = kept
+	run.transcriptTruncated = true
 }
 
 func (d *agentDaemon) finishHeadlessRun(taskRef, runID string, run *controlledRun, status, note string) {

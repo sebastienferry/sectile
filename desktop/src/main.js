@@ -13,7 +13,7 @@ import './style.css'
 import { taskStage, nextTaskStep, closingStep } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
-import { consoleNotice, needsConsoleNotice } from './run-console.mjs'
+import { consoleNotice, headlessBanner, HEADLESS_EMPTY, needsConsoleNotice, showsHeadlessOutput } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
 import { runEngine } from './run-engine.mjs'
 import { pollAction } from './agent-poll.mjs'
@@ -162,6 +162,7 @@ function agentUnavailable(){
  document.querySelector('#workspace').hidden=!logsOpen
  connectionStatus({text:'Local agent stopped'})
  projectsLoaded=false
+ stopHeadlessOutput()
  api.detach().catch(()=>{})
 }
 function ready(){
@@ -172,6 +173,51 @@ function ready(){
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
+}
+// A headless run has no PTY, so the pane reads what the agent has buffered for
+// it instead of attaching. Polling, not streaming: the agent itself only flushes
+// every few seconds, the desktop already polls for runs and results, and a
+// socket would add a lifecycle for no gain.
+//
+// The offset advances within one selection, so a chunk already on screen is
+// never written twice; selecting the run again resets the pane and replays the
+// transcript from the start, which is also how a finished run shows its tail.
+// The terminal stays read-only: nothing is attached, and nothing typed into it
+// is forwarded to the run.
+let headlessPoll=null,headlessRunId=null,headlessOffset=0,headlessEmptyNotice=false
+function stopHeadlessOutput(){
+ if(headlessPoll){clearInterval(headlessPoll);headlessPoll=null}
+ headlessRunId=null
+}
+async function pollHeadlessOutput(id){
+ if(headlessRunId!==id)return
+ let payload
+ try{payload=await api.runOutput(id,headlessOffset)}
+ catch{stopHeadlessOutput();return}
+ if(headlessRunId!==id)return
+ // A run the agent no longer holds keeps whatever is already on screen: its
+ // history was cleared or the agent restarted, and writing an error over a
+ // transcript the user is reading would take the transcript away.
+ if(!payload){stopHeadlessOutput();return}
+ if(payload.output){
+  headlessOffset=payload.offset
+  headlessEmptyNotice=false
+  // xterm needs the carriage return a pipe never writes.
+  terminal.write(payload.output.replace(/\r?\n/g,'\r\n'))
+ }else if(!headlessEmptyNotice&&!headlessOffset){
+  headlessEmptyNotice=true
+  terminal.writeln(HEADLESS_EMPTY)
+ }
+ if(['completed','failed','canceled'].includes(payload.status))stopHeadlessOutput()
+}
+function watchHeadlessOutput(run){
+ stopHeadlessOutput()
+ headlessRunId=run.id
+ headlessEmptyNotice=false
+ headlessOffset=0
+ terminal.writeln(headlessBanner())
+ pollHeadlessOutput(run.id)
+ headlessPoll=setInterval(()=>pollHeadlessOutput(run.id),2000)
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
@@ -185,9 +231,11 @@ function select(run,background=false,options){
  document.querySelector('#directory').textContent=run.directory
  document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
  terminal.reset()
+ stopHeadlessOutput()
  if(needsConsoleNotice(run)){
   api.detach().catch(error)
-  terminal.writeln(consoleNotice(run))
+  if(showsHeadlessOutput(run))watchHeadlessOutput(run)
+  else terminal.writeln(consoleNotice(run))
   render(options);return
  }
  api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen&&!ticketsOpen)terminal.focus()}).catch(error)
@@ -1563,7 +1611,7 @@ async function archiveTask(run){
  saveLocalTasks()
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
-  selected=null;terminal.reset();await api.detach()
+  selected=null;terminal.reset();stopHeadlessOutput();await api.detach()
   renderHeader();document.querySelector('#directory').textContent=''
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()
