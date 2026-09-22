@@ -95,6 +95,15 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Publishing a new branch no longer fails on a force push.** The PR creation
+  and adjustment skills (and the pickup skills built on them) told the agent to
+  use `git push --force-with-lease` after a rebase without saying when, so it
+  forced branches the remote did not have yet and the push failed. They now
+  push a new branch with `git push -u`, a fast-forward with a plain push, and
+  keep `--force-with-lease` for published history a rebase actually rewrote. A
+  push refused because the remote moved is resynced and retried once; an
+  unguarded `--force` is never used. Regenerate or re-install the skills to get
+  the new wording.
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the
