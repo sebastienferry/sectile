@@ -43,7 +43,10 @@ test('general settings report both versions and the release notes',async()=>{
   await expect(page.locator('.changelog-heading')).toContainText('Release notes')
   await expect(page.locator('.changelog').first()).toContainText('Versioning and releases')
 
-  await page.locator('#dismiss-dialog').click()
+  // The panel's only way out is the cross: nothing is saved here, so the
+  // footer stays hidden rather than repeating that cross as a bar of its own.
+  await expect(page.locator('.dialog-footer')).toBeHidden()
+  await page.locator('#close-dialog').click()
 
   // An agent that is not answering has no version to give. Saying so beats an
   // ellipsis that reads as a load which never finishes.

@@ -68,8 +68,8 @@ opens the board once the words are dropped. Starting the agent belongs to the co
 agent is stopped. Open the **Agent logs**
 category to read agent diagnostics; while the
 agent is stopped the sidebar is hidden, so the connection screen carries its own
-**Agent logs** button and opens the panel on that category. **Close settings** or
-Escape returns to the execution or the offline setup, leaving the selected
+**Agent logs** button and opens the panel on that category. The cross or Escape
+returns to the execution or the offline setup, leaving the selected
 execution and its console untouched. Terminal colors, cursor
 commands and title sequences are removed from the display while readable Unicode
 and line breaks are preserved. The stored log is unchanged. The viewer

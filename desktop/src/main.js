@@ -32,7 +32,7 @@ document.querySelector('#app').innerHTML=`
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
 <main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="run-state" class="run-state header-state" hidden></span><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
-<dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
+<dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
 // Windows every one of those glyphs fell back to a replacement box. The Mono variants are the ones
@@ -693,10 +693,18 @@ document.querySelector('#clear-history').onclick=async()=>{
 }
 
 const dialog=document.querySelector('#project-dialog'),dialogBody=document.querySelector('#dialog-body')
+const dialogFooter=document.querySelector('.dialog-footer')
 const connectForm=document.querySelector('#start')
 function returnConnectForm(){if(connectForm.parentElement!==document.querySelector('#setup'))document.querySelector('#setup').append(connectForm)}
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
-document.querySelector('#dismiss-dialog').onclick=()=>dialog.close()
+// The footer carries only the actions a dialog puts there, so it stays out of
+// the way until one does: a bar whose single button repeated the cross is one
+// more thing to read and nothing to do.
+function syncDialogFooter(){dialogFooter.hidden=![...dialogFooter.children].some(child=>!child.hidden)}
+function clearDialogFooter(){
+ for(const extra of dialogFooter.querySelectorAll('.dialog-action'))extra.remove()
+ syncDialogFooter()
+}
 // A closed dialog keeps nothing on screen, so a read still in flight when it
 // closes writes into a detached node and is dropped. The close event is queued,
 // so a flow that reopens the dialog in the same task keeps its fresh content.
@@ -704,14 +712,13 @@ dialog.addEventListener('close',()=>{
  if(dialog.open)return
  returnConnectForm()
  dialogBody.replaceChildren()
- for(const extra of document.querySelectorAll('.dialog-footer .dialog-action'))extra.remove()
+ clearDialogFooter()
 })
 function showDialog(title){
  returnConnectForm()
- document.querySelector('#dismiss-dialog').textContent='Close settings'
  // The footer is shared by every dialog, so a control one of them added there
  // must go before the next one opens.
- for(const extra of document.querySelectorAll('.dialog-footer .dialog-action'))extra.remove()
+ clearDialogFooter()
  dialogBody.replaceChildren()
  const heading=document.createElement('h2');heading.textContent=title;dialogBody.append(heading)
  if(!dialog.open)dialog.showModal()
@@ -1031,11 +1038,11 @@ async function openProject(id){
   // storing category is open and however far its panel scrolls.
   const save=document.createElement('button');save.textContent='Save local configuration';save.className='dialog-action primary'
   save.setAttribute('form',form.id)
-  document.querySelector('.dialog-footer').prepend(save)
+  dialogFooter.prepend(save);syncDialogFooter()
   function selectCategory(name){
    const stores=CATEGORIES.find(category=>category.id===name).saves
    for(const [key,value] of Object.entries(panels))value.hidden=key!==name
-   form.hidden=!stores;save.hidden=!stores
+   form.hidden=!stores;save.hidden=!stores;syncDialogFooter()
    for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
   }
   for(const category of CATEGORIES){
