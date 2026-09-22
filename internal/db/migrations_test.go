@@ -19,6 +19,10 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations"); err != nil {
 		t.Fatalf("forgetting the schema version: %v", err)
 	}
+	// A database genuinely written by an earlier binary carries no post-baseline
+	// migrations. Drop columns added by migrations so that reopen can replay them.
+	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator")
+	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator_avatar")
 }
 
 // appliedVersions is what the database says it has applied, in order.
@@ -101,17 +105,19 @@ func TestAMigrationIsAppliedOnceAndRecorded(t *testing.T) {
 	}
 	defer d.Close()
 
+	startVersion := latestVersion()
+	nextVersion := startVersion + 1
 	list := []migration{{
-		version:    baselineVersion + 1,
+		version:    nextVersion,
 		name:       "test.marker",
 		statements: []string{"ALTER TABLE tasks ADD COLUMN test_marker TEXT NOT NULL DEFAULT '';"},
 	}}
-	if err := d.applyMigrations(list, baselineVersion); err != nil {
+	if err := d.applyMigrations(list, startVersion); err != nil {
 		t.Fatalf("applying: %v", err)
 	}
 	version, err := d.schemaVersion()
-	if err != nil || version != baselineVersion+1 {
-		t.Fatalf("version = %d (%v), want %d", version, err, baselineVersion+1)
+	if err != nil || version != nextVersion {
+		t.Fatalf("version = %d (%v), want %d", version, err, nextVersion)
 	}
 
 	// A second pass starts from the recorded version and therefore does nothing.
@@ -120,8 +126,8 @@ func TestAMigrationIsAppliedOnceAndRecorded(t *testing.T) {
 	if err := d.applyMigrations(list, version); err != nil {
 		t.Fatalf("second pass: %v", err)
 	}
-	if got := appliedVersions(t, d); len(got) != 2 {
-		t.Fatalf("applied versions = %v, want exactly the baseline and one migration", got)
+	if got := appliedVersions(t, d); len(got) != 1+len(migrations)+1 {
+		t.Fatalf("applied versions = %v, want exactly the baseline and migrations plus one", got)
 	}
 }
 
@@ -135,15 +141,17 @@ func TestAFailedMigrationLeavesThePreviousVersion(t *testing.T) {
 	}
 	defer d.Close()
 
+	startVersion := latestVersion()
+	nextVersion := startVersion + 1
 	list := []migration{{
-		version: baselineVersion + 1,
+		version: nextVersion,
 		name:    "test.halfway",
 		statements: []string{
 			"ALTER TABLE tasks ADD COLUMN test_first TEXT NOT NULL DEFAULT '';",
 			"ALTER TABLE tasks ADD COLUMN test_first TEXT NOT NULL DEFAULT '';", // the same column twice: refused
 		},
 	}}
-	if err := d.applyMigrations(list, baselineVersion); err == nil {
+	if err := d.applyMigrations(list, startVersion); err == nil {
 		t.Fatal("a migration whose second statement is refused reported success")
 	}
 
@@ -151,8 +159,8 @@ func TestAFailedMigrationLeavesThePreviousVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("schemaVersion: %v", err)
 	}
-	if version != baselineVersion {
-		t.Fatalf("version = %d after a failed migration, want %d", version, baselineVersion)
+	if version != startVersion {
+		t.Fatalf("version = %d after a failed migration, want %d", version, startVersion)
 	}
 	columns, err := columnNames(d, "tasks")
 	if err != nil {

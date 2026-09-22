@@ -135,6 +135,8 @@ export interface CreateTaskPayload {
   labels?: string[]
   assignee?: string
   assigneeAvatar?: string
+  creator?: string
+  creatorAvatar?: string
   dueDate?: string | null
   sprint?: string
   source?: TaskSource
@@ -350,6 +352,8 @@ export interface Task {
   labels: string[]
   assignee: string
   assigneeAvatar?: string
+  creator?: string
+  creatorAvatar?: string
   position: number
   dueDate?: string | null
   branchName?: string

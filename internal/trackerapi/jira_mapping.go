@@ -14,6 +14,7 @@ import (
 var jiraBaseFields = []string{
 	"summary", "description", "status", "priority", "assignee", "labels",
 	"issuetype", "parent", "created", "updated", "statuscategorychangedate",
+	"creator", "reporter",
 }
 
 // jiraTimeLayouts are the stamps Jira Cloud writes ("2026-08-25T09:12:33.000+0200").
@@ -49,9 +50,20 @@ type jiraIssue struct {
 			Name string `json:"name"`
 		} `json:"priority"`
 		Assignee *struct {
-			AccountID   string `json:"accountId"`
-			DisplayName string `json:"displayName"`
+			AccountID   string            `json:"accountId"`
+			DisplayName string            `json:"displayName"`
+			AvatarURLs  map[string]string `json:"avatarUrls"`
 		} `json:"assignee"`
+		Creator *struct {
+			AccountID   string            `json:"accountId"`
+			DisplayName string            `json:"displayName"`
+			AvatarURLs  map[string]string `json:"avatarUrls"`
+		} `json:"creator"`
+		Reporter *struct {
+			AccountID   string            `json:"accountId"`
+			DisplayName string            `json:"displayName"`
+			AvatarURLs  map[string]string `json:"avatarUrls"`
+		} `json:"reporter"`
 		Labels    []string `json:"labels"`
 		IssueType *struct {
 			Name string `json:"name"`
@@ -190,6 +202,45 @@ func jiraTask(site string, issue *jiraIssue, fields jiraFieldIDs, priorities jir
 		teamID, team = parseJiraTeam(issue.Raw[fields.Team])
 	}
 
+	creator := ""
+	creatorAvatar := ""
+	if issue.Fields.Creator != nil {
+		creator = strings.TrimSpace(issue.Fields.Creator.DisplayName)
+		if creator == "" {
+			creator = strings.TrimSpace(issue.Fields.Creator.AccountID)
+		}
+		if issue.Fields.Creator.AvatarURLs != nil {
+			if u, ok := issue.Fields.Creator.AvatarURLs["48x48"]; ok && u != "" {
+				creatorAvatar = u
+			} else {
+				for _, u := range issue.Fields.Creator.AvatarURLs {
+					if u != "" {
+						creatorAvatar = u
+						break
+					}
+				}
+			}
+		}
+	}
+	if creator == "" && issue.Fields.Reporter != nil {
+		creator = strings.TrimSpace(issue.Fields.Reporter.DisplayName)
+		if creator == "" {
+			creator = strings.TrimSpace(issue.Fields.Reporter.AccountID)
+		}
+	}
+	if creatorAvatar == "" && issue.Fields.Reporter != nil && issue.Fields.Reporter.AvatarURLs != nil {
+		if u, ok := issue.Fields.Reporter.AvatarURLs["48x48"]; ok && u != "" {
+			creatorAvatar = u
+		} else {
+			for _, u := range issue.Fields.Reporter.AvatarURLs {
+				if u != "" {
+					creatorAvatar = u
+					break
+				}
+			}
+		}
+	}
+
 	labels := append([]string{}, issue.Fields.Labels...)
 	if labels == nil {
 		labels = []string{}
@@ -205,6 +256,8 @@ func jiraTask(site string, issue *jiraIssue, fields jiraFieldIDs, priorities jir
 		Priority:         priority,
 		Labels:           labels,
 		Assignee:         assignee,
+		Creator:          creator,
+		CreatorAvatar:    creatorAvatar,
 		Sprint:           sprint,
 		Team:             team,
 		TeamID:           teamID,

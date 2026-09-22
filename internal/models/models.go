@@ -687,6 +687,8 @@ type Task struct {
 	Labels         []string `json:"labels"`
 	Assignee       string   `json:"assignee"`
 	AssigneeAvatar string   `json:"assigneeAvatar"`
+	Creator        string   `json:"creator,omitempty"`
+	CreatorAvatar  string   `json:"creatorAvatar,omitempty"`
 	Position       int      `json:"position"`
 	DueDate        *string  `json:"dueDate"`
 	BranchName     *string  `json:"branchName,omitempty"`
@@ -887,6 +889,8 @@ type CreateTaskRequest struct {
 	Labels                []string `json:"labels"`
 	Assignee              string   `json:"assignee"`
 	AssigneeAvatar        string   `json:"assigneeAvatar"`
+	Creator               string   `json:"creator,omitempty"`
+	CreatorAvatar         string   `json:"creatorAvatar,omitempty"`
 	DueDate               *string  `json:"dueDate"`
 	Source                string   `json:"source,omitempty"`
 	ExternalURL           *string  `json:"externalUrl,omitempty"`
