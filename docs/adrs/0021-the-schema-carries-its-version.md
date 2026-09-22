@@ -51,10 +51,10 @@ migrations 1..N was rejected: no existing database is empty, so the replay would
 be unverifiable, and the SQLite files in the wild need the idempotent path
 regardless.
 
-Detecting the case needs no new seam: `ColumnsQuery()` already answers "what
-columns does this table have" on both engines, and an empty answer means the
-table is absent. A database with no `schema_migrations` and no `users` is new; one
-with no `schema_migrations` and a `users` table is a legacy database to baseline.
+Telling the two apart is not even necessary, which the implementation settled:
+the baseliner is the old startup path, and that path is idempotent on both
+populations by construction. It therefore runs whenever there is no version row,
+and asks nothing about what it will find.
 
 **From version 2 on, a migration is applied exactly once, so it no longer has to
 be idempotent.** This is the property the current scheme cannot offer at any
@@ -123,9 +123,18 @@ through.
   belongs to. A column added tomorrow reaches an upgraded PostgreSQL deployment
   because the deployment knows it has not seen migration N, not because someone
   remembered a list.
-- `lateColumns` is folded into the baseline and deleted. The upgrade test that
-  came with #337 survives as the baseliner's own test: it is still the only test
-  that covers a database created by an older binary.
+- `lateColumns` is folded into the baseline and frozen, not deleted: it is what
+  carries a PostgreSQL database created before #337 up to version 1, so removing
+  it would break the very upgrade this record is about. Nothing may be added to
+  it again. The upgrade test that came with #337 survives as the baseliner's own
+  test: it is still the only test that covers a database created by an older
+  binary.
+- A one-shot repair is no longer replayed on every start, which is the point and
+  is also a trap for the tests. Five fixtures simulated an old database by
+  rebuilding a legacy shape on a database this binary had just created, and
+  therefore just stamped; the reopen they relied on now skips the baseline. They
+  say what they mean instead, through a helper that removes the version row,
+  because a database genuinely written by an earlier binary carries none.
 - Every future schema change now has a mandatory, mechanical home. That is a
   small tax on a one-column change, and it is the point.
 

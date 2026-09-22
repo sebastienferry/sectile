@@ -52,7 +52,10 @@ type sqlTx struct {
 }
 
 func (t *sqlTx) Exec(query string, args ...any) (sql.Result, error) {
-	return t.tx.Exec(t.dialect.Rebind(query), args...)
+	// RewriteDDL as on the connection: a numbered migration runs its schema
+	// statements inside a transaction, and its DATETIME has to reach PostgreSQL
+	// as TIMESTAMPTZ exactly as it does everywhere else.
+	return t.tx.Exec(t.dialect.Rebind(t.dialect.RewriteDDL(query)), args...)
 }
 
 func (t *sqlTx) Query(query string, args ...any) (*sql.Rows, error) {

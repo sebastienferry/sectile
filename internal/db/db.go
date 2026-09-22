@@ -211,33 +211,18 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 	trackerClient.Resolve = db.trackerCredentials
 	// And the acting user's own credential, where they stored one.
 	trackerClient.ResolveUser = db.UserTrackerCredentialsFor
-	if err := db.initIdentitySchema(); err != nil {
-		return nil, err
-	}
-	if err := db.initSessionSchema(); err != nil {
-		return nil, err
-	}
-	if err := db.initSchema(); err != nil {
+	// The one path that may change the schema: the baseline on a database this
+	// scheme has never seen, then every numbered migration it has not applied.
+	// A failure here stops the server rather than serving requests against a
+	// schema the code does not have. See internal/db/migrations.go.
+	if err := db.migrateSchema(); err != nil {
+		conn.Close()
 		return nil, fmt.Errorf("failed to initialize schema: %w", err)
 	}
-	db.ensureUserCredentialsTable()
-	// Tables that used to be created on first use. Lazy creation works, but it
-	// leaves a freshly created database incomplete until something happens to
-	// touch each one, which a migration into it discovers the hard way. They
-	// are created here, from their own definitions, so the schema is whole the
-	// moment the server is up.
-	db.ensureCommentsTable()
-	db.ensureTeamsTables()
-	db.ensureProjectSkillsTable()
-	db.ensureMacrosTable()
 
-	// Every table now exists, so the columns an upgraded database is missing can
-	// be added whichever table they belong to. Only the engines without the
-	// legacy migrations need it; under SQLite the ALTER path has already put
-	// every one of them back. See lateColumns.
-	if !d.RunsLegacyMigrations() {
-		db.reconcileLateColumns()
-	}
+	// Work the previous process was running when it stopped. This is not a
+	// migration and must never become one: it runs on every start, not once.
+	db.recoverInterruptedRuns()
 
 	// Says what it found and changes nothing: a token stored under an identity
 	// no account resolves is a person's problem to settle, not a migration's.
@@ -679,6 +664,28 @@ func (d *DB) reconcileLateColumns() {
 	}
 }
 
+// recoverInterruptedRuns closes the work the previous process was still running
+// when it stopped. It runs on every start, on every engine.
+//
+// It used to live inside applyLegacyMigrations, which only ever runs on SQLite.
+// A PostgreSQL deployment therefore never recovered anything: a restart left
+// its activities `running` forever, with nothing able to close them. Being a
+// repair of data rather than of schema is what let it hide there; it is not a
+// migration, and the numbered scheme has no place for something that must run
+// every time. See docs/adrs/0021.
+func (d *DB) recoverInterruptedRuns() {
+	// Work the server itself was running cannot survive its own restart.
+	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
+	// A remote run dispatched to an agent outlives the server: its supervisor
+	// watches the real process and reports the outcome on reconnection. A run a
+	// client started is owned by that client's MCP session, which the restart
+	// destroyed along with every other, so nothing is left that could ever close
+	// it. Canceled rather than failed: the work did not fail here, its outcome
+	// merely became unknowable.
+	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
+		"Interrupted by server restart: the client session that owned this run is gone", time.Now(), RunActionAgent)
+}
+
 // applyLegacyMigrations brings a database written by an earlier version up to
 // the current schema. It is a no-op on an engine whose databases are always
 // created complete, and every statement in it is deliberately
@@ -795,17 +802,6 @@ func (d *DB) applyLegacyMigrations() {
 	// agent, which alone sees the workstation override. Empty reads as unknown.
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_provider TEXT NOT NULL DEFAULT '';")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities ADD COLUMN run_model TEXT NOT NULL DEFAULT '';")
-	// Work the server itself was running cannot survive its own restart.
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
-	// A remote run dispatched to an agent outlives the server: its supervisor
-	// watches the real process and reports the outcome on reconnection. A run a
-	// client started is owned by that client's MCP session, which the restart
-	// destroyed along with every other, so nothing is left that could ever close
-	// it. Canceled rather than failed: the work did not fail here, its outcome
-	// merely became unknowable.
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
-		"Interrupted by server restart: the client session that owned this run is gone", time.Now(), RunActionAgent)
-
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN detail_mode TEXT NOT NULL DEFAULT 'panel';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_provider TEXT NOT NULL DEFAULT 'agy';")
 	_, _ = d.conn.Exec("ALTER TABLE settings ADD COLUMN ai_command_template TEXT NOT NULL DEFAULT 'agy -p \"{prompt}\"';")
