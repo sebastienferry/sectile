@@ -60,6 +60,11 @@ test('the console pane shows an autonomous run working, and keeps the notice wit
   assert.ok(!shown.includes('no terminal to answer'),'a traced run was answered with the notice')
   assert.ok(attachments>0,'the traced run was never attached to')
 
+  // Attaching reports nothing. The pane is opened from a callback whose only
+  // failure channel is this banner, so a name that does not exist inside it
+  // breaks the attach silently and shows up here and nowhere else.
+  assert.equal(await page.evaluate(()=>document.querySelector('#error')?.textContent||''),'','attaching reported an error')
+
   // Nobody is answering this run: the pane is not given the focus, and what a
   // watcher sends is not a way in — the agent discards it.
   assert.equal(await page.evaluate(()=>document.activeElement?.classList.contains('xterm-helper-textarea')||false),false)

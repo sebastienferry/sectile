@@ -689,7 +689,8 @@ answering 409 on that route, and the desktop shows its notice instead.
 The trace is a local copy for the pane only: the durable record stays the run
 activity on the server, fed by the unchanged incremental output transport, which
 receives the engine's final answer and any diagnostic printed beside the stream,
-never the stream's frames.
+never the stream's frames. A run that ends without an answer reports the reason
+its result frame carries, so a failure is not recorded as an empty entry.
 
 ### Free desktop agent consoles
 

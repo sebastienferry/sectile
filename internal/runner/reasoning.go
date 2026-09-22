@@ -48,7 +48,12 @@ type ReasoningEvent struct {
 // reasoningLine is the outer shape of a stream line. Only the fields Sectile
 // reads are declared, so an engine adding one changes nothing here.
 type reasoningLine struct {
-	Type    string `json:"type"`
+	Type string `json:"type"`
+	// Subtype and IsError are how a result message reports a run that did not
+	// reach an answer. They are the only thing such a message carries, so they
+	// are read for the same reason Result is: the activity has to say why.
+	Subtype string `json:"subtype"`
+	IsError bool   `json:"is_error"`
 	Result  string `json:"result"`
 	Message struct {
 		Content []struct {
@@ -79,7 +84,7 @@ func ParseReasoningLine(line string) (events []ReasoningEvent, result string, do
 
 	switch parsed.Type {
 	case "result":
-		return nil, parsed.Result, true
+		return nil, resultText(parsed), true
 
 	case "assistant":
 		for _, block := range parsed.Message.Content {
@@ -113,6 +118,27 @@ func ParseReasoningLine(line string) (events []ReasoningEvent, result string, do
 
 	// system, user, and everything an engine will add: nothing to show.
 	return nil, "", false
+}
+
+// resultText is what a result message leaves on the task activity.
+//
+// A run that reached an answer carries it here. A run that failed often carries
+// nothing at all: the engine reports the failure in the frame's subtype and
+// prints no text beside it, so recording the answer alone would leave the
+// activity empty exactly where the reason belongs — and the run's own status
+// only ever says the process exited non-zero. The subtype is then all the run
+// has to say for itself, and it is worth more than silence.
+func resultText(parsed reasoningLine) string {
+	if strings.TrimSpace(parsed.Result) != "" {
+		return parsed.Result
+	}
+	if !parsed.IsError {
+		return ""
+	}
+	if reason := strings.TrimSpace(parsed.Subtype); reason != "" {
+		return "The engine ended the run without an answer: " + reason
+	}
+	return "The engine ended the run without an answer."
 }
 
 // toolDetailKeys are the input fields worth showing, most specific first. A tool

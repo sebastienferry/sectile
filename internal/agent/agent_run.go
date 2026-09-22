@@ -75,9 +75,6 @@ type controlledRun struct {
 	// reasoning stream, which is every interactive run and every engine whose
 	// stream format is not attested.
 	trace *runTrace
-	// relay serialises the waiting reports sent to the server for this run, so
-	// two reports in quick succession cannot cross on the wire.
-	relay sync.Mutex
 }
 
 func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {

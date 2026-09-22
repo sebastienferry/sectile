@@ -241,3 +241,48 @@ func TestBlocksWithNothingInThemProduceNoEntry(t *testing.T) {
 		}
 	}
 }
+
+// A run that fails carries no answer: the engine reports the failure in the
+// frame's subtype and prints nothing beside it. Recording the answer alone would
+// leave the activity blank exactly where the reason belongs, so the subtype is
+// what the run has to say for itself.
+func TestAFailedResultMessageSaysWhyRatherThanNothing(t *testing.T) {
+	line := `{"type":"result","subtype":"error_during_execution","is_error":true}`
+
+	events, result, done := runner.ParseReasoningLine(line)
+	if !done {
+		t.Fatal("a failed result message still ends the stream")
+	}
+	if len(events) != 0 {
+		t.Errorf("a failure is not shown as reasoning, got %+v", events)
+	}
+	if strings.TrimSpace(result) == "" {
+		t.Fatal("a failed run left nothing on its activity")
+	}
+	if !strings.Contains(result, "error_during_execution") {
+		t.Errorf("the reason was not reported, got %q", result)
+	}
+}
+
+func TestAFailedResultMessageWithNoSubtypeStillSaysSomething(t *testing.T) {
+	_, result, done := runner.ParseReasoningLine(`{"type":"result","is_error":true}`)
+	if !done {
+		t.Fatal("the result message ends the stream")
+	}
+	if strings.TrimSpace(result) == "" {
+		t.Error("a failure with no subtype left nothing on its activity")
+	}
+}
+
+// The success path is untouched: a run that answered records its answer, and an
+// empty answer on a run that did not fail stays empty rather than gaining a
+// sentence the engine never wrote.
+func TestASuccessfulResultMessageWithNoAnswerStaysEmpty(t *testing.T) {
+	_, result, done := runner.ParseReasoningLine(`{"type":"result","subtype":"success","is_error":false,"result":""}`)
+	if !done {
+		t.Fatal("the result message ends the stream")
+	}
+	if result != "" {
+		t.Errorf("nothing should have been invented, got %q", result)
+	}
+}

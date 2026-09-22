@@ -210,7 +210,7 @@ function select(run,background=false,options){
   terminal.writeln(consoleNotice(run))
   render(options);return
  }
- api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen&&!ticketsOpen&&!readOnlyConsole(run))terminal.focus()}).catch(error)
+ api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!ticketsOpen&&!readOnlyConsole(run))terminal.focus()}).catch(error)
  render(options)
 }
 // The state the user reads, drawn from the shared definition so the row, the
