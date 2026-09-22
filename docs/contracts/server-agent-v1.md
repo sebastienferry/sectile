@@ -169,6 +169,18 @@ inspection; editor opening; CLI/skill/SDD status and provisioning; skill reading
 and LLM prompt execution. There is no arbitrary shell action or working-directory parameter. Explicit
 editor/provider settings retain their existing configuration behavior. Launches use the existing `dispatch_step` contract.
 
+`pr_evidence` reads the pull or merge request carrying a branch (`payload.branch`,
+else the task branch) with the forge CLI logged in on the workstation. The server
+asks for it when the project's code remote is not a GitHub one, since it cannot
+reach that forge itself. A forge that answered without a usable request returns
+a `refusal` value instead of an error; an error result always means the lookup
+itself failed and never that the request is absent:
+
+```json
+{"value":{"forge":"gitlab","url":"https://gitlab.example/g/app/-/merge_requests/9","branch":"feat/task","sha":"commit","open":true,"draft":false,"merged":false}}
+{"value":{"forge":"gitlab","refusal":"no matching open or merged merge request; recover through the configured creation owner"}}
+```
+
 Requests normally have a 45-second deadline; purely local read-only inspections
 (Git evidence, status and branches, worktree info, SDD/skill status, skill
 reading, editor opening) allow 15 seconds and CLI probing 30, so an unreachable
