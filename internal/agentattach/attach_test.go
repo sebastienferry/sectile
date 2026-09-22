@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"tasks/internal/testhome"
 	"testing"
 
 	"github.com/gorilla/websocket"
@@ -53,7 +54,7 @@ func TestResolveConnectionEnvVars(t *testing.T) {
 
 func TestResolveConnectionFileFallback(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	t.Setenv("SECTILE_LOOPBACK_URL", "")
 	t.Setenv("SECTILE_AGENT_TOKEN", "")
 

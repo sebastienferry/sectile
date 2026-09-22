@@ -5,23 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"tasks/internal/testhome"
 	"testing"
 )
 
 func claudeConfig() Config {
 	return Config{SchemaVersion: Version, AIProvider: "claude",
 		Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/clarify-issue", Content: "skill", CommandContent: "command"}}}
-}
-
-// setHome points os.UserHomeDir at a temporary directory on every platform: it
-// reads HOME on POSIX and USERPROFILE on Windows, and a test that sets only the
-// first installs into the developer's real home directory on the second.
-func setHome(t *testing.T) string {
-	t.Helper()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-	return home
 }
 
 func readSettings(t *testing.T, home string) map[string]any {
@@ -99,7 +89,7 @@ func installRetiredHooks(t *testing.T, home string, names ...string) {
 // Sectile no longer installs a Claude Code hook: setting up the provider leaves
 // ~/.claude/hooks and ~/.claude/settings.json alone, and still installs the skills.
 func TestNoHookIsInstalledOrRegistered(t *testing.T) {
-	root, home := t.TempDir(), setHome(t)
+	root, home := t.TempDir(), testhome.Temp(t)
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +108,7 @@ func TestNoHookIsInstalledOrRegistered(t *testing.T) {
 // their registrations, whatever home directory or binary they pointed at, and
 // nothing of the user's is touched.
 func TestInstalledHooksAreRetiredWithTheirRegistrations(t *testing.T) {
-	root, home := t.TempDir(), setHome(t)
+	root, home := t.TempDir(), testhome.Temp(t)
 	installRetiredHooks(t, home, retiredClaudeHookFiles...)
 	writeSettings(t, home, `{
 	  "model": "opus",
@@ -177,7 +167,7 @@ func TestInstalledHooksAreRetiredWithTheirRegistrations(t *testing.T) {
 // A settings file Sectile never wrote to is not rewritten: not even its
 // formatting changes, and a second run changes nothing either.
 func TestForeignSettingsAreLeftByteForByte(t *testing.T) {
-	root, home := t.TempDir(), setHome(t)
+	root, home := t.TempDir(), testhome.Temp(t)
 	original := "{\n  \"model\": \"opus\",\n  \"hooks\": {\"Notification\": [{\"matcher\": \"\", \"hooks\": [{\"type\": \"command\", \"command\": \"/opt/mine/ping.sh\"}]}]}\n}\n"
 	path := writeSettings(t, home, original)
 	for range 2 {
@@ -194,7 +184,7 @@ func TestForeignSettingsAreLeftByteForByte(t *testing.T) {
 // Once the Sectile entries are gone the file is not written again, and an
 // event or a hooks object emptied by the cleanup is not left behind.
 func TestHookRetirementIsIdempotent(t *testing.T) {
-	root, home := t.TempDir(), setHome(t)
+	root, home := t.TempDir(), testhome.Temp(t)
 	path := writeSettings(t, home, `{"model": "opus", "hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "/Users/old/.claude/hooks/sectile-hook.sh"}]}]}}`)
 	if _, err := Scaffold(root, claudeConfig()); err != nil {
 		t.Fatal(err)
@@ -219,7 +209,7 @@ func TestHookRetirementIsIdempotent(t *testing.T) {
 }
 
 func TestUnparseableSettingsAreLeftUntouchedAndReported(t *testing.T) {
-	root, home := t.TempDir(), setHome(t)
+	root, home := t.TempDir(), testhome.Temp(t)
 	broken := "{ this is not JSON"
 	path := writeSettings(t, home, broken)
 	reports, err := Scaffold(root, claudeConfig())
@@ -241,7 +231,7 @@ func TestUnparseableSettingsAreLeftUntouchedAndReported(t *testing.T) {
 // A hook script the user edited is theirs: the file survives, while the
 // registration pointing at it is still Sectile's and goes.
 func TestAnEditedHookScriptSurvivesButLosesItsRegistration(t *testing.T) {
-	root, home := t.TempDir(), setHome(t)
+	root, home := t.TempDir(), testhome.Temp(t)
 	installRetiredHooks(t, home, "sectile-hook.sh")
 	path := filepath.Join(home, claudeHookDir, "sectile-hook.sh")
 	edited := []byte("#!/bin/sh\n# edited by hand\n")
@@ -266,7 +256,7 @@ func TestAnEditedHookScriptSurvivesButLosesItsRegistration(t *testing.T) {
 // runs on such a workstation, so a Claude Code session that is still used by
 // hand is not left with a registration failing on every turn.
 func TestAnotherProviderCreatesNoClaudeSettingsButStillRetiresHooks(t *testing.T) {
-	root, home := t.TempDir(), setHome(t)
+	root, home := t.TempDir(), testhome.Temp(t)
 	config := claudeConfig()
 	config.AIProvider = "codex"
 	if _, err := Scaffold(root, config); err != nil {
