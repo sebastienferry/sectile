@@ -10,7 +10,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import './style.css'
-import { taskStage, nextTaskStep, closingStep } from './workflow.mjs'
+import { taskStage, nextTaskStep } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
 import { consoleNotice, headlessBanner, HEADLESS_EMPTY, needsConsoleNotice, showsHeadlessOutput } from './run-console.mjs'
@@ -501,11 +501,8 @@ document.querySelector('#start').onsubmit=async event=>{
 }
 document.querySelector('#stop').onclick=async()=>{
  if(!selected)return
- const run=runs.find(item=>item.id===selected)
  stopping=true;render()
- let stopped=false
- try{await api.stop(selected);await refresh();stopped=true}catch(err){error(err)}finally{stopping=false;render()}
- if(stopped&&run)await offerClosure(run)
+ try{await api.stop(selected);await refresh()}catch(err){error(err)}finally{stopping=false;render()}
 }
 let detachingTerminal=false
 const detachTerminalBtn=document.querySelector('#detach-terminal')
@@ -524,31 +521,6 @@ if(detachTerminalBtn){
    await refresh()
   }catch(err){error(err)}
   finally{detachingTerminal=false;detachTerminalBtn.disabled=false;render()}
- }
-}
-// Stopping an execution is where the user stands when a task has reached
-// reviewed, and nothing else in the desktop proposes its closing step. The
-// offer comes after the stop so that stopping never depends on it: an
-// unreadable task, a project without the skill or a failed stop simply means
-// no dialog.
-async function offerClosure(run){
- if(freeConsole(run))return
- let task=null,step=null
- try{
-  const [tasks,project]=await Promise.all([api.serverTasks(run.projectId,run.taskKey||run.taskId),api.project(run.projectId)])
-  task=tasks.find(item=>item.id===run.taskId)
-  step=task?closingStep(task,project):null
- }catch{return}
- if(!step)return
- showDialog('Close '+(task.key||run.taskKey||run.taskId)+'?')
- paragraph('This task is reviewed: its pull request is in human hands. Closing it runs the handoff skill, which writes the handover report and takes the task to finished.')
- const confirm=document.createElement('button');confirm.textContent=step.label
- const notice=document.createElement('p');notice.setAttribute('role','status')
- dialogBody.append(confirm,notice);confirm.focus()
- confirm.onclick=async()=>{
-  confirm.disabled=true;notice.textContent='Launching the closing skill…'
-  try{await api.launchServerTask(run.projectId,run.taskId,step.skillId,'');dialog.close();await refresh()}
-  catch(err){notice.textContent=err.message;confirm.disabled=false}
  }
 }
 async function confirmDeclareReviewed(projectId,task){
@@ -1421,18 +1393,17 @@ function updateTicketRow(view,entry){
  if(representative)renderRunState(state,representative)
  else{state.innerHTML='';state.title='';state.removeAttribute('aria-label');delete state.dataset.runState}
  const step=nextTaskStep(task,view.info)
- const chosen=step.skillId?step:closingStep(task,view.info)
  const active=executions.some(activeRun),pending=view.submitting.has(task.id)
  if(entry.declareReviewed)entry.declareReviewed.disabled=!view.info.configured||active||pending
- if(chosen){run.textContent='Run: '+chosen.label;run.dataset.skillId=chosen.skillId}
+ if(step.skillId){run.textContent='Run: '+step.label;run.dataset.skillId=step.skillId}
  else{run.textContent='Run';delete run.dataset.skillId}
  const hadFocus=document.activeElement===run
- run.disabled=!chosen||active||pending
+ run.disabled=!step.skillId||active||pending
  // A disabled control loses focus to the body, which sends a keyboard user back
  // to the top of the page. The row's own menu is always available, so focus
  // stays where the user was working.
  if(run.disabled&&hadFocus)entry.more.focus()
- run.title=!chosen?step.message:active?'An execution is active on this task':pending?'Submitting execution…':'Launch '+chosen.label+' on '+key
+ run.title=!step.skillId?step.message:active?'An execution is active on this task':pending?'Submitting execution…':'Launch '+step.label+' on '+key
  // Chromium delivers no pointer events to a disabled control, so its own title
  // would never appear: the cell carries the explanation while it is unusable.
  if(run.disabled)entry.actions.title=run.title
