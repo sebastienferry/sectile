@@ -71,6 +71,11 @@ func agentAuthMessage(err error) string {
 	if errors.Is(err, db.ErrAPIKeyExpired) {
 		return db.ErrAPIKeyExpired.Error()
 	}
+	// A blocked account is worth naming too: the key is valid, and its owner
+	// would otherwise hunt for a typo in a token that is perfectly good.
+	if errors.Is(err, db.ErrAccountBlocked) {
+		return msgBlocked
+	}
 	return "Valid agent bearer token required"
 }
 
@@ -119,6 +124,12 @@ func (h *Handler) resolveAgentCredential(token string) (agentCredential, error) 
 	}
 	device, err := h.db.LookupDeviceToken(token)
 	if err == nil {
+		// A blocked account's workstation keys stop opening with it. Leaving
+		// them valid would make the block a browser-only measure, while the
+		// key is the credential that runs the agent and the MCP tools.
+		if user, lookupErr := h.db.GetUser(device.UserID); lookupErr == nil && user != nil && user.Blocked {
+			return agentCredential{}, db.ErrAccountBlocked
+		}
 		return agentCredential{UserID: device.UserID, Device: device}, nil
 	}
 	if !errors.Is(err, db.ErrAPIKeyUnknown) {

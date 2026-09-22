@@ -154,6 +154,15 @@ func (d *DB) RevokeWebSession(token string) error {
 	return err
 }
 
+// RevokeUserSessions ends every browser session of one account at once, which
+// is what blocking an account has to do to mean anything: a refusal that only
+// applies at the next sign-in leaves the open tab working.
+func (d *DB) RevokeUserSessions(userID string) error {
+	_, err := d.conn.Exec(`UPDATE web_sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL`,
+		time.Now().UTC(), strings.TrimSpace(userID))
+	return err
+}
+
 // PurgeExpiredSessions drops what can no longer be used.
 func (d *DB) PurgeExpiredSessions() error {
 	now := time.Now().UTC()

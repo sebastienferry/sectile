@@ -34,6 +34,11 @@ workstations and anyone's execution. A member does everything else: the board,
 its tasks, its transitions, its comments, and executions on their own agent. A
 third role is a decision for the day someone needs one.
 
+> Amended by [ADR 0018](0018-the-admin-owns-the-roster-not-the-board.md):
+> projects and the tracker configuration moved to the member's side, and an
+> admin gained the blocking and deletion of an account. What is left of this
+> paragraph is the roster, the workstations and the executions.
+
 **The board stays shared.** The user-to-project binding stays what it already
 was, the agent registration per `(user, project)` that routes a run to the right
 machine. Everyone sees every project, task and running execution. No

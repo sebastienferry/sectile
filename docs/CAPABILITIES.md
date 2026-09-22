@@ -42,13 +42,22 @@ who started what.
   provider. Signing in is mandatory: a deployment with no account shows the
   sign-in screen and no board, and the first person to sign in becomes the admin.
 - **Personal and deployment settings.** Presentation, displayed identity and the
-  workstation commands are personal to each account; trackers, auto-sync, the AI
-  configuration and the prompts are the deployment's and an admin's to change.
-- **Two roles.** An admin manages users and roles, projects, global settings,
-  tracker credentials, anyone's workstations and anyone's execution. A member
-  does everything else, including the board, its tasks, its transitions, its
-  comments and executions on their own agent. When the provider supplies a role
-  claim, that claim is the authority at every sign-in.
+  workstation commands are personal to each account; auto-sync, the AI
+  configuration, the repository path and the prompts are the deployment's and an
+  admin's to change. The tracker keys sit on the deployment's row too, but a
+  member may write them: configuring a project's tracker is part of opening it.
+- **Two roles.** An admin owns the roster: who exists, what role they hold, and
+  whether their account still opens. A member does everything else, including the
+  board, its projects, its tasks, its transitions, its comments and executions on
+  their own agent. When the provider supplies a role claim, that claim is the
+  authority at every sign-in.
+- **An account can be blocked or deleted, by an admin.** Blocking closes the door
+  and keeps everything else: the open sessions are revoked at once, the
+  workstation keys stop working, the next sign-in is refused, and unblocking
+  gives all three back. Deleting removes the account and its credentials for
+  good; the tasks, comments and executions it owns stay on the board with no
+  owner. The last admin can be neither demoted, blocked nor deleted, and nobody
+  closes their own account.
 - **The board stays shared.** Everyone sees every project, task and running
   execution. The user-to-project binding is the agent registration that routes a
   run to the right machine, not a visibility rule.
@@ -57,7 +66,8 @@ who started what.
   is closed as orphaned only when the agent that should hold it says it does
   not. A member's dispatch reaches their own agent whatever the request names.
 
-See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md).
+See [ADR 0013](adrs/0013-roles-owned-executions-and-local-sign-in.md) and
+[ADR 0018](adrs/0018-the-admin-owns-the-roster-not-the-board.md).
 
 ## 2. Issue Tracker Abstraction Layer
 
