@@ -23,7 +23,7 @@ func TestExternalTerminalDispatchWithoutSkillAndFailureFeedback(t *testing.T) {
 	}
 	server := httptest.NewServer(http.HandlerFunc(h.HandleAgentConnect))
 	defer server.Close()
-	agent, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"?projectId=default", http.Header{"Authorization": []string{"Bearer test"}})
+	agent, _, err := websocket.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"?projectId=default", http.Header{"Authorization": []string{"Bearer " + agentTestKey(t, h)}})
 	if err != nil {
 		t.Fatal(err)
 	}

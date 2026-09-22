@@ -171,6 +171,21 @@ func defaultSession(t *testing.T, database *db.DB) *http.Cookie {
 	return &http.Cookie{Name: "sectile_session", Value: token}
 }
 
+// defaultAgentKey issues the workstation key the agent connects with. The
+// legacy open mode, where any nonempty token named the "default" account, is
+// gone, so a machine surface only opens to a key the deployment issued.
+func defaultAgentKey(t *testing.T, database *db.DB) string {
+	t.Helper()
+	if err := database.EnsureUser(db.ImplicitUserID); err != nil {
+		t.Fatalf("ensure user: %v", err)
+	}
+	key, _, err := database.CreateAPIKey(db.ImplicitUserID, "test-workstation", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+	return key
+}
+
 func TestHandleAgentDispatch_DisconnectedGuard(t *testing.T) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
@@ -223,7 +238,7 @@ func TestHandleAgentConnect_WebSocketHandshake(t *testing.T) {
 	}
 
 	// 2. Valid token -> successful upgrade and registration
-	u.RawQuery = "token=test-secret&deviceId=test-macbook&projectId=default"
+	u.RawQuery = "token=" + defaultAgentKey(t, database) + "&deviceId=test-macbook&projectId=default"
 	conn, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		t.Fatalf("expected successful connection with token, got error: %v", err)
@@ -312,7 +327,7 @@ func TestHandleTaskDetail_RunSkill_DispatchesToAgent(t *testing.T) {
 	u, _ := url.Parse(server.URL)
 	u.Scheme = "ws"
 	u.Path = "/ws/agent-connect"
-	u.RawQuery = "token=secret&deviceId=my-laptop&projectId=default"
+	u.RawQuery = "token=" + defaultAgentKey(t, database) + "&deviceId=my-laptop&projectId=default"
 
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
@@ -453,7 +468,7 @@ func TestPullTasks_WebSocketExchange(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(h.HandleAgentConnect))
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "?token=test-token&projectId=default&deviceId=test-device"
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "?token=" + defaultAgentKey(t, database) + "&projectId=default&deviceId=test-device"
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("failed to connect websocket: %v", err)

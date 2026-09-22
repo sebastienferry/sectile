@@ -13,6 +13,15 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Security
+
+- **An agent, MCP client or machine API call now needs a real workstation key.**
+  A server that had issued no key used to accept any nonempty token and treat
+  its holder as the `default` account, which may be an administrator. That
+  fallback is gone, and deleting the last account holding a key no longer
+  reopens it. `SECTILE_SERVER_TOKEN`, still deprecated, remains the one way to
+  keep an agent running while you pair a workstation for it.
+
 ## [0.1.0] - 2026-09-22
 
 First tagged release. Sectile had been running from `main` since its first

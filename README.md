@@ -557,10 +557,13 @@ MCP registration and install managed skills for a specific provider locally
 without launching the background daemon.
 
 `SECTILE_SERVER_TOKEN`, the former shared agent credential, is still accepted
-for one release with a startup warning; a server without it that has issued no
-key yet also keeps accepting any nonempty token, and closes that door with the
-first key. Workstations paired before keys expired keep working as keys without
-expiry, and the profile offers to set one.
+for one release with a startup warning, and it is now the only credential
+outside the key store that opens a machine surface: the legacy open mode, where
+a server without it accepted any nonempty token, is gone
+([ADR 0019](docs/adrs/0019-the-machine-surfaces-have-no-open-mode.md)). A server
+that has issued no key refuses an invented token like any other. Workstations
+paired before keys expired keep working as keys without expiry, and the profile
+offers to set one.
 
 The agent fetches `GET /api/v1/agent/config`, creates or validates local Git
 worktrees, installs effective project skills, and launches the configured AI CLI.
@@ -686,7 +689,7 @@ never used as an offline fallback. These generated files are ignored by Git.
 
 The machine endpoints and the agent handshake validate the workstation API key.
 `SECTILE_SERVER_TOKEN`, when configured, is still accepted for one release; a
-server without it accepts any nonempty token only until its first key is issued.
+server without it accepts nothing else, whether or not it has ever issued a key.
 This does not add multi-user login or authentication to the existing web/REST UI;
 remote deployments still need their existing access-control boundary.
 

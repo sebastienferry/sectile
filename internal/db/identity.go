@@ -324,18 +324,6 @@ func (d *DB) UserForDeviceToken(token string) string {
 	return credential.UserID
 }
 
-// HasDeviceCredentials reports whether any API key was ever issued on this
-// deployment, revoked ones included. It is what closes the legacy open mode:
-// once someone has a key, presenting no key must not keep working, and revoking
-// the only key must not reopen the door.
-func (d *DB) HasDeviceCredentials() bool {
-	var count int
-	if err := d.conn.QueryRow(`SELECT COUNT(*) FROM device_credentials`).Scan(&count); err != nil {
-		return false
-	}
-	return count > 0
-}
-
 // RenewDeviceCredential sets a key's expiry to ttl from now without touching
 // the secret, so every configuration holding the key keeps working. Zero
 // removes the expiry; a migrated key without one can be given one the same way.

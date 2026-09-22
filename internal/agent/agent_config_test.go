@@ -188,6 +188,21 @@ func TestMCPStdioHelper(t *testing.T) {
 	os.Exit(0)
 }
 
+// upstreamAgentKey issues the workstation key a test agent reaches the server
+// with. The legacy open mode, where any nonempty token named the implicit user,
+// is gone, so the upstream only opens to a key it actually issued.
+func upstreamAgentKey(t *testing.T, database *db.DB) string {
+	t.Helper()
+	if err := database.EnsureUser(db.ImplicitUserID); err != nil {
+		t.Fatalf("ensure user: %v", err)
+	}
+	key, _, err := database.CreateAPIKey(db.ImplicitUserID, "test-workstation", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatalf("create api key: %v", err)
+	}
+	return key
+}
+
 func TestMCPStdioBridge(t *testing.T) {
 	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
 	if err != nil {
@@ -199,7 +214,7 @@ func TestMCPStdioBridge(t *testing.T) {
 	defer upstream.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	d := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: "test-token"}}
+	d := &agentDaemon{link: serverLink{serverURL: upstream.URL, token: upstreamAgentKey(t, database)}}
 	if err := d.startLocalProxy(ctx); err != nil {
 		t.Fatal(err)
 	}
