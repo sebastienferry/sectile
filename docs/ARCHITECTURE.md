@@ -101,7 +101,9 @@ requires a ready PR and a clean checkout reported by the agent.
 One API key per workstation is the credential every machine surface takes: the
 agent, the desktop app, `/mcp` on the server and the agent gateway. The user
 creates it from the profile, where it is shown once, or earns it by spending a
-pairing code, which is worth nothing on its own and short lived. Keys expire
+pairing code, which is worth nothing on its own and short lived. The desktop app
+takes the pairing code only: it never asks for a key to paste, and reuses the one
+an earlier pairing stored when it restarts its agent. Keys expire
 after 90 days by default, can be renewed without changing the secret, and are
 revocable one workstation at a time ([ADR 0011](adrs/0011-one-api-key-for-agent-and-mcp.md)).
 

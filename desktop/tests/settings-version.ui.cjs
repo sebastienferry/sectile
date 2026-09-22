@@ -5,7 +5,8 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 
 // The General settings pane is where somebody goes to find out what they have
 // installed. Two versions, because the app and the agent are distributed
-// separately, and the release notes right under them.
+// separately, and the release notes right under them. It is the category the
+// settings panel opens on, reached from the gear at the foot of the sidebar.
 test('general settings report both versions and the release notes',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-settings-version-'))
  let agentVersion={version:'v9.9.9'},agentReachable=true
@@ -28,7 +29,8 @@ test('general settings report both versions and the release notes',async()=>{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
 
-  await page.locator('#profile').click()
+  await page.locator('#settings').click()
+  await expect(page.getByRole('tab',{name:'General',exact:true})).toHaveAttribute('aria-selected','true')
   const rows=page.locator('.settings-versions .version-value')
   await expect(rows.nth(0)).toHaveText(packagedVersion)
   await expect(rows.nth(1)).toHaveText('v9.9.9')
@@ -46,7 +48,7 @@ test('general settings report both versions and the release notes',async()=>{
   // An agent that is not answering has no version to give. Saying so beats an
   // ellipsis that reads as a load which never finishes.
   agentReachable=false
-  await page.locator('#profile').click()
+  await page.locator('#settings').click()
   await expect(page.locator('.settings-versions .version-value').nth(1)).toHaveText('not running')
   await expect(page.locator('.settings-versions .version-value').nth(0)).toHaveText(packagedVersion)
  }finally{

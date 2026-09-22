@@ -28,10 +28,10 @@ const api=window.localAgent
 // Parallelism is a workstation setting: the server neither stores nor supplies it.
 const MAX_PARALLELISM=10
 document.querySelector('#app').innerHTML=`
-<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><span id="connection">Connecting…</span><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button><nav aria-label="Local agent controls"><button id="agent-logs" type="button" title="View local-agent diagnostics">Agent logs</button><button id="configure" class="icon-button" aria-label="Local agent" title="Agent connection settings"></button><button id="start-agent" class="icon-button" aria-label="Start agent" title="Start agent"></button><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button><button id="profile" class="icon-button" aria-label="Settings" title="Settings"></button></nav></header>
-<section id="setup" hidden><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
-<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><details id="advanced-credential"><summary>Advanced: connect with an API key instead</summary><label>API key<input name="token" type="password" autocomplete="off" placeholder="sectile_…"></label></details><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="run-state" class="run-state header-state" hidden></span><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="agent-log-pane" aria-label="Agent logs" hidden></section><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
+<section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
+<form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="run-state" class="run-state header-state" hidden></span><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer"><button id="dismiss-dialog">Close settings</button></div></dialog><div id="error" role="alert"></div>`
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
@@ -102,12 +102,12 @@ const queueProjects=new Set()
 
 let linksLoading=false,lastLinksRefresh=0
 let selectedProject=null
-let logsOpen=false,ticketsOpen=false,agentConnected=false
+let ticketsOpen=false,agentConnected=false
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:()=>{resize();if(opened)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
-terminal.onData(data=>{if(!changes.active&&!logsOpen&&!ticketsOpen)api.input(data)})
-function resize(){if(opened&&!changes.active&&!logsOpen&&!ticketsOpen){fit.fit();api.resize(terminal.cols,terminal.rows)}}
+terminal.onData(data=>{if(!changes.active&&!ticketsOpen)api.input(data)})
+function resize(){if(opened&&!changes.active&&!ticketsOpen){fit.fit();api.resize(terminal.cols,terminal.rows)}}
 window.addEventListener('resize',resize)
 // The system buttons are painted over the header, so the header has to keep their strip clear.
 // Their geometry comes from the overlay itself rather than from a guess: it differs per platform,
@@ -127,45 +127,59 @@ navigator.windowControlsOverlay?.addEventListener('geometrychange',fitTitlebar)
 window.addEventListener('resize',fitTitlebar)
 fitTitlebar()
 function error(err){document.querySelector('#error').textContent=err?.message||String(err)}
+// The status is a dot and a word beside the controls it describes: a colour
+// carries the state, the label names it, and the server address rides in the
+// tooltip rather than filling the row.
+const connectionDot=document.createElement('span');connectionDot.className='connection-dot';connectionDot.setAttribute('aria-hidden','true')
+const connectionLabel=document.createElement('span');connectionLabel.className='connection-label'
+// The dot sits inside the body rather than beside it, so a collapsed sidebar can
+// drop the words and keep a target that still opens the board.
+const connectionLink=document.createElement('a');connectionLink.className='connection-body';connectionLink.href='#'
+connectionLink.onclick=event=>{event.preventDefault();api.openBoard().catch(error)}
+const connectionPlain=document.createElement('span');connectionPlain.className='connection-body'
+// Only what changed is written: a poll that rebuilt the row would take focus
+// away from the link between two keystrokes.
+function connectionLabelled(container,text,href){
+ connectionLabel.textContent=text
+ const body=href?connectionLink:connectionPlain
+ if(href)connectionLink.href=href
+ if(body.firstChild!==connectionDot)body.replaceChildren(connectionDot,connectionLabel)
+ if(container.firstChild!==body||container.childNodes.length!==1)container.replaceChildren(body)
+}
 function connectionStatus(status){
  const container=document.querySelector('#connection')
  // A contract mismatch is not a dropped link: the server answers, but with a
- // build this agent cannot talk to. Reported as a disconnection it reads as a
- // network problem and nobody looks at the build, so name it and carry the
- // agent's own diagnosis in the tooltip.
+ // build this agent cannot talk to. Reported as a plain disconnection it reads
+ // as a network problem and nobody looks at the build, so it keeps a label of
+ // its own and carries the agent's diagnosis in the tooltip.
  if(!status.connected){
-  container.title=status.contractError||''
-  container.textContent=status.contractError?'Local agent ready · Server incompatible':status.text||'Local agent ready · Server disconnected'
+  container.dataset.state='off'
+  container.title=status.contractError||status.text||'The local agent does not reach the Sectile server.'
+  connectionLabelled(container,status.contractError?'Server incompatible':'Not connected',null)
   return
  }
- container.title=''
- let link=container.querySelector('a')
- if(!link){
-  link=document.createElement('a')
-  link.onclick=event=>{event.preventDefault();api.openBoard().catch(error)}
-  container.replaceChildren(document.createTextNode('Connected to '),link)
- }
- link.textContent=status.server
- link.title='Open board in default browser'
+ let board=''
  try{
   const url=new URL(status.server)
   if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
   url.searchParams.delete('task');url.hash=''
-  link.href=url.href
- }catch{container.textContent='Connected to '+status.server}
+  board=url.href
+ }catch{board=''}
+ container.dataset.state='on'
+ container.title=board?'Open '+status.server+' in the default browser':status.server
+ connectionLabelled(container,'Connected',board)
 }
 function agentUnavailable(){
  agentConnected=false
  changes.disconnect()
- document.querySelector('#start-agent').disabled=false
  document.querySelector('#start button').disabled=false
  document.querySelector('#start button').textContent='Start local agent'
  document.querySelector('#shutdown').hidden=true
  document.querySelector('#restart').hidden=true
  document.querySelector('#agent-offline').hidden=false
  closeTickets(false)
- document.querySelector('#setup').hidden=logsOpen
- document.querySelector('#workspace').hidden=!logsOpen
+ document.querySelector('#setup').hidden=false
+ document.querySelector('#workspace').hidden=true
  connectionStatus({text:'Local agent stopped'})
  projectsLoaded=false
  stopHeadlessOutput()
@@ -175,7 +189,7 @@ function ready(){
  agentConnected=true
  document.querySelector('#agent-offline').hidden=true
  if(!projectsLoaded){projectsLoaded=true;loadProjects().catch(()=>{projectsLoaded=false})}
- document.querySelector('#start-agent').disabled=true;document.querySelector('#start button').disabled=true;document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
+ document.querySelector('#start button').disabled=true;document.querySelector('#restart').hidden=false;document.querySelector('#shutdown').hidden=false
  document.querySelector('#setup').hidden=true;document.querySelector('#workspace').hidden=false
  if(!document.querySelector('#connection a'))connectionStatus({text:'Local agent connected'})
  if(!opened){terminal.open(document.querySelector('#terminal'));opened=true;resize()}
@@ -227,7 +241,7 @@ function watchHeadlessOutput(run){
 }
 function select(run,background=false,options){
  if(hiddenProject(run.projectId))return
- if(!background){closeLogs(false);closeTickets(false)}
+ if(!background)closeTickets(false)
  selectedProject=run.projectId
  selected=run.id
  changes.select(selected)
@@ -244,7 +258,7 @@ function select(run,background=false,options){
   else terminal.writeln(consoleNotice(run))
   render(options);return
  }
- api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!logsOpen&&!ticketsOpen)terminal.focus()}).catch(error)
+ api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!ticketsOpen)terminal.focus()}).catch(error)
  render(options)
 }
 // The state the user reads, drawn from the shared definition so the row, the
@@ -643,19 +657,10 @@ document.querySelector('#restart').onclick=async()=>{
 
 async function loadSettings(){
  const settings=await api.settings()
- for(const name of ['server','token']){
-  if(settings[name])document.querySelector('#start').elements[name].value=settings[name]
- }
- // A stored credential is shown where it lives, so a paired machine sees why the
- // code field can stay empty.
- if(settings.token)document.querySelector('#advanced-credential').open=true
+ if(settings.server)document.querySelector('#start').elements.server.value=settings.server
 }
 const settingsReady=loadSettings().catch(error)
-document.querySelector('#configure').onclick=()=>{
- if(logsOpen||ticketsOpen){closeLogs(false);closeTickets(false);document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true;return}
- const setup=document.querySelector('#setup');setup.hidden=!setup.hidden
- document.querySelector('#workspace').hidden=!setup.hidden
-}
+document.querySelector('#setup-logs').onclick=()=>openSettings('Logs')
 document.querySelector('#shutdown').onclick=async()=>{
  const button=document.querySelector('#shutdown');button.disabled=true;restarting=true
  try{
@@ -663,7 +668,7 @@ document.querySelector('#shutdown').onclick=async()=>{
    selected=null;runs=[];last='';terminal.reset();render()
    document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true
    document.querySelector('#restart').hidden=true;button.hidden=true
-   document.querySelector('#start-agent').disabled=false;document.querySelector('#start button').disabled=false
+   document.querySelector('#start button').disabled=false
    agentUnavailable()
    document.querySelector('#error').textContent=''
   }
@@ -688,10 +693,21 @@ document.querySelector('#clear-history').onclick=async()=>{
 }
 
 const dialog=document.querySelector('#project-dialog'),dialogBody=document.querySelector('#dialog-body')
+const connectForm=document.querySelector('#start')
+function returnConnectForm(){if(connectForm.parentElement!==document.querySelector('#setup'))document.querySelector('#setup').append(connectForm)}
 document.querySelector('#close-dialog').onclick=()=>dialog.close()
 document.querySelector('#dismiss-dialog').onclick=()=>dialog.close()
+// A closed dialog keeps nothing on screen, so a read still in flight when it
+// closes writes into a detached node and is dropped. The close event is queued,
+// so a flow that reopens the dialog in the same task keeps its fresh content.
+dialog.addEventListener('close',()=>{
+ if(dialog.open)return
+ returnConnectForm()
+ dialogBody.replaceChildren()
+ for(const extra of document.querySelectorAll('.dialog-footer .dialog-action'))extra.remove()
+})
 function showDialog(title){
- closeLogs(false)
+ returnConnectForm()
  document.querySelector('#dismiss-dialog').textContent='Close settings'
  // The footer is shared by every dialog, so a control one of them added there
  // must go before the next one opens.
@@ -701,57 +717,156 @@ function showDialog(title){
  if(!dialog.open)dialog.showModal()
 }
 function paragraph(text){const p=document.createElement('p');p.textContent=text;dialogBody.append(p);return p}
-const logPane=document.querySelector('#agent-log-pane')
-function closeLogs(restoreFocus=true){
- if(!logsOpen)return
- logsOpen=false;logPane.hidden=true;logPane.replaceChildren()
- document.querySelector('#workspace article').hidden=false
- document.querySelector('#workspace').hidden=!agentConnected
- document.querySelector('#setup').hidden=agentConnected
- document.querySelector('#agent-logs').setAttribute('aria-pressed','false')
- resize()
- if(restoreFocus)document.querySelector('#agent-logs').focus()
-}
 window.addEventListener('keydown',event=>{
- if(event.key==='Escape'&&!dialog.open){
-  if(logsOpen){event.preventDefault();closeLogs()}
-  else if(ticketsOpen){event.preventDefault();closeTickets()}
- }
+ if(event.key==='Escape'&&!dialog.open&&ticketsOpen){event.preventDefault();closeTickets()}
 })
-document.querySelector('#agent-logs').setAttribute('aria-pressed','false')
-document.querySelector('#agent-logs').onclick=()=>{
- if(dialog.open)dialog.close()
- closeTickets(false)
- logsOpen=true;logPane.hidden=false;logPane.replaceChildren()
- document.querySelector('#workspace article').hidden=true
- document.querySelector('#workspace').hidden=false
- document.querySelector('#setup').hidden=true
- document.querySelector('#agent-logs').setAttribute('aria-pressed','true')
- const heading=document.createElement('h2');heading.textContent='Agent logs'
- const close=document.createElement('button');close.type='button';close.textContent='Close logs';close.onclick=()=>closeLogs()
- const toolbar=document.createElement('div');toolbar.className='agent-log-toolbar';toolbar.append(heading,close)
+
+// Every setting reads as one row: its name on the left with the inherited value
+// in small type beneath, the control that changes it on the right. A control
+// that needs the whole width takes the stacked variant instead. Shared by the
+// project panel and the global one so both spell a setting the same way.
+const RESET_ICON='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4v6h6M4 10a8 8 0 1 1 1 8"/></svg>'
+function settingRow(name,options,...widgets){
+ const {resetLabel,onReset,stacked}=options||{}
+ const section=document.createElement('section');section.className='setting-row'+(stacked?' stacked':'')
+ const text=document.createElement('div');text.className='setting-text'
+ const line=document.createElement('div');line.className='setting-name'
+ const title=document.createElement('strong');title.textContent=name
+ const hint=document.createElement('p')
+ const control=document.createElement('div');control.className='setting-control'
+ let reset=null
+ if(resetLabel){
+  reset=document.createElement('button');reset.type='button';reset.className='reset-setting'
+  reset.setAttribute('aria-label',resetLabel);reset.title=resetLabel;reset.innerHTML=RESET_ICON
+  if(onReset)reset.onclick=onReset
+ }
+ // A stacked control owns the whole width, so its reset belongs on the name
+ // line rather than beside the control.
+ line.append(title);if(stacked&&reset)line.append(reset)
+ text.append(line,hint)
+ control.append(...widgets);if(!stacked&&reset)control.append(reset)
+ section.append(text,control)
+ return {section,control,hint,reset}
+}
+// A read-only row: the value the workstation holds, stated where the control
+// would sit, so the panel stays one grammar whether a setting is editable here.
+function readOnlyRow(name,hint){
+ const value=document.createElement('span');value.className='setting-value'
+ const row=settingRow(name,null,value)
+ row.hint.textContent=hint||''
+ row.value=value
+ return row
+}
+
+// The workstation's own settings, gathered where the project panel already puts
+// a project's: one dialog, a category per surface. The header carried three
+// unrelated controls for these; the sidebar now carries one.
+const SETTINGS_CATEGORIES=[
+ {id:'General',label:'General',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'},
+ {id:'Profile',label:'User profile',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
+ {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
+ {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'}
+]
+function openSettings(initial='General'){
+ showDialog('Settings')
+ const layout=document.createElement('div');layout.className='settings-layout'
+ const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
+ tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Settings categories')
+ const content=document.createElement('div');content.className='settings-content stretch'
+ layout.append(tabs,content);dialogBody.append(layout)
+ const panels={}
+ for(const category of SETTINGS_CATEGORIES){
+  const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id
+  tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
+  const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
+  tab.id='settings-tab-'+category.id;tab.setAttribute('aria-controls','settings-panel-'+category.id)
+  const panel=document.createElement('section');panel.id='settings-panel-'+category.id
+  panel.setAttribute('role','tabpanel');panel.setAttribute('aria-labelledby',tab.id);panels[category.id]=panel
+  tab.onclick=()=>selectCategory(category.id)
+  tabs.append(tab);content.append(panel)
+ }
+ function selectCategory(name){
+  for(const [key,value] of Object.entries(panels))value.hidden=key!==name
+  for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
+  if(name==='Logs')loadLog()
+ }
+
+ // Nothing here is stored locally beyond the pairing the connection screen
+ // writes, so the profile states what this workstation knows about its account
+ // and sends the rest to the web interface, which owns the profile itself.
+ const account=readOnlyRow('Sectile server','The server this workstation is paired with.')
+ const device=readOnlyRow('Workstation','The identifier this machine was paired under.')
+ const credential=readOnlyRow('Credential','Where the pairing credential is kept.')
+ const openWeb=document.createElement('button');openWeb.type='button';openWeb.textContent='Open the web interface'
+ openWeb.onclick=()=>api.openBoard().catch(error)
+ const web=settingRow('Profile and API keys',null,openWeb)
+ web.hint.textContent='Display name, password and API keys live in the web interface.'
+ panels.Profile.append(account.section,device.section,web.section,credential.section)
+
+ const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
+ const link=readOnlyRow('Server link','Whether the local agent reaches the Sectile server.')
+ const pairing=settingRow('Pairing',{stacked:true},connectForm)
+ const pairingNote=document.createElement('p');pairingNote.setAttribute('role','status')
+ pairing.control.append(pairingNote)
+ panels.Connection.append(agentState.section,link.section,pairing.section)
+
+ fillGeneralPanel(panels.General)
+
+ const logs=document.createElement('div');logs.className='settings-logs'
+ const logHeading=document.createElement('h3');logHeading.textContent='Agent logs'
+ const reload=document.createElement('button');reload.type='button';reload.textContent='Refresh'
+ const logToolbar=document.createElement('div');logToolbar.className='agent-log-toolbar';logToolbar.append(logHeading,reload)
  const description=document.createElement('p');description.textContent='Diagnostics captured by this desktop app. Agents started elsewhere may write to their original terminal instead.'
  const source=document.createElement('p');source.className='agent-log-source'
- const refresh=document.createElement('button');refresh.type='button';refresh.textContent='Refresh'
- const status=document.createElement('p');status.setAttribute('role','status')
+ const logStatus=document.createElement('p');logStatus.setAttribute('role','status')
  const output=document.createElement('pre');output.className='agent-log-output';output.tabIndex=0;output.setAttribute('aria-label','Agent log contents')
- logPane.append(toolbar,description,source,refresh,status,output)
- const load=async()=>{
-  refresh.disabled=true;output.textContent='';status.textContent='Loading agent log…'
+ logs.append(logToolbar,description,source,logStatus,output)
+ panels.Logs.append(logs)
+ // A read that lands after the dialog is gone, or after another panel replaced
+ // this one, writes into a detached node: isConnected is what tells them apart.
+ const loadLog=async()=>{
+  reload.disabled=true;output.textContent='';logStatus.textContent='Loading agent log…'
   try{
    const snapshot=await api.agentLogs()
    if(!output.isConnected)return
    source.textContent=snapshot.path
-   status.textContent=snapshot.missing?'No desktop agent log exists yet.':!snapshot.text?'The agent log is empty.':snapshot.truncated?'Showing the latest 256 KiB; earlier output omitted.':'Showing the current log snapshot.'
+   logStatus.textContent=snapshot.missing?'No desktop agent log exists yet.':!snapshot.text?'The agent log is empty.':snapshot.truncated?'Showing the latest 256 KiB; earlier output omitted.':'Showing the current log snapshot.'
    output.textContent=logText(snapshot.text)
    output.scrollTop=output.scrollHeight
-  }catch(err){if(output.isConnected)status.textContent='Unable to read agent log: '+(err.message||String(err))}
-  finally{refresh.disabled=false}
+  }catch(err){if(output.isConnected)logStatus.textContent='Unable to read agent log: '+(err.message||String(err))}
+  finally{if(reload.isConnected)reload.disabled=false}
  }
- refresh.onclick=load
- close.focus()
- load()
+ reload.onclick=loadLog
+
+ selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'General')
+ // The connection facts come from two sources the agent answers separately, and
+ // a stopped agent still has a paired server to report: the stored settings fill
+ // the panel first, the live status refines it when the agent answers.
+ const fill=async()=>{
+  let stored={}
+  try{stored=await api.settings()}catch{}
+  if(!account.value.isConnected)return
+  account.value.textContent=stored.server||'Not paired'
+  device.value.textContent=stored.deviceId||'Not paired'
+  credential.value.textContent=stored.token?'Stored on this machine':'None'
+  agentState.value.textContent=agentConnected?'Running':'Stopped'
+  link.value.textContent=agentConnected?'Connecting…':'Unreachable'
+  pairing.hint.textContent=stored.token
+   ?'This workstation is paired. Pasting a new code re-pairs it.'
+   :'In the web interface, under your profile, choose Pair a workstation and paste the code here.'
+  pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
+  if(!agentConnected)return
+  try{
+   const status=await api.status()
+   if(!link.value.isConnected)return
+   link.value.textContent=status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
+   if(status.contractError)link.hint.textContent=status.contractError
+   if(status.server)account.value.textContent=status.server
+  }catch{if(link.value.isConnected)link.value.textContent='Unreachable'}
+ }
+ fill()
 }
+document.querySelector('#settings').onclick=()=>openSettings('General')
 
 async function loadProjects(){
  const version=projectStateVersion
@@ -817,15 +932,17 @@ function renderChangelog(container,releases){
   const empty=document.createElement('p');empty.textContent='No release notes in this build.';container.append(empty)
  }
 }
-document.querySelector('#profile').onclick=async()=>{
- showDialog('Settings')
+// The pane main built as the whole Settings dialog becomes one category of it:
+// what is installed sits beside the account, the connection and the logs
+// instead of replacing them.
+async function fillGeneralPanel(panel){
  const versions=document.createElement('div');versions.className='settings-versions'
  const desktopRow=versionRow('Sectile Desktop','…','The application window and its consoles.')
  const agentRow=versionRow('Local agent','…','The workstation daemon that runs the tasks.')
  versions.append(desktopRow,agentRow)
  const notesHeading=document.createElement('h3');notesHeading.className='changelog-heading';notesHeading.textContent='Release notes'
  const notes=document.createElement('div');notes.className='changelog'
- dialogBody.append(versions,notesHeading,notes)
+ panel.append(versions,notesHeading,notes)
 
  const releases=parseChangelog(changelogSource)
  renderChangelog(notes,releases)
@@ -833,12 +950,16 @@ document.querySelector('#profile').onclick=async()=>{
  let installed=null
  try{
   const reported=await api.version()
+  // The panel may be gone by the time the agent answers: a detached node is
+  // what says so, the same way the log reader tells a late read apart.
+  if(!panel.isConnected)return
   installed=reported.desktop
   desktopRow.querySelector('.version-value').textContent=reported.desktop||'unknown'
   // A stopped agent has no version to give. Saying so beats leaving an
   // ellipsis that reads as a load which never finishes.
   agentRow.querySelector('.version-value').textContent=reported.agent||'not running'
  }catch{
+  if(!panel.isConnected)return
   desktopRow.querySelector('.version-value').textContent='unknown'
   agentRow.querySelector('.version-value').textContent='not running'
  }
@@ -933,32 +1054,6 @@ async function openProject(id){
    if(category.saves)form.append(panels[category.id]);else content.append(panels[category.id])
   }
   selectCategory('General')
-  // Every setting reads as one row: its name on the left with the inherited
-  // value in small type beneath, the control that changes it on the right. A
-  // control that needs the whole width takes the stacked variant instead.
-  const RESET_ICON='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 4v6h6M4 10a8 8 0 1 1 1 8"/></svg>'
-  function settingRow(name,options,...widgets){
-   const {resetLabel,onReset,stacked}=options||{}
-   const section=document.createElement('section');section.className='setting-row'+(stacked?' stacked':'')
-   const text=document.createElement('div');text.className='setting-text'
-   const line=document.createElement('div');line.className='setting-name'
-   const title=document.createElement('strong');title.textContent=name
-   const hint=document.createElement('p')
-   const control=document.createElement('div');control.className='setting-control'
-   let reset=null
-   if(resetLabel){
-    reset=document.createElement('button');reset.type='button';reset.className='reset-setting'
-    reset.setAttribute('aria-label',resetLabel);reset.title=resetLabel;reset.innerHTML=RESET_ICON
-    if(onReset)reset.onclick=onReset
-   }
-   // A stacked control owns the whole width, so its reset belongs on the name
-   // line rather than beside the control.
-   line.append(title);if(stacked&&reset)line.append(reset)
-   text.append(line,hint)
-   control.append(...widgets);if(!stacked&&reset)control.append(reset)
-   section.append(text,control)
-   return {section,control,hint,reset}
-  }
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
@@ -1274,25 +1369,15 @@ const iconPaths={
  rerun:'<path d="M3.5 12a8.5 8.5 0 0 1 14.4-6.1L20.5 8"/><path d="M20.5 3.5V8h-4.5"/><path d="m10 9.4 5 2.9-5 2.9Z"/>',
  'save-log':'<path d="M12 3v11"/><path d="m7.5 10 4.5 4 4.5-4"/><path d="M5 20h14"/>',
  stop:'<circle cx="12" cy="12" r="9"/><path d="m8.2 12.4 2.6 2.6 5-5.4"/>',
- configure:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>',
- 'start-agent':'<path d="m8 5 11 7-11 7Z"/>',
  shutdown:'<path d="M12 4v8"/><path d="M7.4 7.4a6.5 6.5 0 1 0 9.2 0"/>',
  restart:'<path d="M20 7v5h-5M20 12a8 8 0 1 0-2 5M20 7v5"/>',
- profile:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'
+ settings:'<circle cx="12" cy="12" r="3"/><path d="M19.4 14.5a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.2a1.6 1.6 0 0 0-1-1.4 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.2a1.6 1.6 0 0 0 1.4-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.2a1.6 1.6 0 0 0-1.4 1Z"/>'
 }
 for(const [id,paths] of Object.entries(iconPaths)){
  document.getElementById(id).innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+paths+'</svg>'
 }
 if(localStorage.getItem('sidebarCollapsed')==='true')document.querySelector('#workspace').classList.add('sidebar-hidden')
 renderSidebarToggle(document.querySelector('#workspace').classList.contains('sidebar-hidden'))
-document.querySelector('#start-agent').onclick=async()=>{
- closeLogs(false)
- await settingsReady
- document.querySelector('#setup').hidden=false
- document.querySelector('#workspace').hidden=true
- const form=document.querySelector('#start')
- if(form.reportValidity())form.requestSubmit()
-}
 
 function newProjectTask(projectID){
  selectedProject=projectID
@@ -1329,7 +1414,6 @@ async function openTickets(projectID,initialQuery=''){
  if(!agentConnected){showDialog('Tickets');paragraph('Connect to the local agent to browse this project\u2019s tickets.');return}
  const opener=document.activeElement
  if(dialog.open)dialog.close()
- closeLogs(false)
  const project=projects.find(item=>item.id===projectID)
  const view={projectID,projectName:project?.name||projectID,sort:{...DEFAULT_SORT},tasks:[],info:null,query:'',rows:new Map(),submitting:new Set(),compose:null,generation:0,opener:opener&&opener!==document.body?opener:null}
  ticketsOpen=true;ticketsView=view;ticketsPane.hidden=false;ticketsPane.replaceChildren()

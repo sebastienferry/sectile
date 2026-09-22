@@ -24,19 +24,19 @@ test('an incompatible server is named, not reported as a disconnection',async()=
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   const connection=page.locator('#connection')
-  await expect(connection).toHaveText('Local agent ready · Server incompatible')
+  await expect(connection).toHaveText('Server incompatible')
   await expect(connection).toHaveAttribute('title',diagnosis)
 
   // An unreachable server keeps its own wording: only a contract failure earns
   // the incompatible label.
   status={connected:false,server:'http://example.test'}
-  await expect(connection).toHaveText('Local agent ready · Server disconnected')
-  assert.equal(await connection.getAttribute('title'),'')
+  await expect(connection).toHaveText('Not connected')
+  assert.equal(await connection.getAttribute('title'),'The local agent does not reach the Sectile server.')
 
   // Updating the server clears it, and the board link comes back.
   status={connected:true,server:'http://example.test',contractError:''}
-  await expect(page.locator('#connection a')).toHaveText(status.server)
-  assert.equal(await connection.getAttribute('title'),'')
+  await expect(page.locator('#connection a')).toHaveText('Connected')
+  assert.equal(await connection.getAttribute('title'),'Open '+status.server+' in the default browser')
  }finally{
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

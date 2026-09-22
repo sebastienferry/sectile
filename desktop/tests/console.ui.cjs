@@ -61,12 +61,21 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.locator('aside').evaluate(element=>element.getBoundingClientRect().width),before+20)
   await page.getByRole('button',{name:'Open PR #48 for #48',exact:true}).waitFor()
   assert.equal(await page.locator('#selected-pr').textContent(),'PR #48')
-  await page.getByRole('button',{name:'Local agent',exact:true}).click()
-  await page.getByRole('heading',{name:'Connect to Sectile'}).waitFor()
-  assert.equal(await page.locator('#setup input').count(),3)
+  // The connect form lives in the settings panel now, reached from the bottom of
+  // the sidebar, and pairing is the only credential it asks for.
+  await page.locator('#settings').click()
+  await page.getByRole('tab',{name:'Agent connection',exact:true}).click()
+  await expect(page.locator('#project-dialog #start')).toBeVisible()
+  assert.equal(await page.locator('#start input').count(),2)
+  assert.equal(await page.getByLabel('API key',{exact:true}).count(),0)
   await page.getByLabel('Pairing code',{exact:true}).waitFor()
+  // A running agent owns the link, so the form states what to do before re-pairing.
   assert.equal(await page.getByRole('button',{name:'Connect',exact:true}).isDisabled(),true)
-  await page.getByRole('button',{name:'Local agent',exact:true}).click()
+  await page.getByText('Stop the local agent before connecting it to another server.',{exact:true}).waitFor()
+  await page.getByRole('button',{name:'Close',exact:true}).click()
+  // The form goes back to the connection screen it was borrowed from.
+  await expect(page.locator('#setup #start')).toHaveCount(1)
+  await expect(page.locator('#workspace')).toBeVisible()
   await page.locator('#add-project').click()
   assert.equal(await page.getByRole('button',{name:'Example project · Already added',exact:true}).isDisabled(),true)
   await page.getByRole('button',{name:'Close',exact:true}).click()
@@ -124,11 +133,24 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('button',{name:'Close',exact:true}).click()
   // The control is named for the click it offers, so its name flips with the panel.
   await page.getByRole('button',{name:'Hide projects',exact:true}).click()
-  assert.equal(await page.locator('aside').isVisible(),false)
+  // Collapsing hides the projects, not the footer: the agent controls, the
+  // settings entry and the connection dot survive as a narrow rail.
+  assert.equal(await page.locator('.sidebar-scroll').isVisible(),false)
+  assert.equal(await page.locator('.sidebar-footer').isVisible(),true)
+  assert.equal(await page.locator('#settings').isVisible(),true)
+  assert.equal(await page.locator('.connection-dot').isVisible(),true)
+  assert.equal(await page.locator('.connection-label').isVisible(),false)
+  assert.ok((await page.locator('aside').boundingBox()).width<60,'Collapsed sidebar is a rail')
   await page.getByRole('button',{name:'Show projects',exact:true}).click()
-  assert.equal(await page.locator('aside').isVisible(),true)
-  await page.getByRole('button',{name:'Settings',exact:true}).click()
+  assert.equal(await page.locator('.sidebar-scroll').isVisible(),true)
+  assert.equal(await page.locator('.connection-label').isVisible(),true)
+  await page.locator('#settings').click()
   await page.getByRole('heading',{name:'Settings',exact:true}).waitFor()
+  // General opens first: what is installed, with the release notes under it.
+  await expect(page.getByRole('tab',{name:'General',exact:true})).toHaveAttribute('aria-selected','true')
+  await expect(page.locator('.settings-versions .version-value')).toHaveCount(2)
+  await page.getByRole('tab',{name:'User profile',exact:true}).click()
+  await page.getByRole('button',{name:'Open the web interface',exact:true}).waitFor()
   await page.getByRole('button',{name:'Close',exact:true}).click()
   await page.waitForTimeout(300)
   await page.evaluate(()=>window.localAgent.input('hello'))
@@ -239,7 +261,8 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   assert.equal(await page.locator('.local-task').count(),0)
   available=false
   await page.getByText('Local agent is stopped',{exact:true}).waitFor()
-  assert.equal(await page.getByRole('button',{name:'Start agent',exact:true}).isEnabled(),true)
+  // Starting is the connection screen's own button: the sidebar that would
+  // carry a start control is hidden precisely while the agent is stopped.
   assert.equal(await page.getByRole('button',{name:'Start local agent',exact:true}).isEnabled(),true)
   console.log('Screenshot:',path.join(root,'console.png'))
  }finally{
