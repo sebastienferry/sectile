@@ -231,6 +231,14 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 	db.ensureProjectSkillsTable()
 	db.ensureMacrosTable()
 
+	// Every table now exists, so the columns an upgraded database is missing can
+	// be added whichever table they belong to. Only the engines without the
+	// legacy migrations need it; under SQLite the ALTER path has already put
+	// every one of them back. See lateColumns.
+	if !d.RunsLegacyMigrations() {
+		db.reconcileLateColumns()
+	}
+
 	// Says what it found and changes nothing: a token stored under an identity
 	// no account resolves is a person's problem to settle, not a migration's.
 	// See internal/db/orphancredentials.go for why neither deleting nor
@@ -499,16 +507,9 @@ func (d *DB) initSchema() error {
 	// docs/adrs/0016.
 	if d.dialect.RunsLegacyMigrations() {
 		d.applyLegacyMigrations()
-	} else {
-		// A PostgreSQL database is created complete, but one created by an
-		// earlier version keeps the schema it was created with: CREATE TABLE IF
-		// NOT EXISTS adds nothing to a table that already exists. A column added
-		// after PostgreSQL support shipped therefore has to be reconciled here,
-		// or every write path naming it fails on an upgraded deployment. The
-		// statement is idempotent, which the SQLite spelling cannot be.
-		_, _ = d.conn.Exec("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pr_links_detached INTEGER NOT NULL DEFAULT 0;")
-		_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN IF NOT EXISTS owner_user_id TEXT NOT NULL DEFAULT '';")
 	}
+	// The columns an engine without those migrations still has to be given are
+	// reconciled from openWith, once every table exists. See lateColumns.
 
 	// task_activities: task_id points at a task again, and project_id carries a
 	// project activity. This runs on both engines and outside the legacy block
@@ -621,6 +622,60 @@ func (d *DB) migrateTasksKeyUnique() {
 		if err != nil {
 			log.Printf("[migrateTasksKeyUnique] failed: %v", err)
 		}
+	}
+}
+
+// lateColumn is one column declared after PostgreSQL support shipped.
+//
+// The engines that skip the legacy migrations are given a complete schema when
+// their database is created, and nothing afterwards: CREATE TABLE IF NOT EXISTS
+// adds nothing to a table that already exists, and no ALTER is ever replayed. A
+// database created by an earlier version therefore keeps the schema it was born
+// with, and every write path naming a newer column fails on it with
+// `column "..." does not exist`.
+//
+// So each column added to a CREATE TABLE from that point on is listed here as
+// well. This is the whole list a reviewer has to read, and the list the upgrade
+// test drives; forgetting to extend it is what shipped #327's blocked_at to a
+// deployment that could no longer block an account.
+type lateColumn struct {
+	table      string
+	name       string
+	definition string
+}
+
+// addStatement is the idempotent form, which the SQLite spelling of ADD COLUMN
+// cannot express. The DATETIME in a definition is rewritten to the engine's own
+// type name on its way out, like every other schema statement.
+func (c lateColumn) addStatement() string {
+	return fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s;", c.table, c.name, c.definition)
+}
+
+// lateColumns is that list, oldest first.
+//
+// It deliberately starts at PostgreSQL support (#296) rather than at the first
+// column ever added: the ~90 columns before it only ever went missing from a
+// SQLite file, which the legacy migrations repair, and a PostgreSQL database
+// has never existed without them. See docs/adrs/0016.
+var lateColumns = []lateColumn{
+	{table: "tasks", name: "pr_links_detached", definition: "INTEGER NOT NULL DEFAULT 0"},
+	{table: "projects", name: "owner_user_id", definition: "TEXT NOT NULL DEFAULT ''"},
+	// #327: a blocked account keeps its row, its history and its ownership of
+	// past executions, and only its sign-in stops opening. NULL is the normal
+	// state, so every account an upgrade finds stays open.
+	{table: "users", name: "blocked_at", definition: "DATETIME"},
+}
+
+// reconcileLateColumns gives the database whichever of lateColumns it lacks.
+//
+// It runs on every start, on the engines that have no legacy migrations, and
+// after every table is created so a statement may name any of them. The error
+// is ignored for the same reason the legacy migrations ignore theirs: SQLite
+// cannot spell IF NOT EXISTS, and this path is reached under SQLite only by the
+// dialect the schema-parity test opens.
+func (d *DB) reconcileLateColumns() {
+	for _, column := range lateColumns {
+		_, _ = d.conn.Exec(column.addStatement())
 	}
 }
 
