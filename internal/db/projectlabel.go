@@ -1,6 +1,7 @@
 package db
 
 import (
+	"encoding/json"
 	"strings"
 
 	"tasks/internal/models"
@@ -34,8 +35,12 @@ func escapeLike(value string) string {
 // Matching it inside its quotes is what makes "team-alpha" miss "team-alphabet";
 // both sides are lower-cased because PostgreSQL's LIKE is case-sensitive while
 // SQLite's is not, and every other label comparison in this codebase ignores case.
+// The label is JSON-encoded the way the labels column is written: encoding/json
+// escapes "&", "<", ">", the backslash and the quote, so "R&D" is stored as
+// "R\u0026D" and a raw pattern would never find it.
 func membershipPattern(label string) string {
-	return `%"` + escapeLike(strings.ToLower(label)) + `"%`
+	encoded, _ := json.Marshal(strings.ToLower(label))
+	return "%" + escapeLike(string(encoded)) + "%"
 }
 
 // cleanLabel is the spelling used to compare two labels: trimmed, lower-cased and

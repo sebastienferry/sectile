@@ -117,9 +117,12 @@ joined with `AND`, where the two placeholders are the project's id and slug and 
 is built in Go:
 
 ```go
-pattern := `%"` + escapeLike(strings.ToLower(label)) + `"%`
+encoded, _ := json.Marshal(strings.ToLower(label))
+pattern := "%" + escapeLike(string(encoded)) + "%"
 ```
 
+The label is JSON-encoded because that is how the `labels` column is written:
+`encoding/json` escapes `&`, `<`, `>`, `"` and `\`, so `R&D` is stored as `"R\u0026D"`.
 `escapeLike` prefixes `\`, `%` and `_` with `\`. Matching the label inside its JSON quotes
 is what makes it a whole-label match: `%"team-alpha"%` does not match `["team-alphabet"]`.
 `LOWER` on both sides makes it case-insensitive on Postgres too, where `LIKE` is not.

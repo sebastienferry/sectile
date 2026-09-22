@@ -1,6 +1,7 @@
 package db
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -329,5 +330,62 @@ func TestProjectLabelSurvivesASaveAndRefusesWhitespace(t *testing.T) {
 	}
 	if updated.ProjectLabel != "team-beta" {
 		t.Errorf("expected the surrounding whitespace to be trimmed, got %q", updated.ProjectLabel)
+	}
+}
+
+// TestMembershipMatchesJSONEscapedLabels pins the pattern against the way the labels
+// column is written: encoding/json escapes "&", "<", ">", the quote and the
+// backslash, so a label carrying one of them is stored under another spelling.
+func TestMembershipMatchesJSONEscapedLabels(t *testing.T) {
+	database, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("failed to initialize database: %v", err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	for _, label := range []string{"R&D", "a<b>", `back\slash`, "team_alpha"} {
+		t.Run(label, func(t *testing.T) {
+			proj, err := database.CreateProject(models.CreateProjectRequest{Name: "p " + label, IssueTracker: "local"})
+			if err != nil {
+				t.Fatalf("failed to create the project: %v", err)
+			}
+			for _, title := range []string{"carrier", "stranger"} {
+				labels := []string{"bug"}
+				if title == "carrier" {
+					labels = append(labels, label)
+				}
+				if _, err := database.CreateTask(models.CreateTaskRequest{ProjectID: proj.ID, Title: title, Status: models.StatusToClarify, Priority: models.PriorityMedium, Labels: labels, Source: "local"}); err != nil {
+					t.Fatalf("failed to create task: %v", err)
+				}
+			}
+			value := label
+			if _, err := database.UpdateProject(proj.ID, models.UpdateProjectRequest{ProjectLabel: &value}); err != nil {
+				t.Fatalf("failed to configure the membership label: %v", err)
+			}
+
+			tasks, err := database.GetTasks("", "", "", "", proj.ID, "", "", "", "", nil, nil, false)
+			if err != nil {
+				t.Fatalf("GetTasks failed: %v", err)
+			}
+			got := titlesOf(tasks)
+			if !got["carrier"] || got["stranger"] || len(got) != 1 {
+				t.Errorf("expected only the carrier, got %v", got)
+			}
+		})
+	}
+}
+
+// TestProjectLabelRefusesEveryWorkflowStage keeps the models' reserved list in step
+// with the stages SetWorkflowLabel strips: a membership label spelled like one of
+// them would be removed from the ticket at its next transition.
+func TestProjectLabelRefusesEveryWorkflowStage(t *testing.T) {
+	for _, stage := range []string{"untouched", "new", "clarified", "specified", "implemented", "reviewed", "finished", "closed"} {
+		kept := SetWorkflowLabel([]string{stage}, "")
+		if len(kept) != 0 {
+			t.Fatalf("fixture drift: SetWorkflowLabel no longer strips %q", stage)
+		}
+		if _, err := models.NormalizeProjectLabel(stage); !errors.Is(err, models.ErrProjectLabelReserved) {
+			t.Errorf("%q: expected the stage name to be refused, got %v", stage, err)
+		}
 	}
 }

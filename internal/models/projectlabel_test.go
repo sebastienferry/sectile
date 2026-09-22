@@ -43,3 +43,19 @@ func TestNormalizeProjectLabel(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeProjectLabelRefusesWorkflowSpellings(t *testing.T) {
+	for _, in := range []string{"#team-alpha", "new", "Implemented", "  finished ", "#reviewed", "closed"} {
+		got, err := NormalizeProjectLabel(in)
+		if !errors.Is(err, ErrProjectLabelReserved) {
+			t.Errorf("%q: expected ErrProjectLabelReserved, got %v", in, err)
+		}
+		if got != "" {
+			t.Errorf("%q: expected no value on error, got %q", in, got)
+		}
+	}
+	// A stage name inside a longer label is an ordinary label.
+	if got, err := NormalizeProjectLabel("new-team"); err != nil || got != "new-team" {
+		t.Errorf("expected new-team to be accepted, got %q, %v", got, err)
+	}
+}

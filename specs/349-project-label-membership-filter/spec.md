@@ -167,7 +167,10 @@ is already mine, without having to attribute it by hand right after creating it.
   `CreateProjectRequest` and `UpdateProjectRequest`.
 - **FR2** — The API refuses a `projectLabel` containing whitespace with HTTP 400 and a
   message naming the reason; a value with only surrounding whitespace is trimmed and
-  accepted. The UI refuses the same input before submitting.
+  accepted. The UI refuses the same input before submitting. A value starting with `#` or
+  spelling a workflow stage (`new`, `implemented`, …) is refused the same way:
+  `SetWorkflowLabel` strips those at every stage change, which would take the ticket out
+  of its project, and label comparisons drop the `#`.
 - **FR3** — `GET /api/tasks` and `GET /api/tasks/facets` take a `membership` parameter,
   `project` (the default, also what an absent parameter means) or `all`. Under `project`,
   a task is returned when its project has no membership label, or when its labels contain
