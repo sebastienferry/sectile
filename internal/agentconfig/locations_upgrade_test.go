@@ -5,12 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"tasks/internal/testhome"
 	"testing"
 )
 
 func TestSkillInstallsAsASingleFileCarryingItsArgument(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, AIProvider: "claude", SetupProviders: []string{"codex"},
 		Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/clarify-issue",
 			Content: "Clarify the ticket.", CommandContent: "Clarify the ticket.\n\n## Ticket\n$ARGUMENTS\n"}}}
@@ -46,7 +47,7 @@ func TestSkillInstallsAsASingleFileCarryingItsArgument(t *testing.T) {
 
 func TestScaffoldRetiresTheEarlierDestinations(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	c := Config{SchemaVersion: Version, AIProvider: "claude", SetupProviders: []string{"codex", "agy"},
 		Skills: []Skill{{ID: "clarify", Directory: "clarify-issue", Command: "/clarify-issue",
 			Content: "skill", CommandContent: "command"}}}

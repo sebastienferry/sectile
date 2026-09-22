@@ -13,10 +13,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 	"tasks/internal/terminal"
+	"tasks/internal/testhome"
+
+	"github.com/gorilla/websocket"
 )
 
 func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
@@ -307,7 +309,7 @@ func TestLaunchAdmissionOfReservedSkills(t *testing.T) {
 }
 
 func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
 		if _, err := gitLocal(context.Background(), root, args...); err != nil {
@@ -484,7 +486,7 @@ func TestDesktopProjectAIProviderAndModelOverrides(t *testing.T) {
 }
 
 func TestDesktopTaskTransitionAndCapabilities(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 
 	var forwardedBody map[string]string
@@ -595,7 +597,7 @@ func TestDesktopTaskTransitionAndCapabilities(t *testing.T) {
 
 func TestDesktopProjectTerminalSettings(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("HOME", root)
+	testhome.Set(t, root)
 	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
 		if _, err := gitLocal(context.Background(), root, args...); err != nil {
 			t.Fatal(err)
@@ -776,7 +778,7 @@ func TestDesktopTerminalDetach(t *testing.T) {
 
 func TestDesktopTasksTerminalExternal(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("HOME", root)
+	testhome.Set(t, root)
 	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
 		if _, err := gitLocal(context.Background(), root, args...); err != nil {
 			t.Fatal(err)

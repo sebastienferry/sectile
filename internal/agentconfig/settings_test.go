@@ -4,11 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"tasks/internal/testhome"
 	"testing"
 )
 
 func TestUserSettingsPreserveConnectionAndMigrate(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".taskflow"), 0700)
 	os.WriteFile(filepath.Join(root, ".taskflow", "agent.json"), []byte("{\"projects\":{\"p\":\"/repo\"},\"parallelism\":{\"p\":3}}"), 0600)
@@ -44,7 +45,7 @@ func TestUserSettingsPreserveConnectionAndMigrate(t *testing.T) {
 }
 
 func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	os.MkdirAll(filepath.Join(root, ".taskflow"), 0700)
 	os.WriteFile(filepath.Join(root, ".taskflow", "agent.json"), []byte(`{"projects":{"p":"/legacy"},"worktrees":{"p":true},"disconnectedProjects":{"other":true}}`), 0600)
@@ -82,7 +83,7 @@ func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
 }
 
 func TestSettingsAIProvidersAndModelsRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	path, _ := SettingsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)
@@ -136,7 +137,7 @@ func TestSettingsAIProvidersAndModelsRoundTrip(t *testing.T) {
 }
 
 func TestSettingsTerminalAndTerminalsRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	testhome.Temp(t)
 	root := t.TempDir()
 	path, _ := SettingsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)

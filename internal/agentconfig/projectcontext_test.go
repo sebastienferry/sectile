@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"tasks/internal/testhome"
 	"testing"
 )
 
@@ -37,7 +38,7 @@ func seedLegacyCheckout(t *testing.T, root string, skills map[string]string) {
 
 func TestScaffoldRetiresLegacyCheckoutFiles(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	seedLegacyCheckout(t, root, map[string]string{
 		".agents/skills/code-issue/SKILL.md": "managed",
 		".claude/skills/code-issue/SKILL.md": "managed",
@@ -87,7 +88,7 @@ func TestScaffoldRetiresLegacyCheckoutFiles(t *testing.T) {
 
 func TestScaffoldRemovesManagedContextBlock(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	initial := "# Personal instructions\n\n" + contextStart + "\nmanaged content\n" + contextEnd + "\n## Footer\n"
 	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte(initial), 0644); err != nil {
 		t.Fatal(err)
@@ -110,7 +111,7 @@ func TestScaffoldRemovesManagedContextBlock(t *testing.T) {
 
 func TestScaffoldRemovesManagedRegistrationFromCheckout(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	path := filepath.Join(root, ".mcp.json")
 	registration := `{"mcpServers":{"sectile":{"command":"/opt/sectile"},"other":{"command":"other-server"}}}`
 	if err := os.WriteFile(path, []byte(registration), 0600); err != nil {
@@ -140,7 +141,7 @@ func TestScaffoldRemovesManagedRegistrationFromCheckout(t *testing.T) {
 
 func TestScaffoldLeavesUnparsableCheckoutFilesAlone(t *testing.T) {
 	root, home := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", home)
+	testhome.Set(t, home)
 	path := filepath.Join(root, ".mcp.json")
 	broken := []byte("not json at all")
 	if err := os.WriteFile(path, broken, 0600); err != nil {
