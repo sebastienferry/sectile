@@ -4,6 +4,7 @@ import { createBackdropGesture } from '../lib/backdropDismiss'
 
 interface BackdropProps {
   onMouseDown: (e: MouseEvent) => void
+  onMouseUp: (e: MouseEvent) => void
   onClick: (e: MouseEvent) => void
 }
 
@@ -12,8 +13,8 @@ interface BackdropProps {
  * it: `const backdrop = useBackdropDismiss(onClose)`, then
  * `<div className="fixed …" {...backdrop}>`.
  *
- * Spreading both handlers at once is the point — wiring the click alone brings
- * back the drag that closes the dialog (see `lib/backdropDismiss.ts`).
+ * Spreading the three handlers at once is the point — wiring the click alone
+ * brings back the drag that closes the dialog (see `lib/backdropDismiss.ts`).
  *
  * The handlers live on the backdrop element rather than on `document`, so an
  * open dialog costs nothing to the board's drag-and-drop, and a dialog stacked
@@ -25,16 +26,20 @@ interface BackdropProps {
  */
 export function useBackdropDismiss(onClose: () => void): BackdropProps {
   // The gesture is state that must never cause a render: it is written by the
-  // press and read by the click that immediately follows it.
+  // press and the release, and read by the click that follows them.
   const gesture = useMemo(() => createBackdropGesture(), [])
 
   const onMouseDown = useCallback((e: MouseEvent) => {
     gesture.press(e.target, e.currentTarget)
   }, [gesture])
 
+  const onMouseUp = useCallback((e: MouseEvent) => {
+    gesture.release(e.target, e.currentTarget)
+  }, [gesture])
+
   const onClick = useCallback((e: MouseEvent) => {
-    if (gesture.release(e.target, e.currentTarget)) onClose()
+    if (gesture.dismisses(e.target, e.currentTarget)) onClose()
   }, [gesture, onClose])
 
-  return { onMouseDown, onClick }
+  return { onMouseDown, onMouseUp, onClick }
 }

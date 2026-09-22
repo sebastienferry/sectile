@@ -7,39 +7,48 @@ import { createBackdropGesture, landedOnBackdrop } from '../src/lib/backdropDism
 const backdrop = { node: 'backdrop' }
 const inside = { node: 'dialog panel' }
 
+// A press and a release always produce a click on their common ancestor, which
+// is the backdrop as soon as either of them landed on it.
+const gestureOn = (pressTarget, releaseTarget) => {
+  const gesture = createBackdropGesture()
+  gesture.press(pressTarget, backdrop)
+  gesture.release(releaseTarget, backdrop)
+  const clickTarget = pressTarget === releaseTarget ? pressTarget : backdrop
+  return gesture.dismisses(clickTarget, backdrop)
+}
+
 test('an event landing on the dialog is not on the backdrop', () => {
   assert.equal(landedOnBackdrop(backdrop, backdrop), true)
   assert.equal(landedOnBackdrop(inside, backdrop), false)
 })
 
-test('a press and a release on the backdrop close the dialog', () => {
-  const gesture = createBackdropGesture()
-  gesture.press(backdrop, backdrop)
-  assert.equal(gesture.release(backdrop, backdrop), true)
+test('a press and a release beside the dialog close it', () => {
+  assert.equal(gestureOn(backdrop, backdrop), true)
 })
 
-test('a selection dragged out of the dialog does not close it', () => {
+test('a click inside the dialog leaves it open', () => {
+  assert.equal(gestureOn(inside, inside), false)
+})
+
+test('a selection dragged out of the dialog leaves it open', () => {
   // The click of such a drag reports the backdrop as its target, since that is
   // the common ancestor of the press and the release. Only the press tells the
   // two gestures apart.
-  const gesture = createBackdropGesture()
-  gesture.press(inside, backdrop)
-  assert.equal(gesture.release(backdrop, backdrop), false)
+  assert.equal(gestureOn(inside, backdrop), false)
 })
 
-test('a press on the backdrop released over the dialog does not close it', () => {
-  const gesture = createBackdropGesture()
-  gesture.press(backdrop, backdrop)
-  assert.equal(gesture.release(inside, backdrop), false)
+test('a press beside the dialog released over it leaves it open', () => {
+  assert.equal(gestureOn(backdrop, inside), false)
 })
 
-test('a gesture is spent once released', () => {
+test('a gesture is spent once read', () => {
   const gesture = createBackdropGesture()
   gesture.press(backdrop, backdrop)
-  assert.equal(gesture.release(backdrop, backdrop), true)
-  // A click with no press of its own — a synthetic one, or the second release
-  // of a double click reported without its press — closes nothing.
-  assert.equal(gesture.release(backdrop, backdrop), false)
+  gesture.release(backdrop, backdrop)
+  assert.equal(gesture.dismisses(backdrop, backdrop), true)
+  // A click with no gesture of its own — a synthetic one, or a release the
+  // browser reported without its press — closes nothing.
+  assert.equal(gesture.dismisses(backdrop, backdrop), false)
 })
 
 test('a missing target never closes the dialog', () => {
@@ -48,8 +57,5 @@ test('a missing target never closes the dialog', () => {
   assert.equal(landedOnBackdrop(null, backdrop), false)
   assert.equal(landedOnBackdrop(backdrop, null), false)
   assert.equal(landedOnBackdrop(null, null), false)
-
-  const gesture = createBackdropGesture()
-  gesture.press(null, backdrop)
-  assert.equal(gesture.release(backdrop, backdrop), false)
+  assert.equal(gestureOn(null, backdrop), false)
 })
