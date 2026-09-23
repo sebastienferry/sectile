@@ -161,6 +161,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Projects are listed again on a server upgraded from an earlier version.**
+  The per-project view setting added a column to the schema in a place that only
+  reaches a database created from scratch, so every existing deployment was left
+  without it and answered an error to every project read: the project menu came
+  up empty and the board showed nothing. The column is now added on start,
+  whatever version the database comes from, and no setting is lost.
+
 - **A local agent is reachable whichever server receives the request.** With
   several servers on one database, a stage transition, a launch or a workspace
   operation arriving on a server the agent is not connected to used to fail with

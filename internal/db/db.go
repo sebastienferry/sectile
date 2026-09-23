@@ -413,7 +413,6 @@ func (d *DB) initSchema() error {
 			tracker_columns TEXT NOT NULL DEFAULT '[]',
 			sprints TEXT NOT NULL DEFAULT '[]',
 			issue_types TEXT NOT NULL DEFAULT '[]',
-			enabled_views TEXT NOT NULL DEFAULT '[]',
 			mono_repo INTEGER NOT NULL DEFAULT 1,
 			stage_columns TEXT NOT NULL DEFAULT '{}',
 			github_repo TEXT NOT NULL DEFAULT '',
@@ -720,10 +719,6 @@ func (d *DB) applyLegacyMigrations() {
 	// issue_types : les types de tickets qu'un projet importe. Une liste vide vaut
 	// « les types par défaut », ce qui laisse les projets existants inchangés.
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN issue_types TEXT NOT NULL DEFAULT '[]';")
-	// enabled_views : les vues optionnelles qu'un projet affiche. Une liste vide
-	// vaut « aucune », et c'est ce que reçoivent les projets existants : Triage,
-	// Roadmap et Timeline disparaissent de la barre tant qu'on ne les demande pas.
-	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN enabled_views TEXT NOT NULL DEFAULT '[]';")
 	// mono_repo : un projet tenu dans un seul dépôt. La branche courante et le
 	// sélecteur de branche n'ont de sens que là ; sur un projet dont les tickets
 	// s'étalent sur plusieurs dépôts, ils montrent la branche d'un dépôt choisi

@@ -4,7 +4,7 @@ References: [`spec.md`](spec.md), [`plan.md`](plan.md).
 
 ## 1. Store (FR1, FR3, FR5, FR7, FR8)
 
-- [x] T1.1 Migration 7; `forgetSchemaVersion` undoes it.
+- [x] T1.1 Migration 8 (renumbered from 7); `forgetSchemaVersion` undoes it.
 - [x] T1.2 `presence.go`: address, `Shared`, `InternalToken`, presence methods.
 - [x] T1.3 Reaper deletes presence of vanished instances.
 - [x] T1.4 Presence tests on SQLite and PostgreSQL.

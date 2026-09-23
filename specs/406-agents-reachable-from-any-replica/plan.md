@@ -2,7 +2,7 @@
 
 References: [`spec.md`](spec.md), [`docs/clarifications/406.md`](../../docs/clarifications/406.md).
 
-## Schema: migration 7 `agent_presence`
+## Schema: migration 8 `agent_presence` (renumbered from 7 after main took 5)
 
 ```sql
 ALTER TABLE server_instances ADD COLUMN address TEXT NOT NULL DEFAULT '';
