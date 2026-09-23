@@ -114,6 +114,9 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 
 .run-state{display:inline-flex;align-items:center;flex-shrink:0}
 .run-state svg{display:block}
+.run-state[data-run-state=running] svg{animation:run-state-spin 1s linear infinite;transform-origin:center}
+@keyframes run-state-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.run-state[data-run-state=running] svg{animation:none}}
 
 /* Tickets pane: a project's open tasks as a table where the console sits. */
 #tickets-pane{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;padding:20px;overflow:auto;gap:12px}#tickets-pane h2,#tickets-pane p{margin:0}
