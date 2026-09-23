@@ -76,3 +76,11 @@ func DetachedSession() *syscall.SysProcAttr {
 // counterpart. A POSIX child inherits the terminal it was started from and opens
 // no window of its own, so there is nothing to suppress here.
 func Hidden(cmd *exec.Cmd) *exec.Cmd { return cmd }
+
+// terminationSignals keeps the supervisor alive long enough to stop its child
+// and report the actual exit when its owning terminal disappears.
+func terminationSignals() (<-chan os.Signal, func()) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGHUP, syscall.SIGTERM)
+	return signals, func() { signal.Stop(signals) }
+}

@@ -1,0 +1,47 @@
+const {test}=require('node:test')
+const assert=require('node:assert/strict')
+const {_electron:electron,expect}=require('@playwright/test')
+const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
+
+test('action tooltips show on hover, disabled icons and keyboard focus, including dialogs',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-tooltips-'))
+ const server=http.createServer((req,res)=>{
+  res.setHeader('Content-Type','application/json')
+  if(req.url==='/desktop/status')return res.end(JSON.stringify({connected:true,server:'https://example.test'}))
+  if(['/desktop/runs','/desktop/projects'].includes(req.url))return res.end('[]')
+  res.writeHead(404).end('{}')
+ })
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1'};delete env.ELECTRON_RUN_AS_NODE
+ let app
+ try{
+  app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  const page=await app.firstWindow();page.setDefaultTimeout(7000)
+  const tooltip=page.getByRole('tooltip')
+  await page.locator('#settings').hover()
+  await expect(tooltip).toHaveText('Settings');await expect(tooltip).toBeVisible()
+  const box=await tooltip.boundingBox(),viewport=await page.evaluate(()=>({width:innerWidth,height:innerHeight}))
+  assert.ok(box.x>=0&&box.y>=0&&box.x+box.width<=viewport.width&&box.y+box.height<=viewport.height)
+  await page.screenshot({path:path.join(root,'settings-tooltip.png')})
+  await page.locator('#clear-history').hover()
+  await expect(page.locator('#clear-history')).toBeDisabled()
+  await expect(tooltip).toHaveText('Clear finished consoles');await expect(tooltip).toBeVisible()
+  await page.mouse.move(800,400)
+  await expect(tooltip).toHaveCount(0)
+  await page.locator('#save-log').focus()
+  await expect(tooltip).toHaveText('Export log');await expect(tooltip).toBeVisible()
+  await expect(page.locator('#save-log')).toHaveAttribute('aria-describedby','action-tooltip')
+  await page.keyboard.press('Escape');await expect(tooltip).toHaveCount(0)
+  await page.locator('#settings').click()
+  await page.locator('#close-dialog').hover()
+  await expect(tooltip).toHaveText('Close');await expect(tooltip).toBeVisible()
+  assert.equal(await tooltip.evaluate(el=>!!el.closest('dialog[open]')&&el.matches(':popover-open')),true)
+  await page.screenshot({path:path.join(root,'dialog-tooltip.png')})
+  await page.locator('#close-dialog').click();await expect(tooltip).toHaveCount(0)
+  console.log('Tooltip screenshots: '+root)
+ }finally{
+  if(app)await app.close()
+  await new Promise(resolve=>server.close(resolve))
+ }
+})

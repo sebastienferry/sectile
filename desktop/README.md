@@ -67,15 +67,20 @@ remains visible. The project directory browser discovers server projects and
 saves local Git repository mappings.
 
 Closing the window or quitting Electron keeps the detached agent and tasks alive.
+If a terminal supervisor receives a hangup or termination signal, it stops and
+waits for its child process before reporting the execution outcome. A transient
+failure to deliver that report is retried.
 Reopening restores the connection. The gear at the bottom of the project sidebar
-opens **Settings**, the workstation-wide panel: **General** (the installed
-versions and the release notes, opened first), **User profile**, **Agent
-connection** and **Agent logs**. Stop and restart sit in that same footer, and
+opens **Settings**, the workstation-wide panel: **User profile** (opened first), **Agent connection**, **AI Engine CLI**,
+**Agent logs** and **Changelog** (installed versions and release notes, pinned
+to the bottom of the sidebar). The larger settings dialog adapts to the window. Stop and restart sit in that same footer, and
 the connection state leads it: a green dot reading **Connected**, an orange one
 reading **Not connected** or **Server incompatible**. The server address is the
 tooltip, and **Connected** is the link that opens the board. One corner of the
 window owns the workstation, the footer glyphs carry no frame, and the header is
-a title bar again. **Hide projects** collapses the sidebar to that footer alone,
+a title bar again. The broom icon clears finished consoles; task toolbar icons
+are unboxed and show tooltips on hover or keyboard focus, including disabled
+actions. Keyboard focus indicators remain visible. **Hide projects** collapses the sidebar to that footer alone,
 a narrow rail: the list goes, the controls and the dot stay, and the dot still
 opens the board once the words are dropped. Starting the agent belongs to the connection screen's own
 **Start local agent** button, because the sidebar is hidden exactly while the
@@ -271,8 +276,8 @@ directory. Local worktree preferences are stored per project in
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
 **Settings → User profile** states what this workstation knows about the
-account: the paired server, the workstation identifier, and whether a pairing
-credential is stored here. Display name, password and API keys stay server-owned;
+account: the paired server and the workstation identifier. Display name,
+password and API keys stay server-owned;
 **Open the web interface** goes there.
 
 ### Remove a local project
@@ -343,9 +348,9 @@ arguments with, for example, `make start ARGS="--url http://localhost:8090"`; pr
 authentication through `TOKEN`.
 
 Workstation settings open from the gear at the bottom of the project sidebar and
-use the same side navigation: **User profile**, **Agent connection** and **Agent
-logs**, with **User profile** first. **Agent connection** reports the local
-agent, the server link, and the connect form itself: the same form the
+use the same side navigation: **User profile**, **Agent connection**, **AI Engine CLI**, **Agent logs** and
+**Changelog**, with **User profile** first. **Agent connection** reports the local
+agent with Start, Stop, and Restart controls, the server link (green when connected, orange otherwise), and the connect form itself: the same form the
 connection screen shows, borrowed while the category is open and returned when
 the panel closes. Pairing is the only credential the desktop asks for — paste a
 code from **Pair a workstation** in the web interface. There is no API key field;

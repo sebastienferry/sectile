@@ -1,7 +1,9 @@
 package agentexec
 
 import (
+	"os"
 	"os/exec"
+	"os/signal"
 	"sync"
 	"syscall"
 
@@ -111,4 +113,10 @@ func Hidden(cmd *exec.Cmd) *exec.Cmd {
 	}
 	cmd.SysProcAttr.CreationFlags |= windows.CREATE_NO_WINDOW
 	return cmd
+}
+
+func terminationSignals() (<-chan os.Signal, func()) {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	return signals, func() { signal.Stop(signals) }
 }

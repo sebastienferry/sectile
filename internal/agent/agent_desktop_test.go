@@ -87,6 +87,51 @@ func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
 	}
 }
 
+func TestStopRecoversRunWhosePTYAlreadyClosed(t *testing.T) {
+	run := &controlledRun{
+		desktop: desktopRun{ID: "orphan", SessionID: "missing", Status: "running"},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{
+		terminal: terminalChoice{manager: terminal.NewManager()},
+		loopback: loopbackServer{desktopToken: "private"},
+		queue:    runQueue{runs: map[string]*controlledRun{"orphan": run}},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/desktop/stop?id=orphan", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	rec := httptest.NewRecorder()
+	d.desktopHandler(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if run.desktop.Status != "canceled" {
+		t.Fatalf("status = %q, want canceled", run.desktop.Status)
+	}
+	select {
+	case <-run.exited:
+	default:
+		t.Fatal("orphaned run was not closed")
+	}
+}
+
+func TestStopDoesNotRecoverHeadlessRunWithoutTerminal(t *testing.T) {
+	run := &controlledRun{
+		desktop: desktopRun{ID: "headless", Status: "running", Headless: true},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, queue: runQueue{runs: map[string]*controlledRun{"headless": run}}}
+	if d.recoverOrphanedPTYRun("headless", run) {
+		t.Fatal("headless run was mistaken for a missing PTY")
+	}
+	select {
+	case <-run.exited:
+		t.Fatal("headless run was closed")
+	default:
+	}
+}
+
 func TestDesktopRestartRequiresConfirmedExit(t *testing.T) {
 	restarted := false
 	run := &controlledRun{exited: make(chan struct{})}

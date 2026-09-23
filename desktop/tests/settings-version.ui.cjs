@@ -3,11 +3,11 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-// The General settings pane is where somebody goes to find out what they have
+// The Changelog settings pane is where somebody goes to find out what they have
 // installed. Two versions, because the app and the agent are distributed
-// separately, and the release notes right under them. It is the category the
-// settings panel opens on, reached from the gear at the foot of the sidebar.
-test('general settings report both versions and the release notes',async()=>{
+// separately, and the release notes right under them. The category is reached
+// from the settings sidebar, below the workstation controls.
+test('changelog settings report both versions and the release notes',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-settings-version-'))
  let agentVersion={version:'v9.9.9'},agentReachable=true
  const server=http.createServer((req,res)=>{
@@ -30,7 +30,36 @@ test('general settings report both versions and the release notes',async()=>{
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
 
   await page.locator('#settings').click()
-  await expect(page.getByRole('tab',{name:'General',exact:true})).toHaveAttribute('aria-selected','true')
+  await expect(page.getByRole('tab',{name:'User profile',exact:true})).toHaveAttribute('aria-selected','true')
+  await expect(page.getByRole('tab')).toHaveText(['User profile','Agent connection','AI Engine CLI','Agent logs','Changelog'])
+  await expect(page.locator('#settings-panel-Profile .setting-name')).toHaveText(['Sectile server','Workstation','Profile and API keys'])
+  const bounds=await page.locator('#project-dialog').boundingBox()
+  assert.ok(bounds.width>840,'Workstation settings use the enlarged dialog')
+  await page.screenshot({path:path.join(root,'settings-profile.png')})
+  console.log('Settings screenshot: '+path.join(root,'settings-profile.png'))
+  await page.getByRole('tab',{name:'Agent connection',exact:true}).click()
+  const actions=page.locator('.settings-agent-actions')
+  const start=actions.getByRole('button',{name:'Start agent',exact:true})
+  const stop=actions.getByRole('button',{name:'Stop agent',exact:true})
+  const restart=actions.getByRole('button',{name:'Restart agent',exact:true})
+  await expect(start).toBeDisabled();await expect(stop).toBeEnabled();await expect(restart).toBeEnabled()
+  // Mock the process boundary: exercise the controls without touching a real agent.
+  await app.evaluate(({ipcMain})=>{
+   globalThis.settingsAgentActions=[]
+   for(const name of ['start','shutdown','restart','connect'])ipcMain.removeHandler(name)
+   ipcMain.handle('connect',()=>false)
+   ipcMain.handle('restart',()=>{globalThis.settingsAgentActions.push('restart');return true})
+   ipcMain.handle('shutdown',()=>{globalThis.settingsAgentActions.push('stop');return true})
+   ipcMain.handle('start',()=>{globalThis.settingsAgentActions.push('start');return true})
+  })
+  await restart.click();await expect(restart).toBeEnabled()
+  await stop.click();await expect(start).toBeEnabled();await expect(stop).toBeDisabled();await expect(restart).toBeDisabled()
+  await expect(page.locator('.settings-connection-status')).toHaveText('Unreachable')
+  await start.click();await expect(stop).toBeEnabled();await expect(start).toBeDisabled()
+  await expect(page.locator('.settings-connection-status')).toHaveText('Connected')
+  assert.deepEqual(await app.evaluate(()=>globalThis.settingsAgentActions),['restart','stop','start'])
+  await page.screenshot({path:path.join(root,'settings-connection.png')})
+  await page.getByRole('tab',{name:'Changelog',exact:true}).click()
   const rows=page.locator('.settings-versions .version-value')
   await expect(rows.nth(0)).toHaveText(packagedVersion)
   await expect(rows.nth(1)).toHaveText('v9.9.9')
