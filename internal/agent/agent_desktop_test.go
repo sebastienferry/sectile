@@ -858,3 +858,46 @@ func TestDesktopTasksTerminalExternal(t *testing.T) {
 		t.Fatalf("unexpected launch: app=%s sess=%s wantSess=%s", launchedApp, launchedSess, runID)
 	}
 }
+
+func TestAdmitProjectRunValidatesAutonomousPreflight(t *testing.T) {
+	d, config := disconnectFixture(t)
+	config.AIProvider = "agy"
+	config.AICommandTemplate = ""
+	config.AICommandTemplateAutonomous = ""
+
+	_ = agentconfig.WriteSettings(agentconfig.Overrides{
+		Projects:   map[string]string{"p": d.repoRoot},
+		AIProvider: "agy",
+	})
+
+	payload := agentconfig.Dispatch{
+		RunID:   "run-auto-fail",
+		SkillID: "implement",
+		Mode:    models.SkillModeAutonomous,
+	}
+	run, err := d.admitProjectRun(context.Background(), "task-1", payload, config)
+	if err == nil {
+		t.Fatalf("expected autonomous execution to be rejected for provider %q", config.AIProvider)
+	}
+	if run != nil {
+		t.Fatalf("expected run to be nil on rejection, got %+v", run)
+	}
+	if !strings.Contains(err.Error(), "headless mode") && !strings.Contains(err.Error(), "execution mode") {
+		t.Fatalf("expected headless capability error, got: %v", err)
+	}
+
+	// When provider supports autonomous mode (e.g. claude), admission succeeds
+	_ = agentconfig.WriteSettings(agentconfig.Overrides{
+		Projects:   map[string]string{"p": d.repoRoot},
+		AIProvider: "claude",
+	})
+	config.AIProvider = "claude"
+	payload.RunID = "run-auto-pass"
+	runPass, err := d.admitProjectRun(context.Background(), "task-1", payload, config)
+	if err != nil {
+		t.Fatalf("expected claude autonomous run to be admitted: %v", err)
+	}
+	if runPass == nil {
+		t.Fatal("expected run to be non-nil on admission")
+	}
+}

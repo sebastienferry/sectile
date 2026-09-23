@@ -73,6 +73,15 @@ ipcMain.handle('settings',()=>{
   return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
  }catch{return {}}
 })
+ipcMain.handle('save-settings',async(_,updates)=>{
+ let previous={}
+ try{previous=readSettings()}catch{}
+ const saved={...previous,...updates}
+ fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
+ fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
+ fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
+})
 // What this installation is running. The desktop's own version comes from the
 // package the app was built from; the agent's comes from the agent itself,
 // because the two are distributed separately and a workstation that upgraded

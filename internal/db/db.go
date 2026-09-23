@@ -4735,22 +4735,6 @@ func (d *DB) EnqueueFullChainRun(taskID string) (*models.Task, *models.TaskActiv
 		return nil, nil, fmt.Errorf("tâche non trouvée")
 	}
 
-	// Every step of a full chain runs headless. Refusing here, before anything
-	// is enqueued, is the difference between telling the user now and letting
-	// the first step fail on the agent with nobody watching.
-	if project, err := d.GetProjectByID(task.ProjectID); err == nil && project != nil {
-		if !models.SupportsAutonomousRun(project.AIProvider, project.AICommandTemplate, project.AICommandTemplateAutonomous) {
-			provider := strings.TrimSpace(project.AIProvider)
-			if provider == "" {
-				provider = "agy"
-			}
-			if strings.TrimSpace(project.AICommandTemplate) != "" {
-				return nil, nil, fmt.Errorf("la commande IA configurée décide du mode : renseigne une commande autonome, ou ajoute un marqueur %sAUTONOMOUS|INTERACTIVE} à la commande interactive", models.TemplateModePlaceholder)
-			}
-			return nil, nil, fmt.Errorf("le provider %q n'a pas de mode headless attesté : une exécution en chaîne est impossible", provider)
-		}
-	}
-
 	stopStage := d.FullChainStopStage(task.ProjectID)
 	stage := d.StageOfTask(task)
 	if stage == stopStage || stage == "finished" || stageAtOrPast(stage, stopStage) {
