@@ -111,14 +111,22 @@ window pointed at it:
 | A stage transition made by another session reaches the open board | yes: `task_updated` received over the key-signed stream |
 | Sign-out from the board | refused by the window; the web shows its "could not sign out" message |
 
+### Prototype, on a real deployment (owner, 2026-09-23)
+
+The branch's desktop, run on the owner's paired workstation against the team's
+deployed server, with the real local agent:
+
+| Check | Result |
+| --- | --- |
+| **Connected** opens the board in a desktop window | yes, signed in, no browser launched |
+| **Discuter** from a card's **…** menu | the session's console appears in the desktop's execution list |
+
 ## What remains unproven
 
-- **Skill launch from a card reaching this workstation's console.** The launch is a
-  server-side dispatch to the paired user's connected agent and does not depend on
-  which client asked, so nothing in the board window should change it; but the manual
-  run used a fake agent, so the end-to-end path is not demonstrated.
 - **OIDC deployments.** Not needed by the recommended approach (the key bypasses
   sign-in), but not exercised against a real identity provider.
+- **A stage skill launched by hand from the board.** The owner launched *Discuter*,
+  which takes the same dispatch path to the agent; an *Avancer* launch was not tried.
 - **Drag-and-drop by hand.** Card moves were exercised as the API writes they are,
   not by dragging in the window.
 - **Packaging.** Only the unpackaged app was run; nothing in the approach depends on
