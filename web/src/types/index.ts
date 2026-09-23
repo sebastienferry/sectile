@@ -112,12 +112,27 @@ export interface TrackerSprint {
 export type MacroHorizon = 'now' | 'next' | 'later' | 'hidden'
 export type EpicHorizon = MacroHorizon
 
+/**
+ * Artefact d'où une ligne de découpe a été importée.
+ *
+ * L'absence de valeur vaut « saisie à la main », et c'est le cas le plus
+ * intéressant de la liste : une ligne sans origine est un ajout que personne
+ * n'a spécifié.
+ */
+export type MacroTodoSource = 'tasks' | 'spec' | 'scenarios'
+
 export interface MacroTodo {
   id: string
   text: string
   done: boolean
   /** Ticket créé depuis cette ligne de TODO, s'il existe. */
   storyKey?: string
+  /** Projet où créer la story. Absent vaut « le projet de la macro ». */
+  targetProjectId?: string
+  /** Artefact d'origine. Absent vaut « saisie à la main ». */
+  sourceKind?: MacroTodoSource
+  /** Titre de l'entrée tel que l'artefact l'écrit, avant nettoyage. */
+  sourceEntry?: string
 }
 export type EpicTodo = MacroTodo
 
@@ -430,7 +445,7 @@ export interface Task {
   /** Tracker work item type. Only "Task" and "Story" are imported. */
   issueType?: string
   /**
-   * Parent work item — an epic, or a parent story for a sub-task — carried as a
+   * Parent work item - an epic, or a parent story for a sub-task - carried as a
    * property of the task rather than as a card of its own.
    */
   parentKey?: string
