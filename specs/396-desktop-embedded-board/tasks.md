@@ -33,5 +33,5 @@ References: [`spec.md`](spec.md), [`plan.md`](plan.md).
 ## 6. Decision (US5, FR8)
 
 - [ ] T6.1 `docs/spikes/396-desktop-board.md`: options compared (window vs view, injected key vs in-app sign-in, isolation), T1 results, manual results, recommendation, what remains unproven.
-- [ ] T6.2 `docs/adrs/0024-the-board-is-shown-inside-the-desktop.md`, status *Proposed*, amending ADR 0003.
+- [ ] T6.2 `docs/adrs/0025-the-board-is-shown-inside-the-desktop.md`, status *Proposed*, amending ADR 0003.
 - [ ] T6.3 `desktop/README.md` and `CHANGELOG.md` updated if the prototype stays as user-visible behaviour on the branch.

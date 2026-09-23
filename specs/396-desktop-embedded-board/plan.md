@@ -88,7 +88,7 @@ not changed.
 | `desktop/tests/board-window.test.cjs` (new) | origin filter, header injection only for the server origin, external-link routing |
 | `desktop/tests/board-link.ui.cjs` | the existing board-link test now expects the embedded window, not `openExternal` |
 | `docs/spikes/396-desktop-board.md` (new) | the finding |
-| `docs/adrs/0024-the-board-is-shown-inside-the-desktop.md` (new) | ADR draft, *Proposed*, amending ADR 0003's "navigation is blocked" |
+| `docs/adrs/0025-the-board-is-shown-inside-the-desktop.md` (new) | ADR draft, *Proposed*, amending ADR 0003's "navigation is blocked" |
 | `desktop/README.md`, `CHANGELOG.md` | only if the prototype is kept as user-visible behaviour on the branch |
 
 No server, web UI, migration or dependency change is expected. If the verification
