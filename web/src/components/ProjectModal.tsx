@@ -46,6 +46,7 @@ import { AIModelField } from './AIModelField'
 import { isValidModel, providerModels } from '../lib/aiModels'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 import { Antigravity, Claude, OpenAI } from './icons'
+import { hasProjectAgentOverride, projectAgentSettings } from '../lib/projectAgentSettings'
 
 type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
 
@@ -223,7 +224,7 @@ export const ProjectModal: React.FC = () => {
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
 
-      const hasCustomAgent = Boolean(editingProject.aiProvider || editingProject.aiModel)
+      const hasCustomAgent = hasProjectAgentOverride(editingProject.aiProvider, editingProject.aiModel)
       setUseCustomAgent(hasCustomAgent)
       setAiProvider(editingProject.aiProvider || '')
       setAiModel(editingProject.aiModel || '')
@@ -367,10 +368,7 @@ export const ProjectModal: React.FC = () => {
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
-        aiProvider: useCustomAgent && aiProvider ? (aiProvider as AIProvider) : undefined,
-        // Toujours transmis, y compris vide : c'est ainsi qu'on efface une valeur
-        // au lieu de conserver silencieusement celle qui est enregistrée.
-        aiModel: useCustomAgent ? aiModel.trim() : '',
+        ...projectAgentSettings(useCustomAgent, aiProvider, aiModel),
         aiSkillModels,
         setupProviders: [],
         specFramework,

@@ -27,6 +27,7 @@ import type {
   CliStatus,
   TaskSource,
   Project,
+  ProjectSavePayload,
   TrackerBoard,
   TaskComment,
   MacroMeta,
@@ -60,8 +61,8 @@ interface AppContextType {
   selectedProjectId: string | 'all'
   setSelectedProjectId: (id: string | 'all') => void
   currentProject: Project | null
-  createProject: (data: Partial<Project>) => Promise<Project | null>
-  updateProject: (id: string, updates: Partial<Project>) => Promise<Project | null>
+  createProject: (data: ProjectSavePayload) => Promise<Project | null>
+  updateProject: (id: string, updates: ProjectSavePayload) => Promise<Project | null>
   deleteProject: (id: string) => Promise<boolean>
   toggleProjectBookmark: (projectId: string) => Promise<boolean>
   fetchProjects: () => Promise<void>
@@ -1727,7 +1728,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const createProject = async (data: Partial<Project>): Promise<Project | null> => {
+  const createProject = async (data: ProjectSavePayload): Promise<Project | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects`, {
         method: 'POST',
@@ -1757,7 +1758,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const updateProject = async (id: string, updates: Partial<Project>): Promise<Project | null> => {
+  const updateProject = async (id: string, updates: ProjectSavePayload): Promise<Project | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(id)}`, {
         method: 'PUT',
@@ -3598,4 +3599,3 @@ export const useApp = () => {
 export const useOptionalApp = () => {
   return useContext(AppContext)
 }
-

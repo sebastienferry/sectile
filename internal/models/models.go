@@ -388,7 +388,7 @@ type UpdateProjectRequest struct {
 	IsDefault                   *bool                `json:"isDefault,omitempty"`
 	SkillOverrides              *map[string]string   `json:"skillOverrides,omitempty"`
 	SetupProviders              *[]string            `json:"setupProviders,omitempty"`
-	AIProvider                  *string              `json:"aiProvider,omitempty"`
+	AIProvider                  *string              `json:"aiProvider,omitempty"` // nil preserves the stored provider; an empty value clears it.
 	AICommandTemplate           *string              `json:"aiCommandTemplate,omitempty"`
 	AICommandTemplateAutonomous *string              `json:"aiCommandTemplateAutonomous,omitempty"`
 	AIModel                     *string              `json:"aiModel,omitempty"`

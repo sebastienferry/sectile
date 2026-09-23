@@ -142,6 +142,11 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Turning off a project's custom agent now restores inheritance.** The project
+  modal explicitly clears its provider and model override, rather than omitting
+  them and leaving the previous provider stored. Reopening the project now keeps
+  the global agent active. (#249)
+
 - **A task worktree can build and lint from its first launch.** The local agent
   now runs `npm ci` in every package folder of a task worktree (its root and the
   folders one level down that hold a `package.json` and a `package-lock.json`)

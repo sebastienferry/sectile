@@ -279,6 +279,17 @@ export interface Project {
 }
 
 /**
+ * Project fields accepted by the create and update endpoints.
+ *
+ * A stored Project only exposes known providers. A write may additionally send
+ * an empty provider to clear the optional project override; omitting the field
+ * keeps the existing value on updates.
+ */
+export type ProjectSavePayload = Omit<Partial<Project>, 'aiProvider'> & {
+  aiProvider?: AIProvider | ''
+}
+
+/**
  * Équipe du tracker telle que les tickets la portent, avec les personnes qu'elle
  * contient. Les membres viennent de l'API des équipes Atlassian, lus à chaque
  * synchronisation Jira.
