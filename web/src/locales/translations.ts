@@ -711,6 +711,19 @@ export interface TranslationSchema {
     projectForNewTicket: string
     chooseProject: string
   }
+  reads: {
+    failedTitle: string
+    failedDescription: string
+    bannerTitle: string
+    bannerDescription: string
+    retry: string
+    resources: {
+      projects: string
+      tasks: string
+      settings: string
+      boardViews: string
+    }
+  }
   toasts: {
     taskCreated: string
     taskUpdated: string
@@ -1443,6 +1456,19 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       projectForNewTicket: 'Projet du ticket',
       chooseProject: 'Choisir un projet…',
     },
+    reads: {
+      failedTitle: 'Lecture impossible',
+      failedDescription: '{resource} : le serveur a répondu {detail}. Ce que vous voyez est incomplet.',
+      bannerTitle: 'Interface dégradée',
+      bannerDescription: 'Ces lectures échouent : {detail}. Rien n\'est vide, rien n\'a été supprimé — le serveur ne répond pas.',
+      retry: 'Réessayer',
+      resources: {
+        projects: 'Projets',
+        tasks: 'Tickets',
+        settings: 'Paramètres',
+        boardViews: 'Vues du board',
+      },
+    },
     toasts: {
       taskCreated: 'Tâche créée avec succès !',
       taskUpdated: 'Tâche mise à jour !',
@@ -2172,6 +2198,19 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       emptyDescription: 'Its projects were deleted. Edit the view to choose others, or delete it.',
       projectForNewTicket: 'Ticket project',
       chooseProject: 'Choose a project…',
+    },
+    reads: {
+      failedTitle: 'Read failed',
+      failedDescription: '{resource}: the server answered {detail}. What you see is incomplete.',
+      bannerTitle: 'Degraded interface',
+      bannerDescription: 'These reads are failing: {detail}. Nothing is empty and nothing was deleted — the server is not answering.',
+      retry: 'Retry',
+      resources: {
+        projects: 'Projects',
+        tasks: 'Issues',
+        settings: 'Settings',
+        boardViews: 'Board views',
+      },
     },
     toasts: {
       taskCreated: 'Task created successfully!',

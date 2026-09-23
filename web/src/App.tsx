@@ -13,6 +13,7 @@ import { ActivitiesView } from './components/ActivitiesView'
 import { SyncView } from './components/SyncView'
 import { SkillsView } from './components/SkillsView'
 import { PinnedBar } from './components/PinnedBar'
+import { DegradedReadBanner } from './components/DegradedReadBanner'
 import { QuickAddModal } from './components/QuickAddModal'
 import { CloneTaskModal } from './components/CloneTaskModal'
 import { TaskDetailModal } from './components/TaskDetailModal'
@@ -59,6 +60,10 @@ const MainContent: React.FC = () => {
         {/* Main Workspace Area */}
         <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0 min-h-0">
           <Header />
+
+          {/* Une lecture de fond qui ne revient pas se dit ici, pour qu'un
+              board vide ne passe pas pour un board sans tickets */}
+          <DegradedReadBanner />
 
           {/* Bascule à chaud entre les tickets épinglés */}
           <PinnedBar />
