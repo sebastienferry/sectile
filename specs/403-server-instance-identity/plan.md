@@ -61,6 +61,10 @@ question rather than `Engine()`, as the seam asks.
 - Job start (`db.go`, "Mark activity as running"): `SET status='running', started_at=?, instance_id=?`.
 - `SyncRemoteRunStatusFor` insert branch creates agent-owned runs only: not stamped,
   as they are never reclaimed.
+- `SessionRegistry.Adopt` does not re-stamp, contrary to D3 of the clarification: a
+  client run is created by the `start_run` request, which the instance holding the
+  MCP session serves, so the insert stamp already names the right owner. #408, which
+  forwards MCP requests to the owning instance, keeps that true.
 
 ## Server
 
