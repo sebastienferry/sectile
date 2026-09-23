@@ -51,6 +51,16 @@ import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trac
 import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
+import {
+  coreFailures,
+  failureDetail,
+  formatReadFailure,
+  readJson,
+  withOutcome,
+  type ReadFailure,
+  type ReadOutcome,
+  type ReadResource,
+} from '../lib/apiRead'
 import { filterScopeKey, readViewParam, withViewParam } from '../lib/boardViews'
 import {
   INTERNAL_STATUS_BY_STAGE,
@@ -98,6 +108,11 @@ interface AppContextType {
   isSyncing: boolean
   runningSkillId: string | null
   error: string | null
+  // Les lectures qui n'aboutissent pas, pour que l'interface dise « le serveur
+  // n'a pas répondu » au lieu de laisser croire qu'il n'y a rien à montrer.
+  readFailures: ReadFailure[]
+  coreReadFailures: ReadFailure[]
+  retryFailedReads: () => void
   activeView: ViewMode
   setActiveView: (view: ViewMode) => void
   boardGrouping: BoardGroupingMode
@@ -441,6 +456,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isSyncing, setIsSyncing] = useState(false)
   const [runningSkillId, setRunningSkillId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Les lectures en échec, et le souvenir de celles déjà signalées : les
+  // fetchers sont sondés en boucle, un toast par tour noierait l'information
+  // qu'il porte. Le bandeau, lui, reste tant que la lecture ne revient pas.
+  const [readFailures, setReadFailures] = useState<ReadFailure[]>([])
+  const reportedReadsRef = useRef<Set<ReadResource>>(new Set())
   /**
    * L'écran affiché survit au rechargement.
    *
@@ -908,6 +928,35 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const t = useMemo(() => translations[settings.language] || translations.fr, [settings.language])
 
+  /**
+   * Le seul endroit où une lecture ratée devient visible. Un 401 se tait : la
+   * redirection vers la connexion s'en charge déjà. Tout le reste nomme la
+   * ressource et ce que le serveur a répondu, une fois par passage à l'échec,
+   * et laisse la trace que le bandeau lit.
+   */
+  const trackRead = useCallback(<T,>(resource: ReadResource, outcome: ReadOutcome<T>) => {
+    if (outcome.kind === 'silent') return
+    setReadFailures(previous => withOutcome(previous, resource, outcome))
+    if (outcome.kind === 'ok') {
+      reportedReadsRef.current.delete(resource)
+      return
+    }
+    if (reportedReadsRef.current.has(resource)) return
+    reportedReadsRef.current.add(resource)
+    addToast({
+      type: 'error',
+      title: t.reads.failedTitle,
+      description: formatReadFailure(
+        t.reads.failedDescription,
+        t.reads.resources[resource],
+        failureDetail(outcome),
+      ),
+      duration: 8000,
+    })
+  }, [addToast, t])
+
+  const coreReadFailures = useMemo(() => coreFailures(readFailures), [readFailures])
+
   useEffect(() => {
     const root = document.documentElement
     const body = document.body
@@ -957,25 +1006,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [settings.theme, settings.density, settings.uiScale, currentProject?.color])
 
   const fetchSettings = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/settings`)
-      if (res.ok) {
-        const data: UserSettings = await res.json()
-        setSettings(data)
-        // Premier lancement : aucune vue mémorisée, la vue par défaut des
-        // réglages s'applique ici et nulle part ailleurs. C'est le seul moment
-        // où l'on tient la valeur du serveur plutôt que celle de repli.
-        if (defaultViewPending.current) {
-          defaultViewPending.current = false
-          if (data.defaultView && VIEW_MODES.includes(data.defaultView)) {
-            setActiveView(data.defaultView)
-          }
-        }
+    const outcome = await readJson<UserSettings>(`${API_BASE}/settings`)
+    trackRead('settings', outcome)
+    if (outcome.kind !== 'ok') return
+    const data = outcome.data
+    setSettings(data)
+    // Premier lancement : aucune vue mémorisée, la vue par défaut des
+    // réglages s'applique ici et nulle part ailleurs. C'est le seul moment
+    // où l'on tient la valeur du serveur plutôt que celle de repli.
+    if (defaultViewPending.current) {
+      defaultViewPending.current = false
+      if (data.defaultView && VIEW_MODES.includes(data.defaultView)) {
+        setActiveView(data.defaultView)
       }
-    } catch (err) {
-      console.warn('Failed to load settings from server', err)
     }
-  }, [setActiveView])
+  }, [setActiveView, trackRead])
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -1002,51 +1047,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [])
 
   const fetchProjects = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/projects`)
-      if (res.ok) {
-        const data: Project[] = await res.json()
-        const projectList = data || []
-        setProjects(projectList)
+    const outcome = await readJson<Project[]>(`${API_BASE}/projects`)
+    trackRead('projects', outcome)
+    if (outcome.kind !== 'ok') return
+    const projectList = outcome.data || []
+    setProjects(projectList)
 
-        // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
-        setSelectedProjectIdState(prev => {
-          if (prev === 'all') {
-            return 'all'
-          }
-          if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
-            return prev
-          }
-          try {
-            const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
-            if (stored === 'all') return 'all'
-            if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
-              return stored
-            }
-          } catch {}
-
-          // Prioritize bookmarked project with tasks, or any bookmarked project, or 'all'
-          const bookmarkedWithTasks = projectList.find(p => p.bookmarked && (p.taskCount || 0) > 0)
-          if (bookmarkedWithTasks) {
-            try {
-              localStorage.setItem('sectile_selected_project_id', bookmarkedWithTasks.id)
-            } catch {}
-            return bookmarkedWithTasks.id
-          }
-          const anyBookmarked = projectList.find(p => p.bookmarked)
-          if (anyBookmarked) {
-            try {
-              localStorage.setItem('sectile_selected_project_id', anyBookmarked.id)
-            } catch {}
-            return anyBookmarked.id
-          }
-          return 'all'
-        })
+    // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
+    setSelectedProjectIdState(prev => {
+      if (prev === 'all') {
+        return 'all'
       }
-    } catch (err) {
-      console.warn('Failed to load projects', err)
-    }
-  }, [])
+      if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
+        return prev
+      }
+      try {
+        const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
+        if (stored === 'all') return 'all'
+        if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
+          return stored
+        }
+      } catch {}
+
+      // Prioritize bookmarked project with tasks, or any bookmarked project, or 'all'
+      const bookmarkedWithTasks = projectList.find(p => p.bookmarked && (p.taskCount || 0) > 0)
+      if (bookmarkedWithTasks) {
+        try {
+          localStorage.setItem('sectile_selected_project_id', bookmarkedWithTasks.id)
+        } catch {}
+        return bookmarkedWithTasks.id
+      }
+      const anyBookmarked = projectList.find(p => p.bookmarked)
+      if (anyBookmarked) {
+        try {
+          localStorage.setItem('sectile_selected_project_id', anyBookmarked.id)
+        } catch {}
+        return anyBookmarked.id
+      }
+      return 'all'
+    })
+  }, [trackRead])
 
   const fetchActivities = useCallback(async () => {
     try {
@@ -1136,24 +1176,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const fetchTasks = useCallback(async () => {
     try {
       setIsLoading(true)
-      const res = await fetch(`${API_BASE}/tasks?${buildTaskQuery()}`)
+      const outcome = await readJson<Task[]>(`${API_BASE}/tasks?${buildTaskQuery()}`)
       // A view that is gone, or someone else's, answers 404: the board falls
-      // back to what it would show without it, and says why.
-      if (res.status === 404 && selectedViewId) {
+      // back to what it would show without it, and says why. It is not a
+      // degraded read, so it never reaches the banner.
+      if (outcome.kind === 'failed' && outcome.status === 404 && selectedViewId) {
         leaveUnavailableView()
         addToast({ type: 'error', title: t.boardViews.unavailable, description: t.boardViews.unavailableDescription })
         return
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: Task[] = await res.json()
-      setTasks(data)
+      trackRead('tasks', outcome)
+      if (outcome.kind === 'silent') return
+      if (outcome.kind === 'failed') {
+        setError(failureDetail(outcome))
+        return
+      }
+      setTasks(outcome.data)
       setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch tasks')
     } finally {
       setIsLoading(false)
     }
-  }, [buildTaskQuery, selectedViewId, leaveUnavailableView, addToast, t])
+  }, [buildTaskQuery, selectedViewId, leaveUnavailableView, addToast, trackRead, t])
 
   // Restauration à l'ouverture et à chaque changement de projet. Les setters
   // bruts sont utilisés ici : réécrire ce qu'on vient de lire serait inutile.
@@ -1535,16 +1578,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [taskFacets, sprintFilter, teamFilter, assigneeFilter, setSprintFilter, setTeamFilter, setAssigneeFilter])
 
   const fetchBoardViews = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/me/board-views`)
-      if (res.ok) {
-        const data: BoardView[] = await res.json()
-        setBoardViews(data || [])
-      }
-    } catch (err) {
-      console.warn('Failed to load board views', err)
+    const outcome = await readJson<BoardView[]>(`${API_BASE}/me/board-views`)
+    trackRead('boardViews', outcome)
+    if (outcome.kind !== 'ok') return
+    setBoardViews(outcome.data || [])
+  }, [trackRead])
+
+  /**
+   * Relance les lectures en échec, et elles seules : le bandeau propose le
+   * geste sans recharger la page. La marque « déjà signalé » est levée avant,
+   * pour qu'un échec qui persiste réponde quelque chose à une demande
+   * explicite plutôt que de rester muet.
+   */
+  const retryFailedReads = useCallback(() => {
+    const retries: Record<ReadResource, () => Promise<void>> = {
+      projects: fetchProjects,
+      tasks: fetchTasks,
+      settings: fetchSettings,
+      boardViews: fetchBoardViews,
     }
-  }, [])
+    for (const failure of readFailures) {
+      reportedReadsRef.current.delete(failure.resource)
+      void retries[failure.resource]()
+    }
+  }, [readFailures, fetchProjects, fetchTasks, fetchSettings, fetchBoardViews])
 
   // The server answers with the message the interface shows as it is.
   const boardViewRequest = useCallback(async (path: string, method: string, payload?: BoardViewPayload): Promise<Response> => {
@@ -3593,6 +3650,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isSyncing,
         runningSkillId,
         error,
+        readFailures,
+        coreReadFailures,
+        retryFailedReads,
         activeView,
         setActiveView,
         boardGrouping,

@@ -168,6 +168,15 @@ test fixtures or internal plumbing.
   up empty and the board showed nothing. The column is now added on start,
   whatever version the database comes from, and no setting is lost.
 
+- **A server that fails to answer no longer looks like an empty deployment.**
+  Reading the projects, the issues, the settings or the saved board views used
+  to be discarded in silence when the server refused: the sidebar and the board
+  simply showed nothing, with no way to tell a broken deployment from an empty
+  one. A failed read now raises a toast naming the resource and what the server
+  answered, and while the projects or the issues are failing a banner stays on
+  screen, with a button to try again. Being signed out stays quiet, since it
+  already sends you to the sign-in screen.
+
 - **A coordination project can record a pull request from another repository.**
   When a project has no code remote, or is not mono-repo, a stage transition
   whose `prUrl` points to another GitHub or GitLab repository is now checked
