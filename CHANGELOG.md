@@ -161,6 +161,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Projects are listed again on a server upgraded from an earlier version.**
+  The per-project view setting added a column to the schema in a place that only
+  reaches a database created from scratch, so every existing deployment was left
+  without it and answered an error to every project read: the project menu came
+  up empty and the board showed nothing. The column is now added on start,
+  whatever version the database comes from, and no setting is lost.
+
 - **A coordination project can record a pull request from another repository.**
   When a project has no code remote, or is not mono-repo, a stage transition
   whose `prUrl` points to another GitHub or GitLab repository is now checked
