@@ -298,5 +298,14 @@ release mechanism that will keep the following entries short.
 - **Container image and workstation binaries.** A distroless server image, and
   `sectile-server` / `sectile-agent` cross-compiled for macOS, Linux and Windows.
 
+### Fixed
+
+- **Quiet agent runs are no longer canceled.** A run that stays silent for a
+  long time — a long build, a question waiting for its owner — used to be
+  canceled after fifteen minutes, which stopped an autonomous chain without a
+  word. It now stays running, and its summary notes how long it has been quiet.
+  A run canceled because its client disconnected can still be finished by the
+  agent that owns it, so the chain carries on. (#315)
+
 [Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/sebastienferry/sectile/releases/tag/v0.1.0
