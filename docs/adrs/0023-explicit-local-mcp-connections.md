@@ -16,7 +16,10 @@ Unselected providers keep their existing bootstrap defaults. Selected providers
 retain their choice during task preparation and refresh their endpoint on agent
 restart. The authenticated desktop API owns configuration writes, using the
 existing parser, migration checks and atomic owner-only file replacement.
-Preview snippets never contain the pairing credential.
+Preview snippets never contain the pairing credential. The UI offers three explicit choices: remote HTTP (default), local HTTP proxy,
+and STDIO to the remote server. Selecting local HTTP does not start a STDIO
+bridge. The lower-level API retains support for STDIO through the local proxy. Existing saved combinations are
+not rewritten until the user applies a selection.
 
 A local selection permits no-auth requests only on the loopback `/mcp` route.
 The listener binds to `127.0.0.1`; Origin and Host guards remain mandatory. It

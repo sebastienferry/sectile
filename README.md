@@ -710,15 +710,20 @@ database or server after an error.
 
 ### Choosing the MCP connection
 
-In the web profile, **AI Engine** shows both **Streamable HTTP** and **STDIO**
-for the selected provider. Copy one example into the indicated user configuration,
+In the web profile, **AI Engine** contains one **MCP configuration** for the
+selected provider, including API-key creation. Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO** to
+display one configuration. The supported UI engines are Antigravity, Claude and Codex.
+Copy the example into the indicated user configuration,
 merge it with existing entries, replace the API key placeholder, and restart the
 AI engine. HTTP needs no local Sectile process. STDIO starts `sectile-agent mcp`;
-install the binary in PATH or use its absolute path.
+install the binary in PATH or use its absolute path. Development previews use
+`http://localhost:8090` for remote MCP, independently of the Vite UI port.
+Set `VITE_MCP_SERVER_URL` to override the server URL shown in configuration
+examples; production otherwise uses the current web origin.
 
-Desktop **Settings → Agents CLI → MCP connection** offers the same transports
-and two targets: the remote server with its pairing key, or the local proxy
-without a client key. **Update provider configuration** writes the selected
+Desktop **Settings → Agents CLI → MCP configuration** offers the same three choices. HTTP connects directly to the remote server
+with the pairing key or to the local no-auth proxy. STDIO starts a bridge
+to the remote server with the pairing key and needs no running daemon. **Update provider configuration** writes the selected
 provider's user file, preserving other servers and tool permissions. Remote mode
 works with the agent stopped. Local mode requires the agent to remain running
 and lets any native process on the workstation use MCP as the paired user.

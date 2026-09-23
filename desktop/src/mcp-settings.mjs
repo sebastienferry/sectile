@@ -3,37 +3,42 @@ import { mcpProviders, mcpSnippet } from '../../shared/mcpConfig.mjs'
 export function mcpSettings(api, providerSelect) {
  const section = document.createElement('section')
  section.className = 'mcp-settings'
- const heading = document.createElement('h3'); heading.textContent = 'MCP connection'
- const target = document.createElement('select'); target.setAttribute('aria-label', 'MCP connection target')
- for (const [value, text] of [['remote','Remote HTTP server · API key'],['local','Local proxy · no client authentication']]) {
-  const option = document.createElement('option'); option.value = value; option.textContent = text; target.append(option)
+ const heading = document.createElement('h3'); heading.textContent = 'MCP configuration'
+ const target = document.createElement('div'); target.className = 'segmented'; target.setAttribute('role', 'group'); target.setAttribute('aria-label', 'MCP connection mode')
+ let selectedMode = 'remote'
+ const buttons = {}
+ for (const [value, text] of [['remote','Remote HTTP (default)'],['local','Local HTTP proxy'],['stdio','STDIO']]) {
+  const button = document.createElement('button'); button.type = 'button'; button.textContent = text
+  button.onclick = () => {selectedMode = value; notice.textContent = ''; render()}
+  buttons[value] = button; target.append(button)
  }
  const explanation = document.createElement('p'); explanation.className = 'hint'
  const path = document.createElement('p'); path.className = 'hint'
- const cards = document.createElement('div'); cards.className = 'mcp-options'; cards.setAttribute('role', 'radiogroup'); cards.setAttribute('aria-label', 'MCP transport')
+ const cards = document.createElement('div'); cards.className = 'mcp-options'
  const apply = document.createElement('button'); apply.type = 'button'; apply.textContent = 'Update provider configuration'
  const notice = document.createElement('p'); notice.setAttribute('role', 'status')
  section.append(heading,target,explanation,path,cards,apply,notice)
- let info, transport = 'http', revision = 0, busy = false
+ let info, revision = 0, busy = false
  const render = () => {
   cards.replaceChildren()
   const provider = providerSelect.value
   apply.disabled = busy || !info || !mcpProviders[provider]
-  target.disabled = busy || !info
+  for (const [value, button] of Object.entries(buttons)) {
+   button.disabled = busy || !info
+   button.setAttribute('aria-pressed', String(selectedMode === value))
+  }
   if (!info) return
   path.textContent = info.path
-  const local = target.value === 'local'
+  const local = selectedMode === 'local'
   explanation.textContent = local
    ? 'The running local agent forwards MCP calls using its paired identity. No API key is stored in the provider configuration. Any native process on this workstation can use this proxy while a provider selects this mode. The desktop agent must stay running.'
    : 'Connect to the paired Sectile server. The pairing API key is written to the provider’s user configuration. This connection works while the desktop agent is stopped.'
-  for (const mode of ['http','stdio']) {
+  const mode = selectedMode === 'stdio' ? 'stdio' : 'http'
+  {
    const card = document.createElement('div'); card.className = 'mcp-option'
-   const label = document.createElement('label')
-   const radio = document.createElement('input'); radio.type = 'radio'; radio.name = 'mcp-transport'; radio.value = mode; radio.checked = transport === mode; radio.disabled = busy
-   radio.onchange = () => {transport = mode; notice.textContent = ''}
-   label.append(radio, mode === 'http' ? ' Streamable HTTP' : ' STDIO')
+   const label = document.createElement('h4'); label.textContent = mode.toUpperCase()+' · '+(local ? 'Local proxy' : 'Remote server')
    const help = document.createElement('p'); help.className = 'hint'
-   help.textContent = mode === 'http' ? 'The AI engine calls the MCP endpoint directly over HTTP.' : 'The AI engine starts the bundled sectile-agent bridge and exchanges MCP over stdin/stdout. The bridge forwards to the selected endpoint.'
+   help.textContent = mode === 'http' ? 'The AI engine calls the selected MCP endpoint over Streamable HTTP.' : 'The AI engine starts the bundled sectile-agent bridge and exchanges MCP over stdin/stdout. The bridge forwards to the selected endpoint.'
    const preview = document.createElement('pre'); preview.textContent = mcpSnippet(provider, mode, local ? info.localURL : info.server, local)
    const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Copy '+mode.toUpperCase()+' example'; copy.disabled = busy
    copy.onclick = async () => {try {await api.copyText(preview.textContent); notice.textContent = 'Example copied. Replace the key placeholder for remote connections and use the installed binary path for STDIO.'} catch (e) {notice.textContent = e.message}}
@@ -48,16 +53,15 @@ export function mcpSettings(api, providerSelect) {
   try {
    const result = await api.mcpConfig(providerSelect.value)
    if (current !== revision || !section.isConnected) return
-   info = result; target.value = info.choice.target; transport = info.choice.transport
+   info = result; selectedMode = info.choice.transport === 'stdio' ? 'stdio' : info.choice.target === 'local' ? 'local' : 'remote'
    notice.textContent = ''; render()
   } catch (e) {if (current === revision) notice.textContent = 'Connect to an up-to-date local agent to configure MCP. '+e.message}
  }
- target.onchange = () => {notice.textContent = ''; render()}
  apply.onclick = async () => {
   const provider = providerSelect.value
   busy = true; providerSelect.disabled = true; render(); notice.textContent = 'Updating configuration…'
   try {
-   const result = await api.configureMCP(provider,{target:target.value,transport})
+   const result = await api.configureMCP(provider,{target:selectedMode === 'local' ? 'local' : 'remote',transport:selectedMode === 'stdio' ? 'stdio' : 'http'})
    notice.textContent = 'Updated '+result.path+'. Restart the AI engine to reconnect. Other servers and tool permissions are preserved.'
   } catch (e) {notice.textContent = 'Configuration update failed: '+e.message}
   finally {busy = false; providerSelect.disabled = false; render()}

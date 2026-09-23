@@ -47,10 +47,7 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	choice, selected := settings.MCPConnections[provider]
 	if !selected {
-		choice = agentconfig.MCPConnection{Target: "remote", Transport: "stdio"}
-		if agentconfig.UsesHTTPMCP(provider) {
-			choice.Transport = "http"
-		}
+		choice = agentconfig.MCPConnection{Target: "remote", Transport: "http"}
 	}
 	if r.Method == http.MethodPost {
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&choice); err != nil {

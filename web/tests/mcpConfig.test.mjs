@@ -16,11 +16,21 @@ test('JSON examples use provider-specific HTTP fields and escape URLs',()=>{
 })
 
 test('TOML examples distinguish HTTP and STDIO and clear inherited local keys',()=>{
- assert.match(mcpSnippet('codex','http','https://example.test'),/http_headers = .*Authorization/)
+ assert.match(mcpSnippet('codex','http','https://example.test'),/\[mcp_servers.sectile.http_headers\]\nAuthorization =/)
  assert.match(mcpSnippet('vibe','http','https://example.test'),/transport = "streamable-http"/)
  for(const provider of ['codex','vibe']) {
   const local=mcpSnippet(provider,'stdio','http://127.0.0.1:4567',true)
   assert.match(local,/"SECTILE_AGENT_TOKEN" = ""/)
   assert.doesNotMatch(local,/<SECTILE_API_KEY>|http_headers/)
  }
+})
+
+test('Codex remote HTTP example separates headers and explicitly enables the server',()=>{
+ assert.equal(mcpSnippet('codex','http','http://localhost:8090'), `[mcp_servers.sectile]
+enabled = true
+url = "http://localhost:8090/mcp"
+
+[mcp_servers.sectile.http_headers]
+Authorization = "Bearer <SECTILE_API_KEY>"`)
+ assert.doesNotMatch(mcpSnippet('codex','http','http://127.0.0.1:8091',true), /http_headers|Authorization/)
 })
