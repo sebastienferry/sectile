@@ -1,4 +1,4 @@
-const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell,clipboard}=require('electron')
+const {app,BrowserWindow,Menu,ipcMain,dialog,safeStorage,shell,clipboard,session}=require('electron')
 const path=require('node:path'),fs=require('node:fs'),crypto=require('node:crypto')
 const {spawn}=require('node:child_process')
 const WebSocket=require('ws')
@@ -9,12 +9,13 @@ const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
 const storedKey=saved=>credentials.storedKey(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
+const {createBoardWindows}=require('./board-window.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
 if(!process.env.SECTILE_DESKTOP_DATA_DIR){
  carryOverDataDirectory(path.join(app.getPath('appData'),'taskflow-desktop'),app.getPath('userData'))
 }
-let window,connection,socket,starting=false
+let window,connection,socket,starting=false,boards
 const defaultInfoPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
  ? path.join(app.getPath('userData'),'agent-connection.json')
  : path.join(app.getPath('home'),'.taskflow','agent-connection.json')
@@ -55,6 +56,8 @@ ipcMain.handle('pair',async(_,{server,code,label})=>{
  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
  fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ // A board still signed in with the previous key would outlive the pairing.
+ boards?.close()
  return {deviceId:credential.deviceId,token:credential.token}
 })
 const settingsPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
@@ -126,6 +129,7 @@ ipcMain.handle('start',async(_,settings)=>{
   storeKey(saved,token)
   fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
   fs.renameSync(settingsPath()+'.tmp',settingsPath())
+  if(token!==kept)boards?.close()
   const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
   const info=infoPath()
   if(fs.existsSync(info))fs.unlinkSync(info)
@@ -210,23 +214,32 @@ ipcMain.handle('launch-console',(_,projectId,provider)=>api('/desktop/consoles',
 ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
+// The board opens in a window of the desktop, signed in with the key this
+// workstation earned by pairing (ADR 0025). Without that key, or with one
+// issued by another server than the one the agent is connected to, it opens
+// in the browser as it always did: the window has no other way to sign in.
+async function showBoard(server,taskId){
+ const url=new URL(server)
+ if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
+ let saved={},key=''
+ try{saved=readSettings();key=storedKey(saved)}catch{}
+ let paired=''
+ try{paired=new URL(saved.server).origin}catch{}
+ if(key&&paired===url.origin){boards.open({server:url.href,key,taskId});return}
+ url.searchParams.delete('task')
+ if(taskId)url.searchParams.set('task',taskId)
+ url.hash=''
+ await shell.openExternal(url.href)
+}
 ipcMain.handle('open-board',async()=>{
  const status=await api('/desktop/status')
  if(!status.connected)throw Error('Server disconnected')
- const url=new URL(status.server)
- if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
- url.searchParams.delete('task')
- url.hash=''
- await shell.openExternal(url.href)
+ await showBoard(status.server)
 })
 ipcMain.handle('open-task',async(_,id)=>{
  if(typeof id!=='string'||!id.trim())throw Error('Invalid task ID')
  const status=await api('/desktop/status')
- const url=new URL(status.server||readSettings().server)
- if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Invalid server URL')
- url.searchParams.set('task',id)
- url.hash=''
- await shell.openExternal(url.href)
+ await showBoard(status.server||readSettings().server,id)
 })
 ipcMain.handle('open-pr',async(_,value)=>{
  const url=new URL(value)
@@ -299,7 +312,7 @@ function openWindow(){
  window.webContents.setWindowOpenHandler(()=>({action:'deny'}))
  window.webContents.on('will-navigate',event=>event.preventDefault())
  window.loadFile(path.join(__dirname,'../dist/index.html'))
- window.on('closed',()=>{window=null;if(socket){socket.close();socket=null}})
+ window.on('closed',()=>{window=null;boards?.close();if(socket){socket.close();socket=null}})
 }
 if(!app.requestSingleInstanceLock())app.quit()
 else{
@@ -307,6 +320,7 @@ else{
  app.on('second-instance',openWindow)
  app.whenReady().then(()=>{
   if(process.platform==='darwin'&&app.dock)app.dock.setIcon(path.join(__dirname,'../assets/icon.png'))
+  boards=createBoardWindows({BrowserWindow,session,shell,show:process.env.SECTILE_DESKTOP_TEST!=='1',icon:path.join(__dirname,'../assets/icon.png')})
   openWindow()
  })
  app.on('activate',openWindow)

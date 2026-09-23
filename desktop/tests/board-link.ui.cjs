@@ -24,7 +24,7 @@ test('header opens the current board safely and survives connection updates',asy
   const link=page.locator('#connection a'),destination='https://example.test/sectile/?view=board'
   // The row states the state; the address it would open rides in the tooltip.
   await expect(link).toHaveText('Connected')
-  await expect(page.locator('#connection')).toHaveAttribute('title','Open '+status.server+' in the default browser')
+  await expect(page.locator('#connection')).toHaveAttribute('title','Open the board of '+status.server)
   await expect(page.locator('#connection')).toHaveAttribute('data-state','on')
   await expect(link).toHaveAttribute('href',destination)
   const desktopURL=page.url()
@@ -38,7 +38,7 @@ test('header opens the current board safely and survives connection updates',asy
   await expect.poll(()=>app.evaluate(()=>globalThis.opened)).toEqual([destination,destination])
   assert.equal(page.url(),desktopURL)
   status.server='http://example.test:8090/other/'
-  await expect(page.locator('#connection')).toHaveAttribute('title','Open '+status.server+' in the default browser')
+  await expect(page.locator('#connection')).toHaveAttribute('title','Open the board of '+status.server)
   await link.click()
   await expect.poll(()=>app.evaluate(()=>globalThis.opened.length)).toBe(3)
   assert.equal((await app.evaluate(()=>globalThis.opened))[2],status.server)
