@@ -161,6 +161,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Projects are listed again on a server upgraded from an earlier version.**
+  The per-project view setting added a column to the schema in a place that only
+  reaches a database created from scratch, so every existing deployment was left
+  without it and answered an error to every project read: the project menu came
+  up empty and the board showed nothing. The column is now added on start,
+  whatever version the database comes from, and no setting is lost.
+
 - **A server that fails to answer no longer looks like an empty deployment.**
   Reading the projects, the issues, the settings or the saved board views used
   to be discarded in silence when the server refused: the sidebar and the board
