@@ -27,7 +27,9 @@ Settled in round 2 of the clarification, each in line with the recommendation.
 2. A locked personal GitHub credential refuses the call instead of falling back.
 3. An acting user with no personal GitHub token keeps the project or server token. This fallback is a decision, and
    ADR 0018 records it.
-4. The refusal applies to every GitHub call that carries an actor, background pass or person alike.
+4. The refusal applies to every call made through the GitHub tracker adapter that carries an actor, background pass or
+   person alike. The calls resolved through `trackerAs` (branch pull request lookup, GitHub GraphQL reads) still fall
+   back and are out of scope.
 
 ## User stories
 
@@ -75,8 +77,8 @@ by people who stored no personal GitHub token to keep working.
 
 ## Acceptance criterion
 
-A GitHub call that carries an actor whose sealed credential is locked fails instead of reading or writing with the
-project or server token, whether it comes from a background pass or from a person. A failed background pass records the
+A call made through the GitHub tracker adapter that carries an actor whose sealed credential is locked fails instead
+of reading or writing with the project or server token, whether it comes from a background pass or from a person. A failed background pass records the
 owner in `user_id`. The two remaining fallbacks are recorded as decisions in ADR 0018.
 
 ## Open requirements

@@ -88,8 +88,11 @@ not closed off by any of this: they would be an owner like another.
 - GitHub refuses a locked credential as Jira does (#312). Its adapter used to
   turn a sealed token nobody unlocked into the project or server token, so a
   pass read as the service account while its activity named the owner. That
-  refusal covers every GitHub call carrying an actor, a person's write as much
-  as a background read.
+  refusal covers every call made through the GitHub tracker adapter with an
+  actor, a person's write as much as a background read. The calls resolved
+  through `trackerAs` (the branch pull request lookup and the GitHub GraphQL
+  reads) still fall back on the project or server token; they are out of scope
+  of #312.
 - Two fallbacks on the project or server GitHub token remain, and both are
   decided rather than left over: an ownerless project, as above, and an actor
   who stored no personal GitHub token at all. Unlike Jira, GitHub keeps the
