@@ -161,6 +161,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A saved view selects the same tickets on every server.** A view label with
+  an accent, `Équipe`, matched its tickets or not depending on the locale the
+  PostgreSQL database was created with. Labels are now compared the same way
+  everywhere: upper and lower case are the same letter for A-Z, and any other
+  character, an accented one included, has to be spelled as it is on the ticket.
+  A view needing both `Équipe` and `équipe` lists the two labels.
+
 - **Projects are listed again on a server upgraded from an earlier version.**
   The per-project view setting added a column to the schema in a place that only
   reaches a database created from scratch, so every existing deployment was left

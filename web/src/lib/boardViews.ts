@@ -48,16 +48,26 @@ export const initialLabelsForView = (view: BoardView | null | undefined): string
   view && view.labels.length === 1 ? [view.labels[0]] : []
 
 /**
- * Trimmed labels without empties, one entry per case-insensitive spelling, the
- * first one kept. The server normalizes the same way; doing it here keeps the
- * chips of the form in line with what will be saved.
+ * The fold that decides whether two labels are the same one. A-Z only, because
+ * that is all a view's selection folds: PostgreSQL's LOWER follows the
+ * cluster's collation and SQLite's leaves accents alone, so the query compares
+ * `Équipe` and `équipe` as two distinct labels on every engine
+ * (docs/adrs/0025). `toLowerCase` here would drop one of them from the form
+ * while the board still selects on both.
+ */
+export const foldViewLabel = (label: string): string => label.replace(/[A-Z]/g, c => c.toLowerCase())
+
+/**
+ * Trimmed labels without empties, one entry per spelling that differs only by
+ * ASCII case, the first one kept. The server normalizes the same way; doing it
+ * here keeps the chips of the form in line with what will be saved.
  */
 export const normalizeViewLabels = (labels: string[]): string[] => {
   const seen = new Set<string>()
   const out: string[] = []
   for (const raw of labels) {
     const label = raw.trim()
-    const key = label.toLowerCase()
+    const key = foldViewLabel(label)
     if (!label || seen.has(key)) continue
     seen.add(key)
     out.push(label)

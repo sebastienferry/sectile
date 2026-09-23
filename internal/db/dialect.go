@@ -70,6 +70,12 @@ type dialect interface {
 	Open(cfg Config) (*sql.DB, error)
 	// Rebind turns the shared "?" placeholders into whatever the engine wants.
 	Rebind(query string) string
+	// LowerASCII wraps a TEXT expression in a case fold that lowers ASCII
+	// letters and leaves every other character alone. Plain LOWER will not do:
+	// under PostgreSQL it follows the database's collation, so the same query
+	// folds `É` to `é` on one cluster and not on the next, and a comparison
+	// against a value folded in Go then matches on one server only.
+	LowerASCII(expr string) string
 	// ColumnsQuery returns a one-argument query listing a table's column names,
 	// in declaration order. The catalogue is the one thing every engine spells
 	// entirely differently.
