@@ -1,4 +1,5 @@
 import { installTooltips } from './tooltips.js'
+import {mcpSettings} from './mcp-settings.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 
@@ -858,6 +859,7 @@ function openSettings(initial='Profile'){
   pBtn.style.cssText='font-size:11.5px;padding:4px 8px'
   pBtn.onclick=()=>{
    cliProviderSelect.value=preset.provider
+   cliProviderSelect.dispatchEvent(new Event('change'))
    cliCommand.value=preset.cmd
    cliAutonomousCommand.value=preset.auto
    renderCliPreview()
@@ -915,7 +917,8 @@ function openSettings(initial='Profile'){
  const cliActions=document.createElement('div');cliActions.className='deployment-actions';cliActions.style.marginTop='16px'
  cliActions.append(cliSaveBtn,cliNotice)
 
- panels.AgentCli.append(cliProviderRow.section,cliModelRow.section,cliCommandRow.section,cliAutonomousRow.section,cliActions)
+ const mcpPanel=mcpSettings(api,cliProviderSelect)
+ panels.AgentCli.append(cliProviderRow.section,cliModelRow.section,cliCommandRow.section,cliAutonomousRow.section,cliActions,mcpPanel.section)
 
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
  const agentActions=document.createElement('span');agentActions.className='settings-agent-actions'
@@ -996,6 +999,7 @@ function openSettings(initial='Profile'){
   pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
   if(loadCliDefaults&&cliProviderSelect.isConnected){
    cliProviderSelect.value=stored.aiProvider||'agy'
+   mcpPanel.load()
    cliModelInput.value=stored.aiModel||''
    cliCommand.value=stored.aiCommandTemplate||''
    cliAutonomousCommand.value=stored.aiCommandTemplateAutonomous||''

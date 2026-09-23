@@ -229,3 +229,10 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 #toolbar .execution-views [aria-pressed="true"]{color:#80e6ce}
 
 .action-tooltip{position:fixed;inset:auto;margin:0;max-width:min(360px,calc(100vw - 16px));padding:7px 10px;border:1px solid #46566d;border-radius:6px;background:#263345;color:#f0f5fb;box-shadow:0 4px 16px #0006;font:12px/1.4 system-ui;overflow-wrap:anywhere;pointer-events:none}
+.mcp-settings { margin-top: 24px; border-top: 1px solid var(--border-color, #39404b); padding-top: 16px; }
+.settings-content .mcp-settings select { width: 100%; }
+.mcp-option { margin: 12px 0; padding: 12px; border: 1px solid var(--border-color, #39404b); border-radius: 8px; }
+.mcp-option label { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 600; }
+.mcp-option input[type="radio"] { width: auto; margin: 0; padding: 0; flex: 0 0 auto; accent-color: #62d3be; }
+.mcp-settings .hint { padding: 0; }
+.mcp-option pre { overflow-x: auto; font-size: 11px; padding: 8px; }

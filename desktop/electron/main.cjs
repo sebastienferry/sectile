@@ -196,6 +196,8 @@ ipcMain.handle('copy-text',(_,text)=>{
  if(typeof text!=='string'||!text)throw Error('Nothing to copy')
  clipboard.writeText(text)
 })
+ipcMain.handle('mcp-config',(_,provider)=>api('/desktop/mcp?provider='+encodeURIComponent(provider)))
+ipcMain.handle('configure-mcp',(_,provider,choice)=>api('/desktop/mcp?provider='+encodeURIComponent(provider),'POST',choice))
 ipcMain.handle('status',()=>api('/desktop/status'))
 ipcMain.handle('choose-repository',async()=>{
  const result=await dialog.showOpenDialog(window,{title:'Select local repository',properties:['openDirectory']})

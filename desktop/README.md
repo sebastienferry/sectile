@@ -23,6 +23,20 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ## Use
 
+### MCP connections
+
+Open **Settings → Agents CLI**, select an AI provider, then use **MCP connection**.
+The two cards explain Streamable HTTP and STDIO and show copyable examples.
+Choose the remote server (paired API key, works with the agent stopped) or the
+local no-auth proxy (requires the running agent, no key in the provider file).
+The local option allows native processes on this workstation to call MCP as the
+paired user. Browser requests and other unauthenticated API routes are refused.
+Click **Update provider configuration** to save the chosen transport and target
+into the provider's user configuration, preserving other servers and permissions.
+Restart the AI engine afterward. This action is separate from saving CLI defaults.
+Custom providers require manual configuration.
+
+
 ### Free agent console
 
 Click **>_ Open agent console** in a configured project's heading, choose **Codex**
