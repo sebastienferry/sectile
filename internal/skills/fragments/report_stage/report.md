@@ -1,0 +1,4 @@
+- The recorded stage, branch and pull request URL, with the tool result.
+- The run started or finished, with its runId and status.
+- The comment posted, or why none was.
+- Anything that failed or remains pending, and what a retry needs.

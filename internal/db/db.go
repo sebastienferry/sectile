@@ -3714,6 +3714,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 // GetAvailableSkills exposes the workflow catalogue. It derives from the single
 // skills.StageSkills table: the skill the UI offers, the file installed in the
 // repository and the step the worker runs are by construction the same thing.
+// Helpers marked HideFromBoard are installed but never offered here.
 // The old pick-issue auto-pilot is gone, the autonomous run button replaced it.
 // UIScaleOptions are the four interface zoom levels the status bar switches
 // between. Four steps is what a quick switch can hold: a free number would need
@@ -3758,6 +3759,10 @@ func NormalizeUIScale(scale int) int {
 func (d *DB) GetAvailableSkills() []models.Skill {
 	out := make([]models.Skill, 0, len(skills.StageSkills))
 	for _, s := range skills.StageSkills {
+		// A helper such as report_stage is loaded by other skills, never launched.
+		if s.HideFromBoard {
+			continue
+		}
 		name := s.Name
 		in, _ := InternalStatusForStage(s.FromStage)
 		outStatus, _ := InternalStatusForStage(s.ToStage)

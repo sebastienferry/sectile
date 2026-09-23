@@ -1,0 +1,3 @@
+- Do not decide the gate: record a stage only when the calling skill, or the user, states that its condition is met.
+- Do not transition past the requested stage, and do not record a stage the task has not reached.
+- Do not rename the session: the calling skill owns its title.

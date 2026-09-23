@@ -1,0 +1,1 @@
+Deliver what another skill did to Sectile, and nothing more: the run indicator, the completed stage with its note, branch and pull request, and the ticket comment. The calling skill decides whether its gate is met; this skill decides how the result reaches Sectile.

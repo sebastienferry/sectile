@@ -1,0 +1,9 @@
+## Sectile reporting
+- Task access, the run indicator, stage transitions, pull request links and ticket comments follow `/report-stage`: read `report-stage/SKILL.md` in the same skills directory as this skill, for example `~/.claude/skills/report-stage/SKILL.md`. Load it before the first ticket read.
+- If it cannot be loaded, these rules still hold. Standalone: call start_run before work, reusing a supplied SECTILE_RUN_ID or launch runId, and call finish_run when the entire invocation ends, including errors or stopping for user input; a nested skill never finishes the outer run. Managed run: submit only through the supplied result contract, and call no transition or comment tool.
+{{if or (eq .ID "pickup") (eq .ID "pickup_issues")}}- Gate: record clarified, specified and implemented after each corresponding step. After PR verification, record reviewed with the PR URL. For a batch, use the same actual branch and combined PR URL for every completed ticket; never mark unfinished work reviewed.
+{{else if eq .ID "clarify"}}- Gate: transition new → clarified only when the exit condition is met: the owner confirms the clarification is satisfactory (or zero product questions remain open in unattended pickup). Never transition new → clarified while any product question or decision remains open.
+{{else if eq .ID "adjust"}}- Gate: call `transition_stage` with stage `{{.ToStage}}`, the report note, the actual branch and prUrl set to the verified pull request URL, only when this step is complete ({{.FromStage}} → {{.ToStage}}).
+{{else if .FromStage}}- Gate: call `transition_stage` with stage `{{.ToStage}}`, the report note and the actual branch only when this step is complete ({{.FromStage}} → {{.ToStage}}).
+{{else}}- Gate: this skill does not change the workflow stage; never record a stage transition.
+{{end}}
