@@ -595,6 +595,21 @@ const (
 	MarketplaceKindPath   = "path"
 )
 
+// IsCommitSHA reports whether s is an abbreviated or full hexadecimal commit
+// id. A pinned revision reaches git on the workstation, so anything else — a
+// branch name, or a value git would read as an option — is refused.
+func IsCommitSHA(s string) bool {
+	if len(s) < 7 || len(s) > 40 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
+}
+
 // SkillMarketplace is one registered source of workflow skill bodies: a git
 // repository, or a directory, carrying `.claude-plugin/marketplace.json`. The
 // registry is deployment-wide; what a project uses out of it is its pin.

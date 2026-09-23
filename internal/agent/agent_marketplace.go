@@ -66,6 +66,14 @@ func ensureMarketplace(ctx context.Context, op agentprotocol.Operation) (root, c
 	if locator == "" {
 		return "", "", nil, fmt.Errorf("marketplace locator is required")
 	}
+	// Both values reach git as arguments; the server validates them too, but a
+	// value git would read as an option is refused here whoever sent it.
+	if strings.HasPrefix(locator, "-") {
+		return "", "", nil, fmt.Errorf("invalid marketplace locator %q", locator)
+	}
+	if op.Commit = strings.TrimSpace(op.Commit); op.Commit != "" && !models.IsCommitSHA(op.Commit) {
+		return "", "", nil, fmt.Errorf("invalid commit %q: expected a hexadecimal commit id", op.Commit)
+	}
 
 	if kind == models.MarketplaceKindPath || kind == "" && filepath.IsAbs(locator) {
 		fi, err := os.Stat(locator)
@@ -98,7 +106,7 @@ func ensureMarketplace(ctx context.Context, op agentprotocol.Operation) (root, c
 		// A leftover that is not a checkout is not something to repair in
 		// place; the cache is disposable by construction.
 		_ = os.RemoveAll(dir)
-		if _, err := gitLocal(ctx, filepath.Dir(dir), "clone", "--filter=blob:none", url, filepath.Base(dir)); err != nil {
+		if _, err := gitLocal(ctx, filepath.Dir(dir), "clone", "--filter=blob:none", "--", url, filepath.Base(dir)); err != nil {
 			return "", "", nil, err
 		}
 	} else if op.Commit == "" || !hasCommit(ctx, dir, op.Commit) {
@@ -112,13 +120,19 @@ func ensureMarketplace(ctx context.Context, op agentprotocol.Operation) (root, c
 		}
 	}
 
-	target := strings.TrimSpace(op.Commit)
+	target := op.Commit
 	if target == "" {
 		if target, err = remoteHead(ctx, dir); err != nil {
 			return "", "", nil, err
 		}
 	}
-	if _, err := gitLocal(ctx, dir, "checkout", "--detach", target); err != nil {
+	// The revision is resolved to a full commit id behind --end-of-options
+	// first, so what checkout receives can never be read as an option.
+	sha, err := gitLocal(ctx, dir, "rev-parse", "--verify", "--end-of-options", target+"^{commit}")
+	if err != nil {
+		return "", "", nil, err
+	}
+	if _, err := gitLocal(ctx, dir, "checkout", "--detach", strings.TrimSpace(sha), "--"); err != nil {
 		return "", "", nil, err
 	}
 	commit, err = gitLocal(ctx, dir, "rev-parse", "HEAD")

@@ -47,6 +47,11 @@ func (d *DB) AddSkillMarketplace(entry models.SkillMarketplace) (*models.SkillMa
 	if locator == "" {
 		return nil, fmt.Errorf("a marketplace needs a locator")
 	}
+	if strings.HasPrefix(locator, "-") {
+		// The locator reaches git on the workstation, which would read it as
+		// an option.
+		return nil, fmt.Errorf("invalid marketplace locator %q", locator)
+	}
 
 	var catalog models.MarketplaceCatalog
 	if err := d.callAgent(agentprotocol.Operation{
@@ -201,6 +206,10 @@ func (d *DB) MarketplaceCatalog(name string) (*models.MarketplaceCatalog, error)
 // resolvePack asks the workstation for one plugin, at a given revision or at
 // the marketplace head.
 func (d *DB) resolvePack(projectID, marketplace, plugin, commit string) (models.SkillPack, error) {
+	commit = strings.TrimSpace(commit)
+	if commit != "" && !models.IsCommitSHA(commit) {
+		return models.SkillPack{}, fmt.Errorf("invalid commit %q: expected a hexadecimal commit id", commit)
+	}
 	entry, err := d.SkillMarketplace(marketplace)
 	if err != nil {
 		return models.SkillPack{}, err
@@ -213,7 +222,7 @@ func (d *DB) resolvePack(projectID, marketplace, plugin, commit string) (models.
 		Kind:        entry.Kind,
 		Locator:     entry.Locator,
 		Plugin:      plugin,
-		Commit:      strings.TrimSpace(commit),
+		Commit:      commit,
 	}, &pack)
 	return pack, err
 }

@@ -129,6 +129,7 @@ func TestAddSkillMarketplaceRefusesASourceThatDoesNotResolve(t *testing.T) {
 		{Name: "team/pack", Kind: models.MarketplaceKindPath, Locator: "/x"},
 		{Name: "ok", Kind: "ftp", Locator: "/x"},
 		{Name: "ok", Kind: models.MarketplaceKindPath, Locator: ""},
+		{Name: "ok", Kind: models.MarketplaceKindGit, Locator: "--upload-pack=touch /tmp/x"},
 	} {
 		if _, err := d.AddSkillMarketplace(bad); err == nil {
 			t.Fatalf("accepted %+v", bad)
@@ -167,6 +168,27 @@ func TestPreviewSkillPackWritesNothing(t *testing.T) {
 	}
 	if stub.count("sync_config") != 0 {
 		t.Fatal("the preview reinstalled the files")
+	}
+}
+
+// The pinned revision comes from the request body and reaches git on the
+// workstation: anything but a commit id is refused before the agent is asked.
+func TestSkillPackRefusesACommitThatIsNotAnId(t *testing.T) {
+	d, project, stub := packTestDB(t, map[string]string{"clarify-issue": clarifyPack})
+
+	for _, commit := range []string{"--output=/tmp/x", "main", "abc12", "zzzzzzzz", strings.Repeat("a", 41)} {
+		if _, err := d.PreviewSkillPack(project.ID, "acme", "acme-flow", commit); err == nil {
+			t.Fatalf("preview accepted commit %q", commit)
+		}
+		if _, err := d.ApplySkillPack(project.ID, "acme", "acme-flow", commit); err == nil {
+			t.Fatalf("apply accepted commit %q", commit)
+		}
+	}
+	if stub.count("marketplace_pack") != 0 {
+		t.Fatal("an invalid commit reached the agent")
+	}
+	if _, err := d.PreviewSkillPack(project.ID, "acme", "acme-flow", "1111111"); err != nil {
+		t.Fatalf("an abbreviated commit id was refused: %v", err)
 	}
 }
 

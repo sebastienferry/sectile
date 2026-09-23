@@ -118,6 +118,23 @@ func TestMarketplaceCacheDirRefusesAnEscapingName(t *testing.T) {
 	}
 }
 
+// A locator or a commit git would read as an option never reaches git, even
+// when the server let it through.
+func TestEnsureMarketplaceRefusesAnOptionLikeArgument(t *testing.T) {
+	testhome.Set(t, t.TempDir())
+	root := fixtureMarketplace(t)
+
+	for _, op := range []agentprotocol.Operation{
+		{Marketplace: "acme", Kind: "git", Locator: "--upload-pack=touch pwned"},
+		{Marketplace: "acme", Kind: "path", Locator: root, Commit: "--output=pwned"},
+		{Marketplace: "acme", Kind: "git", Locator: root, Commit: "main"},
+	} {
+		if _, _, _, err := ensureMarketplace(context.Background(), op); err == nil {
+			t.Fatalf("accepted %+v", op)
+		}
+	}
+}
+
 // A pinned revision already in the cache is read without touching the remote:
 // installing skills on a pinned project must work with the network gone.
 func TestMarketplacePackReusesTheCacheForAPinnedRevision(t *testing.T) {
