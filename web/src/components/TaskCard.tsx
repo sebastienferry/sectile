@@ -155,13 +155,17 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const taskProject = projects.find(p => p.id === task.projectId)
   // A saved view spans projects, and one remote story synchronised by two of
   // them shows as two cards: the project name is what tells them apart (#387).
-  const projectBadge = selectedViewId && taskProject ? (
+  // tasks.project_id may hold the project's slug rather than its id.
+  const badgeProject = selectedViewId
+    ? taskProject || projects.find(p => p.slug === task.projectId)
+    : undefined
+  const projectBadge = badgeProject ? (
     <span
-      data-card-project={taskProject.id}
-      title={taskProject.name}
+      data-card-project={badgeProject.id}
+      title={badgeProject.name}
       className="shrink-0 max-w-[8rem] truncate px-1.5 py-px rounded text-[9px] font-semibold text-sky-300 bg-sky-400/10 border border-sky-400/30"
     >
-      {taskProject.name}
+      {badgeProject.name}
     </span>
   ) : null
   const targetGithubRepo = (taskProject?.githubRepo || settings.githubRepo || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')

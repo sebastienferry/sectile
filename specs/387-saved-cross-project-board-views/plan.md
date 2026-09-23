@@ -128,8 +128,10 @@ Revised during implementation: the plan first filtered the scanned rows in Go.
 That works for the list, but the facets are a dozen SQL queries sharing one
 scope condition, and a Go filter would have meant rewriting each of them or
 counting from a second scan. Expressing the view as a condition keeps one code
-path for both. Known limit: SQLite's `LOWER` folds ASCII only (recorded in
-ADR 0025).
+path for both. SQLite's `LOWER` folds ASCII only, so the view label is
+lowered the way the engine lowers the column (`labelFold`): a label always
+matches its own spelling, and case is ignored for non-ASCII letters under
+PostgreSQL only (ADR 0025).
 
 Rejected for step 4:
 

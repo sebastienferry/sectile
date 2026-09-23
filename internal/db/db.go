@@ -1244,8 +1244,28 @@ func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs [
 		return "", nil, "", nil, err
 	}
 	projectCond, projectArgs = viewProjectScope(view.ProjectIDs)
-	labelCond, labelArgs = viewLabelScope(view.Labels)
+	labelCond, labelArgs = viewLabelScope(view.Labels, d.labelFold())
 	return projectCond, projectArgs, labelCond, labelArgs, nil
+}
+
+// labelFold lowers a view label the way the engine's LOWER lowers the column,
+// so that a label always matches its own spelling. PostgreSQL folds every
+// letter; SQLite folds ASCII only, and lowering `É` on one side alone would
+// make `Équipe` miss `Équipe`.
+func (d *DB) labelFold() func(string) string {
+	if d.EngineName() == string(DriverPostgres) {
+		return strings.ToLower
+	}
+	return asciiLower
+}
+
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, s)
 }
 
 // viewProjectScope selects the view's projects. tasks.project_id may hold a
@@ -1269,16 +1289,17 @@ func viewProjectScope(projectIDs []string) (string, []interface{}) {
 // and regardless of case. tasks.labels is a JSON array written by
 // json.Marshal, so a whole label is exactly its quoted JSON token: `"backend"`
 // is found in `["Backend","ops"]` and not in `["backend-api"]`. LIKE wildcards
-// in a label are escaped. LOWER folds ASCII only under SQLite, which is where
-// tracker labels live in practice.
-func viewLabelScope(labels []string) (string, []interface{}) {
+// in a label are escaped. fold must lower the label as the engine's LOWER
+// lowers the column (see labelFold): under SQLite, case is then ignored for
+// ASCII letters only.
+func viewLabelScope(labels []string, fold func(string) string) (string, []interface{}) {
 	if len(labels) == 0 {
 		return "", nil
 	}
 	clauses := make([]string, 0, len(labels))
 	args := make([]interface{}, 0, len(labels))
 	for _, label := range labels {
-		token, _ := json.Marshal(strings.ToLower(label))
+		token, _ := json.Marshal(fold(label))
 		clauses = append(clauses, "LOWER(labels) LIKE ? ESCAPE '!'")
 		args = append(args, "%"+escapeLike(string(token))+"%")
 	}

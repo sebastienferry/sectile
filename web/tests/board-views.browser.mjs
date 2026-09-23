@@ -24,7 +24,8 @@ const project = (id, name, bookmarked = true) => ({ id, name, slug: id, color: '
 const task = (id, projectId, key, title, labels, assignee = '') => ({ id, projectId, key, title, labels, assignee, description: '', status: 'to_clarify', priority: 'medium', source: 'local', position: 0, createdAt: '2026-09-23T00:00:00Z', updatedAt: '2026-09-23T00:00:00Z' });
 const seed = JSON.parse(localStorage.getItem('fakeSeed') || '{}');
 window.fake = {
-  projects: [project('a', 'Alpha'), project('b', 'Beta'), project('c', 'Gamma')],
+  // Gamma is not bookmarked: a view selects it all the same.
+  projects: [project('a', 'Alpha'), project('b', 'Beta'), project('c', 'Gamma', false)],
   tasks: [
     task('t1', 'a', '#42', 'Shared story', ['platform']),
     task('t2', 'b', '#42', 'Shared story', ['Platform']),
@@ -215,6 +216,7 @@ try {
   await cold.locator('[data-open-board-view="v9"]').waitFor();
   const coldFirst = await cold.evaluate(() => fake.requests.find(r => r.path === '/api/tasks').query);
   assert.equal(new URLSearchParams(coldFirst).get('viewId'), 'v9', 'the first request already names the view');
+  // Gamma is not bookmarked: the all-projects bookmark filter must not apply.
   await cold.getByText('Gamma platform').waitFor();
 
   // ---------- S11: a foreign or missing view falls back, and says so ----------

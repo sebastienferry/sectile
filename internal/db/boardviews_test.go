@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 
 	"tasks/internal/models"
@@ -47,6 +48,7 @@ func seedViewFixture(t *testing.T, database *DB) viewFixture {
 		{ProjectID: f.beta, Key: "#5", Title: "beta api", Labels: []string{"api-backend"}, Assignee: "sam"},
 		{ProjectID: f.beta, Key: "#6", Title: "beta unlabelled"},
 		{ProjectID: f.gam, Key: "#7", Title: "gamma backend", Labels: []string{"backend"}},
+		{ProjectID: f.beta, Key: "#10", Title: "beta equipe", Labels: []string{"Équipe"}},
 	}
 	for i := range imported {
 		imported[i].Status = models.StatusToClarify
@@ -234,13 +236,21 @@ func checkBoardViewSelection(t *testing.T, f viewFixture) {
 		{
 			name:     "no label selects every ticket of the projects, and only them",
 			projects: []string{f.beta},
-			want:     []string{"beta api" + b, "beta unlabelled" + b, "shared story" + b},
+			want:     []string{"beta api" + b, "beta equipe" + b, "beta unlabelled" + b, "shared story" + b},
 		},
 		{
 			name:     "a remote story synchronised by two projects shows twice",
 			projects: []string{f.alpha, f.beta},
 			labels:   []string{"platform"},
 			want:     []string{"shared story" + a, "shared story" + b},
+		},
+		{
+			// SQLite's LOWER leaves É alone: the label must still match its
+			// own spelling on both engines.
+			name:     "an accented label matches its own spelling",
+			projects: []string{f.alpha, f.beta},
+			labels:   []string{"Équipe"},
+			want:     []string{"beta equipe" + b},
 		},
 		{
 			name:     "board filters narrow the view",
@@ -362,5 +372,45 @@ func TestBoardViewKeepsTheBoardRules(t *testing.T) {
 	want := []string{"alpha ui@" + f.alpha}
 	if got := titles("u", nil); !slices.Equal(got, want) {
 		t.Errorf("label filter inside the view = %v, want %v", got, want)
+	}
+}
+
+func TestBoardViewSizeIsBounded(t *testing.T) {
+	f := newViewFixture(t)
+	labels := make([]string, 0, maxBoardViewLabels+1)
+	for i := 0; i <= maxBoardViewLabels; i++ {
+		labels = append(labels, "label-"+string(rune('a'+i%26))+string(rune('a'+i/26)))
+	}
+	name, projects := "Too many", []string{f.alpha}
+	if _, err := f.db.CreateBoardView("u1", models.BoardViewRequest{Name: &name, ProjectIDs: &projects, Labels: &labels}); !errors.Is(err, ErrBoardViewTooLarge) {
+		t.Errorf("%d labels: err = %v, want ErrBoardViewTooLarge", len(labels), err)
+	}
+	long := strings.Repeat("é", maxBoardViewNameLength+1)
+	if _, err := f.db.CreateBoardView("u1", models.BoardViewRequest{Name: &long, ProjectIDs: &projects}); !errors.Is(err, ErrBoardViewTooLarge) {
+		t.Errorf("a %d-character name: err = %v, want ErrBoardViewTooLarge", maxBoardViewNameLength+1, err)
+	}
+	fits := strings.Repeat("é", maxBoardViewNameLength)
+	f.create(t, "u1", fits, projects, labels[:maxBoardViewLabels])
+}
+
+func TestDeletingAUserDeletesTheirViews(t *testing.T) {
+	f := newViewFixture(t)
+	if _, err := f.db.SignInLocal("admin@example.com"); err != nil {
+		t.Fatal(err)
+	}
+	member, err := f.db.SignInLocal("member@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.create(t, member.ID, "Mine", []string{f.alpha}, nil)
+	if err := f.db.DeleteUser(member.ID); err != nil {
+		t.Fatalf("DeleteUser: %v", err)
+	}
+	var left int
+	if err := f.db.conn.QueryRow("SELECT COUNT(*) FROM board_views WHERE user_id = ?", member.ID).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
+	if left != 0 {
+		t.Errorf("%d views outlived their owner", left)
 	}
 }

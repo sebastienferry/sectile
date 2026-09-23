@@ -45,7 +45,9 @@ of labels, in one table, `board_views`, owned by the account that created it.
   for needing one variant per engine and a cast of a TEXT column.
 - **Presentation is the all-projects board's.** Columns, grouping, drag and drop
   and card actions are exactly what the all-projects board already does. No
-  cross-project column mapping or swimlane is introduced.
+  cross-project column mapping or swimlane is introduced. Only what is built
+  from the ticket list follows the view: the activity, statistics, team and
+  synchronisation screens keep the all-projects scope in this version.
 - **Duplicates are shown, not merged.** Each local record is its own card, and
   every card in a view names its project. Collapsing records would require
   choosing which project owns actions and activities, and would hide the
@@ -61,10 +63,11 @@ A view never owns data: deleting one changes no ticket, label or project, and
 deleting a project removes it from the views that selected it, which remain and
 select nothing until edited.
 
-Case folding in the label predicate is ASCII-only under SQLite, whose `LOWER`
-ignores other letters; PostgreSQL folds them all. Tracker labels are ASCII in
-practice. A deployment that relies on accented labels differing only by case
-would see them match under PostgreSQL and not under SQLite.
+A label always matches its own spelling. Case is ignored for every letter
+under PostgreSQL, and for ASCII letters only under SQLite, whose `LOWER` leaves
+the others alone: the view label is lowered the same way as the column on each
+engine (`labelFold`), so `Équipe` finds `Équipe` everywhere, and `équipe` finds
+it under PostgreSQL only.
 
 A remote story synchronised by two projects of a view shows twice. That is the
 honest picture of the board; a fix belongs to how projects share a tracker

@@ -89,7 +89,9 @@ already belongs to the view.
 - **FR-020** A view renders with the board, backlog and the other views the
   all-projects board offers today, with the same column and grouping behaviour.
   No cross-project column mapping, custom view column or per-project swimlane is
-  introduced.
+  introduced. The views built from the ticket list (board, backlog) show the
+  view's tickets; the activity, statistics, team and synchronisation screens
+  keep the scope they have on the all-projects board.
 - **FR-021** Card actions (opening the detail, running skills, moving across
   columns, editing) behave as they do on the all-projects board and act on the
   ticket's own source project.
@@ -155,6 +157,7 @@ already belongs to the view.
   this view").
 - Desktop-specific entry points beyond what the web interface they embed offers.
 - Any change to project membership labels (#354 is closed).
+- Scoping the activity, statistics, team and synchronisation screens to a view.
 
 ## Acceptance scenarios
 

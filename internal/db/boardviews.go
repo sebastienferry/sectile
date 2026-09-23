@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"tasks/internal/models"
@@ -21,6 +22,14 @@ var (
 	ErrBoardViewNameTaken      = errors.New("une vue porte déjà ce nom")
 	ErrBoardViewNoProject      = errors.New("une vue sélectionne au moins un projet")
 	ErrBoardViewUnknownProject = errors.New("projet inconnu")
+	ErrBoardViewTooLarge       = errors.New("une vue porte au plus 80 caractères de nom et 50 labels")
+)
+
+// A view's labels become bound parameters of every board query, so their number
+// is capped well below any engine's limit; the name is capped like an account's.
+const (
+	maxBoardViewNameLength = 80
+	maxBoardViewLabels     = 50
 )
 
 const boardViewColumns = "id, name, project_ids, labels, created_at, updated_at"
@@ -202,6 +211,13 @@ func (d *DB) fillBoardViewUnsafe(userID string, view *models.BoardView, name str
 	if name == "" {
 		return ErrBoardViewNameRequired
 	}
+	if utf8.RuneCountInString(name) > maxBoardViewNameLength {
+		return ErrBoardViewTooLarge
+	}
+	labels = NormalizeViewLabels(labels)
+	if len(labels) > maxBoardViewLabels {
+		return ErrBoardViewTooLarge
+	}
 	var clash string
 	err := d.conn.QueryRow("SELECT id FROM board_views WHERE user_id = ? AND name_key = ? AND id != ?", userID, boardViewNameKey(name), view.ID).Scan(&clash)
 	if err == nil {
@@ -237,7 +253,7 @@ func (d *DB) fillBoardViewUnsafe(userID string, view *models.BoardView, name str
 
 	view.Name = name
 	view.ProjectIDs = resolved
-	view.Labels = NormalizeViewLabels(labels)
+	view.Labels = labels
 	return nil
 }
 

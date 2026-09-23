@@ -589,7 +589,7 @@ export const Sidebar: React.FC = () => {
                     setProjectSearch('')
                   }}
                   className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-all cursor-pointer ${
-                    selectedProjectId === 'all'
+                    selectedProjectId === 'all' && !selectedViewId
                       ? 'bg-[var(--accent-light)] accent-text font-bold border border-[var(--accent-color)]/30'
                       : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
                   }`}

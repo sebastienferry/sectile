@@ -254,7 +254,7 @@ its projects. Another account's view answers exactly as a missing one.
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/me/board-views` | (none) | The caller's views, in creation order. |
-| `POST` | `/api/me/board-views` | `{name, projectIds, labels}` | Creates a view (`201`). `400` for an empty name, no project or an unknown project; `409` when another of the caller's views has the same name, compared trimmed and case-insensitively. Labels are trimmed and deduplicated regardless of case. |
+| `POST` | `/api/me/board-views` | `{name, projectIds, labels}` | Creates a view (`201`). `400` for an empty name, no project, an unknown project, a name over 80 characters or more than 50 labels; `409` when another of the caller's views has the same name, compared trimmed and case-insensitively. Labels are trimmed and deduplicated regardless of case. |
 | `GET` | `/api/me/board-views/{id}` | (none) | One view, or `404`. |
 | `PATCH` | `/api/me/board-views/{id}` | any of `{name, projectIds, labels}` | Changes the fields sent; same errors as the creation. |
 | `DELETE` | `/api/me/board-views/{id}` | (none) | Deletes the view (`204`); no ticket, label or project changes. |

@@ -10,6 +10,10 @@ import (
 	"tasks/internal/models"
 )
 
+// maxBoardViewBody bounds what a view definition may weigh: a name, a few
+// dozen labels and the board's project ids fit many times over.
+const maxBoardViewBody = 64 << 10
+
 // HandleBoardViews serves the signed-in user's saved board views (#387).
 //
 //	GET    /api/me/board-views        list the user's views
@@ -43,7 +47,7 @@ func (h *Handler) HandleBoardViews(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, views)
 		case http.MethodPost:
 			var req models.BoardViewRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBoardViewBody)).Decode(&req); err != nil {
 				writeError(w, http.StatusBadRequest, "Invalid JSON body")
 				return
 			}
@@ -69,7 +73,7 @@ func (h *Handler) HandleBoardViews(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, view)
 	case http.MethodPatch:
 		var req models.BoardViewRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBoardViewBody)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "Invalid JSON body")
 			return
 		}
@@ -100,6 +104,7 @@ func writeBoardViewError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, err.Error())
 	case errors.Is(err, db.ErrBoardViewNameRequired),
 		errors.Is(err, db.ErrBoardViewNoProject),
+		errors.Is(err, db.ErrBoardViewTooLarge),
 		errors.Is(err, db.ErrBoardViewUnknownProject):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:

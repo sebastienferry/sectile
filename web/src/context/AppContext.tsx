@@ -1122,7 +1122,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (!response.ok) throw new Error(`Unable to open task (HTTP ${response.status})`)
         const task: Task = await response.json()
         if (controller.signal.aborted) return
-        if (task.projectId) setSelectedProjectId(task.projectId)
+        // A link naming a view as well keeps that view open around the task;
+        // only a bare task link switches to the task's project.
+        if (task.projectId && !readViewParam(window.location.search)) setSelectedProjectId(task.projectId)
         setSelectedTask(task)
       })
       .catch(error => {
@@ -2024,7 +2026,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) throw new Error('Creation failed')
       const created: Task = await res.json()
-      setTasks(prev => [created, ...prev])
+      // Inside a saved view the new ticket belongs on the board only if it
+      // matches the view, which the server decides: reload rather than guess.
+      if (selectedViewId) fetchTasks()
+      else setTasks(prev => [created, ...prev])
       fetchProjects()
       addToast({
         type: 'success',
@@ -3327,9 +3332,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Filter tasks by active source filter (all / github / jira / local)
   // then by the active parent (epic or parent story), when one is selected.
   const filteredTasks = React.useMemo(() => {
+    // A saved view picks its own projects, bookmarked or not: the server has
+    // already scoped the list, and the bookmark filter of "all projects" would
+    // drop every ticket of a view project the user never bookmarked (#387).
+    const scoped = selectedViewId ? tasks : tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds)
     let out = sourceFilter === 'all'
-      ? tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds)
-      : tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds).filter(t => (t.source || 'local') === sourceFilter)
+      ? scoped
+      : scoped.filter(t => (t.source || 'local') === sourceFilter)
     if (parentFilter) {
       if (parentFilter === '__no_macro__' || parentFilter === 'none') {
         out = out.filter(t => !t.parentKey && !t.parentTitle)
@@ -3338,7 +3347,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return out
-  }, [tasks, sourceFilter, parentFilter, selectedProjectId, bookmarkedProjectIds])
+  }, [tasks, sourceFilter, parentFilter, selectedProjectId, selectedViewId, bookmarkedProjectIds])
 
   // A project can rename any workflow skill through `skillOverrides`
   // (skillId -> custom label). Every place that shows a skill name goes through
