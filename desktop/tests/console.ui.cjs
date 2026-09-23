@@ -59,7 +59,7 @@ test('desktop console reconnects, accepts input and stops the owned run',async()
   await page.getByRole('separator',{name:'Resize sidebar'}).focus()
   await page.keyboard.press('ArrowRight')
   assert.equal(await page.locator('aside').evaluate(element=>element.getBoundingClientRect().width),before+20)
-  await page.getByRole('button',{name:'Open PR #48 for #48',exact:true}).waitFor()
+  await page.getByRole('button',{name:'Open PR #48 for #48 — State unknown',exact:true}).waitFor()
   assert.equal(await page.locator('#selected-pr').textContent(),'PR #48')
   // The connect form lives in the settings panel now, reached from the bottom of
   // the sidebar, and pairing is the only credential it asks for.

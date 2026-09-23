@@ -1,3 +1,4 @@
+import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
@@ -38,7 +39,6 @@ import {
   Minimize2,
   RefreshCw,
   Target,
-  GitPullRequest,
   Plus,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
@@ -1183,7 +1183,7 @@ export const TaskDetailModal: React.FC = () => {
               className="shrink-0 p-1.5 rounded-lg text-purple-400 hover:bg-purple-500/10 transition-colors"
               title={t.skills.viewPr}
             >
-              <GitPullRequest size={13} />
+              <PullRequestStateIcon link={link} size={13} />
             </a>
             <input
               type="url"
@@ -1745,7 +1745,7 @@ export const TaskDetailModal: React.FC = () => {
                     className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 transition-colors"
                     title={t.skills.viewPr}
                   >
-                    <ExternalLink size={12} />
+                    <PullRequestStateIcon task={selectedTask} size={12} />
                     <span>PR</span>
                   </a>
                 )}
@@ -1972,7 +1972,7 @@ export const TaskDetailModal: React.FC = () => {
                 className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-400 bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 transition-colors"
                 title={t.skills.viewPr}
               >
-                <ExternalLink size={13} />
+                <PullRequestStateIcon task={selectedTask} size={13} />
                 <span>PR</span>
               </a>
             )}

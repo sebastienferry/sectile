@@ -1,3 +1,4 @@
+import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import React, { useState, useMemo, useRef, useCallback } from "react"
 import {
@@ -10,7 +11,6 @@ import {
   Sparkles,
   Loader2,
   GitBranch,
-  GitPullRequest,
   ExternalLink,
   FolderGit2,
   Eye,
@@ -649,7 +649,7 @@ export const ListView: React.FC = () => {
                 }`}
                 title={task.prUrl.includes("gitlab") ? `Voir MR GitLab : ${task.prUrl}` : `Voir PR GitHub : ${task.prUrl}`}
               >
-                <GitPullRequest size={10} className={task.prUrl.includes("gitlab") ? "text-orange-400" : "text-purple-400"} />
+                <PullRequestStateIcon task={task} size={10} />
                 <span>{task.prUrl.includes("gitlab") ? "GitLab MR" : "GitHub PR"}</span>
                 <ExternalLink size={8} />
               </a>
