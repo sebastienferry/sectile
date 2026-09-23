@@ -15,6 +15,12 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Select several stories on the board and launch them as one batch.** Cards
+  still at the `new` or `clarified` stage show a checkbox on hover, and
+  Ctrl/Cmd+click toggles them. A bar then launches `/pickup-issues` on the
+  selection in board order, as the Curation, Triage and Sprint Timeline views
+  already could.
+
 - **Ticket creator and author attribution.** Synchronisation with GitHub and
   Jira captures the original issue creator and avatar, and local task creation
   attributes the task to the authenticated user. Authorship is displayed in the

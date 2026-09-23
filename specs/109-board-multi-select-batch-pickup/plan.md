@@ -21,7 +21,7 @@ export const isSelectableStage = (stage: WorkflowStage): boolean
 export const isSelectionClick = (e: { ctrlKey: boolean; metaKey: boolean }): boolean
 export const toggleSelected = (selected: ReadonlySet<string>, id: string): Set<string>
 // Keeps the ids that are still selectable on screen. Returns the same Set when nothing drops
-// out, so that a pruning effect never re-renders the board for nothing.
+// out, so that pruning on every render never re-renders the board for nothing.
 export const pruneSelection = (selected: ReadonlySet<string>, selectableIds: readonly string[]): ReadonlySet<string>
 // The ids of the selection in board order (the order of `boardOrder`), for the batch prompt.
 export const orderSelection = (selected: ReadonlySet<string>, boardOrder: readonly string[]): string[]
@@ -39,7 +39,7 @@ board.
 
 The board order (US5) and "on screen" (US7) must match what is rendered, including the collapsed
 finished column, the hidden tracker columns and the "Non classé" column. So the column lists are
-computed once per render, into `visibleColumns: Task[][]`, in the order the columns are rendered:
+computed once per render, into `workflowColumnTasks` and `statusColumnTasks` (one list per column id). `boardCards` concatenates them in the order the columns are rendered:
 
 - workflow grouping: `workflowColumns` in order, minus the collapsed `finished` column when
   `hideDone` is on;
@@ -47,12 +47,17 @@ computed once per render, into `visibleColumns: Task[][]`, in the order the colu
   `hideDone` is on, then `unassignedTasks` when it is not empty.
 
 Rendering reads the same lists, so the order can never drift from what is shown. `boardOrder` is
-`visibleColumns.flat()` mapped to ids, and `selectableIds` is the subset whose stage is selectable.
+`boardCards` mapped to ids and deduplicated (two tracker columns can claim one status), and `selectableIds` is the subset whose stage is selectable.
 
-An effect prunes the selection with `pruneSelection(selected, selectableIds)` whenever the
-selectable ids change. Because `pruneSelection` returns the same Set when nothing changes, the
-effect settles in one pass. A card that drops out is not remembered, so it does not come back
-selected (US7). A second effect clears the selection when `currentProject?.id` changes (US6).
+The render prunes the selection with `pruneSelection(selected, selectableIds)` and stores the
+result when it differs. Because `pruneSelection` returns the same Set when nothing changes, this
+settles in one pass. A card that drops out is not remembered, so it does not come back selected
+(US7). The render also keeps the project id the selection was made in, and clears the selection
+when `currentProject?.id` differs (US6).
+
+*Changed during implementation:* the plan first used two `useEffect`s. `oxlint` flags a
+synchronous `setState` in an effect (`react(set-state-in-effect)`), and an effect would paint the
+stale selection for one frame. React's "adjust state while rendering" pattern avoids both.
 
 ### D3 — `TaskCard` receives the selection as props, and keeps its gestures
 
@@ -65,8 +70,12 @@ selectionActive?: boolean  // at least one card is selected: show the checkbox w
 onToggleSelect?: () => void
 ```
 
-- **Checkbox.** A `<button type="button" role="checkbox" aria-checked>`, placed first on line 1 of
-  a full card and before the key of a condensed card. It is always in the DOM when `selectable`,
+- **Checkbox.** A `<button type="button" role="checkbox" aria-checked>`. It sits after the priority
+  dot on line 1 of a full card, and before the run badge of a condensed card. *Changed during
+  implementation:* the plan first put it on the left, before the key. The box keeps its room while
+  hidden, so every selectable card would have shown an empty gap in front of its key. On the
+  condensed card it also must not break the `badge → model → menu` row that
+  `skillLaunchModel.test.mjs` pins. It is always in the DOM when `selectable`,
   hidden with `opacity-0` and revealed by `group-hover`, `group-focus-within` and
   `selectionActive`, so that `Tab` reaches it and focusing it reveals it (US1). Its `onClick`
   stops propagation so that it never opens the detail. A button already answers `Space` and
@@ -137,7 +146,7 @@ the card menu and from every dialog opened over the board.
 |------|--------|
 | `web/src/lib/boardSelection.ts` | New: the pure rules of D1 and D6. |
 | `web/tests/boardSelection.test.mjs` | New: unit tests of every function of D1 and D6. |
-| `web/src/components/BoardView.tsx` | Selection state, `visibleColumns`, pruning and project effects, `Escape` listener, selection bar, props passed to `TaskCard`. |
+| `web/src/components/BoardView.tsx` | Selection state, per-column task lists and `boardCards`, pruning and project reset while rendering, `Escape` listener, selection bar, props passed to `TaskCard`. |
 | `web/src/components/TaskCard.tsx` | Four optional props, checkbox, Ctrl/Cmd+click, highlight. |
 | `web/src/context/AppContext.tsx` | `startBatchPickup` returns `Promise<boolean>` and keeps the caller's order. |
 | `openspec/specs/batch-issue-pickup/spec.md` | Say that the board selects `new`/`clarified` cards and passes them in board order. |

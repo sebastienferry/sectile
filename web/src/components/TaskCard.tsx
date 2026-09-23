@@ -36,15 +36,31 @@ import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
 import { loadLaunchModel, saveLaunchModel } from '../lib/launchModel'
+import { isSelectionClick } from '../lib/boardSelection'
 
 interface TaskCardProps {
   task: Task
   isDragging?: boolean
   onDragStart?: (e: React.DragEvent) => void
   compact?: boolean
+  /** The board may select this card for a batch: it shows a checkbox and answers Ctrl/Cmd+click. */
+  selectable?: boolean
+  selected?: boolean
+  /** At least one card is selected, so the checkbox shows without hovering the card. */
+  selectionActive?: boolean
+  onToggleSelect?: () => void
 }
 
-export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStart, compact = false }) => {
+export const TaskCard: React.FC<TaskCardProps> = ({
+  task,
+  isDragging,
+  onDragStart,
+  compact = false,
+  selectable = false,
+  selected = false,
+  selectionActive = false,
+  onToggleSelect,
+}) => {
   const {
     setSelectedTask,
     advanceTask,
@@ -386,6 +402,42 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     setIsMenuOpen(false)
   }
 
+  // Ctrl/Cmd+click toggles a selectable card instead of opening it. Every
+  // other click, and any click on a card the board cannot select, opens the
+  // detail as before.
+  const openOrToggle = (e: React.MouseEvent) => {
+    if (selectable && isSelectionClick(e)) {
+      e.preventDefault()
+      onToggleSelect?.()
+      return
+    }
+    setSelectedTask(task)
+  }
+
+  // The checkbox stays in the layout while hidden, so that hovering a card
+  // never shifts its content. It sits on the right of the card, where it takes
+  // room from the title rather than pushing the key.
+  const selectionBox = selectable ? (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={selected}
+      aria-label={selected ? `Retirer ${task.key} de la sélection` : `Sélectionner ${task.key}`}
+      title={selected ? 'Retirer de la sélection' : 'Sélectionner pour un lot (Ctrl/Cmd+clic)'}
+      onClick={e => {
+        e.stopPropagation()
+        onToggleSelect?.()
+      }}
+      className={`shrink-0 w-3.5 h-3.5 flex items-center justify-center rounded border transition-opacity cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] ${
+        selected
+          ? 'bg-[var(--accent-color)] border-[var(--accent-color)] text-white'
+          : `bg-[var(--bg-primary)] border-[var(--text-muted)] ${selectionActive ? '' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'}`
+      }`}
+    >
+      {selected && <Check size={10} strokeWidth={3} />}
+    </button>
+  ) : null
+
   // Choisir ne lance rien : la sélection change, la carte l'annonce, et le
   // prochain bouton d'action s'en sert.
   const chooseModel = (model: string) => {
@@ -716,14 +768,16 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
     <div
       draggable
       onDragStart={handleDragStartInternal}
-      onClick={() => setSelectedTask(task)}
+      onClick={openOrToggle}
       className={`task-card ${isCondensed ? 'task-card-condensed' : ''} group relative border bg-[var(--bg-secondary)] ${isCondensed ? 'rounded-none px-1.5 py-1' : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
         isRunning
-          ? 'border-indigo-500/60 shadow-md shadow-indigo-500/10 ring-1 ring-indigo-500/20'
+          ? `border-indigo-500/60 shadow-md shadow-indigo-500/10 ${selected ? '' : 'ring-1 ring-indigo-500/20'}`
           : isQueued
-          ? 'border-amber-500/50 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/20'
+          ? `border-amber-500/50 shadow-md shadow-amber-500/10 ${selected ? '' : 'ring-1 ring-amber-500/20'}`
+          : selected
+          ? 'border-[var(--accent-color)]'
           : 'border-[var(--border-color)] hover:border-[var(--accent-color)]/60'
-      } ${
+      } ${selected ? 'ring-2 ring-[var(--accent-color)]' : ''} ${
         isDragging ? 'opacity-40 scale-95 ring-2 ring-[var(--accent-color)] ring-dashed' : ''
       }`}
     >
@@ -734,9 +788,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
               {task.key}
             </a>
           ) : <span className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
-          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); setSelectedTask(task) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
+          <button type="button" title={task.title} onClick={e => { e.stopPropagation(); openOrToggle(e) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
             {task.title}
           </button>
+          {selectionBox}
           <RemoteRunBadge taskId={task.id} />
           {modelIndicator}
           {actionsMenu}
@@ -784,8 +839,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({ task, isDragging, onDragStar
           )}
         </span>
 
-        {/* Pastille de priorité */}
-        {getPriorityBadge(task.priority)}
+        <div className="flex items-center gap-2 shrink-0">
+          {getPriorityBadge(task.priority)}
+          {selectionBox}
+        </div>
       </div>
 
       {/* Ligne 1b : Titre, sous la référence */}

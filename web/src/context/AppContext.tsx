@@ -347,7 +347,7 @@ interface AppContextType {
   unassignedFilterValue: string
 
 
-  startBatchPickup: (taskIds: string[]) => Promise<void>
+  startBatchPickup: (taskIds: string[]) => Promise<boolean>
 }
 
 /**
@@ -3239,14 +3239,20 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [teams, teamFilter, taskFacets.assignees, tasks])
 
 
-  const startBatchPickup = async (taskIds: string[]): Promise<void> => {
-    const batch = tasks.filter(task => taskIds.includes(task.id))
-    if (!batch.length) return
+  // The batch keeps the caller's order: pickup-issues processes its tickets in
+  // the order of the prompt. The result says whether the launch was accepted,
+  // so that a caller can keep its selection after a failure.
+  const startBatchPickup = async (taskIds: string[]): Promise<boolean> => {
+    const batch = taskIds
+      .map(id => tasks.find(task => task.id === id))
+      .filter((task): task is Task => Boolean(task))
+    if (!batch.length) return false
     if (batch.some(task => task.projectId !== batch[0].projectId)) {
       addToast({type:'error',title:'Select tasks from one project for a batch'})
-      return
+      return false
     }
-    await runSkill(batch[0].id,'pickup_issues','/pickup-issues '+batch.map(task=>task.id).join(' '))
+    const activity = await runSkill(batch[0].id,'pickup_issues','/pickup-issues '+batch.map(task=>task.id).join(' '))
+    return activity !== null
   }
 
   // Global Keyboard Shortcuts

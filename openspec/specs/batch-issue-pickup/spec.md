@@ -17,3 +17,7 @@ Les vues Kanban/Curation, Triage et Sprint Timeline SHALL intégrer un bouton d'
 - **WHEN** l'utilisateur coche plusieurs tâches dans une vue et clique sur le bouton "Lancer le lot (Git tree + Auto-pilot)"
 - **THEN** l'application web initie la création du Git Worktree pour le lot sélectionné et démarre la session d'exécution autonome du skill `pickup-issues`
 
+
+#### Scenario: Selecting cards on the Kanban board
+- **WHEN** the user ticks cards on the board, with their checkbox or with Ctrl/Cmd+click, and clicks "Lancer le lot (Git tree + Auto-pilot)" in the selection bar
+- **THEN** only cards whose workflow stage is `new` or `clarified` can be selected, and `pickup-issues` receives them in board order: columns from left to right, then cards from top to bottom
