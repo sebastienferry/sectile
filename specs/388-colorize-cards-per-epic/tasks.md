@@ -22,6 +22,22 @@
        (the existing condensed-card browser suite) to check the card still
        renders and behaves, if its prerequisites are available.
 
+### Review revision
+
+10. [x] Migration 3 `projects.epic_colors`, model and request fields, both read
+        paths, insert and update; `forgetSchemaVersion` drops the column so the
+        upgrade tests replay it.
+11. [x] `internal/db/epiccolors_test.go`: off by default, on/off round trip
+        through both read paths, untouched by an unrelated update, set at
+        creation.
+12. [x] `epicColorsEnabled`, `epicBadgeStyle`, `useEpicColors`; `EpicDot`
+        removed; `EpicBar` inset.
+13. [x] Views: tinted key where the key is shown, inset bar elsewhere, all gated
+        by the task's project setting.
+14. [x] Project settings: "Couleur par épic" checkbox under General.
+15. [x] `web/tests/epicColor.test.mjs`: badge style, setting resolution per
+        project and fallback.
+
 ## Test plan
 
 - Node unit test on the derivation (task 2): the only logic in the change.

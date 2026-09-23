@@ -1,39 +1,34 @@
-import { epicColorHex } from '../lib/epicColor'
+import { useCallback } from 'react'
+import { useApp } from '../context/AppContext'
+import { epicColorHex, epicColorsEnabled } from '../lib/epicColor'
 
-interface EpicMarkerProps {
-  parentKey?: string | null
+/**
+ * Returns whether a task of the given project shows its epic's colour, so a
+ * view listing tasks of several projects paints each one by its own setting.
+ */
+export function useEpicColors(): (projectId?: string | null) => boolean {
+  const { projects, currentProject } = useApp()
+  return useCallback(
+    (projectId?: string | null) => epicColorsEnabled(projects, projectId, currentProject),
+    [projects, currentProject]
+  )
 }
 
 /**
- * Coloured bar on the left edge of the nearest positioned ancestor. It is a
- * child element rather than a border or a box-shadow so that the border and
- * the ring, which already carry the running, queued and selected states, are
- * left as they are.
+ * Short coloured bar inside the left edge of the nearest positioned ancestor,
+ * for the places that do not show the epic key. It is inset from the top, the
+ * bottom and the border so it never meets a rounded corner, and it is a child
+ * element rather than a border so the border and the ring, which carry the
+ * running, queued and selected states, are left as they are.
  */
-export function EpicBar({ parentKey }: EpicMarkerProps) {
+export function EpicBar({ parentKey }: { parentKey?: string | null }) {
   const color = epicColorHex(parentKey)
   if (!color) return null
   return (
     <span
       aria-hidden="true"
       data-epic-bar
-      className="absolute left-0 top-0 bottom-0 m-0 w-[3px] rounded-l-[inherit] pointer-events-none"
-      style={{ backgroundColor: color }}
-    />
-  )
-}
-
-/** Coloured dot placed in front of the epic key, or of the task key when the epic is not shown. */
-export function EpicDot({ parentKey, className = '' }: EpicMarkerProps & { className?: string }) {
-  const color = epicColorHex(parentKey)
-  if (!color) return null
-  return (
-    <span
-      role="img"
-      aria-label={`Épic ${parentKey!.trim()}`}
-      title={`Épic ${parentKey!.trim()}`}
-      data-epic-dot
-      className={`inline-block shrink-0 w-1.5 h-1.5 rounded-full self-center ${className}`}
+      className="absolute left-[3px] top-[22%] bottom-[22%] m-0 w-[3px] rounded-full pointer-events-none"
       style={{ backgroundColor: color }}
     />
   )

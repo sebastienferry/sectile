@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+import type { Project } from '../types/index.ts'
 import { ACCENT_COLORS, type AccentDefinition } from './accents.ts'
 
 /**
@@ -28,4 +30,32 @@ export function epicColor(parentKey?: string | null): AccentDefinition | null {
 /** The hex colour of an epic, or null when the task has no parent. */
 export function epicColorHex(parentKey?: string | null): string | null {
   return epicColor(parentKey)?.hex ?? null
+}
+
+/**
+ * Inline style for an epic key painted as a badge: the text in the epic's
+ * colour on a light tint of it, like a project badge. Null without a parent.
+ */
+export function epicBadgeStyle(parentKey?: string | null): CSSProperties | null {
+  const def = epicColor(parentKey)
+  if (!def) return null
+  return {
+    color: def.hex,
+    backgroundColor: `rgb(${def.rgb} / 0.15)`,
+    borderColor: `rgb(${def.rgb} / 0.35)`,
+  }
+}
+
+/**
+ * Whether cards of this project carry their epic's colour. The setting is off
+ * unless the project asks for it. A task that does not name its project is read
+ * against `fallback`, the project the workspace is showing.
+ */
+export function epicColorsEnabled(
+  projects: readonly Pick<Project, 'id' | 'epicColors'>[],
+  projectId?: string | null,
+  fallback?: Pick<Project, 'id' | 'epicColors'> | null
+): boolean {
+  const project = projectId ? projects.find(p => p.id === projectId) : fallback
+  return project?.epicColors === true
 }

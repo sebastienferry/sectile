@@ -23,6 +23,7 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	// migrations. Drop columns added by migrations so that reopen can replay them.
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator")
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator_avatar")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_colors")
 }
 
 // appliedVersions is what the database says it has applied, in order.

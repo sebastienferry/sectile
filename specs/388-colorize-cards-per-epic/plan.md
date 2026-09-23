@@ -1,5 +1,8 @@
 # Plan — colour board cards per epic
 
+The "Review revision" section at the end supersedes the stack, the bar
+geometry, the components and the data contracts below where they differ.
+
 ## Stack
 
 Web front end only: React 19 + TypeScript + Tailwind under `web/`. Tests are
@@ -71,3 +74,39 @@ Backlog the bar goes inside the first `<td>`, which becomes `relative`.
 
 None changed. The helper reads `Task.parentKey` and `MacroRow.key`, which is the
 trimmed `parentKey` the tasks are grouped by (`web/src/lib/roadmap.ts`).
+
+## Review revision
+
+Two changes asked by the owner after the first review of PR #399.
+
+### A per-project setting, off by default
+
+- Backend: `projects.epic_colors INTEGER NOT NULL DEFAULT 0`, added by
+  numbered migration 3 (`internal/db/migrations.go`) and nowhere else: since
+  #339 the `CREATE TABLE`, `applyLegacyMigrations` and `lateColumns` describe
+  the frozen baseline, which a database already stamped never replays.
+  `models.Project.EpicColors` (`json:"epicColors"`), `CreateProjectRequest`
+  (`bool`) and `UpdateProjectRequest` (`*bool`, nil leaves it alone); both
+  project read paths, the insert and the update carry the column.
+- A boolean column rather than a value in `enabled_views` (ADR 0024): the
+  colour is a display option, not a view, and folding it into the list of
+  views would put it in the sidebar logic that list drives.
+- Web: `Project.epicColors`; `epicColorsEnabled(projects, projectId, fallback)`
+  in `epicColor.ts` and the `useEpicColors()` hook in `EpicMarker.tsx` answer
+  per task, so "all projects" paints each task by its own project. The
+  checkbox sits in the project settings, General tab, under the workspace
+  views.
+
+### Rendering: tinted key, short inset bar
+
+The full-height bar on the left edge met the card's rounded corners, whose
+radius differs between shapes, and overflowed them. It is replaced by:
+
+- `epicBadgeStyle(parentKey)`: text in the epic colour on a 15% tint with a 35%
+  border, applied to the epic key where it is shown (expanded card key,
+  Backlog parent badge, timeline list-row parent badge). `EpicDot` is removed.
+- `EpicBar`: `absolute left-[3px] top-[22%] bottom-[22%] m-0 w-[3px]
+  rounded-full`, used only where the key is not shown (condensed card,
+  timeline chips, timeline list rows without a parent title, Roadmap macro
+  rows). Being inset on every side it never touches a corner, whatever the
+  radius; `m-0` still guards against `space-y-*`.
