@@ -22,5 +22,5 @@ References: [`spec.md`](./spec.md), [`plan.md`](./plan.md).
 
 ## 3. Verification
 
-- [x] T3.1 `npm test`, `npm run lint`, `npm run build` in `web/` — all green.
+- [x] T3.1 `npm test`, `npm run lint`, `npm run build` in `web/`: build and lint pass; the only failing test (`skillLaunchModel` "both card shapes share the model entry") fails identically on the untouched baseline, from CRLF checkouts on Windows.
 - [x] T3.2 Re-read the diff against the spec's acceptance scenarios.
