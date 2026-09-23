@@ -94,6 +94,30 @@ var migrations = []migration{
 			);`,
 		},
 	},
+	{
+		// The background synchronisation's pacing, backoff and status, shared
+		// by every server instance instead of held by each one. See
+		// internal/db/autosync.go.
+		version: 4,
+		name:    "auto_sync_state",
+		statements: []string{
+			`CREATE TABLE auto_sync_projects (
+				project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+				last_pass_at DATETIME,
+				last_full_sync_at DATETIME
+			);`,
+			`CREATE TABLE auto_sync_state (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				backoff_until DATETIME,
+				last_run_at DATETIME,
+				last_error TEXT NOT NULL DEFAULT '',
+				last_imported INTEGER NOT NULL DEFAULT 0,
+				passes INTEGER NOT NULL DEFAULT 0,
+				imported INTEGER NOT NULL DEFAULT 0
+			);`,
+			"INSERT INTO auto_sync_state (id) VALUES (1);",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

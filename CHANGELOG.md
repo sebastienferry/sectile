@@ -154,6 +154,14 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Several servers sharing one database synchronise each project once.** The
+  background synchronisation used to run in every server, so each project was
+  read once per server per interval, and a tracker asking to slow down (rate
+  limit) was only heard by the server it answered. The servers now share the
+  loop's pacing: one of them claims a due project, a full read dated by any of
+  them counts for all, and a rate limit pauses every server for ten minutes.
+  The synchronisation status is the same whichever server answers. (#404)
+
 - **Starting a second server on PostgreSQL no longer interrupts the first one's
   work.** A server used to mark every running job as failed and every client run
   as canceled when it started, including the work of another server sharing the
