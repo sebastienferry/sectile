@@ -15,6 +15,11 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **MCP connection settings per AI engine.** Web and desktop settings explain
+  Streamable HTTP and STDIO with copyable provider configurations. Desktop can
+  update local provider files for remote authenticated access or an explicitly
+  enabled local proxy without client credentials, preserving other MCP servers.
+
 - **Agents CLI workstation settings and local inheritance (#359).** The desktop
   app now includes an **Agents CLI** category in its settings dialog to
   configure workstation-wide CLI defaults (AI provider, AI model, and

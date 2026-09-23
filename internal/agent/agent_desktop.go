@@ -30,8 +30,8 @@ type loopbackServer struct {
 	server *http.Server
 	port   int
 	url    string
-	// The proxied surfaces (/api/, /mcp) take the workstation API key held in
-	// serverLink.token; only the companion's own contract has a token here.
+	// Proxied requests use serverLink.token upstream. Local MCP may omit a
+	// client key only after explicit opt-in; the companion has its own token.
 	// desktopToken authenticates the companion; desktopInfo is the handshake
 	// file it reads to find this session.
 	desktopToken string
@@ -84,6 +84,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/desktop/version" && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(version.Current())
+		return
+	}
+	if r.URL.Path == "/desktop/mcp" {
+		d.desktopMCP(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/status" && r.Method == http.MethodGet {

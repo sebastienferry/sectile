@@ -329,6 +329,9 @@ func Run(args []string) {
 		log.Printf("[Agent] Cannot bootstrap MCP without the local gateway: %v", err)
 		return
 	}
+	if err := daemon.refreshMCPConnections(); err != nil {
+		log.Printf("[Agent] MCP configuration refresh failed: %v", err)
+	}
 	if err := daemon.writeDesktopInfo(); err != nil {
 		log.Printf("Desktop connection: %v", err)
 		return
@@ -427,10 +430,9 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 			http.Error(w, "Browser origins are not allowed", http.StatusForbidden)
 			return
 		}
-		// Loopback alone is not an authorization: every local process can
-		// reach this port. Require the workstation's API key, the same
-		// credential the server itself would ask for.
-		if !d.validLoopbackRequest(r) {
+		// API routes always require the workstation key. MCP alone can use
+		// the explicitly selected local mode; browser and Host checks still apply.
+		if !d.validLoopbackRequest(r) && !(r.URL.Path == "/mcp" && d.localMCPEnabled()) {
 			http.Error(w, "Valid API key required", http.StatusUnauthorized)
 			return
 		}

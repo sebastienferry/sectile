@@ -134,7 +134,7 @@ code does not import the server handlers, database or embedded UI.
 | Interface | Address and authentication | Ownership |
 | --- | --- | --- |
 | Server API | `http(s)://<server>:8090`; machine endpoints take the workstation API key as bearer credential | Tasks, project settings, tracker queues, `/api/v1/agent/*`, `/ws/agent-connect`, `/mcp` |
-| Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; the `/mcp` and `/api/` proxies take the same API key, desktop/control calls use the private discovered desktop token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
+| Agent Loopback | `http://127.0.0.1:8091` or a dynamically assigned loopback port; the proxies take the same API key by default (`/mcp` alone permits explicit local no-auth opt-in), desktop/control calls use the private discovered desktop token | `/desktop/*`, `/control/*`, consoles, local repository mappings and MCP proxy |
 | MCP | Server `/mcp`, a stateful Streamable HTTP endpoint, addressed directly with the API key; the `mcp --url <server>` stdio bridge relays for clients without HTTP transport | Typed tools with server-owned state; no local SQLite; one server session per connected client; no agent required |
 
 The existing web REST API relies on the deployment's access-control boundary.
@@ -709,3 +709,20 @@ remote tasks. The daemon owns the launch after admission even if the request end
 These runs use the usual runs, terminal, stop, restart protection, and history
 endpoints. Completion updates only local process status. Task result lookup
 returns 404, and clients must omit task workflow and PR controls for these runs.
+
+
+### Local MCP provider configuration
+
+The authenticated desktop API exposes `GET /desktop/mcp?provider=<provider>`
+and `POST /desktop/mcp?provider=<provider>`. Supported providers are `claude`,
+`agy`, `codex`, `cursor`, `gemini` and `vibe`. POST accepts
+`{"transport":"http|stdio","target":"remote|local"}` and updates the provider's
+user configuration plus the workstation's `mcpConnections` preference.
+Responses contain `choice`, `path`, `server` and `localURL`, never the API key.
+Invalid providers or choices return 400; a busy preparation returns 409.
+
+The local target enables no-auth access only to the loopback `/mcp` endpoint
+while at least one saved provider selects it. Origin and Host validation remain
+in force. `/api/`, desktop/control routes and remote surfaces keep their existing
+authentication. Agent restart refreshes saved registrations to the current local
+port; automatic task setup preserves the selected mode. See ADR 0023.
