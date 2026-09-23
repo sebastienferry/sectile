@@ -38,6 +38,9 @@ func Run(args []string) error {
 		*command = string(raw)
 	}
 	client := &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	// A terminal hangup must not bypass child cleanup and the exit report.
+	interrupts, stopSignals := terminationSignals()
+	defer stopSignals()
 	exitStatus := "failed"
 	control := func(method string) (bool, error) {
 		req, err := http.NewRequest(method, *endpoint, strings.NewReader(mustJSON(map[string]string{"status": exitStatus})))
@@ -59,24 +62,48 @@ func Run(args []string) error {
 		err = json.NewDecoder(resp.Body).Decode(&state)
 		return state.Canceled, err
 	}
+	reportExit := func() error {
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			if _, err = control(http.MethodPost); err == nil {
+				return nil
+			}
+			if attempt < 2 {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		return fmt.Errorf("could not confirm process exit: %w", err)
+	}
 	canceled, err := control(http.MethodGet)
 	if err != nil {
 		return err
 	}
 	if canceled {
-		_, _ = control(http.MethodPost)
+		_ = reportExit()
 		return fmt.Errorf("execution canceled before launch")
 	}
 	cmd := exec.Command("bash", "-lc", *command)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	restore, err := StartControlled(cmd)
 	if err != nil {
-		_, _ = control(http.MethodPost)
+		_ = reportExit()
 		return err
 	}
 	defer restore()
 	done := make(chan error, 1)
 	go func() { done <- cmd.Wait() }()
+	stopAndReport := func() error {
+		StopControlled(cmd, false)
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			StopControlled(cmd, true)
+			<-done
+		}
+		// Reap the child before acknowledging exit, then remove any descendants.
+		StopControlled(cmd, true)
+		return reportExit()
+	}
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -85,8 +112,15 @@ func Run(args []string) error {
 			if err == nil {
 				exitStatus = "completed"
 			}
-			_, _ = control(http.MethodPost)
+			if reportErr := reportExit(); reportErr != nil {
+				return reportErr
+			}
 			return err
+		case sig := <-interrupts:
+			if err := stopAndReport(); err != nil {
+				return err
+			}
+			return fmt.Errorf("execution interrupted by %s", sig)
 		case <-ticker.C:
 			canceled, err := control(http.MethodGet)
 			if err != nil {
@@ -95,17 +129,7 @@ func Run(args []string) error {
 			if !canceled {
 				continue
 			}
-			StopControlled(cmd, false)
-			select {
-			case <-done:
-			case <-time.After(2 * time.Second):
-				StopControlled(cmd, true)
-				<-done
-			}
-			// Clean up remaining processes in the owned process group.
-			StopControlled(cmd, true)
-			_, err = control(http.MethodPost)
-			if err != nil {
+			if err := stopAndReport(); err != nil {
 				return err
 			}
 			return fmt.Errorf("execution canceled")

@@ -59,6 +59,10 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- Desktop console cleanup uses an unboxed broom icon, and task toolbar icons no longer have button frames. Icon controls show visible tooltips on hover and keyboard focus, including disabled actions.
+
+- Desktop settings use a larger dialog, open on User profile, and list Agent connection, AI Engine CLI, Agent logs, and Changelog in that order, with Changelog at the bottom of the sidebar. The User profile no longer shows the Credential row, and Agent connection shows a green or orange dot beside the server link status, plus Start, Stop, and Restart controls beside the local agent.
+
 - **The background synchronisation asks the tracker what moved, instead of
   re-reading every ticket one by one.** A pass used to queue one read per
   unfinished work item, every few minutes: four hundred tickets meant four
@@ -101,6 +105,8 @@ test fixtures or internal plumbing.
   off the high level on the next synchronisation.
 
 ### Fixed
+
+- Terminal-owned executions now stop their child processes and report their exit when the supervisor receives a hangup or termination signal, preventing stale running entries and stop timeouts. Transient exit-report failures are retried, and Stop automatically recovers a run whose local terminal has already disappeared.
 
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
   quick add, the clone, the command palette, the task sheet and its expanded
