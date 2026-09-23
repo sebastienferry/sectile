@@ -7,4 +7,4 @@
 - [x] Test mappings, persistence, batching, failures and UI selection.
 - [x] Update changelog and technical documentation.
 - [x] Run builds, tests, static checks and final diff review.
-- [ ] Update and ready the same PR.
+- [x] Update and ready the same PR (#384).

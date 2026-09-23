@@ -4,6 +4,7 @@ Implementation reviewed against the acceptance scenarios and the complete diff a
 
 ## Checks
 
+- `make fmt-check` and targeted database/forge `go test -race` regressions: pass.
 - `go test ./...`, `go vet ./...`, `go build ./cmd/server ./cmd/agent`: pass.
 - Web: 150 tests, TypeScript/Vite build and oxlint pass. Existing hook warnings and bundle-size warning remain unchanged.
 - Desktop: 98 unit tests and Vite build pass.
