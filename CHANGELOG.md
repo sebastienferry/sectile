@@ -24,6 +24,19 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Launch a batch from the Backlog.** The compact "Batch" action ("Lot" in
+  French) in selection bars can launch selected
+  `new` or `clarified` tasks from one project. A shared preparation dialog lets
+  you reorder the tickets and name the dedicated worktree before launching.
+  Cancellation preserves the selection, and a refused launch keeps the chosen
+  order and worktree name available for retry.
+
+- **Select several stories on the board and launch them as one batch.** Cards
+  still at the `new` or `clarified` stage show a checkbox on hover, and
+  Ctrl/Cmd+click toggles them. A bar then launches `/pickup-issues` on the
+  selection in board order, as the Curation, Triage and Sprint Timeline views
+  already could.
+
 - **MCP connection settings per AI engine.** Web and desktop settings explain
   Streamable HTTP and STDIO with copyable provider configurations. Desktop can
   update local provider files for remote authenticated access or an explicitly
@@ -36,6 +49,7 @@ test fixtures or internal plumbing.
   Desktop project settings inherit from these workstation defaults, and CLI command
   templates are removed from the central Web UI. Autonomous execution preflight
   validation is delegated to the local agent daemon.
+
 - **Ticket creator and author attribution.** Synchronisation with GitHub and
   Jira captures the original issue creator and avatar, and local task creation
   attributes the task to the authenticated user. Authorship is displayed in the

@@ -75,6 +75,7 @@ Modern, agentic task workflow manager for developers and engineering teams, buil
 - 🔀 **Kanban Board & List View (Drag & Drop)**:
   - **Kanban Board View**: Fluid drag-and-drop between columns with automatic tracker sync.
   - **List View**: Grouping by status, multi-column sorting, and inline editing.
+  - **Backlog batch launch**: Select visible `new` or `clarified` tasks from one project and choose "Batch" ("Lot" in French). A preparation dialog lets you adjust the displayed execution order and choose the dedicated worktree name before launching. Cancelling preserves the selection; a failed launch keeps the dialog ready for retry.
 
 - 🔍 **Quick Search (`/`) & Action Palette (`Cmd+K`)**:
   - Keyboard shortcut `/` to immediately focus global search.
