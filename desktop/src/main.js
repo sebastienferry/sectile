@@ -1,3 +1,5 @@
+import { installTooltips } from './tooltips.js'
+import {mcpSettings} from './mcp-settings.mjs'
 import { logText } from './log-text.mjs'
 import { createGitDiff } from './gitDiff.js'
 
@@ -31,8 +33,9 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" disabled>Clear finished consoles</button><p class="hint">Open an agent console from a project, or launch a task.</p></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="run-state" class="run-state header-state" hidden></span><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
-<dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="run-state" class="run-state header-state" hidden></span><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
+installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
 // and those draw their separators and icons from the Private Use Area. Menlo is a macOS font, so on
 // Windows every one of those glyphs fell back to a replacement box. The Mono variants are the ones
@@ -103,6 +106,7 @@ const queueProjects=new Set()
 let linksLoading=false,lastLinksRefresh=0
 let selectedProject=null
 let ticketsOpen=false,agentConnected=false
+let updateSettingsConnection=null
 let opened=false,selected=null,runs=[],last='',stopping=false,restarting=false,projects=[],projectsLoaded=false
 const changes=createGitDiff({api,container:document.querySelector('#changes'),terminal:document.querySelector('#terminal'),consoleButton:document.querySelector('#view-console'),changesButton:document.querySelector('#view-changes'),onConsole:()=>{resize();if(opened)terminal.focus()}})
 api.onOutput(data=>terminal.write(new Uint8Array(data)))
@@ -147,6 +151,7 @@ function connectionLabelled(container,text,href){
  if(container.firstChild!==body||container.childNodes.length!==1)container.replaceChildren(body)
 }
 function connectionStatus(status){
+ updateSettingsConnection?.(status)
  const container=document.querySelector('#connection')
  // A contract mismatch is not a dropped link: the server answers, but with a
  // build this agent cannot talk to. Reported as a plain disconnection it reads
@@ -425,7 +430,7 @@ function render(options){
     // data-status stays the status the server reported: the UI tests select on it.
     button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
     button.append(title,state,status);button.onclick=()=>select(run)
-    const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.onclick=()=>taskMenu(run)
+    const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.title=menu.getAttribute('aria-label');menu.onclick=()=>taskMenu(run)
     const archive=document.createElement('button');archive.className='task-archive'
     const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
     archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
@@ -458,7 +463,7 @@ function render(options){
   if(!selectedPR.querySelector('.pr-label'))selectedPR.innerHTML=PR_ICON+'<span class="pr-label"></span>'
   const label=prLabel(link),text=selectedPR.querySelector('.pr-label')
   if(text.textContent!==label)text.textContent=label
-  selectedPR.title=link;selectedPR.setAttribute('aria-label','Open '+label)
+  selectedPR.title='Open '+label;selectedPR.setAttribute('aria-label','Open '+label)
   selectedPR.onclick=()=>api.openPR(link).catch(error)
  }
  document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
@@ -520,11 +525,12 @@ async function refresh(){
  }catch{agentUnavailable()}
  finally{refreshing=false}
 }
-document.querySelector('#start').onsubmit=async event=>{
- event.preventDefault();const button=event.target.querySelector('button');button.disabled=true
- try{await api.start(Object.fromEntries(new FormData(event.target)));event.target.elements.code.value='';document.querySelector('#error').textContent='';ready();await refresh()}
+async function startLocalAgent(form){
+ const button=form.querySelector('button');button.disabled=true
+ try{await api.start(Object.fromEntries(new FormData(form)));form.elements.code.value='';document.querySelector('#error').textContent='';ready();await refresh()}
  catch(err){error(err)}finally{button.disabled=!document.querySelector('#shutdown').hidden}
 }
+document.querySelector('#start').onsubmit=event=>{event.preventDefault();return startLocalAgent(event.target)}
 document.querySelector('#stop').onclick=async()=>{
  if(!selected)return
  stopping=true;render()
@@ -595,7 +601,7 @@ document.querySelector('#save-log').onclick=()=>{
 }
 
 
-document.querySelector('#restart').onclick=async()=>{
+async function restartLocalAgent(){
  const button=document.querySelector('#restart');button.disabled=true;restarting=true
  try{
   if(await api.restart()){
@@ -607,13 +613,15 @@ document.querySelector('#restart').onclick=async()=>{
  }catch(err){error(err)}finally{restarting=false;button.disabled=false;await refresh()}
 }
 
+document.querySelector('#restart').onclick=restartLocalAgent
+
 async function loadSettings(){
  const settings=await api.settings()
  if(settings.server)document.querySelector('#start').elements.server.value=settings.server
 }
 const settingsReady=loadSettings().catch(error)
 document.querySelector('#setup-logs').onclick=()=>openSettings('Logs')
-document.querySelector('#shutdown').onclick=async()=>{
+async function stopLocalAgent(){
  const button=document.querySelector('#shutdown');button.disabled=true;restarting=true
  try{
   if(await api.shutdown()){
@@ -626,6 +634,8 @@ document.querySelector('#shutdown').onclick=async()=>{
   }
  }catch(err){error(err)}finally{restarting=false;button.disabled=false}
 }
+
+document.querySelector('#shutdown').onclick=stopLocalAgent
 
 document.querySelector('#clear-history').onclick=async()=>{
  const button=document.querySelector('#clear-history');button.disabled=true
@@ -662,11 +672,14 @@ function clearDialogFooter(){
 // so a flow that reopens the dialog in the same task keeps its fresh content.
 dialog.addEventListener('close',()=>{
  if(dialog.open)return
+ updateSettingsConnection=null
  returnConnectForm()
  dialogBody.replaceChildren()
  clearDialogFooter()
 })
 function showDialog(title){
+ updateSettingsConnection=null
+ dialog.classList.remove('workstation-settings')
  returnConnectForm()
  // The footer is shared by every dialog, so a control one of them added there
  // must go before the next one opens.
@@ -717,17 +730,26 @@ function readOnlyRow(name,hint){
  return row
 }
 
+const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
+function validateModel(val){
+ const trimmed=String(val||'').trim()
+ if(trimmed==='')return true
+ return MODEL_REGEX.test(trimmed)
+}
+
 // The workstation's own settings, gathered where the project panel already puts
 // a project's: one dialog, a category per surface. The header carried three
 // unrelated controls for these; the sidebar now carries one.
 const SETTINGS_CATEGORIES=[
- {id:'General',label:'General',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'},
  {id:'Profile',label:'User profile',icon:'<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>'},
  {id:'Connection',label:'Agent connection',icon:'<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>'},
- {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'}
+ {id:'AgentCli',label:'AI Engine CLI',icon:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3M12 15h5"/>'},
+ {id:'Logs',label:'Agent logs',icon:'<path d="M14 3H7a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V7Z"/><path d="M14 3v4h4"/><path d="M9 13h6M9 17h6"/>'},
+ {id:'Changelog',label:'Changelog',icon:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 8h.01"/>'}
 ]
-function openSettings(initial='General'){
+function openSettings(initial='Profile'){
  showDialog('Settings')
+ dialog.classList.add('workstation-settings')
  const layout=document.createElement('div');layout.className='settings-layout'
  const tabs=document.createElement('div');tabs.className='settings-nav';tabs.setAttribute('role','tablist')
  tabs.setAttribute('aria-orientation','vertical');tabs.setAttribute('aria-label','Settings categories')
@@ -735,7 +757,7 @@ function openSettings(initial='General'){
  layout.append(tabs,content);dialogBody.append(layout)
  const panels={}
  for(const category of SETTINGS_CATEGORIES){
-  const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id
+  const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
   tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
   const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
   tab.id='settings-tab-'+category.id;tab.setAttribute('aria-controls','settings-panel-'+category.id)
@@ -755,21 +777,175 @@ function openSettings(initial='General'){
  // and sends the rest to the web interface, which owns the profile itself.
  const account=readOnlyRow('Sectile server','The server this workstation is paired with.')
  const device=readOnlyRow('Workstation','The identifier this machine was paired under.')
- const credential=readOnlyRow('Credential','Where the pairing credential is kept.')
  const openWeb=document.createElement('button');openWeb.type='button';openWeb.textContent='Open the web interface'
  openWeb.onclick=()=>api.openBoard().catch(error)
  const web=settingRow('Profile and API keys',null,openWeb)
  web.hint.textContent='Display name, password and API keys live in the web interface.'
- panels.Profile.append(account.section,device.section,web.section,credential.section)
+ panels.Profile.append(account.section,device.section,web.section)
+
+ // AI Engine CLI panel: workstation-wide CLI engine defaults
+ const cliProviderSelect=document.createElement('select');cliProviderSelect.className='provider-select';cliProviderSelect.setAttribute('aria-label','AI Provider')
+ const CLI_PROVIDERS=[
+  {id:'agy',label:'AGY CLI (Google Antigravity)'},
+  {id:'claude',label:'Claude Code CLI'},
+  {id:'codex',label:'Codex CLI'},
+ ]
+ for(const p of CLI_PROVIDERS){
+  const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.label
+  cliProviderSelect.append(opt)
+ }
+ const cliProviderRow=settingRow('AI Provider',null,cliProviderSelect)
+ cliProviderRow.hint.textContent='Default AI provider for local tasks on this workstation.'
+
+ const cliModelInput=document.createElement('input');cliModelInput.type='text';cliModelInput.className='model-input';cliModelInput.setAttribute('aria-label','AI Model')
+ cliModelInput.placeholder='Empty: use provider default model'
+ const cliModelRow=settingRow('AI Model',null,cliModelInput)
+ cliModelRow.hint.textContent='Default AI model for local tasks. Empty uses provider default.'
+
+ const cliCommand=document.createElement('textarea');cliCommand.className='cli-command';cliCommand.setAttribute('aria-label','Interactive CLI command')
+ cliCommand.placeholder='Provider default command'
+
+ const cliAutonomousCommand=document.createElement('textarea');cliAutonomousCommand.className='cli-command';cliAutonomousCommand.setAttribute('aria-label','Autonomous CLI command')
+ cliAutonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
+
+ const cliPreviewBox=document.createElement('dl');cliPreviewBox.className='command-preview'
+
+ function renderCliPreview(){
+  if(!validateModel(cliModelInput.value)){
+   cliModelRow.hint.textContent='Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
+   cliModelInput.setAttribute('aria-invalid','true')
+  }else{
+   cliModelRow.hint.textContent='Default AI model for local tasks. Empty uses provider default.'
+   cliModelInput.removeAttribute('aria-invalid')
+  }
+  cliPreviewBox.replaceChildren()
+  for(const line of previewLines(cliProviderSelect.value,cliCommand.value,cliModelInput.value,cliAutonomousCommand.value)){
+   const term=document.createElement('dt');term.textContent=line.label
+   const detail=document.createElement('dd');detail.textContent=line.text
+   if(!line.ok)detail.className='command-preview-error'
+   cliPreviewBox.append(term,detail)
+  }
+ }
+
+ cliModelInput.oninput=renderCliPreview
+ cliCommand.oninput=renderCliPreview
+ cliAutonomousCommand.oninput=renderCliPreview
+
+ const cliHelp=document.createElement('details');cliHelp.className='placeholder-help'
+ const cliSummary=document.createElement('summary');cliSummary.textContent='Placeholders'
+ const cliHelpText=document.createElement('p')
+ cliHelpText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
+ cliHelp.append(cliSummary,cliHelpText)
+
+ const presetsBar=document.createElement('div');presetsBar.className='cli-presets-bar'
+ presetsBar.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-top:8px'
+
+ const CLI_PRESETS=[
+  {label:'AGY',provider:'agy',cmd:'agy --dangerously-skip-permissions --model {model} "{prompt}"',auto:'agy --dangerously-skip-permissions --model {model} -p "{prompt}"'},
+  {label:'Claude',provider:'claude',cmd:"claude --model {model} '{prompt}'",auto:"claude -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
+  {label:'Codex',provider:'codex',cmd:"codex --model {model} '{prompt}'",auto:"codex exec --model {model} '{prompt}'"},
+  {label:'Clear to defaults',provider:'agy',cmd:'',auto:''}
+ ]
+
+ for(const preset of CLI_PRESETS){
+  const pBtn=document.createElement('button');pBtn.type='button';pBtn.textContent=preset.label
+  pBtn.style.cssText='font-size:11.5px;padding:4px 8px'
+  pBtn.onclick=()=>{
+   cliProviderSelect.value=preset.provider
+   cliProviderSelect.dispatchEvent(new Event('change'))
+   cliCommand.value=preset.cmd
+   cliAutonomousCommand.value=preset.auto
+   renderCliPreview()
+  }
+  presetsBar.append(pBtn)
+ }
+
+ cliProviderSelect.onchange=()=>{
+  const KNOWN=['',"/path/to/custom-cli {mode:-p|-i} '{prompt}'","claude --model {model} '{prompt}'",'agy --dangerously-skip-permissions --model {model} "{prompt}"',"codex --model {model} '{prompt}'","gemini --model {model} '{prompt}'","vibe '{prompt}'"]
+  if(cliCommand.value.trim()===''||KNOWN.includes(cliCommand.value.trim())){
+   if(cliProviderSelect.value==='custom'){
+    cliCommand.value="/path/to/custom-cli {mode:-p|-i} '{prompt}'"
+   }else{
+    cliCommand.value=''
+   }
+   cliAutonomousCommand.value=''
+  }
+  renderCliPreview()
+ }
+
+ const cliCommandRow=settingRow('Interactive CLI command',{stacked:true},cliCommand,cliHelp,presetsBar)
+ cliCommandRow.hint.textContent='Command template used for interactive runs. Empty runs provider default.'
+
+ const cliAutonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},cliAutonomousCommand,cliPreviewBox)
+ cliAutonomousRow.hint.textContent='Command template used for autonomous runs. Empty falls back to interactive command.'
+
+ const cliNotice=document.createElement('p');cliNotice.setAttribute('role','status');cliNotice.style.marginTop='12px'
+
+ const cliSaveBtn=document.createElement('button');cliSaveBtn.type='button';cliSaveBtn.className='dialog-action primary';cliSaveBtn.textContent='Save AI Engine CLI settings'
+ cliSaveBtn.onclick=async()=>{
+  if(!validateModel(cliModelInput.value)){
+   cliNotice.textContent='Invalid AI model identifier: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
+   return
+  }
+  if(cliProviderSelect.value==='custom'&&!cliCommand.value.includes('{prompt}')){
+   cliNotice.textContent='Custom provider requires a command template containing {prompt}'
+   return
+  }
+  cliSaveBtn.disabled=true;cliNotice.textContent='Saving…'
+  try{
+   await api.saveSettings({
+    aiProvider:cliProviderSelect.value,
+    aiModel:cliModelInput.value.trim(),
+    aiCommandTemplate:cliCommand.value,
+    aiCommandTemplateAutonomous:cliAutonomousCommand.value
+   })
+   cliNotice.textContent='AI Engine CLI settings saved'
+  }catch(err){
+   cliNotice.textContent='Error saving settings: '+(err.message||String(err))
+  }finally{
+   cliSaveBtn.disabled=false
+  }
+ }
+
+ const cliActions=document.createElement('div');cliActions.className='deployment-actions';cliActions.style.marginTop='16px'
+ cliActions.append(cliSaveBtn,cliNotice)
+
+ const mcpPanel=mcpSettings(api,cliProviderSelect)
+ panels.AgentCli.append(cliProviderRow.section,cliModelRow.section,cliCommandRow.section,cliAutonomousRow.section,cliActions,mcpPanel.section)
 
  const agentState=readOnlyRow('Local agent','The agent process this desktop talks to.')
+ const agentActions=document.createElement('span');agentActions.className='settings-agent-actions'
+ const agentButtons=[]
+ let agentActionPending=false
+ const renderAgentActions=()=>{
+  agentState.value.textContent=agentConnected?'Running':'Stopped'
+  for(const [button,needsRunning] of agentButtons)button.disabled=agentActionPending||restarting||agentConnected!==needsRunning
+ }
+ for(const [label,needsRunning,action] of [
+  ['Start agent',false,()=>startLocalAgent(connectForm)],
+  ['Stop agent',true,stopLocalAgent],
+  ['Restart agent',true,restartLocalAgent]
+ ]){
+  const button=document.createElement('button');button.type='button';button.textContent=label
+  button.onclick=async()=>{
+   if(agentActionPending||restarting)return
+   agentActionPending=true;renderAgentActions()
+   try{await action()}finally{agentActionPending=false;if(agentActions.isConnected){await fill(false);renderAgentActions()}}
+  }
+  agentButtons.push([button,needsRunning]);agentActions.append(button)
+ }
+ agentState.control.append(agentActions)
+ renderAgentActions()
  const link=readOnlyRow('Server link','Whether the local agent reaches the Sectile server.')
+ const linkDot=document.createElement('span');linkDot.className='connection-dot';linkDot.setAttribute('aria-hidden','true')
+ link.control.classList.add('settings-connection-status');link.control.dataset.state='off'
+ link.control.prepend(linkDot)
  const pairing=settingRow('Pairing',{stacked:true},connectForm)
  const pairingNote=document.createElement('p');pairingNote.setAttribute('role','status')
  pairing.control.append(pairingNote)
  panels.Connection.append(agentState.section,link.section,pairing.section)
 
- fillGeneralPanel(panels.General)
+ fillChangelogPanel(panels.Changelog)
 
  const logs=document.createElement('div');logs.className='settings-logs'
  const logHeading=document.createElement('h3');logHeading.textContent='Agent logs'
@@ -797,35 +973,52 @@ function openSettings(initial='General'){
  }
  reload.onclick=loadLog
 
- selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'General')
+ selectCategory(SETTINGS_CATEGORIES.some(category=>category.id===initial)?initial:'Profile')
  // The connection facts come from two sources the agent answers separately, and
  // a stopped agent still has a paired server to report: the stored settings fill
  // the panel first, the live status refines it when the agent answers.
- const fill=async()=>{
+ const fill=async(loadCliDefaults=true)=>{
   let stored={}
   try{stored=await api.settings()}catch{}
   if(!account.value.isConnected)return
   account.value.textContent=stored.server||'Not paired'
   device.value.textContent=stored.deviceId||'Not paired'
-  credential.value.textContent=stored.token?'Stored on this machine':'None'
-  agentState.value.textContent=agentConnected?'Running':'Stopped'
+  renderAgentActions()
+  link.control.dataset.state='off'
   link.value.textContent=agentConnected?'Connecting…':'Unreachable'
   pairing.hint.textContent=stored.token
    ?'This workstation is paired. Pasting a new code re-pairs it.'
    :'In the web interface, under your profile, choose Pair a workstation and paste the code here.'
   pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
+  if(cliProviderSelect.isConnected){
+   if(loadCliDefaults)cliProviderSelect.value=stored.aiProvider||'agy'
+   mcpPanel.load()
+   if(loadCliDefaults){
+    cliModelInput.value=stored.aiModel||''
+    cliCommand.value=stored.aiCommandTemplate||''
+    cliAutonomousCommand.value=stored.aiCommandTemplateAutonomous||''
+    renderCliPreview()
+   }
+  }
   if(!agentConnected)return
   try{
    const status=await api.status()
    if(!link.value.isConnected)return
+   link.control.dataset.state=status.connected?'on':'off'
    link.value.textContent=status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
    if(status.contractError)link.hint.textContent=status.contractError
    if(status.server)account.value.textContent=status.server
   }catch{if(link.value.isConnected)link.value.textContent='Unreachable'}
  }
+ updateSettingsConnection=status=>{
+  renderAgentActions()
+  link.control.dataset.state=agentConnected&&status.connected?'on':'off'
+  link.value.textContent=!agentConnected?'Unreachable':status.connected?'Connected':status.contractError?'Server incompatible':'Server disconnected'
+  pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
+ }
  fill()
 }
-document.querySelector('#settings').onclick=()=>openSettings('General')
+document.querySelector('#settings').onclick=()=>openSettings('Profile')
 
 async function loadProjects(){
  const version=projectStateVersion
@@ -855,7 +1048,7 @@ document.querySelector('#toggle-sidebar').onclick=()=>{
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
  renderSidebarToggle(hidden);localStorage.setItem('sidebarCollapsed',String(hidden));resize()
 }
-// The General pane: what is installed, and what changed. Both versions are
+// The Changelog pane: what is installed, and what changed. Both versions are
 // shown because the app and the agent are distributed separately, and a
 // workstation that upgraded one and not the other is exactly the case this
 // pane exists to make visible.
@@ -894,7 +1087,7 @@ function renderChangelog(container,releases){
 // The pane main built as the whole Settings dialog becomes one category of it:
 // what is installed sits beside the account, the connection and the logs
 // instead of replacing them.
-async function fillGeneralPanel(panel){
+async function fillChangelogPanel(panel){
  const versions=document.createElement('div');versions.className='settings-versions'
  const desktopRow=versionRow('Sectile Desktop','…','The application window and its consoles.')
  const agentRow=versionRow('Local agent','…','The workstation daemon that runs the tasks.')
@@ -964,6 +1157,8 @@ async function openProject(id){
  try{
   const info=await api.project(id)
   let config=info.server
+  let wsSettings={}
+  try{wsSettings=await api.settings()}catch{}
   dialogBody.querySelector('h2').textContent=config.projectName
 
   // A single Local panel had grown into one long scroll mixing the repository
@@ -998,7 +1193,7 @@ async function openProject(id){
    for(const item of tabs.children)item.setAttribute('aria-selected',String(item.dataset.category===name))
   }
   for(const category of CATEGORIES){
-   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id
+   const tab=document.createElement('button');tab.type='button';tab.setAttribute('role','tab');tab.dataset.category=category.id;tab.title=category.label
    tab.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'+category.icon+'</svg>'
    const text=document.createElement('span');text.className='settings-nav-label';text.textContent=category.label;tab.append(text)
    tab.id='project-tab-'+category.id;tab.setAttribute('aria-controls','project-panel-'+category.id)
@@ -1051,51 +1246,40 @@ async function openProject(id){
    controls.parallel.hint.textContent=useWorktrees?'Workstation setting · Extra executions queue locally.':'Without worktrees, executions are limited to one.'
   }
   update()
-  let selectedProvider=info.aiProvider||config.aiProvider||'agy',inheritAiProvider=!info.aiProviderOverride
+  let selectedProvider=info.aiProvider||wsSettings.aiProvider||'agy',inheritAiProvider=!info.aiProviderOverride
   const providerSelect=document.createElement('select');providerSelect.className='provider-select';providerSelect.setAttribute('aria-label','AI Provider')
   const PROVIDERS=[
     {id:'agy',label:'AGY CLI (Google Antigravity)'},
     {id:'claude',label:'Claude Code CLI'},
     {id:'codex',label:'Codex CLI'},
-    {id:'gemini',label:'Gemini CLI'},
-    {id:'cursor',label:'Cursor CLI'},
-    {id:'vibe',label:'Mistral Vibe CLI'},
-    {id:'custom',label:'Custom Command'}
   ]
   for(const p of PROVIDERS){
     const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.label
     providerSelect.append(opt)
   }
   providerSelect.value=selectedProvider
-  const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to server default'},providerSelect)
+  const providerRow=settingRow('AI Provider',{resetLabel:'Reset AI provider to workstation default'},providerSelect)
   const providerReset=providerRow.reset,providerHint=providerRow.hint
   function updateProvider(){
-    providerHint.textContent=(inheritAiProvider?'Inherited from server':'Local override')+' · Server default: '+(config.aiProvider||'agy')
+    providerHint.textContent=(inheritAiProvider?'Inherited from workstation':'Local override')+' · Workstation default: '+(wsSettings.aiProvider||'agy')
     renderCommandPreview()
   }
   providerReset.onclick=()=>{
-    selectedProvider=config.aiProvider||'agy'
+    selectedProvider=wsSettings.aiProvider||'agy'
     providerSelect.value=selectedProvider
     inheritAiProvider=true
     updateProvider()
   }
 
-  let selectedModel=info.aiModel??config.aiModel??'',inheritAiModel=!info.aiModelOverride
+  let selectedModel=info.aiModel??wsSettings.aiModel??'',inheritAiModel=!info.aiModelOverride
   const modelInput=document.createElement('input');modelInput.type='text';modelInput.className='model-input';modelInput.setAttribute('aria-label','AI Model')
   modelInput.value=selectedModel
   modelInput.placeholder='Empty: use provider default model'
-  const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to server default'},modelInput)
+  const modelRow=settingRow('AI Model',{resetLabel:'Reset AI model to workstation default'},modelInput)
   const modelReset=modelRow.reset,modelHint=modelRow.hint
 
-  const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
-  function validateModel(val){
-    const trimmed=String(val||'').trim()
-    if(trimmed==='')return true
-    return MODEL_REGEX.test(trimmed)
-  }
-
   function updateModel(){
-    modelHint.textContent=(inheritAiModel?'Inherited from server':'Local override')+' · Server default: '+(config.aiModel||'(none)')
+    modelHint.textContent=(inheritAiModel?'Inherited from workstation':'Local override')+' · Workstation default: '+(wsSettings.aiModel||'(none)')
     if(!validateModel(modelInput.value)){
       modelHint.textContent='Invalid model: must only contain letters, digits, and allowed punctuation (. _ - : @ /)'
       modelInput.setAttribute('aria-invalid','true')
@@ -1111,7 +1295,7 @@ async function openProject(id){
     updateModel()
   }
   modelReset.onclick=()=>{
-    selectedModel=config.aiModel||''
+    selectedModel=wsSettings.aiModel||''
     modelInput.value=selectedModel
     inheritAiModel=true
     updateModel()
@@ -1119,13 +1303,13 @@ async function openProject(id){
 
   let inheritCommand=!info.commandOverride
   // The two execution modes run different command lines, so they get one field
-  // each. Overriding only the interactive one would leave the server's headless
+  // each. Overriding only the interactive one would leave the workstation's headless
   // command running beside it, which is not what an override means.
   const command=document.createElement('textarea');command.className='cli-command';command.setAttribute('aria-label','Interactive CLI command')
-  command.value=info.aiCommandTemplate??config.aiCommandTemplate??''
-  command.placeholder='Server provider default command'
+  command.value=info.aiCommandTemplate??wsSettings.aiCommandTemplate??config.aiCommandTemplate??''
+  command.placeholder='Workstation provider default command'
   const autonomousCommand=document.createElement('textarea');autonomousCommand.className='cli-command';autonomousCommand.setAttribute('aria-label','Autonomous CLI command')
-  autonomousCommand.value=info.aiCommandTemplateAutonomous??config.aiCommandTemplateAutonomous??''
+  autonomousCommand.value=info.aiCommandTemplateAutonomous??wsSettings.aiCommandTemplateAutonomous??config.aiCommandTemplateAutonomous??''
   autonomousCommand.placeholder='Empty: the interactive command serves headless launches too'
   const commandPreviewBox=document.createElement('dl');commandPreviewBox.className='command-preview'
   function renderCommandPreview(){
@@ -1142,10 +1326,10 @@ async function openProject(id){
   const placeholderText=document.createElement('p')
   placeholderText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
   placeholderHelp.append(placeholderSummary,placeholderText)
-  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from server':'Local override')+' · Both empty runs the provider default for each mode.';renderCommandPreview()}
+  function commandState(){commandHint.textContent=(inheritCommand?'Inherited from workstation':'Local override')+' · Both empty runs the provider default for each mode.';renderCommandPreview()}
   command.oninput=()=>{inheritCommand=false;commandState()}
   autonomousCommand.oninput=()=>{inheritCommand=false;commandState()}
-  const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to server defaults',onReset:()=>{command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}},command,placeholderHelp)
+  const commandRow=settingRow('Interactive CLI command',{stacked:true,resetLabel:'Reset CLI commands to workstation defaults',onReset:()=>{command.value=wsSettings.aiCommandTemplate||config.aiCommandTemplate||'';autonomousCommand.value=wsSettings.aiCommandTemplateAutonomous||config.aiCommandTemplateAutonomous||'';inheritCommand=true;commandState()}},command,placeholderHelp)
   const commandHint=commandRow.hint
   const autonomousRow=settingRow('Autonomous CLI command (headless)',{stacked:true},autonomousCommand,commandPreviewBox)
 
@@ -1294,7 +1478,7 @@ async function openProject(id){
     config=fresh.server
     dialogBody.querySelector('h2').textContent=config.projectName
     if(inheritWorktrees)useWorktrees=!!config.useWorktrees
-    if(inheritCommand){command.value=config.aiCommandTemplate||'';autonomousCommand.value=config.aiCommandTemplateAutonomous||''}
+    if(inheritCommand){command.value=wsSettings.aiCommandTemplate||config.aiCommandTemplate||'';autonomousCommand.value=wsSettings.aiCommandTemplateAutonomous||config.aiCommandTemplateAutonomous||''}
     if(inheritTerminal){
      selectedTerminal=fresh.terminal||fresh.server?.externalTerminalCommand||''
      if(selectedTerminal&&!standardTerminals.includes(selectedTerminal.toLowerCase())){
@@ -1322,6 +1506,7 @@ async function openProject(id){
 }
 
 const iconPaths={
+ 'clear-history':'<path d="m15 3-6 9M7 11l7 5M8 12c-3 1-5 4-5 8h12c0-3-1-5-3-6M6 20l2-5M10 20l1-4"/>',
  'detach-terminal':'<path d="M17 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h4.5"/><path d="m7.5 11.5 2 2-2 2"/><path d="M15 4h5v5"/><path d="m13.5 10.5 6.5-6.5"/>',
  'view-console':'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7.5 10 2.5 2.5-2.5 2.5"/><path d="M13 15h4"/>',
  'view-changes':'<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v5"/><path d="M9.5 13.5h5"/><path d="M9.5 18.5h5"/>',

@@ -17,3 +17,22 @@ Les vues Kanban/Curation, Triage et Sprint Timeline SHALL intégrer un bouton d'
 - **WHEN** l'utilisateur coche plusieurs tâches dans une vue et clique sur le bouton "Lancer le lot (Git tree + Auto-pilot)"
 - **THEN** l'application web initie la création du Git Worktree pour le lot sélectionné et démarre la session d'exécution autonome du skill `pickup-issues`
 
+
+#### Scenario: Selecting cards on the Kanban board
+- **WHEN** the user ticks cards on the board, with their checkbox or with Ctrl/Cmd+click, and clicks "Lancer le lot (Git tree + Auto-pilot)" in the selection bar
+- **THEN** only cards whose workflow stage is `new` or `clarified` can be selected, and `pickup-issues` receives them in board order: columns from left to right, then cards from top to bottom
+
+#### Scenario: Launching selected tasks from the Backlog
+- **WHEN** the user selects visible Backlog tasks from one project, all at the `new` or `clarified` stage
+- **THEN** the selection bar enables the batch launch action and passes the tasks in displayed group and row order
+- **AND** an accepted launch clears the submitted selection, while a refused launch keeps it for retry
+- **AND** the action is disabled during launch or for an ineligible selection, with an explanation for ineligible selections
+
+#### Scenario: Preparing the execution order and worktree before launch
+- **WHEN** the user chooses the batch action in any supported view
+- **THEN** a shared dialog opens with the selected tasks in their initial view order and an editable worktree name
+- **AND** the user can move each task up or down before confirming the launch
+- **AND** no execution request is sent until confirmation
+- **AND** confirmation sends the chosen order and worktree name to the `pickup-issues` skill
+- **AND** cancelling preserves the caller's selection; a failed launch keeps the dialog, task order and worktree name available for retry
+- **AND** worktree names contain 1–80 letters, digits, hyphens or underscores, starting with a letter or digit, and cannot contain paths

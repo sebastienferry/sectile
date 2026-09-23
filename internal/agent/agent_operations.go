@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	"os"
@@ -91,7 +92,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		return nil, fmt.Errorf("project primary key is required")
 	}
 	switch op.Action {
-	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
+	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
 	default:
 		return nil, fmt.Errorf("unknown local operation %q", op.Action)
 	}
@@ -285,6 +286,23 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		branch, err := gitLocal(ctx, target, "branch", "--show-current")
 		return map[string]any{"sha": strings.TrimSpace(sha), "branch": strings.TrimSpace(branch), "clean": strings.TrimSpace(status) == ""}, err
+	case "pr_evidence":
+		// The server verifies stage evidence on forges it cannot reach itself, with
+		// the CLI login this workstation already has. A forge that answered without
+		// a usable request is a refusal, carried as data; anything else is a failed
+		// lookup, so the server can never mistake an outage for absence.
+		branch := strings.TrimSpace(op.Branch)
+		if branch == "" && task.BranchName != nil {
+			branch = strings.TrimSpace(*task.BranchName)
+		}
+		pr, err := r.BranchPullRequest(target, branch)
+		if errors.Is(err, runner.ErrNoMatchingPullRequest) || errors.Is(err, runner.ErrAmbiguousPullRequest) {
+			return map[string]any{"forge": pr.Forge, "refusal": err.Error()}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"forge": pr.Forge, "url": pr.URL, "branch": pr.Branch, "sha": pr.SHA, "open": pr.Open, "draft": pr.Draft, "merged": pr.Merged}, nil
 	case "run_prompt":
 		output, steps, err := r.RunAgentPrompt(ctx, &models.Settings{RepoPath: root, AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate, AIModel: agentconfig.ResolveModel(config, "")}, op.Prompt)
 		return map[string]any{"output": output, "steps": steps}, err
