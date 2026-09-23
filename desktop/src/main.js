@@ -1,3 +1,4 @@
+import { currentPullRequest, renderPullRequestIndicator } from './pullRequests.mjs'
 import { installTooltips } from './tooltips.js'
 import {mcpSettings} from './mcp-settings.mjs'
 import { logText } from './log-text.mjs'
@@ -67,7 +68,6 @@ function refusedActiveRun(message){
 const taskTitles=new Map()
 const skillResults=new Map(),loadingSkillResults=new Set()
 const pullRequests=new Map()
-const PR_ICON='<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="6" cy="5" r="3"/><circle cx="6" cy="19" r="3"/><circle cx="18" cy="19" r="3"/><path d="M6 8v8M18 16V9a4 4 0 0 0-4-4h-2m3-3-3 3 3 3"/></svg>'
 let localTasks={}
 try{localTasks=JSON.parse(localStorage.getItem('localTasks')||'{}')}catch{}
 const freeConsole=run=>run?.kind==='console'
@@ -440,9 +440,9 @@ function render(options){
     row.append(button)
     const link=pullRequests.get(run.taskId)
     if(link){
-     const pr=document.createElement('button');pr.className='pr-indicator';pr.title=link;pr.setAttribute('aria-label','Open '+prLabel(link)+' for '+(run.taskKey||run.taskId))
-     pr.innerHTML=PR_ICON
-     pr.onclick=()=>api.openPR(link).catch(error);row.append(pr)
+     const pr=document.createElement('button');pr.className='pr-indicator'
+     renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+(run.taskKey||run.taskId))
+     pr.onclick=()=>api.openPR(link.url).catch(error);row.append(pr)
     }
     row.append(archive,menu);group.append(row)
    }
@@ -460,11 +460,10 @@ function render(options){
  const selectedPR=document.querySelector('#selected-pr'),link=current&&pullRequests.get(current.taskId)
  selectedPR.hidden=!link
  if(link){
-  if(!selectedPR.querySelector('.pr-label'))selectedPR.innerHTML=PR_ICON+'<span class="pr-label"></span>'
-  const label=prLabel(link),text=selectedPR.querySelector('.pr-label')
-  if(text.textContent!==label)text.textContent=label
-  selectedPR.title='Open '+label;selectedPR.setAttribute('aria-label','Open '+label)
-  selectedPR.onclick=()=>api.openPR(link).catch(error)
+  const label=prLabel(link.url)
+  renderPullRequestIndicator(selectedPR,link,label)
+  const text=document.createElement('span');text.className='pr-label';text.textContent=label;selectedPR.append(text)
+  selectedPR.onclick=()=>api.openPR(link.url).catch(error)
  }
  document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
@@ -1658,8 +1657,9 @@ function ticketRow(view,task){
  priorityCell.append(dot,document.createTextNode(task.priority||'—'))
  const prCell=cell('ticket-pr')
  if(task.prUrl&&/^https?:\/\//i.test(task.prUrl)){
-  const pr=document.createElement('button');pr.type='button';pr.className='pr-indicator';pr.title=task.prUrl;pr.setAttribute('aria-label','Open '+prLabel(task.prUrl)+' for '+key)
-  pr.innerHTML=PR_ICON;pr.onclick=()=>api.openPR(task.prUrl).catch(error);prCell.append(pr)
+  const pr=document.createElement('button');pr.type='button';pr.className='pr-indicator'
+  const link=currentPullRequest(task);renderPullRequestIndicator(pr,link,prLabel(link.url)+' for '+key)
+  pr.onclick=()=>api.openPR(link.url).catch(error);prCell.append(pr)
  }
  const actions=cell('ticket-actions')
  const run=document.createElement('button');run.type='button';run.className='ticket-run'
@@ -1900,7 +1900,7 @@ async function refreshPRs(executions){
      const task=tasks.find(task=>task.id===run.taskId)
      if(task?.title?.trim())taskTitles.set(run.taskId,task.title.trim())
      else taskTitles.delete(run.taskId)
-     if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,task.prUrl)
+     if(task?.prUrl&&/^https?:\/\//i.test(task.prUrl))pullRequests.set(run.taskId,currentPullRequest(task))
      else pullRequests.delete(run.taskId)
     }
    }catch{}

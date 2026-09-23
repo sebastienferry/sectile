@@ -13,6 +13,10 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Added
+
+- Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
+
 ### Changed
 
 - Issue details show description and technical context directly below the title, alongside metadata, with pull requests below; narrow views keep the content first.

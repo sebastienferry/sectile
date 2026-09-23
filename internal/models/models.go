@@ -990,6 +990,7 @@ type CliStatus struct {
 // alongside the URL: it is what tells a follow-up PR on the same branch from a
 // PR silently swapped for an unrelated one.
 type TaskPullRequest struct {
+	State  string `json:"state,omitempty"`
 	URL    string `json:"url"`
 	Branch string `json:"branch,omitempty"`
 }

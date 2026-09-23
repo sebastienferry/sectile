@@ -87,7 +87,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   assert.deepEqual(await keys(),['#2','#1','#9','#100'])
   assert.equal(await sortOf('priority'),'descending');assert.equal(await sortOf('key'),'none')
   await expect(rows.nth(0).locator('.ticket-stage')).toHaveText('specified')
-  await expect(rows.nth(0).getByRole('button',{name:'Open PR #42 for #2',exact:true})).toBeVisible()
+  await expect(rows.nth(0).getByRole('button',{name:'Open PR #42 for #2 — State unknown',exact:true})).toBeVisible()
   await expect(rows.nth(1).locator('.ticket-title')).toHaveText('First open task')
   // The key opens that task in Sectile, like the sidebar task number.
   await page.getByRole('button',{name:'Open #1 in Sectile',exact:true}).click()

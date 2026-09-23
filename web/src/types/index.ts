@@ -336,7 +336,10 @@ export interface DetectedStatus {
  * l'URL : c'est elle qui distingue une PR de suite sur la même branche d'une PR
  * substituée à une autre, sans rapport.
  */
+export type PullRequestState = 'open' | 'conflicting' | 'merged' | 'closed'
+
 export interface PullRequestLink {
+  state?: PullRequestState
   url: string
   branch?: string
 }

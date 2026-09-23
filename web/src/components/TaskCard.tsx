@@ -1,3 +1,4 @@
+import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
 import React, { useState, useRef, useEffect } from 'react'
@@ -591,7 +592,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               )}
               {task.prUrl && (
                 <a className={compactActionClass} href={task.prUrl} target="_blank" rel="noreferrer" onClick={() => setIsMenuOpen(false)}>
-                  <GitPullRequest size={12} /><span>{t.compactCard.openPr}</span>
+                  <PullRequestStateIcon task={task} size={12} /><span>{t.compactCard.openPr}</span>
                 </a>
               )}
               <div className="h-px bg-[var(--border-color)] my-1" />
@@ -886,7 +887,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               className="p-1 rounded text-purple-300 bg-purple-500/10 hover:bg-purple-500/25 border border-purple-500/30 transition-all hover:scale-105"
               title={task.prUrl.includes('gitlab') ? `GitLab MR: ${task.prUrl}` : `GitHub PR: ${task.prUrl}`}
             >
-              <GitPullRequest size={12} className="text-purple-400" />
+              <PullRequestStateIcon task={task} size={12} />
             </a>
           )}
 

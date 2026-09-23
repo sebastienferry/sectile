@@ -2537,6 +2537,19 @@ func (d *DB) UpdateTask(id string, req models.UpdateTaskRequest) (*models.Task, 
 // UpdateTaskBy edits a work item on behalf of whoever asked. The tracker write
 // it queues then goes out under their own credential.
 func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) (*models.Task, error) {
+	task, err := d.updateTaskBy(actor, id, req)
+	if err != nil {
+		return task, err
+	}
+	// Only an edit of the links or the branch can change what the forge reports
+	// for this task: a title or label edit must not wait on GitHub or GitLab.
+	if req.PrLinks == nil && req.PrURL == nil && req.BranchName == nil {
+		return task, nil
+	}
+	return d.refreshTaskPullRequestStates(tracker.WithActingUser(context.Background(), actor.ID), task), nil
+}
+
+func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) (*models.Task, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -2611,7 +2624,14 @@ func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	// an empty set detaches every link, which is how a human corrects a task
 	// whose recorded PR was wrong.
 	if req.PrLinks != nil {
+		previousStates := map[string]string{}
+		for _, link := range existing.PrLinks {
+			previousStates[link.URL] = link.State
+		}
 		existing.PrLinks = models.NormalizePullRequestLinks(*req.PrLinks)
+		for i := range existing.PrLinks {
+			existing.PrLinks[i].State = previousStates[existing.PrLinks[i].URL]
+		}
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 	if req.PrURL != nil {
@@ -4019,6 +4039,7 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 	// must keep its property of never writing pr_url / pr_links, which is what
 	// protects the links a workflow produced.
 	steps = append(steps, d.rediscoverProjectPullRequests(ctx, proj, ts, tasks)...)
+	steps = append(steps, d.refreshProjectPullRequestStates(ctx, proj.ID)...)
 	return steps
 }
 
@@ -4564,10 +4585,10 @@ func (d *DB) syncSingleTask(ctx context.Context, taskID string, force bool) (*mo
 				log.Printf("[prdiscovery] %s : %v", imported.Key, err)
 			}
 		}
-		return imported, nil
+		return d.refreshTaskPullRequestStates(ctx, imported), nil
 	}
 
-	return task, nil
+	return d.refreshTaskPullRequestStates(ctx, task), nil
 }
 
 // EnqueueSync queues a synchronisation nobody in particular asked for, so it
