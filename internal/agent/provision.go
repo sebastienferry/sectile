@@ -25,11 +25,12 @@ import (
 const installStamp = ".install-stamp"
 
 // The timeouts are variables so tests can shorten them. A first install of this
-// repository's two packages takes a few minutes on a cold npm cache; the total
-// stays below the server's budget for prepare_workspace.
+// repository's web package takes about four minutes on a Windows workstation,
+// so a folder gets more than twice that. The total stays below the server's
+// budget for prepare_workspace.
 var (
-	provisionFolderTimeout = 5 * time.Minute
-	provisionTotalTimeout  = 10 * time.Minute
+	provisionFolderTimeout = 10 * time.Minute
+	provisionTotalTimeout  = 15 * time.Minute
 )
 
 // npmInstall runs a clean install in dir. It is a variable so tests run without

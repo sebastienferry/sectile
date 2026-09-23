@@ -42,16 +42,16 @@ the lock itself.
 ### Server budget
 
 `operationTimeout` gives `prepare_workspace` the 45 s default. A first install exceeds it, so
-`prepare_workspace` gets the same 12 minute budget as `run_prompt`. That stays above the agent's
-total provisioning timeout (10 minutes) plus the git work.
+`prepare_workspace` gets a 17 minute budget. That stays above the agent's
+total provisioning timeout (15 minutes) plus the git work.
 
 ## The provisioning step (`internal/agent/provision.go`)
 
 ```go
 // Timeouts are package variables so tests can shorten them.
 var (
-	provisionFolderTimeout = 5 * time.Minute
-	provisionTotalTimeout  = 10 * time.Minute
+	provisionFolderTimeout = 10 * time.Minute
+	provisionTotalTimeout  = 15 * time.Minute
 )
 
 // npmInstall runs the install in dir. Tests replace it.
@@ -104,7 +104,7 @@ The injected `npmInstall` records the folders it was called for and creates `nod
 - a failing install → no stamp, the other folders are still attempted;
 - the context passed to the install carries a deadline.
 
-`internal/db/agentoperations_test.go`: the `prepare_workspace` row expects 12 minutes.
+`internal/db/agentoperations_test.go`: the `prepare_workspace` row expects 17 minutes.
 
 ## Rejected alternatives
 

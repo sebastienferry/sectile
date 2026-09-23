@@ -16,7 +16,7 @@ func TestOperationTimeout(t *testing.T) {
 		{"git_evidence", 15 * time.Second, "three local git plumbing calls"},
 		{"git_status", 15 * time.Second, "local porcelain read"},
 		{"cli_status", 30 * time.Second, "probes several CLI binaries"},
-		{"prepare_workspace", 12 * time.Minute, "installs the worktree's JavaScript dependencies"},
+		{"prepare_workspace", 17 * time.Minute, "installs the worktree's JavaScript dependencies"},
 		{"git_delete", 45 * time.Second, "may delete a remote branch"},
 		{"unknown_action", 45 * time.Second, "unknown actions keep the default"},
 	}
