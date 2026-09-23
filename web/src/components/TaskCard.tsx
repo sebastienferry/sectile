@@ -33,6 +33,7 @@ import type { Task, Priority, SkillMode } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
+import { EpicBar, useEpicColors } from './EpicMarker'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
@@ -74,6 +75,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     openCloneModal,
     deleteTask,
     projects,
+    selectedViewId,
     settings,
     parentFilter,
     setParentFilter,
@@ -82,6 +84,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     addToast,
     setTaskSprint,
   } = useApp()
+  const showsEpicColors = useEpicColors()
 
   // Le menu est rendu dans un portail avec un positionnement fixe : les colonnes
   // du board défilent en overflow-y-auto, ce qui découpait un menu en position
@@ -152,6 +155,21 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   }
 
   const taskProject = projects.find(p => p.id === task.projectId)
+  // A saved view spans projects, and one remote story synchronised by two of
+  // them shows as two cards: the project name is what tells them apart (#387).
+  // tasks.project_id may hold the project's slug rather than its id.
+  const badgeProject = selectedViewId
+    ? taskProject || projects.find(p => p.slug === task.projectId)
+    : undefined
+  const projectBadge = badgeProject ? (
+    <span
+      data-card-project={badgeProject.id}
+      title={badgeProject.name}
+      className="shrink-0 max-w-[8rem] truncate px-1.5 py-px rounded text-[9px] font-semibold text-sky-300 bg-sky-400/10 border border-sky-400/30"
+    >
+      {badgeProject.name}
+    </span>
+  ) : null
   const targetGithubRepo = (taskProject?.githubRepo || settings.githubRepo || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
   const externalUrl = task.externalUrl || (
     task.source === 'github' && targetGithubRepo && task.key?.startsWith('#')
@@ -376,6 +394,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const isQueued = latestActivity?.status === 'queued' || latestActivity?.status === 'pending'
 
   const isCondensed = compact
+  // Barre de la couleur de l'épic, sur les projets qui la demandent.
+  const showsEpicBar = showsEpicColors(task.projectId) && Boolean(task.parentKey?.trim())
   const compactActionClass = 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
   // The one-off mode override for the next step. Both card shapes offer it: on a
   // condensed card the chevrons live in this menu, on a full card they sit on
@@ -782,6 +802,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         isDragging ? 'opacity-40 scale-95 ring-2 ring-[var(--accent-color)] ring-dashed' : ''
       }`}
     >
+      {showsEpicBar && <EpicBar parentKey={task.parentKey} />}
       {isCondensed ? (
         <div className="flex items-center gap-1 min-w-0">
           {externalUrl ? (
@@ -789,6 +810,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {task.key}
             </a>
           ) : <span className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
+          {projectBadge}
           <button type="button" title={task.title} onClick={e => { e.stopPropagation(); openOrToggle(e) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
             {task.title}
           </button>
@@ -841,6 +863,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </span>
 
         <div className="flex items-center gap-2 shrink-0">
+          {projectBadge}
           {getPriorityBadge(task.priority)}
           {selectionBox}
         </div>

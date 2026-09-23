@@ -10,8 +10,8 @@ The frontend is a React 19 Single Page Application styled with modern Tailwind C
 
 ```
 App.tsx
-├── Sidebar (Project Selection, View Navigation, Activity and Sync Indicators)
-├── Header (Project Settings, Global Search, Active Filter Chips, Quick Add)
+├── Sidebar (Project Selection, View Navigation, Saved Board Views, Activity and Sync Indicators)
+├── Header (Project Settings, Open Saved View, Global Search, Active Filter Chips, Quick Add)
 ├── ProjectFilterBar (Horizontal chip-based project selector)
 ├── Main View Area (Conditional on activeView: 'board' | 'list')
 │   ├── BoardView.tsx (Kanban Board with Drag & Drop)
@@ -23,6 +23,7 @@ App.tsx
 │   ├── (Local Git inspection belongs to Desktop; see section 2.6)
 │   ├── ActivityCenter.tsx (Job queue monitor and task output stream)
 │   ├── ProjectModal.tsx (Workspace & repository settings)
+│   ├── BoardViewModal.tsx (Create, edit or delete a saved board view: name, projects, labels)
 │   └── SettingsModal.tsx (AI provider, themes, language, tracker tokens)
 ```
 

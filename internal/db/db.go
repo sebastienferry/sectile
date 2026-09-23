@@ -1205,6 +1205,104 @@ func projectScope(projectID, userID string) (string, []interface{}) {
 	return "", nil
 }
 
+// TaskScope says which part of the board a task list or its facets cover: one
+// project, the user's bookmarked projects ("all"), or one of the user's saved
+// views, which then takes precedence over the project.
+type TaskScope struct {
+	UserID    string
+	ProjectID string
+	ViewID    string
+}
+
+// taskScopeUnsafe returns the scope as two SQL conditions over tasks: the
+// projects, and the labels a saved view asks for. They are kept apart because
+// the macros table shares the project column but carries no labels.
+func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs []interface{}, labelCond string, labelArgs []interface{}, err error) {
+	if strings.TrimSpace(scope.ViewID) == "" {
+		projectCond, projectArgs = projectScope(scope.ProjectID, scope.UserID)
+		return projectCond, projectArgs, "", nil, nil
+	}
+	view, err := d.getBoardViewUnsafe(scope.UserID, scope.ViewID)
+	if err != nil {
+		return "", nil, "", nil, err
+	}
+	projectCond, projectArgs = viewProjectScope(view.ProjectIDs)
+	labelCond, labelArgs = viewLabelScope(view.Labels, d.labelFold())
+	return projectCond, projectArgs, labelCond, labelArgs, nil
+}
+
+// labelFold lowers a view label the way the engine's LOWER lowers the column,
+// so that a label always matches its own spelling. PostgreSQL folds every
+// letter; SQLite folds ASCII only, and lowering `É` on one side alone would
+// make `Équipe` miss `Équipe`.
+func (d *DB) labelFold() func(string) string {
+	if d.EngineName() == string(DriverPostgres) {
+		return strings.ToLower
+	}
+	return asciiLower
+}
+
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, s)
+}
+
+// viewProjectScope selects the view's projects. tasks.project_id may hold a
+// project's slug rather than its id, as projectScope already allows for.
+func viewProjectScope(projectIDs []string) (string, []interface{}) {
+	if len(projectIDs) == 0 {
+		return "1 = 0", nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(projectIDs)), ", ")
+	args := make([]interface{}, 0, 2*len(projectIDs))
+	for _, id := range projectIDs {
+		args = append(args, id)
+	}
+	for _, id := range projectIDs {
+		args = append(args, id)
+	}
+	return fmt.Sprintf("(project_id IN (%s) OR project_id IN (SELECT slug FROM projects WHERE id IN (%s)))", placeholders, placeholders), args
+}
+
+// viewLabelScope keeps the tickets carrying at least one of the labels, whole
+// and regardless of case. tasks.labels is a JSON array written by
+// json.Marshal, so a whole label is exactly its quoted JSON token: `"backend"`
+// is found in `["Backend","ops"]` and not in `["backend-api"]`. LIKE wildcards
+// in a label are escaped. fold must lower the label as the engine's LOWER
+// lowers the column (see labelFold): under SQLite, case is then ignored for
+// ASCII letters only.
+func viewLabelScope(labels []string, fold func(string) string) (string, []interface{}) {
+	if len(labels) == 0 {
+		return "", nil
+	}
+	clauses := make([]string, 0, len(labels))
+	args := make([]interface{}, 0, len(labels))
+	for _, label := range labels {
+		token, _ := json.Marshal(fold(label))
+		clauses = append(clauses, "LOWER(labels) LIKE ? ESCAPE '!'")
+		args = append(args, "%"+escapeLike(string(token))+"%")
+	}
+	return "(" + strings.Join(clauses, " OR ") + ")", args
+}
+
+func escapeLike(s string) string {
+	return strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(s)
+}
+
+func joinScope(projectCond string, projectArgs []interface{}, labelCond string, labelArgs []interface{}) (string, []interface{}) {
+	if labelCond == "" {
+		return projectCond, projectArgs
+	}
+	if projectCond == "" {
+		return labelCond, labelArgs
+	}
+	return projectCond + " AND " + labelCond, append(append([]interface{}{}, projectArgs...), labelArgs...)
+}
+
 // GetTaskFacets returns the sprints and teams found on the tasks of a project,
 // or of the whole board when projectID is empty. The values must come from a
 // dedicated query rather than from the filtered task list, otherwise selecting
@@ -1214,7 +1312,14 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 }
 
 func (d *DB) GetTaskFacetsForUser(userID, projectID string) (*TaskFacets, error) {
-	if userID != "" && (projectID == "" || projectID == "all") {
+	return d.GetTaskFacetsInScope(TaskScope{UserID: userID, ProjectID: projectID})
+}
+
+// GetTaskFacetsInScope is GetTaskFacetsForUser over any scope, a saved view
+// included. A view that is not the user's returns ErrBoardViewNotFound.
+func (d *DB) GetTaskFacetsInScope(scope TaskScope) (*TaskFacets, error) {
+	userID, projectID := scope.UserID, scope.ProjectID
+	if userID != "" && scope.ViewID == "" && (projectID == "" || projectID == "all") {
 		_ = d.EnsureDefaultBookmark(userID)
 	}
 
@@ -1233,7 +1338,11 @@ func (d *DB) GetTaskFacetsForUser(userID, projectID string) (*TaskFacets, error)
 		Labels:          []TaskFacetValue{},
 	}
 
-	scopeCond, scopeArgs := projectScope(projectID, userID)
+	projectCond, projectArgs, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
+	if err != nil {
+		return nil, err
+	}
+	scopeCond, scopeArgs := joinScope(projectCond, projectArgs, labelCond, labelArgs)
 	scopeSQL := ""
 	if scopeCond != "" {
 		scopeSQL = " AND " + scopeCond
@@ -1320,9 +1429,9 @@ func (d *DB) GetTaskFacetsForUser(userID, projectID string) (*TaskFacets, error)
 	// Scan macros table for existing macros
 	macroTableQuery := "SELECT key, title FROM macros WHERE 1=1"
 	macroArgs := []interface{}{}
-	if scopeCond != "" {
-		macroTableQuery += " AND " + scopeCond
-		macroArgs = append(macroArgs, scopeArgs...)
+	if projectCond != "" {
+		macroTableQuery += " AND " + projectCond
+		macroArgs = append(macroArgs, projectArgs...)
 	}
 	if rows, err := d.conn.Query(macroTableQuery, macroArgs...); err == nil {
 		for rows.Next() {
@@ -1455,7 +1564,16 @@ func (d *DB) GetTasks(query, status, priority, label, projectID, sprint, team, a
 }
 
 func (d *DB) GetTasksForUser(userID, query, status, priority, label, projectID, sprint, team, assignee, macro string, trackerStatuses, issueTypes []string, pinnedOnly bool) ([]models.Task, error) {
-	if userID != "" && (projectID == "" || projectID == "all") {
+	return d.GetTasksInScope(TaskScope{UserID: userID, ProjectID: projectID}, query, status, priority, label, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+}
+
+// GetTasksInScope is GetTasksForUser over any scope, a saved view included:
+// the view's projects and labels select the tickets, and every other filter
+// narrows them further. A view that is not the user's returns
+// ErrBoardViewNotFound.
+func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sprint, team, assignee, macro string, trackerStatuses, issueTypes []string, pinnedOnly bool) ([]models.Task, error) {
+	userID, projectID := scope.UserID, scope.ProjectID
+	if userID != "" && scope.ViewID == "" && (projectID == "" || projectID == "all") {
 		_ = d.EnsureDefaultBookmark(userID)
 	}
 
@@ -1465,7 +1583,11 @@ func (d *DB) GetTasksForUser(userID, query, status, priority, label, projectID, 
 	var conditions []string
 	var args []interface{}
 
-	if scopeCond, scopeArgs := projectScope(projectID, userID); scopeCond != "" {
+	projectCond, projectArgs, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
+	if err != nil {
+		return nil, err
+	}
+	if scopeCond, scopeArgs := joinScope(projectCond, projectArgs, labelCond, labelArgs); scopeCond != "" {
 		conditions = append(conditions, scopeCond)
 		args = append(args, scopeArgs...)
 	}
@@ -5677,7 +5799,7 @@ func parseStageColumns(raw string) map[string][]string {
 
 func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 	rows, err := d.conn.Query(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       COUNT(t.id) as task_count
 		FROM projects p
 		LEFT JOIN tasks t ON t.project_id = p.id
@@ -5698,13 +5820,13 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		var useWorktrees int
 		var defaultSkillMode, fullChainStopStage sql.NullString
 		var trackerColumnsJSON, stageColumnsJSON, sprintsJSON, issueTypesJSON, enabledViewsJSON string
-		var monoRepo int
+		var monoRepo, epicColors int
 		var aiProv, aiCmd, aiCmdAuto, specFw, jiraProj, ttyMode, extTerm sql.NullString
 		var projModel, projSkillModelsJSON sql.NullString
 		var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 		var ownerUserID sql.NullString
 		err := rows.Scan(
-			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+			&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 		)
 		if err != nil {
 			return nil, err
@@ -5728,6 +5850,7 @@ func (d *DB) getProjectsUnsafe() ([]models.Project, error) {
 		p.Sprints = parseSprints(sprintsJSON)
 		p.IssueTypes = parseIssueTypes(issueTypesJSON)
 		p.EnabledViews = parseEnabledViews(enabledViewsJSON)
+		p.EpicColors = epicColors == 1
 		p.MonoRepo = monoRepo == 1
 		p.TtyMode = "integrated"
 		if ttyMode.Valid && ttyMode.String != "" {
@@ -5810,18 +5933,18 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	var useWorktrees int
 	var defaultSkillMode, fullChainStopStage sql.NullString
 	var trackerColumnsJSON, stageColumnsJSON, sprintsJSON, issueTypesJSON, enabledViewsJSON string
-	var monoRepo int
+	var monoRepo, epicColors int
 	var aiProv, aiCmd, aiCmdAuto, specFw, jiraProj, ttyMode, extTerm sql.NullString
 	var projModel, projSkillModelsJSON sql.NullString
 	var ghURL, ghTok, glURL, glProj, glTok sql.NullString
 	var ownerUserID sql.NullString
 	err := d.conn.QueryRow(`
-		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
+		SELECT p.id, p.name, p.slug, p.description, p.icon, p.color, p.repo_path, p.repo_paths, p.use_worktrees, p.default_skill_mode, p.full_chain_stop_stage, p.pr_creation_stage, p.board_id, p.tracker_columns, p.stage_columns, p.sprints, p.issue_types, p.enabled_views, p.epic_colors, p.mono_repo, p.git_remote_url, p.github_repo, p.github_api_url, p.github_token, p.gitlab_url, p.gitlab_project, p.gitlab_token, p.jira_project, p.issue_tracker, p.tracker_url, p.is_default, p.skill_overrides, p.setup_providers, p.ai_provider, p.ai_command_template, p.ai_command_template_autonomous, p.ai_model, p.ai_skill_models, p.spec_framework, p.tty_mode, p.external_terminal_command, p.auto_sync_enabled, p.auto_sync_interval_min, p.owner_user_id, p.created_at, p.updated_at,
 		       (SELECT COUNT(*) FROM tasks WHERE project_id = p.id) as task_count
 		FROM projects p
 		WHERE p.id = ? OR p.slug = ?
 	`, id, id).Scan(
-		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
+		&p.ID, &p.Name, &p.Slug, &p.Description, &p.Icon, &p.Color, &p.RepoPath, &repoPathsJSON, &useWorktrees, &defaultSkillMode, &fullChainStopStage, &p.PRCreationStage, &p.BoardID, &trackerColumnsJSON, &stageColumnsJSON, &sprintsJSON, &issueTypesJSON, &enabledViewsJSON, &epicColors, &monoRepo, &p.GitRemoteUrl, &p.GithubRepo, &ghURL, &ghTok, &glURL, &glProj, &glTok, &jiraProj, &p.IssueTracker, &p.TrackerUrl, &isDefault, &skillOverridesJSON, &setupProvidersJSON, &aiProv, &aiCmd, &aiCmdAuto, &projModel, &projSkillModelsJSON, &specFw, &ttyMode, &extTerm, &autoSyncEnabledInt, &autoSyncIntervalMin, &ownerUserID, &p.CreatedAt, &p.UpdatedAt, &p.TaskCount,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -5848,6 +5971,7 @@ func (d *DB) getProjectByIDUnsafe(id string) (*models.Project, error) {
 	p.Sprints = parseSprints(sprintsJSON)
 	p.IssueTypes = parseIssueTypes(issueTypesJSON)
 	p.EnabledViews = parseEnabledViews(enabledViewsJSON)
+	p.EpicColors = epicColors == 1
 	p.MonoRepo = monoRepo == 1
 	p.TtyMode = "integrated"
 	if ttyMode.Valid && ttyMode.String != "" {
@@ -5963,6 +6087,12 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 	// s'activent depuis les réglages du projet, une fois qu'il en a l'usage.
 	enabledViewsBytes, _ := json.Marshal(models.NormalizeEnabledViews(req.EnabledViews))
 
+	// Couleur par épic : désactivée tant que le projet ne la demande pas.
+	epicColorsInt := 0
+	if req.EpicColors {
+		epicColorsInt = 1
+	}
+
 	// Mono-dépôt par défaut : c'est le cas courant, et le comportement d'avant.
 	monoRepoInt := 1
 	if req.MonoRepo != nil && !*req.MonoRepo {
@@ -6002,9 +6132,9 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 	}
 
 	_, err := d.conn.Exec(`
-		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, enabled_views, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, owner_user_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), string(enabledViewsBytes), monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiCmdAutonomous, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, strings.TrimSpace(ownerUserID), now, now)
+		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, enabled_views, epic_colors, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, owner_user_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiCmdAutonomous, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, strings.TrimSpace(ownerUserID), now, now)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6133,6 +6263,9 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	if req.EnabledViews != nil {
 		p.EnabledViews = models.NormalizeEnabledViews(*req.EnabledViews)
 	}
+	if req.EpicColors != nil {
+		p.EpicColors = *req.EpicColors
+	}
 	if req.MonoRepo != nil {
 		p.MonoRepo = *req.MonoRepo
 	}
@@ -6225,6 +6358,10 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	}
 	issueTypesBytes, _ := json.Marshal(p.IssueTypes)
 	enabledViewsBytes, _ := json.Marshal(models.NormalizeEnabledViews(p.EnabledViews))
+	epicColorsInt := 0
+	if p.EpicColors {
+		epicColorsInt = 1
+	}
 	monoRepoInt := 0
 	if p.MonoRepo {
 		monoRepoInt = 1
@@ -6236,9 +6373,9 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 
 	_, err = d.conn.Exec(`
 		UPDATE projects
-		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_command_template_autonomous = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, owner_user_id = ?, updated_at = ?
+		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_command_template_autonomous = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
-	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AICommandTemplateAutonomous, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
+	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AICommandTemplateAutonomous, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6277,6 +6414,9 @@ func (d *DB) DeleteProject(id string) error {
 	}
 	_, _ = d.conn.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID)
 	_, _ = d.conn.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID)
+	// A saved view keeps selecting what is left; reading ignores the project
+	// anyway, so a failure here costs a stale id in a row, never a ghost.
+	_ = d.removeProjectFromBoardViewsUnsafe(p.ID, p.Slug)
 	// Explicit, like DeleteTask's: the ON DELETE CASCADE on project_id only
 	// fires under PostgreSQL, because this package never turns SQLite's foreign
 	// keys on.

@@ -2,7 +2,7 @@
 
 References: [`spec.md`](spec.md), [`docs/clarifications/404.md`](../../docs/clarifications/404.md).
 
-## Schema: migration 4 `auto_sync_state`
+## Schema: migration 6 `auto_sync_state` (renumbered from 4 after main took 3 and 4)
 
 ```sql
 CREATE TABLE auto_sync_projects (

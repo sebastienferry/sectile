@@ -7,7 +7,7 @@ References: [`spec.md`](spec.md), [`docs/clarifications/403.md`](../../docs/clar
 Go, `internal/db` (both engines behind the `dialect` seam, ADR 0016), numbered
 migrations (ADR 0021). No new dependency.
 
-## Schema: migration 3 `server_instances`
+## Schema: migration 5 `server_instances` (renumbered from 3 after main took 3 and 4)
 
 ```sql
 ALTER TABLE task_activities ADD COLUMN instance_id TEXT NOT NULL DEFAULT '';
@@ -73,7 +73,7 @@ and log the instance id. `sectile-migrate` does not call it.
 
 ## Target files
 
-- `internal/db/migrations.go` (migration 3)
+- `internal/db/migrations.go` (migration 5)
 - `internal/db/dialect.go`, `dialect_sqlite.go`, `dialect_postgres.go`
 - `internal/db/instances.go` (new), `internal/db/instances_test.go` (new)
 - `internal/db/db.go` (`openWith`, `recoverInterruptedRuns` moved, `insertTaskActivity`, job start)
@@ -89,4 +89,4 @@ and log the instance id. `sectile-migrate` does not call it.
   comes with #405.
 - A rolling upgrade from the previous version cancels the old pod's work once (empty
   owner). Accepted in the clarification (D5).
-- Migration number 3 may collide with another branch; renumber on rebase.
+- Migration number collided with main (3 and 4 taken by #388 and #387); renumbered to 5.

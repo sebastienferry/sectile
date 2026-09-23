@@ -18,6 +18,16 @@ Modern, agentic task workflow manager for developers and engineering teams, buil
   - Local tasks remain in SQLite.
   - Tracker queues expose actual API errors in Activities.
 
+- 🔖 **Saved cross-project board views**:
+  - A personal, named selection of several projects and labels, listed in the
+    sidebar's *Vues* section and reachable through a `?view=<id>` link.
+  - A ticket shows in the view when it carries at least one of its labels,
+    compared whole and regardless of case; without labels, every ticket of the
+    chosen projects shows. Each card names its project, so one tracker story
+    synchronised by two projects reads as two cards.
+  - The board filters stay available and are remembered per view on the
+    browser. See `docs/adrs/0025-saved-board-views-are-personal-overlays.md`.
+
 - 📐 **Installable Spec-Driven Design Frameworks (Spec Kit & OpenSpec)**:
   - **Real toolchain installation directly from the UI** (project *AI & SDD Skills* tab, or action palette <kbd>Cmd+K</kbd>):
     - **GitHub Spec Kit**: installs the `specify` CLI via `uv` / `uvx` from `git+https://github.com/github/spec-kit.git`, then executes `specify init --here`. Scaffolds `.specify/` and `specs/` (spec.md, plan.md, tasks.md) as well as agent `/speckit.*` commands.

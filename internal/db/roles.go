@@ -277,6 +277,7 @@ func (d *DB) DeleteUser(id string) error {
 		`DELETE FROM pairing_codes WHERE user_id = ?`,
 		`DELETE FROM device_credentials WHERE user_id = ?`,
 		`DELETE FROM user_settings WHERE user_id = ?`,
+		`DELETE FROM board_views WHERE user_id = ?`,
 		`DELETE FROM users WHERE id = ?`,
 	} {
 		if _, err := tx.Exec(statement, id); err != nil {

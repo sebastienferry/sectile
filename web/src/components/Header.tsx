@@ -5,6 +5,7 @@ import {
   X,
   Settings,
   Target,
+  Bookmark,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import type { Status, Priority } from '../types'
@@ -36,6 +37,8 @@ export const Header: React.FC = () => {
     assigneeFilter,
     setAssigneeFilter,
     setIsQuickAddOpen,
+    currentBoardView,
+    openBoardViewModal,
     t,
   } = useApp()
 
@@ -63,6 +66,21 @@ export const Header: React.FC = () => {
         >
           <Settings size={16} className="group-hover:rotate-45 transition-transform duration-300" />
         </button>
+        {/* The open saved view, named so the board is never mistaken for a
+            project's; clicking it edits the view. */}
+        {currentBoardView && (
+          <button
+            type="button"
+            data-open-board-view={currentBoardView.id}
+            onClick={() => openBoardViewModal(currentBoardView)}
+            className="flex items-center gap-1.5 max-w-[12rem] px-2 py-1 rounded-lg text-xs font-semibold text-sky-300 bg-sky-400/10 border border-sky-400/30 hover:bg-sky-400/20 transition-colors cursor-pointer"
+            title={t.boardViews.editView}
+            aria-label={`${t.boardViews.editView} ${currentBoardView.name}`}
+          >
+            <Bookmark size={13} className="shrink-0" />
+            <span className="truncate">{currentBoardView.name}</span>
+          </button>
+        )}
       </div>
 
       {/* Center: Global Search Bar */}
