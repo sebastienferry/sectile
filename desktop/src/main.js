@@ -997,13 +997,15 @@ function openSettings(initial='Profile'){
    ?'This workstation is paired. Pasting a new code re-pairs it.'
    :'In the web interface, under your profile, choose Pair a workstation and paste the code here.'
   pairingNote.textContent=agentConnected?'Stop the local agent before connecting it to another server.':''
-  if(loadCliDefaults&&cliProviderSelect.isConnected){
-   cliProviderSelect.value=stored.aiProvider||'agy'
+  if(cliProviderSelect.isConnected){
+   if(loadCliDefaults)cliProviderSelect.value=stored.aiProvider||'agy'
    mcpPanel.load()
-   cliModelInput.value=stored.aiModel||''
-   cliCommand.value=stored.aiCommandTemplate||''
-   cliAutonomousCommand.value=stored.aiCommandTemplateAutonomous||''
-   renderCliPreview()
+   if(loadCliDefaults){
+    cliModelInput.value=stored.aiModel||''
+    cliCommand.value=stored.aiCommandTemplate||''
+    cliAutonomousCommand.value=stored.aiCommandTemplateAutonomous||''
+    renderCliPreview()
+   }
   }
   if(!agentConnected)return
   try{

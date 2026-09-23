@@ -27,7 +27,7 @@ test('MCP settings explain both transports and apply the selected provider and t
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
   await page.locator('#settings').click()
-  await page.getByRole('tab',{name:'Agents CLI',exact:true}).click()
+  await page.getByRole('tab',{name:'AI Engine CLI',exact:true}).click()
   const section=page.locator('.mcp-settings')
   await expect(section.getByRole('radio',{name:'Streamable HTTP',exact:true})).toBeChecked()
   await expect(section.locator('pre').first()).toContainText('serverUrl')
