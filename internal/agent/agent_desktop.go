@@ -740,6 +740,16 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	}
 	d.queue.mu.Unlock()
 	switch r.URL.Query().Get("action") {
+	case "initialize":
+		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+		if _, err := agentconfig.ResolveLocations(provider); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Attempt failures are structured so the UI preserves partial success.
+		result, _ := d.initializeProvider(root, config, provider)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
 	case "skills":
 		_, err = agentconfig.Scaffold(root, config)
 		if err != nil {

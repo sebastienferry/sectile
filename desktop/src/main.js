@@ -1443,13 +1443,31 @@ async function openProject(id){
     for(const button of tools.querySelectorAll('button'))button.disabled=false
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
-  for(const [action,title] of [['skills','Deploy server skills'],['framework','Deploy SDD framework']]){
+  const initProvider=document.createElement('select');initProvider.setAttribute('aria-label','Initialization provider')
+  for(const [value,label] of [['agy','Antigravity'],['claude','Claude'],['codex','Codex'],['cursor','Cursor'],['gemini','Gemini'],['vibe','Vibe']]){
+   const option=document.createElement('option');option.value=value;option.textContent=label;initProvider.append(option)
+  }
+  initProvider.value=[...initProvider.options].some(option=>option.value===selectedProvider)?selectedProvider:'agy'
+  const initRow=settingRow('Initialization provider',{},initProvider)
+  initRow.hint.textContent='Initialize this provider’s server skills and MCP connection. You can run this again at any time.'
+  const initResult=document.createElement('div');initResult.setAttribute('role','status');initResult.className='initialization-result'
+  panels.Deployment.append(initRow.section,initResult)
+  for(const [action,title] of [['initialize','Initialize'],['framework','Deploy SDD framework']]){
    const button=document.createElement('button');button.textContent=title;button.disabled=!info.configured
    button.onclick=async()=>{
     for(const item of tools.querySelectorAll('button'))item.disabled=true
-    notice.textContent='Deployment in progress…'
-    try{const result=await api.deployProject(id,action);notice.textContent=result.message||'Deployment complete'}
-    catch(err){notice.textContent=err.message}finally{for(const item of tools.querySelectorAll('button'))item.disabled=false}
+    initProvider.disabled=true
+    notice.textContent=action==='initialize'?'Initialization in progress…':'Deployment in progress…'
+    if(action==='initialize')initResult.replaceChildren()
+    try{
+     const result=await api.deployProject(id,action,action==='initialize'?initProvider.value:undefined)
+     notice.textContent=result.message||'Deployment complete'
+     if(action==='initialize'){
+      for(const [label,step] of [['MCP',result.mcp],['Skills',result.skills]]){
+       const line=document.createElement('p');line.textContent=label+': '+({success:'Success',failed:'Failed',skipped:'Skipped',not_run:'Not run'}[step.status]||step.status)+' — '+step.message;initResult.append(line)
+      }
+     }
+    }catch(err){notice.textContent=err.message}finally{initProvider.disabled=false;for(const item of tools.querySelectorAll('button'))item.disabled=false}
    };tools.append(button)
   }
   panels.Deployment.append(tools)
