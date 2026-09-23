@@ -43,6 +43,9 @@ const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; icon: React.Re
   { id: 'agy', label: 'Antigravity', sub: 'Google Deepmind AGY CLI', icon: <Antigravity size={16} /> },
   { id: 'claude', label: 'Claude', sub: 'Anthropic Claude Code CLI', icon: <Claude size={16} /> },
   { id: 'codex', label: 'ChatGPT', sub: 'OpenAI Codex CLI', icon: <OpenAI size={16} /> },
+  { id: 'cursor', label: 'Cursor', sub: 'Cursor CLI', icon: <Terminal size={16} /> },
+  { id: 'gemini', label: 'Gemini', sub: 'Gemini CLI', icon: <Terminal size={16} /> },
+  { id: 'vibe', label: 'Mistral Vibe', sub: 'Mistral Vibe CLI', icon: <Terminal size={16} /> },
   { id: 'custom', label: 'CLI Personnalisé', sub: 'Binaire ou script custom', icon: <Terminal size={16} className="text-indigo-400" /> },
 ]
 
@@ -505,6 +508,7 @@ export const ProfileModal: React.FC = () => {
                   placeholder={t.profileModal.ai.defaultModelPlaceholder || 'Défaut du CLI'}
                   label={t.profileModal.ai.defaultModel}
                 />
+                <MCPEngineConfig key={aiProvider} selectedProvider={aiProvider} onNavigateToWorkstations={() => setActiveTab('workstations')} />
               </div>
             )}
 
@@ -772,11 +776,6 @@ export const ProfileModal: React.FC = () => {
 
                 {/* 2. Sectile Desktop App */}
                 <SectileDesktopPanel />
-
-                {/* 3. Direct MCP Configuration for Desktop AI Tools */}
-                <MCPEngineConfig
-                  selectedProvider={aiProvider}
-                />
 
                 {/* 4. Direct MCP Integration (AI Provider Desktop Apps) */}
                 <DirectMcpPanel onKeyCreated={() => setDevicesVersion(v => v + 1)} />

@@ -11,10 +11,17 @@ import (
 	"strings"
 )
 
+// MCPConnection records an explicit workstation connection preference.
+type MCPConnection struct {
+	Transport string `json:"transport"`
+	Target    string `json:"target"`
+}
+
 // Overrides stays on the workstation and is never uploaded to the server.
 type Overrides struct {
-	DisconnectedProjects map[string]bool   `json:"disconnectedProjects,omitempty"`
-	Commands             map[string]string `json:"commands,omitempty"`
+	MCPConnections       map[string]MCPConnection `json:"mcpConnections,omitempty"`
+	DisconnectedProjects map[string]bool          `json:"disconnectedProjects,omitempty"`
+	Commands             map[string]string        `json:"commands,omitempty"`
 	// CommandsAutonomous is the headless counterpart of Commands, per project.
 	CommandsAutonomous          map[string]string `json:"commandsAutonomous,omitempty"`
 	Parallelism                 map[string]int    `json:"parallelism,omitempty"`
@@ -44,6 +51,7 @@ func ReadOverrides(root string) (Overrides, error) {
 	err = json.Unmarshal(raw, &result)
 	// Disconnection is workstation-owned, never a repository override.
 	result.DisconnectedProjects = nil
+	result.MCPConnections = nil
 	return result, err
 }
 
