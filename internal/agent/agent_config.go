@@ -374,44 +374,59 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 	return target, branch, nil
 }
 
+// prepareDispatch resolves the task's workspace, then provisions its
+// dependencies. The install can take minutes, so it runs once prepareMu is
+// released: holding the mutex through it would stall every other preparation on
+// the agent behind one npm ci.
 func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, error) {
 	d.prepareMu.Lock()
-	defer d.prepareMu.Unlock()
+	config, root, workDir, branch, task, err := d.prepareDispatchLocked(ctx, taskKey, useWorktrees...)
+	d.prepareMu.Unlock()
+	if err == nil {
+		provisionWorktree(ctx, root, workDir)
+	}
+	return config, workDir, branch, task, err
+}
+
+// prepareDispatchLocked is the part of prepareDispatch that runs under
+// prepareMu. It also returns the project root, so the caller can tell a linked
+// worktree from the main checkout.
+func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, error) {
 	var task models.Task
 	config, err := d.fetchConfig(ctx, "", taskKey)
 	if err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
 	if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskKey), &task); err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
 	if task.ProjectID != config.ProjectID {
-		return config, "", "", task, fmt.Errorf("task project changed during configuration sync")
+		return config, "", "", "", task, fmt.Errorf("task project changed during configuration sync")
 	}
 	config = agentconfig.ApplyOverrides(config, overrides)
 	if len(useWorktrees) > 0 {
 		config.UseWorktrees = useWorktrees[0]
 	}
 	if err := config.Validate(); err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
 	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees)
 	if err != nil {
-		return config, "", "", task, err
+		return config, "", "", "", task, err
 	}
 	preserved, err := agentconfig.Scaffold(workDir, config)
 	for _, path := range preserved {
 		log.Printf("[Agent] Saved previous skill content: %s", path)
 	}
 	if err != nil {
-		return config, workDir, branch, task, err
+		return config, root, workDir, branch, task, err
 	}
 	err = d.bootstrapLocalMCP(&config)
-	return config, workDir, branch, task, err
+	return config, root, workDir, branch, task, err
 }
 
 // bootstrapLocalMCP registers the Sectile MCP server for every agent the project

@@ -5,27 +5,27 @@ tree building and the suite green.
 
 ## Block A - Provisioning step
 
-- [ ] **A1** Create `internal/agent/provision.go` with `provisionWorktree`, `packageFolders`,
+- [x] **A1** Create `internal/agent/provision.go` with `provisionWorktree`, `packageFolders`,
       `installReason`, the stamp writer, the injectable `npmInstall` and the two timeouts.
-- [ ] **A2** Add a per-directory mutex so two preparations never install in one worktree at once.
+- [x] **A2** Add a per-directory mutex so two preparations never install in one worktree at once.
 
 ## Block B - Wiring
 
-- [ ] **B1** Split `prepareDispatch` into `prepareDispatchLocked` (under `prepareMu`, returning
+- [x] **B1** Split `prepareDispatch` into `prepareDispatchLocked` (under `prepareMu`, returning
       the root too) and a wrapper that runs `provisionWorktree` after the lock is released.
-- [ ] **B2** Remove the redundant `prepareMu` lock in the `prepare_workspace` case of
+- [x] **B2** Remove the redundant `prepareMu` lock in the `prepare_workspace` case of
       `internal/agent/agent_operations.go` (existing self-deadlock).
-- [ ] **B3** Give `prepare_workspace` a 12 minute budget in `operationTimeout`
+- [x] **B3** Give `prepare_workspace` a 12 minute budget in `operationTimeout`
       (`internal/db/agentoperations.go`), and update `agentoperations_test.go`.
 
 ## Block C - Tests
 
-- [ ] **C1** `internal/agent/provision_test.go` covering every case listed in `plan.md`.
+- [x] **C1** `internal/agent/provision_test.go` covering every case listed in `plan.md`.
 
 ## Block D - Documentation
 
-- [ ] **D1** Correct `docs/REIMPLEMENTATION_GUIDE.md` step 2.
-- [ ] **D2** Add a `CHANGELOG.md` line under `[Unreleased]`.
+- [x] **D1** Correct `docs/REIMPLEMENTATION_GUIDE.md` step 2.
+- [x] **D2** Add a `CHANGELOG.md` line under `[Unreleased]`.
 
 ## Test plan
 

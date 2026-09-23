@@ -248,8 +248,8 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if op.TaskID == "" {
 			return nil, fmt.Errorf("task is required")
 		}
-		d.prepareMu.Lock()
-		defer d.prepareMu.Unlock()
+		// prepareDispatch takes prepareMu itself; locking it here as well made
+		// the operation wait on its own lock forever.
 		_, dir, branch, t, err := d.prepareDispatch(ctx, op.TaskID)
 		if err != nil {
 			return nil, err
