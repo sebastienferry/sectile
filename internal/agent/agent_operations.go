@@ -249,12 +249,19 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if op.TaskID == "" {
 			return nil, fmt.Errorf("task is required")
 		}
-		d.prepareMu.Lock()
-		defer d.prepareMu.Unlock()
-		_, dir, branch, t, err := d.prepareDispatch(ctx, op.TaskID)
+		// prepareWorkspace takes prepareMu itself; locking it here as well made
+		// the operation wait on its own lock forever.
+		_, projectRoot, dir, branch, t, err := d.prepareWorkspace(ctx, op.TaskID)
 		if err != nil {
 			return nil, err
 		}
+		// The server sends this operation for a branch checkout from the board,
+		// which waits on it synchronously. The answer goes back as soon as the
+		// worktree exists, and the install runs behind it: the per-worktree lock
+		// makes a launch that follows wait for it instead of installing twice.
+		// The operation's context is cancelled once it answers, so the install
+		// keeps only its own timeouts.
+		go provisionWorktree(context.WithoutCancel(ctx), projectRoot, dir)
 		return models.WorktreeInfo{TaskKey: t.Key, Branch: branch, WorktreePath: dir, MainRepoPath: root, Exists: config.UseWorktrees}, nil
 	case "workspace_info":
 		branch := ""

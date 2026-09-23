@@ -142,6 +142,15 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A task worktree can build and lint from its first launch.** The local agent
+  now runs `npm ci` in every package folder of a task worktree (its root and the
+  folders one level down that hold a `package.json` and a `package-lock.json`)
+  before the session starts. It installs again only when a manifest or lockfile
+  changes. The main checkout is never linked to or touched, `.env` files are not
+  shared, and a failed install is logged without blocking the launch. Switching
+  a task's branch from the board no longer leaves the agent stuck on its own
+  lock, and answers without waiting for the install, which runs in the
+  background.
 - Renaming your account preserves unsaved appearance and skill prompt changes in
   the open profile dialog. Closing and reopening the dialog reloads saved values.
 
@@ -178,7 +187,6 @@ test fixtures or internal plumbing.
 - Running execution icons now spin in the desktop sidebar and discussion header, while respecting reduced-motion preferences.
 
 - Terminal-owned executions now stop their child processes and report their exit when the supervisor receives a hangup or termination signal, preventing stale running entries and stop timeouts. Transient exit-report failures are retried, and Stop automatically recovers a run whose local terminal has already disappeared.
-
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the
