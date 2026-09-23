@@ -269,3 +269,48 @@ func TestAdjustmentEntryPointsFollowTheForeignPullRequest(t *testing.T) {
 		t.Fatalf("post-back run steps: %v", steps)
 	}
 }
+
+func TestResolveStagePRTargetKnowsTheProjectRepository(t *testing.T) {
+	no := false
+	for _, tc := range []struct {
+		name    string
+		p       *models.Project
+		prURL   string
+		foreign bool
+		refused bool
+	}{
+		{"no prUrl", &models.Project{MonoRepo: true, GitRemoteUrl: "git@github.com:acme/app.git"}, "", false, false},
+		{"own over ssh remote", &models.Project{MonoRepo: true, GitRemoteUrl: "git@github.com:Acme/App.git"}, "https://github.com/acme/app/pull/1", false, false},
+		// A mirror remote on an unbranded host: the PRs live on the GitHub repository.
+		{"own github repo behind a mirror remote", &models.Project{MonoRepo: true, GithubRepo: "acme/app", GitRemoteUrl: "git@code.acme.io:acme/app.git"}, "https://github.com/acme/app/pull/1", false, false},
+		{"own self-hosted gitlab", &models.Project{MonoRepo: true, GitRemoteUrl: "ssh://git@gitlab.acme.io:2222/acme/app.git"}, "https://gitlab.acme.io/acme/app/-/merge_requests/4", false, false},
+		{"unrecognized link keeps the project path", &models.Project{}, "https://forge/pull/2", false, false},
+		{"no repository", &models.Project{MonoRepo: true}, archMR, true, false},
+		{"multi-repository", &models.Project{MonoRepo: no, GitRemoteUrl: "git@github.com:acme/app.git"}, archMR, true, false},
+		{"mono-repository", &models.Project{MonoRepo: true, GitRemoteUrl: "git@github.com:acme/app.git"}, archMR, false, true},
+	} {
+		target, err := (&DB{}).resolveStagePRTarget(tc.p, tc.prURL)
+		if (err != nil) != tc.refused || target.foreign != tc.foreign {
+			t.Errorf("%s: target=%+v err=%v", tc.name, target, err)
+		}
+	}
+}
+
+func TestMonoRepoAdjustmentPrerequisiteKeepsTheProjectLookup(t *testing.T) {
+	d, task := crossRepoTask(t, models.CreateProjectRequest{Name: "Renamed", GitRemoteUrl: "git@gitlab.com:group/app-renamed.git"})
+	// The recorded link still names the repository's former path.
+	old := "https://gitlab.com/group/app/-/merge_requests/3"
+	if _, err := d.conn.Exec("UPDATE tasks SET pr_url=?, pr_links=? WHERE id=?", old, encodePullRequestLinks([]models.TaskPullRequest{{URL: old, Branch: sfeBranch}}), task.ID); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = d.GetTaskByID(task.ID)
+	d.prEvidenceLookup = func(repo, _, url string) (trackerapi.PullRequest, error) {
+		if url != "" {
+			t.Fatalf("mono-repo prerequisite routed to %s", repo)
+		}
+		return trackerapi.PullRequest{URL: "https://gitlab.com/group/app-renamed/-/merge_requests/3", Branch: sfeBranch, Open: true, Forge: "gitlab"}, nil
+	}
+	if _, err := d.adjustmentPrerequisite(task, "", false); err != nil {
+		t.Fatalf("renamed repository prerequisite refused: %v", err)
+	}
+}

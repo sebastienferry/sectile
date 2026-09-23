@@ -141,6 +141,27 @@ Exact text, appended to the transition note after a blank line, and added (with 
   `models.CurrentPullRequest(task.PrLinks)`; with no recorded PR, the adjust
   prerequisite keeps today's project lookup.
 
+## Review adjustments
+
+Found while adjusting the pull request, fixed with tests:
+
+- **Own repository by either identity.** A project whose PRs live on its
+  `githubRepo` while its remote is a mirror on an unbranded host (a case
+  `stagePRForge` already routes to GitHub) would have seen its own PRs as
+  foreign and, being mono-repo, refused. `projectRepositoryIdentities` returns
+  both the remote and the GitHub repository identities; a link matching either
+  is the project's own.
+- **Adjust prerequisite on a mono-repo project** falls back to the project
+  lookup when the current PR names another repository (for example the former
+  path of a renamed repository), as it did before, instead of refusing.
+- **Working directory for a foreign question.** `localTaskPath` names the path
+  of a worktree to create when none exists; a foreign `pr_evidence` now runs from
+  the project root in that case (`foreignWorkDir`).
+- **Prunable worktrees** (directory deleted) are not verified checkouts.
+
+Known limitation: `ParsePullRequestLink` keeps the host without its port, so a
+self-hosted GitLab served on a non-default HTTPS port is asked without it.
+
 ## Rejected alternatives
 
 - **Scanning the disk for clones** of the foreign repository: unbounded, surprising,

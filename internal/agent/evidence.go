@@ -67,21 +67,38 @@ func verifiedCheckout(ctx context.Context, repository, branch string, candidates
 }
 
 // worktreeOnBranch reads `git worktree list --porcelain` and returns the
-// worktree, the main checkout included, that has branch checked out.
+// worktree, the main checkout included, that has branch checked out. A
+// prunable worktree, whose directory is gone, is not a checkout.
 func worktreeOnBranch(porcelain, branch string) string {
-	path := ""
-	for _, line := range strings.Split(porcelain, "\n") {
-		line = strings.TrimSpace(line)
-		switch {
-		case strings.HasPrefix(line, "worktree "):
-			path = strings.TrimPrefix(line, "worktree ")
-		case line == "branch refs/heads/"+branch && path != "":
+	for _, block := range strings.Split(porcelain, "\n\n") {
+		path, onBranch, prunable := "", false, false
+		for _, line := range strings.Split(block, "\n") {
+			line = strings.TrimSpace(line)
+			switch {
+			case strings.HasPrefix(line, "worktree "):
+				path = strings.TrimPrefix(line, "worktree ")
+			case line == "branch refs/heads/"+branch:
+				onBranch = true
+			case line == "prunable" || strings.HasPrefix(line, "prunable "):
+				prunable = true
+			}
+		}
+		if path != "" && onBranch && !prunable {
 			return path
-		case line == "":
-			path = ""
 		}
 	}
 	return ""
+}
+
+// foreignWorkDir is where a question about another repository runs. It needs
+// only an existing working directory, not the task's checkout of this
+// project, which may not exist (localTaskPath then names a path to create) or
+// may not match: the project root serves then.
+func foreignWorkDir(target, root string, err error) string {
+	if fi, statErr := os.Stat(target); err != nil || statErr != nil || !fi.IsDir() {
+		return root
+	}
+	return target
 }
 
 // checkoutCandidates lists where a checkout of another repository may be: the

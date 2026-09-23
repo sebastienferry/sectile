@@ -2,6 +2,7 @@ package db
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
@@ -32,9 +33,12 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 	}
 	// The PR to adjust is the task's current one: when it lives in another
 	// repository, that is where the branch is looked up.
+	// A mono-repo project never reads another repository; its prerequisite finds
+	// the PR by branch, as it always did, even when the recorded link names an
+	// older name of the repository.
 	target, err := d.resolveStagePRTarget(project, models.CurrentPullRequest(task.PrLinks))
 	if err != nil {
-		return trackerapi.PullRequest{}, fmt.Errorf("adjustment prerequisite: %w", err)
+		target = stagePRTarget{}
 	}
 	pr, err := d.lookupStagePR(task, actorID, d.adjustmentCheckout(task), branch, target)
 	if err != nil {
@@ -176,34 +180,36 @@ func (d *DB) resolveStagePRTarget(project *models.Project, prURL string) (stageP
 		return stagePRTarget{}, nil
 	}
 	link, ok := models.ParsePullRequestLink(prURL, "")
-	own := projectRepositoryIdentity(project)
-	if !ok || link.Identity() == own {
+	own := projectRepositoryIdentities(project)
+	if !ok || slices.Contains(own, link.Identity()) {
 		return stagePRTarget{}, nil
 	}
-	if own != "" && project != nil && project.MonoRepo {
-		return stagePRTarget{}, fmt.Errorf("pull request %s is not in the project repository %s; only a project without a code remote, or not mono-repo, may record one from another repository", prURL, own)
+	if len(own) > 0 && project != nil && project.MonoRepo {
+		return stagePRTarget{}, fmt.Errorf("pull request %s is not in the project repository %s; only a project without a code remote, or not mono-repo, may record one from another repository", prURL, own[0])
 	}
 	return stagePRTarget{link: link, url: prURL, foreign: true}, nil
 }
 
-// projectRepositoryIdentity is the project's code repository in
-// models.RepositoryIdentity form, or empty when it has none: no remote, or a
-// remote naming no host, and no GitHub repository.
-func projectRepositoryIdentity(p *models.Project) string {
+// projectRepositoryIdentities names the project's own repository in
+// models.RepositoryIdentity form: its code remote when that names a host, and
+// its GitHub repository, which is where its pull requests live when the remote
+// is a mirror or an unbranded host (see stagePRForge). Empty when it has none.
+func projectRepositoryIdentities(p *models.Project) []string {
 	if p == nil {
-		return ""
+		return nil
 	}
+	var own []string
 	if remoteHost(p.GitRemoteUrl) != "" {
-		return models.RepositoryIdentity(p.GitRemoteUrl)
+		own = append(own, models.RepositoryIdentity(p.GitRemoteUrl))
 	}
-	repo := strings.TrimSpace(p.GithubRepo)
-	if repo == "" {
-		return ""
+	if repo := strings.TrimSpace(p.GithubRepo); repo != "" {
+		if strings.Contains(repo, "://") || strings.Contains(repo, "@") {
+			own = append(own, models.RepositoryIdentity(repo))
+		} else {
+			own = append(own, strings.ToLower("github.com/"+strings.Trim(repo, "/")))
+		}
 	}
-	if strings.Contains(repo, "://") || strings.Contains(repo, "@") {
-		return models.RepositoryIdentity(repo)
-	}
-	return strings.ToLower("github.com/" + strings.Trim(repo, "/"))
+	return own
 }
 
 func (d *DB) adjustmentCheckout(task *models.Task) string {

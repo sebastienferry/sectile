@@ -145,8 +145,8 @@ Cross-origin loopback requests are rejected. The private discovery file is
 The server pings each agent connection every 10 seconds and drops a connection
 that produces neither a frame nor a pong for 30. The agent answers these pings
 from its own read loop, which stays responsive because operations run
-concurrently. Without this, a connection lost without a close frame — a
-suspended machine, a dropped VPN, an expired NAT binding — stays registered and
+concurrently. Without this, a connection lost without a close frame (a
+suspended machine, a dropped VPN, an expired NAT binding) stays registered and
 every request routed to it waits out its full deadline. The agent keeps sending
 its own 30-second `heartbeat` message, which also refreshes the deadline.
 
@@ -180,6 +180,30 @@ itself failed and never that the request is absent:
 {"value":{"forge":"gitlab","url":"https://gitlab.example/g/app/-/merge_requests/9","branch":"feat/task","sha":"commit","open":true,"draft":false,"merged":false}}
 {"value":{"forge":"gitlab","refusal":"no matching open or merged merge request; recover through the configured creation owner"}}
 ```
+
+Without `origin` in the task checkout, the lookup fails with
+`project checkout has no origin remote; ...` rather than a Git exit status.
+
+A pull request can live in a repository other than the project's (#392): a
+project without a code remote, or not mono-repo, may name one through `prUrl`.
+The server then sends `payload.repository`, the `host/path` identity of that
+repository. `pr_evidence` looks the branch up there (GitLab only: the server
+reads GitHub itself), using the task checkout, or the project root when there is
+none, only as a working directory. `git_evidence` answers for a verified
+checkout of that repository instead of the task checkout: the first of the
+task's `repoPath`, the project's `repoPath` and `repoPaths` whose own `origin`
+names the repository and which has the branch checked out. Server paths are
+hints; the local `origin` decides. Both answers echo `repository`; the server
+reads a missing echo as an agent too old to answer, never as evidence about the
+project checkout:
+
+```json
+{"value":{"repository":"gitlab.example/g/tools","found":true,"path":"/work/tools","sha":"commit","branch":"feat/task","clean":true}}
+{"value":{"repository":"gitlab.example/g/tools","found":false,"path":"","sha":"","branch":"","clean":false}}
+```
+
+`found: false` means no verified checkout; the stage then proceeds on the
+forge's evidence and its report says the head was not verified locally.
 
 Requests normally have a 45-second deadline; purely local read-only inspections
 (Git evidence, status and branches, worktree info, SDD/skill status, skill
@@ -289,7 +313,7 @@ already holds is not recorded twice, and omitting the argument preserves the set
 
 One ticket routinely produces several pull requests: a first one merged, then a
 follow-up pushed on the same branch. A pull request that shares a branch with a
-recorded link is that follow-up and is appended — a merged link never vetoes it.
+recorded link is that follow-up and is appended: a merged link never vetoes it.
 A pull request on a branch no recorded link mentions is a substitution and is
 refused, naming the branches the task actually recorded; correcting or detaching
 those links from the task detail view is how that refusal is resolved. For
@@ -312,8 +336,8 @@ with completed, failed or canceled when it ends, including a stop for user input
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
-Cards and list rows display a single run icon while a run is active — running takes
-precedence over queued, and a cancellation stays visible briefly — updated
+Cards and list rows display a single run icon while a run is active: running takes
+precedence over queued, and a cancellation stays visible briefly, updated
 through server events and polling. Reading a task alone never marks it running.
 A run started over MCP is owned by the session that started it, so an abrupt
 client termination closes it as canceled instead of leaving the task active; the
@@ -593,8 +617,8 @@ States remain `new`, `clarified`, `specified`, `implemented`, `reviewed`, `finis
 A reviewed task offers Handoff; repeat Adjust is explicit and requires an open PR.
 
 The `prCreationStage` policy assigns draft creation to specification or implementation
-(default). Adjustment requires an existing matching PR — open, or already merged by the
-human, in which case it reviews the merged state without pushing — performs full review
+(default). Adjustment requires an existing matching PR (open, or already merged by the
+human, in which case it reviews the merged state without pushing), performs full review
 and feedback disposition, checks the final code, updates the same PR and verifies
 readiness. Lookup failure is not absence. Creation-owner recovery retains an already
 implemented stage. Completion records the PR URL at the owning stage.
@@ -604,8 +628,8 @@ customizations until their legacy content has been reviewed and saved under Adju
 or reset in the skill editor. Legacy entries and divergent installed files remain
 available; custom adjustment content also receives the current built-in contract.
 
-Managed adjustment verifies the PR identity against the task's recorded set —
-the same PR, or a newer one on a branch the task already used — together with the
+Managed adjustment verifies the PR identity against the task's recorded set:
+the same PR, or a newer one on a branch the task already used, together with the
 branch, pushed commit, clean checkout and reported build/lint/test checks at
 completion. A branch carrying several merged pull requests and none open is
 evidenced by its most recent merge; several *open* pull requests on one branch

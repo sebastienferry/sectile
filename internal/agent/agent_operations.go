@@ -125,6 +125,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 				return nil, fmt.Errorf("invalid task key")
 			}
 			target, err = localTaskPath(ctx, root, task)
+			if op.Repository != "" {
+				target, err = foreignWorkDir(target, root, err), nil
+			}
 			if err != nil && op.Action != "prepare_workspace" {
 				return nil, err
 			}

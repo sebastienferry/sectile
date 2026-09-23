@@ -95,6 +95,11 @@ func TestWorktreeOnBranch(t *testing.T) {
 	if got := worktreeOnBranch(porcelain, "top"); got != "" {
 		t.Fatalf("prefix must not match, got %q", got)
 	}
+	// A worktree whose directory was deleted is listed as prunable, not usable.
+	stale := "worktree /repo\nHEAD 1\nbranch refs/heads/main\n\nworktree /gone\nHEAD 2\nbranch refs/heads/topic\nprunable gitdir file points to non-existent location\n"
+	if got := worktreeOnBranch(stale, "topic"); got != "" {
+		t.Fatalf("prunable worktree used: %q", got)
+	}
 }
 
 func TestEvidenceOperationsForAProjectWithoutRemote(t *testing.T) {
@@ -145,5 +150,23 @@ func TestEvidenceOperationsForAProjectWithoutRemote(t *testing.T) {
 	op = agentprotocol.Operation{ProjectID: project, TaskID: task.ID, Action: "pr_evidence", Branch: branch}
 	if _, err = daemon.executeOperation(ctx, op); err == nil || !strings.Contains(err.Error(), "no origin remote") {
 		t.Fatalf("expected the missing origin to be named, got %v", err)
+	}
+}
+
+func TestForeignWorkDirFallsBackToTheProjectRoot(t *testing.T) {
+	root, existing := t.TempDir(), t.TempDir()
+	missing := filepath.Join(root, ".tasks", "worktrees", "SFE-360")
+	for name, tc := range map[string]struct {
+		target string
+		err    error
+		want   string
+	}{
+		"existing checkout":   {existing, nil, existing},
+		"checkout to create":  {missing, nil, root},
+		"mismatched checkout": {"", os.ErrInvalid, root},
+	} {
+		if got := foreignWorkDir(tc.target, root, tc.err); got != tc.want {
+			t.Errorf("%s: got %q, want %q", name, got, tc.want)
+		}
 	}
 }
