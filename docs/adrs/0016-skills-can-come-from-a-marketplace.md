@@ -74,8 +74,9 @@ activity carrying what was applied, ignored and refused.
 
 A team publishes its prompts once and every project adopts them deliberately.
 The registry is a deployment setting — administrator-only to write, readable by
-anyone signed in — and applying a pack to a project is guarded like the other
-decisions about what the agents run.
+anyone signed in — and applying or unpinning a pack follows the skill editor's
+rule: any signed-in account may do it, since both only change the baseline the
+project's editable skill bodies start from.
 
 Removing a marketplace from the registry does not change what a project runs:
 the applied bodies stay, and the pin is reported as orphaned. Unpinning restores

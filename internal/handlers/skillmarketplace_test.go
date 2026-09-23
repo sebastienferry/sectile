@@ -131,8 +131,10 @@ func TestSkillPackPreviewIsReadOnlyAndApplyPins(t *testing.T) {
 	}
 }
 
-// A member may read what a pack would change, and may not make it effective.
-func TestApplyingASkillPackIsAnAdminAction(t *testing.T) {
+// Applying and unpinning follow the skill editor's rule: a member who may edit
+// the project's skill bodies may also change the baseline they start from, and
+// both calls answer to the same guard. Nobody signed out does either.
+func TestApplyingAndUnpinningASkillPackFollowTheSkillEditorRule(t *testing.T) {
 	server, database, project := marketplaceServer(t)
 	_, admin := account(t, database, "admin@example.com")
 	_, member := account(t, database, "member@example.com")
@@ -140,11 +142,27 @@ func TestApplyingASkillPackIsAnAdminAction(t *testing.T) {
 		t.Fatal("registration refused")
 	}
 	base := "/api/projects/" + project.ID + "/skill-pack"
+	body := `{"marketplace":"acme","plugin":"acme-flow"}`
 
-	if status, text := call(t, server, member, http.MethodPost, base+"/preview", `{"marketplace":"acme","plugin":"acme-flow"}`); status != http.StatusOK {
+	if status, _ := call(t, server, nil, http.MethodPost, base, body); status != http.StatusUnauthorized {
+		t.Fatalf("an anonymous caller applied a pack: %d", status)
+	}
+	if status, _ := call(t, server, nil, http.MethodDelete, base, ""); status != http.StatusUnauthorized {
+		t.Fatalf("an anonymous caller unpinned a pack: %d", status)
+	}
+	if status, text := call(t, server, member, http.MethodPut, "/api/projects/"+project.ID+"/skill-editor/clarify", `{"content":"# Ours\n\nAsk.\n"}`); status != http.StatusOK {
+		t.Fatalf("a member cannot edit a skill body: %d %s", status, text)
+	}
+	if status, text := call(t, server, member, http.MethodPost, base+"/preview", body); status != http.StatusOK {
 		t.Fatalf("a member cannot preview: %d %s", status, text)
 	}
-	if status, _ := call(t, server, member, http.MethodPost, base, `{"marketplace":"acme","plugin":"acme-flow"}`); status != http.StatusForbidden {
-		t.Fatal("a member applied a pack")
+	if status, text := call(t, server, member, http.MethodPost, base, body); status != http.StatusOK {
+		t.Fatalf("a member cannot apply a pack: %d %s", status, text)
+	}
+	if status, text := call(t, server, member, http.MethodDelete, base, ""); status != http.StatusOK {
+		t.Fatalf("a member cannot unpin a pack: %d %s", status, text)
+	}
+	if status, text := call(t, server, member, http.MethodGet, base, ""); status != http.StatusOK || strings.TrimSpace(text) != "null" {
+		t.Fatalf("the pin survived unpinning: %d %s", status, text)
 	}
 }

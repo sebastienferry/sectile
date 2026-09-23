@@ -236,8 +236,8 @@ and the tracker's own refusal when it fails.
 | `POST` | `/api/projects/{id}/install-spec-framework` | Installs a SDD toolchain for this project (see 2.5). |
 | `GET` | `/api/projects/{id}/skill-pack` | The marketplace pack this project applied, or `null` (see 2.6). |
 | `POST` | `/api/projects/{id}/skill-pack/preview` | Read-only diff of what a pack would change. Writes nothing (see 2.6). |
-| `POST` | `/api/projects/{id}/skill-pack` | Applies a pack: the one call that writes. Admin-only. |
-| `DELETE` | `/api/projects/{id}/skill-pack` | Unpins the pack and restores the built-in catalogue. |
+| `POST` | `/api/projects/{id}/skill-pack` | Applies a pack: the one call that writes. Open to any signed-in account, like the skill editor. |
+| `DELETE` | `/api/projects/{id}/skill-pack` | Unpins the pack and restores the built-in catalogue. Same rule as applying. |
 
 ### 2.3.0 Current Account API
 

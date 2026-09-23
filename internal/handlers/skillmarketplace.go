@@ -101,6 +101,11 @@ func (h *Handler) HandleSkillMarketplaces(w http.ResponseWriter, r *http.Request
 //	POST   /api/projects/{id}/skill-pack/preview  → read-only diff
 //	POST   /api/projects/{id}/skill-pack          → apply
 //	DELETE /api/projects/{id}/skill-pack          → unpin
+//
+// Applying and unpinning follow the skill editor's rule, since both only change
+// which baseline the project's skill bodies start from: any signed-in account
+// that is not blocked, which RequireSession already enforces on every route.
+// Choosing the registry the packs come from stays an admin's.
 func (h *Handler) handleProjectSkillPack(w http.ResponseWriter, r *http.Request, projectID string, parts []string) {
 	sub := ""
 	if len(parts) >= 3 {
@@ -141,13 +146,6 @@ func (h *Handler) handleProjectSkillPack(w http.ResponseWriter, r *http.Request,
 		writeJSON(w, http.StatusOK, preview)
 
 	case r.Method == http.MethodPost && sub == "":
-		// Applying decides what the agents of this project will actually run,
-		// so it is guarded like the project mutations the deployment already
-		// reserves — the same rule that covers DELETE below through the route
-		// guard, made explicit here because a POST does not fall under it.
-		if _, ok := h.requireAdmin(w, r); !ok {
-			return
-		}
 		pin, err := h.db.ApplySkillPack(projectID, payload.Marketplace, payload.Plugin, payload.Commit)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
