@@ -22,7 +22,21 @@ type postgresDialect struct{}
 
 func (postgresDialect) Name() string { return "PostgreSQL" }
 
-func (postgresDialect) Open(cfg Config) (*sql.DB, error) {
+func (p postgresDialect) Open(cfg Config) (*sql.DB, error) {
+	connConfig, err := p.connConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	conn := stdlib.OpenDB(*connConfig)
+	conn.SetMaxOpenConns(25)
+	conn.SetMaxIdleConns(10)
+	return conn, nil
+}
+
+// connConfig is the connection every PostgreSQL connection of this process is
+// made from: the pool's, and the one the event bus listens on, so both reach
+// the same server as the same user.
+func (postgresDialect) connConfig(cfg Config) (*pgx.ConnConfig, error) {
 	// An empty string is not a missing value here: pgx reads the standard libpq
 	// variables for every field a DSN does not set, which is how a deployment
 	// receives a username and a password as two separate secrets. Config.Validate
@@ -40,11 +54,7 @@ func (postgresDialect) Open(cfg Config) (*sql.DB, error) {
 		connConfig.RuntimeParams = map[string]string{}
 	}
 	connConfig.RuntimeParams["timezone"] = "UTC"
-
-	conn := stdlib.OpenDB(*connConfig)
-	conn.SetMaxOpenConns(25)
-	conn.SetMaxIdleConns(10)
-	return conn, nil
+	return connConfig, nil
 }
 
 func (postgresDialect) Rebind(query string) string { return rebindNumbered(query) }

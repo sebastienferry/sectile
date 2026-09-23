@@ -94,6 +94,7 @@ func NewHandler(database *db.DB) *Handler {
 				Error:    errStr,
 			})
 		})
+		database.OnRelayedEvent(h.deliverRelayedEvent)
 	}
 	return h
 }
@@ -115,7 +116,28 @@ func (h *Handler) UnsubscribeEvents(ch chan Event) {
 	}
 }
 
+// localOnlyEvents are delivered to this instance's browsers and never relayed:
+// terminal output is emitted per chunk, and nothing in another instance reads it.
+var localOnlyEvents = map[string]bool{"agent_pty_output": true}
+
+// BroadcastEvent delivers an event to this instance's browsers, then relays it
+// to the other instances sharing the database, which deliver it to theirs.
 func (h *Handler) BroadcastEvent(event Event) {
+	h.broadcastLocal(event)
+	if h.db == nil || localOnlyEvents[event.Type] {
+		return
+	}
+	taskID, activityID := "", ""
+	if event.Task != nil {
+		taskID = event.Task.ID
+	}
+	if event.Activity != nil {
+		activityID = event.Activity.ID
+	}
+	h.db.PublishEvent(event.Type, taskID, activityID, event.Error)
+}
+
+func (h *Handler) broadcastLocal(event Event) {
 	h.subMu.RLock()
 	defer h.subMu.RUnlock()
 	for ch := range h.subscribers {
@@ -124,6 +146,24 @@ func (h *Handler) BroadcastEvent(event Event) {
 		default:
 		}
 	}
+}
+
+// deliverRelayedEvent turns what another instance published back into the
+// event its browsers received, with the task and activity as they now stand,
+// and delivers it here only: relaying it again would echo it between instances.
+func (h *Handler) deliverRelayedEvent(msg db.BusMessage) {
+	event := Event{Type: msg.Type, Error: msg.Error}
+	if msg.TaskID != "" {
+		if task, err := h.db.GetTaskByID(msg.TaskID); err == nil {
+			event.Task = task
+		}
+	}
+	if msg.ActivityID != "" {
+		if activity, err := h.db.GetActivityByID(msg.ActivityID); err == nil {
+			event.Activity = activity
+		}
+	}
+	h.broadcastLocal(event)
 }
 
 // SetDataDir tells the handler where the application's own files live.

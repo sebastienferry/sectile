@@ -839,6 +839,6 @@ func (d *DB) finishTrackerOp(activityID string, steps []string, output string, o
 	_, _ = d.conn.Exec(`
 		UPDATE task_activities
 		SET status = ?, summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
-		WHERE id = ?
+		WHERE id = ? AND status != 'canceled'
 	`, status, summary, output, string(stepsJSON), errText, time.Now(), activityID)
 }

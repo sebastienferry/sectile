@@ -526,6 +526,13 @@ serving from the same database, a start and every live server only reclaim the
 work of servers not heard from for 45 seconds, so a rolling deploy no longer
 interrupts the server it replaces.
 
+Servers sharing a PostgreSQL database also relay to each other, through
+PostgreSQL `LISTEN/NOTIFY` on the `sectile_events` channel, the live updates
+they send to browsers and the cancellations they receive: a board open on one
+server shows a change made through another, and canceling a job stops it on
+whichever server runs it. A canceled job keeps its `canceled` status when its
+execution ends. Nothing extra has to be configured; SQLite needs none of it.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect
