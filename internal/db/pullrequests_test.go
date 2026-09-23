@@ -38,7 +38,7 @@ func TestPullRequestSetOrderAndDeduplication(t *testing.T) {
 func TestFollowUpPullRequestOnTheSameBranchIsAccepted(t *testing.T) {
 	d, task := taskWithMergedPullRequest(t)
 	followUp := trackerapi.PullRequest{URL: "https://forge/pull/2", Branch: "ticket", SHA: "agent-commit", Open: true}
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return followUp, nil }
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return followUp, nil }
 
 	got, _, err := d.TransitionTaskStage(task.ID, "implemented", "follow-up work", followUp.URL, "ticket")
 	if err != nil {
@@ -70,7 +70,7 @@ func TestFollowUpPullRequestOnTheSameBranchIsAccepted(t *testing.T) {
 func TestPullRequestOnAnUnrelatedBranchIsRefused(t *testing.T) {
 	d, task := taskWithMergedPullRequest(t)
 	unrelated := trackerapi.PullRequest{URL: "https://forge/pull/9", Branch: "other-ticket", SHA: "agent-commit", Open: true}
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return unrelated, nil }
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return unrelated, nil }
 
 	_, _, err := d.TransitionTaskStage(task.ID, "implemented", "swapped PR", unrelated.URL, "other-ticket")
 	if err == nil {

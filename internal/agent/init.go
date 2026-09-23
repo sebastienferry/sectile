@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/models"
 )
 
 // Init runs `sectile-agent init`: it bootstraps native MCP and managed skills locally
@@ -100,7 +101,7 @@ func InitContext(ctx context.Context, args []string) (string, error) {
 		remote, remoteErr := gitLocal(ctx, root, "remote", "get-url", "origin")
 		if remoteErr == nil && remote != "" {
 			for _, p := range projects.Projects {
-				if p.GitRemoteURL != "" && repositoryIdentity(remote) == repositoryIdentity(p.GitRemoteURL) {
+				if p.GitRemoteURL != "" && models.RepositoryIdentity(remote) == models.RepositoryIdentity(p.GitRemoteURL) {
 					selectedProject = p.ID
 					break
 				}

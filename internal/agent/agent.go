@@ -920,13 +920,13 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		payload.SkillID = "adjust"
 	}
 	if payload.SkillID == "adjust" {
-		pr, verifyErr := runner.NewRunner().BranchPullRequest(workDir, branch)
-		if verifyErr != nil {
+		var task models.Task
+		if verifyErr := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); verifyErr != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
 			return
 		}
-		var task models.Task
-		if verifyErr = d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); verifyErr != nil {
+		pr, verifyErr := adjustmentPullRequest(ctx, workDir, branch, models.CurrentPullRequest(task.PrLinks))
+		if verifyErr != nil {
 			d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", verifyErr.Error())
 			return
 		}
