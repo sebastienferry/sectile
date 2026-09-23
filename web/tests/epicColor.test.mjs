@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { ACCENT_COLORS } from '../src/lib/accents.ts'
-import { epicBadgeStyle, epicColor, epicColorHex, epicColorsEnabled, fnv1a } from '../src/lib/epicColor.ts'
+import { epicColor, epicColorHex, epicColorsEnabled, fnv1a } from '../src/lib/epicColor.ts'
 
 test('a task without a parent gets no colour', () => {
   assert.equal(epicColor(undefined), null)
@@ -34,17 +34,6 @@ test('neighbouring keys spread over the palette', () => {
   const names = new Set()
   for (let i = 1; i <= 24; i++) names.add(epicColor(`#${i}`).name)
   assert.ok(names.size >= 6, `only ${names.size} colours for 24 epics`)
-})
-
-test('the epic key badge is tinted with the epic colour', () => {
-  assert.equal(epicBadgeStyle(undefined), null)
-  assert.equal(epicBadgeStyle('  '), null)
-  const def = epicColor('#12')
-  assert.deepEqual(epicBadgeStyle(' #12 '), {
-    color: def.hex,
-    backgroundColor: `rgb(${def.rgb} / 0.15)`,
-    borderColor: `rgb(${def.rgb} / 0.35)`,
-  })
 })
 
 test('epic colours are off unless the task project asks for them', () => {

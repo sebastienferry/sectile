@@ -41,7 +41,6 @@ import type { Task, TrackerSprint, WorkflowStage } from '../types'
 import { resolveTaskStage } from '../lib/workflow'
 import { Avatar } from './Avatar'
 import { EpicBar, useEpicColors } from './EpicMarker'
-import { epicBadgeStyle } from '../lib/epicColor'
 
 const DRAG_TASK_ID = 'application/x-sectile-task-id'
 const DRAG_TASK_IDS = 'application/x-sectile-task-ids'
@@ -59,10 +58,10 @@ export const SprintTimelineView: React.FC = () => {
     t,
   } = useApp()
   const showsEpicColors = useEpicColors()
-  // Style de la clé d'épic d'une tâche, ou null quand son projet n'affiche pas
-  // la couleur par épic ou qu'elle n'a pas d'épic.
-  const epicStyleOf = (task: Task) =>
-    showsEpicColors(task.projectId) ? epicBadgeStyle(task.parentKey) : null
+  // Vraie quand la tâche porte la barre de son épic : son projet la demande et
+  // elle a un épic.
+  const showsEpicBarOf = (task: Task) =>
+    showsEpicColors(task.projectId) && Boolean(task.parentKey?.trim())
 
   // Project sprints (or defaults if none yet)
   const sprints: TrackerSprint[] = useMemo(() => {
@@ -1154,7 +1153,7 @@ export const SprintTimelineView: React.FC = () => {
                               <div
                                 key={task.id}
                                 onClick={() => setSelectedTask(task)}
-                                className={`relative inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs cursor-pointer transition-colors group shadow-2xs ${
+                                className={`relative inline-flex items-center gap-1.5 ${showsEpicBarOf(task) ? 'pl-3 pr-2' : 'px-2'} py-0.5 rounded-md border text-xs cursor-pointer transition-colors group shadow-2xs ${
                                   checkedTaskIds[task.id]
                                     ? 'bg-[var(--accent-light)] border-[var(--accent-color)] text-[var(--accent-color)] font-semibold'
                                     : 'bg-[var(--bg-primary)] border-[var(--border-color)] hover:border-[var(--accent-color)] text-[var(--text-primary)]'
@@ -1170,7 +1169,7 @@ export const SprintTimelineView: React.FC = () => {
                                   }}
                                   className="rounded text-[var(--accent-color)] w-3 h-3 cursor-pointer"
                                 />
-                                {epicStyleOf(task) && <EpicBar parentKey={task.parentKey} />}
+                                {showsEpicBarOf(task) && <EpicBar parentKey={task.parentKey} />}
                                 <span className="font-mono font-bold text-[10px] text-[var(--accent-color)]">
                                   {task.key}
                                 </span>
@@ -1201,13 +1200,13 @@ export const SprintTimelineView: React.FC = () => {
                               <div
                                 key={task.id}
                                 onClick={() => setSelectedTask(task)}
-                                className={`relative flex items-center justify-between gap-2 py-1 px-1.5 rounded cursor-pointer transition-colors group ${
+                                className={`relative flex items-center justify-between gap-2 py-1 ${showsEpicBarOf(task) ? 'pl-3 pr-1.5' : 'px-1.5'} rounded cursor-pointer transition-colors group ${
                                   checkedTaskIds[task.id]
                                     ? 'bg-[var(--accent-light)]/20 font-medium'
                                     : 'hover:bg-[var(--bg-tertiary)]/60'
                                 }`}
                               >
-                                {epicStyleOf(task) && !task.parentTitle && <EpicBar parentKey={task.parentKey} />}
+                                {showsEpicBarOf(task) && <EpicBar parentKey={task.parentKey} />}
                                 <div className="flex items-center gap-2 min-w-0">
                                   <input
                                     type="checkbox"
@@ -1223,10 +1222,7 @@ export const SprintTimelineView: React.FC = () => {
                                   </span>
                                   {task.parentTitle && (
                                     <span
-                                      className={`text-[9px] px-1.5 py-0.2 rounded font-bold truncate max-w-[100px] ${
-                                        epicStyleOf(task) ? 'border' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
-                                      }`}
-                                      style={epicStyleOf(task) ?? undefined}
+                                      className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[100px]"
                                       title={task.parentTitle}
                                     >
                                       {task.parentTitle}
@@ -1295,7 +1291,7 @@ export const SprintTimelineView: React.FC = () => {
                                   }}
                                   className="rounded text-[var(--accent-color)] w-3 h-3 cursor-pointer"
                                 />
-                                {epicStyleOf(task) && <EpicBar parentKey={task.parentKey} />}
+                                {showsEpicBarOf(task) && <EpicBar parentKey={task.parentKey} />}
                                 <span className="font-mono font-bold text-[10px] text-[var(--accent-color)] shrink-0">
                                   {task.key}
                                 </span>
@@ -1335,7 +1331,7 @@ export const SprintTimelineView: React.FC = () => {
                                     : 'bg-[var(--bg-primary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/50'
                                 }`}
                               >
-                                {epicStyleOf(task) && !task.parentTitle && <EpicBar parentKey={task.parentKey} />}
+                                {showsEpicBarOf(task) && <EpicBar parentKey={task.parentKey} />}
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-1.5 min-w-0">
                                     <input
@@ -1352,10 +1348,7 @@ export const SprintTimelineView: React.FC = () => {
                                     </span>
                                     {task.parentTitle && (
                                       <span
-                                        className={`text-[9px] px-1.5 py-0.2 rounded font-bold truncate max-w-[110px] ${
-                                          epicStyleOf(task) ? 'border' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
-                                        }`}
-                                        style={epicStyleOf(task) ?? undefined}
+                                        className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[110px]"
                                         title={task.parentTitle}
                                       >
                                         {task.parentTitle}
@@ -1565,7 +1558,7 @@ export const SprintTimelineView: React.FC = () => {
                         }}
                         className="rounded text-[var(--accent-color)] w-3 h-3 cursor-pointer"
                       />
-                      {epicStyleOf(task) && <EpicBar parentKey={task.parentKey} />}
+                      {showsEpicBarOf(task) && <EpicBar parentKey={task.parentKey} />}
                       <span className="font-mono font-bold text-[10px] text-[var(--accent-color)] shrink-0">
                         {task.key}
                       </span>
@@ -1606,7 +1599,7 @@ export const SprintTimelineView: React.FC = () => {
                         : 'bg-[var(--bg-primary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/60'
                     }`}
                   >
-                    {epicStyleOf(task) && !task.parentTitle && <EpicBar parentKey={task.parentKey} />}
+                    {showsEpicBarOf(task) && <EpicBar parentKey={task.parentKey} />}
                     <div className="flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <input
@@ -1622,12 +1615,7 @@ export const SprintTimelineView: React.FC = () => {
                           {task.key}
                         </span>
                         {task.parentTitle && (
-                          <span
-                            className={`text-[9px] px-1.5 py-0.2 rounded font-bold truncate max-w-[120px] ${
-                              epicStyleOf(task) ? 'border' : 'bg-[var(--bg-tertiary)] text-[var(--text-muted)]'
-                            }`}
-                            style={epicStyleOf(task) ?? undefined}
-                          >
+                          <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[120px]">
                             {task.parentTitle}
                           </span>
                         )}

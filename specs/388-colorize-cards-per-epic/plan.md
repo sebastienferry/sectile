@@ -97,16 +97,17 @@ Two changes asked by the owner after the first review of PR #399.
   checkbox sits in the project settings, General tab, under the workspace
   views.
 
-### Rendering: tinted key, short inset bar
+### Rendering: a short, thicker bar
 
 The full-height bar on the left edge met the card's rounded corners, whose
-radius differs between shapes, and overflowed them. It is replaced by:
+radius differs between shapes, and overflowed them. A tinted epic key was tried
+next and rejected by the owner, who preferred a bar that is shorter and thicker.
 
-- `epicBadgeStyle(parentKey)`: text in the epic colour on a 15% tint with a 35%
-  border, applied to the epic key where it is shown (expanded card key,
-  Backlog parent badge, timeline list-row parent badge). `EpicDot` is removed.
-- `EpicBar`: `absolute left-[3px] top-[22%] bottom-[22%] m-0 w-[3px]
-  rounded-full`, used only where the key is not shown (condensed card,
-  timeline chips, timeline list rows without a parent title, Roadmap macro
-  rows). Being inset on every side it never touches a corner, whatever the
-  radius; `m-0` still guards against `space-y-*`.
+- `EpicBar`: `absolute left-[3px] top-[22%] bottom-[22%] m-0 w-[5px]
+  rounded-full`. Inset on every side, it never touches a corner, whatever the
+  radius; `m-0` still guards against `space-y-*`. `EpicDot` is removed.
+- It goes on every surface of the original plan. Three of them have a left
+  padding under 8px (the bar's right edge): the condensed card and the timeline
+  list row (`px-1.5`) and the small timeline chip (`px-2`). Each switches to
+  `pl-3` only when its bar is shown, so a project with the setting off keeps its
+  layout to the pixel.

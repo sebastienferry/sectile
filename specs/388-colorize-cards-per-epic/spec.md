@@ -2,8 +2,8 @@
 
 Scope restated from the clarification (`docs/clarifications/388.md`), then
 revised after the first review (see its "Review revision" section): the colour
-is a per-project setting, off by default, and the epic key itself carries the
-colour wherever it is shown.
+is a per-project setting, off by default, shown as a short bar clear of the
+card's corners.
 
 ## User stories
 
@@ -33,14 +33,14 @@ the board still means the same epic elsewhere.
 4. A task is painted according to the setting of its own project, so a view
    listing several projects paints each task by its project. A task that does
    not name its project follows the project on screen.
-5. Where the epic key is shown, it becomes a badge tinted with the epic
-   colour (coloured text on a light tint, coloured border): the expanded board
-   card, the Backlog parent badge, and the parent badge of the sprint timeline
-   list rows.
-6. Where the epic key is not shown, a short bar in the epic colour sits inside
-   the left edge, inset from the top, the bottom and the border so it never
-   meets a rounded corner: the condensed board card, the sprint timeline chips,
-   a timeline list row without a parent title, and the Roadmap macro rows.
+5. The colour is a 5px bar inside the left edge, inset from the top, the
+   bottom and the border so it never meets a rounded corner, whatever the
+   card's radius.
+6. It is shown on the board cards (expanded and condensed), the Backlog rows,
+   the sprint timeline chips and list rows, and the Roadmap macro rows. Where
+   the left padding is narrower than the bar needs (condensed card, timeline
+   list row, small timeline chip), that padding widens only when the bar is
+   shown, so the bar never covers content.
 7. The sprint timeline rules hold in the sprint blocks, in the planning view
    and in the unscheduled backlog pane.
 8. On the Roadmap, the setting read is that of the project on screen; the tasks
@@ -55,14 +55,14 @@ the board still means the same epic elsewhere.
 
 - Given a project with the setting off, when any view renders, then no card,
   row, chip or macro carries an epic colour.
-- Given a project with the setting on and two expanded board cards whose parent
-  key is `#12`, when the board renders, then both `#12` keys are tinted with
-  the same colour, and a card whose parent is `#40` is tinted with `#40`'s.
+- Given a project with the setting on and two board cards whose parent key is
+  `#12`, when the board renders, then both carry a bar of the same colour,
+  clear of the corners, and a card whose parent is `#40` carries `#40`'s.
 - Given a condensed card with parent `#12` on such a project, when it renders,
-  then a short bar of the `#12` colour sits inside its left edge, clear of the
-  corners, and no parent key text is added.
-- Given an expanded card with parent `#12`, when its tinted key is clicked,
-  then the board still filters by parent.
+  then it carries the `#12` bar, no parent key text is added and its text is
+  not covered.
+- Given an expanded card with parent `#12`, when its key is clicked, then the
+  board still filters by parent.
 - Given a running, queued or selected card with a parent, when it renders,
   then its border and ring are the ones it had before the change.
 - Given "all projects" selected, one project with the setting on and one with

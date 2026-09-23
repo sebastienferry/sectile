@@ -15,9 +15,9 @@ export function useEpicColors(): (projectId?: string | null) => boolean {
 }
 
 /**
- * Short coloured bar inside the left edge of the nearest positioned ancestor,
- * for the places that do not show the epic key. It is inset from the top, the
- * bottom and the border so it never meets a rounded corner, and it is a child
+ * Short coloured bar inside the left edge of the nearest positioned ancestor.
+ * It is inset from the top, the bottom and the border so it never meets a
+ * rounded corner, whatever the radius of the card, and it is a child
  * element rather than a border so the border and the ring, which carry the
  * running, queued and selected states, are left as they are.
  */
@@ -28,7 +28,7 @@ export function EpicBar({ parentKey }: { parentKey?: string | null }) {
     <span
       aria-hidden="true"
       data-epic-bar
-      className="absolute left-[3px] top-[22%] bottom-[22%] m-0 w-[3px] rounded-full pointer-events-none"
+      className="absolute left-[3px] top-[22%] bottom-[22%] m-0 w-[5px] rounded-full pointer-events-none"
       style={{ backgroundColor: color }}
     />
   )

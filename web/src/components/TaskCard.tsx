@@ -34,7 +34,6 @@ import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
 import { EpicBar, useEpicColors } from './EpicMarker'
-import { epicBadgeStyle } from '../lib/epicColor'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
@@ -379,9 +378,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const isQueued = latestActivity?.status === 'queued' || latestActivity?.status === 'pending'
 
   const isCondensed = compact
-  // Couleur de l'épic : clé teintée sur la carte étendue, barre courte sur la
-  // carte condensée, qui n'affiche pas la clé.
-  const epicStyle = showsEpicColors(task.projectId) ? epicBadgeStyle(task.parentKey) : null
+  // Barre de la couleur de l'épic, sur les projets qui la demandent.
+  const showsEpicBar = showsEpicColors(task.projectId) && Boolean(task.parentKey?.trim())
   const compactActionClass = 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
   // The one-off mode override for the next step. Both card shapes offer it: on a
   // condensed card the chevrons live in this menu, on a full card they sit on
@@ -776,7 +774,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       draggable
       onDragStart={handleDragStartInternal}
       onClick={openOrToggle}
-      className={`task-card ${isCondensed ? 'task-card-condensed' : ''} group relative border bg-[var(--bg-secondary)] ${isCondensed ? 'rounded-none px-1.5 py-1' : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
+      className={`task-card ${isCondensed ? 'task-card-condensed' : ''} group relative border bg-[var(--bg-secondary)] ${isCondensed ? `rounded-none ${showsEpicBar ? 'pl-3 pr-1.5' : 'px-1.5'} py-1` : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
         isRunning
           ? `border-indigo-500/60 shadow-md shadow-indigo-500/10 ${selected ? '' : 'ring-1 ring-indigo-500/20'}`
           : isQueued
@@ -788,7 +786,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         isDragging ? 'opacity-40 scale-95 ring-2 ring-[var(--accent-color)] ring-dashed' : ''
       }`}
     >
-      {isCondensed && epicStyle && <EpicBar parentKey={task.parentKey} />}
+      {showsEpicBar && <EpicBar parentKey={task.parentKey} />}
       {isCondensed ? (
         <div className="flex items-center gap-1 min-w-0">
           {externalUrl ? (
@@ -819,13 +817,10 @@ export const TaskCard: React.FC<TaskCardProps> = ({
                   setParentFilter(parentFilter === task.parentKey ? null : task.parentKey!)
                 }}
                 className={`hover:underline cursor-pointer transition-colors ${
-                  epicStyle
-                    ? `px-1 rounded border ${parentFilter === task.parentKey ? 'underline' : ''}`
-                    : parentFilter === task.parentKey
+                  parentFilter === task.parentKey
                     ? 'text-violet-300'
                     : 'text-[var(--text-muted)] hover:text-violet-300'
                 }`}
-                style={epicStyle ?? undefined}
                 title={`${task.parentType || 'Parent'} ${task.parentKey}${task.parentTitle ? ` — ${task.parentTitle}` : ''} (cliquer pour filtrer)`}
               >
                 {task.parentKey}

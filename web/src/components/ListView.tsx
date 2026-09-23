@@ -32,8 +32,7 @@ import { TaskFilters } from "./TaskFilters"
 import { BoardGroupingToggle } from "./BoardGroupingToggle"
 import { issueTypeStyle } from "../lib/issueTypes"
 import { Avatar } from "./Avatar"
-import { useEpicColors } from "./EpicMarker"
-import { epicBadgeStyle } from "../lib/epicColor"
+import { EpicBar, useEpicColors } from "./EpicMarker"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
 import { resolveTaskStage } from "../lib/workflow"
 import { isSelectableStage } from "../lib/boardSelection"
@@ -419,7 +418,7 @@ export const ListView: React.FC = () => {
     const priorityOpt = PRIORITY_OPTIONS.find(p => p.id === task.priority) || PRIORITY_OPTIONS[2]
     const taskStage = resolveTaskStage(task, currentProject)
     const isSelected = selectedTaskIds.has(task.id)
-    const epicStyle = showsEpicColors(task.projectId) ? epicBadgeStyle(task.parentKey) : null
+    const showsEpicBar = showsEpicColors(task.projectId)
 
     return (
       <tr
@@ -430,7 +429,8 @@ export const ListView: React.FC = () => {
         }`}
       >
         {/* Selection Checkbox */}
-        <td className="py-2.5 px-3 w-10 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+        <td className="relative py-2.5 px-3 w-10 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+          {showsEpicBar && <EpicBar parentKey={task.parentKey} />}
           <input
             type="checkbox"
             checked={isSelected}
@@ -505,10 +505,7 @@ export const ListView: React.FC = () => {
           {/* Parent (Macro ou Story) */}
           {task.parentKey && (
             <div
-              className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] mt-1 mr-1 border max-w-[220px] ${
-                epicStyle ? "" : "text-violet-300 bg-violet-500/10 border-violet-500/25"
-              }`}
-              style={epicStyle ?? undefined}
+              className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] mt-1 mr-1 text-violet-300 bg-violet-500/10 border border-violet-500/25 max-w-[220px]"
               title={`${task.parentType || "Parent"} ${task.parentKey}${task.parentTitle ? ` — ${task.parentTitle}` : ""}`}
             >
               <Layers size={9} className="shrink-0 opacity-80" />
