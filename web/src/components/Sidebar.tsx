@@ -10,6 +10,7 @@ import {
   Activity,
   Map,
   Clock,
+  Inbox as TriageIcon,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -38,6 +39,7 @@ import { useApp } from '../context/AppContext'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentBadgeStyle } from '../lib/accents'
+import { enabledOptionalViews } from '../lib/optionalViews'
 import type { Status, TaskSource } from '../types'
 import { SectileLogo } from './SectileLogo'
 
@@ -256,6 +258,10 @@ export const Sidebar: React.FC = () => {
     { status: 'to_close', label: t.status.to_close, stageLabel: '#reviewed', stageColor: 'bg-purple-500/15 text-purple-400 border-purple-500/30', icon: <ShieldCheck size={16} />, count: counts.to_close, color: 'text-purple-400' },
     { status: 'finished', label: t.status.finished, stageLabel: '#finished', stageColor: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30', icon: <CheckCircle2 size={16} />, count: counts.finished, color: 'text-emerald-400' },
   ]
+
+  // Vues de planification que ce projet affiche. Aucune par défaut : elles
+  // s'activent depuis les réglages du projet.
+  const optionalViews = enabledOptionalViews(currentProject)
 
   const isMyTasksActive = assigneeFilter === settings.userName
 
@@ -670,7 +676,24 @@ export const Sidebar: React.FC = () => {
               {!sidebarCollapsed && <span className="truncate">Board</span>}
             </button>
 
-            {/* 5a. Roadmap */}
+            {/* 5. Triage (optionnel, activé par projet) */}
+            {optionalViews.includes('triage') && (
+            <button
+              onClick={() => setActiveView('triage')}
+              className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                activeView === 'triage'
+                  ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+              }`}
+              title={t.nav.triageTooltip}
+            >
+              <TriageIcon size={15} className="shrink-0 text-rose-400" />
+              {!sidebarCollapsed && <span className="truncate">{t.nav.triage}</span>}
+            </button>
+            )}
+
+            {/* 5a. Roadmap (optionnel, activé par projet) */}
+            {optionalViews.includes('roadmap') && (
             <button
               onClick={() => setActiveView('roadmap')}
               className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
@@ -683,8 +706,10 @@ export const Sidebar: React.FC = () => {
               <Map size={15} className="shrink-0 text-amber-400" />
               {!sidebarCollapsed && <span className="truncate">{t.nav.roadmap}</span>}
             </button>
+            )}
 
-            {/* 5b. Timeline */}
+            {/* 5b. Timeline (optionnel, activé par projet) */}
+            {optionalViews.includes('timeline') && (
             <button
               onClick={() => setActiveView('timeline')}
               className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
@@ -697,6 +722,7 @@ export const Sidebar: React.FC = () => {
               <Clock size={15} className="shrink-0 text-blue-400" />
               {!sidebarCollapsed && <span className="truncate">{t.nav.timeline}</span>}
             </button>
+            )}
 
             {/* 6. Activités */}
             <button

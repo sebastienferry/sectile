@@ -7,6 +7,7 @@ import {
   Activity,
   Map,
   Clock,
+  Inbox,
   Sun,
   Moon,
   Globe,
@@ -25,6 +26,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentTextStyle } from '../lib/accents'
+import { enabledOptionalViews } from '../lib/optionalViews'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 export const CommandPalette: React.FC = () => {
@@ -151,6 +153,10 @@ export const CommandPalette: React.FC = () => {
     }
   }
 
+  // Vues de planification que ce projet affiche. La palette ne propose pas une
+  // vue absente de la barre latérale : la commande mènerait à un écran mort.
+  const optionalViews = enabledOptionalViews(currentProject)
+
   // Built-in actions list
   const generalActions = [
     {
@@ -186,7 +192,18 @@ export const CommandPalette: React.FC = () => {
         setIsCommandPaletteOpen(false)
       },
     },
-    {
+    ...(optionalViews.includes('triage') ? [{
+      id: 'switch_triage',
+      title: '🗂️ Vue Triage (tickets non classés)',
+      icon: <Inbox size={16} className="text-rose-400" />,
+      shortcut: 'TR',
+      keywords: ['triage', 'trier', 'non classe', 'sans sprint', 'sans macro', 'sans equipe', 'orphelin', 'vue'],
+      action: () => {
+        setActiveView('triage')
+        setIsCommandPaletteOpen(false)
+      },
+    }] : []),
+    ...(optionalViews.includes('roadmap') ? [{
       id: 'switch_roadmap',
       title: '🗺️ Vue Roadmap (Macros : NOW / NEXT / FUTURE)',
       icon: <Map size={16} className="text-emerald-400" />,
@@ -196,8 +213,8 @@ export const CommandPalette: React.FC = () => {
         setActiveView('roadmap')
         setIsCommandPaletteOpen(false)
       },
-    },
-    {
+    }] : []),
+    ...(optionalViews.includes('timeline') ? [{
       id: 'switch_timeline',
       title: '⏱️ Vue Timeline Sprints',
       icon: <Clock size={16} className="text-blue-400" />,
@@ -207,7 +224,7 @@ export const CommandPalette: React.FC = () => {
         setActiveView('timeline')
         setIsCommandPaletteOpen(false)
       },
-    },
+    }] : []),
     {
       id: 'switch_activities',
       title: '⚡ Vue Activités (File d\'exécution & IA)',
