@@ -189,6 +189,18 @@ func ManifestPath() (string, error) {
 // receives no managed file; it only holds the backups and the copies being retired
 // from the layout that preceded this release.
 func Scaffold(checkout string, config Config) ([]string, error) {
+	return scaffold(checkout, config, false)
+}
+
+// ScaffoldProvider refreshes one explicitly selected provider without retiring
+// managed skills installed for other providers on this workstation.
+func ScaffoldProvider(checkout string, config Config, provider string) ([]string, error) {
+	config.AIProvider = provider
+	config.SetupProviders = []string{provider}
+	return scaffold(checkout, config, true)
+}
+
+func scaffold(checkout string, config Config, preserveOtherProviders bool) ([]string, error) {
 	if config.SchemaVersion != Version {
 		return nil, fmt.Errorf("unsupported configuration version %d", config.SchemaVersion)
 	}
@@ -261,6 +273,19 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 			return backups, fmt.Errorf("invalid managed skill path %q", p)
 		}
 	}
+	untouched := map[string]string{}
+	if preserveOtherProviders {
+		loc, err := ResolveLocations(config.AIProvider)
+		if err != nil {
+			return backups, err
+		}
+		for path, hash := range manifest {
+			if !loc.InstallsSkills() || !managedPath(path, loc) {
+				untouched[path] = hash
+				delete(manifest, path)
+			}
+		}
+	}
 	install, err := refresh(fs, work, files, manifest, &backups, !hasCreatePR(config.Skills))
 	if err != nil {
 		return backups, err
@@ -281,6 +306,9 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 	// The directory only ever held Sectile's scripts; Remove refuses a
 	// directory that still holds anything, which is the guard wanted here.
 	_ = fs.Remove(claudeHookDir)
+	for path, hash := range untouched {
+		install[path] = hash
+	}
 	raw, err := json.MarshalIndent(install, "", "  ")
 	if err != nil {
 		return backups, err

@@ -24,6 +24,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Initialize a selected AI provider from desktop project Deployment, installing current server skills and configuring MCP with separate results and repeatable setup. (#389)
+
 - **Launch a batch from the Backlog.** The compact "Batch" action ("Lot" in
   French) in selection bars can launch selected
   `new` or `clarified` tasks from one project. A shared preparation dialog lets

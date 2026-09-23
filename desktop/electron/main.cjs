@@ -247,7 +247,7 @@ ipcMain.handle('transition-stage',async(_,{projectId,taskId,stage,note})=>{
  return api('/desktop/tasks/transition?projectId='+encodeURIComponent(projectId),'POST',{taskId,stage,note})
 })
 ipcMain.handle('project',(_,id)=>api('/desktop/project?id='+encodeURIComponent(id)))
-ipcMain.handle('deploy-project',(_,id,action)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action),'POST'))
+ipcMain.handle('deploy-project',(_,id,action,provider)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action)+(provider?'&provider='+encodeURIComponent(provider):''),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))
 ipcMain.handle('remove-project',async(_,id)=>{
  const status=await api('/desktop/status')
