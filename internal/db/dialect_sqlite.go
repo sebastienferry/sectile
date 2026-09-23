@@ -15,6 +15,10 @@ type sqliteDialect struct{}
 
 func (sqliteDialect) Name() string { return "SQLite" }
 
+// LowerASCII is SQLite's own LOWER: it lowers A-Z and leaves every other
+// character untouched, on every build of the engine.
+func (sqliteDialect) LowerASCII(expr string) string { return "LOWER(" + expr + ")" }
+
 func (sqliteDialect) Open(cfg Config) (*sql.DB, error) {
 	// _time_format=sqlite: without it the driver stores a time.Time as
 	// time.Time.String(), which prints the zone abbreviation last. A date parsed

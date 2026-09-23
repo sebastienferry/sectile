@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bookmark, Trash2, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
-import { boardViewFormError, normalizeViewLabels } from '../lib/boardViews'
+import { boardViewFormError, foldViewLabel, normalizeViewLabels } from '../lib/boardViews'
 import type { BoardView } from '../types'
 
 /**
@@ -53,7 +53,7 @@ const BoardViewForm: React.FC<{ editingBoardView: BoardView | null }> = ({ editi
   )
 
   const labelSuggestions = useMemo(
-    () => (taskFacets.labels || []).map(l => l.value).filter(v => !labels.some(l => l.toLowerCase() === v.toLowerCase())),
+    () => (taskFacets.labels || []).map(l => l.value).filter(v => !labels.some(l => foldViewLabel(l) === foldViewLabel(v))),
     [taskFacets.labels, labels]
   )
 

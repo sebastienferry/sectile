@@ -1239,21 +1239,23 @@ func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs [
 		return "", nil, "", nil, err
 	}
 	projectCond, projectArgs = viewProjectScope(view.ProjectIDs)
-	labelCond, labelArgs = viewLabelScope(view.Labels, d.labelFold())
+	labelCond, labelArgs = viewLabelScope(view.Labels, d.lowerASCII("labels"))
 	return projectCond, projectArgs, labelCond, labelArgs, nil
 }
 
-// labelFold lowers a view label the way the engine's LOWER lowers the column,
-// so that a label always matches its own spelling. PostgreSQL folds every
-// letter; SQLite folds ASCII only, and lowering `É` on one side alone would
-// make `Équipe` miss `Équipe`.
-func (d *DB) labelFold() func(string) string {
-	if d.EngineName() == string(DriverPostgres) {
-		return strings.ToLower
+// lowerASCII folds a TEXT expression the way asciiLower folds the value it is
+// compared against: A-Z and nothing else, on either engine and whatever the
+// server's collation. Both sides must fold the same characters, otherwise
+// lowering `É` on one side alone makes `Équipe` miss `Équipe`.
+func (d *DB) lowerASCII(expr string) string {
+	if d == nil || d.dialect == nil {
+		return "LOWER(" + expr + ")"
 	}
-	return asciiLower
+	return d.dialect.LowerASCII(expr)
 }
 
+// asciiLower lowers A-Z, and leaves every other character as it is — an
+// accented letter included. It is the Go half of lowerASCII.
 func asciiLower(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r >= 'A' && r <= 'Z' {
@@ -1284,18 +1286,20 @@ func viewProjectScope(projectIDs []string) (string, []interface{}) {
 // and regardless of case. tasks.labels is a JSON array written by
 // json.Marshal, so a whole label is exactly its quoted JSON token: `"backend"`
 // is found in `["Backend","ops"]` and not in `["backend-api"]`. LIKE wildcards
-// in a label are escaped. fold must lower the label as the engine's LOWER
-// lowers the column (see labelFold): under SQLite, case is then ignored for
-// ASCII letters only.
-func viewLabelScope(labels []string, fold func(string) string) (string, []interface{}) {
+// in a label are escaped.
+//
+// lowered is the SQL that folds the labels column, and must be the engine's
+// lowerASCII: the label is folded here with asciiLower, so case is ignored for
+// ASCII letters and any other character has to match its own spelling.
+func viewLabelScope(labels []string, lowered string) (string, []interface{}) {
 	if len(labels) == 0 {
 		return "", nil
 	}
 	clauses := make([]string, 0, len(labels))
 	args := make([]interface{}, 0, len(labels))
 	for _, label := range labels {
-		token, _ := json.Marshal(fold(label))
-		clauses = append(clauses, "LOWER(labels) LIKE ? ESCAPE '!'")
+		token, _ := json.Marshal(asciiLower(label))
+		clauses = append(clauses, lowered+" LIKE ? ESCAPE '!'")
 		args = append(args, "%"+escapeLike(string(token))+"%")
 	}
 	return "(" + strings.Join(clauses, " OR ") + ")", args
