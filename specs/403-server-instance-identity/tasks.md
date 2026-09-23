@@ -4,7 +4,7 @@ References: [`spec.md`](spec.md), [`plan.md`](plan.md).
 
 ## 1. Schema and seam (FR2, FR3)
 
-- [x] T1.1 Migration 3 `server_instances`: `task_activities.instance_id`, table `server_instances`.
+- [x] T1.1 Migration 5 `server_instances` (renumbered from 3): `task_activities.instance_id`, table `server_instances`.
 - [x] T1.2 `dialect.ServesOneProcess()`: SQLite `true`, PostgreSQL `false`.
 
 ## 2. Instance lifecycle (FR1, FR2, FR5, FR7)

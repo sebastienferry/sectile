@@ -54,6 +54,33 @@ func TestPostgresSchemaIsCreatedFromEmpty(t *testing.T) {
 	}
 }
 
+// TestPostgresBoardViews runs the saved view selection on PostgreSQL: the
+// label predicate relies on LOWER, LIKE and ESCAPE behaving as under SQLite.
+func TestPostgresBoardViews(t *testing.T) {
+	d := openPostgres(t)
+	f := seedViewFixture(t, d)
+	checkBoardViewSelection(t, f)
+
+	view := f.create(t, "u1", "Facets", []string{f.alpha, f.beta}, []string{"platform"})
+	facets, err := d.GetTaskFacetsInScope(TaskScope{UserID: "u1", ViewID: view.ID})
+	if err != nil {
+		t.Fatalf("GetTaskFacetsInScope: %v", err)
+	}
+	if facets.Total != 2 {
+		t.Errorf("facet total = %d, want 2", facets.Total)
+	}
+	if _, err := f.db.CreateBoardView("u1", models.BoardViewRequest{Name: &view.Name, ProjectIDs: &view.ProjectIDs}); err == nil {
+		t.Error("a second view with the same name was accepted")
+	}
+	if err := d.DeleteProject(f.beta); err != nil {
+		t.Fatalf("DeleteProject: %v", err)
+	}
+	got, err := d.GetBoardView("u1", view.ID)
+	if err != nil || len(got.ProjectIDs) != 1 {
+		t.Errorf("after deleting a project: %+v, %v", got, err)
+	}
+}
+
 // TestPostgresStartingTwiceIsHarmless covers the second start: the schema
 // statements are all IF NOT EXISTS, and a second pass must not disturb data.
 func TestPostgresStartingTwiceIsHarmless(t *testing.T) {

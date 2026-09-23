@@ -78,10 +78,41 @@ var migrations = []migration{
 		},
 	},
 	{
+		// Cards carry their epic's colour only on the projects that ask for it,
+		// so every existing project starts with it off.
+		version: 3,
+		name:    "projects.epic_colors",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN epic_colors INTEGER NOT NULL DEFAULT 0;",
+		},
+	},
+	{
+		// Saved board views (#387): a personal, named selection of projects and
+		// labels laid over the all-projects board. Both lists are JSON arrays in
+		// TEXT, like tasks.labels and projects.enabled_views: they are read whole
+		// and never queried by element.
+		version: 4,
+		name:    "board_views",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS board_views (
+				id TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				name TEXT NOT NULL,
+				name_key TEXT NOT NULL,
+				project_ids TEXT NOT NULL DEFAULT '[]',
+				labels TEXT NOT NULL DEFAULT '[]',
+				created_at DATETIME NOT NULL,
+				updated_at DATETIME NOT NULL
+			);`,
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user_id, name_key);",
+			"CREATE INDEX IF NOT EXISTS idx_board_views_user ON board_views (user_id);",
+		},
+	},
+	{
 		// The server process owning a piece of work, so that one instance
 		// starting does not reclaim what another live instance runs. See
 		// internal/db/instances.go.
-		version: 3,
+		version: 5,
 		name:    "server_instances",
 		statements: []string{
 			"ALTER TABLE task_activities ADD COLUMN instance_id TEXT NOT NULL DEFAULT '';",

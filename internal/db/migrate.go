@@ -33,6 +33,7 @@ var migrationTables = []string{
 	"pinned_tasks",
 	"project_skills",
 	"user_project_bookmarks",
+	"board_views",
 	"user_tracker_credentials",
 	"device_credentials",
 	"pairing_codes",

@@ -20,12 +20,13 @@ import { CommandPalette } from './components/CommandPalette'
 import { ProfileModal } from './components/ProfileModal'
 import { AdminModal } from './components/AdminModal'
 import { ProjectModal } from './components/ProjectModal'
+import { BoardViewModal } from './components/BoardViewModal'
 import { StatusBar } from './components/StatusBar'
 import { ToastContainer } from './components/ToastContainer'
 import { SignInScreen } from './components/SignInScreen'
 import { useCurrentUser } from './hooks/useCurrentUser'
 import { needsSignIn, SIGN_IN_PATH } from './lib/session'
-import { Loader2 } from 'lucide-react'
+import { Bookmark, Loader2 } from 'lucide-react'
 
 const MainContent: React.FC = () => {
   const {
@@ -35,7 +36,14 @@ const MainContent: React.FC = () => {
     tasks,
     isTrackerSetupOpen,
     setIsTrackerSetupOpen,
+    currentBoardView,
+    openBoardViewModal,
+    t,
   } = useApp()
+
+  // A saved view whose projects were all deleted selects nothing: say so and
+  // offer to fix it, rather than show an empty board with no reason (#387).
+  const isEmptyBoardView = Boolean(currentBoardView && currentBoardView.projectIds.length === 0)
 
 
   return (
@@ -66,6 +74,19 @@ const MainContent: React.FC = () => {
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-rose-400">
                 <p className="text-sm font-semibold mb-2">Erreur de connexion</p>
                 <p className="text-xs text-[var(--text-muted)] max-w-md">{error}</p>
+              </div>
+            ) : isEmptyBoardView && (activeView === 'board' || activeView === 'list') ? (
+              <div data-empty-board-view className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
+                <Bookmark size={26} className="text-sky-400" />
+                <p className="text-sm font-semibold text-[var(--text-primary)]">{t.boardViews.emptyTitle}</p>
+                <p className="text-xs text-[var(--text-muted)] max-w-md">{t.boardViews.emptyDescription}</p>
+                <button
+                  type="button"
+                  onClick={() => currentBoardView && openBoardViewModal(currentBoardView)}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-bold accent-bg text-white cursor-pointer"
+                >
+                  {t.boardViews.editView}
+                </button>
               </div>
             ) : activeView === 'board' ? (
               <BoardView />
@@ -104,6 +125,7 @@ const MainContent: React.FC = () => {
       <CloneTaskModal />
       <TaskDetailModal />
       <ProjectModal />
+      <BoardViewModal />
 
 
       <CommandPalette />

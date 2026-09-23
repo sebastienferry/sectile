@@ -140,6 +140,9 @@ type Project struct {
 	// OptionalViews. Empty, the default, means none of them: Triage, Roadmap
 	// and Timeline stay out of the sidebar until the project asks for them.
 	EnabledViews []string `json:"enabledViews,omitempty"`
+	// EpicColors paints each card with the colour of its epic. Off by default:
+	// a project asks for it in its settings.
+	EpicColors bool `json:"epicColors"`
 	// Sprints mirrors the board's sprints with their state, refreshed by the sync.
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
@@ -323,6 +326,8 @@ type CreateProjectRequest struct {
 	IssueTypes []string `json:"issueTypes,omitempty"`
 	// EnabledViews names the optional workspace views to show. Empty means none.
 	EnabledViews []string `json:"enabledViews,omitempty"`
+	// EpicColors paints each card with the colour of its epic. Off when absent.
+	EpicColors bool `json:"epicColors,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
 	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
@@ -380,6 +385,7 @@ type UpdateProjectRequest struct {
 	Sprints                     *[]TrackerSprint     `json:"sprints,omitempty"`
 	IssueTypes                  *[]string            `json:"issueTypes,omitempty"`
 	EnabledViews                *[]string            `json:"enabledViews,omitempty"`
+	EpicColors                  *bool                `json:"epicColors,omitempty"`
 	MonoRepo                    *bool                `json:"monoRepo,omitempty"`
 	StageColumns                *map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl                *string              `json:"gitRemoteUrl,omitempty"`
@@ -1083,4 +1089,26 @@ func RunSilenceNote(silence time.Duration) string {
 	}
 	return fmt.Sprintf("%s%s: the client may be busy or waiting for input, and this run stays open",
 		RunSilencePrefix, rounded)
+}
+
+// BoardView is a saved, personal selection over the all-projects board: a
+// fixed list of projects and the labels a ticket must carry one of (#387). It
+// stores selection rules, never tickets, so a refresh always reflects the
+// current board. The owner is never serialized: a view is only ever returned
+// to the user who created it.
+type BoardView struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	ProjectIDs []string  `json:"projectIds"`
+	Labels     []string  `json:"labels"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+// BoardViewRequest creates a view, or patches one: on an update, a nil field
+// is left as it is.
+type BoardViewRequest struct {
+	Name       *string   `json:"name,omitempty"`
+	ProjectIDs *[]string `json:"projectIds,omitempty"`
+	Labels     *[]string `json:"labels,omitempty"`
 }

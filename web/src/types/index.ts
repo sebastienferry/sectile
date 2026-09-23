@@ -180,6 +180,26 @@ export interface TrackerBoard {
 
 export type TtyMode = 'integrated' | 'external'
 
+/**
+ * A saved board view (#387): a personal, named selection of projects and
+ * labels over the all-projects board. The server resolves it; the interface
+ * only sends its id.
+ */
+export interface BoardView {
+  id: string
+  name: string
+  projectIds: string[]
+  labels: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BoardViewPayload {
+  name?: string
+  projectIds?: string[]
+  labels?: string[]
+}
+
 export interface Project {
   id: string
   name: string
@@ -227,6 +247,11 @@ export interface Project {
    * restent hors de la barre latérale tant que le projet ne les demande pas.
    */
   enabledViews?: OptionalViewMode[]
+  /**
+   * Les cartes portent la couleur de leur épic. Absent ou faux, la valeur par
+   * défaut, elles restent telles qu'avant : le projet doit la demander.
+   */
+  epicColors?: boolean
   /**
    * Le projet tient dans un seul dépôt. La branche courante, son sélecteur et la
    * branche affichée sur une carte n'ont de sens que dans ce cas.
