@@ -19,6 +19,7 @@ import {
   Scissors,
   Search,
   Loader2,
+  FileCode,
   Pencil,
   ArrowRightLeft,
   Sparkles,
@@ -65,7 +66,7 @@ import {
   toggleRoadmapRowDisplayMode,
   type RoadmapRowDisplayMode,
 } from '../lib/roadmapDisplayMode'
-import type { MacroHorizon, MacroMeta, MacroTodo } from '../types'
+import type { MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
 
 /**
  * Roadmap des macros, d'après le design « Roadmap Epics.dc.html ».
@@ -93,6 +94,7 @@ export const RoadmapView: React.FC = () => {
     fetchProjectMacros,
     saveMacroMeta,
     createStoryFromMacroTodo,
+    produceMacroSlicing,
     setTaskMacro,
     createStoryUnderMacro,
     createMacro,
@@ -205,6 +207,10 @@ export const RoadmapView: React.FC = () => {
   const [draftFramingDirty, setDraftFramingDirty] = useState(false)
   const [newTodo, setNewTodo] = useState('')
   const [creatingTodoId, setCreatingTodoId] = useState<string | null>(null)
+  // La source en cours de lecture, pour que le bouton cliqué soit celui qui
+  // tourne : deux sources côte à côte, un seul témoin, et on ne sait plus
+  // laquelle on a demandée.
+  const [slicingSource, setSlicingSource] = useState<MacroTodoSource | null>(null)
   // Prototypage de la macro : créer une story a la volée, ou y pousser un ticket existant
   const [newStory, setNewStory] = useState('')
   const [attachQuery, setAttachQuery] = useState('')
@@ -1833,6 +1839,41 @@ export const RoadmapView: React.FC = () => {
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold text-white accent-bg disabled:opacity-40 cursor-pointer shrink-0">
                         <Plus size={12} /> Ajouter
                       </button>
+                    </div>
+
+                    {/* Produire la découpe depuis les artefacts SDD du dépôt.
+                        Le bouton est offert dès que le projet déclare un dépôt,
+                        et non selon la présence du fichier : une action qui
+                        disparaît exactement quand elle aurait servi n'explique
+                        rien, là où un refus nomme sa cause. */}
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--border-color)]">
+                      <span className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] shrink-0">
+                        Importer
+                      </span>
+                      {([
+                        { source: 'tasks' as const, label: 'tasks.md', hint: "Un groupe de tasks.md par ligne : c'est le grain d'une story." },
+                        { source: 'spec' as const, label: 'spec.md', hint: 'Une exigence ou une user story priorisée par ligne.' },
+                      ]).map(option => (
+                        <button
+                          key={option.source}
+                          type="button"
+                          disabled={slicingSource !== null}
+                          title={option.hint}
+                          onClick={async () => {
+                            setSlicingSource(option.source)
+                            const macro = await produceMacroSlicing(currentProject!.id, selected.key, option.source)
+                            setSlicingSource(null)
+                            if (macro) {
+                              setMacroMeta(prev => [...prev.filter(m => m.key !== macro.key), macro])
+                              setSelectedKey(macro.key)
+                            }
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
+                        >
+                          {slicingSource === option.source ? <Loader2 size={12} className="animate-spin" /> : <FileCode size={12} />}
+                          {option.label}
+                        </button>
+                      ))}
                     </div>
                   </div>
 
