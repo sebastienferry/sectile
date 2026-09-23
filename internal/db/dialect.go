@@ -108,6 +108,12 @@ type dialect interface {
 	// created by older versions apply. They only ever applied to SQLite files
 	// that predate a schema change; a database created today starts complete.
 	RunsLegacyMigrations() bool
+	// ServesOneProcess reports whether the engine can only be shared by one
+	// server process. When it is true, whatever an earlier process left running
+	// died with it, so a start may reclaim all unfinished work at once; when it
+	// is false, other live instances may own some of it. See docs/adrs/0016 and
+	// internal/db/instances.go.
+	ServesOneProcess() bool
 	// Name is what the startup log calls this engine.
 	Name() string
 }

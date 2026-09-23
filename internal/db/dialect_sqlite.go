@@ -60,6 +60,11 @@ func (sqliteDialect) LockForMigration(*sqlConn) (func(), error) { return func() 
 // earlier version, and the additive migrations are what bring it up to date.
 func (sqliteDialect) RunsLegacyMigrations() bool { return true }
 
+// ServesOneProcess is true: a SQLite file belongs to one server process. Nothing
+// enforces it; it is the assumption the deployment makes, and the one the
+// restart recovery relies on.
+func (sqliteDialect) ServesOneProcess() bool { return true }
+
 // MigrateActivityAttachment rebuilds task_activities: SQLite can neither relax
 // a NOT NULL, nor add a foreign key, nor add a CHECK through ALTER TABLE.
 //

@@ -168,7 +168,7 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 			return err
 		}
 		task.PrLinks = links
-		if err := insertTaskActivity(tx, *activity); err != nil {
+		if err := insertTaskActivity(tx, d.instanceID, *activity); err != nil {
 			return err
 		}
 		return tx.Commit()
