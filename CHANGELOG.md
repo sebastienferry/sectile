@@ -15,6 +15,13 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Triage, Roadmap and Timeline are now hidden by default and enabled per
+  project.** Project settings, under General, carry a "Vues de l'espace de
+  travail" section where each project turns on the planning views it actually
+  uses. A view that is off appears neither in the sidebar nor in the command
+  palette, and switching to a project that does not use the view you are on
+  returns you to the board. Existing projects start with all three off.
+
 - Issue details show description and technical context directly below the title, alongside metadata, with pull requests below; narrow views keep the content first.
 
 - Removed the permanent instructional hint below the desktop project list.
@@ -25,6 +32,11 @@ test fixtures or internal plumbing.
   view, and desktop shows only the selected connection configuration.
 
 ### Added
+
+- **The Triage view is back.** It lists the work items that are missing a
+  sprint, a macro, a team or an assignee, groups them by what they lack, and
+  lets you fix several at once. It is off by default; enable it per project in
+  the project settings.
 
 - Initialize a selected AI provider from desktop project Deployment, installing current server skills and configuring MCP with separate results and repeatable setup. (#389)
 

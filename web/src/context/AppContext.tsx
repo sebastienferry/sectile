@@ -47,6 +47,7 @@ import { resolveAccentAttribute } from '../lib/accents'
 import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trackers'
 import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
+import { isViewAvailable } from '../lib/optionalViews'
 import {
   INTERNAL_STATUS_BY_STAGE,
   resolveTaskStage, skillForStage,
@@ -712,6 +713,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     if (selectedProjectId === 'all') return null
     return projects.find(p => p.id === selectedProjectId || p.slug === selectedProjectId) || null
   }, [projects, selectedProjectId])
+
+  /**
+   * Une vue optionnelle ouverte sur un projet qui ne l'affiche pas laisse un
+   * écran mort : le cas arrive en changeant de projet, ou au démarrage quand la
+   * vue mémorisée vient d'un autre projet. On retombe alors sur le board.
+   *
+   * L'attente du chargement des projets est nécessaire : tant que la liste est
+   * vide, tout projet a l'air de n'afficher aucune vue, et le repli chasserait
+   * une vue pourtant activée.
+   */
+  useEffect(() => {
+    if (projects.length === 0) return
+    if (isViewAvailable(currentProject, activeView)) return
+    setActiveView('board')
+  }, [projects.length, currentProject, activeView, setActiveView])
 
   /**
    * Changer de mode d'affichage convertit le filtre en cours plutôt que de le

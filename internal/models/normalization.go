@@ -77,3 +77,27 @@ func NormalizeSpecFramework(framework string) string {
 		return "speckit"
 	}
 }
+
+// OptionalViews are the workspace views a project shows only when it asks for
+// them. They answer a planning need (sorting unclassified work, laying macros
+// on horizons, reading the sprint schedule) that a project tracking a single
+// stream of tickets never has, and an empty sidebar entry costs more than it
+// gives. None of them is enabled by default.
+var OptionalViews = []string{"triage", "roadmap", "timeline"}
+
+// NormalizeEnabledViews keeps the supported views only, lowercased, without
+// duplicates, in the canonical order of OptionalViews so two projects that
+// enabled the same set store the same value.
+func NormalizeEnabledViews(list []string) []string {
+	asked := make(map[string]bool, len(list))
+	for _, view := range list {
+		asked[strings.ToLower(strings.TrimSpace(view))] = true
+	}
+	out := make([]string, 0, len(OptionalViews))
+	for _, view := range OptionalViews {
+		if asked[view] {
+			out = append(out, view)
+		}
+	}
+	return out
+}

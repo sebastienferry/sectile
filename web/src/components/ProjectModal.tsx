@@ -25,9 +25,13 @@ import {
   RotateCcw,
   Bot,
   Info,
+  Inbox,
+  Map,
+  Clock,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { OPTIONAL_VIEWS, enabledOptionalViews } from '../lib/optionalViews'
 import { BoardColumnsEditor } from './BoardColumnsEditor'
 import type {
   AccentColor,
@@ -40,6 +44,7 @@ import type {
   SpecFrameworkStatus,
   SpecFrameworkInstallResult,
   SkillMode,
+  OptionalViewMode,
 } from '../types'
 import { ACCENT_COLORS, accentBadgeStyle, normalizeAccentColor, DEFAULT_PROJECT_ACCENT } from '../lib/accents'
 import { AIModelField } from './AIModelField'
@@ -48,6 +53,22 @@ import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 import { Antigravity, Claude, OpenAI } from './icons'
 
 type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
+
+/**
+ * Vues optionnelles proposées dans les réglages du projet. Leur libellé dit ce
+ * que la vue montre : « Triage » seul ne dit pas de quoi il trie.
+ */
+const OPTIONAL_VIEW_CARDS: {
+  id: OptionalViewMode
+  label: string
+  hint: string
+  icon: React.FC<{ size?: number; className?: string }>
+  iconColor: string
+}[] = [
+  { id: 'triage', label: 'Triage', hint: 'Tickets sans sprint, macro, équipe ou assigné', icon: Inbox, iconColor: 'text-rose-400' },
+  { id: 'roadmap', label: 'Roadmap', hint: 'Macros par horizon : NOW / NEXT / FUTURE', icon: Map, iconColor: 'text-amber-400' },
+  { id: 'timeline', label: 'Timeline', hint: 'Calendrier des sprints passés et à venir', icon: Clock, iconColor: 'text-blue-400' },
+]
 
 const TABS: {
   id: ProjectTab
@@ -179,6 +200,9 @@ export const ProjectModal: React.FC = () => {
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
   const [issueTypes, setIssueTypes] = useState<string[]>([])
+  // Vues optionnelles affichées par le projet. Vide vaut « aucune », ce que
+  // porte un projet qui n'a jamais demandé Triage, Roadmap ou Timeline.
+  const [enabledViews, setEnabledViews] = useState<OptionalViewMode[]>([])
   const [availableIssueTypes, setAvailableIssueTypes] = useState<string[]>([])
   const [isLoadingIssueTypes, setIsLoadingIssueTypes] = useState(false)
   const [detectedStatuses, setDetectedStatuses] = useState<DetectedStatus[]>([])
@@ -242,6 +266,7 @@ export const ProjectModal: React.FC = () => {
       setGithubToken('')
       setJiraProject(editingProject.jiraProject || '')
       setIssueTypes(editingProject.issueTypes || [])
+      setEnabledViews(enabledOptionalViews(editingProject))
       setSkillOverrides(editingProject.skillOverrides || {})
 
 
@@ -384,6 +409,7 @@ export const ProjectModal: React.FC = () => {
         githubToken: githubToken.trim(),
         jiraProject: jiraProject.trim().toUpperCase(),
         issueTypes,
+        enabledViews,
         skillOverrides,
       }
 
@@ -671,6 +697,59 @@ export const ProjectModal: React.FC = () => {
                 </div>
                 <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
                   Local repositories and execution consoles are managed in the desktop agent.
+                </p>
+              </div>
+
+              {/* Vues optionnelles : masquées tant que le projet ne les demande pas */}
+              <div className="pt-3 border-t border-[var(--border-color)] space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <Layers size={13} className="text-[var(--accent-color)]" />
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-primary)]">
+                    Vues de l'espace de travail
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {OPTIONAL_VIEW_CARDS.map(view => {
+                    const Icon = view.icon
+                    const isActive = enabledViews.includes(view.id)
+                    return (
+                      <button
+                        key={view.id}
+                        type="button"
+                        onClick={() =>
+                          // Forme fonctionnelle : deux clics dans le même cycle
+                          // de rendu liraient sinon le même état, et le second
+                          // annulerait le premier.
+                          setEnabledViews(current =>
+                            OPTIONAL_VIEWS.filter(id =>
+                              id === view.id ? !current.includes(id) : current.includes(id)
+                            )
+                          )
+                        }
+                        aria-pressed={isActive}
+                        title={view.hint}
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-[var(--accent-light)] border-[var(--accent-color)]/40 accent-text'
+                            : 'bg-[var(--bg-tertiary)] border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        <Icon size={14} className={`shrink-0 mt-0.5 ${isActive ? '' : view.iconColor}`} />
+                        <span className="min-w-0">
+                          <span className="block text-xs font-bold truncate">{view.label}</span>
+                          <span className="block text-[10px] text-[var(--text-muted)] leading-snug">
+                            {view.hint}
+                          </span>
+                        </span>
+                        {isActive && <Check size={12} className="shrink-0 mt-0.5" />}
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  Ces vues sont masquées par défaut : elles n'apparaissent dans la barre
+                  latérale et dans la palette de commandes que pour les projets qui les
+                  activent ici.
                 </p>
               </div>
             </div>
