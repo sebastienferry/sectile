@@ -1,10 +1,10 @@
 // Run with PLAYWRIGHT_MODULE pointing to an installed Playwright module.
 // Exercises the real Backlog against mocked context operations; no skill is executed.
 import { createServer } from 'vite'
-import { fileURLToPath } from 'node:url'
+import { browserRoot } from './browserRoot.mjs'
 import assert from 'node:assert/strict'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
-const root = fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, '')
+const { root, preserveSymlinks } = browserRoot(import.meta.url)
 const fixtureId = root + '/backlog-batch-fixture.tsx'
 const harness = `
 import React from 'react';
@@ -22,7 +22,7 @@ setBoardGrouping:value=>{ctx.boardGrouping=value;render()}};
 const app=createRoot(document.getElementById('root'));
 window.render=()=>app.render(<ListView/>);render();`
 const server = await createServer({
-  root, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
+  root, resolve: { preserveSymlinks }, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
   plugins: [{
     name: 'backlog-batch-fixture', enforce: 'pre',
     transform(code, id) {

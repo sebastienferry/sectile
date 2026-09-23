@@ -2,9 +2,9 @@
 // Run: PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/issue-detail-layout.browser.mjs
 import assert from 'node:assert/strict'
 import { createServer } from 'vite'
-import { fileURLToPath } from 'node:url'
+import { browserRoot } from './browserRoot.mjs'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
-const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\\/g, '/').replace(/\/$/, '')
+const { root, preserveSymlinks } = browserRoot(import.meta.url)
 const harness = `
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -19,7 +19,7 @@ const app=createRoot(document.getElementById('root'));
 window.render=()=>app.render(<TaskDetailModal/>);
 window.render();`
 const server = await createServer({
-  root, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
+  root, resolve: { preserveSymlinks }, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
   plugins: [{ name: 'issue-detail-fixture', enforce: 'pre',
     transform(code, id) {
       if (id.endsWith('/TaskDetailModal.tsx')) return code.replace("import { useApp } from '../context/AppContext'", 'const useApp = () => window.ctx')

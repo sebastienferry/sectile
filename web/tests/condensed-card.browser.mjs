@@ -3,10 +3,10 @@
 // Run with Playwright available: node tests/condensed-card.browser.mjs
 // PLAYWRIGHT_MODULE can point to an existing installation; Chrome is used with a fresh profile.
 import { createServer } from 'vite';
-import { fileURLToPath } from 'node:url';
+import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 import assert from 'node:assert/strict';
-const root=fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
+const { root, preserveSymlinks } = browserRoot(import.meta.url);
 const harness=`import React from 'react'; import {createRoot} from 'react-dom/client'; import {TaskCard} from '/src/components/TaskCard.tsx'; import {translations} from '/src/locales/translations.ts'; import '/src/index.css';
 window.calls=[]; window.condensed=true;
 const spy=(name)=>(...args)=>{window.calls.push([name,...args.map(x=>x?.id||x)])};
@@ -14,7 +14,7 @@ const project={id:'p'};
 window.ctx={settings:{density:'compact'}, projects:[project],currentProject:project,activities:[], t:translations.fr, skillLabel:x=>x,skillCommand:(id,command)=>command,fetchActivities:async()=>{},isPinned:()=>false, parentFilter:null, advanceTask:async(...args)=>{spy('advance')(...args);await new Promise(r=>setTimeout(r,500));},...Object.fromEntries(['setSelectedTask','togglePin','setParentFilter','setChatTask','runSkill','setIsTerminalPanelOpen','addToast'].map(n=>[n,spy(n)]))};
 window.task={id:'fixture',key:'#39',title:'A long title '.repeat(20),projectId:'p',status:'to_clarify',priority:'high',source:'github',externalUrl:'https://example.test/39',parentKey:'#1',prUrl:'https://example.test/pr/1',description:'Hidden description',labels:['new'],issueType:'Story',assignee:'Alice',branchName:'feature/39'};
 const app=createRoot(document.getElementById('root'));window.render=()=>{document.body.className='density-'+window.ctx.settings.density;app.render(<div style={{width:280,margin:20}}><TaskCard task={{...window.task}} compact={window.condensed}/></div>)};window.render();`;
-const server=await createServer({root,configFile:root+'/vite.config.ts',server:{port:0,host:'127.0.0.1'},plugins:[{name:'fixture',enforce:'pre',transform(code,id){if(id.includes('/src/components/')) return code.replace(/import \{ useApp \} from ['"]\.\.\/context\/AppContext['"]/,'const useApp = () => window.ctx');},configureServer(s){s.middlewares.use(async(req,res,next)=>{if(req.url==='/fixture'){res.setHeader('Content-Type','text/html');res.end(await s.transformIndexHtml('/fixture','<div id="root"></div><script type="module" src="/fixture.tsx"></script>'))}else next()})},resolveId(id){if(id==='/fixture.tsx')return root+'/fixture.tsx'},load(id){if(id===root+'/fixture.tsx')return harness}}]});
+const server=await createServer({root,resolve:{preserveSymlinks},configFile:root+'/vite.config.ts',server:{port:0,host:'127.0.0.1'},plugins:[{name:'fixture',enforce:'pre',transform(code,id){if(id.includes('/src/components/')) return code.replace(/import \{ useApp \} from ['"]\.\.\/context\/AppContext['"]/,'const useApp = () => window.ctx');},configureServer(s){s.middlewares.use(async(req,res,next)=>{if(req.url==='/fixture'){res.setHeader('Content-Type','text/html');res.end(await s.transformIndexHtml('/fixture','<div id="root"></div><script type="module" src="/fixture.tsx"></script>'))}else next()})},resolveId(id){if(id==='/fixture.tsx')return root+'/fixture.tsx'},load(id){if(id===root+'/fixture.tsx')return harness}}]});
 await server.listen();
 let browser;
 try {

@@ -20,8 +20,10 @@ of the test whose `import.meta.url` is `testUrl`:
 
 Each of the ten `web/tests/*.browser.mjs` replaces its own
 `const root = fileURLToPath(...)` line with the helper and passes
-`resolve: { preserveSymlinks }` to `createServer`. The run comment of each file
-names an absolute `PLAYWRIGHT_MODULE`.
+`resolve: { preserveSymlinks }` to `createServer`. The run comments that gave
+a relative `PLAYWRIGHT_MODULE` (`board-views`, `optional-views`) name an
+absolute one; the others already say "pointing to an installed Playwright
+module" and the README carries the full command.
 
 A unit test `web/tests/browserRoot.test.mjs` (run by `npm test`) covers: a path
 without `#` is returned unchanged; a path with `#` yields a `#`-free root
