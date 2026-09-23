@@ -789,10 +789,6 @@ function openSettings(initial='Profile'){
   {id:'agy',label:'AGY CLI (Google Antigravity)'},
   {id:'claude',label:'Claude Code CLI'},
   {id:'codex',label:'Codex CLI'},
-  {id:'gemini',label:'Gemini CLI'},
-  {id:'cursor',label:'Cursor CLI'},
-  {id:'vibe',label:'Mistral Vibe CLI'},
-  {id:'custom',label:'Custom Command'}
  ]
  for(const p of CLI_PROVIDERS){
   const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.label
@@ -848,9 +844,6 @@ function openSettings(initial='Profile'){
   {label:'AGY',provider:'agy',cmd:'agy --dangerously-skip-permissions --model {model} "{prompt}"',auto:'agy --dangerously-skip-permissions --model {model} -p "{prompt}"'},
   {label:'Claude',provider:'claude',cmd:"claude --model {model} '{prompt}'",auto:"claude -p --permission-mode bypassPermissions --model {model} '{prompt}'"},
   {label:'Codex',provider:'codex',cmd:"codex --model {model} '{prompt}'",auto:"codex exec --model {model} '{prompt}'"},
-  {label:'Gemini',provider:'gemini',cmd:"gemini --model {model} '{prompt}'",auto:"gemini -y --model {model} -p '{prompt}'"},
-  {label:'Vibe',provider:'vibe',cmd:"vibe '{prompt}'",auto:"vibe -p --auto-approve '{prompt}'"},
-  {label:'Custom',provider:'custom',cmd:"/path/to/custom-cli {mode:-p|-i} '{prompt}'",auto:''},
   {label:'Clear to defaults',provider:'agy',cmd:'',auto:''}
  ]
 
@@ -1259,10 +1252,6 @@ async function openProject(id){
     {id:'agy',label:'AGY CLI (Google Antigravity)'},
     {id:'claude',label:'Claude Code CLI'},
     {id:'codex',label:'Codex CLI'},
-    {id:'gemini',label:'Gemini CLI'},
-    {id:'cursor',label:'Cursor CLI'},
-    {id:'vibe',label:'Mistral Vibe CLI'},
-    {id:'custom',label:'Custom Command'}
   ]
   for(const p of PROVIDERS){
     const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.label
