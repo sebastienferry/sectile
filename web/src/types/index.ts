@@ -222,6 +222,12 @@ export interface Project {
    */
   issueTypes?: string[]
   /**
+   * Vues optionnelles que le projet affiche, parmi `OPTIONAL_VIEWS`. Vide, la
+   * valeur par défaut, veut dire « aucune » : Triage, Roadmap et Timeline
+   * restent hors de la barre latérale tant que le projet ne les demande pas.
+   */
+  enabledViews?: OptionalViewMode[]
+  /**
    * Le projet tient dans un seul dépôt. La branche courante, son sélecteur et la
    * branche affichée sur une carte n'ont de sens que dans ce cas.
    */
@@ -508,6 +514,14 @@ export type Language = 'fr' | 'en'
 export type Density = 'compact' | 'standard' | 'comfortable'
 
 export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'skills' | 'team'
+
+/**
+ * Vues de planification qu'un projet active à la demande. Elles répondent à un
+ * besoin (trier ce qui n'est pas classé, poser les macros sur des horizons,
+ * lire le calendrier des sprints) qu'un projet suivant un seul flux de tickets
+ * n'a jamais, et une entrée vide dans la barre coûte plus qu'elle ne rapporte.
+ */
+export type OptionalViewMode = 'triage' | 'roadmap' | 'timeline'
 
 export type BoardGroupingMode = 'workflow' | 'status'
 

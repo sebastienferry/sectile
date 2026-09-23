@@ -31,8 +31,10 @@ export interface TranslationSchema {
     list: string
     roadmap: string
     timeline: string
+    triage: string
     roadmapTooltip: string
     timelineTooltip: string
+    triageTooltip: string
     activities: string
     sync: string
     filters: string
@@ -735,8 +737,10 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       list: 'Backlog',
       roadmap: 'Roadmap',
       timeline: 'Timeline',
+      triage: 'Triage',
       roadmapTooltip: 'Roadmap : NOW / NEXT / FUTURE',
       timelineTooltip: 'Timeline Sprints',
+      triageTooltip: 'Triage : tickets sans sprint, macro, équipe ou assigné',
       activities: 'Activités',
       sync: 'Synchro',
       filters: 'Filtres rapides',
@@ -1436,8 +1440,10 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       list: 'Backlog',
       roadmap: 'Roadmap',
       timeline: 'Timeline',
+      triage: 'Triage',
       roadmapTooltip: 'Roadmap: NOW / NEXT / FUTURE',
       timelineTooltip: 'Sprint Timeline',
+      triageTooltip: 'Triage: tickets with no sprint, macro, team or assignee',
       activities: 'Activities',
       sync: 'Sync',
       filters: 'Quick Filters',

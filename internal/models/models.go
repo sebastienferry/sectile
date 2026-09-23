@@ -136,6 +136,10 @@ type Project struct {
 	// its own type imports nothing without it: a feedback project may carry a
 	// single custom type, which the default list would match on no ticket.
 	IssueTypes []string `json:"issueTypes,omitempty"`
+	// EnabledViews names the optional workspace views this project shows, among
+	// OptionalViews. Empty, the default, means none of them: Triage, Roadmap
+	// and Timeline stay out of the sidebar until the project asks for them.
+	EnabledViews []string `json:"enabledViews,omitempty"`
 	// Sprints mirrors the board's sprints with their state, refreshed by the sync.
 	Sprints []TrackerSprint `json:"sprints,omitempty"`
 	// StageColumns assigns each agentic workflow stage to one or several of those
@@ -317,6 +321,8 @@ type CreateProjectRequest struct {
 	// IssueTypes names the tracker work item types to import. Empty means the
 	// default list.
 	IssueTypes []string `json:"issueTypes,omitempty"`
+	// EnabledViews names the optional workspace views to show. Empty means none.
+	EnabledViews []string `json:"enabledViews,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
 	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
@@ -373,6 +379,7 @@ type UpdateProjectRequest struct {
 	TrackerColumns              *[]TrackerColumn     `json:"trackerColumns,omitempty"`
 	Sprints                     *[]TrackerSprint     `json:"sprints,omitempty"`
 	IssueTypes                  *[]string            `json:"issueTypes,omitempty"`
+	EnabledViews                *[]string            `json:"enabledViews,omitempty"`
 	MonoRepo                    *bool                `json:"monoRepo,omitempty"`
 	StageColumns                *map[string][]string `json:"stageColumns,omitempty"`
 	GitRemoteUrl                *string              `json:"gitRemoteUrl,omitempty"`

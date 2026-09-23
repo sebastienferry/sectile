@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { translations } from '../src/locales/translations.ts'
 
 test('navigation roadmap and timeline views are localized in French and English', () => {
-  const views = ['roadmap', 'timeline']
+  const views = ['triage', 'roadmap', 'timeline']
 
   for (const view of views) {
     const frNav = translations.fr.nav[view]
@@ -24,4 +24,9 @@ test('navigation roadmap and timeline views are localized in French and English'
   assert.equal(translations.en.nav.timeline, 'Timeline')
   assert.equal(translations.fr.nav.timelineTooltip, 'Timeline Sprints')
   assert.equal(translations.en.nav.timelineTooltip, 'Sprint Timeline')
+
+  assert.equal(translations.fr.nav.triage, 'Triage')
+  assert.equal(translations.en.nav.triage, 'Triage')
+  assert.ok(translations.fr.nav.triageTooltip.startsWith('Triage'))
+  assert.ok(translations.en.nav.triageTooltip.startsWith('Triage'))
 })
