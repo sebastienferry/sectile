@@ -94,9 +94,9 @@ type BoardView struct {
 
 ## Task selection
 
-`GetTasksForUser` and `GetTaskFacetsForUser` gain a `viewID` input. To avoid a
-fifteenth positional argument, introduce a small struct for the new call site
-and keep the existing signatures as thin wrappers:
+`GetTasksInScope` and `GetTaskFacetsInScope` take a scope struct; the existing
+`GetTasksForUser` and `GetTaskFacetsForUser` signatures stay as thin wrappers,
+so no other caller changes:
 
 ```go
 type TaskScope struct {
@@ -112,25 +112,32 @@ When `ViewID` is set:
    `ErrBoardViewNotFound` (handler: 404).
 2. Scope: `project_id IN (?, ...)` over the view's ids **and** their slugs
    (same dual form as `projectScope`, since `tasks.project_id` may hold either).
-   An empty project list yields an empty result without querying.
+   An empty project list matches nothing (`1 = 0`).
 3. `projectId`, if also sent, is ignored in favour of the view.
-4. Labels: when the view has labels, filter the scanned rows in Go:
-   keep a task when any `strings.ToLower(taskLabel)` is in the set of lowered
-   view labels. The rows are already unmarshalled by the existing scan loop, and
-   the list has no SQL pagination, so filtering after the scan changes no
-   ordering or paging behaviour.
+4. Labels: an SQL condition, `LOWER(labels) LIKE ? ESCAPE '!'` per view label,
+   OR-ed. `tasks.labels` is a JSON array written by `json.Marshal`, so a whole
+   label is exactly its quoted JSON token (`"backend"` is in
+   `["Backend","ops"]`, not in `["backend-api"]`); LIKE wildcards in a label are
+   escaped. The condition is kept apart from the project condition because the
+   macros facet query shares the project column but has no labels.
 5. Every other filter (`q`, `label`, `sprint`, ... ) is applied as today.
-6. Facets use the same scope and the same label predicate, so the counters and
+6. Facets use the same scope and the same label condition, so the counters and
    dropdowns describe the view, not the whole board.
+
+Revised during implementation: the plan first filtered the scanned rows in Go.
+That works for the list, but the facets are a dozen SQL queries sharing one
+scope condition, and a Go filter would have meant rewriting each of them or
+counting from a second scan. Expressing the view as a condition keeps one code
+path for both. Known limit: SQLite's `LOWER` folds ASCII only (recorded in
+ADR 0025).
 
 Rejected for step 4:
 
 - `labels LIKE '%x%'`, as the existing `label` filter does: substring semantics,
   which FR-011 excludes (`backend` would match `backend-api`).
 - An SQL JSON predicate (`json_each` on SQLite, `jsonb_array_elements_text` on
-  PostgreSQL): exact, but two dialect variants plus a cast of a TEXT column, for
-  no measurable gain at board sizes. Revisit only if task lists become paginated
-  in SQL.
+  PostgreSQL): exact, but two dialect variants plus a cast of a TEXT column.
+- Filtering in Go after the scan: see above.
 
 ## HTTP API
 

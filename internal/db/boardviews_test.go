@@ -324,3 +324,43 @@ func TestDeletingAProjectRemovesItFromViews(t *testing.T) {
 		t.Errorf("a view without project shows %v, want nothing", tasks)
 	}
 }
+
+// The rules the board applies everywhere keep applying inside a view, and the
+// existing filters narrow it: containers stay hidden unless asked for, and the
+// substring label filter combines with the view's whole-label rule.
+func TestBoardViewKeepsTheBoardRules(t *testing.T) {
+	f := newViewFixture(t)
+	if err := f.db.ImportOrUpdateTasks([]models.Task{{
+		ProjectID: f.alpha, Key: "#99", Title: "platform epic", Labels: []string{"platform"}, IssueType: "Epic",
+		Status: models.StatusToClarify, Priority: models.PriorityMedium,
+	}}); err != nil {
+		t.Fatalf("ImportOrUpdateTasks: %v", err)
+	}
+	view := f.create(t, "u1", "Platform", []string{f.alpha, f.beta}, []string{"platform", "ui"})
+	scope := TaskScope{UserID: "u1", ViewID: view.ID}
+
+	titles := func(label string, issueTypes []string) []string {
+		t.Helper()
+		tasks, err := f.db.GetTasksInScope(scope, "", "", "", label, "", "", "", "", nil, issueTypes, false)
+		if err != nil {
+			t.Fatalf("GetTasksInScope: %v", err)
+		}
+		out := []string{}
+		for _, task := range tasks {
+			out = append(out, task.Title+"@"+task.ProjectID)
+		}
+		slices.Sort(out)
+		return out
+	}
+
+	if got := titles("", nil); slices.Contains(got, "platform epic@"+f.alpha) {
+		t.Errorf("a container shows by default: %v", got)
+	}
+	if got := titles("", []string{"Epic"}); !slices.Equal(got, []string{"platform epic@" + f.alpha}) {
+		t.Errorf("asking for epics = %v, want the epic only", got)
+	}
+	want := []string{"alpha ui@" + f.alpha}
+	if got := titles("u", nil); !slices.Equal(got, want) {
+		t.Errorf("label filter inside the view = %v, want %v", got, want)
+	}
+}

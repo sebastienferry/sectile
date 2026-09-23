@@ -34,6 +34,8 @@ import {
   Shield,
   Search,
   Star,
+  Bookmark,
+  Pencil,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useClickOutside } from '../hooks/useClickOutside'
@@ -152,6 +154,10 @@ export const Sidebar: React.FC = () => {
     boardGrouping,
     trackerStatusFilters,
     setTrackerStatusFilters,
+    boardViews,
+    selectedViewId,
+    openBoardView,
+    openBoardViewModal,
     t,
   } = useApp()
 
@@ -804,6 +810,51 @@ export const Sidebar: React.FC = () => {
                 )}
               </button>
             )}
+
+            {/* Saved views (#387): personal selections of projects and labels
+                over the all-projects board. */}
+            {boardViews.length > 0 && <div className="my-1 border-t border-[var(--border-color)]" />}
+            {boardViews.map(view => {
+              const isActive = selectedViewId === view.id
+              return (
+                <div key={view.id} className="group relative" data-board-view={view.id}>
+                  <button
+                    type="button"
+                    onClick={() => openBoardView(view.id)}
+                    aria-current={isActive ? 'page' : undefined}
+                    className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                      isActive
+                        ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
+                        : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                    }`}
+                    title={view.name}
+                  >
+                    <Bookmark size={15} className="shrink-0 text-sky-400" />
+                    {!sidebarCollapsed && <span className="truncate pr-5">{view.name}</span>}
+                  </button>
+                  {!sidebarCollapsed && (
+                    <button
+                      type="button"
+                      onClick={() => openBoardViewModal(view)}
+                      className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] ${isActive ? "opacity-100" : "opacity-0"} group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer`}
+                      title={t.boardViews.editView}
+                      aria-label={`${t.boardViews.editView} ${view.name}`}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+            <button
+              type="button"
+              onClick={() => openBoardViewModal(null)}
+              className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-all cursor-pointer"
+              title={t.boardViews.newView}
+            >
+              <Plus size={15} className="shrink-0" />
+              {!sidebarCollapsed && <span className="truncate">{t.boardViews.newView}</span>}
+            </button>
           </div>
         </SidebarSection>
 

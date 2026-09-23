@@ -74,6 +74,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     openCloneModal,
     deleteTask,
     projects,
+    selectedViewId,
     settings,
     parentFilter,
     setParentFilter,
@@ -152,6 +153,17 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   }
 
   const taskProject = projects.find(p => p.id === task.projectId)
+  // A saved view spans projects, and one remote story synchronised by two of
+  // them shows as two cards: the project name is what tells them apart (#387).
+  const projectBadge = selectedViewId && taskProject ? (
+    <span
+      data-card-project={taskProject.id}
+      title={taskProject.name}
+      className="shrink-0 max-w-[8rem] truncate px-1.5 py-px rounded text-[9px] font-semibold text-sky-300 bg-sky-400/10 border border-sky-400/30"
+    >
+      {taskProject.name}
+    </span>
+  ) : null
   const targetGithubRepo = (taskProject?.githubRepo || settings.githubRepo || '').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '')
   const externalUrl = task.externalUrl || (
     task.source === 'github' && targetGithubRepo && task.key?.startsWith('#')
@@ -789,6 +801,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
               {task.key}
             </a>
           ) : <span className="shrink-0 whitespace-nowrap text-[10px] font-mono font-bold text-[var(--accent-color)]">{task.key}</span>}
+          {projectBadge}
           <button type="button" title={task.title} onClick={e => { e.stopPropagation(); openOrToggle(e) }} className="min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-[var(--text-primary)] leading-none cursor-pointer focus-visible:outline-2 focus-visible:outline-[var(--accent-color)]">
             {task.title}
           </button>
@@ -841,6 +854,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         </span>
 
         <div className="flex items-center gap-2 shrink-0">
+          {projectBadge}
           {getPriorityBadge(task.priority)}
           {selectionBox}
         </div>

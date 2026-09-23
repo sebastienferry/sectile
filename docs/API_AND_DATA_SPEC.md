@@ -125,6 +125,21 @@ CREATE TABLE IF NOT EXISTS settings (
     detail_mode TEXT DEFAULT 'panel',
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Saved board views (migration 3): a personal selection of projects and labels
+-- laid over the all-projects board. Both lists are JSON arrays; name_key is the
+-- trimmed, lower-cased name that keeps names unique per owner.
+CREATE TABLE IF NOT EXISTS board_views (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    project_ids TEXT NOT NULL DEFAULT '[]',
+    labels TEXT NOT NULL DEFAULT '[]',
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user_id, name_key);
 ```
 
 ---
@@ -135,7 +150,8 @@ CREATE TABLE IF NOT EXISTS settings (
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/tasks` | Returns array of all tasks. Filters: `projectId`, `q`, `status`, `priority`, `label`, `sprint`, `team`, `assignee` (`__unassigned__` for the work items nobody owns), `pinned=1`. |
+| `GET` | `/api/tasks` | Returns array of all tasks. Filters: `projectId`, `q`, `status`, `priority`, `label`, `sprint`, `team`, `assignee` (`__unassigned__` for the work items nobody owns), `pinned=1`, `viewId` (one of the caller's saved views, see 2.3.0.2: it replaces `projectId`, and the other filters narrow it; `404` when the view is not the caller's). |
+| `GET` | `/api/tasks/facets` | Filter values and counts of the board. Scope: `projectId`, or `viewId` as above. |
 | `POST` | `/api/tasks` | Creates a new task bound strictly to `projectId`. |
 | `GET` | `/api/tasks/{id}` | Fetches task detail with its activities. |
 | `PUT` | `/api/tasks/{id}` | Updates task fields (status, title, description, priority, etc.). |
@@ -225,6 +241,26 @@ Blocking keeps everything the account owns and only closes the door: the open
 sessions are revoked at once, the workstation keys stop authenticating, and the
 next sign-in answers `403`. Unblocking gives all three back. Deleting is the
 irreversible one, and is why the two are separate actions rather than a switch.
+
+### 2.3.0.2 Saved Board Views API
+
+A saved view is a named selection of projects and labels over the
+all-projects board, and belongs to the account that created it. A ticket
+belongs to a view when it sits in one of its projects and carries **at least
+one** of its labels, compared whole and regardless of case (`Backend` matches
+`backend`, not `backend-api`). A view without labels selects every ticket of
+its projects. Another account's view answers exactly as a missing one.
+
+| Method | Path | Body | Description |
+| :--- | :--- | :--- | :--- |
+| `GET` | `/api/me/board-views` | (none) | The caller's views, in creation order. |
+| `POST` | `/api/me/board-views` | `{name, projectIds, labels}` | Creates a view (`201`). `400` for an empty name, no project or an unknown project; `409` when another of the caller's views has the same name, compared trimmed and case-insensitively. Labels are trimmed and deduplicated regardless of case. |
+| `GET` | `/api/me/board-views/{id}` | (none) | One view, or `404`. |
+| `PATCH` | `/api/me/board-views/{id}` | any of `{name, projectIds, labels}` | Changes the fields sent; same errors as the creation. |
+| `DELETE` | `/api/me/board-views/{id}` | (none) | Deletes the view (`204`); no ticket, label or project changes. |
+
+Deleting a project removes it from every view that selected it; a view left
+without project is kept and selects nothing until it is edited.
 
 ### 2.3.1 Personal Tracker Credentials API
 

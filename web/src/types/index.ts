@@ -180,6 +180,26 @@ export interface TrackerBoard {
 
 export type TtyMode = 'integrated' | 'external'
 
+/**
+ * A saved board view (#387): a personal, named selection of projects and
+ * labels over the all-projects board. The server resolves it; the interface
+ * only sends its id.
+ */
+export interface BoardView {
+  id: string
+  name: string
+  projectIds: string[]
+  labels: string[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BoardViewPayload {
+  name?: string
+  projectIds?: string[]
+  labels?: string[]
+}
+
 export interface Project {
   id: string
   name: string
