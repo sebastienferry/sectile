@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
-import { Check, Copy, Cpu, Laptop, Plus, RefreshCw, Trash2 } from 'lucide-react'
-import { Antigravity, Claude, OpenAI, Cursor } from './icons'
+import { Check, Copy, Laptop, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { DEFAULT_KEY_TTL_DAYS, describeExpiry, expiryState, type ApiKey } from '../lib/apiKeys'
 
@@ -301,26 +300,19 @@ export function WorkstationsPanel({
   )
 }
 
-/**
- * Section 2: Direct MCP Integration Panel
- * For connecting AI provider desktop apps (Cursor, Claude Desktop, Antigravity, etc.)
- * directly to Sectile's MCP endpoint without a local agent daemon.
- */
-export function DirectMcpPanel({
+/** API key issuance, embedded in the single MCP setup view. */
+export function MCPApiKeyForm({
   onKeyCreated,
 }: {
   onKeyCreated?: () => void
 }) {
   const { t } = useApp()
-  const serverOrigin = window.location.origin
   const [label, setLabel] = useState('')
   const [ttlDays, setTtlDays] = useState<number>(DEFAULT_KEY_TTL_DAYS)
   const [issued, setIssued] = useState<IssuedKey | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [copiedKey, setCopiedKey] = useState(false)
-  const [copiedConfig, setCopiedConfig] = useState(false)
-  const [activeConfigTab, setActiveConfigTab] = useState<'claude' | 'agy' | 'codex' | 'cursor'>('claude')
 
   async function createKey(e: React.FormEvent) {
     e.preventDefault()
@@ -344,101 +336,20 @@ export function DirectMcpPanel({
     }
   }
 
-  async function copyToClipboard(val: string, type: 'key' | 'config') {
+  async function copyToClipboard(val: string) {
     try {
       await navigator.clipboard.writeText(val)
-      if (type === 'key') {
-        setCopiedKey(true)
-        setTimeout(() => setCopiedKey(false), 2000)
-      } else {
-        setCopiedConfig(true)
-        setTimeout(() => setCopiedConfig(false), 2000)
-      }
+      setCopiedKey(true)
+      setTimeout(() => setCopiedKey(false), 2000)
     } catch {
       setStatus('Copy unavailable. Please copy manually.')
     }
   }
 
-  const effectiveToken = issued ? issued.token : '<YOUR_API_KEY>'
-  const mcpEndpoint = `${serverOrigin}/mcp`
-
-  const claudeConfigJson = JSON.stringify(
-    {
-      mcpServers: {
-        sectile: {
-          type: 'http',
-          url: mcpEndpoint,
-          headers: {
-            Authorization: `Bearer ${effectiveToken}`,
-          },
-        },
-      },
-    },
-    null,
-    2
-  )
-
-  const agyConfigJson = JSON.stringify(
-    {
-      mcpServers: {
-        sectile: {
-          url: mcpEndpoint,
-          headers: {
-            Authorization: `Bearer ${effectiveToken}`,
-          },
-        },
-      },
-    },
-    null,
-    2
-  )
-
-  const codexConfigToml = `[mcp_servers.sectile]
-url = "${mcpEndpoint}"
-headers = { Authorization = "Bearer ${effectiveToken}" }`
-
-  const cursorConfigJson = JSON.stringify(
-    {
-      mcpServers: {
-        sectile: {
-          url: mcpEndpoint,
-          headers: {
-            Authorization: `Bearer ${effectiveToken}`,
-          },
-        },
-      },
-    },
-    null,
-    2
-  )
-
-  const displayedConfig =
-    activeConfigTab === 'claude'
-      ? claudeConfigJson
-      : activeConfigTab === 'agy'
-      ? agyConfigJson
-      : activeConfigTab === 'codex'
-      ? codexConfigToml
-      : cursorConfigJson
-
   return (
     <section
       className="p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)] space-y-4"
-      aria-labelledby="direct-mcp-title"
     >
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <Cpu size={16} className="text-purple-400" />
-        <h4 id="direct-mcp-title" className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
-          {t.profileModal.workstations?.directMcpTitle || 'Direct MCP Integration'}
-        </h4>
-      </div>
-
-      <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed">
-        {t.profileModal.workstations?.directMcpDesc ||
-          'Connect AI desktop applications (Cursor, Claude Desktop, Antigravity, etc.) directly to Sectile\'s MCP endpoint (/mcp) via an API key without running a local agent daemon.'}
-      </p>
-
       {/* API Key Generation Form */}
       <form onSubmit={createKey} className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
         <div className="sm:col-span-6 space-y-1">
@@ -505,7 +416,7 @@ headers = { Authorization = "Bearer ${effectiveToken}" }`
             </pre>
             <button
               type="button"
-              onClick={() => copyToClipboard(issued.token, 'key')}
+              onClick={() => copyToClipboard(issued.token)}
               className="px-3 py-2 rounded-lg text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-secondary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
             >
               {copiedKey ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
@@ -514,81 +425,6 @@ headers = { Authorization = "Bearer ${effectiveToken}" }`
           </div>
         </div>
       )}
-
-      {/* Desktop App Configuration Presets */}
-      <div className="space-y-2 pt-1">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            {t.profileModal.workstations?.desktopConfigsTitle || 'Desktop App Configurations'}
-          </span>
-          <div className="flex items-center gap-1 bg-[var(--bg-secondary)] p-0.5 rounded-lg border border-[var(--border-color)] overflow-x-auto">
-            <button
-              type="button"
-              onClick={() => setActiveConfigTab('claude')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10.5px] font-medium transition-colors cursor-pointer shrink-0 ${
-                activeConfigTab === 'claude'
-                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-semibold shadow-xs'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              <Claude size={12} className="shrink-0" />
-              <span>{t.profileModal.workstations?.tabClaude || 'Claude Desktop'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveConfigTab('agy')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10.5px] font-medium transition-colors cursor-pointer shrink-0 ${
-                activeConfigTab === 'agy'
-                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-semibold shadow-xs'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              <Antigravity size={12} className="shrink-0" />
-              <span>{t.profileModal.workstations?.tabAgy || 'Antigravity'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveConfigTab('codex')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10.5px] font-medium transition-colors cursor-pointer shrink-0 ${
-                activeConfigTab === 'codex'
-                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-semibold shadow-xs'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              <OpenAI size={12} className="shrink-0" />
-              <span>{t.profileModal.workstations?.tabCodex || 'Codex / ChatGPT'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveConfigTab('cursor')}
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10.5px] font-medium transition-colors cursor-pointer shrink-0 ${
-                activeConfigTab === 'cursor'
-                  ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-semibold shadow-xs'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              <Cursor size={12} className="shrink-0" />
-              <span>{t.profileModal.workstations?.tabCursor || 'Cursor'}</span>
-            </button>
-          </div>
-        </div>
-
-        <div className="relative">
-          <pre className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-color)] font-mono text-[11px] text-[var(--text-primary)] select-text overflow-x-auto">
-            <code>{displayedConfig}</code>
-          </pre>
-          <div className="absolute top-2.5 right-2.5">
-            <button
-              type="button"
-              onClick={() => copyToClipboard(displayedConfig, 'config')}
-              className="px-2.5 py-1 rounded-lg text-[10.5px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)] border border-[var(--border-color)] transition-all cursor-pointer flex items-center gap-1 shadow-xs"
-            >
-              {copiedConfig ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-              <span>{copiedConfig ? 'Copied' : (t.profileModal.workstations?.copyConfigBtn || 'Copy Config')}</span>
-            </button>
-          </div>
-        </div>
-      </div>
 
       {status && (
         <p role="status" className="text-[11px] text-purple-400 font-medium">
@@ -611,7 +447,7 @@ export function ApiKeysPanel() {
         refreshTrigger={devicesVersion}
         onDeviceChange={() => setDevicesVersion(v => v + 1)}
       />
-      <DirectMcpPanel onKeyCreated={() => setDevicesVersion(v => v + 1)} />
+      <MCPApiKeyForm onKeyCreated={() => setDevicesVersion(v => v + 1)} />
     </div>
   )
 }

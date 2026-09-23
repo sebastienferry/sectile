@@ -87,6 +87,51 @@ func TestDesktopConsoleAuthenticationAndReplay(t *testing.T) {
 	}
 }
 
+func TestStopRecoversRunWhosePTYAlreadyClosed(t *testing.T) {
+	run := &controlledRun{
+		desktop: desktopRun{ID: "orphan", SessionID: "missing", Status: "running"},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{
+		terminal: terminalChoice{manager: terminal.NewManager()},
+		loopback: loopbackServer{desktopToken: "private"},
+		queue:    runQueue{runs: map[string]*controlledRun{"orphan": run}},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/desktop/stop?id=orphan", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	rec := httptest.NewRecorder()
+	d.desktopHandler(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if run.desktop.Status != "canceled" {
+		t.Fatalf("status = %q, want canceled", run.desktop.Status)
+	}
+	select {
+	case <-run.exited:
+	default:
+		t.Fatal("orphaned run was not closed")
+	}
+}
+
+func TestStopDoesNotRecoverHeadlessRunWithoutTerminal(t *testing.T) {
+	run := &controlledRun{
+		desktop: desktopRun{ID: "headless", Status: "running", Headless: true},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{terminal: terminalChoice{manager: terminal.NewManager()}, queue: runQueue{runs: map[string]*controlledRun{"headless": run}}}
+	if d.recoverOrphanedPTYRun("headless", run) {
+		t.Fatal("headless run was mistaken for a missing PTY")
+	}
+	select {
+	case <-run.exited:
+		t.Fatal("headless run was closed")
+	default:
+	}
+}
+
 func TestDesktopRestartRequiresConfirmedExit(t *testing.T) {
 	restarted := false
 	run := &controlledRun{exited: make(chan struct{})}
@@ -856,5 +901,48 @@ func TestDesktopTasksTerminalExternal(t *testing.T) {
 	runID := res["runId"].(string)
 	if launchedApp != "ghostty" || launchedSess != runID {
 		t.Fatalf("unexpected launch: app=%s sess=%s wantSess=%s", launchedApp, launchedSess, runID)
+	}
+}
+
+func TestAdmitProjectRunValidatesAutonomousPreflight(t *testing.T) {
+	d, config := disconnectFixture(t)
+	config.AIProvider = "agy"
+	config.AICommandTemplate = ""
+	config.AICommandTemplateAutonomous = ""
+
+	_ = agentconfig.WriteSettings(agentconfig.Overrides{
+		Projects:   map[string]string{"p": d.repoRoot},
+		AIProvider: "agy",
+	})
+
+	payload := agentconfig.Dispatch{
+		RunID:   "run-auto-fail",
+		SkillID: "implement",
+		Mode:    models.SkillModeAutonomous,
+	}
+	run, err := d.admitProjectRun(context.Background(), "task-1", payload, config)
+	if err == nil {
+		t.Fatalf("expected autonomous execution to be rejected for provider %q", config.AIProvider)
+	}
+	if run != nil {
+		t.Fatalf("expected run to be nil on rejection, got %+v", run)
+	}
+	if !strings.Contains(err.Error(), "headless mode") && !strings.Contains(err.Error(), "execution mode") {
+		t.Fatalf("expected headless capability error, got: %v", err)
+	}
+
+	// When provider supports autonomous mode (e.g. claude), admission succeeds
+	_ = agentconfig.WriteSettings(agentconfig.Overrides{
+		Projects:   map[string]string{"p": d.repoRoot},
+		AIProvider: "claude",
+	})
+	config.AIProvider = "claude"
+	payload.RunID = "run-auto-pass"
+	runPass, err := d.admitProjectRun(context.Background(), "task-1", payload, config)
+	if err != nil {
+		t.Fatalf("expected claude autonomous run to be admitted: %v", err)
+	}
+	if runPass == nil {
+		t.Fatal("expected run to be non-nil on admission")
 	}
 }
