@@ -67,3 +67,41 @@ func TestUpdateProjectSavesBothCommands(t *testing.T) {
 		t.Fatalf("clearing both commands did not take effect: interactive=%q autonomous=%q", cleared.AICommandTemplate, cleared.AICommandTemplateAutonomous)
 	}
 }
+
+func TestUpdateProjectProviderClearAndPreserve(t *testing.T) {
+	database, err := NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Provider", AIProvider: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	name := "Provider renamed"
+	kept, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{Name: &name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if kept.AIProvider != "claude" {
+		t.Fatalf("an omitted provider changed the stored value: %q", kept.AIProvider)
+	}
+
+	empty := ""
+	cleared, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{AIProvider: &empty})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.AIProvider != "" {
+		t.Fatalf("an explicit empty provider did not clear the override: %q", cleared.AIProvider)
+	}
+	reread, err := database.GetProjectByID(project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reread.AIProvider != "" {
+		t.Fatalf("the cleared provider reappeared after reload: %q", reread.AIProvider)
+	}
+}

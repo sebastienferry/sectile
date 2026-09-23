@@ -1,3 +1,5 @@
+import { BatchPickupModal } from '../components/BatchPickupModal'
+import { buildBatchPickupPrompt } from '../lib/batchPickup'
 import { sameTask, tasksInProject } from '../lib/taskIdentity'
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import {
@@ -25,6 +27,7 @@ import type {
   CliStatus,
   TaskSource,
   Project,
+  ProjectSavePayload,
   TrackerBoard,
   TaskComment,
   MacroMeta,
@@ -58,8 +61,8 @@ interface AppContextType {
   selectedProjectId: string | 'all'
   setSelectedProjectId: (id: string | 'all') => void
   currentProject: Project | null
-  createProject: (data: Partial<Project>) => Promise<Project | null>
-  updateProject: (id: string, updates: Partial<Project>) => Promise<Project | null>
+  createProject: (data: ProjectSavePayload) => Promise<Project | null>
+  updateProject: (id: string, updates: ProjectSavePayload) => Promise<Project | null>
   deleteProject: (id: string) => Promise<boolean>
   toggleProjectBookmark: (projectId: string) => Promise<boolean>
   fetchProjects: () => Promise<void>
@@ -234,6 +237,11 @@ interface AppContextType {
    * d'échelle se voit à l'écran, l'annoncer à chaque clic ne fait que du bruit.
    */
   updateSettings: (newSettings: Partial<UserSettings>, options?: { silent?: boolean }) => Promise<void>
+  /**
+   * Re-reads `/api/settings`. `userName` and `userEmail` are projections of the
+   * account, so a change made through `/api/me` only reaches the chrome this way.
+   */
+  reloadSettings: () => Promise<void>
   t: TranslationSchema
   toasts: ToastMessage[]
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
@@ -347,7 +355,7 @@ interface AppContextType {
   unassignedFilterValue: string
 
 
-  startBatchPickup: (taskIds: string[]) => Promise<void>
+  startBatchPickup: (taskIds: string[]) => Promise<boolean>
 }
 
 /**
@@ -365,7 +373,7 @@ const defaultSettings: UserSettings = {
   uiScale: 100,
   defaultView: 'board',
   detailMode: 'panel',
-  userName: 'Developer',
+  userName: '',
   userEmail: 'dev@example.com',
   userAvatar: '',
   aiProvider: 'agy',
@@ -406,6 +414,9 @@ export const UI_SCALE_OPTIONS = [90, 100, 112, 125]
 const UNASSIGNED_FILTER_VALUE = '__unassigned__'
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [batchPickupTasks, setBatchPickupTasks] = useState<Task[] | null>(null)
+  const batchPickupResult = useRef<((accepted: boolean) => void) | null>(null)
+
   const [tasks, setTasks] = useState<Task[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [cliStatuses, setCliStatuses] = useState<CliStatus[]>([])
@@ -1717,7 +1728,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const createProject = async (data: Partial<Project>): Promise<Project | null> => {
+  const createProject = async (data: ProjectSavePayload): Promise<Project | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects`, {
         method: 'POST',
@@ -1747,7 +1758,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
 
-  const updateProject = async (id: string, updates: Partial<Project>): Promise<Project | null> => {
+  const updateProject = async (id: string, updates: ProjectSavePayload): Promise<Project | null> => {
     try {
       const res = await fetch(`${API_BASE}/projects/${encodeURIComponent(id)}`, {
         method: 'PUT',
@@ -3239,14 +3250,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [teams, teamFilter, taskFacets.assignees, tasks])
 
 
-  const startBatchPickup = async (taskIds: string[]): Promise<void> => {
-    const batch = tasks.filter(task => taskIds.includes(task.id))
-    if (!batch.length) return
+  // Callers keep their selection while the shared dialog collects the order
+  // and workspace name. Only a confirmed, accepted launch resolves true.
+  const finishBatchPickup = (accepted: boolean) => {
+    batchPickupResult.current?.(accepted)
+    batchPickupResult.current = null
+    setBatchPickupTasks(null)
+  }
+
+  const startBatchPickup = async (taskIds: string[]): Promise<boolean> => {
+    if (batchPickupResult.current) return false
+    const ids = [...new Set(taskIds)]
+    const batch = ids.map(id => tasks.find(task => task.id === id)).filter((task): task is Task => Boolean(task))
+    if (!batch.length || batch.length !== ids.length) return false
     if (batch.some(task => task.projectId !== batch[0].projectId)) {
-      addToast({type:'error',title:'Select tasks from one project for a batch'})
-      return
+      addToast({type:'error',title:'Sélectionnez des tâches d’un seul projet pour le lot'})
+      return false
     }
-    await runSkill(batch[0].id,'pickup_issues','/pickup-issues '+batch.map(task=>task.id).join(' '))
+    return new Promise<boolean>(resolve => {
+      batchPickupResult.current = resolve
+      setBatchPickupTasks(batch)
+    })
+  }
+
+  const confirmBatchPickup = async (taskIds: string[], worktreeName: string): Promise<boolean> => {
+    // Resolve against current data: a deleted or migrated ticket must not be
+    // dispatched under the stale project shown when the dialog opened.
+    const batch = taskIds.map(id => tasks.find(task => task.id === id))
+    if (!batchPickupTasks || batch.length !== batchPickupTasks.length ||
+        new Set(taskIds).size !== taskIds.length ||
+        batch.some(task => !task || task.projectId !== batchPickupTasks[0].projectId) ||
+        taskIds.some(id => !batchPickupTasks.some(task => task.id === id))) return false
+    const activity = await runSkill(taskIds[0], 'pickup_issues', buildBatchPickupPrompt(taskIds, worktreeName))
+    if (!activity) return false
+    finishBatchPickup(true)
+    return true
   }
 
   // Global Keyboard Shortcuts
@@ -3437,6 +3475,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsAdminOpen,
         settings,
         updateSettings,
+        reloadSettings: fetchSettings,
         t,
         toasts,
         addToast,
@@ -3539,6 +3578,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }}
     >
       {children}
+      {batchPickupTasks && <BatchPickupModal
+        tasks={batchPickupTasks}
+        labels={t.batchDialog}
+        onCancel={() => finishBatchPickup(false)}
+        onConfirm={confirmBatchPickup}
+      />}
     </AppContext.Provider>
   )
 }
@@ -3554,4 +3599,3 @@ export const useApp = () => {
 export const useOptionalApp = () => {
   return useContext(AppContext)
 }
-

@@ -4,7 +4,7 @@ bin/
 /server
 
 # Node / Web Dependencies
-node_modules/
+node_modules
 /dist/
 web/dist/
 build/

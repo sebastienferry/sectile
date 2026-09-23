@@ -54,6 +54,7 @@ export const SprintTimelineView: React.FC = () => {
     setSelectedTask,
     addToast,
     startBatchPickup,
+    t,
   } = useApp()
 
   // Project sprints (or defaults if none yet)
@@ -790,11 +791,11 @@ export const SprintTimelineView: React.FC = () => {
             <button
               type="button"
               onClick={() => startBatchPickup(selectedTaskIds)}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 cursor-pointer shadow-xs"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer shadow-xs"
               title="Run the selected tasks on the local agent"
             >
-              <Sparkles size={13} className="text-purple-400 animate-pulse" />
-              <span>Lancer le lot (Git tree + Auto-pilot)</span>
+              <Sparkles size={13} />
+              <span>{t.batchLaunch}</span>
             </button>
 
             <button
@@ -1507,11 +1508,11 @@ export const SprintTimelineView: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => startBatchPickup(selectedBacklogList.map(t => t.id))}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-bold text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 cursor-pointer shadow-xs shrink-0"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer shadow-xs shrink-0"
                   title="Run the backlog tasks on the local agent"
                 >
-                  <Sparkles size={12} className="text-purple-400 animate-pulse" />
-                  <span>Auto-pilot</span>
+                  <Sparkles size={12} />
+                  <span>{t.batchLaunch}</span>
                 </button>
               </div>
             )}

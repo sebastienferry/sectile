@@ -198,3 +198,52 @@ func TestListDeviceCredentialsOmitsRevoked(t *testing.T) {
 		t.Fatalf("listed %d workstations, want none", len(devices))
 	}
 }
+
+// The chrome names a person through User.Name(), so the rungs of that chain are
+// what keeps an account from reading as anonymous (#348). DisplayName arrives
+// already resolved by userColumns, which coalesces the chosen name over the one
+// the sign-in supplied.
+func TestUserNameFallsBackToTheAddressThenTheID(t *testing.T) {
+	cases := []struct {
+		name string
+		user User
+		want string
+	}{
+		{"a chosen or provider name wins", User{ID: "u1", Email: "bob@example.com", DisplayName: "Bob Martin"}, "Bob Martin"},
+		{"a blank name falls back to the address", User{ID: "u2", Email: "bob@example.com", DisplayName: ""}, "bob@example.com"},
+		{"a whitespace-only name is blank", User{ID: "u3", Email: "bob@example.com", DisplayName: "   "}, "bob@example.com"},
+		{"no name and no address falls back to the id", User{ID: "u4"}, "u4"},
+		{"a whitespace-only address is blank too", User{ID: "u5", Email: " "}, "u5"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.user.Name(); got != c.want {
+				t.Fatalf("Name() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// An account renamed through the account tab is read back under that name, and
+// one that never chose a name reads under the address the sign-in carried.
+func TestStoredUserResolvesTheNameTheChromeShows(t *testing.T) {
+	database := identityDB(t)
+
+	user, err := database.SignInLocal("bob@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := user.Name(); got != "bob@example.com" {
+		t.Fatalf("a local sign-in with no chosen name = %q, want the address", got)
+	}
+	if _, err := database.SetDisplayName(user.ID, "Bob Martin"); err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := database.GetUser(user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := renamed.Name(); got != "Bob Martin" {
+		t.Fatalf("after the rename = %q, want the chosen name", got)
+	}
+}

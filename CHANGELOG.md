@@ -15,6 +15,49 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
+
+### Changed
+
+- Issue details show description and technical context directly below the title, alongside metadata, with pull requests below; narrow views keep the content first.
+
+- Removed the permanent instructional hint below the desktop project list.
+
+- Consolidated MCP setup into one per-engine configuration with three choices:
+  remote HTTP (default), local HTTP proxy, and STDIO. The engine selectors
+  offer Antigravity, Claude and Codex using the existing compact controls. API-key creation now lives in the same web
+  view, and desktop shows only the selected connection configuration.
+
+### Added
+
+- Initialize a selected AI provider from desktop project Deployment, installing current server skills and configuring MCP with separate results and repeatable setup. (#389)
+
+- **Launch a batch from the Backlog.** The compact "Batch" action ("Lot" in
+  French) in selection bars can launch selected
+  `new` or `clarified` tasks from one project. A shared preparation dialog lets
+  you reorder the tickets and name the dedicated worktree before launching.
+  Cancellation preserves the selection, and a refused launch keeps the chosen
+  order and worktree name available for retry.
+
+- **Select several stories on the board and launch them as one batch.** Cards
+  still at the `new` or `clarified` stage show a checkbox on hover, and
+  Ctrl/Cmd+click toggles them. A bar then launches `/pickup-issues` on the
+  selection in board order, as the Curation, Triage and Sprint Timeline views
+  already could.
+
+- **MCP connection settings per AI engine.** Web and desktop settings explain
+  Streamable HTTP and STDIO with copyable provider configurations. Desktop can
+  update local provider files for remote authenticated access or an explicitly
+  enabled local proxy without client credentials, preserving other MCP servers.
+
+- **Agents CLI workstation settings and local inheritance (#359).** The desktop
+  app now includes an **Agents CLI** category in its settings dialog to
+  configure workstation-wide CLI defaults (AI provider, AI model, and
+  interactive/autonomous command templates), saved in `~/.config/sectile/settings.json`.
+  Desktop project settings inherit from these workstation defaults, and CLI command
+  templates are removed from the central Web UI. Autonomous execution preflight
+  validation is delegated to the local agent daemon.
+
 - **Ticket creator and author attribution.** Synchronisation with GitHub and
   Jira captures the original issue creator and avatar, and local task creation
   attributes the task to the authenticated user. Authorship is displayed in the
@@ -51,6 +94,10 @@ test fixtures or internal plumbing.
   classification made here.
 
 ### Changed
+
+- Desktop console cleanup uses an unboxed broom icon, and task toolbar icons no longer have button frames. Icon controls show visible tooltips on hover and keyboard focus, including disabled actions.
+
+- Desktop settings use a larger dialog, open on User profile, and list Agent connection, AI Engine CLI, Agent logs, and Changelog in that order, with Changelog at the bottom of the sidebar. The User profile no longer shows the Credential row, and Agent connection shows a green or orange dot beside the server link status, plus Start, Stop, and Restart controls beside the local agent.
 
 - **The background synchronisation asks the tracker what moved, instead of
   re-reading every ticket one by one.** A pass used to queue one read per
@@ -95,13 +142,56 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
-- **Editing a project saves its autonomous CLI command.** Only the interactive
-  command was kept when a project's settings were saved; the autonomous
-  (headless) one stayed at whatever the project was created with, in the web
-  interface and in the desktop app that inherits it. Emptying either command, or
-  turning the custom agent off, now clears it instead of silently keeping the
-  old value. A command lost by an earlier edit has to be entered once more.
-  (#249)
+- **Turning off a project's custom agent now restores inheritance.** The project
+  modal explicitly clears its provider and model override, rather than omitting
+  them and leaving the previous provider stored. Reopening the project now keeps
+  the global agent active. (#249)
+
+- **A task worktree can build and lint from its first launch.** The local agent
+  now runs `npm ci` in every package folder of a task worktree (its root and the
+  folders one level down that hold a `package.json` and a `package-lock.json`)
+  before the session starts. It installs again only when a manifest or lockfile
+  changes. The main checkout is never linked to or touched, `.env` files are not
+  shared, and a failed install is logged without blocking the launch. Switching
+  a task's branch from the board no longer leaves the agent stuck on its own
+  lock, and answers without waiting for the install, which runs in the
+  background.
+- Renaming your account preserves unsaved appearance and skill prompt changes in
+  the open profile dialog. Closing and reopening the dialog reloads saved values.
+
+- **The sidebar shows the name you set, not `Developer`.** The account button at
+  the foot of the sidebar and the button in the status bar displayed a name that
+  no screen could edit any more, so they stayed on the seeded `Developer`
+  whatever you typed in Settings → Account. They now show the name your account
+  carries — the same one your executions and your comments are signed with —
+  falling back to your address, then your account id, for an account that has
+  never been named. Settings → Account remains the one place to change it: a name
+  sent to `/api/settings` is accepted and ignored, as the address already was.
+  (#348)
+
+- **Publishing a new branch no longer fails on a force push.** The PR creation
+  and adjustment skills (and the pickup skills built on them) told the agent to
+  use `git push --force-with-lease` after a rebase without saying when, so it
+  forced branches the remote did not have yet and the push failed. They now
+  push a new branch with `git push -u`, a fast-forward with a plain push, and
+  keep `--force-with-lease` for published history a rebase actually rewrote. A
+  push refused because the remote moved is resynced and retried once; an
+  unguarded `--force` is never used. Regenerate or re-install the skills to get
+  the new wording.
+- **Projects hosted on GitLab can reach `implemented` and `reviewed`.** The stage
+  evidence check only ever asked GitHub for the branch's pull request, so a
+  GitLab project — whatever its issue tracker — was refused with
+  `configure an explicit GitHub owner/repository` even with an open merge
+  request on the checkout commit. The forge is now chosen from the code remote,
+  and a GitLab merge request is read by the local agent with the `glab` login
+  the workstation already has, under the same rules as a GitHub pull request:
+  open or merged, same branch, head on the checkout commit, ready where
+  adjustment needs it. Refusals speak of a merge request, a failed lookup is
+  reported as such rather than as a missing merge request, and several open
+  merge requests on the branch are refused as ambiguous.
+- Running execution icons now spin in the desktop sidebar and discussion header, while respecting reduced-motion preferences.
+
+- Terminal-owned executions now stop their child processes and report their exit when the supervisor receives a hangup or termination signal, preventing stale running entries and stop timeouts. Transient exit-report failures are retried, and Stop automatically recovers a run whose local terminal has already disappeared.
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the

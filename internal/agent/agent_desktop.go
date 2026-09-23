@@ -30,8 +30,8 @@ type loopbackServer struct {
 	server *http.Server
 	port   int
 	url    string
-	// The proxied surfaces (/api/, /mcp) take the workstation API key held in
-	// serverLink.token; only the companion's own contract has a token here.
+	// Proxied requests use serverLink.token upstream. Local MCP may omit a
+	// client key only after explicit opt-in; the companion has its own token.
 	// desktopToken authenticates the companion; desktopInfo is the handshake
 	// file it reads to find this session.
 	desktopToken string
@@ -84,6 +84,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/desktop/version" && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(version.Current())
+		return
+	}
+	if r.URL.Path == "/desktop/mcp" {
+		d.desktopMCP(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/status" && r.Method == http.MethodGet {
@@ -226,13 +230,27 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/desktop/stop" && r.Method == http.MethodPost {
 		run.canceled = true
 		d.queue.mu.Unlock()
+		// A supervised PTY run normally closes exited through agent-exec. If the
+		// terminal has already vanished, there is no process left that can send
+		// that acknowledgement. Recover it here instead of making every Stop
+		// retry wait twelve seconds and return 504 forever.
+		if d.recoverOrphanedPTYRun(id, run) {
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled after its local terminal closed")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		select {
 		case <-run.exited:
 			// The native client may have already reported completion via MCP.
 			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled")
 			w.WriteHeader(http.StatusNoContent)
 		case <-time.After(12 * time.Second):
-			http.Error(w, "Exit not confirmed", 504)
+			if d.recoverOrphanedPTYRun(id, run) {
+				_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled after its local terminal closed")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			http.Error(w, "Exit not confirmed", http.StatusGatewayTimeout)
 		}
 		return
 	}
@@ -262,6 +280,40 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Error(w, "Not found", 404)
+}
+
+// recoverOrphanedPTYRun closes the local record only when the agent itself can
+// prove that the embedded terminal which owned it no longer exists. Headless
+// runs have no terminal by design and must still confirm their process exit.
+func (d *agentDaemon) recoverOrphanedPTYRun(id string, run *controlledRun) bool {
+	if d.terminal.manager == nil {
+		return false
+	}
+	d.queue.mu.Lock()
+	if d.queue.runs[id] != run || run.desktop.Headless || run.desktop.Status != "running" || run.desktop.SessionID == "" {
+		d.queue.mu.Unlock()
+		return false
+	}
+	sessionID := run.desktop.SessionID
+	d.queue.mu.Unlock()
+	for _, session := range d.terminal.manager.ListSessions() {
+		if session.ID == sessionID {
+			return false
+		}
+	}
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	if d.queue.runs[id] != run {
+		return false
+	}
+	select {
+	case <-run.exited:
+		return false
+	default:
+	}
+	run.desktop.Status = "canceled"
+	run.once.Do(func() { close(run.exited) })
+	return true
 }
 
 func (d *agentDaemon) writeDesktopInfo() error {
@@ -688,6 +740,16 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	}
 	d.queue.mu.Unlock()
 	switch r.URL.Query().Get("action") {
+	case "initialize":
+		provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+		if _, err := agentconfig.ResolveLocations(provider); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		// Attempt failures are structured so the UI preserves partial success.
+		result, _ := d.initializeProvider(root, config, provider)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
 	case "skills":
 		_, err = agentconfig.Scaffold(root, config)
 		if err != nil {

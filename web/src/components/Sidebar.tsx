@@ -952,15 +952,15 @@ export const Sidebar: React.FC = () => {
           title={t.nav.settings}
         >
           <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs accent-bg text-white shadow-md shrink-0">
-            {settings.userName ? settings.userName.substring(0, 2).toUpperCase() : 'SF'}
+            {settings.userName ? settings.userName.substring(0, 2).toUpperCase() : null}
           </div>
           {!sidebarCollapsed && (
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold truncate text-[var(--text-primary)]">
-                {settings.userName || 'Sylvain Ferry'}
+                {settings.userName}
               </div>
               <div className="text-[10px] text-[var(--text-muted)] truncate">
-                {settings.userEmail || 'Paramètres & Profil'}
+                {settings.userEmail}
               </div>
             </div>
           )}

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // PostBackListener defines a callback function invoked whenever a post-back occurs.
@@ -239,6 +241,14 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 	var pbErr error
 	if payload.Error != nil && *payload.Error != "" {
 		pbErr = fmt.Errorf("%s", *payload.Error)
+	}
+
+	if payload.Stage != nil || payload.PrURL != nil {
+		userID := ""
+		if activity != nil {
+			userID = activity.UserID
+		}
+		existing = d.refreshTaskPullRequestStates(tracker.WithActingUser(context.Background(), userID), existing)
 	}
 
 	// 3. Notify post-back listeners

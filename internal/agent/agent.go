@@ -329,6 +329,9 @@ func Run(args []string) {
 		log.Printf("[Agent] Cannot bootstrap MCP without the local gateway: %v", err)
 		return
 	}
+	if err := daemon.refreshMCPConnections(); err != nil {
+		log.Printf("[Agent] MCP configuration refresh failed: %v", err)
+	}
 	if err := daemon.writeDesktopInfo(); err != nil {
 		log.Printf("Desktop connection: %v", err)
 		return
@@ -427,10 +430,9 @@ func (d *agentDaemon) startLocalProxy(ctx context.Context) error {
 			http.Error(w, "Browser origins are not allowed", http.StatusForbidden)
 			return
 		}
-		// Loopback alone is not an authorization: every local process can
-		// reach this port. Require the workstation's API key, the same
-		// credential the server itself would ask for.
-		if !d.validLoopbackRequest(r) {
+		// API routes always require the workstation key. MCP alone can use
+		// the explicitly selected local mode; browser and Host checks still apply.
+		if !d.validLoopbackRequest(r) && !(r.URL.Path == "/mcp" && d.localMCPEnabled()) {
 			http.Error(w, "Valid API key required", http.StatusUnauthorized)
 			return
 		}
@@ -952,8 +954,25 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		payload.Prompt += fmt.Sprintf("\nRemote execution runId: %s. Reuse this ID with start_run and finish it using finish_run when the entire skill ends.", payload.RunID)
 	}
 	payload.Mode = liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
+	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
+	if autonomous && !models.SupportsAutonomousRun(config.AIProvider, config.AICommandTemplate, config.AICommandTemplateAutonomous) {
+		provider := strings.TrimSpace(config.AIProvider)
+		if provider == "" {
+			provider = "agy"
+		}
+		var preflightErr error
+		if strings.TrimSpace(config.AICommandTemplate) != "" {
+			preflightErr = fmt.Errorf("the configured AI command template decides the execution mode: add a {mode:AUTONOMOUS|INTERACTIVE} placeholder to it, or run this skill interactively")
+		} else {
+			preflightErr = fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
+		}
+		launchFailure = preflightErr
+		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", preflightErr.Error())
+		return
+	}
 	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
 	if err != nil {
+		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
@@ -967,7 +986,7 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		go d.postRunEngine(payload.RunID, runProvider, runModel)
 	}
 
-	autonomous := models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
+	autonomous = models.NormalizeSkillMode(payload.Mode) == models.SkillModeAutonomous
 	if payload.RunID != "" && !autonomous {
 		fullLine, err = d.wrapRun(taskRef, payload.RunID, fullLine)
 		if err != nil {

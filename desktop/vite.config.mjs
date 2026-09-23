@@ -9,6 +9,21 @@ export default defineConfig({
   base: "./",
   plugins: [
     {
+      name: "changelog-raw",
+      enforce: "pre",
+      resolveId(id) {
+        if (id.includes("CHANGELOG.md")) {
+          return "\0changelog.raw"
+        }
+      },
+      load(id) {
+        if (id === "\0changelog.raw") {
+          const changelog = fs.readFileSync(path.resolve(__dirname, "../CHANGELOG.md"), "utf-8")
+          return `export default ${JSON.stringify(changelog)}`
+        }
+      }
+    },
+    {
       name: "copy-icon",
       generateBundle() {
         this.emitFile({
