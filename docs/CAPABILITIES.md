@@ -366,8 +366,10 @@ Two entry points exist and they do not do the same thing:
 
 The agent hosts native coding CLI sessions in local PTYs. The optional desktop
 connects through the private loopback API and displays console replay, input and
-execution status. While connected, its header server address opens the board in
-the default browser using mouse or keyboard activation. Closing the desktop
+execution status. While connected, its header server address opens the board
+using mouse or keyboard activation: in a desktop window signed in with the
+workstation key when the desktop was paired with that server (ADR 0025), in the
+default browser otherwise. Closing the desktop
 leaves active executions running. Legacy server terminal endpoints return 410
 and do not create a shell.
 

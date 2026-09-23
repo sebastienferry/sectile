@@ -84,7 +84,7 @@ Modern, agentic task workflow manager for developers and engineering teams, buil
 
 ---
 
-In Sectile Desktop, click the connected server address in the header (or focus it and press Enter) to open the board in your default browser. The shortcut is available while connected.
+In Sectile Desktop, click the connected server address in the header (or focus it and press Enter) to open the board. A paired desktop shows it in a window of its own, already signed in as the paired user; links that leave the server open in your default browser. Without a key paired with that server, the board opens in the default browser instead. The shortcut is available while connected.
 
 ## Task access from workflow skills
 
