@@ -8,7 +8,7 @@
 - [x] Add scoped CSS rotation and reduced-motion override; update the changelog.
 - [x] Run build, unit tests, Electron UI suite, syntax and whitespace checks.
 - [x] Review the complete diff and PR feedback against current origin/main.
-- [ ] Push final changes, verify PR readiness, and record implemented/reviewed stages.
+- [x] Push final changes, verify PR readiness, and record implemented/reviewed stages.
 
 ## Validation and review — 2026-09-23
 
@@ -21,3 +21,5 @@
 - Existing environment warnings: Vite warns about the assigned worktree path containing `#`; Node warns about unspecified module type for shared TypeScript. Both commands succeed.
 
 PR: https://github.com/sebastienferry/sectile/pull/381
+
+Sectile accepted clarified, specified, implemented, and reviewed transitions. PR #381 is open and ready for human review; no remote check rollup was reported by GitHub. Human merge remains pending.
