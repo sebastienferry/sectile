@@ -43,8 +43,8 @@ found and fixed, the risky parts pointed out, the test plan written down.
    places where you want a reviewer's eyes.
    Run `git fetch origin`, then choose the push from the state of `origin/<branch>`:
    - `origin/<branch>` does not exist (first publication): run `git push -u origin <branch>`. Never force a branch the remote does not have.
-   - `git merge-base --is-ancestor origin/<branch> HEAD` succeeds (fast-forward): run a plain `git push`.
-   - Otherwise an authorized rebase rewrote published history: run `git push --force-with-lease`.
+   - `git merge-base --is-ancestor origin/<branch> HEAD` succeeds (fast-forward): run `git push origin <branch>`.
+   - Otherwise an authorized rebase rewrote published history: run `git push --force-with-lease origin <branch>`.
    If the push is refused because commits landed on `origin/<branch>` in between (stale lease or non-fast-forward), run `git fetch origin`,
    replay the local commits with `git rebase origin/<branch>` so the remote commits are kept (merge instead if the conflicts cannot be resolved safely),
    re-run the checks if new commits came in, and retry once with the same rule. If it is refused again, or for another cause

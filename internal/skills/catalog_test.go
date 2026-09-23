@@ -140,14 +140,20 @@ func TestPublishingSkillsForceOnlyWhenPublishedHistoryWasRewritten(t *testing.T)
 			for _, required := range []string{
 				"does not exist (first publication): run `git push -u origin <branch>`",
 				"Never force a branch the remote does not have.",
-				"`git merge-base --is-ancestor origin/<branch> HEAD` succeeds (fast-forward): run a plain `git push`",
-				"rewrote published history: run `git push --force-with-lease`",
+				"`git merge-base --is-ancestor origin/<branch> HEAD` succeeds (fast-forward): run `git push origin <branch>`",
+				"rewrote published history: run `git push --force-with-lease origin <branch>`",
 				"`git rebase origin/<branch>`",
 				"retry once with the same rule",
 				"Never run an unguarded `git push --force`.",
 			} {
 				if !strings.Contains(content, required) {
 					t.Fatalf("%s skill is missing %q", id, required)
+				}
+			}
+			// A task worktree has no upstream configured, so every push names the remote and the branch.
+			for _, bare := range []string{"`git push`", "`git push --force-with-lease`"} {
+				if strings.Contains(content, bare) {
+					t.Fatalf("%s skill still pushes without naming the remote and branch: %q", id, bare)
 				}
 			}
 			if strings.Contains(content, "only when an authorized private-branch rebase requires it") {
