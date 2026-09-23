@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
-import { personalTrackers, credentialState, type TrackerKind } from '../lib/trackers'
+import { getTrackers, credentialState, type TrackerKind } from '../lib/trackers'
 import { TrackerCredentialForm } from './TrackerCredentialForm'
 
 /**
@@ -334,7 +334,7 @@ export const TrackerCredentialsTab: React.FC = () => {
 
       {/* Liste des Trackers */}
       <div className="space-y-2">
-        {personalTrackers(t).map(kind => {
+        {getTrackers(t).map(kind => {
           const mine = userCredentials.find(c => c.tracker === kind.id)
           const isOpen = open === kind.id
           const locked = Boolean(mine?.sealed && !mine.unlocked)

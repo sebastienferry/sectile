@@ -13,7 +13,7 @@ export interface TrackerFields {
   label: string
   siteLabel: string
   sitePlaceholder: string
-  /** Jira s'authentifie avec un e-mail ; GitHub et GitLab non. */
+  /** Jira authenticates with an e-mail; GitHub does not. */
   wantsEmail: boolean
   projectLabel?: string
   projectPlaceholder?: string
@@ -30,12 +30,6 @@ export interface TrackerFields {
    * à un site, donc la personne, son instance et son jeton voyagent ensemble.
    */
   siteIsPersonal?: boolean
-  /**
-   * Faux tant qu'aucun adaptateur n'est enregistré côté serveur pour ce
-   * tracker : ses paramètres restent enregistrables, mais un accès personnel
-   * n'y mènerait nulle part.
-   */
-  hasAdapter?: boolean
 }
 
 export const TRACKER_CONFIGS: {
@@ -44,7 +38,6 @@ export const TRACKER_CONFIGS: {
   wantsEmail: boolean
   personalOnly?: boolean
   siteIsPersonal?: boolean
-  hasAdapter?: boolean
 }[] = [
   {
     id: 'jira',
@@ -58,13 +51,6 @@ export const TRACKER_CONFIGS: {
     label: 'GitHub',
     wantsEmail: false,
     personalOnly: true,
-  },
-  {
-    id: 'gitlab',
-    label: 'GitLab',
-    wantsEmail: false,
-    personalOnly: true,
-    hasAdapter: false,
   },
 ]
 
@@ -85,29 +71,18 @@ export function getTrackers(t: TranslationSchema = translations.fr): TrackerFiel
   return TRACKER_CONFIGS.map(config => trackerFields(config.id, t))
 }
 
-export function personalTrackers(t: TranslationSchema = translations.fr): TrackerFields[] {
-  return getTrackers(t).filter(item => item.hasAdapter !== false)
-}
-
 export const TRACKERS: TrackerFields[] = getTrackers(translations.fr)
 
 /**
- * Les trackers dont un accès personnel sert à quelque chose : ceux que le
- * serveur sait piloter. GitLab n'a pas d'adaptateur enregistré, donc un jeton
- * personnel GitLab n'a aucun chemin d'exécution — l'écran le proposait, le
- * stockait et l'affichait comme actif pendant que rien ne s'en servait.
- */
-export const PERSONAL_TRACKERS: TrackerFields[] = personalTrackers(translations.fr)
-
-/**
- * Les trackers qu'un projet peut réellement porter : ceux dont un adaptateur est
- * enregistré côté serveur (`trackerapi.NewDefaultRegistry`). GitLab n'y est pas,
- * ses paramètres se configurent sans qu'aucun projet puisse le choisir.
+ * The trackers a project can actually be put on: those with an adapter
+ * registered on the server (`trackerapi.NewDefaultRegistry`). Every remote one
+ * is also in TRACKER_CONFIGS, the list the setup dialog and Profile > Trackers
+ * share: GitLab was configurable there with no adapter behind it, until #251
+ * removed it.
  *
- * Cette liste est partagée par la fiche projet et la vue de synchronisation.
- * Les deux avaient leur propre énumération, et elles ont divergé : Jira a
- * disparu de la fiche projet sans disparaître de la synchronisation, donc aucun
- * projet ne pouvait plus être posé dessus.
+ * The project form and the synchronisation view share this list. Each used to
+ * have its own, and they diverged: Jira left the project form but not the
+ * synchronisation, so no project could be put on it any more.
  */
 export const PROJECT_TRACKERS: { id: IssueTracker; label: string }[] = [
   { id: 'local', label: 'Sectile (Local)' },
@@ -133,10 +108,6 @@ type StoredSettings = Partial<
     | 'githubRepo'
     | 'githubTokenSet'
     | 'githubTokenFromEnv'
-    | 'gitlabUrl'
-    | 'gitlabProject'
-    | 'gitlabTokenSet'
-    | 'gitlabTokenFromEnv'
   >
 >
 
@@ -150,13 +121,6 @@ export function storedFor(settings: StoredSettings, tracker: TrackerKind) {
         tokenIsSet: Boolean(settings.githubTokenSet),
         tokenFromEnv: Boolean(settings.githubTokenFromEnv),
       }
-    case 'gitlab':
-      return {
-        siteUrl: settings.gitlabUrl || '',
-        project: settings.gitlabProject || '',
-        tokenIsSet: Boolean(settings.gitlabTokenSet),
-        tokenFromEnv: Boolean(settings.gitlabTokenFromEnv),
-      }
     default:
       return {
         siteUrl: settings.jiraUrl || '',
@@ -168,14 +132,13 @@ export function storedFor(settings: StoredSettings, tracker: TrackerKind) {
 }
 
 /**
- * Le formulaire est vérifiable dès que les champs que le tracker exige sont
- * remplis. Le jeton peut rester vide : l'écran revérifie alors celui qui est
- * déjà enregistré, qu'il n'a jamais reçu en retour.
+ * The form can be checked as soon as the fields the tracker requires are
+ * filled in. The token may stay empty: the screen then re-checks the stored
+ * one, which it never received back.
  *
- * Le site aussi peut rester vide là où le serveur sait retomber sur une
- * instance publique, ce que font GitHub et GitLab. Jira n'a pas d'instance par
- * défaut, et son authentification porte sur un couple : site et e-mail y sont
- * donc exigés.
+ * The site may stay empty too where the server falls back on a public
+ * instance, as GitHub does. Jira has no default instance and authenticates a
+ * pair, so it requires both the site and the e-mail.
  */
 export function canCheck(tracker: TrackerKind, values: { siteUrl?: string; email?: string }): boolean {
   const fields = trackerFields(tracker)

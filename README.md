@@ -108,7 +108,6 @@ to `.env`, which the server loads at startup and which is gitignored:
 export SECTILE_TRACKER_TOKEN='<tracker API token>'
 # Serving several providers at once? Override per provider:
 # export SECTILE_GITHUB_TOKEN='<GitHub API token>'
-# export SECTILE_GITLAB_TOKEN='<GitLab API token>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/server
 ```
 
@@ -229,14 +228,14 @@ port 5173 and proxies `/api` to `http://localhost:8090`.
 
 **The interface is the primary way to configure them.** *Connect your tracker*
 asks for the instance URL, the repository or project slug and the token of the
-selected tracker — Jira, GitHub or GitLab — checks them against the instance, and
+selected tracker — Jira or GitHub — checks them against the instance, and
 saves them in the user configuration only once the instance has accepted them. No
 file to edit on the server, and no restart. A project can override the instance,
 the slug and the token for itself, which is what lets two GitHub organisations
 with two different tokens live side by side.
 
 Tokens are write-only: the API never returns one. It reports `githubTokenSet` /
-`gitlabTokenSet` / `jiraApiTokenSet` instead, plus `...FromEnv` when no token is
+`jiraApiTokenSet` instead, plus `...FromEnv` when no token is
 stored and the server environment supplies one. Saving with an empty token field
 keeps the stored token; sending the sentinel `__clear__` deletes it.
 
@@ -284,9 +283,10 @@ then `SECTILE_TRACKER_TOKEN` and `JIRA_API_TOKEN`. A project overrides the site
 through its `trackerUrl`; the e-mail and the token stay global, one Atlassian
 token being valid on every site of the account.
 
-GitLab parameters can be stored, but no GitLab ticketing adapter is registered
-yet: a project whose tracker is GitLab still fails with the tracker registry's
-unconfigured-tracker error. That adapter is a separate piece of work.
+GitLab is not an issue tracker in Sectile: no GitLab Issues adapter exists, so
+there is nothing to configure for it, and the setup endpoint refuses it. GitLab
+as a forge is unaffected — merge requests are still discovered through `glab`
+and shown on the cards (see *Container image and GitLab CI* for the mirror).
 
 The environment variables below stay supported, as the fallback for headless and
 CI deployments where no one opens the interface. **Stored configuration wins**:
@@ -298,9 +298,6 @@ configuration, then the environment.
 | `SECTILE_TRACKER_TOKEN` | Tracker API credential, used by every provider that has no override below. |
 | `SECTILE_GITHUB_TOKEN` | GitHub-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
 | `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
-| `SECTILE_GITLAB_TOKEN` | GitLab-only override; `GITLAB_TOKEN` is an environment-only fallback. |
-| `SECTILE_GITLAB_API_URL` | GitLab REST base URL; defaults to `https://gitlab.com/api/v4`. |
-| `SECTILE_GITLAB_PROJECT` | Default GitLab project slug, e.g. `group/app`. |
 
 Environment variables are read from the environment of the **server process
 itself**, at startup only. `make serve`, `go run ./cmd/server` and

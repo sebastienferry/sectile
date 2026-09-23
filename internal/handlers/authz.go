@@ -163,10 +163,17 @@ var trackerSettingsKeys = map[string]bool{
 	"issueTracker": true,
 	"githubRepo":   true, "githubApiUrl": true,
 	"githubToken": true, "githubTokenSet": true, "githubTokenFromEnv": true,
-	"gitlabUrl": true, "gitlabProject": true,
-	"gitlabToken": true, "gitlabTokenSet": true, "gitlabTokenFromEnv": true,
 	"jiraUrl": true, "jiraProject": true, "jiraEmail": true,
 	"jiraApiToken": true, "jiraApiTokenSet": true, "jiraApiTokenFromEnv": true,
+}
+
+// retiredSettingsKeys are keys the settings no longer have. A tab opened before
+// the upgrade still holds them and posts them back with the whole row; the
+// decoder drops them, so they change nothing and must not be refused as an
+// admin-only change either. The GitLab tracker settings went with #251.
+var retiredSettingsKeys = map[string]bool{
+	"gitlabUrl": true, "gitlabProject": true,
+	"gitlabToken": true, "gitlabTokenSet": true, "gitlabTokenFromEnv": true,
 }
 
 // memberSettingsKeys is the authorization rule: what a member may change, in
@@ -188,7 +195,7 @@ func memberSettingsViolations(current models.Settings, sent map[string]json.RawM
 	_ = json.Unmarshal(stored, &storedKeys)
 	var offending []string
 	for key, value := range sent {
-		if memberSettingsKeys(key) || key == "id" || key == "updatedAt" {
+		if memberSettingsKeys(key) || retiredSettingsKeys[key] || key == "id" || key == "updatedAt" {
 			continue
 		}
 		if bytes.Equal(canonicalJSON(value), canonicalJSON(storedKeys[key])) {

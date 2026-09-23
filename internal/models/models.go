@@ -151,10 +151,6 @@ type Project struct {
 	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
 	GithubToken                 string            `json:"githubToken,omitempty"`
 	GithubTokenSet              bool              `json:"githubTokenSet"`
-	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
-	GitlabProject               string            `json:"gitlabProject,omitempty"`
-	GitlabToken                 string            `json:"gitlabToken,omitempty"`
-	GitlabTokenSet              bool              `json:"gitlabTokenSet"`
 	IssueTracker                string            `json:"issueTracker"` // "github", "jira", "local"
 	TrackerUrl                  string            `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
 	IsDefault                   bool              `json:"isDefault"`
@@ -336,9 +332,6 @@ type CreateProjectRequest struct {
 	GithubRepo                  string            `json:"githubRepo,omitempty"`
 	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
 	GithubToken                 string            `json:"githubToken,omitempty"`
-	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
-	GitlabProject               string            `json:"gitlabProject,omitempty"`
-	GitlabToken                 string            `json:"gitlabToken,omitempty"`
 	JiraProject                 string            `json:"jiraProject,omitempty"`
 	IssueTracker                string            `json:"issueTracker,omitempty"`
 	TrackerUrl                  string            `json:"trackerUrl,omitempty"`
@@ -379,9 +372,6 @@ type UpdateProjectRequest struct {
 	GithubRepo                  *string              `json:"githubRepo,omitempty"`
 	GithubApiUrl                *string              `json:"githubApiUrl,omitempty"`
 	GithubToken                 *string              `json:"githubToken,omitempty"`
-	GitlabUrl                   *string              `json:"gitlabUrl,omitempty"`
-	GitlabProject               *string              `json:"gitlabProject,omitempty"`
-	GitlabToken                 *string              `json:"gitlabToken,omitempty"`
 	JiraProject                 *string              `json:"jiraProject,omitempty"`
 	IssueTracker                *string              `json:"issueTracker,omitempty"`
 	TrackerUrl                  *string              `json:"trackerUrl,omitempty"`
@@ -799,21 +789,14 @@ type Settings struct {
 	JiraAPIToken        string `json:"jiraApiToken,omitempty"`
 	JiraAPITokenSet     bool   `json:"jiraApiTokenSet"`
 	JiraAPITokenFromEnv bool   `json:"jiraApiTokenFromEnv"` // e.g. "https://acme.atlassian.net"
-	// GithubApiUrl / GitlabUrl address the instance, empty meaning the public
-	// one. GitlabProject is the default project slug, the GitLab counterpart of
-	// GithubRepo.
-	GithubApiUrl  string `json:"githubApiUrl"`
-	GitlabUrl     string `json:"gitlabUrl"`
-	GitlabProject string `json:"gitlabProject"`
-	// The two tracker tokens follow JiraAPIToken exactly: never returned by the
+	// GithubApiUrl addresses the instance, empty meaning the public one.
+	GithubApiUrl string `json:"githubApiUrl"`
+	// The GitHub token follows JiraAPIToken exactly: never returned by the
 	// API, reported through the Set / FromEnv flags, an empty value on an update
 	// meaning "unchanged" and TrackerTokenClearSentinel meaning "delete".
 	GithubToken             string    `json:"githubToken,omitempty"`
 	GithubTokenSet          bool      `json:"githubTokenSet"`
 	GithubTokenFromEnv      bool      `json:"githubTokenFromEnv"`
-	GitlabToken             string    `json:"gitlabToken,omitempty"`
-	GitlabTokenSet          bool      `json:"gitlabTokenSet"`
-	GitlabTokenFromEnv      bool      `json:"gitlabTokenFromEnv"`
 	PromptClarify           string    `json:"promptClarify"`
 	PromptSpecify           string    `json:"promptSpecify"`
 	PromptImplement         string    `json:"promptImplement"`

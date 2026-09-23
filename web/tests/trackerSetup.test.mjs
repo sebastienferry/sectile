@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { translations } from '../src/locales/translations.ts'
 import {
-  PERSONAL_TRACKERS,
   PROJECT_TRACKERS,
   prefillFromCredential,
   TRACKERS,
@@ -20,11 +19,10 @@ import {
   getTrackers,
 } from '../src/lib/trackers.ts'
 
-test('the three trackers are offered, Jira asking for an account e-mail', () => {
-  assert.deepEqual(TRACKERS.map(t => t.id), ['jira', 'github', 'gitlab'])
+test('Jira and GitHub are offered, Jira asking for an account e-mail', () => {
+  assert.deepEqual(TRACKERS.map(t => t.id), ['jira', 'github'])
   assert.equal(trackerFields('jira').wantsEmail, true)
   assert.equal(trackerFields('github').wantsEmail, false)
-  assert.equal(trackerFields('gitlab').wantsEmail, false)
   // Jira takes a project key, which is what the sync queries on.
   assert.equal(trackerFields('jira').projectPlaceholder, 'PE')
 })
@@ -32,7 +30,8 @@ test('the three trackers are offered, Jira asking for an account e-mail', () => 
 test('the screen opens on the tracker the project already uses', () => {
   assert.equal(initialTracker('github'), 'github')
   assert.equal(initialTracker('jira'), 'jira')
-  assert.equal(initialTracker('gitlab'), 'gitlab')
+  // GitLab is no tracker (#251): a stale value opens on the default.
+  assert.equal(initialTracker('gitlab'), 'jira')
   assert.equal(initialTracker('local'), 'jira')
   assert.equal(initialTracker(undefined), 'jira')
 })
@@ -45,8 +44,6 @@ test('each tracker is prefilled from its own stored values', () => {
     githubApiUrl: 'https://api.github.com',
     githubRepo: 'acme/app',
     githubTokenFromEnv: true,
-    gitlabUrl: 'https://gitlab.com/api/v4',
-    gitlabProject: 'group/app',
   }
   assert.deepEqual(storedFor(settings, 'jira'), {
     siteUrl: 'https://acme.atlassian.net',
@@ -60,7 +57,6 @@ test('each tracker is prefilled from its own stored values', () => {
     tokenIsSet: false,
     tokenFromEnv: true,
   })
-  assert.equal(storedFor(settings, 'gitlab').project, 'group/app')
   // An empty configuration shows empty fields rather than undefined.
   assert.deepEqual(storedFor({}, 'jira'), { siteUrl: '', project: '', tokenIsSet: false, tokenFromEnv: false })
 })
@@ -70,10 +66,10 @@ test('a token may stay empty: the check revalidates the stored one', () => {
   assert.equal(canCheck('jira', { siteUrl: 'acme.atlassian.net', email: 'ada@example.com' }), true)
   assert.equal(canCheck('jira', { email: 'ada@example.com' }), false)
   assert.equal(canCheck('jira', { siteUrl: 'acme.atlassian.net' }), false)
-  // GitHub and GitLab have a public instance the server falls back to, so an
-  // empty site must not block their check either.
+  // GitHub has a public instance the server falls back to, so an empty site
+  // must not block its check either.
   assert.equal(canCheck('github', { siteUrl: '' }), true)
-  assert.equal(canCheck('gitlab', {}), true)
+  assert.equal(canCheck('github', {}), true)
 })
 
 test('a blocked save says why, rather than greying a button in silence', () => {
@@ -88,7 +84,6 @@ test('a tracker that attributes its writes is personal only', () => {
   // The server token stays a configuration fallback, never a box in the screen.
   assert.deepEqual(scopesFor('jira'), ['personal'])
   assert.deepEqual(scopesFor('github'), ['personal'])
-  assert.deepEqual(scopesFor('gitlab'), ['personal'])
   // The site belongs to the person, not to the server: an Atlassian account is
   // tied to its instance.
   assert.equal(trackerFields('jira').siteIsPersonal, true)
@@ -100,7 +95,7 @@ test('every tracker with a server adapter can be set on a project', () => {
   // drifted once: Jira left the project card and stayed in the sync view, so no
   // project could be put on the tracker the server knew how to drive.
   assert.deepEqual(PROJECT_TRACKERS.map(t => t.id), ['local', 'github', 'jira'])
-  // GitLab parameters are storable, but no adapter is registered for it.
+  // No adapter is registered for GitLab, so no project can be put on it.
   assert.equal(PROJECT_TRACKERS.some(t => t.id === 'gitlab'), false)
   assert.equal(PROJECT_TRACKERS.every(t => t.label.trim().length > 0), true)
 })
@@ -137,16 +132,16 @@ test('a stored credential puts its site and e-mail back in the form', () => {
   assert.deepEqual(prefillFromCredential(undefined, {}), { siteUrl: '', email: '' })
 })
 
-test('only a tracker the server can drive offers a personal credential', () => {
-  // A personal GitLab token was storable and shown as active while no adapter
-  // was registered for GitLab at all: nothing could ever have used it.
-  assert.deepEqual(PERSONAL_TRACKERS.map(t => t.id), ['jira', 'github'])
-  assert.equal(TRACKERS.some(t => t.id === 'gitlab'), true)
-  // And every tracker a project can be put on can hold a personal credential.
-  for (const t of PROJECT_TRACKERS) {
-    if (t.id === 'local') continue
-    assert.equal(PERSONAL_TRACKERS.some(p => p.id === t.id), true, `${t.id} has an adapter but no personal credential`)
-  }
+test('the setup dialog, the profile and the projects offer the same trackers', () => {
+  // GitLab was offered by the first-start dialog, checked and saved, while no
+  // adapter was registered for it: nothing could ever have used it (#251).
+  assert.equal(TRACKERS.some(t => t.id === 'gitlab'), false)
+  assert.equal(getTrackers(translations.en).some(t => t.id === 'gitlab'), false)
+  assert.equal('gitlab' in translations.fr.trackerCredentials.trackers, false)
+  assert.equal('gitlab' in translations.en.trackerCredentials.trackers, false)
+  // Every tracker a project can be put on can be configured, and the reverse.
+  const remote = PROJECT_TRACKERS.filter(t => t.id !== 'local').map(t => t.id).sort()
+  assert.deepEqual(TRACKERS.map(t => t.id).sort(), remote)
 })
 
 test('a project only asks for credentials the person does not already have', () => {
@@ -201,15 +196,12 @@ test('tracker credentials translations are complete and localized states format 
   assert.equal(trackerFields('jira', translations.en).projectPlaceholder, 'e.g. MKTG')
   assert.equal(trackerFields('github', translations.en).siteLabel, 'GitHub API URL')
   assert.equal(trackerFields('github', translations.fr).siteLabel, "URL de l'API GitHub")
-  assert.equal(trackerFields('gitlab', translations.en).siteLabel, 'GitLab API URL')
-  assert.equal(trackerFields('gitlab', translations.fr).siteLabel, "URL de l'API GitLab")
-  assert.equal(trackerFields('gitlab', translations.en).projectLabel, 'Default project')
-  assert.equal(trackerFields('gitlab', translations.fr).projectLabel, 'Projet par défaut')
+  assert.equal(trackerFields('github', translations.en).projectLabel, 'Default repository')
 
   const enTrackers = getTrackers(translations.en)
   const frTrackers = getTrackers(translations.fr)
-  assert.equal(enTrackers.length, 3)
-  assert.equal(frTrackers.length, 3)
+  assert.equal(enTrackers.length, 2)
+  assert.equal(frTrackers.length, 2)
   assert.equal(enTrackers.find(t => t.id === 'github')?.siteLabel, 'GitHub API URL')
   assert.equal(frTrackers.find(t => t.id === 'github')?.siteLabel, "URL de l'API GitHub")
 

@@ -1560,8 +1560,10 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 // Checking before saving is the point: a wrong site or a stale token never
 // reaches the settings, and the answer names what is wrong instead of leaving a
 // sync to fail later with nothing to show. `tracker` selects the fields that
-// matter: GitHub, GitLab and Jira are checked against the instance and
-// persisted here. storeTokenInFile is accepted for older clients and ignored:
+// matter: GitHub and Jira are checked against the instance and persisted here.
+// Any other name is refused: GitLab used to be accepted and saved although no
+// adapter could ever use it (#251), and answering with the settings made that
+// look like a success. storeTokenInFile is accepted for older clients and ignored:
 // no file store exists, the token goes to the user configuration.
 func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -1584,39 +1586,30 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 
 	trackerName := strings.ToLower(strings.TrimSpace(req.Tracker))
 	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
-	verified := ""
-	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
-		// A check is the one call somebody waits in front of, so how long it
-		// actually took is worth knowing: it separates a slow instance from a
-		// slow screen, which look identical from a chair.
-		started := time.Now()
-		account, err := h.db.CheckTrackerCredentials(h.actingContext(r), trackerName, req.SiteURL, req.Email, req.Token)
-		log.Printf("[TrackerSetup] vérification %s en %s", trackerName, time.Since(started).Round(time.Millisecond))
-		if err != nil {
-			// Nothing is persisted on a failed check: the user configuration
-			// keeps the parameters that were working.
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		verified = account
+	if trackerName != "github" && trackerName != "jira" {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("tracker %q non pris en charge", req.Tracker))
+		return
+	}
+
+	// A check is the one call somebody waits in front of, so how long it
+	// actually took is worth knowing: it separates a slow instance from a
+	// slow screen, which look identical from a chair.
+	started := time.Now()
+	account, err := h.db.CheckTrackerCredentials(h.actingContext(r), trackerName, req.SiteURL, req.Email, req.Token)
+	log.Printf("[TrackerSetup] vérification %s en %s", trackerName, time.Since(started).Round(time.Millisecond))
+	if err != nil {
+		// Nothing is persisted on a failed check: the user configuration
+		// keeps the parameters that were working.
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
 	}
 
 	if checkOnly {
-		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "account": verified})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"ok": true, "account": account})
 		return
 	}
 
-	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
-		settings, err := h.db.SaveTrackerCredentials(trackerName, req.SiteURL, req.Project, req.Email, req.Token)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, settings)
-		return
-	}
-
-	settings, err := h.db.GetSettings()
+	settings, err := h.db.SaveTrackerCredentials(trackerName, req.SiteURL, req.Project, req.Email, req.Token)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

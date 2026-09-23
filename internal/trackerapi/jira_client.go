@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// Jira Cloud is reached through the same guarded request as GitHub and GitLab.
+// Jira Cloud is reached through the same guarded request as GitHub.
 // What differs is the authentication (Basic, e-mail plus API token), the base
 // URL (the site, with the API prefixes added per call) and the error shape,
 // which names the offending field and is worth quoting.

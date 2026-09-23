@@ -19,19 +19,15 @@ import (
 // provider-specific variables remain supported as overrides.
 const genericTokenVar = "SECTILE_TRACKER_TOKEN"
 
-// DefaultGithubURL and DefaultGitlabURL are the public instances, used when
-// neither the stored configuration nor the environment names one.
-const (
-	DefaultGithubURL = "https://api.github.com"
-	DefaultGitlabURL = "https://gitlab.com/api/v4"
-)
+// DefaultGithubURL is the public instance, used when neither the stored
+// configuration nor the environment names one.
+const DefaultGithubURL = "https://api.github.com"
 
 // Credentials carries the connection parameters of one tracker, resolved for
 // one project. An empty field means "nothing stored here": the client keeps the
 // value it derived from the server environment.
 type Credentials struct {
-	GithubURL, GithubToken                string
-	GitlabURL, GitlabProject, GitlabToken string
+	GithubURL, GithubToken string
 	// Jira Cloud authenticates with the account e-mail and an API token; the URL
 	// is the site itself (https://acme.atlassian.net), the API prefixes are
 	// added per call.
@@ -39,10 +35,9 @@ type Credentials struct {
 }
 
 type Client struct {
-	HTTP                                  *http.Client
-	GithubURL, GithubToken                string
-	GitlabURL, GitlabProject, GitlabToken string
-	JiraURL, JiraEmail, JiraToken         string
+	HTTP                          *http.Client
+	GithubURL, GithubToken        string
+	JiraURL, JiraEmail, JiraToken string
 	// Resolve returns the credentials stored for one project, by project id, an
 	// empty id meaning "no project". It is injected by the store, which is the
 	// only component able to read both the settings and the project row; the
@@ -87,8 +82,6 @@ func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool
 		}
 	case "github":
 		personal.GithubToken = token
-	case "gitlab":
-		personal.GitlabToken = token
 	default:
 		return resolved, false, nil
 	}
@@ -100,20 +93,13 @@ func NewClient() *Client {
 	if gh == "" {
 		gh = DefaultGithubURL
 	}
-	gl := os.Getenv("SECTILE_GITLAB_API_URL")
-	if gl == "" {
-		gl = DefaultGitlabURL
-	}
 	return &Client{
-		HTTP:          &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
-		GithubURL:     strings.TrimRight(gh, "/"),
-		GithubToken:   trackerToken("SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"),
-		GitlabURL:     strings.TrimRight(gl, "/"),
-		GitlabProject: os.Getenv("SECTILE_GITLAB_PROJECT"),
-		GitlabToken:   trackerToken("SECTILE_GITLAB_TOKEN", "GITLAB_TOKEN"),
-		JiraURL:       jiraBaseURL(os.Getenv("SECTILE_JIRA_URL")),
-		JiraEmail:     strings.TrimSpace(os.Getenv("SECTILE_JIRA_EMAIL")),
-		JiraToken:     trackerToken("SECTILE_JIRA_TOKEN", "JIRA_API_TOKEN"),
+		HTTP:        &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
+		GithubURL:   strings.TrimRight(gh, "/"),
+		GithubToken: trackerToken("SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"),
+		JiraURL:     jiraBaseURL(os.Getenv("SECTILE_JIRA_URL")),
+		JiraEmail:   strings.TrimSpace(os.Getenv("SECTILE_JIRA_EMAIL")),
+		JiraToken:   trackerToken("SECTILE_JIRA_TOKEN", "JIRA_API_TOKEN"),
 	}
 }
 
@@ -136,15 +122,6 @@ func (c *Client) For(projectID string) *Client {
 	}
 	if cred.GithubToken != "" {
 		resolved.GithubToken = cred.GithubToken
-	}
-	if cred.GitlabURL != "" {
-		resolved.GitlabURL = strings.TrimRight(cred.GitlabURL, "/")
-	}
-	if cred.GitlabProject != "" {
-		resolved.GitlabProject = cred.GitlabProject
-	}
-	if cred.GitlabToken != "" {
-		resolved.GitlabToken = cred.GitlabToken
 	}
 	if cred.JiraURL != "" {
 		resolved.JiraURL = jiraBaseURL(cred.JiraURL)
@@ -363,17 +340,13 @@ func (c *Client) GithubGraphQL(query string) ([]byte, error) {
 	return json.Marshal(map[string]any{"data": data})
 }
 
-// CheckGithub and CheckGitlab authenticate the given parameters against the
-// instance and answer with the account they belong to. The setup screen saves
-// nothing until one of them succeeds, so a wrong URL or a stale token is
+// CheckGithub authenticates the given parameters against the instance and
+// answers with the account they belong to. The setup screen saves nothing
+// until the check succeeds, so a wrong URL or a stale token is
 // reported while the user is still looking at the field rather than by a
 // synchronisation failing later.
 func (c *Client) CheckGithub(ctx context.Context, apiURL, token string) (string, error) {
 	return c.checkAccount(ctx, defaulted(apiURL, DefaultGithubURL), "/user", "Bearer "+strings.TrimSpace(token), "login")
-}
-
-func (c *Client) CheckGitlab(ctx context.Context, apiURL, token string) (string, error) {
-	return c.checkAccount(ctx, defaulted(apiURL, DefaultGitlabURL), "/user", "Bearer "+strings.TrimSpace(token), "username")
 }
 
 func (c *Client) checkAccount(ctx context.Context, apiURL, path, token, field string) (string, error) {

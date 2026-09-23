@@ -523,13 +523,6 @@ export interface TranslationSchema {
         projectPlaceholder: string
         tokenHint: string
       }
-      gitlab: {
-        siteLabel: string
-        sitePlaceholder: string
-        projectLabel: string
-        projectPlaceholder: string
-        tokenHint: string
-      }
     }
     saveBlockedReasons: {
       wantsEmail: string
@@ -1211,13 +1204,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
           projectPlaceholder: 'organisation/depot',
           tokenHint: 'Personal Access Token avec la portée repo.',
         },
-        gitlab: {
-          siteLabel: "URL de l'API GitLab",
-          sitePlaceholder: 'https://gitlab.com/api/v4',
-          projectLabel: 'Projet par défaut',
-          projectPlaceholder: 'groupe/projet',
-          tokenHint: 'Personal Access Token avec la portée api.',
-        },
       },
       saveBlockedReasons: {
         wantsEmail: "Renseignez votre site et l'e-mail de votre compte, puis vérifiez les accès.",
@@ -1896,13 +1882,6 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
           projectLabel: 'Default repository',
           projectPlaceholder: 'organization/repo',
           tokenHint: 'Personal Access Token with repo scope.',
-        },
-        gitlab: {
-          siteLabel: 'GitLab API URL',
-          sitePlaceholder: 'https://gitlab.com/api/v4',
-          projectLabel: 'Default project',
-          projectPlaceholder: 'group/project',
-          tokenHint: 'Personal Access Token with api scope.',
         },
       },
       saveBlockedReasons: {

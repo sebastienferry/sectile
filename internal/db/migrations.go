@@ -54,8 +54,8 @@ func (m migration) statementsFor(engine Driver) []string {
 
 // migrations lists every change made since the baseline, in order.
 //
-// It is empty because the baseline is the schema as it stands: this list starts
-// filling with the next change. A new column goes here, and nowhere else. Not
+// The baseline is the schema as it stood when numbering began: this list holds
+// every change since. A new column goes here, and nowhere else. Not
 // in a CREATE TABLE, which now describes version 1 and not the current schema;
 // not in applyLegacyMigrations, which repairs SQLite files written before the
 // baseline; not in lateColumns, which is frozen for the same reason.
@@ -76,6 +76,14 @@ var migrations = []migration{
 			"ALTER TABLE tasks ADD COLUMN creator TEXT NOT NULL DEFAULT '';",
 			"ALTER TABLE tasks ADD COLUMN creator_avatar TEXT NOT NULL DEFAULT '';",
 		},
+	},
+	{
+		// No GitLab tracker exists (#251), so a personal GitLab token has no
+		// execution path: it is deleted rather than left sealed in the table.
+		// The gitlab_* columns of settings and projects stay, inert.
+		version:    3,
+		name:       "user_tracker_credentials.drop_gitlab",
+		statements: []string{"DELETE FROM user_tracker_credentials WHERE tracker = 'gitlab';"},
 	},
 }
 

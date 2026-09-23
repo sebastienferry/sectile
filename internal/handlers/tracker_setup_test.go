@@ -73,3 +73,34 @@ func TestHandleTrackerSetupChecksBeforeSaving(t *testing.T) {
 		t.Fatalf("the response carried the token back: %s", rr.Body.String())
 	}
 }
+
+// GitLab is not a tracker (#251). The endpoint used to check and save its
+// parameters, and answered an unknown name with the settings as if it had
+// worked; both now answer 400 and store nothing.
+func TestHandleTrackerSetupRefusesAnUnsupportedTracker(t *testing.T) {
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	h := handlers.NewHandler(database)
+
+	for _, tracker := range []string{"gitlab", "GitLab", "bitbucket", ""} {
+		for _, path := range []string{"/api/setup/tracker/check", "/api/setup/tracker"} {
+			body := `{"tracker":"` + tracker + `","siteUrl":"https://gitlab.example/api/v4","project":"group/app","token":"gl-token"}`
+			rr := httptest.NewRecorder()
+			h.HandleTrackerSetup(rr, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+			if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "non pris en charge") {
+				t.Fatalf("%s %q: %d %s, want 400 unsupported tracker", path, tracker, rr.Code, rr.Body.String())
+			}
+		}
+	}
+	settings, err := database.GetSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(settings)
+	if strings.Contains(strings.ToLower(string(raw)), "gitlab") {
+		t.Fatalf("the settings carry GitLab fields: %s", raw)
+	}
+}

@@ -28,9 +28,9 @@ CREATE TABLE IF NOT EXISTS projects (
     -- then to the server environment. Tokens are never returned by the API.
     github_api_url TEXT NOT NULL DEFAULT '',
     github_token TEXT NOT NULL DEFAULT '',
-    gitlab_url TEXT NOT NULL DEFAULT '',
-    gitlab_project TEXT NOT NULL DEFAULT '',
-    gitlab_token TEXT NOT NULL DEFAULT '',
+    gitlab_url TEXT NOT NULL DEFAULT '',      -- unused since #251: no GitLab tracker exists
+    gitlab_project TEXT NOT NULL DEFAULT '',  -- unused since #251, kept so every database has one schema
+    gitlab_token TEXT NOT NULL DEFAULT '',    -- unused since #251, neither read nor written
     jira_project TEXT DEFAULT '',      -- Legacy Jira project identifier
     issue_tracker TEXT NOT NULL DEFAULT 'local',  -- 'github' | 'jira' | 'local'
     tracker_url TEXT DEFAULT '',       -- tracker project URL, or the Jira base URL
@@ -109,9 +109,9 @@ CREATE TABLE IF NOT EXISTS settings (
     github_api_url TEXT NOT NULL DEFAULT '',
     github_token TEXT NOT NULL DEFAULT '',
     github_repo TEXT DEFAULT '',
-    gitlab_url TEXT NOT NULL DEFAULT '',
-    gitlab_project TEXT NOT NULL DEFAULT '',
-    gitlab_token TEXT NOT NULL DEFAULT '',
+    gitlab_url TEXT NOT NULL DEFAULT '',      -- unused since #251: no GitLab tracker exists
+    gitlab_project TEXT NOT NULL DEFAULT '',  -- unused since #251, kept so every database has one schema
+    gitlab_token TEXT NOT NULL DEFAULT '',    -- unused since #251, neither read nor written
     jira_project TEXT DEFAULT '',      -- default Jira project key
     jira_url TEXT DEFAULT '',          -- default Jira base URL
     jira_api_token TEXT NOT NULL DEFAULT '',
@@ -244,6 +244,8 @@ Stored in `user_tracker_credentials`, encrypted with AES-256-GCM and bound to
 `(user_id, tracker)` as additional authenticated data. The key is the server key
 held outside the database, or one derived from the owner's passphrase with
 Argon2id. A wrong passphrase and a missing record answer the same way.
+Schema migration 3 deletes the rows whose `tracker` is `gitlab` (#251): no
+GitLab tracker exists, so such a token could never be used.
 
 ### 2.4 Tracker Synchronization API
 

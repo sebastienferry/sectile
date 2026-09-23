@@ -238,10 +238,6 @@ export interface Project {
   githubApiUrl?: string
   githubToken?: string
   githubTokenSet?: boolean
-  gitlabUrl?: string
-  gitlabProject?: string
-  gitlabToken?: string
-  gitlabTokenSet?: boolean
   /** Jira project key the sync queries on, e.g. "PE". */
   jiraProject?: string
   issueTracker: IssueTracker
@@ -603,20 +599,14 @@ export interface UserSettings {
   jiraApiTokenFromEnv?: boolean
   /** Instance GitHub, vide pour api.github.com. */
   githubApiUrl?: string
-  /** Instance GitLab et projet par défaut, l'équivalent de githubRepo. */
-  gitlabUrl?: string
-  gitlabProject?: string
   /**
-   * Jetons GitHub et GitLab : mêmes règles que jiraApiToken, jamais renvoyés,
-   * vide conserve, `__clear__` efface.
+   * GitHub token: same rules as jiraApiToken. Never returned, empty keeps the
+   * stored one, `__clear__` deletes it.
    */
   githubToken?: string
   githubTokenSet?: boolean
   /** Aucun jeton en base, mais l'environnement du serveur en fournit un. */
   githubTokenFromEnv?: boolean
-  gitlabToken?: string
-  gitlabTokenSet?: boolean
-  gitlabTokenFromEnv?: boolean
   promptClarify: string
   promptSpecify: string
   promptImplement: string
@@ -637,19 +627,14 @@ export interface TaskFacetValue {
 }
 
 /**
- * Ce que l'écran de connexion envoie au serveur. `tracker` décide des champs qui
- * comptent : site et e-mail pour Jira, instance et jeton pour GitHub, instance,
- * projet et jeton pour GitLab.
+ * What the connection screen sends to the server. `tracker` decides which
+ * fields matter: site and e-mail for Jira, instance and token for GitHub.
  */
 export interface TrackerCredentials {
-  /**
-   * GitLab n'est pas dans `IssueTracker` : ses paramètres se configurent, mais
-   * aucun adaptateur GitLab n'est enregistré, donc un projet ne peut pas encore
-   * le choisir comme tracker. Jira et GitHub, eux, en ont un.
-   */
-  tracker: IssueTracker | 'gitlab'
+  /** Only a remote tracker with a registered adapter can be configured. */
+  tracker: Exclude<IssueTracker, 'local'>
   siteUrl: string
-  /** Dépôt GitHub (`owner/repo`) ou projet GitLab (`groupe/projet`). */
+  /** GitHub repository (`owner/repo`) or Jira project key. */
   project?: string
   email?: string
   token?: string
@@ -658,7 +643,7 @@ export interface TrackerCredentials {
 export interface TrackerCheck {
   ok: boolean
   error?: string
-  /** Compte auquel les accès GitHub ou GitLab appartiennent. */
+  /** The account the GitHub credentials belong to. */
   account?: string
   identity?: { accountId: string; displayName: string; email?: string; siteUrl: string }
   /** Projets que ces accès peuvent lire, ce qui rend une erreur de site évidente. */

@@ -283,6 +283,39 @@ func TestMembersOnlyChangeTheirPreferencesInSettings(t *testing.T) {
 	}
 }
 
+// A tab opened before #251 still holds the GitLab tracker keys and posts them
+// back with the whole row. They no longer exist, so they change nothing and must
+// not turn a member's theme change into a refusal.
+func TestAMemberPostingRetiredGitlabKeysIsNotRefused(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	server := guardedServer(t, h)
+	_, _ = account(t, database, "alice@example.com")
+	bobID, bob := account(t, database, "bob@example.com")
+
+	current, _ := database.GetSettings()
+	row := map[string]any{}
+	raw, _ := json.Marshal(current)
+	_ = json.Unmarshal(raw, &row)
+	row["theme"] = "light"
+	row["gitlabUrl"] = "https://gitlab.example/api/v4"
+	row["gitlabProject"] = "group/app"
+	row["gitlabToken"] = "gl-token"
+	row["gitlabTokenSet"] = true
+	row["gitlabTokenFromEnv"] = false
+	payload, _ := json.Marshal(row)
+	if status, body := call(t, server, bob, http.MethodPost, "/api/settings", string(payload)); status != http.StatusOK {
+		t.Fatalf("member posting a stale row: %d %s", status, body)
+	}
+	if settings, _ := database.UserSettings(bobID); settings.Theme != "light" {
+		t.Fatalf("bob's theme = %q, want light", settings.Theme)
+	}
+	status, body := call(t, server, bob, http.MethodGet, "/api/settings", "")
+	if status != http.StatusOK || strings.Contains(strings.ToLower(body), "gitlab") {
+		t.Fatalf("settings read back = %d %s, want no GitLab field", status, body)
+	}
+}
+
 func TestUsersViewChangesRolesButNeverRemovesTheLastAdmin(t *testing.T) {
 	h, database, cleanup := setupTestHandler(t)
 	defer cleanup()

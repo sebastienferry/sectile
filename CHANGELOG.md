@@ -180,6 +180,16 @@ test fixtures or internal plumbing.
   screen has no priority field at all is created without one — instead of being
   refused — and the level is set straight afterwards, so it is not lost.
 
+### Removed
+
+- **GitLab is no longer offered as an issue tracker.** No GitLab Issues adapter
+  ever existed, yet the first-start setup dialog offered GitLab, checked its
+  token and saved it where nothing would use it. The GitLab tracker settings,
+  the `SECTILE_GITLAB_TOKEN`, `GITLAB_TOKEN`, `SECTILE_GITLAB_API_URL` and
+  `SECTILE_GITLAB_PROJECT` variables and any stored personal GitLab token are
+  gone, and the setup endpoint now refuses GitLab. Merge requests on GitLab are
+  still discovered and shown as before.
+
 ### Security
 
 - **An agent, MCP client or machine API call now needs a real workstation key.**
