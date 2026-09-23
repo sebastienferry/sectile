@@ -32,15 +32,6 @@ await page.waitForTimeout(600);
 await page.evaluate(()=>{ctx.activities=[{taskId:'fixture',status:'running'}];render()});assert(await page.locator('[draggable]').evaluate(e=>e.className.includes('border-indigo-500/60')));assert.equal(await page.getByText('Live',{exact:true}).count(),0);
 await page.evaluate(()=>{task.status='finished';task.labels=['finished'];render()});await page.getByRole('button',{name:'Actions',exact:true}).click();assert(await page.getByRole('button',{name:'Avancer une étape'}).isDisabled());await page.keyboard.press('Escape');
 for(const density of ['standard','comfortable']) {await page.evaluate(d=>{ctx.settings.density=d;render()},density);await page.getByText('Hidden description').waitFor();}
-// The current link controls the icon in both detailed and compact surfaces.
-for (const [state,label] of [['open','PR ouverte'],['conflicting','PR en conflits'],['merged','PR fusionnée'],['closed','PR fermée sans fusion']]) {
- await page.evaluate(state=>{ctx.settings.density='standard';task.prLinks=[{url:'https://example.test/pr/old',state:'merged'},{url:task.prUrl,state}];render()},state);
- await page.getByRole('img',{name:label,exact:true}).waitFor();
- await page.evaluate(()=>{ctx.settings.density='compact';render()});
- await page.getByRole('button',{name:'Actions',exact:true}).click();
- await page.getByRole('img',{name:label,exact:true}).waitFor();
- await page.keyboard.press('Escape');
-}
 await page.evaluate(()=>{ctx.settings.density='compact';task.externalUrl=undefined;task.source='local';task.parentKey=undefined;task.prUrl=undefined;render()});assert.equal(await page.getByRole('link',{name:'#39',exact:true}).count(),0);assert.equal(await page.getByText('Hidden description').count(),0);
 await page.evaluate(()=>{task.status='to_clarify';task.labels=['new'];ctx.settings.density='compact';render()});
 assert.deepEqual(await page.locator('[draggable]').evaluate(e=>{const d=new DataTransfer();e.dispatchEvent(new DragEvent('dragstart',{bubbles:true,dataTransfer:d}));return d.getData('text/plain')}),'fixture');

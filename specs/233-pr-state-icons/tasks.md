@@ -6,4 +6,5 @@
 - [x] Render state-aware icons throughout web and desktop.
 - [x] Test mappings, persistence, batching, failures and UI selection.
 - [x] Update changelog and technical documentation.
-- [ ] Run builds, tests, static checks and final diff review; update and ready the same PR.
+- [x] Run builds, tests, static checks and final diff review.
+- [ ] Update and ready the same PR.
