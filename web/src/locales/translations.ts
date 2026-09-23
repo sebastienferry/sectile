@@ -1,4 +1,19 @@
 export interface TranslationSchema {
+  batchLaunch: string
+  batchDialog: {
+    title: string
+    worktree: string
+    worktreeHint: string
+    invalidName: string
+    order: string
+    orderHint: string
+    moveUp: string
+    moveDown: string
+    cancel: string
+    launch: string
+    launching: string
+    failed: string
+  }
   app: {
     title: string
     tagline: string
@@ -688,6 +703,21 @@ export interface TranslationSchema {
 
 export const translations: Record<'fr' | 'en', TranslationSchema> = {
   fr: {
+    batchLaunch: 'Lot',
+    batchDialog: {
+      title: "Préparer le lot",
+      worktree: "Nom du worktree",
+      worktreeHint: "Un worktree dédié pour l’ensemble du lot.",
+      invalidName: "Utilisez 1 à 80 lettres, chiffres, tirets ou underscores, en commençant par une lettre ou un chiffre.",
+      order: "Ordre d’exécution",
+      orderHint: "Les tickets seront traités du haut vers le bas. Utilisez les flèches pour changer leur ordre.",
+      moveUp: "Monter",
+      moveDown: "Descendre",
+      cancel: "Annuler",
+      launch: "Lancer le lot",
+      launching: "Lancement…",
+      failed: "Le lancement a échoué. Votre ordre et le nom du worktree sont conservés ; vous pouvez réessayer.",
+    },
     app: {
       title: 'Sectile',
       tagline: 'Gestionnaire de tâches agentique',
@@ -1374,6 +1404,21 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
   },
   en: {
+    batchLaunch: 'Batch',
+    batchDialog: {
+      title: "Prepare batch",
+      worktree: "Worktree name",
+      worktreeHint: "One dedicated worktree for the entire batch.",
+      invalidName: "Use 1–80 letters, digits, hyphens or underscores, starting with a letter or digit.",
+      order: "Execution order",
+      orderHint: "Tickets will run from top to bottom. Use the arrows to change their order.",
+      moveUp: "Move up",
+      moveDown: "Move down",
+      cancel: "Cancel",
+      launch: "Launch batch",
+      launching: "Launching…",
+      failed: "Launch failed. Your order and worktree name are preserved; you can retry.",
+    },
     app: {
       title: 'Sectile',
       tagline: 'Agentic Task Workflow Manager',

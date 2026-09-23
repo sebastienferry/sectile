@@ -75,6 +75,7 @@ Modern, agentic task workflow manager for developers and engineering teams, buil
 - 🔀 **Kanban Board & List View (Drag & Drop)**:
   - **Kanban Board View**: Fluid drag-and-drop between columns with automatic tracker sync.
   - **List View**: Grouping by status, multi-column sorting, and inline editing.
+  - **Backlog batch launch**: Select visible `new` or `clarified` tasks from one project and choose "Batch" ("Lot" in French). A preparation dialog lets you adjust the displayed execution order and choose the dedicated worktree name before launching. Cancelling preserves the selection; a failed launch keeps the dialog ready for retry.
 
 - 🔍 **Quick Search (`/`) & Action Palette (`Cmd+K`)**:
   - Keyboard shortcut `/` to immediately focus global search.
@@ -623,7 +624,7 @@ A disconnected or incompatible configuration API prevents execution.
 
 Before launching an LLM CLI, the local agent automatically registers Sectile in
 that CLI's **user-level** configuration, and installs the managed skills there
-too. Claude Code, Cursor and Gemini get a Streamable HTTP entry addressing the
+too. Unless an explicit desktop MCP preference is saved, Claude Code, Cursor and Gemini get a Streamable HTTP entry addressing the
 server's `/mcp` with the workstation key as bearer, so their Sectile tools keep
 working while the agent is stopped; the other CLIs get the
 `sectile-agent mcp --url <server>` stdio bridge with the key in its environment.
@@ -700,11 +701,42 @@ A client limited to stdio runs the bridge with the same key:
 The bridge also reads `SECTILE_AGENT_URL`. Terminals launched by the agent
 inherit it, set to the server, together with `SECTILE_AGENT_TOKEN`. The agent
 gateway on `http://127.0.0.1:8091` still proxies `/mcp` and `/api/` and takes the
-same key. Set `SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in
+same key by default. Selecting local proxy mode in desktop settings explicitly
+allows native loopback MCP clients without a key; `/api/` remains authenticated.
+Set `SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in
 the session list; the bridge otherwise reports its host and process id.
 Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
+
+### Choosing the MCP connection
+
+In the web profile, **AI Engine** contains one **MCP configuration** for the
+selected provider, including API-key creation. Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO** to
+display one configuration. The supported UI engines are Antigravity, Claude and Codex.
+Copy the example into the indicated user configuration,
+merge it with existing entries, replace the API key placeholder, and restart the
+AI engine. HTTP needs no local Sectile process. STDIO starts `sectile-agent mcp`;
+install the binary in PATH or use its absolute path. Development previews use
+`http://localhost:8090` for remote MCP, independently of the Vite UI port.
+Set `VITE_MCP_SERVER_URL` to override the server URL shown in configuration
+examples; production otherwise uses the current web origin.
+
+Desktop **Settings → Agents CLI → MCP configuration** offers the same three choices. HTTP connects directly to the remote server
+with the pairing key or to the local no-auth proxy. STDIO starts a bridge
+to the remote server with the pairing key and needs no running daemon. **Update provider configuration** writes the selected
+provider's user file, preserving other servers and tool permissions. Remote mode
+works with the agent stopped. Local mode requires the agent to remain running
+and lets any native process on the workstation use MCP as the paired user.
+Browser origins and unexpected Host headers are rejected; the remote server and
+local API routes still require authentication. Selecting remote mode for every
+provider disables the no-auth proxy again.
+
+Choices are stored per provider in `mcpConnections` in workstation settings,
+with `transport` (`http` or `stdio`) and `target` (`remote` or `local`). They survive
+launch-time setup and refresh after agent restart, including a changed local port.
+The preview uses a key placeholder; the desktop update writes the real paired key
+only for remote connections. Reload the AI engine after applying a change.
 
 Optional workstation overrides belong in `~/.config/sectile/settings.json`:
 
@@ -841,7 +873,7 @@ processes cannot be controlled by the new supervisor.
 Project settings include **Create PR/MR**: choose the default **Draft after implementation**, or **Draft after specification** to review specs in an early draft.
 Skills reuse the same PR/MR during implementation and attach its URL through MCP. Adjust never creates a PR. Missing PRs recover through the configured earlier stage without downgrading completed work. `Create PR` (`create_pr`, `/create-pr`) remains available under Additional skills. It creates or reuses a PR without advancing the task stage or joining the automatic workflow. The legacy `review` invocation resolves to Adjust; inherited review customizations require reconciliation in Skills.
 
-To regenerate skills from the desktop app, open the project gear menu, select **Deployment**, and click **Deploy server skills**. Configure and save the local repository first, and stop active executions before deployment. The agent fetches the current server skill content; **Refresh from server** alone refreshes settings without deploying files. Skills are also refreshed when preparing task executions.
+To initialize a native provider from the desktop app, open the project gear menu, select **Deployment**, choose the **Initialization provider**, and click **Initialize**. This runs the same provider-specific skills and MCP initialization as `sectile-agent init --provider <provider>`. Separate MCP and skills results show success, failure, or unsupported skills, and initialization remains available to run again. The selection does not change the project’s execution provider. Configure and save the local repository first, and stop active executions before deployment. The agent fetches the current server skill content; **Refresh from server** alone refreshes settings without deploying files. Skills are also refreshed when preparing task executions.
 
 ### Desktop console host
 
@@ -917,6 +949,13 @@ Go sources are `gofmt`-clean: `gofmt -l .` must report nothing at the repository
 root. `make test` enforces it through its `fmt-check` dependency, so an
 unformatted file fails the suite before any test runs. Run `gofmt -w .` to fix
 it, or `make fmt-check` to see the offending files on their own.
+
+CI runs the same check in the `lint:gofmt` job of the GitLab mirror pipeline,
+using the `gofmt` of the Go version `go.mod` declares. It gates: a red job
+fails the pipeline, and `make fmt-check` is how to reproduce it locally. The
+pipeline only reaches a GitHub pull request when the GitLab project reports
+commit statuses to GitHub, and blocking the merge is a matter of requiring that
+status in the branch protection of `main`. Neither is a repository setting.
 
 ### Execution modes
 

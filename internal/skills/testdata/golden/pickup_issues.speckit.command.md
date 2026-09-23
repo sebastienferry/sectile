@@ -155,7 +155,14 @@ Report and persist before continuing:
 5. Commit with a conventional message: type, scope, and why the change exists.
 6. Push the branch and update the same existing merge request: summary, test plan, and the specific
    places where you want a reviewer's eyes.
-   If rebasing an already-pushed branch, use `git push --force-with-lease`, never an unguarded force push.
+   Run `git fetch origin`, then choose the push from the state of `origin/<branch>`:
+   - `origin/<branch>` does not exist (first publication): run `git push -u origin <branch>`. Never force a branch the remote does not have.
+   - `git merge-base --is-ancestor origin/<branch> HEAD` succeeds (fast-forward): run a plain `git push`.
+   - Otherwise an authorized rebase rewrote published history: run `git push --force-with-lease`.
+   If the push is refused because commits landed on `origin/<branch>` in between (stale lease or non-fast-forward), run `git fetch origin`,
+   replay the local commits with `git rebase origin/<branch>` so the remote commits are kept (merge instead if the conflicts cannot be resolved safely),
+   re-run the checks if new commits came in, and retry once with the same rule. If it is refused again, or for another cause
+   (branch protection, permissions, authentication), stop, keep the work and report the blocker. Never run an unguarded `git push --force`.
 7. Verify the same PR is open and contains the pushed final commit, update its description and check evidence, then mark it ready. If any check, feedback retrieval, push or readiness verification fails, preserve work and report the blocker. If the repository has no remote, stop.
 
 - Do not merge, do not approve, do not close the ticket. That is the user's call.

@@ -311,6 +311,19 @@ func (c *Client) githubPages(ctx context.Context, path string) ([]json.RawMessag
 }
 
 func (c *Client) graphql(ctx context.Context, endpoint, token, query string, variables map[string]any, result any) error {
+	return c.graphqlRequest(ctx, endpoint, token, query, variables, result, false)
+}
+
+// graphqlPartial decodes the data a response carries even when some of its
+// fields failed. A batch of independent aliases must keep the ones that
+// resolved: GitHub answers one deleted or hidden repository with an entry in
+// errors next to the data of every other alias. The failures come back as the
+// returned error, after result has been filled.
+func (c *Client) graphqlPartial(ctx context.Context, endpoint, token, query string, variables map[string]any, result any) error {
+	return c.graphqlRequest(ctx, endpoint, token, query, variables, result, true)
+}
+
+func (c *Client) graphqlRequest(ctx context.Context, endpoint, token, query string, variables map[string]any, result any, partial bool) error {
 	raw, _, err := c.request(ctx, http.MethodPost, endpoint, token, map[string]any{"query": query, "variables": variables})
 	if err != nil {
 		return err
@@ -324,13 +337,23 @@ func (c *Client) graphql(ctx context.Context, endpoint, token, query string, var
 	if err = json.Unmarshal(raw, &envelope); err != nil {
 		return err
 	}
-	if len(envelope.Errors) > 0 {
+	failed := len(envelope.Errors) > 0
+	if failed && !partial {
 		return fmt.Errorf("tracker GraphQL request failed (%d errors)", len(envelope.Errors))
 	}
 	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+		if failed {
+			return fmt.Errorf("tracker GraphQL request failed (%d errors)", len(envelope.Errors))
+		}
 		return fmt.Errorf("tracker returned no GraphQL data")
 	}
-	return json.Unmarshal(envelope.Data, result)
+	if err = json.Unmarshal(envelope.Data, result); err != nil {
+		return err
+	}
+	if failed {
+		return fmt.Errorf("tracker GraphQL request partly failed (%d errors)", len(envelope.Errors))
+	}
+	return nil
 }
 
 func repository(repo string) (string, error) {

@@ -281,6 +281,27 @@ func TestMembersOnlyChangeTheirPreferencesInSettings(t *testing.T) {
 	if status != http.StatusOK || !strings.Contains(body, `"userEmail":"bob@example.com"`) {
 		t.Fatalf("settings read back = %d %s, want bob's own address", status, body)
 	}
+
+	// userName is the account's name and is not writable either. The post is
+	// ignored rather than refused, so a whole-row payload from the interface
+	// still answers 200, and the preferences it carries alongside are saved.
+	if _, err := database.SetDisplayName(bobID, "Bob Martin"); err != nil {
+		t.Fatal(err)
+	}
+	if status, body = call(t, server, bob, http.MethodPost, "/api/settings", `{"userName":"someone else","density":"compact"}`); status != http.StatusOK {
+		t.Fatalf("member posting a name: %d %s", status, body)
+	}
+	status, body = call(t, server, bob, http.MethodGet, "/api/settings", "")
+	if status != http.StatusOK || !strings.Contains(body, `"userName":"Bob Martin"`) {
+		t.Fatalf("settings read back = %d %s, want bob's own name", status, body)
+	}
+	if strings.Contains(body, "someone else") {
+		t.Fatalf("a written userName reached the answer: %s", body)
+	}
+	bobSettings, _ = database.UserSettings(bobID)
+	if bobSettings.Density != "compact" {
+		t.Fatalf("ignoring userName dropped the rest of the payload: density %q", bobSettings.Density)
+	}
 }
 
 func TestUsersViewChangesRolesButNeverRemovesTheLastAdmin(t *testing.T) {

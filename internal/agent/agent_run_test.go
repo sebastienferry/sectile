@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"tasks/internal/agentexec"
 	"testing"
 	"time"
@@ -111,5 +112,32 @@ func TestControlledCommandHasIsolatedGroup(t *testing.T) {
 	agentexec.StopControlled(cmd, true)
 	if err := cmd.Wait(); err == nil {
 		t.Fatal("expected killed child")
+	}
+}
+
+func TestSupervisedRunRetriesExitConfirmation(t *testing.T) {
+	d := &agentDaemon{}
+	if _, err := d.wrapRun("", "run", ""); err != nil {
+		t.Fatal(err)
+	}
+	var reports atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && reports.Add(1) == 1 {
+			http.Error(w, "temporary failure", http.StatusServiceUnavailable)
+			return
+		}
+		d.handleRunControl(w, r)
+	}))
+	defer server.Close()
+	if err := agentexec.Run([]string{"--url", server.URL + "/control/runs/run", "--token", d.queue.runs["run"].token, "--command", "exit 0"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-d.queue.runs["run"].exited:
+	default:
+		t.Fatal("exit was not confirmed after a transient report failure")
+	}
+	if reports.Load() != 2 {
+		t.Fatalf("got %d exit reports, want 2", reports.Load())
 	}
 }

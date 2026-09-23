@@ -6,7 +6,7 @@ const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path
 test('PR icons stay inline and open independently with mouse and keyboard',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-pr-display-'))
  const url='https://github.com/example/repo/pull/79'
- let link=url
+ let link=url, state='conflicting'
  const runs=['1','2'].map(id=>({id:'run-'+id,taskId:id,taskKey:'#'+id,projectId:'project-a',skill:'clarify',status:'completed'}))
  const server=http.createServer((req,res)=>{
   res.setHeader('Content-Type','application/json')
@@ -15,7 +15,7 @@ test('PR icons stay inline and open independently with mouse and keyboard',async
   if(req.url==='/desktop/project?id=project-a'){res.end(JSON.stringify({configured:true,server:{skills:[]}}));return}
   if(req.url==='/desktop/runs'){res.end(JSON.stringify(runs));return}
   if(req.url.startsWith('/desktop/tasks?')){res.end(JSON.stringify([
-   {id:'1',key:'#1',title:'A very long task title that must truncate before the pull request icon',prUrl:link,labels:['#reviewed']},
+   {id:'1',key:'#1',title:'A very long task title that must truncate before the pull request icon',prUrl:link,prLinks:link?[{url:link,state}]:[],labels:['#reviewed']},
    {id:'2',key:'#2',title:'Another task without a pull request',labels:['#reviewed']}
   ]));return}
   res.writeHead(404).end()
@@ -29,13 +29,14 @@ test('PR icons stay inline and open independently with mouse and keyboard',async
   await app.evaluate(({shell})=>{globalThis.opened=[];shell.openExternal=async url=>{globalThis.opened.push(url)}})
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
   const row=id=>page.locator('.local-task').filter({has:page.getByRole('button',{name:'Open #'+id+' in Sectile',exact:true})})
-  const pr=page.getByRole('button',{name:'Open PR #79 for #1',exact:true})
+  const pr=page.getByRole('button',{name:/^Open PR #79 for #1 — /})
   await pr.waitFor()
   assert.equal(await row('1').locator('.pr-indicator').count(),1)
   assert.equal(await row('2').locator('.pr-indicator').count(),0)
   assert.equal(await page.locator('.project-group > .pr-indicator').count(),0)
   assert.equal(await pr.textContent(),'')
-  assert.equal(await pr.getAttribute('title'),url)
+  assert.match(await pr.getAttribute('title'),/Conflicting/)
+  assert.match(await pr.getAttribute('aria-label'),/Conflicting/)
   await page.getByRole('separator',{name:'Resize sidebar'}).focus()
   for(let i=0;i<4;i++)await page.keyboard.press('ArrowLeft')
   assert.equal((await page.locator('aside').boundingBox()).width,210)
@@ -64,6 +65,9 @@ test('PR icons stay inline and open independently with mouse and keyboard',async
   console.log('PR screenshot: '+path.join(root,'pr-inline.png'))
   await row('1').locator('.run').click()
   assert.equal(await page.locator('#selected-pr').textContent(),'PR #79')
+  state='merged'
+  await expect(pr).toHaveAttribute('aria-label','Open PR #79 for #1 — Merged',{timeout:20000})
+  await expect(page.locator('#selected-pr')).toHaveAttribute('aria-label','Open PR #79 — Merged')
   link=undefined
   // PR metadata refreshes every 15 seconds, independently of the run polling.
   await expect(pr).toHaveCount(0,{timeout:20000})

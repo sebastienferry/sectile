@@ -172,21 +172,79 @@ func TestExecutionLimitDefaultsAndOverrides(t *testing.T) {
 	}
 }
 
-func TestProjectCommandOverrideAndServerReset(t *testing.T) {
+func TestProjectCommandOverrideAndWorkstationReset(t *testing.T) {
 	config := Config{ProjectID: "p", AICommandTemplate: "server {prompt}"}
-	overrides := Overrides{Commands: map[string]string{"p": "local {prompt}"}}
-	if got := ApplyOverrides(config, overrides).AICommandTemplate; got != "local {prompt}" {
-		t.Fatal(got)
+	overrides := Overrides{
+		AICommandTemplate:           "workstation {prompt}",
+		AICommandTemplateAutonomous: "workstation -p {prompt}",
+		Commands:                    map[string]string{"p": "local {prompt}"},
+		CommandsAutonomous:          map[string]string{"p": "local -p {prompt}"},
 	}
+	applied := ApplyOverrides(config, overrides)
+	if got := applied.AICommandTemplate; got != "local {prompt}" {
+		t.Fatalf("expected project command override, got %q", got)
+	}
+	if got := applied.AICommandTemplateAutonomous; got != "local -p {prompt}" {
+		t.Fatalf("expected project autonomous command override, got %q", got)
+	}
+
+	// Other project inherits workstation default
 	config.ProjectID = "other"
-	if got := ApplyOverrides(config, overrides).AICommandTemplate; got != "server {prompt}" {
-		t.Fatal("override leaked", got)
+	other := ApplyOverrides(config, overrides)
+	if got := other.AICommandTemplate; got != "workstation {prompt}" {
+		t.Fatalf("expected workstation default command, got %q", got)
 	}
+	if got := other.AICommandTemplateAutonomous; got != "workstation -p {prompt}" {
+		t.Fatalf("expected workstation default autonomous command, got %q", got)
+	}
+
+	// Resetting project command to empty falls back to workstation default
 	config.ProjectID = "p"
 	overrides.Commands["p"] = ""
-	overrides.AICommandTemplate = "legacy {prompt}"
-	if got := ApplyOverrides(config, overrides).AICommandTemplate; got != "server {prompt}" {
-		t.Fatal("server reset failed", got)
+	overrides.CommandsAutonomous["p"] = ""
+	reset := ApplyOverrides(config, overrides)
+	if got := reset.AICommandTemplate; got != "workstation {prompt}" {
+		t.Fatalf("workstation reset failed, got %q", got)
+	}
+	if got := reset.AICommandTemplateAutonomous; got != "workstation -p {prompt}" {
+		t.Fatalf("workstation autonomous reset failed, got %q", got)
+	}
+
+	// When workstation has no command templates, falls back to server templates
+	overrides.AICommandTemplate = ""
+	overrides.AICommandTemplateAutonomous = ""
+	serverFallback := ApplyOverrides(config, overrides)
+	if got := serverFallback.AICommandTemplate; got != "server {prompt}" {
+		t.Fatalf("server fallback failed, got %q", got)
+	}
+}
+
+func TestProjectProviderChangeDropsInheritedCommands(t *testing.T) {
+	config := Config{ProjectID: "p", AIProvider: "agy"}
+	overrides := Overrides{
+		AIProvider:                  "claude",
+		AICommandTemplate:           "claude --expert {prompt}",
+		AICommandTemplateAutonomous: "claude -p --expert {prompt}",
+		AIProviders:                 map[string]string{"p": "gemini"},
+	}
+	// Project switches to gemini without explicit project commands: inherited claude commands dropped
+	applied := ApplyOverrides(config, overrides)
+	if applied.AIProvider != "gemini" {
+		t.Fatalf("expected gemini, got %q", applied.AIProvider)
+	}
+	if applied.AICommandTemplate != "" {
+		t.Fatalf("expected empty command template on provider switch, got %q", applied.AICommandTemplate)
+	}
+	if applied.AICommandTemplateAutonomous != "" {
+		t.Fatalf("expected empty autonomous template on provider switch, got %q", applied.AICommandTemplateAutonomous)
+	}
+
+	// If explicit project command is provided for the new provider, it is kept
+	overrides.Commands = map[string]string{"p": "gemini {prompt}"}
+	overrides.CommandsAutonomous = map[string]string{"p": "gemini -p {prompt}"}
+	appliedWithCmd := ApplyOverrides(config, overrides)
+	if appliedWithCmd.AICommandTemplate != "gemini {prompt}" || appliedWithCmd.AICommandTemplateAutonomous != "gemini -p {prompt}" {
+		t.Fatalf("custom project command lost on provider switch")
 	}
 }
 

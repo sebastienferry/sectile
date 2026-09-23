@@ -2659,8 +2659,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 // composedSettings is what /api/settings answers: the deployment row for the
 // shared configuration, the caller's own row for the preferences, and the
-// account's e-mail for userEmail, which is a projection of the identity rather
-// than a field anyone types (ADR 0015).
+// account's own identity for userName and userEmail, which are projections of
+// that identity rather than fields anyone types (ADR 0015).
 func (h *Handler) composedSettings(userID string) (*models.Settings, error) {
 	deployment, err := h.db.GetSettings()
 	if err != nil {
@@ -2683,8 +2683,16 @@ func (h *Handler) composedSettings(userID string) (*models.Settings, error) {
 	composed.UserAvatar = personal.UserAvatar
 	composed.EditorCommand = personal.EditorCommand
 	composed.ExternalTerminalCommand = personal.ExternalTerminalCommand
-	if user, err := h.db.GetUser(userID); err == nil && user != nil && user.Email != "" {
-		composed.UserEmail = user.Email
+	if user, err := h.db.GetUser(userID); err == nil && user != nil {
+		// Name() is the chain the rest of the application already shows: the
+		// chosen name, then the one the sign-in supplied, then the address,
+		// then the id. It never answers empty, so it is taken as is; the
+		// address is only taken when the account has one, since a personal row
+		// may hold something the identity does not.
+		composed.UserName = user.Name()
+		if user.Email != "" {
+			composed.UserEmail = user.Email
+		}
 	}
 	return &composed, nil
 }
@@ -2728,9 +2736,12 @@ func (h *Handler) HandleSettings(w http.ResponseWriter, r *http.Request) {
 		// two apart, so presence of the key is what carries the intent.
 		var sent map[string]json.RawMessage
 		_ = json.Unmarshal(body, &sent)
-		// userEmail is a projection of the account's identity: it is answered
-		// on a read and ignored on a write.
+		// userName and userEmail are projections of the account's identity:
+		// they are answered on a read and ignored on a write. Dropping them
+		// here, rather than from personalSettingsKeys, keeps a member's
+		// whole-row post a silent ignore instead of an admin-only refusal.
 		delete(sent, "userEmail")
+		delete(sent, "userName")
 		current, err := h.db.GetSettings()
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())

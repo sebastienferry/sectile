@@ -464,8 +464,22 @@ func (d *agentDaemon) bootstrapLocalMCP(config *agentconfig.Config) error {
 	if err != nil {
 		return err
 	}
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		return err
+	}
 	for _, provider := range providers {
-		path, err := agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
+		choice, selected := settings.MCPConnections[provider]
+		var path string
+		if selected {
+			server := d.link.serverURL
+			if choice.Target == "local" {
+				server = d.loopback.url
+			}
+			path, err = agentconfig.ConfigureMCP(provider, executable, server, d.link.token, choice.Transport, choice.Target == "local")
+		} else {
+			path, err = agentconfig.BootstrapMCP(provider, executable, d.link.serverURL, d.link.token)
+		}
 		if err != nil {
 			return fmt.Errorf("register the Sectile MCP server for provider %q: %w", provider, err)
 		}

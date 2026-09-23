@@ -52,14 +52,29 @@ func mcpEntry(provider, executable, server, apiKey string) map[string]any {
 // addresses the server, never a local gateway, so it is independent of any
 // agent process and survives its restarts.
 func BootstrapMCP(provider, executable, server, apiKey string) (string, error) {
+	return ConfigureMCP(provider, executable, server, apiKey, "auto", false)
+}
+
+// ConfigureMCP writes an explicit transport while preserving unrelated settings.
+// Local mode accepts only a literal loopback URL and never writes the pairing key.
+func ConfigureMCP(provider, executable, server, apiKey, transport string, local bool) (string, error) {
 	if !filepath.IsAbs(executable) {
 		return "", fmt.Errorf("MCP executable must be an absolute path")
 	}
 	endpoint, err := url.Parse(server)
-	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" || endpoint.User != nil {
+	if err != nil || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.Host == "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
 		return "", fmt.Errorf("MCP bootstrap requires the Sectile server URL")
 	}
-	if strings.TrimSpace(apiKey) == "" {
+	if transport != "auto" && transport != "http" && transport != "stdio" {
+		return "", fmt.Errorf("invalid MCP transport")
+	}
+	if local && transport == "auto" {
+		return "", fmt.Errorf("local MCP requires an explicit transport")
+	}
+	if local && (endpoint.Scheme != "http" || endpoint.Hostname() != "127.0.0.1" || endpoint.Port() == "" || endpoint.Path != "") {
+		return "", fmt.Errorf("local MCP requires a loopback URL with a port")
+	}
+	if !local && strings.TrimSpace(apiKey) == "" {
 		return "", fmt.Errorf("MCP bootstrap requires the workstation API key")
 	}
 	server = strings.TrimRight(server, "/")
@@ -93,7 +108,7 @@ func BootstrapMCP(provider, executable, server, apiKey string) (string, error) {
 	if data == nil {
 		return "", fmt.Errorf("MCP configuration %s must be an object", path)
 	}
-	if err := migrateMCPRegistration(data, provider, mcpEntry(provider, executable, server, apiKey)); err != nil {
+	if err := migrateMCPRegistration(data, provider, selectedMCPEntry(provider, executable, server, apiKey, transport, local)); err != nil {
 		return "", fmt.Errorf("migrate MCP configuration %s: %w", path, err)
 	}
 	if err := checkExternalMCPPolicies(loc.Home, provider, filepath.Join(loc.Home, path)); err != nil {
@@ -120,4 +135,37 @@ func BootstrapMCP(provider, executable, server, apiKey string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(root, path), nil
+}
+
+func selectedMCPEntry(provider, executable, server, apiKey, transport string, local bool) map[string]any {
+	if transport == "auto" {
+		return mcpEntry(provider, executable, server, apiKey)
+	}
+	if local {
+		apiKey = ""
+	}
+	if transport == "stdio" {
+		entry := map[string]any{"command": executable, "args": []string{"mcp", "--url", server}, "env": map[string]any{"SECTILE_AGENT_TOKEN": apiKey}}
+		return entry
+	}
+	entry := map[string]any{"url": server + "/mcp"}
+	headerField := "headers"
+	switch provider {
+	case "claude":
+		entry["type"] = "http"
+	case "codex":
+		headerField = "http_headers"
+	case "agy":
+		delete(entry, "url")
+		entry["serverUrl"] = server + "/mcp"
+	case "gemini":
+		delete(entry, "url")
+		entry["httpUrl"] = server + "/mcp"
+	case "vibe":
+		entry["transport"] = "streamable-http"
+	}
+	if !local {
+		entry[headerField] = map[string]any{"Authorization": "Bearer " + apiKey}
+	}
+	return entry
 }

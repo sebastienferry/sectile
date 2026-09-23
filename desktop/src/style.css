@@ -114,6 +114,9 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 
 .run-state{display:inline-flex;align-items:center;flex-shrink:0}
 .run-state svg{display:block}
+.run-state[data-run-state=running] svg{animation:run-state-spin 1s linear infinite;transform-origin:center}
+@keyframes run-state-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.run-state[data-run-state=running] svg{animation:none}}
 
 /* Tickets pane: a project's open tasks as a table where the console sits. */
 #tickets-pane{display:flex;flex-direction:column;flex:1;min-width:0;min-height:0;padding:20px;overflow:auto;gap:12px}#tickets-pane h2,#tickets-pane p{margin:0}
@@ -198,7 +201,7 @@ aside{display:flex;flex-direction:column;padding:0;overflow:hidden}
 .connection-body{display:flex;align-items:center;gap:7px;min-width:0;color:inherit}
 .connection-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .connection-dot{flex-shrink:0;width:8px;height:8px;border-radius:50%;background:#ff9b00}
-#connection[data-state=on] .connection-dot{background:#62d3be}
+#connection[data-state=on] .connection-dot,.settings-connection-status[data-state=on] .connection-dot{background:#62d3be}
 #connection[data-state=on]{color:#b8c9dd}
 /* Collapsed, the sidebar keeps its footer as a narrow rail: the agent controls
    and the state they act on are not something hiding a project list should take
@@ -213,3 +216,26 @@ aside{display:flex;flex-direction:column;padding:0;overflow:hidden}
 /* Inside the panel the category already scrolls, so the release notes drop
    their own scroller: one scrollbar per pane, not two nested. */
 .settings-content .changelog{max-height:none;overflow:visible}
+
+/* Workstation settings have room for CLI controls and long release notes. */
+dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
+.workstation-settings .settings-layout{height:clamp(300px,calc(90vh - 130px),760px)}
+.workstation-settings .settings-nav button[data-category="Changelog"]{margin-top:auto}
+@media (max-width:720px){.workstation-settings .settings-layout{height:auto}.workstation-settings .settings-nav button[data-category="Changelog"]{margin-top:0}}
+
+.settings-agent-actions{display:inline-flex;flex-wrap:wrap;gap:6px}.settings-agent-actions button{padding:6px 9px;font-size:12.5px}
+
+/* Icon actions stay unboxed; color and focus communicate their state. */
+#clear-history,#toolbar .icon-button{border:0;background:transparent}
+#clear-history:hover:not(:disabled),#toolbar .icon-button:hover:not(:disabled){color:#80e6ce;background:transparent}
+#toolbar .execution-views{background:transparent}
+#toolbar .execution-views [aria-pressed="true"]{color:#80e6ce}
+
+.action-tooltip{position:fixed;inset:auto;margin:0;max-width:min(360px,calc(100vw - 16px));padding:7px 10px;border:1px solid #46566d;border-radius:6px;background:#263345;color:#f0f5fb;box-shadow:0 4px 16px #0006;font:12px/1.4 system-ui;overflow-wrap:anywhere;pointer-events:none}
+.mcp-settings { margin-top: 24px; border-top: 1px solid var(--border-color, #39404b); padding-top: 16px; }
+.settings-content .mcp-settings select { width: 100%; }
+.mcp-option { margin: 12px 0; padding: 12px; border: 1px solid var(--border-color, #39404b); border-radius: 8px; }
+.mcp-option label { display: flex; align-items: center; gap: 6px; margin: 0; font-weight: 600; }
+.mcp-option input[type="radio"] { width: auto; margin: 0; padding: 0; flex: 0 0 auto; accent-color: #62d3be; }
+.mcp-settings .hint { padding: 0; }
+.mcp-option pre { overflow-x: auto; font-size: 11px; padding: 8px; }

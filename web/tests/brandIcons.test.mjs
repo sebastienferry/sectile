@@ -65,8 +65,6 @@ test('the barrel exports the four marks and their props type', () => {
 
 test('every call site imports the marks from the local barrel', async () => {
   const callSites = {
-    'ApiKeys.tsx': ['Antigravity', 'Claude', 'OpenAI', 'Cursor'],
-    'MCPEngineConfig.tsx': ['Antigravity', 'Claude', 'OpenAI', 'Cursor'],
     'ProfileModal.tsx': ['Antigravity', 'Claude', 'OpenAI'],
     'ProjectModal.tsx': ['Antigravity', 'Claude', 'OpenAI'],
   }

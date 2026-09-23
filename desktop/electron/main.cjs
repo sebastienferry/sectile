@@ -73,6 +73,15 @@ ipcMain.handle('settings',()=>{
   return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
  }catch{return {}}
 })
+ipcMain.handle('save-settings',async(_,updates)=>{
+ let previous={}
+ try{previous=readSettings()}catch{}
+ const saved={...previous,...updates}
+ fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
+ fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved,null,2),{mode:0o600})
+ fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ return {...saved,token:storedKey(saved),secret:undefined,apiKey:undefined}
+})
 // What this installation is running. The desktop's own version comes from the
 // package the app was built from; the agent's comes from the agent itself,
 // because the two are distributed separately and a workstation that upgraded
@@ -187,6 +196,8 @@ ipcMain.handle('copy-text',(_,text)=>{
  if(typeof text!=='string'||!text)throw Error('Nothing to copy')
  clipboard.writeText(text)
 })
+ipcMain.handle('mcp-config',(_,provider)=>api('/desktop/mcp?provider='+encodeURIComponent(provider)))
+ipcMain.handle('configure-mcp',(_,provider,choice)=>api('/desktop/mcp?provider='+encodeURIComponent(provider),'POST',choice))
 ipcMain.handle('status',()=>api('/desktop/status'))
 ipcMain.handle('choose-repository',async()=>{
  const result=await dialog.showOpenDialog(window,{title:'Select local repository',properties:['openDirectory']})
@@ -236,7 +247,7 @@ ipcMain.handle('transition-stage',async(_,{projectId,taskId,stage,note})=>{
  return api('/desktop/tasks/transition?projectId='+encodeURIComponent(projectId),'POST',{taskId,stage,note})
 })
 ipcMain.handle('project',(_,id)=>api('/desktop/project?id='+encodeURIComponent(id)))
-ipcMain.handle('deploy-project',(_,id,action)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action),'POST'))
+ipcMain.handle('deploy-project',(_,id,action,provider)=>api('/desktop/project?id='+encodeURIComponent(id)+'&action='+encodeURIComponent(action)+(provider?'&provider='+encodeURIComponent(provider):''),'POST'))
 ipcMain.handle('projects',()=>api('/desktop/projects'))
 ipcMain.handle('remove-project',async(_,id)=>{
  const status=await api('/desktop/status')

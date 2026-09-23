@@ -24,7 +24,7 @@ func NormalizePullRequestLinks(links []TaskPullRequest) []TaskPullRequest {
 			continue
 		}
 		seen[url] = true
-		out = append(out, TaskPullRequest{URL: url, Branch: strings.TrimSpace(link.Branch)})
+		out = append(out, TaskPullRequest{URL: url, Branch: strings.TrimSpace(link.Branch), State: NormalizePullRequestState(link.State)})
 	}
 	return out
 }
@@ -100,4 +100,13 @@ func AcceptPullRequest(links []TaskPullRequest, url, branch string) error {
 		return nil
 	}
 	return fmt.Errorf("pull request %s is on branch %q, unrelated to the recorded %s", url, branch, strings.Join(recorded, ", "))
+}
+
+// NormalizePullRequestState keeps legacy and unrecognized states unknown.
+func NormalizePullRequestState(state string) string {
+	switch state {
+	case "open", "conflicting", "merged", "closed":
+		return state
+	}
+	return ""
 }
