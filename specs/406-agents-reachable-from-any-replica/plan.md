@@ -38,12 +38,12 @@ CREATE TABLE agent_presence (
 
 ## `internal/handlers`
 
-- `agent_directory.go`: `AgentDirectory` interface (the five presence methods plus
+- `agent_cluster.go` (as built, one file for the directory, the routing, the forwarder and the internal handler): `AgentDirectory` interface (the five presence methods plus
   `InstanceID`), implemented by `*db.DB`.
 - `AgentDispatcher.SetCluster(dir AgentDirectory, token string, tokenErr error)`.
 - `Register`: after the local bind, `AgentConnected`; a previous holder on another
   instance is asked to close (best effort, in a goroutine). `Unregister`: `AgentDisconnected`.
-- Resolution: `resolve(ctx, user, project, grace) (local *AgentConn, remote *AgentLocation)`:
+- Resolution: `waitForRoute(ctx, user, project, grace) *AgentRoute`:
   local map, then owner (ignoring this instance), polling both during the grace when the
   slot was recently held anywhere.
 - `CallOperation`, `Dispatch`, `DispatchAndWait`, `PullTasks` fall back to the forwarder
@@ -51,12 +51,12 @@ CREATE TABLE agent_presence (
   so a request is forwarded at most once.
 - `Route(user, project) *AgentRoute` (user, project and device of the slot, local or remote) replaces the handlers'
   `Lookup(...) != nil` checks before launches.
-- `agent_forward.go`: HTTP client, one POST per verb to `<address>/internal/agent/<verb>`
+- Forwarder: HTTP client, one POST per verb to `<address>/internal/agent/<verb>`
   with the bearer; transport failures become "the server instance holding the local agent
   (<id>) did not answer: …".
-- `agent_internal.go`: `InternalHandler()` with `operation`, `dispatch`,
-  `dispatch-and-wait`, `pull`, `close`; constant-time bearer check; 404 when the agent is
-  not held here.
+- `InternalHandler()` with `operation`, `dispatch`,
+  `dispatch-and-wait`, `pull`, `close`; constant-time bearer check (401 otherwise); an answer coded `no_agent` when the
+  agent is not held here, so the caller's `ErrNoAgentConnected` is preserved.
 - `HandleAgentStatus`: `ConnectedAgentLocations` when a directory is set.
 
 ## Server
@@ -73,7 +73,7 @@ a warning; forwarding and the endpoints then refuse.
 ## Tests
 
 - `internal/db/presence_test.go` (SQLite) and `postgres_presence_test.go`.
-- `internal/handlers/agent_forward_test.go`: two dispatchers, shared in-memory directory,
+- `internal/handlers/agent_cluster_test.go`: two dispatchers, shared in-memory directory,
   internal servers via `httptest`; operation, dispatch, dispatch-and-wait, pull, rebind,
   dead owner, bad bearer, no key.
 - `web`: existing unit tests; the hook change is covered by review (no hook test harness).
@@ -81,5 +81,4 @@ a warning; forwarding and the endpoints then refuse.
 ## Target files
 
 `internal/db/{migrations.go,instances.go,presence.go}`, `internal/handlers/{agent_dispatcher.go,
-agent_operations.go,agent_directory.go,agent_forward.go,agent_internal.go,handlers.go,remote_run.go}`,
-`cmd/server/main.go`, `web/src/hooks/useAgentStatus.ts`, tests, README, CHANGELOG.
+agent_operations.go,agent_cluster.go,handlers.go}`, `cmd/server/{main.go,internal.go}`, `web/src/hooks/useAgentStatus.ts`, tests, README, CHANGELOG.
