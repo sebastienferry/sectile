@@ -33,7 +33,7 @@ replaying SFE-360 as part of the pull request.
 - **Foreign pull request**: a `prUrl` whose repository differs from the project
   repository, or any `prUrl` when the project has no project repository.
 - **Verified checkout**: a local checkout the agent found among the task's pinned
-  `repoPath` and the project's `repoPaths`, whose own `origin` names the foreign
+  `repoPath`, the project's `repoPath` and the project's `repoPaths`, whose own `origin` names the foreign
   pull request's repository, and which has the task branch checked out.
 
 ## Decisions being specified
@@ -122,8 +122,10 @@ and records that pull request.
 - **Given** a foreign pull request whose source branch is not the task branch, or
   whose branch is unrelated to the task's recorded links, **then** it is refused as
   today.
-- **Given** a `prUrl` on a host that is neither GitHub nor GitLab, **then** it is
-  refused as an unsupported forge.
+- **Given** a `prUrl` that is neither a GitHub pull request nor a GitLab merge
+  request link, **then** it is never treated as a foreign pull request: it keeps
+  the project path, where the forge answer never matches it and the evidence
+  check refuses it (or the lookup fails when the project has no repository).
 
 ### US5 (P1): Lookup failures stay failures
 
@@ -152,7 +154,7 @@ and records that pull request.
   project repository (US4). The refusal is a refusal, not a lookup failure.
 - **FR3** The forge of a foreign pull request comes from its URL: GitHub for a
   GitHub pull request link, GitLab for a merge request link (`/-/merge_requests/<n>`)
-  on a host naming GitLab or carrying that path. Other links are refused.
+  on any host. Other links keep the project path (see US4).
 - **FR4** A foreign pull request is looked up in the repository its URL names, for
   the task branch, with the same selection rules as a project lookup (one open
   request, else the latest merged one, several open ones ambiguous, closed ignored).

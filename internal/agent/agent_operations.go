@@ -283,6 +283,20 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		return r.GetGitDiff(target, branch, task.Key, task.PrURL)
 	case "git_evidence":
+		if repository := strings.TrimSpace(op.Repository); repository != "" {
+			// The pull request lives in another repository: the project checkout
+			// cannot vouch for its head, a verified checkout of that repository can.
+			// The echo tells the server this agent understood the question.
+			candidates, err := d.checkoutCandidates(ctx, task, op.ProjectID)
+			if err != nil {
+				return nil, err
+			}
+			checkout, found, err := verifiedCheckout(ctx, repository, strings.TrimSpace(op.Branch), candidates)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"repository": repository, "found": found, "path": checkout.Path, "sha": checkout.SHA, "branch": checkout.Branch, "clean": checkout.Clean}, nil
+		}
 		sha, err := gitLocal(ctx, target, "rev-parse", "HEAD")
 		if err != nil {
 			return nil, err
@@ -302,14 +316,23 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if branch == "" && task.BranchName != nil {
 			branch = strings.TrimSpace(*task.BranchName)
 		}
-		pr, err := r.BranchPullRequest(target, branch)
+		// A repository names a merge request in another GitLab repository; the
+		// server reads GitHub itself, so only GitLab is ever asked for here. The
+		// checkout is then only the CLI's working directory.
+		repository := strings.TrimSpace(op.Repository)
+		var pr runner.PullRequestEvidence
+		if repository != "" {
+			pr, err = r.RepositoryPullRequest(target, "gitlab", repository, branch)
+		} else {
+			pr, err = r.BranchPullRequest(target, branch)
+		}
 		if errors.Is(err, runner.ErrNoMatchingPullRequest) || errors.Is(err, runner.ErrAmbiguousPullRequest) {
-			return map[string]any{"forge": pr.Forge, "refusal": err.Error()}, nil
+			return map[string]any{"forge": pr.Forge, "refusal": err.Error(), "repository": repository}, nil
 		}
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"forge": pr.Forge, "url": pr.URL, "branch": pr.Branch, "sha": pr.SHA, "open": pr.Open, "draft": pr.Draft, "merged": pr.Merged}, nil
+		return map[string]any{"forge": pr.Forge, "url": pr.URL, "branch": pr.Branch, "sha": pr.SHA, "open": pr.Open, "draft": pr.Draft, "merged": pr.Merged, "repository": repository}, nil
 	case "run_prompt":
 		output, steps, err := r.RunAgentPrompt(ctx, &models.Settings{RepoPath: root, AIProvider: config.AIProvider, AICommandTemplate: config.AICommandTemplate, AIModel: agentconfig.ResolveModel(config, "")}, op.Prompt)
 		return map[string]any{"output": output, "steps": steps}, err

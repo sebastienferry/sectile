@@ -142,15 +142,6 @@ func gitLocal(ctx context.Context, root string, args ...string) (string, error) 
 	return strings.TrimSpace(string(raw)), nil
 }
 
-func repositoryIdentity(remote string) string {
-	remote = strings.TrimSuffix(strings.TrimSpace(remote), ".git")
-	if parsed, err := url.Parse(remote); err == nil && parsed.Host != "" {
-		return strings.ToLower(parsed.Host) + strings.TrimRight(parsed.Path, "/")
-	}
-	remote = strings.TrimPrefix(remote, "git@")
-	return strings.Replace(remote, ":", "/", 1)
-}
-
 // localProjectRoot resolves workstation mappings. Remote filesystem paths are
 // deliberately absent from the contract and never used as local working dirs.
 func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config, allowUninitialized ...bool) (string, agentconfig.Overrides, error) {
@@ -173,7 +164,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 		root = mapped
 	} else if d.link.projectID != c.ProjectID {
 		remote, err := gitLocal(ctx, root, "remote", "get-url", "origin")
-		if err != nil || c.GitRemoteURL == "" || repositoryIdentity(remote) != repositoryIdentity(c.GitRemoteURL) {
+		if err != nil || c.GitRemoteURL == "" || models.RepositoryIdentity(remote) != models.RepositoryIdentity(c.GitRemoteURL) {
 			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/taskflow/settings.json projects", c.ProjectID)
 		}
 	}

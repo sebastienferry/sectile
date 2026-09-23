@@ -83,21 +83,21 @@ func TestMergedPRCompletesReview(t *testing.T) {
 	})
 	// The human merged the PR before the review stage was recorded; that must not strand the task.
 	pr := trackerapi.PullRequest{URL: "https://forge/pull/1", Branch: "ticket", SHA: "agent-commit", Merged: true}
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return pr, nil }
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return pr, nil }
 	got, _, err := d.TransitionTaskStage(task.ID, "reviewed", "review complete on a merged PR", pr.URL, "ticket")
 	if err != nil || d.StageOfTask(got) != "reviewed" || got.PrURL == nil || *got.PrURL != pr.URL {
 		t.Fatalf("merged PR rejected: %+v %v", got, err)
 	}
 	// A closed-unmerged PR is abandoned work and still blocks the transition.
 	closed := trackerapi.PullRequest{URL: "https://forge/pull/1", Branch: "ticket", SHA: "agent-commit"}
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return closed, nil }
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return closed, nil }
 	if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "closed PR", closed.URL, "ticket"); err == nil {
 		t.Fatal("closed-unmerged PR accepted")
 	}
 	// A merged PR whose head is not the agent checkout is still rejected.
 	stale := pr
 	stale.SHA = "other-commit"
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return stale, nil }
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return stale, nil }
 	if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "stale merged PR", stale.URL, "ticket"); err == nil {
 		t.Fatal("merged PR without the checkout commit accepted")
 	}
@@ -148,7 +148,7 @@ func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 				}
 				return json.RawMessage(`{"sha":"agent-commit","branch":"ticket","clean":true}`), nil
 			})
-			d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return pr, nil }
+			d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return pr, nil }
 			got, _, err := d.TransitionTaskStage(task.ID, timing, "PR recovery complete", pr.URL, "ticket")
 			if err != nil || d.StageOfTask(got) != "implemented" || got.PrURL == nil || *got.PrURL != pr.URL {
 				t.Fatalf("%+v %v", got, err)
@@ -161,7 +161,9 @@ func TestEarlierPRRecoveryPreservesImplemented(t *testing.T) {
 			if err != nil || d.StageOfTask(got) != "reviewed" {
 				t.Fatalf("%+v %v", got, err)
 			}
-			d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return pr, fmt.Errorf("forge unavailable") }
+			d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) {
+				return pr, fmt.Errorf("forge unavailable")
+			}
 			if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "retry", pr.URL, "ticket"); err == nil {
 				t.Fatal("lookup failure accepted")
 			}
@@ -402,7 +404,7 @@ func TestGitLabStageEvidenceThroughTheAgent(t *testing.T) {
 	}
 	// With no connected agent the lookup fails, it does not find nothing.
 	d.SetAgentOperations(nil)
-	if _, err = d.lookupStagePR(got, "", d.adjustmentCheckout(got), "ticket"); err == nil || !strings.Contains(err.Error(), "lookup failed") {
+	if _, err = d.lookupStagePR(got, "", d.adjustmentCheckout(got), "ticket", stagePRTarget{}); err == nil || !strings.Contains(err.Error(), "lookup failed") {
 		t.Fatalf("missing agent reported as absence: %v", err)
 	}
 }
@@ -442,19 +444,19 @@ func TestGitLabEvidenceThroughTheLookupHook(t *testing.T) {
 	} {
 		bad := mr
 		tc.edit(&bad)
-		d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return bad, nil }
+		d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return bad, nil }
 		if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", tc.name, mr.URL, "ticket"); err == nil || !strings.Contains(err.Error(), tc.refuse) {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
 	}
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) {
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) {
 		return trackerapi.PullRequest{}, fmt.Errorf("GitLab merge request lookup failed on the local agent: glab: not authenticated")
 	}
 	if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "lookup failure", mr.URL, "ticket"); err == nil {
 		t.Fatal("lookup failure accepted")
 	}
 	// The human merged the MR on the checkout commit: adjustment completes.
-	d.prEvidenceLookup = func(string, string) (trackerapi.PullRequest, error) { return mr, nil }
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return mr, nil }
 	got, _, err := d.TransitionTaskStage(task.ID, "reviewed", "merged MR", mr.URL, "ticket")
 	if err != nil || d.StageOfTask(got) != "reviewed" || got.PrURL == nil || *got.PrURL != mr.URL {
 		t.Fatalf("merged MR rejected: %+v %v", got, err)

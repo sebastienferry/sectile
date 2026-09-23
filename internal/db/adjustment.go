@@ -30,7 +30,13 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 	if task.BranchName != nil {
 		branch = *task.BranchName
 	}
-	pr, err := d.lookupStagePR(task, actorID, d.adjustmentCheckout(task), branch)
+	// The PR to adjust is the task's current one: when it lives in another
+	// repository, that is where the branch is looked up.
+	target, err := d.resolveStagePRTarget(project, models.CurrentPullRequest(task.PrLinks))
+	if err != nil {
+		return trackerapi.PullRequest{}, fmt.Errorf("adjustment prerequisite: %w", err)
+	}
+	pr, err := d.lookupStagePR(task, actorID, d.adjustmentCheckout(task), branch, target)
 	if err != nil {
 		return pr, fmt.Errorf("adjustment prerequisite: %w (creation owner: %s)", err, d.prCreationOwner(task))
 	}
@@ -82,39 +88,122 @@ func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url string, 
 	return nil
 }
 
-func (d *DB) validateStagePR(task *models.Task, actorID, skillID, repoPath, branch, url string) (string, error) {
+// validateStagePR checks the pull request a stage names and returns its URL,
+// plus a notice when the evidence is weaker than usual: a pull request in
+// another repository whose head no local checkout could confirm. The notice is
+// part of the stage's report, never a reason to refuse it.
+func (d *DB) validateStagePR(task *models.Task, actorID, skillID, repoPath, branch, url string) (string, string, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	required := skillID == "create_pr" || skillID == "adjust" || skillID == "pickup" || skillID == "implement" || (skillID == "specify" && d.prCreationOwner(task) == "specify")
 	if !required {
-		return url, nil
+		return url, "", nil
 	}
-	pr, err := d.lookupStagePR(task, actorID, repoPath, branch)
+	project, err := d.GetProjectByID(task.ProjectID)
 	if err != nil {
-		return "", err
+		return "", "", fmt.Errorf("read project for the stage PR lookup: %w", err)
+	}
+	target, err := d.resolveStagePRTarget(project, url)
+	if err != nil {
+		return "", "", err
+	}
+	pr, err := d.lookupStagePR(task, actorID, repoPath, branch, target)
+	if err != nil {
+		return "", "", err
 	}
 	if url == "" {
 		url = pr.URL
 	}
-	if err = validatePullRequestEvidence(pr, branch, url, task.PrLinks, skillID == "adjust" || skillID == "pickup"); err != nil {
-		return "", err
+	ready := skillID == "adjust" || skillID == "pickup"
+	if err = validatePullRequestEvidence(pr, branch, url, task.PrLinks, ready); err != nil {
+		return "", "", err
 	}
 	var evidence struct {
-		SHA    string
-		Branch string
-		Clean  bool
+		Repository string
+		Found      bool
+		SHA        string
+		Branch     string
+		Clean      bool
 	}
-	if err = d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_evidence", UserID: actorID}, &evidence); err != nil {
-		return "", err
+	op := agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "git_evidence", UserID: actorID}
+	if target.foreign {
+		op.Repository, op.Branch = target.link.Identity(), branch
+	}
+	if err = d.callAgent(op, &evidence); err != nil {
+		return "", "", err
+	}
+	if target.foreign {
+		if evidence.Repository != op.Repository {
+			return "", "", errAgentTooOld
+		}
+		if !evidence.Found {
+			// Q2 of #392: without a checkout the agent can prove is that
+			// repository's, the forge's word stands, and the report says so.
+			return url, fmt.Sprintf("Head commit not verified on a local checkout: no checkout of %s on %s is known to the agent (pin the task's repository to verify it).", op.Repository, branch), nil
+		}
 	}
 	if evidence.Branch != branch || evidence.SHA != pr.SHA {
 		_, request := evidenceTerms(pr.Forge)
-		return "", fmt.Errorf("%s does not contain the agent checkout commit", request)
+		return "", "", fmt.Errorf("%s does not contain the agent checkout commit", request)
 	}
-	if (skillID == "adjust" || skillID == "pickup") && !evidence.Clean {
-		return "", fmt.Errorf("agent checkout contains uncommitted changes")
+	if ready && !evidence.Clean {
+		return "", "", fmt.Errorf("agent checkout contains uncommitted changes")
 	}
 
-	return url, nil
+	return url, "", nil
+}
+
+// errAgentTooOld is a failed lookup: an agent that ignores the repository of a
+// question would answer for the project checkout instead.
+var errAgentTooOld = fmt.Errorf("local agent is too old to look up a pull request in another repository; update it")
+
+// stagePRTarget says where a stage's pull request is read: the project
+// repository, as always, or the repository its link names.
+type stagePRTarget struct {
+	link    models.PullRequestLink
+	url     string
+	foreign bool
+}
+
+// resolveStagePRTarget decides whether prURL names a pull request outside the
+// project repository, and whether the project may record one (Q1 of #392): a
+// project without a code remote, or not mono-repo, may; a mono-repo project
+// with a remote keeps the same-repository rule. A link that is not a
+// recognized pull request keeps the project path, as before: the forge answer
+// never matches it, so the evidence check refuses it there.
+func (d *DB) resolveStagePRTarget(project *models.Project, prURL string) (stagePRTarget, error) {
+	prURL = strings.TrimSpace(prURL)
+	if prURL == "" {
+		return stagePRTarget{}, nil
+	}
+	link, ok := models.ParsePullRequestLink(prURL, "")
+	own := projectRepositoryIdentity(project)
+	if !ok || link.Identity() == own {
+		return stagePRTarget{}, nil
+	}
+	if own != "" && project != nil && project.MonoRepo {
+		return stagePRTarget{}, fmt.Errorf("pull request %s is not in the project repository %s; only a project without a code remote, or not mono-repo, may record one from another repository", prURL, own)
+	}
+	return stagePRTarget{link: link, url: prURL, foreign: true}, nil
+}
+
+// projectRepositoryIdentity is the project's code repository in
+// models.RepositoryIdentity form, or empty when it has none: no remote, or a
+// remote naming no host, and no GitHub repository.
+func projectRepositoryIdentity(p *models.Project) string {
+	if p == nil {
+		return ""
+	}
+	if remoteHost(p.GitRemoteUrl) != "" {
+		return models.RepositoryIdentity(p.GitRemoteUrl)
+	}
+	repo := strings.TrimSpace(p.GithubRepo)
+	if repo == "" {
+		return ""
+	}
+	if strings.Contains(repo, "://") || strings.Contains(repo, "@") {
+		return models.RepositoryIdentity(repo)
+	}
+	return strings.ToLower("github.com/" + strings.Trim(repo, "/"))
 }
 
 func (d *DB) adjustmentCheckout(task *models.Task) string {
@@ -136,9 +225,22 @@ func (d *DB) adjustmentCheckout(task *models.Task) string {
 // The forge is the one hosting the code, whatever tracks the issues: GitHub is
 // read by the server, any other forge by the local agent, which already holds
 // the CLI login for it.
-func (d *DB) lookupStagePR(task *models.Task, userID, repo, branch string) (trackerapi.PullRequest, error) {
+//
+// A pull request in another repository is read there instead: on GitHub by the
+// server for that owner/repo, on GitLab by the local agent for that project.
+func (d *DB) lookupStagePR(task *models.Task, userID, repo, branch string, target stagePRTarget) (trackerapi.PullRequest, error) {
 	if d.prEvidenceLookup != nil {
-		return d.prEvidenceLookup(repo, branch)
+		prURL := ""
+		if target.foreign {
+			repo, prURL = target.link.Identity(), target.url
+		}
+		return d.prEvidenceLookup(repo, branch, prURL)
+	}
+	if target.foreign {
+		if target.link.Forge == "github" {
+			return d.trackerAs(userID, "github", task.ProjectID).BranchPullRequest(target.link.Repository, branch)
+		}
+		return d.agentBranchPullRequest(task, userID, branch, "gitlab", target.link.Identity())
 	}
 	// An unreadable project is a failed lookup: guessing a forge would send the
 	// question to the wrong one and report its answer as the task's evidence.
@@ -150,7 +252,7 @@ func (d *DB) lookupStagePR(task *models.Task, userID, repo, branch string) (trac
 	if forge == "github" {
 		return d.trackerAs(userID, "github", task.ProjectID).BranchPullRequest(repo, branch)
 	}
-	return d.agentBranchPullRequest(task, userID, branch, forge)
+	return d.agentBranchPullRequest(task, userID, branch, forge, "")
 }
 
 // stagePRForge chooses where stage evidence is read from the code remote:
@@ -201,23 +303,30 @@ func remoteHost(remote string) string {
 // The agent tells a refusal (the forge answered, nothing usable) from a failed
 // lookup, and the two stay distinct here: neither is permission to proceed, but
 // only the first means the request is really absent.
-func (d *DB) agentBranchPullRequest(task *models.Task, userID, branch, forge string) (trackerapi.PullRequest, error) {
+//
+// A repository asks about a merge request in another GitLab repository; the
+// answer must echo it, or the agent answered for the project checkout.
+func (d *DB) agentBranchPullRequest(task *models.Task, userID, branch, forge, repository string) (trackerapi.PullRequest, error) {
 	var answer struct {
-		Forge   string
-		URL     string
-		Branch  string
-		SHA     string
-		Open    bool
-		Draft   bool
-		Merged  bool
-		Refusal string
+		Repository string
+		Forge      string
+		URL        string
+		Branch     string
+		SHA        string
+		Open       bool
+		Draft      bool
+		Merged     bool
+		Refusal    string
 	}
-	if err := d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "pr_evidence", Branch: branch, UserID: userID}, &answer); err != nil {
+	if err := d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "pr_evidence", Branch: branch, UserID: userID, Repository: repository}, &answer); err != nil {
 		lookup := "pull request"
 		if forge == "gitlab" {
 			lookup = "GitLab merge request"
 		}
 		return trackerapi.PullRequest{}, fmt.Errorf("%s lookup failed on the local agent: %w", lookup, err)
+	}
+	if answer.Repository != repository {
+		return trackerapi.PullRequest{}, errAgentTooOld
 	}
 	if answer.Forge != "gitlab" {
 		answer.Forge = ""

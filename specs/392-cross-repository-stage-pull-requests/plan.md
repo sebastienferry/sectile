@@ -33,8 +33,8 @@ head check
 
 | File | Change |
 | --- | --- |
-| `internal/models/pullrequests.go` | `PullRequestLink{Forge, Host, Repository, Number}` and `ParsePullRequestLink(url)`; `RepositoryIdentity(remote)` (moved from `internal/agent/agent_config.go`, which then calls it). Pure, shared by server and agent. |
-| `internal/db/adjustment.go` | `stagePRTarget`; `resolveStagePRTarget(project, prUrl)` (FR1 to FR3); `lookupStagePR` gains `prURL` and routes foreign requests; `validateStagePR` returns `(url, notice string, err error)` and performs the foreign head check; `adjustmentPrerequisite` passes the task's current PR as `prURL`. |
+| `internal/models/repository.go` | `PullRequestLink{Forge, Host, Repository, Number}` and `ParsePullRequestLink(url)`; `RepositoryIdentity(remote)` (moved from `internal/agent/agent_config.go`, which then calls it). Pure, shared by server and agent. |
+| `internal/db/adjustment.go` | `stagePRTarget`; `resolveStagePRTarget(project, prUrl)` (FR1 to FR3); `projectRepositoryIdentity`; `lookupStagePR` gains `prURL` and routes foreign requests; `validateStagePR` returns `(url, notice string, err error)` and performs the foreign head check; `adjustmentPrerequisite` passes the task's current PR as `prURL`. |
 | `internal/db/db.go` | `prEvidenceLookup` widened to `func(repo, branch, prURL string)`. |
 | `internal/db/stage.go` | Appends the notice to the transition note. |
 | `internal/db/postback.go` | Records the notice as a step of the post-back activity. |
@@ -63,7 +63,13 @@ none.
   `Repository: "<group>/.../<project>"`, whatever the host (the `/-/merge_requests/`
   path identifies GitLab, self-hosted included).
 - Anything else (user info, query, fragment, `..` segments, non-positive number,
-  other shapes) → not a link; the transition refuses it as an unsupported forge.
+  other shapes) → not a link. The server passes an empty GitHub host, so an
+  enterprise GitHub host that does not name GitHub is not a link either.
+- A value that is not a link keeps the project path, exactly as before #392;
+  the evidence check refuses it there. (Implementation note: a dedicated
+  "unsupported forge" refusal was tried and dropped, because it changed the
+  behaviour of projects without a repository that existing tests rely on,
+  without refusing anything the evidence check lets through.)
 
 ### `pr_evidence` (extended)
 
@@ -89,7 +95,7 @@ rule as `pr_evidence` applies. Without `Repository`, the operation is unchanged.
 ### Verified checkout search (agent)
 
 1. Candidates, in order, de-duplicated: the task's `repoPath` (already read from
-   `/api/tasks/<id>`), then the project's `repoPaths` read from
+   `/api/tasks/<id>`), then the project's `repoPath` and `repoPaths` read from
    `GET /api/projects/<id>`. They are hints: nothing else about them is trusted.
 2. A candidate is kept only if it is an absolute, existing directory and
    `git -C <c> remote get-url origin`, normalised by `RepositoryIdentity`, equals
@@ -103,8 +109,8 @@ rule as `pr_evidence` applies. Without `Repository`, the operation is unchanged.
 
 ### Notice
 
-Exact text, appended to the transition note after a blank line, and added as a step
-of the post-back activity:
+Exact text, appended to the transition note after a blank line, and added (with a
+`⚠️ ` prefix) as a step of the post-back activity when the post-back names one:
 
 `Head commit not verified on a local checkout: no checkout of <repository> on <branch> is known to the agent (pin the task's repository to verify it).`
 

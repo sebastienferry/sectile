@@ -3,6 +3,8 @@ package runner
 import (
 	"errors"
 	"fmt"
+	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -118,5 +120,40 @@ func TestGitLabEvidenceRejectsIncompleteListing(t *testing.T) {
 				t.Fatalf("partial listing returned as evidence: %q %v", raw, err)
 			}
 		})
+	}
+}
+
+func TestBranchPullRequestNamesMissingOrigin(t *testing.T) {
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	_, err := NewRunner().BranchPullRequest(dir, "feature/SFE-360-remove-arch-api")
+	if !errors.Is(err, ErrNoOriginRemote) || !strings.Contains(err.Error(), "no origin remote") {
+		t.Fatalf("expected the missing origin to be named, got %v", err)
+	}
+	// A missing remote is a failed lookup, never a refusal that reads as absence.
+	if errors.Is(err, ErrNoMatchingPullRequest) || errors.Is(err, ErrAmbiguousPullRequest) {
+		t.Fatalf("missing origin reported as a refusal: %v", err)
+	}
+}
+
+func TestEvidenceCommandNamesTheRepository(t *testing.T) {
+	cli, args := evidenceCommand(true, "topic", "gitlab.com/smartadserver/private/arch/argocd-arch")
+	if cli != "glab" || !strings.HasSuffix(strings.Join(args, " "), "--all --output json -R https://gitlab.com/smartadserver/private/arch/argocd-arch") {
+		t.Fatalf("glab call = %s %v", cli, args)
+	}
+	cli, args = evidenceCommand(false, "topic", "github.com/acme/app")
+	if cli != "gh" || !strings.HasSuffix(strings.Join(args, " "), "-R github.com/acme/app") {
+		t.Fatalf("gh call = %s %v", cli, args)
+	}
+	// Without a repository the CLI keeps asking about the checkout's own remote.
+	for _, gitlab := range []bool{true, false} {
+		if _, args := evidenceCommand(gitlab, "topic", ""); slices.Contains(args, "-R") {
+			t.Fatalf("unexpected -R without a repository: %v", args)
+		}
+	}
+	if _, err := NewRunner().RepositoryPullRequest(t.TempDir(), "bitbucket", "bitbucket.org/acme/app", "topic"); err == nil {
+		t.Fatal("an unsupported forge must be refused")
 	}
 }
