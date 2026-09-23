@@ -40,7 +40,7 @@ export function StatusBar() {
           </button>
         )}
       </div>
-      <button type="button" onClick={() => setIsProfileOpen(true)}>{settings.userName || 'Profile'}</button>
+      <button type="button" onClick={() => setIsProfileOpen(true)}>{settings.userName}</button>
     </footer>
     <ChangelogModal open={isChangelogOpen} onClose={() => setIsChangelogOpen(false)} version={version} />
   </>
