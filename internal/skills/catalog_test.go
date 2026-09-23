@@ -34,7 +34,8 @@ func TestGeneratedSkillContracts(t *testing.T) {
 						t.Fatal("missing description")
 					}
 				}
-				if stage.FromStage == "" || stage.Scope == "macro" {
+				// report_stage owns no stage but is the one skill that describes transitions.
+				if (stage.FromStage == "" || stage.Scope == "macro") && stage.ID != "report_stage" {
 					if strings.Contains(content, "transition_stage") {
 						t.Fatal("non-workflow skill received a task transition")
 					}
@@ -84,6 +85,10 @@ func TestGeneratedSkillContracts(t *testing.T) {
 func TestGeneratedSkillsRenameTheSessionAfterTheWorkItem(t *testing.T) {
 	for _, framework := range []string{"openspec", "speckit"} {
 		for _, stage := range skills.StageSkills {
+			// report_stage runs inside its caller's session and must not rename it.
+			if stage.ID == "report_stage" {
+				continue
+			}
 			t.Run(framework+"/"+stage.ID, func(t *testing.T) {
 				item := "ticket"
 				if stage.Scope == "macro" {
@@ -318,7 +323,7 @@ func TestGoldenSkillParity(t *testing.T) {
 }
 
 func TestSkillFragmentsIntegrity(t *testing.T) {
-	requiredContracts := []string{"task-access.md", "session-title.md", "transition.md", "pickup-header.md"}
+	requiredContracts := []string{"task-access.md", "session-title.md", "transition.md", "report-pointer.md", "pickup-header.md"}
 	for _, c := range requiredContracts {
 		path := filepath.Join("fragments", "contracts", c)
 		data, err := os.ReadFile(path)
@@ -347,6 +352,116 @@ func TestSkillFragmentsIntegrity(t *testing.T) {
 			if err != nil || len(strings.TrimSpace(string(data))) == 0 {
 				t.Errorf("skill %s missing steps.md", s.ID)
 			}
+		}
+	}
+}
+
+// Every task skill but the helper points to report_stage instead of carrying the
+// task-access and execution blocks, and keeps its invariant and its own gate.
+func TestTaskSkillsDelegateReportingToReportStage(t *testing.T) {
+	gates := map[string][]string{
+		"clarify":       {"transition new → clarified only when the exit condition is met", "Never transition new → clarified while"},
+		"specify":       {"call `transition_stage` with stage `specified`", "the actual branch only when this step is complete (clarified → specified)"},
+		"implement":     {"call `transition_stage` with stage `implemented`", "the actual branch only when this step is complete (specified → implemented)"},
+		"adjust":        {"call `transition_stage` with stage `reviewed`", "prUrl set to the verified pull request URL", "(implemented → reviewed)"},
+		"handoff":       {"call `transition_stage` with stage `finished`", "(reviewed → finished)"},
+		"pickup":        {"record clarified, specified and implemented after each corresponding step", "record reviewed with the PR URL", "never mark unfinished work reviewed"},
+		"pickup_issues": {"record clarified, specified and implemented after each corresponding step", "combined PR URL"},
+		"create_pr":     {"this skill does not change the workflow stage"},
+		"rewrite_story": {"this skill does not change the workflow stage"},
+	}
+	for _, framework := range []string{"openspec", "speckit"} {
+		for _, stage := range skills.StageSkills {
+			if stage.Scope == "macro" || stage.ID == "report_stage" {
+				continue
+			}
+			t.Run(framework+"/"+stage.ID, func(t *testing.T) {
+				gate, ok := gates[stage.ID]
+				if !ok {
+					t.Fatalf("no expected gate for %s: add one", stage.ID)
+				}
+				for _, document := range []string{skills.RenderSkillContent(stage, framework), skills.RenderSkillCommand(stage, framework)} {
+					if n := strings.Count(document, "## Sectile reporting"); n != 1 {
+						t.Fatalf("expected one reporting section, found %d", n)
+					}
+					for _, required := range append([]string{
+						"`/report-stage`",
+						"`report-stage/SKILL.md`",
+						"call start_run before work",
+						"finish_run when the entire invocation ends",
+						"a nested skill never finishes the outer run",
+						"submit only through the supplied result contract",
+					}, gate...) {
+						if !strings.Contains(document, required) {
+							t.Fatalf("missing %q", required)
+						}
+					}
+					for _, removed := range []string{"## Sectile task access", "## Execution and ticket state", "localhost:8090"} {
+						if strings.Contains(document, removed) {
+							t.Fatalf("still carries %q, which belongs to report-stage", removed)
+						}
+					}
+					if strings.Index(document, "## Session title") > strings.Index(document, "## Sectile reporting") {
+						t.Fatal("the session title must come before the reporting pointer")
+					}
+				}
+			})
+		}
+	}
+}
+
+// The helper carries every rule the other skills no longer render.
+func TestReportStageCarriesTheGenericReportingRules(t *testing.T) {
+	for _, alias := range []string{"report_stage", "report-stage"} {
+		skill, ok := skills.StageSkillByID(alias)
+		if !ok || skill.ID != "report_stage" {
+			t.Fatalf("StageSkillByID(%q) = %q, %v", alias, skill.ID, ok)
+		}
+	}
+	skill, _ := skills.StageSkillByID("report_stage")
+	if skill.DirName != "report-stage" || skill.Command != "/report-stage" || skill.FromStage != "" || skill.ToStage != "" || skill.Scope == "macro" || !skill.HideFromBoard {
+		t.Fatalf("unexpected catalogue entry: %#v", skill)
+	}
+	for _, framework := range []string{"openspec", "speckit"} {
+		for _, document := range []string{skills.RenderSkillContent(skill, framework), skills.RenderSkillCommand(skill, framework)} {
+			for _, required := range []string{
+				"## Sectile task access",
+				"http://localhost:8090",
+				"Use the full task ID for mutations",
+				"Do not bypass Sectile by writing directly to its database or remote tracker",
+				"## Execution and ticket state",
+				"call start_run with the full task primary key and skill name",
+				"If SECTILE_RUN_ID or a launch runId is supplied, reuse it",
+				"Nested skills reuse the outer run; only the owner finishes it",
+				"A batch tracks each task separately",
+				"Never start a run merely to read a task",
+				"invoke `transition_stage` with the task key, completed stage, structured report note and actual branch",
+				"A task holds an ordered set of pull requests",
+				"Use `add_comment`",
+				"If MCP is unavailable, preserve work and report the pending transition",
+				"Never merge or delete remote objects",
+				"Do not decide the gate",
+			} {
+				if !strings.Contains(document, required) {
+					t.Fatalf("%s: report-stage is missing %q", framework, required)
+				}
+			}
+			for _, absent := range []string{"## Session title", "## Sectile reporting", "Stage: "} {
+				if strings.Contains(document, absent) {
+					t.Fatalf("%s: report-stage must not carry %q", framework, absent)
+				}
+			}
+		}
+	}
+}
+
+// The macro skill reports no task stage: it keeps task access inline and gets no pointer.
+func TestRefineMacroKeepsTaskAccessInline(t *testing.T) {
+	skill, _ := skills.StageSkillByID("refine_macro")
+	for _, framework := range []string{"openspec", "speckit"} {
+		content := skills.RenderSkillContent(skill, framework)
+		if !strings.Contains(content, "## Sectile task access") || strings.Contains(content, "report-stage") {
+			t.Fatalf("%s: refine_macro changed shape", framework)
 		}
 	}
 }

@@ -1,0 +1,3 @@
+- The calling skill's gate and its `## Report` bullets: they are the content, this skill is the delivery.
+- The invocation: a managed result-file contract, a supplied SECTILE_RUN_ID or launch runId, or neither.
+- The live task and project, through `get_task` and `get_project_context`.

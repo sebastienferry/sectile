@@ -3758,6 +3758,10 @@ func NormalizeUIScale(scale int) int {
 func (d *DB) GetAvailableSkills() []models.Skill {
 	out := make([]models.Skill, 0, len(skills.StageSkills))
 	for _, s := range skills.StageSkills {
+		// A helper such as report_stage is loaded by other skills, never launched.
+		if s.HideFromBoard {
+			continue
+		}
 		name := s.Name
 		in, _ := InternalStatusForStage(s.FromStage)
 		outStatus, _ := InternalStatusForStage(s.ToStage)

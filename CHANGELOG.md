@@ -52,6 +52,14 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Reporting to Sectile lives in one skill, `/report-stage`.** The generated
+  workflow skills used to repeat the same task-access and run, transition and
+  comment rules in full. Those rules are now written once, in a new
+  `report-stage` skill installed with the others and listed in the skill editor,
+  but not offered as a board action. Each workflow skill keeps a short pointer to
+  it, the few rules that must hold even if it cannot be loaded, and its own
+  condition for moving the ticket to the next stage. The macro skill is
+  unchanged.
 - **The background synchronisation asks the tracker what moved, instead of
   re-reading every ticket one by one.** A pass used to queue one read per
   unfinished work item, every few minutes: four hundred tickets meant four

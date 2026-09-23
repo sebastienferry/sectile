@@ -539,6 +539,8 @@ var SkillDirNames = map[string]string{
 	"refine_macro":  "refine-macro",
 	"refine-macro":  "refine-macro",
 	"refine":        "refine-macro",
+	"report_stage":  "report-stage",
+	"report-stage":  "report-stage",
 }
 
 // SkillAgentDirs are the per-repository directories the agent CLIs read their

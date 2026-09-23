@@ -45,6 +45,11 @@ type StageSkill struct {
 	Title           string
 	FrontmatterDesc string
 	GuardTitle      string
+
+	// HideFromBoard keeps a skill out of the board's launch actions while it is
+	// still provisioned, listed in the skill editor and named in the project
+	// context. report_stage is a helper other skills load, not a workflow step.
+	HideFromBoard bool
 }
 
 // StageSkills is the unified set: one skill per workflow step. Standalone
@@ -246,6 +251,24 @@ var StageSkills = []StageSkill{
 		FrontmatterDesc: "Batch process a list of selected board tickets sequentially in autonomy inside a single dedicated worktree, producing one combined Pull Request covered by tests and lints.",
 		GuardTitle:      "Do not",
 	},
+	{
+		ID:          "report_stage",
+		Name:        "Report Stage",
+		DirName:     models.SkillDirNames["report_stage"],
+		Command:     "/report-stage",
+		Description: "Consigne auprès de Sectile l'exécution, l'étape franchie, la pull request et les commentaires d'un ticket, pour le compte des autres skills.",
+		Icon:        "Send",
+		Color:       "slate",
+		Steps: []string{
+			"Lecture du ticket et du contexte projet via Sectile",
+			"Indicateur d'exécution (start_run, finish_run)",
+			"Transition d'étape, lien de pull request et commentaire de ticket",
+		},
+		Title:           "Report Stage",
+		FrontmatterDesc: "Report a task run, a completed workflow stage, its pull request and ticket comments to Sectile, on behalf of the skill that did the work.",
+		GuardTitle:      "Do not",
+		HideFromBoard:   true,
+	},
 }
 
 // StageSkillByID resolves canonical and legacy workflow identities.
@@ -262,6 +285,9 @@ func StageSkillByID(skillID string) (StageSkill, bool) {
 	}
 	if skillID == "refine" || skillID == "refine-macro" || skillID == "refine_macro" {
 		skillID = "refine_macro"
+	}
+	if skillID == "report-stage" {
+		skillID = "report_stage"
 	}
 	for _, s := range StageSkills {
 		if s.ID == skillID {
@@ -334,7 +360,8 @@ func refineMacroFrameworkName(specFramework string) string {
 	return "Refine Macro (Spec-Driven Design)"
 }
 
-// renderTaskAccessContract keeps task access consistent across skills and commands.
+// renderTaskAccessContract keeps task access consistent across report_stage and
+// the macro skill, the two that carry it inline.
 func renderTaskAccessContract() string {
 	return strings.TrimRight(readContractFragment("task-access"), "\n") + "\n\n"
 }
@@ -354,20 +381,24 @@ func renderSessionTitleContract(s StageSkill) string {
 	return strings.TrimRight(res, "\n") + "\n\n"
 }
 
-// renderTicketTransitionContract generates the autonomous ticket transition instructions
-// for the skill based on its from/to stages in the sequence:
-// new -> clarified -> specified -> implemented -> reviewed -> finished
-func renderTicketTransitionContract(s StageSkill) string {
-	if s.Scope == "macro" {
-		return ""
-	}
-	tmpl := readContractFragment("transition")
+// renderExecutionContract holds the generic run, transition and comment rules.
+// Only report_stage renders it: the other task skills point to that skill and
+// keep their own gate, so the rules are written once per checkout.
+func renderExecutionContract() string {
+	return strings.TrimRight(readContractFragment("transition"), "\n") + "\n"
+}
+
+// renderReportingPointer sends a task skill to report_stage, with the invariant
+// that still holds when the helper cannot be loaded and the skill's own gate in
+// the sequence new -> clarified -> specified -> implemented -> reviewed -> finished.
+func renderReportingPointer(s StageSkill) string {
+	tmpl := readContractFragment("report-pointer")
 	res := executeContractTemplate(tmpl, map[string]any{
 		"FromStage": s.FromStage,
 		"ToStage":   s.ToStage,
 		"ID":        s.ID,
 	})
-	return strings.TrimRight(res, "\n") + "\n"
+	return strings.TrimRight(res, "\n") + "\n\n"
 }
 
 // Pickup embeds the maintained stage bodies, so batch and single-ticket runs
@@ -427,8 +458,20 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 		b.WriteString("Interactive: the user answers in the terminal.")
 	}
 	b.WriteString("\n\n")
-	b.WriteString(renderTaskAccessContract())
-	b.WriteString(renderSessionTitleContract(s))
+	// Task skills delegate task access and reporting to report_stage. The macro
+	// skill reports no task stage and keeps task access inline; report_stage
+	// carries it, and names no session since it runs inside its caller's.
+	helper := s.ID == "report_stage"
+	delegates := s.Scope != "macro" && !helper
+	if !delegates {
+		b.WriteString(renderTaskAccessContract())
+	}
+	if !helper {
+		b.WriteString(renderSessionTitleContract(s))
+	}
+	if delegates {
+		b.WriteString(renderReportingPointer(s))
+	}
 	fmt.Fprintf(&b, "## Goal\n%s\n\n", goal)
 	if readFirst != "" {
 		fmt.Fprintf(&b, "## Read first\n%s\n\n", readFirst)
@@ -443,9 +486,9 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 		}
 		fmt.Fprintf(&b, "## %s\n%s\n\n", guardTitle, guard)
 	}
-	if contract := renderTicketTransitionContract(s); contract != "" {
+	if helper {
 		fmt.Fprintf(&b, "## Report\n%s\n\n", report)
-		b.WriteString(contract)
+		b.WriteString(renderExecutionContract())
 	} else {
 		fmt.Fprintf(&b, "## Report\n%s\n", report)
 	}
