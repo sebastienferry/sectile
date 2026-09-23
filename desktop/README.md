@@ -151,8 +151,9 @@ need a new execution. A failed refresh clears the previous result.
 
 ### The board window
 
-**Connected**, the project heading's web action and a task's open action show the
-server's board in a window of the desktop, signed in as the user this workstation is
+**Connected**, **Open the web interface** in the user profile settings, and a task
+key (in the task list or an execution's header) show the server's board in a window
+of the desktop, signed in as the user this workstation is
 paired to: the desktop adds its key to the board's requests to that server, and to no
 other. The board is the web interface itself, so moving cards, opening a task and
 launching a skill work as in the browser. A second click brings the same window

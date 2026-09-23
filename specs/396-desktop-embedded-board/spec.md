@@ -17,7 +17,7 @@ and it appears inside Sectile Desktop, already signed in as the user this workst
 is paired to.
 
 1. Given the desktop is connected, when I use the board action (the **Connected**
-   link, or the project heading's web action), then the connected server's board
+   link, or **Open the web interface** in the profile settings), then the connected server's board
    appears inside Sectile Desktop and no browser is launched.
 2. Given the board appears, then it shows the paired user's identity and no sign-in
    screen, whether the server signs people in through OIDC or the local e-mail form.

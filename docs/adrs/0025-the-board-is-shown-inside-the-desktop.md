@@ -22,7 +22,8 @@ the web routes (`webSessionUser`), exactly as it resolves a session cookie.
 ## Decision
 
 **The desktop shows the server's board in a window of its own.** The board actions
-(the **Connected** link, the project heading's web action, open-task) open or bring
+(the **Connected** link, **Open the web interface** in the profile settings, a task
+key in the task list or an execution's header) open or bring
 forward a single board window loading the connected server's web interface, at the
 task when one is asked for.
 

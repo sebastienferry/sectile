@@ -73,7 +73,7 @@ function authRoute(target,origin){
 const allowedPermissions=new Set(['clipboard-sanitized-write'])
 
 function createBoardWindows({BrowserWindow,session,shell,show=true,icon}){
- let current=null
+ let current=null,opened=0
  function close(){
   if(!current)return
   const {window,ses}=current
@@ -91,8 +91,10 @@ function createBoardWindows({BrowserWindow,session,shell,show=true,icon}){
    current.window.show();current.window.focus()
    return current.window
   }
-  // Not "persist:": the partition lives in memory, one per server origin.
-  const ses=session.fromPartition('board-'+crypto.createHash('sha256').update(origin).digest('hex').slice(0,16))
+  // Not "persist:": the partition lives in memory. Each window gets a fresh
+  // one, so clearing the partition of the window it replaces, which finishes
+  // later, cannot empty this one while it loads.
+  const ses=session.fromPartition('board-'+crypto.createHash('sha256').update(origin).digest('hex').slice(0,16)+'-'+(++opened))
   const window=new BrowserWindow({show,width:1320,height:860,minWidth:800,minHeight:500,title:'Sectile',icon,webPreferences:{session:ses,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}})
   const state={origin,key,webContentsId:window.webContents.id}
   current={window,ses,origin,key}

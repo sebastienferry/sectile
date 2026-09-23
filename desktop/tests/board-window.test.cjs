@@ -161,6 +161,9 @@ test('another key or another server replaces the board and clears what it stored
  assert.notStrictEqual(second, first)
  assert.strictEqual(first.destroyed, true)
  assert.strictEqual(first.options.webPreferences.session.cleared, 1)
+ // The replacement does not share the partition being cleared.
+ assert.notStrictEqual(second.options.webPreferences.session, first.options.webPreferences.session)
+ assert.strictEqual(second.options.webPreferences.session.cleared, 0)
  const third = boards.open({server: 'http://127.0.0.1:8090', key: 'k2'})
  assert.strictEqual(second.destroyed, true)
  assert.notStrictEqual(third.options.webPreferences.session, second.options.webPreferences.session)
