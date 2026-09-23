@@ -77,6 +77,28 @@ var migrations = []migration{
 			"ALTER TABLE tasks ADD COLUMN creator_avatar TEXT NOT NULL DEFAULT '';",
 		},
 	},
+	{
+		// Saved board views (#387): a personal, named selection of projects and
+		// labels laid over the all-projects board. Both lists are JSON arrays in
+		// TEXT, like tasks.labels and projects.enabled_views: they are read whole
+		// and never queried by element.
+		version: 3,
+		name:    "board_views",
+		statements: []string{
+			`CREATE TABLE IF NOT EXISTS board_views (
+				id TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				name TEXT NOT NULL,
+				name_key TEXT NOT NULL,
+				project_ids TEXT NOT NULL DEFAULT '[]',
+				labels TEXT NOT NULL DEFAULT '[]',
+				created_at DATETIME NOT NULL,
+				updated_at DATETIME NOT NULL
+			);`,
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user_id, name_key);",
+			"CREATE INDEX IF NOT EXISTS idx_board_views_user ON board_views (user_id);",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

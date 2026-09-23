@@ -1499,7 +1499,14 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		// en cours quand le board en porte trois cents.
 		pinnedOnly := r.URL.Query().Get("pinned") == "1" || r.URL.Query().Get("pinned") == "true"
 
-		tasks, err := h.db.GetTasksForUser(h.webSessionUser(r), q, status, priority, label, projectID, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+		// viewId: a saved view replaces the project with its own selection,
+		// and the other filters narrow it further (#387).
+		scope := db.TaskScope{UserID: h.webSessionUser(r), ProjectID: projectID, ViewID: r.URL.Query().Get("viewId")}
+		tasks, err := h.db.GetTasksInScope(scope, q, status, priority, label, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+		if errors.Is(err, db.ErrBoardViewNotFound) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -1643,7 +1650,15 @@ func (h *Handler) HandleTaskFacets(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	facets, err := h.db.GetTaskFacetsForUser(h.webSessionUser(r), r.URL.Query().Get("projectId"))
+	facets, err := h.db.GetTaskFacetsInScope(db.TaskScope{
+		UserID:    h.webSessionUser(r),
+		ProjectID: r.URL.Query().Get("projectId"),
+		ViewID:    r.URL.Query().Get("viewId"),
+	})
+	if errors.Is(err, db.ErrBoardViewNotFound) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

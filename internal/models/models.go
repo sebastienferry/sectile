@@ -1084,3 +1084,25 @@ func RunSilenceNote(silence time.Duration) string {
 	return fmt.Sprintf("%s%s: the client may be busy or waiting for input, and this run stays open",
 		RunSilencePrefix, rounded)
 }
+
+// BoardView is a saved, personal selection over the all-projects board: a
+// fixed list of projects and the labels a ticket must carry one of (#387). It
+// stores selection rules, never tickets, so a refresh always reflects the
+// current board. The owner is never serialized: a view is only ever returned
+// to the user who created it.
+type BoardView struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	ProjectIDs []string  `json:"projectIds"`
+	Labels     []string  `json:"labels"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+// BoardViewRequest creates a view, or patches one: on an update, a nil field
+// is left as it is.
+type BoardViewRequest struct {
+	Name       *string   `json:"name,omitempty"`
+	ProjectIDs *[]string `json:"projectIds,omitempty"`
+	Labels     *[]string `json:"labels,omitempty"`
+}
