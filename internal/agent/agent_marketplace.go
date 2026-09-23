@@ -102,6 +102,15 @@ func ensureMarketplace(ctx context.Context, op agentprotocol.Operation) (root, c
 		return "", "", nil, err
 	}
 
+	// Re-registering a name with another locator must not keep reading the
+	// repository the cache was cloned from, so a checkout of another origin is
+	// dropped and cloned again. A path source has no cache to realign: it is
+	// read where the registry says, every time.
+	if isGitCheckout(dir) {
+		if origin, err := gitLocal(ctx, dir, "remote", "get-url", "origin"); err != nil || strings.TrimSpace(origin) != url {
+			_ = os.RemoveAll(dir)
+		}
+	}
 	if !isGitCheckout(dir) {
 		// A leftover that is not a checkout is not something to repair in
 		// place; the cache is disposable by construction.

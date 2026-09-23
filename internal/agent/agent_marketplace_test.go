@@ -118,6 +118,49 @@ func TestMarketplaceCacheDirRefusesAnEscapingName(t *testing.T) {
 	}
 }
 
+// Re-registering a name with another locator reads the new repository, not the
+// one the cache was first cloned from.
+func TestMarketplaceCacheFollowsALocatorChange(t *testing.T) {
+	ctx := context.Background()
+	testhome.Set(t, t.TempDir())
+
+	publish := func(message string) (string, string) {
+		repo := fixtureMarketplace(t)
+		for _, args := range [][]string{
+			{"init", "-b", "main"},
+			{"add", "-A"},
+			{"-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", message},
+		} {
+			if _, err := gitLocal(ctx, repo, args...); err != nil {
+				t.Fatal(err)
+			}
+		}
+		head, err := gitLocal(ctx, repo, "rev-parse", "HEAD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return repo, head
+	}
+	first, firstHead := publish("First source")
+	second, secondHead := publish("Second source")
+	if firstHead == secondHead {
+		t.Fatal("the two sources must differ")
+	}
+
+	op := agentprotocol.Operation{Marketplace: "acme", Kind: "git", Locator: first}
+	if _, commit, _, err := ensureMarketplace(ctx, op); err != nil || commit != firstHead {
+		t.Fatalf("first source: %s, %v", commit, err)
+	}
+	op.Locator = second
+	_, commit, _, err := ensureMarketplace(ctx, op)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commit != secondHead {
+		t.Fatalf("after the locator change the cache read %s, want %s", commit, secondHead)
+	}
+}
+
 // A locator or a commit git would read as an option never reaches git, even
 // when the server let it through.
 func TestEnsureMarketplaceRefusesAnOptionLikeArgument(t *testing.T) {
@@ -168,7 +211,7 @@ func TestMarketplacePackReusesTheCacheForAPinnedRevision(t *testing.T) {
 
 	// Anything reaching the remote now fails, so a second read that succeeds
 	// proves it was served from the cache.
-	if _, err := gitLocal(ctx, cache, "remote", "set-url", "origin", filepath.Join(home, "gone")); err != nil {
+	if err := os.Rename(origin, origin+"-gone"); err != nil {
 		t.Fatal(err)
 	}
 	op.Commit = first.Commit
