@@ -13,7 +13,7 @@ Requirement ids (FR-xxx) and scenario numbers (S1 to S18) refer to spec.md.
 
 ## 1. Storage (US1, US4)
 
-- [x] Add migration 3 `board_views` (table and both indexes) in
+- [x] Add migration 4 `board_views` (table and both indexes) in
       `internal/db/migrations.go`.
 - [x] Add `models.BoardView`.
 - [x] Implement `internal/db/boardviews.go`: list, get, create, update, delete,

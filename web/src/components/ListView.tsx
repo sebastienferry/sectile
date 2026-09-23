@@ -32,6 +32,7 @@ import { TaskFilters } from "./TaskFilters"
 import { BoardGroupingToggle } from "./BoardGroupingToggle"
 import { issueTypeStyle } from "../lib/issueTypes"
 import { Avatar } from "./Avatar"
+import { EpicBar, useEpicColors } from "./EpicMarker"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
 import { resolveTaskStage } from "../lib/workflow"
 import { isSelectableStage } from "../lib/boardSelection"
@@ -61,6 +62,7 @@ export const ListView: React.FC = () => {
     addToast,
     t,
   } = useApp()
+  const showsEpicColors = useEpicColors()
 
 
   // Par défaut, le plus urgent en premier.
@@ -416,6 +418,7 @@ export const ListView: React.FC = () => {
     const priorityOpt = PRIORITY_OPTIONS.find(p => p.id === task.priority) || PRIORITY_OPTIONS[2]
     const taskStage = resolveTaskStage(task, currentProject)
     const isSelected = selectedTaskIds.has(task.id)
+    const showsEpicBar = showsEpicColors(task.projectId)
 
     return (
       <tr
@@ -426,7 +429,8 @@ export const ListView: React.FC = () => {
         }`}
       >
         {/* Selection Checkbox */}
-        <td className="py-2.5 px-3 w-10 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+        <td className="relative py-2.5 px-3 w-10 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+          {showsEpicBar && <EpicBar parentKey={task.parentKey} />}
           <input
             type="checkbox"
             checked={isSelected}

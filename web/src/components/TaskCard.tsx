@@ -33,6 +33,7 @@ import type { Task, Priority, SkillMode } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
+import { EpicBar, useEpicColors } from './EpicMarker'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
@@ -83,6 +84,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
     addToast,
     setTaskSprint,
   } = useApp()
+  const showsEpicColors = useEpicColors()
 
   // Le menu est rendu dans un portail avec un positionnement fixe : les colonnes
   // du board défilent en overflow-y-auto, ce qui découpait un menu en position
@@ -392,6 +394,8 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   const isQueued = latestActivity?.status === 'queued' || latestActivity?.status === 'pending'
 
   const isCondensed = compact
+  // Barre de la couleur de l'épic, sur les projets qui la demandent.
+  const showsEpicBar = showsEpicColors(task.projectId) && Boolean(task.parentKey?.trim())
   const compactActionClass = 'w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] focus-visible:outline-2 focus-visible:outline-[var(--accent-color)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed'
   // The one-off mode override for the next step. Both card shapes offer it: on a
   // condensed card the chevrons live in this menu, on a full card they sit on
@@ -798,6 +802,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         isDragging ? 'opacity-40 scale-95 ring-2 ring-[var(--accent-color)] ring-dashed' : ''
       }`}
     >
+      {showsEpicBar && <EpicBar parentKey={task.parentKey} />}
       {isCondensed ? (
         <div className="flex items-center gap-1 min-w-0">
           {externalUrl ? (

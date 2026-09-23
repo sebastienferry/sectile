@@ -26,7 +26,7 @@ load, and enforces ownership in one place.
 
 ## Data model
 
-Migration `version: 3`, `name: "board_views"` in `internal/db/migrations.go`
+Migration `version: 4`, `name: "board_views"` in `internal/db/migrations.go`
 (the next free version; recheck against `origin/main` before merging). Same
 statements on both engines:
 
@@ -246,7 +246,7 @@ the interface.
 
 | File | Change |
 | --- | --- |
-| `internal/db/migrations.go` | migration 3 `board_views` |
+| `internal/db/migrations.go` | migration 4 `board_views` |
 | `internal/db/boardviews.go` (new) | CRUD, normalization, sentinels |
 | `internal/db/db.go` | `TaskScope`, view scope and label predicate in task list and facets; project deletion cleanup |
 | `internal/models/models.go` | `BoardView` |

@@ -15,10 +15,13 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Projects can colour their cards per epic (project settings, General, "Couleur par épic"; off by default). A thin bar in the epic's colour, along the left edge, marks board cards, Backlog rows, sprint timeline items and Roadmap macros. The colour is derived from the epic key, so an epic looks the same in every view; tasks without an epic are unchanged.
+
 - Saved board views: name a selection of several projects and labels, and
   reopen it from the sidebar's *Vues* section or a direct link. A ticket appears
   when it carries any of the view's labels, cards name their project, and the
   board filters are remembered per view (#387).
+
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed

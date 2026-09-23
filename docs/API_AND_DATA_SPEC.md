@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Saved board views (migration 3): a personal selection of projects and labels
+-- Saved board views (migration 4): a personal selection of projects and labels
 -- laid over the all-projects board. Both lists are JSON arrays; name_key is the
 -- trimmed, lower-cased name that keeps names unique per owner.
 CREATE TABLE IF NOT EXISTS board_views (

@@ -248,6 +248,11 @@ export interface Project {
    */
   enabledViews?: OptionalViewMode[]
   /**
+   * Les cartes portent la couleur de leur épic. Absent ou faux, la valeur par
+   * défaut, elles restent telles qu'avant : le projet doit la demander.
+   */
+  epicColors?: boolean
+  /**
    * Le projet tient dans un seul dépôt. La branche courante, son sélecteur et la
    * branche affichée sur une carte n'ont de sens que dans ce cas.
    */
