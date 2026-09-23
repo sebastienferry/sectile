@@ -60,9 +60,14 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 			}
 			// A post-back names no user: it is the agent reporting, not a
 			// person acting, so the evidence lookup keeps the project credential.
-			verified, err := d.validateStagePR(task, "", skill, d.adjustmentCheckout(task), branch, url)
+			verified, notice, err := d.validateStagePR(task, "", skill, d.adjustmentCheckout(task), branch, url)
 			if err != nil {
 				return nil, nil, err
+			}
+			// A post-back carries no note: the weaker evidence is reported on the
+			// run it completes.
+			if notice != "" {
+				d.appendActivityStep(payload.ActivityID, "⚠️ "+notice)
 			}
 			if verified != "" {
 				payload.PrURL = &verified

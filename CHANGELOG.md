@@ -142,6 +142,14 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A coordination project can record a pull request from another repository.**
+  When a project has no code remote, or is not mono-repo, a stage transition
+  whose `prUrl` points to another GitHub or GitLab repository is now checked
+  against that repository. Its head commit is confirmed on a local checkout of
+  that repository when the task or project knows one; otherwise the stage report
+  says it was not verified locally. A project checkout without an `origin`
+  remote is now named as such instead of failing with a Git exit status. (#392)
+
 - **Turning off a project's custom agent now restores inheritance.** The project
   modal explicitly clears its provider and model override, rather than omitting
   them and leaving the previous provider stored. Reopening the project now keeps

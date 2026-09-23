@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -120,35 +121,78 @@ func parsePullRequestEvidence(raw, branch string, gitlab bool) (PullRequestEvide
 	return PullRequestEvidence{URL: p.URL, Branch: p.Branch, SHA: p.SHA, Open: true, Draft: *p.Draft}, nil
 }
 
+// ErrNoOriginRemote is a lookup failure, never absence: without a remote the
+// forge cannot be asked at all, and saying so names the way out instead of the
+// exit status git happens to use.
+var ErrNoOriginRemote = errors.New("project checkout has no origin remote; configure the project repository or pass the prUrl of the repository that carries the pull request")
+
 // BranchPullRequest reports lookup failures distinctly; callers must never treat errors as permission to create.
 func (r *Runner) BranchPullRequest(repoPath, branch string) (PullRequestEvidence, error) {
 	if strings.TrimSpace(branch) == "" {
 		return PullRequestEvidence{}, fmt.Errorf("task branch is missing")
 	}
+	remotes, err := agentexec.Hidden(exec.Command("git", "-C", repoPath, "remote")).Output()
+	if err != nil {
+		return PullRequestEvidence{}, fmt.Errorf("read repository remotes: %w", err)
+	}
+	if !slices.Contains(strings.Fields(string(remotes)), "origin") {
+		return PullRequestEvidence{}, ErrNoOriginRemote
+	}
 	remote, err := agentexec.Hidden(exec.Command("git", "-C", repoPath, "remote", "get-url", "origin")).Output()
 	if err != nil {
 		return PullRequestEvidence{}, fmt.Errorf("read repository remote: %w", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
 	// Enterprise installations may use a hostname without the forge brand.
 	firstGitLab := strings.Contains(strings.ToLower(string(remote)), "gitlab")
-	var failures []string
-	for _, gitlab := range []bool{firstGitLab, !firstGitLab} {
-		cli := "gh"
-		args := []string{"pr", "view", branch, "--json", "url,state,headRefName,headRefOid,isDraft"}
-		if gitlab {
-			cli = "glab"
-			// https://docs.gitlab.com/cli/mr/list/ : open MRs only unless --all, and a
-			// merged MR is evidence, like a merged PR on GitHub.
-			args = []string{"mr", "list", "--source-branch", branch, "--all", "--output", "json"}
+	return r.forgePullRequest(repoPath, branch, "", []bool{firstGitLab, !firstGitLab})
+}
+
+// RepositoryPullRequest looks the branch up in a repository other than the
+// checkout's, named by its host/path identity, on the forge its pull request
+// link names. dir only gives the CLI a working directory: it needs no remote.
+// The selection and refusal rules are the ones of BranchPullRequest.
+func (r *Runner) RepositoryPullRequest(dir, forge, repository, branch string) (PullRequestEvidence, error) {
+	if strings.TrimSpace(branch) == "" {
+		return PullRequestEvidence{}, fmt.Errorf("task branch is missing")
+	}
+	if (forge != "github" && forge != "gitlab") || strings.TrimSpace(repository) == "" {
+		return PullRequestEvidence{}, fmt.Errorf("unsupported pull request repository %q on forge %q", repository, forge)
+	}
+	return r.forgePullRequest(dir, branch, repository, []bool{forge == "gitlab"})
+}
+
+// evidenceCommand builds the forge CLI call listing the branch's requests. An
+// empty repository asks about the working directory's own remote; otherwise
+// -R names the repository, as a URL for glab and as HOST/OWNER/REPO for gh.
+func evidenceCommand(gitlab bool, branch, repository string) (string, []string) {
+	if gitlab {
+		// https://docs.gitlab.com/cli/mr/list/ : open MRs only unless --all, and a
+		// merged MR is evidence, like a merged PR on GitHub.
+		args := []string{"mr", "list", "--source-branch", branch, "--all", "--output", "json"}
+		if repository != "" {
+			args = append(args, "-R", "https://"+repository)
 		}
+		return "glab", args
+	}
+	args := []string{"pr", "view", branch, "--json", "url,state,headRefName,headRefOid,isDraft"}
+	if repository != "" {
+		args = append(args, "-R", repository)
+	}
+	return "gh", args
+}
+
+func (r *Runner) forgePullRequest(dir, branch, repository string, forges []bool) (PullRequestEvidence, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	var failures []string
+	for _, gitlab := range forges {
+		cli, args := evidenceCommand(gitlab, branch, repository)
 		tool, err := FindCliTool(cli)
 		if err != nil {
 			failures = append(failures, err.Error())
 			continue
 		}
-		run := func(args ...string) (string, error) { return r.runCommand(ctx, repoPath, tool, args...) }
+		run := func(args ...string) (string, error) { return r.runCommand(ctx, dir, tool, args...) }
 		var out string
 		if gitlab {
 			out, err = gitLabEvidencePages(args, run)
@@ -168,7 +212,6 @@ func (r *Runner) BranchPullRequest(repoPath, branch string) (PullRequestEvidence
 		return evidence, err
 	}
 	return PullRequestEvidence{}, fmt.Errorf("PR lookup failed; retry or recover through the creation owner: %s", strings.Join(failures, "; "))
-
 }
 
 // --all selects states, not pages. Read the complete listing before choosing an

@@ -135,8 +135,11 @@ type DB struct {
 	serverKeyErr error
 	// unlocked holds the keys derived from sealing passphrases, for this
 	// server's lifetime only.
-	unlocked         unlockedKeys
-	prEvidenceLookup func(string, string) (trackerapi.PullRequest, error)
+	unlocked unlockedKeys
+	// prEvidenceLookup stands in for the forge answer on every route. It gets
+	// the repository asked (the foreign identity for a pull request in another
+	// repository), the branch and the prUrl the caller gave.
+	prEvidenceLookup func(repo, branch, prURL string) (trackerapi.PullRequest, error)
 	// prDiscoveryLookup stands in for the tracker read that answers which pull
 	// requests belong to an issue, so the discovery step is testable without a
 	// live forge. See internal/db/prdiscovery.go.
