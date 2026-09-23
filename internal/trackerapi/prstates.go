@@ -3,6 +3,7 @@ package trackerapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -83,8 +84,11 @@ func (c *Client) pullRequestReference(forge, raw string) (pullRequestReference, 
 	return pullRequestReference{raw, repo, n}, true
 }
 
-// PullRequestStates batches linked PRs without reading any issue. On a partial
-// failure the completed batches remain usable; omitted links keep their state.
+// PullRequestStates batches linked PRs without reading any issue. A failed
+// batch or repository does not stop the others: every state that could be read
+// is returned with the joined errors, and omitted links keep their state. Only a
+// rate limit or an expired context stops the reads, since every further call
+// would fail the same way.
 func (c *Client) PullRequestStates(ctx context.Context, forge string, links []string) (map[string]string, error) {
 	states := map[string]string{}
 	groups := map[string][]pullRequestReference{}
@@ -106,6 +110,7 @@ func (c *Client) PullRequestStates(ctx context.Context, forge string, links []st
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	var errs []error
 	for _, key := range keys {
 		refs := groups[key]
 		for start := 0; start < len(refs); start += pullRequestStateBatchSize {
@@ -117,11 +122,14 @@ func (c *Client) PullRequestStates(ctx context.Context, forge string, links []st
 				err = c.gitlabPullRequestStates(ctx, refs[start:end], states)
 			}
 			if err != nil {
-				return states, err
+				errs = append(errs, err)
+				if IsRateLimited(err) || ctx.Err() != nil {
+					return states, errors.Join(errs...)
+				}
 			}
 		}
 	}
-	return states, nil
+	return states, errors.Join(errs...)
 }
 
 func forgePullRequestState(state string, conflicts bool) string {
@@ -153,9 +161,7 @@ func (c *Client) githubPullRequestStates(ctx context.Context, refs []pullRequest
 	if strings.TrimSpace(c.GithubToken) == "" {
 		return fmt.Errorf("GitHub credentials are not configured")
 	}
-	if err := c.graphql(ctx, c.githubGraphQLEndpoint(), "Bearer "+c.GithubToken, query.String(), nil, &data); err != nil {
-		return err
-	}
+	err := c.graphqlPartial(ctx, c.githubGraphQLEndpoint(), "Bearer "+c.GithubToken, query.String(), nil, &data)
 	for i, ref := range refs {
 		node := data[fmt.Sprintf("p%d", i)]
 		if node == nil || node.PullRequest == nil {
@@ -166,7 +172,7 @@ func (c *Client) githubPullRequestStates(ctx context.Context, refs []pullRequest
 			states[ref.URL] = state
 		}
 	}
-	return nil
+	return err
 }
 
 func (c *Client) gitlabPullRequestStates(ctx context.Context, refs []pullRequestReference, states map[string]string) error {

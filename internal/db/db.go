@@ -2541,6 +2541,11 @@ func (d *DB) UpdateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	if err != nil {
 		return task, err
 	}
+	// Only an edit of the links or the branch can change what the forge reports
+	// for this task: a title or label edit must not wait on GitHub or GitLab.
+	if req.PrLinks == nil && req.PrURL == nil && req.BranchName == nil {
+		return task, nil
+	}
 	return d.refreshTaskPullRequestStates(tracker.WithActingUser(context.Background(), actor.ID), task), nil
 }
 

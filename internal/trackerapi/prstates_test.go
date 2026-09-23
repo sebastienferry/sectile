@@ -120,3 +120,72 @@ func TestPullRequestForgeValidatesConfiguredHost(t *testing.T) {
 		t.Fatal("valid link refused")
 	}
 }
+
+func TestPullRequestStatesKeepTheAliasesThatResolved(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"data":{"p0":{"pullRequest":null},"p1":{"pullRequest":{"state":"MERGED","mergeable":"UNKNOWN"}}},"errors":[{"message":"Could not resolve to a PullRequest","path":["p0","pullRequest"]}]}`)
+	}))
+	defer server.Close()
+	c := &Client{GithubURL: server.URL, GithubToken: "token", HTTP: server.Client()}
+	links := []string{server.URL + "/gone/repo/pull/1", server.URL + "/acme/app/pull/2"}
+	states, err := c.PullRequestStates(context.Background(), "github", links)
+	if err == nil || len(states) != 1 || states[links[1]] != "merged" {
+		t.Fatalf("states=%v err=%v", states, err)
+	}
+}
+
+func TestPullRequestStatesReadTheBatchesAfterAFailedOne(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		fmt.Fprint(w, `{"data":{"p0":{"pullRequest":{"state":"CLOSED","mergeable":"UNKNOWN"}}}}`)
+	}))
+	defer server.Close()
+	c := &Client{GithubURL: server.URL, GithubToken: "token", HTTP: server.Client()}
+	var links []string
+	for i := 1; i <= 51; i++ {
+		links = append(links, fmt.Sprintf("%s/acme/app/pull/%d", server.URL, i))
+	}
+	states, err := c.PullRequestStates(context.Background(), "github", links)
+	if err == nil || calls != 2 || len(states) != 1 || states[links[50]] != "closed" {
+		t.Fatalf("calls=%d states=%v err=%v", calls, states, err)
+	}
+}
+
+func TestPullRequestStatesReadTheGitlabProjectsAfterAFailedOne(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.EscapedPath(), "a%2Fgone") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		fmt.Fprint(w, `[{"iid":1,"state":"merged"}]`)
+	}))
+	defer server.Close()
+	c := &Client{GitlabURL: server.URL + "/api/v4", GitlabToken: "gl-token", HTTP: server.Client()}
+	links := []string{server.URL + "/a/gone/-/merge_requests/1", server.URL + "/b/app/-/merge_requests/1"}
+	states, err := c.PullRequestStates(context.Background(), "gitlab", links)
+	if err == nil || len(states) != 1 || states[links[1]] != "merged" {
+		t.Fatalf("states=%v err=%v", states, err)
+	}
+}
+
+func TestPullRequestStatesStopOnARateLimit(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	c := &Client{GithubURL: server.URL, GithubToken: "token", HTTP: server.Client()}
+	var links []string
+	for i := 1; i <= 101; i++ {
+		links = append(links, fmt.Sprintf("%s/acme/app/pull/%d", server.URL, i))
+	}
+	if _, err := c.PullRequestStates(context.Background(), "github", links); !IsRateLimited(err) || calls != 1 {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+}

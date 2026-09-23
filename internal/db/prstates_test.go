@@ -139,3 +139,52 @@ func TestEditingLinksCannotForgeOrEraseObservedState(t *testing.T) {
 		t.Fatalf("untrusted states applied: %+v", got.PrLinks)
 	}
 }
+
+func TestATitleEditDoesNotWaitOnTheForge(t *testing.T) {
+	d, _, task := discoveryTestDB(t, "#implemented")
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++ }))
+	defer server.Close()
+	d.trackers = &trackerapi.Client{GithubURL: server.URL, GithubToken: "test", HTTP: server.Client()}
+	link := models.TaskPullRequest{URL: server.URL + "/a/b/pull/1", State: "open"}
+	d.conn.Exec("UPDATE tasks SET pr_links = ?, pr_url = ? WHERE id = ?", encodePullRequestLinks([]models.TaskPullRequest{link}), link.URL, task.ID)
+	title := "renamed"
+	updated, err := d.UpdateTaskBy(Actor{}, task.ID, models.UpdateTaskRequest{Title: &title})
+	if err != nil || calls != 0 || updated.PrLinks[0].State != "open" {
+		t.Fatalf("calls=%d task=%+v err=%v", calls, updated, err)
+	}
+}
+
+func TestAProjectRefreshSkipsMergedLinks(t *testing.T) {
+	d, p, first := discoveryTestDB(t, "#implemented")
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var req struct{ Query string }
+		json.NewDecoder(r.Body).Decode(&req)
+		if strings.Count(req.Query, "pullRequest(number:") != 1 || !strings.Contains(req.Query, "number:2") {
+			t.Errorf("re-read a merged link: %s", req.Query)
+		}
+		fmt.Fprint(w, `{"data":{"p0":{"pullRequest":{"state":"MERGED","mergeable":"UNKNOWN"}}}}`)
+	}))
+	defer server.Close()
+	d.trackers = &trackerapi.Client{GithubURL: server.URL, GithubToken: "test", HTTP: server.Client()}
+	second, err := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, item := range []struct {
+		task  *models.Task
+		state string
+	}{{first, "merged"}, {second, "open"}} {
+		link := models.TaskPullRequest{URL: fmt.Sprintf("%s/a/b/pull/%d", server.URL, i+1), State: item.state}
+		d.conn.Exec("UPDATE tasks SET pr_links = ?, pr_url = ? WHERE id = ?", encodePullRequestLinks([]models.TaskPullRequest{link}), link.URL, item.task.ID)
+	}
+	if warnings := d.refreshProjectPullRequestStates(context.Background(), p.ID); len(warnings) != 0 || calls != 1 {
+		t.Fatalf("calls=%d warnings=%v", calls, warnings)
+	}
+	got, _ := d.GetTaskByID(second.ID)
+	if got.PrLinks[0].State != "merged" {
+		t.Fatalf("open link not refreshed: %+v", got.PrLinks)
+	}
+}

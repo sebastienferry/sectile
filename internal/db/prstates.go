@@ -10,6 +10,8 @@ import (
 	"tasks/internal/tracker"
 )
 
+const taskPullRequestRefreshTimeout = 5 * time.Second
+
 // refreshPullRequestStates reads forge metadata in bounded batches. It never
 // reads an issue, enqueues a story sync, or changes link order or workflow.
 func (d *DB) refreshPullRequestStates(ctx context.Context, projectID string, tasks []models.Task) []string {
@@ -30,6 +32,11 @@ func (d *DB) refreshPullRequestStates(ctx context.Context, projectID string, tas
 		var urls []string
 		for _, task := range tasks {
 			for _, link := range task.PrLinks {
+				// A merge is final on both forges: re-reading it would only make
+				// every sync grow with the project's history.
+				if link.State == "merged" {
+					continue
+				}
 				if client.PullRequestForge(link.URL) == forge {
 					urls = append(urls, link.URL)
 				}
@@ -93,6 +100,10 @@ func (d *DB) refreshTaskPullRequestStates(ctx context.Context, task *models.Task
 	if task == nil || len(task.PrLinks) == 0 {
 		return task
 	}
+	// The caller is answering a person (an edit, a post-back, a story resync):
+	// keep the wait on the forge short. The project sync keeps the full budget.
+	ctx, cancel := context.WithTimeout(ctx, taskPullRequestRefreshTimeout)
+	defer cancel()
 	for _, warning := range d.refreshPullRequestStates(ctx, task.ProjectID, []models.Task{*task}) {
 		log.Print(warning)
 	}
