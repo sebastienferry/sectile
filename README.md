@@ -950,6 +950,13 @@ root. `make test` enforces it through its `fmt-check` dependency, so an
 unformatted file fails the suite before any test runs. Run `gofmt -w .` to fix
 it, or `make fmt-check` to see the offending files on their own.
 
+CI runs the same check in the `lint:gofmt` job of the GitLab mirror pipeline,
+using the `gofmt` of the Go version `go.mod` declares. It gates: a red job
+fails the pipeline, and `make fmt-check` is how to reproduce it locally. The
+pipeline only reaches a GitHub pull request when the GitLab project reports
+commit statuses to GitHub, and blocking the merge is a matter of requiring that
+status in the branch protection of `main`. Neither is a repository setting.
+
 ### Execution modes
 
 A skill run is either **interactive** (a terminal window you answer, and the

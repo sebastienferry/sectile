@@ -166,6 +166,31 @@ test:postgres:
     # timestamp round trip that #294 was about, and a migration round trip.
     - go test ./internal/db/ -run 'TestPostgres|TestMigrate' -v
 
+# The server-side half of `make fmt-check`, which until now only ran for whoever
+# ran `make test` before pushing. It gates like test:postgres: the repository is
+# gofmt-clean, so a red run means a commit broke it. It stays out of the
+# publish jobs' needs; failing the pipeline is what blocks the merge.
+lint:gofmt:
+  stage: test
+  needs: []
+  # `gofmt -l .` walks every directory under the checkout, dot-directories
+  # included. The template restores the module cache into
+  # ${CI_PROJECT_DIR}/.go-mod-cache, and that cache holds the dependencies and
+  # the whole Go toolchain source tree test:go downloads, whose testdata is
+  # unformatted on purpose. So no cache is restored, and the toolchain fetched
+  # below goes to the image's module directory, outside the checkout. gofmt
+  # needs no module anyway.
+  cache: []
+  variables:
+    GOMODCACHE: "/go/pkg/mod"
+  script:
+    # GOTOOLCHAIN=auto switches the go command to the version go.mod asks for,
+    # but not the gofmt binary: the one on PATH is the image's. Putting the
+    # selected toolchain first makes CI format with the go.mod version.
+    - export PATH="$(go env GOROOT)/bin:${PATH}"
+    - go version && command -v gofmt
+    - make fmt-check
+
 test:web:
   stage: test
   image: ${NODE_IMAGE}
