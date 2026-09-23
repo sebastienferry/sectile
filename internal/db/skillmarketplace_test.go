@@ -171,6 +171,43 @@ func TestPreviewSkillPackWritesNothing(t *testing.T) {
 	}
 }
 
+// The registry belongs to no project: registering, browsing and removing a
+// marketplace work on a board with several projects and none marked default.
+func TestSkillMarketplaceRegistryNeedsNoDefaultProject(t *testing.T) {
+	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	no := false
+	for _, name := range []string{"One", "Two"} {
+		if _, err := d.CreateProject(models.CreateProjectRequest{Name: name, RepoPath: "/not-mounted-" + name, IssueTracker: "local", UseWorktrees: &no}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := d.conn.Exec(`UPDATE projects SET is_default = 0`); err != nil {
+		t.Fatal(err)
+	}
+	if projects, _ := d.GetProjects(); len(projects) < 2 {
+		t.Fatalf("want several projects, got %d", len(projects))
+	}
+	stub := &packStub{}
+	stub.install(t, d)
+
+	if _, err := d.AddSkillMarketplace(models.SkillMarketplace{Name: "acme", Kind: models.MarketplaceKindPath, Locator: t.TempDir()}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	if _, err := d.MarketplaceCatalog("acme"); err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	if _, err := d.RemoveSkillMarketplace("acme"); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if stub.count("marketplace_catalog") != 2 || stub.count("marketplace_forget") != 1 {
+		t.Fatalf("the agent was not asked: %v", stub.calls)
+	}
+}
+
 // The pinned revision comes from the request body and reaches git on the
 // workstation: anything but a commit id is refused before the agent is asked.
 func TestSkillPackRefusesACommitThatIsNotAnId(t *testing.T) {

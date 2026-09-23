@@ -118,6 +118,24 @@ func TestMarketplaceCacheDirRefusesAnEscapingName(t *testing.T) {
 	}
 }
 
+// The registry actions need no project: the daemon answers them without
+// resolving a project or a local checkout first.
+func TestMarketplaceRegistryActionsNeedNoProject(t *testing.T) {
+	testhome.Set(t, t.TempDir())
+	root := fixtureMarketplace(t)
+	daemon := &agentDaemon{}
+
+	if _, err := daemon.executeOperation(context.Background(), agentprotocol.Operation{Action: "marketplace_catalog", Marketplace: "acme", Kind: "path", Locator: root}); err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	if _, err := daemon.executeOperation(context.Background(), agentprotocol.Operation{Action: "marketplace_forget", Marketplace: "acme"}); err != nil {
+		t.Fatalf("forget: %v", err)
+	}
+	if _, err := daemon.executeOperation(context.Background(), agentprotocol.Operation{Action: "marketplace_pack", Marketplace: "acme", Kind: "path", Locator: root, Plugin: "acme-flow"}); err == nil {
+		t.Fatal("a project operation ran without a project")
+	}
+}
+
 // Re-registering a name with another locator reads the new repository, not the
 // one the cache was first cloned from.
 func TestMarketplaceCacheFollowsALocatorChange(t *testing.T) {

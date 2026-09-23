@@ -87,11 +87,19 @@ func (d *agentDaemon) handleOperation(ctx context.Context, conn *websocket.Conn,
 	_ = d.link.write(conn, agentprotocol.Message{MsgID: msg.MsgID, TaskID: msg.TaskID, Type: "workspace_result", Payload: raw})
 }
 func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Operation) (any, error) {
+	// Deployment-wide actions run before any project is resolved: they read no
+	// checkout, so a project that is not cloned here must not block them.
+	switch op.Action {
+	case "marketplace_catalog":
+		return marketplaceCatalog(ctx, op)
+	case "marketplace_forget":
+		return marketplaceForget(op)
+	}
 	if op.ProjectID == "" {
 		return nil, fmt.Errorf("project primary key is required")
 	}
 	switch op.Action {
-	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git", "marketplace_catalog", "marketplace_pack", "marketplace_forget":
+	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git", "marketplace_pack":
 	default:
 		return nil, fmt.Errorf("unknown local operation %q", op.Action)
 	}
@@ -237,12 +245,8 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			provider = config.AIProvider
 		}
 		return r.InstallSpecFrameworkContext(ctx, models.SpecFrameworkInstallRequest{Framework: framework, RepoPath: root, AIAgent: provider, Force: op.Force}), nil
-	case "marketplace_catalog":
-		return marketplaceCatalog(ctx, op)
 	case "marketplace_pack":
 		return marketplacePack(ctx, op)
-	case "marketplace_forget":
-		return marketplaceForget(op)
 	case "init_git":
 		_, err := gitLocal(ctx, root, "init")
 		if err != nil {

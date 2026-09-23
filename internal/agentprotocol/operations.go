@@ -39,6 +39,15 @@ type Operation struct {
 	// Commit pins the revision to resolve. Empty resolves the marketplace head.
 	Commit string `json:"commit,omitempty"`
 }
+
+// ProjectIndependent reports whether an action works on deployment-wide state
+// rather than on a project: the marketplace registry belongs to no project, so
+// reading or forgetting one must not depend on which project happens to be the
+// default, nor on that project having a checkout on the workstation.
+func ProjectIndependent(action string) bool {
+	return action == "marketplace_catalog" || action == "marketplace_forget"
+}
+
 type Result struct {
 	Value json.RawMessage `json:"value,omitempty"`
 	Error string          `json:"error,omitempty"`

@@ -58,7 +58,10 @@ func (d *DB) callAgentContext(parent context.Context, op agentprotocol.Operation
 			op.ProjectID = found
 		}
 	}
-	if op.ProjectID == "" {
+	// A deployment-wide action still borrows the default or only project to
+	// reach an agent when there is one, but needs none: the dispatcher falls
+	// back to the agent registered for every project.
+	if op.ProjectID == "" && !agentprotocol.ProjectIndependent(op.Action) {
 		return fmt.Errorf("select a project for local execution")
 	}
 	ctx, cancel := context.WithTimeout(parent, operationTimeout(op.Action))
