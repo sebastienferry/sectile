@@ -1,3 +1,5 @@
+import { BatchPickupModal } from '../components/BatchPickupModal'
+import { buildBatchPickupPrompt } from '../lib/batchPickup'
 import { sameTask, tasksInProject } from '../lib/taskIdentity'
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react'
 import {
@@ -406,6 +408,9 @@ export const UI_SCALE_OPTIONS = [90, 100, 112, 125]
 const UNASSIGNED_FILTER_VALUE = '__unassigned__'
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [batchPickupTasks, setBatchPickupTasks] = useState<Task[] | null>(null)
+  const batchPickupResult = useRef<((accepted: boolean) => void) | null>(null)
+
   const [tasks, setTasks] = useState<Task[]>([])
   const [skills, setSkills] = useState<Skill[]>([])
   const [cliStatuses, setCliStatuses] = useState<CliStatus[]>([])
@@ -3239,20 +3244,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [teams, teamFilter, taskFacets.assignees, tasks])
 
 
-  // The batch keeps the caller's order: pickup-issues processes its tickets in
-  // the order of the prompt. The result says whether the launch was accepted,
-  // so that a caller can keep its selection after a failure.
+  // Callers keep their selection while the shared dialog collects the order
+  // and workspace name. Only a confirmed, accepted launch resolves true.
+  const finishBatchPickup = (accepted: boolean) => {
+    batchPickupResult.current?.(accepted)
+    batchPickupResult.current = null
+    setBatchPickupTasks(null)
+  }
+
   const startBatchPickup = async (taskIds: string[]): Promise<boolean> => {
-    const batch = taskIds
-      .map(id => tasks.find(task => task.id === id))
-      .filter((task): task is Task => Boolean(task))
-    if (!batch.length) return false
+    if (batchPickupResult.current) return false
+    const ids = [...new Set(taskIds)]
+    const batch = ids.map(id => tasks.find(task => task.id === id)).filter((task): task is Task => Boolean(task))
+    if (!batch.length || batch.length !== ids.length) return false
     if (batch.some(task => task.projectId !== batch[0].projectId)) {
-      addToast({type:'error',title:'Select tasks from one project for a batch'})
+      addToast({type:'error',title:'Sélectionnez des tâches d’un seul projet pour le lot'})
       return false
     }
-    const activity = await runSkill(batch[0].id,'pickup_issues','/pickup-issues '+batch.map(task=>task.id).join(' '))
-    return activity !== null
+    return new Promise<boolean>(resolve => {
+      batchPickupResult.current = resolve
+      setBatchPickupTasks(batch)
+    })
+  }
+
+  const confirmBatchPickup = async (taskIds: string[], worktreeName: string): Promise<boolean> => {
+    // Resolve against current data: a deleted or migrated ticket must not be
+    // dispatched under the stale project shown when the dialog opened.
+    const batch = taskIds.map(id => tasks.find(task => task.id === id))
+    if (!batchPickupTasks || batch.length !== batchPickupTasks.length ||
+        new Set(taskIds).size !== taskIds.length ||
+        batch.some(task => !task || task.projectId !== batchPickupTasks[0].projectId) ||
+        taskIds.some(id => !batchPickupTasks.some(task => task.id === id))) return false
+    const activity = await runSkill(taskIds[0], 'pickup_issues', buildBatchPickupPrompt(taskIds, worktreeName))
+    if (!activity) return false
+    finishBatchPickup(true)
+    return true
   }
 
   // Global Keyboard Shortcuts
@@ -3545,6 +3571,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }}
     >
       {children}
+      {batchPickupTasks && <BatchPickupModal
+        tasks={batchPickupTasks}
+        labels={t.batchDialog}
+        onCancel={() => finishBatchPickup(false)}
+        onConfirm={confirmBatchPickup}
+      />}
     </AppContext.Provider>
   )
 }

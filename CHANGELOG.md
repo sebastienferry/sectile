@@ -15,6 +15,13 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Launch a batch from the Backlog.** The compact "Batch" action ("Lot" in
+  French) in selection bars can launch selected
+  `new` or `clarified` tasks from one project. A shared preparation dialog lets
+  you reorder the tickets and name the dedicated worktree before launching.
+  Cancellation preserves the selection, and a refused launch keeps the chosen
+  order and worktree name available for retry.
+
 - **Select several stories on the board and launch them as one batch.** Cards
   still at the `new` or `clarified` stage show a checkbox on hover, and
   Ctrl/Cmd+click toggles them. A bar then launches `/pickup-issues` on the

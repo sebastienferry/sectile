@@ -888,11 +888,11 @@ export const BoardView: React.FC = () => {
               type="button"
               onClick={launchSelectedBatch}
               disabled={launchingBatch}
-              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold cursor-pointer text-purple-300 bg-purple-950/60 hover:bg-purple-900/80 border border-purple-700/50 shrink-0 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors shrink-0 shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
               title="Run the selected tasks on the local agent"
             >
-              <Sparkles size={13} className="text-purple-400 animate-pulse" />
-              Lancer le lot (Git tree + Auto-pilot)
+              <Sparkles size={13} />
+              {t.batchLaunch}
             </button>
 
             <button
