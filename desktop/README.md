@@ -25,10 +25,12 @@ project scope. Subsequent launches reconnect to the application's existing agent
 
 ### MCP connections
 
-Open **Settings → Agents CLI**, select an AI provider, then use **MCP connection**.
-The two cards explain Streamable HTTP and STDIO and show copyable examples.
-Choose the remote server (paired API key, works with the agent stopped) or the
-local no-auth proxy (requires the running agent, no key in the provider file).
+Open **Settings → Agents CLI**, select an AI provider, then use **MCP configuration**.
+Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO**. Remote
+HTTP uses the pairing key without requiring a running agent. Local HTTP calls
+the running no-auth proxy directly. STDIO starts a bridge to the remote server
+with the pairing key; it requires the installed binary but no running daemon.
+Only the selected mode’s explanation and copyable configuration are displayed.
 The local option allows native processes on this workstation to call MCP as the
 paired user. Browser requests and other unauthenticated API routes are refused.
 Click **Update provider configuration** to save the chosen transport and target

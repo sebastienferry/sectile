@@ -16,6 +16,9 @@ func TestDesktopMCPChoiceSurvivesBootstrapAndRestart(t *testing.T) {
 	home := testhome.Temp(t)
 	d := &agentDaemon{repoRoot: t.TempDir(), loopback: loopbackServer{url: "http://127.0.0.1:4567", desktopToken: "private"}, link: serverLink{serverURL: "https://sectile.example.test", token: "secret-key"}}
 	route := "/desktop/mcp?provider=codex"
+	if w := disconnectRequest(d, "GET", route, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"transport":"http"`) || !strings.Contains(w.Body.String(), `"target":"remote"`) {
+		t.Fatal("MCP setup must default to remote HTTP", w.Code, w.Body.String())
+	}
 	for _, body := range []string{`{"target":"other","transport":"http"}`, `{"target":"local","transport":"invalid"}`} {
 		if w := disconnectRequest(d, "POST", route, body); w.Code != 400 {
 			t.Fatal(w.Code, w.Body.String())

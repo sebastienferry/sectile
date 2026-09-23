@@ -24,8 +24,12 @@ export function mcpSnippet(provider, transport, server, local = false) {
  if (provider === 'codex' || provider === 'vibe') {
   const lines = provider === 'vibe'
    ? ['[[mcp_servers]]','name = "sectile"',`transport = ${quote(transport === 'http' ? 'streamable-http' : 'stdio')}`]
-   : ['[mcp_servers.sectile]']
+   : ['[mcp_servers.sectile]', 'enabled = true']
   for (const [key,value] of Object.entries(entry)) {
+   if (provider === 'codex' && key === 'http_headers') {
+    lines.push('', '[mcp_servers.sectile.http_headers]', 'Authorization = '+quote(value.Authorization))
+    continue
+   }
    const encoded = Array.isArray(value) ? '['+value.map(quote).join(', ')+']'
     : typeof value === 'object' ? '{ '+Object.entries(value).map(([k,v])=>quote(k)+' = '+quote(v)).join(', ')+' }'
     : quote(value)

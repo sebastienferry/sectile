@@ -13,6 +13,13 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidated MCP setup into one per-engine configuration with three choices:
+  remote HTTP (default), local HTTP proxy, and STDIO. The engine selectors
+  offer Antigravity, Claude and Codex using the existing compact controls. API-key creation now lives in the same web
+  view, and desktop shows only the selected connection configuration.
+
 ### Added
 
 - **MCP connection settings per AI engine.** Web and desktop settings explain
