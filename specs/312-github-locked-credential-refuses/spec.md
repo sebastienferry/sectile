@@ -78,8 +78,9 @@ by people who stored no personal GitHub token to keep working.
 ## Acceptance criterion
 
 A call made through the GitHub tracker adapter that carries an actor whose sealed credential is locked fails instead
-of reading or writing with the project or server token, whether it comes from a background pass or from a person. A failed background pass records the
-owner in `user_id`. The two remaining fallbacks are recorded as decisions in ADR 0018.
+of reading or writing with the project or server token, whether it comes from a background pass or from a person. A
+failed background pass records the owner in `user_id`. The two remaining fallbacks are recorded as decisions in ADR
+0018.
 
 ## Open requirements
 
