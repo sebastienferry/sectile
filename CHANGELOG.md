@@ -161,6 +161,12 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Live updates and cancellations reach every server sharing a database.** A
+  board open on one server now shows a change made through another, and
+  canceling a job stops it on the server that runs it. A job canceled while it
+  ran, or before it started, keeps its canceled status instead of being
+  overwritten by its own outcome, with one server as with several. (#405)
+
 - **Starting a second server on PostgreSQL no longer interrupts the first one's
   work.** A server used to mark every running job as failed and every client run
   as canceled when it started, including the work of another server sharing the
