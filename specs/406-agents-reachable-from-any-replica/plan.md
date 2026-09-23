@@ -49,7 +49,7 @@ CREATE TABLE agent_presence (
 - `CallOperation`, `Dispatch`, `DispatchAndWait`, `PullTasks` fall back to the forwarder
   when the agent is remote. A local-only variant of each serves the internal endpoints,
   so a request is forwarded at most once.
-- `Reachable(ctx, user, project) (user, project string, ok bool)` replaces the handlers'
+- `Route(user, project) *AgentRoute` (user, project and device of the slot, local or remote) replaces the handlers'
   `Lookup(...) != nil` checks before launches.
 - `agent_forward.go`: HTTP client, one POST per verb to `<address>/internal/agent/<verb>`
   with the bearer; transport failures become "the server instance holding the local agent
