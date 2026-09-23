@@ -288,6 +288,23 @@ func TestSkillPackPrecedenceAndReset(t *testing.T) {
 	}
 }
 
+// Applying is all or nothing: when the pin cannot be written, no skill is left
+// on the new pack either.
+func TestApplySkillPackRollsBackWhenThePinCannotBeWritten(t *testing.T) {
+	d, project, _ := packTestDB(t, map[string]string{"clarify-issue": clarifyPack})
+	before := skillContent(t, d, project.ID, "clarify")
+
+	if _, err := d.conn.Exec(`DROP TABLE project_skill_packs`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.ApplySkillPack(project.ID, "acme", "acme-flow", ""); err == nil {
+		t.Fatal("an apply whose pin failed was reported as a success")
+	}
+	if got := skillContent(t, d, project.ID, "clarify"); got != before {
+		t.Fatal("a failed apply left a skill on the new pack")
+	}
+}
+
 // A newer pack that no longer supplies a skill returns it to the built-in body
 // rather than leaving an orphaned one behind.
 func TestApplyingAPackThatDropsASkillReturnsItToTheCatalogue(t *testing.T) {

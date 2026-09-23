@@ -298,35 +298,41 @@ func (d *DB) ApplySkillPack(projectIDOrPath, marketplace, plugin, commit string)
 	now := time.Now().Format(time.RFC3339)
 
 	d.ensureProjectSkillsTable()
+	// One transaction: a failure part-way must not leave some skills on the new
+	// pack, some on the old one and the pin on neither.
 	d.mu.Lock()
-	for _, stage := range skills.StageSkills {
-		body, supplied := baselines[stage.ID]
-		if !supplied {
-			// A pack that no longer ships a skill returns it to the built-in
-			// body rather than keeping an orphaned one.
-			_, err = d.conn.Exec(`UPDATE project_skills SET pack_content = '', pack_origin = '' WHERE project_id = ? AND skill_id = ?`, projectID, stage.ID)
-			if err == nil {
-				_, err = d.conn.Exec(`DELETE FROM project_skills WHERE project_id = ? AND skill_id = ? AND content = '' AND pack_content = '' AND mode = ''`, projectID, stage.ID)
-			}
-			if err != nil {
-				break
-			}
-			continue
+	err = func() error {
+		tx, err := d.conn.Begin()
+		if err != nil {
+			return err
 		}
-		applied = append(applied, stage.DirName)
-		// updated_at stays the date of the project's own edit: applying a pack
-		// is not editing the skill.
-		if _, err = d.conn.Exec(`
-			INSERT INTO project_skills (project_id, skill_id, content, updated_at, mode, pack_content, pack_origin)
-			VALUES (?, ?, '', ?, '', ?, ?)
-			ON CONFLICT(project_id, skill_id) DO UPDATE SET pack_content = excluded.pack_content, pack_origin = excluded.pack_origin
-		`, projectID, stage.ID, now, body, origin); err != nil {
-			break
+		defer func() { _ = tx.Rollback() }()
+		for _, stage := range skills.StageSkills {
+			body, supplied := baselines[stage.ID]
+			if !supplied {
+				// A pack that no longer ships a skill returns it to the built-in
+				// body rather than keeping an orphaned one.
+				if _, err := tx.Exec(`UPDATE project_skills SET pack_content = '', pack_origin = '' WHERE project_id = ? AND skill_id = ?`, projectID, stage.ID); err != nil {
+					return err
+				}
+				if _, err := tx.Exec(`DELETE FROM project_skills WHERE project_id = ? AND skill_id = ? AND content = '' AND pack_content = '' AND mode = ''`, projectID, stage.ID); err != nil {
+					return err
+				}
+				continue
+			}
+			applied = append(applied, stage.DirName)
+			// updated_at stays the date of the project's own edit: applying a pack
+			// is not editing the skill.
+			if _, err := tx.Exec(`
+				INSERT INTO project_skills (project_id, skill_id, content, updated_at, mode, pack_content, pack_origin)
+				VALUES (?, ?, '', ?, '', ?, ?)
+				ON CONFLICT(project_id, skill_id) DO UPDATE SET pack_content = excluded.pack_content, pack_origin = excluded.pack_origin
+			`, projectID, stage.ID, now, body, origin); err != nil {
+				return err
+			}
 		}
-	}
-	if err == nil {
 		appliedJSON, _ := json.Marshal(applied)
-		_, err = d.conn.Exec(`
+		if _, err := tx.Exec(`
 			INSERT INTO project_skill_packs (project_id, marketplace, plugin, version, commit_sha, applied_at, applied_skills)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(project_id) DO UPDATE SET
@@ -336,8 +342,11 @@ func (d *DB) ApplySkillPack(projectIDOrPath, marketplace, plugin, commit string)
 				commit_sha = excluded.commit_sha,
 				applied_at = excluded.applied_at,
 				applied_skills = excluded.applied_skills
-		`, projectID, pack.Marketplace, pack.Plugin, pack.Version, pack.Commit, now, string(appliedJSON))
-	}
+		`, projectID, pack.Marketplace, pack.Plugin, pack.Version, pack.Commit, now, string(appliedJSON)); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}()
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -359,13 +368,23 @@ func (d *DB) UnpinSkillPack(projectIDOrPath string) error {
 	d.ensureProjectSkillsTable()
 
 	d.mu.Lock()
-	_, err := d.conn.Exec(`UPDATE project_skills SET pack_content = '', pack_origin = '' WHERE project_id = ?`, projectID)
-	if err == nil {
-		_, err = d.conn.Exec(`DELETE FROM project_skills WHERE project_id = ? AND content = '' AND pack_content = '' AND mode = ''`, projectID)
-	}
-	if err == nil {
-		_, err = d.conn.Exec(`DELETE FROM project_skill_packs WHERE project_id = ?`, projectID)
-	}
+	err := func() error {
+		tx, err := d.conn.Begin()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tx.Rollback() }()
+		for _, statement := range []string{
+			`UPDATE project_skills SET pack_content = '', pack_origin = '' WHERE project_id = ?`,
+			`DELETE FROM project_skills WHERE project_id = ? AND content = '' AND pack_content = '' AND mode = ''`,
+			`DELETE FROM project_skill_packs WHERE project_id = ?`,
+		} {
+			if _, err := tx.Exec(statement, projectID); err != nil {
+				return err
+			}
+		}
+		return tx.Commit()
+	}()
 	d.mu.Unlock()
 	if err != nil {
 		return err
