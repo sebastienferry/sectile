@@ -91,6 +91,9 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Renaming your account preserves unsaved appearance and skill prompt changes in
+  the open profile dialog. Closing and reopening the dialog reloads saved values.
+
 - **The sidebar shows the name you set, not `Developer`.** The account button at
   the foot of the sidebar and the button in the status bar displayed a name that
   no screen could edit any more, so they stayed on the seeded `Developer`

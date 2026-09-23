@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   X,
   Palette,
@@ -87,9 +87,14 @@ export const ProfileModal: React.FC = () => {
   const [promptAdjust, setPromptAdjust] = useState(settings.promptAdjust || '')
   const [promptHandoff, setPromptHandoff] = useState(settings.promptHandoff || '')
   const [devicesVersion, setDevicesVersion] = useState(0)
+  const wasProfileOpen = useRef(false)
 
   useEffect(() => {
-    if (isProfileOpen) {
+    // Refresh drafts when opening, not when an account rename reloads settings.
+    // The open dialog owns its edits until they are saved or discarded.
+    const opening = isProfileOpen && !wasProfileOpen.current
+    wasProfileOpen.current = isProfileOpen
+    if (opening) {
       setTheme(settings.theme)
       setLanguage(settings.language)
       setDensity(settings.density)
