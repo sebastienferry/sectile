@@ -4,7 +4,7 @@ References: [`spec.md`](spec.md), [`plan.md`](plan.md).
 
 ## 1. Schema (FR1, FR4, FR5)
 
-- [x] T1.1 Migration 6 `auto_sync_state` (renumbered from 4): both tables and the seeded row.
+- [x] T1.1 Migration 7 `auto_sync_state` (renumbered from 4, then 6): both tables and the seeded row.
 - [x] T1.2 `forgetSchemaVersion` drops them.
 
 ## 2. Loop (FR2 to FR6)

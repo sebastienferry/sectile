@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"tasks/internal/models"
 )
 
 // forgetSchemaVersion makes a database look like one written before versions
@@ -24,6 +26,7 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator")
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN creator_avatar")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN epic_colors")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN enabled_views")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN instance_id")
 	_, _ = d.conn.Exec("DROP TABLE server_instances")
 	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
@@ -251,5 +254,55 @@ func TestRestartRecoveryRunsOnEveryStart(t *testing.T) {
 		if status != "failed" {
 			t.Fatalf("pass %d: status = %q after a restart, want %q", pass, status, "failed")
 		}
+	}
+}
+
+// TestAStampedDatabaseStillGainsALaterColumn covers what shipped broken: a
+// column added to the baseline CREATE TABLE instead of to a numbered migration
+// reaches a database created from nothing and no other, because the baseline
+// runs only while the database carries no version. Every database stamped
+// beforehand went on without projects.enabled_views, and answered an error to
+// every project read — the whole interface, which lists projects first.
+//
+// The check is the read the interface makes, not the column list: a column the
+// schema has and the query does not name would pass a column check and fail
+// here, which is the way round that matters.
+func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stamped.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("creating the database: %v", err)
+	}
+	if _, err := d.conn.Exec(
+		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'Kept', 'kept')`); err != nil {
+		t.Fatalf("seeding a project: %v", err)
+	}
+	// The database as an earlier binary left it: stamped, and short of the
+	// column that binary knew nothing about.
+	if _, err := d.conn.Exec("ALTER TABLE projects DROP COLUMN enabled_views"); err != nil {
+		t.Fatalf("removing the column: %v", err)
+	}
+	// Nor anything the migrations after it add, which reopening replays.
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN instance_id")
+	_, _ = d.conn.Exec("DROP TABLE server_instances")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_state")
+	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= ?", 5); err != nil {
+		t.Fatalf("forgetting the migration: %v", err)
+	}
+	d.Close()
+
+	reopened, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("reopening: %v", err)
+	}
+	defer reopened.Close()
+
+	projects, err := reopened.GetProjects()
+	if err != nil {
+		t.Fatalf("reading the projects back: %v", err)
+	}
+	if !slices.ContainsFunc(projects, func(p models.Project) bool { return p.ID == "p1" }) {
+		t.Fatalf("the seeded project did not survive: %d project(s) read, none of them p1", len(projects))
 	}
 }

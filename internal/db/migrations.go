@@ -109,10 +109,24 @@ var migrations = []migration{
 		},
 	},
 	{
+		// The optional views a project shows. The column shipped in the
+		// baseline CREATE TABLE and in applyLegacyMigrations instead of here,
+		// and neither of those runs against a database already stamped with a
+		// version: every database that existed beforehand went without the
+		// column, and answered 42703 to every project read. An empty list
+		// means "none", so existing projects keep Triage, Roadmap and Timeline
+		// out of the sidebar until they ask for them.
+		version: 5,
+		name:    "projects.enabled_views",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN enabled_views TEXT NOT NULL DEFAULT '[]';",
+		},
+	},
+	{
 		// The server process owning a piece of work, so that one instance
 		// starting does not reclaim what another live instance runs. See
 		// internal/db/instances.go.
-		version: 5,
+		version: 6,
 		name:    "server_instances",
 		statements: []string{
 			"ALTER TABLE task_activities ADD COLUMN instance_id TEXT NOT NULL DEFAULT '';",
@@ -129,7 +143,7 @@ var migrations = []migration{
 		// The background synchronisation's pacing, backoff and status, shared
 		// by every server instance instead of held by each one. See
 		// internal/db/autosync.go.
-		version: 6,
+		version: 7,
 		name:    "auto_sync_state",
 		statements: []string{
 			`CREATE TABLE auto_sync_projects (
