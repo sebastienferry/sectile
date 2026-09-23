@@ -2,8 +2,8 @@
 
 Scope restated from the clarification (`docs/clarifications/388.md`), then
 revised after the first review (see its "Review revision" section): the colour
-is a per-project setting, off by default, shown as a short bar clear of the
-card's corners.
+is a per-project setting, off by default, shown as a thin full-height bar
+that follows the card's rounded corners.
 
 ## User stories
 
@@ -33,14 +33,11 @@ the board still means the same epic elsewhere.
 4. A task is painted according to the setting of its own project, so a view
    listing several projects paints each task by its project. A task that does
    not name its project follows the project on screen.
-5. The colour is a 5px bar inside the left edge, inset from the top, the
-   bottom and the border so it never meets a rounded corner, whatever the
-   card's radius.
+5. The colour is a 3px bar along the full height of the left edge, inside the
+   border. It follows the curve of the card's rounded corners, whatever their
+   radius, and never overflows them.
 6. It is shown on the board cards (expanded and condensed), the Backlog rows,
-   the sprint timeline chips and list rows, and the Roadmap macro rows. Where
-   the left padding is narrower than the bar needs (condensed card, timeline
-   list row, small timeline chip), that padding widens only when the bar is
-   shown, so the bar never covers content.
+   the sprint timeline chips and list rows, and the Roadmap macro rows.
 7. The sprint timeline rules hold in the sprint blocks, in the planning view
    and in the unscheduled backlog pane.
 8. On the Roadmap, the setting read is that of the project on screen; the tasks
@@ -56,8 +53,9 @@ the board still means the same epic elsewhere.
 - Given a project with the setting off, when any view renders, then no card,
   row, chip or macro carries an epic colour.
 - Given a project with the setting on and two board cards whose parent key is
-  `#12`, when the board renders, then both carry a bar of the same colour,
-  clear of the corners, and a card whose parent is `#40` carries `#40`'s.
+  `#12`, when the board renders, then both carry a bar of the same colour that
+  follows their rounded corners, and a card whose parent is `#40` carries
+  `#40`'s.
 - Given a condensed card with parent `#12` on such a project, when it renders,
   then it carries the `#12` bar, no parent key text is added and its text is
   not covered.

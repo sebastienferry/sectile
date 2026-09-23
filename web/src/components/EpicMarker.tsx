@@ -15,11 +15,16 @@ export function useEpicColors(): (projectId?: string | null) => boolean {
 }
 
 /**
- * Short coloured bar inside the left edge of the nearest positioned ancestor.
- * It is inset from the top, the bottom and the border so it never meets a
- * rounded corner, whatever the radius of the card, and it is a child
- * element rather than a border so the border and the ring, which carry the
- * running, queued and selected states, are left as they are.
+ * Coloured bar along the left edge of the nearest positioned ancestor, over its
+ * full height.
+ *
+ * It is a transparent layer covering the ancestor, with the ancestor's own
+ * corner radius, that paints an inset shadow on its left side. The browser
+ * clips an inset shadow to the rounded shape of its box, so the bar follows the
+ * card's corners whatever their radius; a plain 3px-wide strip would instead
+ * clamp that radius to its own width and overflow the curve. The layer carries
+ * its own box-shadow, so the border, the ring and the hover shadow of the card,
+ * which express the running, queued and selected states, are left as they are.
  */
 export function EpicBar({ parentKey }: { parentKey?: string | null }) {
   const color = epicColorHex(parentKey)
@@ -28,8 +33,8 @@ export function EpicBar({ parentKey }: { parentKey?: string | null }) {
     <span
       aria-hidden="true"
       data-epic-bar
-      className="absolute left-[3px] top-[22%] bottom-[22%] m-0 w-[5px] rounded-full pointer-events-none"
-      style={{ backgroundColor: color }}
+      className="absolute inset-0 m-0 rounded-[inherit] pointer-events-none"
+      style={{ boxShadow: `inset 3px 0 0 ${color}` }}
     />
   )
 }

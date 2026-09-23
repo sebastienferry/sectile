@@ -31,9 +31,9 @@
         through both read paths, untouched by an unrelated update, set at
         creation.
 12. [x] `epicColorsEnabled`, `useEpicColors`; `EpicDot` removed; `EpicBar`
-        inset and 5px wide.
-13. [x] Views: the bar on every surface, gated by the task's project setting,
-        with the left padding widened where the bar would cover content.
+        becomes a full-size layer painting a 3px inset shadow, clipped to the
+        card's corners.
+13. [x] Views: the bar on every surface, gated by the task's project setting.
 14. [x] Project settings: "Couleur par épic" checkbox under General.
 15. [x] `web/tests/epicColor.test.mjs`: setting resolution per project and
         fallback.

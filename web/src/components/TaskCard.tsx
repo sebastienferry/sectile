@@ -774,7 +774,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
       draggable
       onDragStart={handleDragStartInternal}
       onClick={openOrToggle}
-      className={`task-card ${isCondensed ? 'task-card-condensed' : ''} group relative border bg-[var(--bg-secondary)] ${isCondensed ? `rounded-none ${showsEpicBar ? 'pl-3 pr-1.5' : 'px-1.5'} py-1` : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
+      className={`task-card ${isCondensed ? 'task-card-condensed' : ''} group relative border bg-[var(--bg-secondary)] ${isCondensed ? 'rounded-none px-1.5 py-1' : 'p-3'} hover:shadow-md transition-all duration-150 cursor-grab active:cursor-grabbing select-none ${
         isRunning
           ? `border-indigo-500/60 shadow-md shadow-indigo-500/10 ${selected ? '' : 'ring-1 ring-indigo-500/20'}`
           : isQueued

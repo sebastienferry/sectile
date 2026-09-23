@@ -1153,7 +1153,7 @@ export const SprintTimelineView: React.FC = () => {
                               <div
                                 key={task.id}
                                 onClick={() => setSelectedTask(task)}
-                                className={`relative inline-flex items-center gap-1.5 ${showsEpicBarOf(task) ? 'pl-3 pr-2' : 'px-2'} py-0.5 rounded-md border text-xs cursor-pointer transition-colors group shadow-2xs ${
+                                className={`relative inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-xs cursor-pointer transition-colors group shadow-2xs ${
                                   checkedTaskIds[task.id]
                                     ? 'bg-[var(--accent-light)] border-[var(--accent-color)] text-[var(--accent-color)] font-semibold'
                                     : 'bg-[var(--bg-primary)] border-[var(--border-color)] hover:border-[var(--accent-color)] text-[var(--text-primary)]'
@@ -1200,7 +1200,7 @@ export const SprintTimelineView: React.FC = () => {
                               <div
                                 key={task.id}
                                 onClick={() => setSelectedTask(task)}
-                                className={`relative flex items-center justify-between gap-2 py-1 ${showsEpicBarOf(task) ? 'pl-3 pr-1.5' : 'px-1.5'} rounded cursor-pointer transition-colors group ${
+                                className={`relative flex items-center justify-between gap-2 py-1 px-1.5 rounded cursor-pointer transition-colors group ${
                                   checkedTaskIds[task.id]
                                     ? 'bg-[var(--accent-light)]/20 font-medium'
                                     : 'hover:bg-[var(--bg-tertiary)]/60'

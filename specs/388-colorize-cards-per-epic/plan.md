@@ -97,17 +97,25 @@ Two changes asked by the owner after the first review of PR #399.
   checkbox sits in the project settings, General tab, under the workspace
   views.
 
-### Rendering: a short, thicker bar
+### Rendering: a full-height bar clipped to the corners
 
-The full-height bar on the left edge met the card's rounded corners, whose
-radius differs between shapes, and overflowed them. A tinted epic key was tried
-next and rejected by the owner, who preferred a bar that is shorter and thicker.
+The first bar was a 3px-wide strip with `rounded-l-[inherit]`. A radius larger
+than the element is clamped to its size, so the strip's corners curved over
+3px while the card's curved over 12px, and the strip overflowed the card's
+curve. Two alternatives were shown to the owner and rejected: a tinted epic
+key, then a shorter and thicker bar. The owner kept the thin full-height bar
+and asked for the corners to be fixed.
 
-- `EpicBar`: `absolute left-[3px] top-[22%] bottom-[22%] m-0 w-[5px]
-  rounded-full`. Inset on every side, it never touches a corner, whatever the
-  radius; `m-0` still guards against `space-y-*`. `EpicDot` is removed.
-- It goes on every surface of the original plan. Three of them have a left
-  padding under 8px (the bar's right edge): the condensed card and the timeline
-  list row (`px-1.5`) and the small timeline chip (`px-2`). Each switches to
-  `pl-3` only when its bar is shown, so a project with the setting off keeps its
-  layout to the pixel.
+- `EpicBar` is now a transparent layer, `absolute inset-0 m-0 rounded-[inherit]
+  pointer-events-none`, painting `box-shadow: inset 3px 0 0 <colour>`. An inset
+  shadow is clipped to the rounded shape of its box, so the bar follows the
+  corner curve exactly, on every radius (12px card, `rounded-xl`, `rounded-md`
+  chip, square condensed card). The layer's radius is the card's outer radius,
+  slightly larger than the inner curve of the 1px border, so it cannot spill
+  onto the border.
+- The shadow belongs to the layer, not the card: the card's ring, border and
+  the `.task-card:hover` rule of `index.css`, which replaces the card's whole
+  `box-shadow`, are not affected, and the bar stays visible on hover.
+- Checked with a headless Chrome screenshot of the compiled CSS on the five
+  shapes, idle, selected with a running border, and hovered. `EpicDot` is
+  removed.
