@@ -526,6 +526,24 @@ serving from the same database, a start and every live server only reclaim the
 work of servers not heard from for 45 seconds, so a rolling deploy no longer
 interrupts the server it replaces.
 
+A local agent keeps one connection to whichever server the load balancer gives
+it, and any other server reaches it through that one. Each server records in the
+database which agents it holds and forwards agent work, stage checks, launches,
+workspace operations, to the server holding the agent, on a dedicated internal
+port. That port must be declared on the container and must not be routed by the
+ingress:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SECTILE_INTERNAL_PORT` | `8092` | Port of the internal endpoints the servers call each other on. |
+| `SECTILE_INTERNAL_URL` | first non-loopback IPv4 and the internal port | Address this server advertises to the others. |
+
+The servers authenticate each other with a token derived from
+`SECTILE_SECRET_KEY`, which they already share; without it, agents connected to
+a server keep working through that server, and forwarding refuses with the
+reason. An operation forwarded to a server that stops before answering fails
+with an explicit error and is not replayed.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect

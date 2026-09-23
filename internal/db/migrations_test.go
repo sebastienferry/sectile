@@ -28,6 +28,8 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("DROP TABLE server_instances")
 	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
 	_, _ = d.conn.Exec("DROP TABLE auto_sync_state")
+	_, _ = d.conn.Exec("DROP TABLE agent_presence")
+	_, _ = d.conn.Exec("ALTER TABLE server_instances DROP COLUMN address")
 }
 
 // appliedVersions is what the database says it has applied, in order.
