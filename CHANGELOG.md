@@ -134,6 +134,17 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Projects hosted on GitLab can reach `implemented` and `reviewed`.** The stage
+  evidence check only ever asked GitHub for the branch's pull request, so a
+  GitLab project — whatever its issue tracker — was refused with
+  `configure an explicit GitHub owner/repository` even with an open merge
+  request on the checkout commit. The forge is now chosen from the code remote,
+  and a GitLab merge request is read by the local agent with the `glab` login
+  the workstation already has, under the same rules as a GitHub pull request:
+  open or merged, same branch, head on the checkout commit, ready where
+  adjustment needs it. Refusals speak of a merge request, a failed lookup is
+  reported as such rather than as a missing merge request, and several open
+  merge requests on the branch are refused as ambiguous.
 - Running execution icons now spin in the desktop sidebar and discussion header, while respecting reduced-motion preferences.
 
 - Terminal-owned executions now stop their child processes and report their exit when the supervisor receives a hangup or termination signal, preventing stale running entries and stop timeouts. Transient exit-report failures are retried, and Stop automatically recovers a run whose local terminal has already disappeared.
