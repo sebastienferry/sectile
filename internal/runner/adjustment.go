@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -147,7 +148,13 @@ func (r *Runner) BranchPullRequest(repoPath, branch string) (PullRequestEvidence
 			failures = append(failures, err.Error())
 			continue
 		}
-		out, err := r.runCommand(ctx, repoPath, tool, args...)
+		run := func(args ...string) (string, error) { return r.runCommand(ctx, repoPath, tool, args...) }
+		var out string
+		if gitlab {
+			out, err = gitLabEvidencePages(args, run)
+		} else {
+			out, err = run(args...)
+		}
 		if err != nil {
 			failures = append(failures, cli+": "+err.Error())
 			continue
@@ -162,6 +169,30 @@ func (r *Runner) BranchPullRequest(repoPath, branch string) (PullRequestEvidence
 	}
 	return PullRequestEvidence{}, fmt.Errorf("PR lookup failed; retry or recover through the creation owner: %s", strings.Join(failures, "; "))
 
+}
+
+// --all selects states, not pages. Read the complete listing before choosing an
+// MR: an older open request or the latest merge may be on a later page. All
+// calls share the caller's deadline, and a partial listing is never evidence.
+func gitLabEvidencePages(args []string, run func(...string) (string, error)) (string, error) {
+	const pageSize = 100
+	var rows []json.RawMessage
+	for page := 1; ; page++ {
+		pageArgs := append(append([]string(nil), args...), "--per-page", strconv.Itoa(pageSize), "--page", strconv.Itoa(page))
+		out, err := run(pageArgs...)
+		if err != nil {
+			return "", fmt.Errorf("merge request page %d: %w", page, err)
+		}
+		var batch []json.RawMessage
+		if err := json.Unmarshal([]byte(out), &batch); err != nil {
+			return "", fmt.Errorf("decode merge request page %d: %w", page, err)
+		}
+		rows = append(rows, batch...)
+		if len(batch) < pageSize {
+			raw, err := json.Marshal(rows)
+			return string(raw), err
+		}
+	}
 }
 
 // AdjustmentContract accompanies every native or managed customization.

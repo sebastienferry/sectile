@@ -61,6 +61,9 @@ has its own 25 s limit).
 - **Wording**: GitHub keeps "forge … PR"; GitLab says "GitLab … merge request". The
   agent-route failure says "GitLab merge request lookup failed on the local agent"
   (or "pull request lookup" when the remote does not name GitLab).
+- **Pagination**: `--all` selects MR states only. Read every page with explicit
+  `--per-page 100 --page N` under the shared lookup deadline before selecting
+  evidence. A failed later page invalidates the entire lookup.
 - **Ordering of merged MRs**: by `merged_at` when present, else the listing order
   (glab lists newest first).
 
