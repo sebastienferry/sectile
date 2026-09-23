@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Board cards, Backlog rows, sprint timeline items and Roadmap macros carry the colour of the epic they belong to: a bar on the left edge and a dot next to the epic key. The colour is derived from the epic key, so an epic looks the same in every view; tasks without an epic are unchanged.
+
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed

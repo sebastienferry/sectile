@@ -39,6 +39,7 @@ import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
+import { EpicBar } from './EpicMarker'
 import { sprintLookup, isProjectCompatible } from '../lib/lookups'
 import {
   buildMacroRows,
@@ -525,12 +526,13 @@ export const RoadmapView: React.FC = () => {
       <div
         key={row.key}
         onClick={() => setSelectedKey(row.key)}
-        className="rounded-xl border p-2.5 cursor-pointer transition-colors"
+        className="relative rounded-xl border p-2.5 cursor-pointer transition-colors"
         style={{
           background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
           borderColor: isSel ? 'rgb(var(--accent-rgb) / 0.45)' : 'var(--border-color)',
         }}
       >
+        <EpicBar parentKey={row.key} />
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>{row.key}</span>
           <span className="text-[9.5px] px-1 rounded font-mono truncate max-w-[150px] bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-color)]" title={row.squad}>
@@ -622,12 +624,13 @@ export const RoadmapView: React.FC = () => {
       <div
         key={row.key}
         onClick={() => setSelectedKey(row.key)}
-        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors"
+        className="relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors"
         style={{
           background: isSel ? 'var(--accent-light)' : 'var(--bg-secondary)',
           borderColor: isSel ? 'var(--accent-color)' : 'var(--border-color)',
         }}
       >
+        <EpicBar parentKey={row.key} />
         <span className="shrink-0 text-[10.5px] font-mono font-bold" style={{ color: 'var(--accent-color)' }}>
           {row.key}
         </span>

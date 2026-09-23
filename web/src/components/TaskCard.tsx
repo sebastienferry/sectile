@@ -33,6 +33,7 @@ import type { Task, Priority, SkillMode } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { Avatar } from './Avatar'
+import { EpicBar, EpicDot } from './EpicMarker'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
 import { resolveTaskStage, getNextStepInfo, prRecoverySkill, skillForStage } from '../lib/workflow'
 import { providerModels, resolveConfiguredModel, shortModelLabel, taskProvider } from '../lib/aiModels'
@@ -782,6 +783,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         isDragging ? 'opacity-40 scale-95 ring-2 ring-[var(--accent-color)] ring-dashed' : ''
       }`}
     >
+      <EpicBar parentKey={task.parentKey} />
       {isCondensed ? (
         <div className="flex items-center gap-1 min-w-0">
           {externalUrl ? (
@@ -805,6 +807,7 @@ export const TaskCard: React.FC<TaskCardProps> = ({
         <span className="inline-flex items-baseline text-[11px] font-mono font-bold min-w-0">
           {task.parentKey && (
             <>
+              <EpicDot parentKey={task.parentKey} className="mr-1" />
               <button
                 type="button"
                 onClick={e => {

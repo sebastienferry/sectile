@@ -40,6 +40,7 @@ import {
 import type { Task, TrackerSprint, WorkflowStage } from '../types'
 import { resolveTaskStage } from '../lib/workflow'
 import { Avatar } from './Avatar'
+import { EpicBar, EpicDot } from './EpicMarker'
 
 const DRAG_TASK_ID = 'application/x-sectile-task-id'
 const DRAG_TASK_IDS = 'application/x-sectile-task-ids'
@@ -1163,6 +1164,7 @@ export const SprintTimelineView: React.FC = () => {
                                   }}
                                   className="rounded text-[var(--accent-color)] w-3 h-3 cursor-pointer"
                                 />
+                                <EpicDot parentKey={task.parentKey} />
                                 <span className="font-mono font-bold text-[10px] text-[var(--accent-color)]">
                                   {task.key}
                                 </span>
@@ -1193,12 +1195,13 @@ export const SprintTimelineView: React.FC = () => {
                               <div
                                 key={task.id}
                                 onClick={() => setSelectedTask(task)}
-                                className={`flex items-center justify-between gap-2 py-1 px-1.5 rounded cursor-pointer transition-colors group ${
+                                className={`relative flex items-center justify-between gap-2 py-1 px-1.5 rounded cursor-pointer transition-colors group ${
                                   checkedTaskIds[task.id]
                                     ? 'bg-[var(--accent-light)]/20 font-medium'
                                     : 'hover:bg-[var(--bg-tertiary)]/60'
                                 }`}
                               >
+                                <EpicBar parentKey={task.parentKey} />
                                 <div className="flex items-center gap-2 min-w-0">
                                   <input
                                     type="checkbox"
@@ -1212,6 +1215,7 @@ export const SprintTimelineView: React.FC = () => {
                                   <span className="text-[10px] font-mono font-bold text-[var(--accent-color)] shrink-0">
                                     {task.key}
                                   </span>
+                                  <EpicDot parentKey={task.parentKey} />
                                   {task.parentTitle && (
                                     <span
                                       className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[100px]"
@@ -1283,6 +1287,7 @@ export const SprintTimelineView: React.FC = () => {
                                   }}
                                   className="rounded text-[var(--accent-color)] w-3 h-3 cursor-pointer"
                                 />
+                                <EpicDot parentKey={task.parentKey} />
                                 <span className="font-mono font-bold text-[10px] text-[var(--accent-color)] shrink-0">
                                   {task.key}
                                 </span>
@@ -1316,12 +1321,13 @@ export const SprintTimelineView: React.FC = () => {
                                 draggable
                                 onDragStart={e => handleDragStart(e, task.id)}
                                 onClick={() => setSelectedTask(task)}
-                                className={`p-2.5 rounded-xl border shadow-xs transition-all cursor-grab active:cursor-grabbing group space-y-1.5 ${
+                                className={`relative p-2.5 rounded-xl border shadow-xs transition-all cursor-grab active:cursor-grabbing group space-y-1.5 ${
                                   checkedTaskIds[task.id]
                                     ? 'bg-[var(--accent-light)]/20 border-[var(--accent-color)]'
                                     : 'bg-[var(--bg-primary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/50'
                                 }`}
                               >
+                                <EpicBar parentKey={task.parentKey} />
                                 <div className="flex items-center justify-between gap-2">
                                   <div className="flex items-center gap-1.5 min-w-0">
                                     <input
@@ -1336,6 +1342,7 @@ export const SprintTimelineView: React.FC = () => {
                                     <span className="text-[10px] font-mono font-bold text-[var(--accent-color)] shrink-0">
                                       {task.key}
                                     </span>
+                                    <EpicDot parentKey={task.parentKey} />
                                     {task.parentTitle && (
                                       <span
                                         className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[110px]"
@@ -1548,6 +1555,7 @@ export const SprintTimelineView: React.FC = () => {
                         }}
                         className="rounded text-[var(--accent-color)] w-3 h-3 cursor-pointer"
                       />
+                      <EpicDot parentKey={task.parentKey} />
                       <span className="font-mono font-bold text-[10px] text-[var(--accent-color)] shrink-0">
                         {task.key}
                       </span>
@@ -1582,12 +1590,13 @@ export const SprintTimelineView: React.FC = () => {
                     draggable
                     onDragStart={e => handleDragStart(e, task.id)}
                     onClick={() => setSelectedTask(task)}
-                    className={`p-2.5 rounded-xl border shadow-xs transition-all cursor-grab active:cursor-grabbing space-y-1.5 group ${
+                    className={`relative p-2.5 rounded-xl border shadow-xs transition-all cursor-grab active:cursor-grabbing space-y-1.5 group ${
                       checkedTaskIds[task.id]
                         ? 'bg-[var(--accent-light)]/20 border-[var(--accent-color)]'
                         : 'bg-[var(--bg-primary)] border-[var(--border-color)] hover:border-[var(--accent-color)]/60'
                     }`}
                   >
+                    <EpicBar parentKey={task.parentKey} />
                     <div className="flex items-center justify-between gap-1.5">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <input
@@ -1602,6 +1611,7 @@ export const SprintTimelineView: React.FC = () => {
                         <span className="text-[10px] font-mono font-bold text-[var(--accent-color)] shrink-0">
                           {task.key}
                         </span>
+                        <EpicDot parentKey={task.parentKey} />
                         {task.parentTitle && (
                           <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-[var(--bg-tertiary)] text-[var(--text-muted)] truncate max-w-[120px]">
                             {task.parentTitle}

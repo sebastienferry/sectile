@@ -32,6 +32,7 @@ import { TaskFilters } from "./TaskFilters"
 import { BoardGroupingToggle } from "./BoardGroupingToggle"
 import { issueTypeStyle } from "../lib/issueTypes"
 import { Avatar } from "./Avatar"
+import { EpicBar, EpicDot } from "./EpicMarker"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
 import { resolveTaskStage } from "../lib/workflow"
 import { isSelectableStage } from "../lib/boardSelection"
@@ -426,7 +427,8 @@ export const ListView: React.FC = () => {
         }`}
       >
         {/* Selection Checkbox */}
-        <td className="py-2.5 px-3 w-10 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+        <td className="relative py-2.5 px-3 w-10 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+          <EpicBar parentKey={task.parentKey} />
           <input
             type="checkbox"
             checked={isSelected}
@@ -505,6 +507,7 @@ export const ListView: React.FC = () => {
               title={`${task.parentType || "Parent"} ${task.parentKey}${task.parentTitle ? ` — ${task.parentTitle}` : ""}`}
             >
               <Layers size={9} className="shrink-0 opacity-80" />
+              <EpicDot parentKey={task.parentKey} />
               <span className="font-mono font-bold shrink-0">{task.parentKey}</span>
               {task.parentTitle && <span className="truncate opacity-80">{task.parentTitle}</span>}
             </div>
