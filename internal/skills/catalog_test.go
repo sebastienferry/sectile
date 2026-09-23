@@ -127,6 +127,36 @@ func TestCreatePRSkillIntegratesRemoteDefaultBranchBeforePublishing(t *testing.T
 	}
 }
 
+// A force push is only needed when published history was rewritten: forcing a branch the remote does not have yet
+// fails, so every skill that publishes must pick the push from the state of origin/<branch>.
+func TestPublishingSkillsForceOnlyWhenPublishedHistoryWasRewritten(t *testing.T) {
+	for _, id := range []string{"create_pr", "adjust", "pickup", "pickup_issues"} {
+		t.Run(id, func(t *testing.T) {
+			skill, ok := skills.StageSkillByID(id)
+			if !ok {
+				t.Fatalf("%s skill missing", id)
+			}
+			content := skills.RenderSkillContent(skill, "openspec")
+			for _, required := range []string{
+				"does not exist (first publication): run `git push -u origin <branch>`",
+				"Never force a branch the remote does not have.",
+				"`git merge-base --is-ancestor origin/<branch> HEAD` succeeds (fast-forward): run a plain `git push`",
+				"rewrote published history: run `git push --force-with-lease`",
+				"`git rebase origin/<branch>`",
+				"retry once with the same rule",
+				"Never run an unguarded `git push --force`.",
+			} {
+				if !strings.Contains(content, required) {
+					t.Fatalf("%s skill is missing %q", id, required)
+				}
+			}
+			if strings.Contains(content, "only when an authorized private-branch rebase requires it") {
+				t.Fatalf("%s skill still carries the vague force-with-lease condition", id)
+			}
+		})
+	}
+}
+
 func TestRewriteStorySkillTemplate(t *testing.T) {
 	// 1. Verify StageSkillByID lookup for rewrite_story and its aliases
 	aliases := []string{"rewrite_story", "rewrite-story", "rewrite"}

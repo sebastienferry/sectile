@@ -134,6 +134,15 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Publishing a new branch no longer fails on a force push.** The PR creation
+  and adjustment skills (and the pickup skills built on them) told the agent to
+  use `git push --force-with-lease` after a rebase without saying when, so it
+  forced branches the remote did not have yet and the push failed. They now
+  push a new branch with `git push -u`, a fast-forward with a plain push, and
+  keep `--force-with-lease` for published history a rebase actually rewrote. A
+  push refused because the remote moved is resynced and retried once; an
+  unguarded `--force` is never used. Regenerate or re-install the skills to get
+  the new wording.
 - **Projects hosted on GitLab can reach `implemented` and `reviewed`.** The stage
   evidence check only ever asked GitHub for the branch's pull request, so a
   GitLab project — whatever its issue tracker — was refused with
