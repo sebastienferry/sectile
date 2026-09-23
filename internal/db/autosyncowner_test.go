@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -139,9 +140,12 @@ func TestABackgroundPassThatFoundNothingLeavesNoTrace(t *testing.T) {
 // the owner, whose credential was never touched. The read is refused instead,
 // and the failure still says whose credential it was (ADR 0018).
 func TestABackgroundGithubPassRefusesALockedOwnerToken(t *testing.T) {
+	var mu sync.Mutex
 	var authorizations []string
 	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		authorizations = append(authorizations, r.Header.Get("Authorization"))
+		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, `[]`)
 	}))
@@ -151,8 +155,20 @@ func TestABackgroundGithubPassRefusesALockedOwnerToken(t *testing.T) {
 	database.trackers.HTTP = site.Client()
 	database.trackers.GithubURL = site.URL
 	database.trackers.GithubToken = "server-token"
+	database.auto = &autoSync{lastFullSync: map[string]time.Time{}, lastPassAt: map[string]time.Time{}}
+	enabled := true
 	project, err := database.CreateProjectAs("u-ada", models.CreateProjectRequest{Name: "App", IssueTracker: "github", GithubRepo: "acme/app"})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if project, err = database.UpdateProjectAs("u-ada", project.ID, models.UpdateProjectRequest{AutoSyncEnabled: &enabled}); err != nil {
+		t.Fatal(err)
+	}
+	task, err := database.CreateTask(models.CreateTaskRequest{Title: "#7", Source: "local", ProjectID: project.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.conn.Exec("UPDATE tasks SET source='github', key='#7', tracker_status='open' WHERE id=?", task.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := database.SetUserTrackerCredential("u-ada", "github", "", "", "ada-token", "phrase"); err != nil {
@@ -160,21 +176,33 @@ func TestABackgroundGithubPassRefusesALockedOwnerToken(t *testing.T) {
 	}
 	database.LockUserTrackerCredential("u-ada", "github")
 
-	activity := models.TaskActivity{ID: "sync-locked", ProjectID: project.ID, SkillID: "sync_github", Status: "running", UserID: "u-ada", CreatedAt: time.Now()}
-	if err := database.AddTaskActivity(activity); err != nil {
-		t.Fatal(err)
-	}
 	settings, _ := database.GetSettings()
-	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_github", ActivityID: activity.ID, ProjectID: project.ID, ActingUser: "u-ada", Sync: SyncOptions{Background: true}}, settings)
+	database.runAutoSyncPass(settings)
 
+	var got *models.TaskActivity
+	for i := 0; i < 100 && got == nil; i++ {
+		activities, err := database.GetProjectActivities(project.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, act := range activities {
+			if act.SkillID == "sync_github" && act.Status != string(models.ActivityStatusQueued) && act.Status != string(models.ActivityStatusRunning) {
+				got = &act
+			}
+		}
+		if got == nil {
+			time.Sleep(30 * time.Millisecond)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
 	for _, auth := range authorizations {
 		if strings.Contains(auth, "server-token") {
 			t.Fatalf("a locked owner token must not fall back on the server token, GitHub saw %v", authorizations)
 		}
 	}
-	got, err := database.GetActivityByID(activity.ID)
-	if err != nil {
-		t.Fatal(err)
+	if got == nil {
+		t.Fatal("the pass left no finished GitHub synchronisation behind")
 	}
 	if got.Status != string(models.ActivityStatusFailed) {
 		t.Fatalf("a refused read is a failure, got %q", got.Status)
