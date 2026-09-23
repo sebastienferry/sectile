@@ -161,6 +161,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Projects are listed again on a server upgraded from an earlier version.**
+  The per-project view setting added a column to the schema in a place that only
+  reaches a database created from scratch, so every existing deployment was left
+  without it and answered an error to every project read: the project menu came
+  up empty and the board showed nothing. The column is now added on start,
+  whatever version the database comes from, and no setting is lost.
+
 - **Live updates and cancellations reach every server sharing a database.** A
   board open on one server now shows a change made through another, and
   canceling a job stops it on the server that runs it. A job canceled while it
