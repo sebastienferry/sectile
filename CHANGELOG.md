@@ -118,6 +118,8 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- Running execution icons now spin in the desktop sidebar and discussion header, while respecting reduced-motion preferences.
+
 - Terminal-owned executions now stop their child processes and report their exit when the supervisor receives a hangup or termination signal, preventing stale running entries and stop timeouts. Transient exit-report failures are retried, and Stop automatically recovers a run whose local terminal has already disappeared.
 
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
