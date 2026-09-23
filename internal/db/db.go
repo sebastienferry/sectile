@@ -1222,6 +1222,104 @@ func projectScope(projectID, userID string) (string, []interface{}) {
 	return "", nil
 }
 
+// TaskScope says which part of the board a task list or its facets cover: one
+// project, the user's bookmarked projects ("all"), or one of the user's saved
+// views, which then takes precedence over the project.
+type TaskScope struct {
+	UserID    string
+	ProjectID string
+	ViewID    string
+}
+
+// taskScopeUnsafe returns the scope as two SQL conditions over tasks: the
+// projects, and the labels a saved view asks for. They are kept apart because
+// the macros table shares the project column but carries no labels.
+func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs []interface{}, labelCond string, labelArgs []interface{}, err error) {
+	if strings.TrimSpace(scope.ViewID) == "" {
+		projectCond, projectArgs = projectScope(scope.ProjectID, scope.UserID)
+		return projectCond, projectArgs, "", nil, nil
+	}
+	view, err := d.getBoardViewUnsafe(scope.UserID, scope.ViewID)
+	if err != nil {
+		return "", nil, "", nil, err
+	}
+	projectCond, projectArgs = viewProjectScope(view.ProjectIDs)
+	labelCond, labelArgs = viewLabelScope(view.Labels, d.labelFold())
+	return projectCond, projectArgs, labelCond, labelArgs, nil
+}
+
+// labelFold lowers a view label the way the engine's LOWER lowers the column,
+// so that a label always matches its own spelling. PostgreSQL folds every
+// letter; SQLite folds ASCII only, and lowering `É` on one side alone would
+// make `Équipe` miss `Équipe`.
+func (d *DB) labelFold() func(string) string {
+	if d.EngineName() == string(DriverPostgres) {
+		return strings.ToLower
+	}
+	return asciiLower
+}
+
+func asciiLower(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + ('a' - 'A')
+		}
+		return r
+	}, s)
+}
+
+// viewProjectScope selects the view's projects. tasks.project_id may hold a
+// project's slug rather than its id, as projectScope already allows for.
+func viewProjectScope(projectIDs []string) (string, []interface{}) {
+	if len(projectIDs) == 0 {
+		return "1 = 0", nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(projectIDs)), ", ")
+	args := make([]interface{}, 0, 2*len(projectIDs))
+	for _, id := range projectIDs {
+		args = append(args, id)
+	}
+	for _, id := range projectIDs {
+		args = append(args, id)
+	}
+	return fmt.Sprintf("(project_id IN (%s) OR project_id IN (SELECT slug FROM projects WHERE id IN (%s)))", placeholders, placeholders), args
+}
+
+// viewLabelScope keeps the tickets carrying at least one of the labels, whole
+// and regardless of case. tasks.labels is a JSON array written by
+// json.Marshal, so a whole label is exactly its quoted JSON token: `"backend"`
+// is found in `["Backend","ops"]` and not in `["backend-api"]`. LIKE wildcards
+// in a label are escaped. fold must lower the label as the engine's LOWER
+// lowers the column (see labelFold): under SQLite, case is then ignored for
+// ASCII letters only.
+func viewLabelScope(labels []string, fold func(string) string) (string, []interface{}) {
+	if len(labels) == 0 {
+		return "", nil
+	}
+	clauses := make([]string, 0, len(labels))
+	args := make([]interface{}, 0, len(labels))
+	for _, label := range labels {
+		token, _ := json.Marshal(fold(label))
+		clauses = append(clauses, "LOWER(labels) LIKE ? ESCAPE '!'")
+		args = append(args, "%"+escapeLike(string(token))+"%")
+	}
+	return "(" + strings.Join(clauses, " OR ") + ")", args
+}
+
+func escapeLike(s string) string {
+	return strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(s)
+}
+
+func joinScope(projectCond string, projectArgs []interface{}, labelCond string, labelArgs []interface{}) (string, []interface{}) {
+	if labelCond == "" {
+		return projectCond, projectArgs
+	}
+	if projectCond == "" {
+		return labelCond, labelArgs
+	}
+	return projectCond + " AND " + labelCond, append(append([]interface{}{}, projectArgs...), labelArgs...)
+}
+
 // GetTaskFacets returns the sprints and teams found on the tasks of a project,
 // or of the whole board when projectID is empty. The values must come from a
 // dedicated query rather than from the filtered task list, otherwise selecting
@@ -1231,7 +1329,14 @@ func (d *DB) GetTaskFacets(projectID string) (*TaskFacets, error) {
 }
 
 func (d *DB) GetTaskFacetsForUser(userID, projectID string) (*TaskFacets, error) {
-	if userID != "" && (projectID == "" || projectID == "all") {
+	return d.GetTaskFacetsInScope(TaskScope{UserID: userID, ProjectID: projectID})
+}
+
+// GetTaskFacetsInScope is GetTaskFacetsForUser over any scope, a saved view
+// included. A view that is not the user's returns ErrBoardViewNotFound.
+func (d *DB) GetTaskFacetsInScope(scope TaskScope) (*TaskFacets, error) {
+	userID, projectID := scope.UserID, scope.ProjectID
+	if userID != "" && scope.ViewID == "" && (projectID == "" || projectID == "all") {
 		_ = d.EnsureDefaultBookmark(userID)
 	}
 
@@ -1250,7 +1355,11 @@ func (d *DB) GetTaskFacetsForUser(userID, projectID string) (*TaskFacets, error)
 		Labels:          []TaskFacetValue{},
 	}
 
-	scopeCond, scopeArgs := projectScope(projectID, userID)
+	projectCond, projectArgs, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
+	if err != nil {
+		return nil, err
+	}
+	scopeCond, scopeArgs := joinScope(projectCond, projectArgs, labelCond, labelArgs)
 	scopeSQL := ""
 	if scopeCond != "" {
 		scopeSQL = " AND " + scopeCond
@@ -1337,9 +1446,9 @@ func (d *DB) GetTaskFacetsForUser(userID, projectID string) (*TaskFacets, error)
 	// Scan macros table for existing macros
 	macroTableQuery := "SELECT key, title FROM macros WHERE 1=1"
 	macroArgs := []interface{}{}
-	if scopeCond != "" {
-		macroTableQuery += " AND " + scopeCond
-		macroArgs = append(macroArgs, scopeArgs...)
+	if projectCond != "" {
+		macroTableQuery += " AND " + projectCond
+		macroArgs = append(macroArgs, projectArgs...)
 	}
 	if rows, err := d.conn.Query(macroTableQuery, macroArgs...); err == nil {
 		for rows.Next() {
@@ -1472,7 +1581,16 @@ func (d *DB) GetTasks(query, status, priority, label, projectID, sprint, team, a
 }
 
 func (d *DB) GetTasksForUser(userID, query, status, priority, label, projectID, sprint, team, assignee, macro string, trackerStatuses, issueTypes []string, pinnedOnly bool) ([]models.Task, error) {
-	if userID != "" && (projectID == "" || projectID == "all") {
+	return d.GetTasksInScope(TaskScope{UserID: userID, ProjectID: projectID}, query, status, priority, label, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
+}
+
+// GetTasksInScope is GetTasksForUser over any scope, a saved view included:
+// the view's projects and labels select the tickets, and every other filter
+// narrows them further. A view that is not the user's returns
+// ErrBoardViewNotFound.
+func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sprint, team, assignee, macro string, trackerStatuses, issueTypes []string, pinnedOnly bool) ([]models.Task, error) {
+	userID, projectID := scope.UserID, scope.ProjectID
+	if userID != "" && scope.ViewID == "" && (projectID == "" || projectID == "all") {
 		_ = d.EnsureDefaultBookmark(userID)
 	}
 
@@ -1482,7 +1600,11 @@ func (d *DB) GetTasksForUser(userID, query, status, priority, label, projectID, 
 	var conditions []string
 	var args []interface{}
 
-	if scopeCond, scopeArgs := projectScope(projectID, userID); scopeCond != "" {
+	projectCond, projectArgs, labelCond, labelArgs, err := d.taskScopeUnsafe(scope)
+	if err != nil {
+		return nil, err
+	}
+	if scopeCond, scopeArgs := joinScope(projectCond, projectArgs, labelCond, labelArgs); scopeCond != "" {
 		conditions = append(conditions, scopeCond)
 		args = append(args, scopeArgs...)
 	}
@@ -6307,6 +6429,9 @@ func (d *DB) DeleteProject(id string) error {
 	}
 	_, _ = d.conn.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID)
 	_, _ = d.conn.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID)
+	// A saved view keeps selecting what is left; reading ignores the project
+	// anyway, so a failure here costs a stale id in a row, never a ghost.
+	_ = d.removeProjectFromBoardViewsUnsafe(p.ID, p.Slug)
 	// Explicit, like DeleteTask's: the ON DELETE CASCADE on project_id only
 	// fires under PostgreSQL, because this package never turns SQLite's foreign
 	// keys on.

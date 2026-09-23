@@ -684,6 +684,33 @@ export interface TranslationSchema {
     unavailable: string
     ownership: string
   }
+  boardViews: {
+    newView: string
+    editView: string
+    createTitle: string
+    editTitle: string
+    name: string
+    namePlaceholder: string
+    projects: string
+    labels: string
+    labelsHint: string
+    labelPlaceholder: string
+    create: string
+    save: string
+    cancel: string
+    delete: string
+    deleteConfirm: string
+    errorName: string
+    errorDuplicate: string
+    errorProjects: string
+    unavailable: string
+    unavailableDescription: string
+    deleted: string
+    emptyTitle: string
+    emptyDescription: string
+    projectForNewTicket: string
+    chooseProject: string
+  }
   toasts: {
     taskCreated: string
     taskUpdated: string
@@ -1389,6 +1416,33 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       unavailable: 'Statut MCP indisponible',
       ownership: 'Les exécutions listées se ferment si leur client se déconnecte.',
     },
+    boardViews: {
+      newView: 'Nouvelle vue',
+      editView: 'Modifier la vue',
+      createTitle: 'Nouvelle vue',
+      editTitle: 'Modifier la vue',
+      name: 'Nom',
+      namePlaceholder: 'Ex. Plateforme',
+      projects: 'Projets',
+      labels: 'Labels',
+      labelsHint: 'Un ticket apparaît s\'il porte au moins un de ces labels. Sans label, la vue montre tous les tickets des projets choisis.',
+      labelPlaceholder: 'Ajouter un label puis Entrée',
+      create: 'Créer la vue',
+      save: 'Enregistrer',
+      cancel: 'Annuler',
+      delete: 'Supprimer la vue',
+      deleteConfirm: 'Supprimer la vue « {name} » ? Aucun ticket, label ni projet n\'est modifié.',
+      errorName: 'Donnez un nom à la vue.',
+      errorDuplicate: 'Une autre de vos vues porte déjà ce nom.',
+      errorProjects: 'Choisissez au moins un projet.',
+      unavailable: 'Vue indisponible',
+      unavailableDescription: 'Cette vue n\'existe pas ou ne vous appartient pas.',
+      deleted: 'Vue supprimée',
+      emptyTitle: 'Cette vue ne sélectionne plus aucun projet',
+      emptyDescription: 'Ses projets ont été supprimés. Modifiez la vue pour en choisir d\'autres, ou supprimez-la.',
+      projectForNewTicket: 'Projet du ticket',
+      chooseProject: 'Choisir un projet…',
+    },
     toasts: {
       taskCreated: 'Tâche créée avec succès !',
       taskUpdated: 'Tâche mise à jour !',
@@ -2091,6 +2145,33 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       connected: 'connected for',
       unavailable: 'MCP status unavailable',
       ownership: 'The runs listed here close if their client disconnects.',
+    },
+    boardViews: {
+      newView: 'New view',
+      editView: 'Edit view',
+      createTitle: 'New view',
+      editTitle: 'Edit view',
+      name: 'Name',
+      namePlaceholder: 'e.g. Platform',
+      projects: 'Projects',
+      labels: 'Labels',
+      labelsHint: 'A ticket appears when it carries at least one of these labels. With no label, the view shows every ticket of the chosen projects.',
+      labelPlaceholder: 'Add a label, then Enter',
+      create: 'Create view',
+      save: 'Save',
+      cancel: 'Cancel',
+      delete: 'Delete view',
+      deleteConfirm: 'Delete the view “{name}”? No ticket, label or project is changed.',
+      errorName: 'Give the view a name.',
+      errorDuplicate: 'Another of your views already has this name.',
+      errorProjects: 'Choose at least one project.',
+      unavailable: 'View unavailable',
+      unavailableDescription: 'This view does not exist or is not yours.',
+      deleted: 'View deleted',
+      emptyTitle: 'This view no longer selects any project',
+      emptyDescription: 'Its projects were deleted. Edit the view to choose others, or delete it.',
+      projectForNewTicket: 'Ticket project',
+      chooseProject: 'Choose a project…',
     },
     toasts: {
       taskCreated: 'Task created successfully!',

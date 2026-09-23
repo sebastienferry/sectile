@@ -8,6 +8,8 @@ import {
   toggleBoardCardDisplayMode as toggleDisplayModeValue,
 } from '../lib/boardDisplayMode'
 import type {
+  BoardView,
+  BoardViewPayload,
   MacroRequiredField,
   SkillEditorEntry,
   SkillMode,
@@ -49,6 +51,7 @@ import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trac
 import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
+import { filterScopeKey, readViewParam, withViewParam } from '../lib/boardViews'
 import {
   INTERNAL_STATUS_BY_STAGE,
   resolveTaskStage, skillForStage,
@@ -67,6 +70,18 @@ interface AppContextType {
   deleteProject: (id: string) => Promise<boolean>
   toggleProjectBookmark: (projectId: string) => Promise<boolean>
   fetchProjects: () => Promise<void>
+  // Saved board views (#387): personal selections of projects and labels.
+  boardViews: BoardView[]
+  selectedViewId: string | null
+  currentBoardView: BoardView | null
+  openBoardView: (id: string) => void
+  createBoardView: (payload: BoardViewPayload) => Promise<BoardView | null>
+  updateBoardView: (id: string, payload: BoardViewPayload) => Promise<BoardView | null>
+  deleteBoardView: (id: string) => Promise<boolean>
+  isBoardViewModalOpen: boolean
+  editingBoardView: BoardView | null
+  openBoardViewModal: (view: BoardView | null) => void
+  closeBoardViewModal: () => void
   isProjectModalOpen: boolean
   setIsProjectModalOpen: (open: boolean) => void
   editingProject: Project | null
@@ -610,19 +625,77 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   // Projects State
   const [projects, setProjects] = useState<Project[]>([])
+
+  // The open saved view, if any. The address names it first, so a bookmarked
+  // link opens the view; the last one opened comes back on a plain reload. An
+  // open view reads the board as "all projects", which is why the project
+  // selection starts from 'all' whenever a view is open.
+  const [boardViews, setBoardViews] = useState<BoardView[]>([])
+  const [selectedViewId, setSelectedViewIdState] = useState<string | null>(() => {
+    try {
+      return readViewParam(window.location.search) || localStorage.getItem('sectile_selected_view_id') || null
+    } catch {
+      return null
+    }
+  })
+  const setSelectedViewId = useCallback((id: string | null) => {
+    setSelectedViewIdState(id)
+    try {
+      if (id) localStorage.setItem('sectile_selected_view_id', id)
+      else localStorage.removeItem('sectile_selected_view_id')
+    } catch {}
+  }, [])
+
   const [selectedProjectId, setSelectedProjectIdState] = useState<string | 'all'>(() => {
+    if (selectedViewId) return 'all'
     try {
       return localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id') || 'all'
     } catch {
       return 'all'
     }
   })
+  // Choosing a project, or "all projects", leaves the open view.
   const setSelectedProjectId = useCallback((id: string | 'all') => {
+    setSelectedViewId(null)
     setSelectedProjectIdState(id)
     try {
       localStorage.setItem('sectile_selected_project_id', id)
     } catch {}
-  }, [])
+  }, [setSelectedViewId])
+
+  // Opening a view keeps the stored project selection untouched, so leaving an
+  // unavailable view can fall back to it.
+  const openBoardView = useCallback((id: string) => {
+    setSelectedViewId(id)
+    setSelectedProjectIdState('all')
+  }, [setSelectedViewId])
+
+  const leaveUnavailableView = useCallback(() => {
+    setSelectedViewId(null)
+    try {
+      setSelectedProjectIdState(localStorage.getItem('sectile_selected_project_id') || 'all')
+    } catch {
+      setSelectedProjectIdState('all')
+    }
+  }, [setSelectedViewId])
+
+  const currentBoardView = useMemo(
+    () => (selectedViewId ? boardViews.find(v => v.id === selectedViewId) || null : null),
+    [boardViews, selectedViewId]
+  )
+
+  // The address follows the open view, other parameters left as they are.
+  useEffect(() => {
+    try {
+      const next = withViewParam(window.location.href, selectedViewId)
+      if (next !== window.location.pathname + window.location.search + window.location.hash) {
+        window.history.replaceState(window.history.state, '', next)
+      }
+    } catch {}
+  }, [selectedViewId])
+
+  // Filters are remembered per project and per view alike: see filterScopeKey.
+  const filterScope = filterScopeKey(selectedProjectId, selectedViewId)
 
   // Les filtres sont mémorisés par projet : sprint et équipe n'ont de sens que
   // dans le projet où ils ont été choisis, et on retrouve son contexte de
@@ -643,13 +716,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // écrirait sous la clé du nouveau.
   const persistFilter = useCallback((patch: Record<string, string | null>) => {
     try {
-      const current = readStoredFilters(selectedProjectId)
+      const current = readStoredFilters(filterScope)
       const merged = { ...current, ...patch }
-      localStorage.setItem(filterStorageKey(selectedProjectId), JSON.stringify(merged))
+      localStorage.setItem(filterStorageKey(filterScope), JSON.stringify(merged))
     } catch {
       // stockage indisponible : les filtres restent simplement non mémorisés
     }
-  }, [selectedProjectId])
+  }, [filterScope])
 
   const setStatusFilter = useCallback((value: Status | null) => {
     setStatusFilterState(value)
@@ -708,6 +781,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [persistFilter])
 
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
+  const [isBoardViewModalOpen, setIsBoardViewModalOpen] = useState(false)
+  const [editingBoardView, setEditingBoardView] = useState<BoardView | null>(null)
+  const openBoardViewModal = useCallback((view: BoardView | null) => {
+    setEditingBoardView(view)
+    setIsBoardViewModalOpen(true)
+  }, [])
+  const closeBoardViewModal = useCallback(() => {
+    setIsBoardViewModalOpen(false)
+    setEditingBoardView(null)
+  }, [])
   const [editingProject, setEditingProject] = useState<Project | null>(null)
 
   const currentProject = useMemo(() => {
@@ -1003,7 +1086,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // sinon il ramène tout le board et perd le contexte de travail.
   const buildTaskQuery = useCallback(() => {
     const params = new URLSearchParams()
-    if (selectedProjectId && selectedProjectId !== 'all') {
+    if (selectedViewId) {
+      params.append('viewId', selectedViewId)
+    } else if (selectedProjectId && selectedProjectId !== 'all') {
       params.append('projectId', selectedProjectId)
     }
     // La roadmap se cherche par épic, pas par ticket. Envoyer la recherche au
@@ -1025,7 +1110,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     issueTypeFilters.forEach(type => params.append('issueType', type))
     if (pinnedOnly) params.append('pinned', '1')
     return params.toString()
-  }, [selectedProjectId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, trackerStatusFilters, issueTypeFilters, pinnedOnly])
+  }, [selectedProjectId, selectedViewId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, trackerStatusFilters, issueTypeFilters, pinnedOnly])
 
   // Resolve desktop deep links independently of board filters and pagination.
   useEffect(() => {
@@ -1037,7 +1122,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (!response.ok) throw new Error(`Unable to open task (HTTP ${response.status})`)
         const task: Task = await response.json()
         if (controller.signal.aborted) return
-        if (task.projectId) setSelectedProjectId(task.projectId)
+        // A link naming a view as well keeps that view open around the task;
+        // only a bare task link switches to the task's project.
+        if (task.projectId && !readViewParam(window.location.search)) setSelectedProjectId(task.projectId)
         setSelectedTask(task)
       })
       .catch(error => {
@@ -1050,6 +1137,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     try {
       setIsLoading(true)
       const res = await fetch(`${API_BASE}/tasks?${buildTaskQuery()}`)
+      // A view that is gone, or someone else's, answers 404: the board falls
+      // back to what it would show without it, and says why.
+      if (res.status === 404 && selectedViewId) {
+        leaveUnavailableView()
+        addToast({ type: 'error', title: t.boardViews.unavailable, description: t.boardViews.unavailableDescription })
+        return
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: Task[] = await res.json()
       setTasks(data)
@@ -1059,12 +1153,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } finally {
       setIsLoading(false)
     }
-  }, [buildTaskQuery])
+  }, [buildTaskQuery, selectedViewId, leaveUnavailableView, addToast, t])
 
   // Restauration à l'ouverture et à chaque changement de projet. Les setters
   // bruts sont utilisés ici : réécrire ce qu'on vient de lire serait inutile.
   useEffect(() => {
-    const stored = readStoredFilters(selectedProjectId)
+    const stored = readStoredFilters(filterScope)
     setStatusFilterState((stored.status as Status | null) ?? null)
     setPriorityFilterState((stored.priority as Priority | null) ?? null)
     setLabelFilterState(stored.label ?? null)
@@ -1086,12 +1180,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
     setPinnedOnlyState(stored.pinnedOnly === '1')
     setActiveOnlyState(stored.activeOnly === '1')
-  }, [selectedProjectId])
+  }, [filterScope])
 
   const fetchTaskFacets = useCallback(async () => {
     try {
       const params = new URLSearchParams()
-      if (selectedProjectId && selectedProjectId !== 'all') {
+      if (selectedViewId) {
+        params.append('viewId', selectedViewId)
+      } else if (selectedProjectId && selectedProjectId !== 'all') {
         params.append('projectId', selectedProjectId)
       }
       const res = await fetch(`${API_BASE}/tasks/facets?${params.toString()}`)
@@ -1114,7 +1210,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     } catch {
       // A tracker that feeds neither field simply leaves the filters hidden.
     }
-  }, [selectedProjectId])
+  }, [selectedProjectId, selectedViewId])
 
   useEffect(() => {
     fetchTaskFacets()
@@ -1438,13 +1534,83 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }, [taskFacets, sprintFilter, teamFilter, assigneeFilter, setSprintFilter, setTeamFilter, setAssigneeFilter])
 
+  const fetchBoardViews = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/me/board-views`)
+      if (res.ok) {
+        const data: BoardView[] = await res.json()
+        setBoardViews(data || [])
+      }
+    } catch (err) {
+      console.warn('Failed to load board views', err)
+    }
+  }, [])
+
+  // The server answers with the message the interface shows as it is.
+  const boardViewRequest = useCallback(async (path: string, method: string, payload?: BoardViewPayload): Promise<Response> => {
+    const res = await fetch(`${API_BASE}/me/board-views${path}`, {
+      method,
+      headers: payload ? { 'Content-Type': 'application/json' } : undefined,
+      body: payload ? JSON.stringify(payload) : undefined,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      throw new Error(data.error || `HTTP ${res.status}`)
+    }
+    return res
+  }, [])
+
+  const createBoardView = useCallback(async (payload: BoardViewPayload): Promise<BoardView | null> => {
+    try {
+      const res = await boardViewRequest('', 'POST', payload)
+      const created: BoardView = await res.json()
+      setBoardViews(prev => [...prev, created])
+      openBoardView(created.id)
+      return created
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.toasts.error, description: err.message })
+      return null
+    }
+  }, [boardViewRequest, openBoardView, addToast, t])
+
+  const updateBoardView = useCallback(async (id: string, payload: BoardViewPayload): Promise<BoardView | null> => {
+    try {
+      const res = await boardViewRequest(`/${encodeURIComponent(id)}`, 'PATCH', payload)
+      const updated: BoardView = await res.json()
+      setBoardViews(prev => prev.map(v => (v.id === updated.id ? updated : v)))
+      // The open view keeps its id, so nothing else would reload its board.
+      if (updated.id === selectedViewId) {
+        fetchTasks()
+        fetchTaskFacets()
+      }
+      return updated
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.toasts.error, description: err.message })
+      return null
+    }
+  }, [boardViewRequest, selectedViewId, fetchTasks, fetchTaskFacets, addToast, t])
+
+  const deleteBoardView = useCallback(async (id: string): Promise<boolean> => {
+    try {
+      await boardViewRequest(`/${encodeURIComponent(id)}`, 'DELETE')
+      setBoardViews(prev => prev.filter(v => v.id !== id))
+      if (selectedViewId === id) setSelectedProjectId('all')
+      addToast({ type: 'success', title: t.boardViews.deleted })
+      return true
+    } catch (err: any) {
+      addToast({ type: 'error', title: t.toasts.error, description: err.message })
+      return false
+    }
+  }, [boardViewRequest, selectedViewId, setSelectedProjectId, addToast, t])
+
   // Initial load on mount
   useEffect(() => {
     fetchSettings()
     fetchSkills()
     fetchCliStatus()
     fetchProjects()
-  }, [fetchSettings, fetchSkills, fetchCliStatus, fetchProjects])
+    fetchBoardViews()
+  }, [fetchSettings, fetchSkills, fetchCliStatus, fetchProjects, fetchBoardViews])
 
   // Data reload on filter / project change
   useEffect(() => {
@@ -1816,6 +1982,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setSelectedProjectId('all')
       }
       await fetchProjects()
+      await fetchBoardViews()
       await fetchTasks()
       addToast({
         type: 'warning',
@@ -1859,7 +2026,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       })
       if (!res.ok) throw new Error('Creation failed')
       const created: Task = await res.json()
-      setTasks(prev => [created, ...prev])
+      // Inside a saved view the new ticket belongs on the board only if it
+      // matches the view, which the server decides: reload rather than guess.
+      if (selectedViewId) fetchTasks()
+      else setTasks(prev => [created, ...prev])
       fetchProjects()
       addToast({
         type: 'success',
@@ -3162,9 +3332,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   // Filter tasks by active source filter (all / github / jira / local)
   // then by the active parent (epic or parent story), when one is selected.
   const filteredTasks = React.useMemo(() => {
+    // A saved view picks its own projects, bookmarked or not: the server has
+    // already scoped the list, and the bookmark filter of "all projects" would
+    // drop every ticket of a view project the user never bookmarked (#387).
+    const scoped = selectedViewId ? tasks : tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds)
     let out = sourceFilter === 'all'
-      ? tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds)
-      : tasksInProject(tasks, selectedProjectId, bookmarkedProjectIds).filter(t => (t.source || 'local') === sourceFilter)
+      ? scoped
+      : scoped.filter(t => (t.source || 'local') === sourceFilter)
     if (parentFilter) {
       if (parentFilter === '__no_macro__' || parentFilter === 'none') {
         out = out.filter(t => !t.parentKey && !t.parentTitle)
@@ -3173,7 +3347,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
     return out
-  }, [tasks, sourceFilter, parentFilter, selectedProjectId, bookmarkedProjectIds])
+  }, [tasks, sourceFilter, parentFilter, selectedProjectId, selectedViewId, bookmarkedProjectIds])
 
   // A project can rename any workflow skill through `skillOverrides`
   // (skillId -> custom label). Every place that shows a skill name goes through
@@ -3392,6 +3566,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         deleteProject,
         toggleProjectBookmark,
         fetchProjects,
+        boardViews,
+        selectedViewId,
+        currentBoardView,
+        openBoardView,
+        createBoardView,
+        updateBoardView,
+        deleteBoardView,
+        isBoardViewModalOpen,
+        editingBoardView,
+        openBoardViewModal,
+        closeBoardViewModal,
         isProjectModalOpen,
         setIsProjectModalOpen,
         editingProject,

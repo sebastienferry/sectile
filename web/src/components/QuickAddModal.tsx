@@ -10,6 +10,7 @@ import type { Status, Priority, TaskSource, TrackerSprint } from '../types'
 import { LookupField } from './LookupField'
 import { sprintLookup } from '../lib/lookups'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { initialLabelsForView } from '../lib/boardViews'
 
 export const QuickAddModal: React.FC = () => {
   const {
@@ -20,6 +21,7 @@ export const QuickAddModal: React.FC = () => {
     projects,
     tasks,
     selectedProjectId,
+    currentBoardView,
     t,
   } = useApp()
 
@@ -70,18 +72,22 @@ export const QuickAddModal: React.FC = () => {
       setStatus(quickAddInitialStatus || 'to_clarify')
       setPriority('medium')
       setIssueType('')
-      const initialProjId = selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || 'default')
+      // From a saved view, the source project is the user's choice among the
+      // view's projects, never a silent default (#387).
+      const initialProjId = currentBoardView
+        ? ''
+        : selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || 'default')
       setTaskProjectId(initialProjId)
-      const proj = projects.find(p => p.id === initialProjId) || projects[0]
+      const proj = projects.find(p => p.id === initialProjId) || (currentBoardView ? undefined : projects[0])
       setSource((proj?.issueTracker as TaskSource) || 'local')
       setSprint('')
-      setLabels(['#new'])
+      setLabels(['#new', ...initialLabelsForView(currentBoardView)])
       setLabelInput('')
       setTimeout(() => {
         inputRef.current?.focus()
       }, 50)
     }
-  }, [isQuickAddOpen, quickAddInitialStatus, selectedProjectId, projects])
+  }, [isQuickAddOpen, quickAddInitialStatus, selectedProjectId, projects, currentBoardView])
 
   const handleClose = useCallback(() => setIsQuickAddOpen(false), [setIsQuickAddOpen])
   const backdrop = useBackdropDismiss(handleClose)
@@ -97,7 +103,10 @@ export const QuickAddModal: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isQuickAddOpen, handleClose])
 
-  const activeProject = projects.find(p => p.id === taskProjectId) || projects[0]
+  const activeProject = projects.find(p => p.id === taskProjectId) || (currentBoardView ? undefined : projects[0])
+  const viewProjects = currentBoardView
+    ? projects.filter(p => currentBoardView.projectIds.includes(p.id))
+    : null
 
   if (!isQuickAddOpen) return null
 
@@ -112,6 +121,7 @@ export const QuickAddModal: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim() || isSubmitting) return
+    if (!taskProjectId) return
 
     setIsSubmitting(true)
     const created = await createTask({
@@ -212,9 +222,20 @@ export const QuickAddModal: React.FC = () => {
               <select
                 value={taskProjectId}
                 onChange={e => handleProjectChange(e.target.value)}
+                required
+                aria-label={t.boardViews.projectForNewTicket}
                 className="w-full px-3 py-2 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
               >
-                {(() => {
+                {viewProjects ? (
+                  <>
+                    <option value="" disabled>{t.boardViews.chooseProject}</option>
+                    {viewProjects.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </>
+                ) : (() => {
                   const bookmarked = projects.filter(p => p.bookmarked)
                   const others = projects.filter(p => !p.bookmarked)
                   if (bookmarked.length > 0 && others.length > 0) {
@@ -427,7 +448,7 @@ export const QuickAddModal: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={!title.trim() || isSubmitting}
+                disabled={!title.trim() || !taskProjectId || isSubmitting}
                 className="px-4 py-1.5 rounded-xl text-xs font-bold text-white accent-bg shadow hover:opacity-90 active:scale-95 disabled:opacity-50 flex items-center gap-1.5 transition-all"
               >
                 {isSubmitting ? (

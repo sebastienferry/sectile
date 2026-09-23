@@ -277,6 +277,8 @@ func main() {
 	mux.HandleFunc("/api/me/tracker-credentials/", h.HandleUserTrackerCredentials)
 	mux.HandleFunc("/api/me/project-bookmarks", h.HandleUserProjectBookmarks)
 	mux.HandleFunc("/api/me/project-bookmarks/", h.HandleUserProjectBookmarks)
+	mux.HandleFunc("/api/me/board-views", h.HandleBoardViews)
+	mux.HandleFunc("/api/me/board-views/", h.HandleBoardViews)
 	// The admin's users view: list accounts and change roles.
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)
