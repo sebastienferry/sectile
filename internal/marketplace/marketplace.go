@@ -265,8 +265,25 @@ func ResolvePlugin(root string, plugin PluginRef) (Pack, error) {
 	if !within(dir, skillsRoot) {
 		return pack, fmt.Errorf("plugin %q points its skills outside itself (%s)", plugin.Name, skillsKey)
 	}
+	// The lexical check above is not enough in a repository that may commit
+	// symlinks: the skills directory, and every SKILL.md below it, must still
+	// be inside the plugin once the links are followed.
+	resolvedDir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return pack, err
+	}
+	resolvedSkills, err := filepath.EvalSymlinks(skillsRoot)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return pack, fmt.Errorf("plugin %q has no skills directory at %s", plugin.Name, skillsKey)
+		}
+		return pack, err
+	}
+	if !within(resolvedDir, resolvedSkills) {
+		return pack, fmt.Errorf("plugin %q resolves its skills outside itself (%s)", plugin.Name, skillsKey)
+	}
 
-	items, err := os.ReadDir(skillsRoot)
+	items, err := os.ReadDir(resolvedSkills)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return pack, fmt.Errorf("plugin %q has no skills directory at %s", plugin.Name, skillsKey)
@@ -285,7 +302,7 @@ func ResolvePlugin(root string, plugin PluginRef) (Pack, error) {
 			pack.Ignored = append(pack.Ignored, Ignored{Dir: name, Reason: "not a Sectile workflow skill"})
 			continue
 		}
-		body, err := readSkill(filepath.Join(skillsRoot, name, "SKILL.md"))
+		body, err := readSkill(filepath.Join(resolvedSkills, name, "SKILL.md"), resolvedDir)
 		if err != nil {
 			pack.Rejected[name] = err.Error()
 			continue
@@ -302,14 +319,23 @@ func ResolvePlugin(root string, plugin PluginRef) (Pack, error) {
 	return pack, nil
 }
 
-// readSkill validates one SKILL.md: a frontmatter block, a non-empty body
-// after it, and a size that stays a prompt.
-func readSkill(path string) (string, error) {
-	info, err := os.Stat(path)
+// readSkill validates one SKILL.md: a file that stays inside the plugin once
+// symlinks are followed, a frontmatter block, a non-empty body after it, and a
+// size that stays a prompt.
+func readSkill(path, pluginRoot string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return "", errors.New("no SKILL.md in the skill directory")
 		}
+		return "", err
+	}
+	if !within(pluginRoot, resolved) {
+		return "", errors.New("SKILL.md resolves outside the plugin")
+	}
+	path = resolved
+	info, err := os.Stat(path)
+	if err != nil {
 		return "", err
 	}
 	if !info.Mode().IsRegular() {

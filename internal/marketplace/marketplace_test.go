@@ -159,6 +159,60 @@ func TestResolvePluginRefusesASourceLeavingTheMarketplace(t *testing.T) {
 	}
 }
 
+// A repository may commit symlinks: neither a SKILL.md nor the skills directory
+// may lead the parser to a file outside the plugin.
+func TestResolvePluginRefusesSymlinksLeavingThePlugin(t *testing.T) {
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.md")
+	if err := os.WriteFile(secret, []byte("---\nname: secret\n---\n\nprivate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outsideSkills := filepath.Join(outside, "skills")
+	if err := os.MkdirAll(filepath.Join(outsideSkills, "clarify-issue"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outsideSkills, "clarify-issue", "SKILL.md"), []byte("---\nname: clarify-issue\n---\n\nprivate\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("SKILL.md", func(t *testing.T) {
+		root := t.TempDir()
+		writeManifest(t, root, `{"name":"links","plugins":[{"name":"p","source":"./p"}]}`)
+		dir := filepath.Join(root, "p", "skills", "clarify-issue")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(secret, filepath.Join(dir, "SKILL.md")); err != nil {
+			t.Skipf("cannot create a symlink here: %v", err)
+		}
+		pack, err := ResolvePlugin(root, PluginRef{Name: "p", Source: "./p"})
+		if err == nil || len(pack.Entries) != 0 {
+			t.Fatalf("a symlinked SKILL.md outside the plugin was read: %+v", pack.Entries)
+		}
+		if reason := pack.Rejected["clarify-issue"]; !strings.Contains(reason, "outside") {
+			t.Fatalf("rejection reason: %q", reason)
+		}
+	})
+
+	t.Run("skills directory", func(t *testing.T) {
+		root := t.TempDir()
+		writeManifest(t, root, `{"name":"links","plugins":[{"name":"p","source":"./p"}]}`)
+		if err := os.MkdirAll(filepath.Join(root, "p"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outsideSkills, filepath.Join(root, "p", "skills")); err != nil {
+			t.Skipf("cannot create a symlink here: %v", err)
+		}
+		pack, err := ResolvePlugin(root, PluginRef{Name: "p", Source: "./p"})
+		if err == nil || len(pack.Entries) != 0 {
+			t.Fatalf("a symlinked skills directory outside the plugin was read: %+v", pack.Entries)
+		}
+		if !strings.Contains(err.Error(), "outside") {
+			t.Fatalf("error: %v", err)
+		}
+	})
+}
+
 func TestResolvePluginRefusesAnOversizedBody(t *testing.T) {
 	root := t.TempDir()
 	writeManifest(t, root, `{"name":"big","plugins":[{"name":"p","source":"./p"}]}`)
