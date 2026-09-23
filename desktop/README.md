@@ -149,6 +149,20 @@ helpers. There is no automatic refresh or persistent source snapshot. Upgrade an
 restart older agents to enable inspection; runs without recorded branch metadata
 need a new execution. A failed refresh clears the previous result.
 
+### The board window
+
+**Connected**, **Open the web interface** in the user profile settings, and a task
+key (in the task list or an execution's header) show the server's board in a window
+of the desktop, signed in as the user this workstation is
+paired to: the desktop adds its key to the board's requests to that server, and to no
+other. The board is the web interface itself, so moving cards, opening a task and
+launching a skill work as in the browser. A second click brings the same window
+forward; opening a task loads it there. Links that leave the server open in the
+default browser. The window cannot sign in or out on its own: a key that expires or is
+revoked leaves it signed out. It keeps nothing once closed, and pairing again or
+switching servers replaces it. A desktop that holds no key for the connected server
+opens the board in the default browser, as before.
+
 ### Skill result indicator
 
 The terminal header and each visible task row show the skill's result independently of its console

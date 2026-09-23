@@ -15,6 +15,7 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- Sectile Desktop shows the board in a window of its own, already signed in as the paired user, instead of sending you to the browser. Links that leave the server still open in the browser, and a desktop without a key for that server keeps opening the browser.
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed

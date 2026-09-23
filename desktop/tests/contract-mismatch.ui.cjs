@@ -36,7 +36,7 @@ test('an incompatible server is named, not reported as a disconnection',async()=
   // Updating the server clears it, and the board link comes back.
   status={connected:true,server:'http://example.test',contractError:''}
   await expect(page.locator('#connection a')).toHaveText('Connected')
-  assert.equal(await connection.getAttribute('title'),'Open '+status.server+' in the default browser')
+  assert.equal(await connection.getAttribute('title'),'Open the board of '+status.server)
  }finally{
   if(app)await app.close()
   await new Promise(resolve=>server.close(resolve))

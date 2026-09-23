@@ -171,7 +171,7 @@ function connectionStatus(status){
   board=url.href
  }catch{board=''}
  container.dataset.state='on'
- container.title=board?'Open '+status.server+' in the default browser':status.server
+ container.title=board?'Open the board of '+status.server:status.server
  connectionLabelled(container,'Connected',board)
 }
 function agentUnavailable(){
