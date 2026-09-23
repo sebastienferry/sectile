@@ -10,10 +10,11 @@ import (
 // Atlassian Document Format is what Jira Cloud wants for a description or a
 // comment, and what it answers with. Sectile writes Markdown: reports, comments,
 // rewritten stories. The two functions below convert a bounded subset both ways:
-// paragraphs, headings, bullet and ordered lists with one level of nesting,
-// fenced code blocks, quotes, rules, inline code, bold, italics, strike and
-// links. Anything else is flattened to its text rather than dropped, so a
-// report never loses a sentence, only a decoration.
+// paragraphs, headings, bullet and ordered lists with one level of nesting and
+// items of several paragraphs or code blocks, fenced code blocks, quotes,
+// rules, inline code, bold, italics, strike and links. Anything else is
+// flattened to its text rather than dropped, so a report never loses a
+// sentence, only a decoration.
 
 // adfNode is the generic tree node. Attrs and Marks stay loose: the format has
 // many node kinds and only a few of them matter here.
@@ -104,23 +105,9 @@ func parseMarkdownBlocks(markdown string) []adfNode {
 		}
 		if m := mdFence.FindStringSubmatch(trimmed); m != nil {
 			flushParagraph()
-			var code []string
-			j := i + 1
-			for ; j < len(lines); j++ {
-				if mdFence.MatchString(strings.TrimSpace(lines[j])) {
-					break
-				}
-				code = append(code, lines[j])
-			}
-			node := adfNode{Type: "codeBlock"}
-			if m[1] != "" {
-				node.Attrs = map[string]any{"language": m[1]}
-			}
-			if text := strings.Join(code, "\n"); text != "" {
-				node.Content = []adfNode{{Type: "text", Text: text}}
-			}
+			node, next := fencedCodeBlock(lines, i, m[1], 0)
 			blocks = append(blocks, node)
-			i = j
+			i = next - 1
 			continue
 		}
 		if m := mdHeading.FindStringSubmatch(trimmed); m != nil {
@@ -189,37 +176,135 @@ func listIndent(line string) int {
 	return len(line) - len(strings.TrimLeft(line, " \t"))
 }
 
+// dedent removes up to n columns of leading indent, and nothing else.
+func dedent(line string, n int) string {
+	i := 0
+	for i < n && i < len(line) && (line[i] == ' ' || line[i] == '\t') {
+		i++
+	}
+	return line[i:]
+}
+
+// fencedCodeBlock reads the fenced block opening at start, each code line
+// losing up to strip columns of indent: the block may sit under a list item.
+// It returns the block and the index of the line after the closing fence; an
+// unclosed fence runs to the end of the input.
+func fencedCodeBlock(lines []string, start int, lang string, strip int) (adfNode, int) {
+	var code []string
+	j := start + 1
+	for ; j < len(lines); j++ {
+		if mdFence.MatchString(strings.TrimSpace(lines[j])) {
+			break
+		}
+		code = append(code, dedent(lines[j], strip))
+	}
+	node := adfNode{Type: "codeBlock"}
+	if lang != "" {
+		node.Attrs = map[string]any{"language": lang}
+	}
+	if text := strings.Join(code, "\n"); text != "" {
+		node.Content = []adfNode{{Type: "text", Text: text}}
+	}
+	return node, j + 1
+}
+
+// endsListItem tells whether line i opens a block ADF refuses inside a
+// listItem — a heading, a quote, a rule or a table — so the list ends there
+// rather than the line joining the item's text.
+func endsListItem(lines []string, i int) bool {
+	trimmed := strings.TrimSpace(lines[i])
+	return mdHeading.MatchString(trimmed) ||
+		mdQuote.MatchString(trimmed) ||
+		mdRule.MatchString(trimmed) ||
+		(strings.HasPrefix(trimmed, "|") && i+1 < len(lines) && mdTableSep.MatchString(lines[i+1]))
+}
+
 // parseMarkdownList reads consecutive list lines at the given indentation and
-// nests the deeper ones under the item above. It returns the list and the
-// index of the first line that is not part of it.
+// nests the deeper ones under the item above. An item also keeps what
+// continues it: text indented to its content column after a blank line, text
+// right under its own whatever the indent, and a fenced code block indented to
+// that column. It returns the list and the index of the first line that is not
+// part of it.
 func parseMarkdownList(lines []string, start, indent int) (adfNode, int) {
 	ordered := mdOrdered.MatchString(lines[start]) && !mdBullet.MatchString(lines[start])
 	list := adfNode{Type: "bulletList"}
 	if ordered {
 		list.Type = "orderedList"
 	}
+	// content is the column the last item's text starts at, CommonMark's rule
+	// for what belongs to it. paragraph holds the lines of the item's open
+	// paragraph, the one a line with no blank line above it joins.
+	content := indent
+	var paragraph []string
+	open := false
+	blank := false
+	// flush closes the open paragraph into the last item. It runs before
+	// anything else is added, so an item always opens on its marker line's
+	// paragraph: a listItem whose content does not begin with one is invalid ADF.
+	flush := func() {
+		if !open {
+			return
+		}
+		last := &list.Content[len(list.Content)-1]
+		last.Content = append(last.Content, adfNode{Type: "paragraph", Content: inlineLines(paragraph)})
+		paragraph, open = nil, false
+	}
 	i := start
 	for i < len(lines) {
 		line := lines[i]
 		if strings.TrimSpace(line) == "" {
-			// A blank line ends the list unless another item of the same list follows.
-			if i+1 < len(lines) && (mdBullet.MatchString(lines[i+1]) || mdOrdered.MatchString(lines[i+1])) && listIndent(lines[i+1]) >= indent {
-				i++
-				continue
+			// A blank line ends the list unless an item of the list or a
+			// continuation of the current item follows.
+			j := i + 1
+			for j < len(lines) && strings.TrimSpace(lines[j]) == "" {
+				j++
 			}
-			break
+			if j == len(lines) {
+				break
+			}
+			isMarker := mdBullet.MatchString(lines[j]) || mdOrdered.MatchString(lines[j])
+			if (isMarker && listIndent(lines[j]) < indent) || (!isMarker && listIndent(lines[j]) < content) {
+				break
+			}
+			flush()
+			blank = true
+			i = j
+			continue
 		}
 		isBullet := mdBullet.MatchString(line)
 		isOrdered := mdOrdered.MatchString(line) && !isBullet
-		if !isBullet && !isOrdered {
-			break
-		}
 		lineIndent := listIndent(line)
+		if !isBullet && !isOrdered {
+			if endsListItem(lines, i) {
+				break
+			}
+			if m := mdFence.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+				if lineIndent < content {
+					break
+				}
+				flush()
+				node, next := fencedCodeBlock(lines, i, m[1], content)
+				last := &list.Content[len(list.Content)-1]
+				last.Content = append(last.Content, node)
+				i, blank = next, false
+				continue
+			}
+			if (blank || !open) && lineIndent < content {
+				break
+			}
+			if blank || !open {
+				paragraph, open = nil, true
+			}
+			paragraph = append(paragraph, strings.TrimSpace(line))
+			i, blank = i+1, false
+			continue
+		}
 		if lineIndent < indent {
 			break
 		}
 		if lineIndent > indent {
 			// Deeper item: nest under the previous item.
+			flush()
 			nested, next := parseMarkdownList(lines, i, lineIndent)
 			if len(list.Content) == 0 {
 				// A nested list with nothing above it still needs an item to
@@ -229,7 +314,7 @@ func parseMarkdownList(lines []string, start, indent int) (adfNode, int) {
 			}
 			last := &list.Content[len(list.Content)-1]
 			last.Content = append(last.Content, nested)
-			i = next
+			i, blank = next, false
 			continue
 		}
 		if isOrdered != ordered {
@@ -241,9 +326,16 @@ func parseMarkdownList(lines []string, start, indent int) (adfNode, int) {
 		} else {
 			text = mdOrdered.FindStringSubmatch(line)[2]
 		}
-		list.Content = append(list.Content, adfNode{Type: "listItem", Content: []adfNode{{Type: "paragraph", Content: parseInline(strings.TrimSpace(text))}}})
-		i++
+		flush()
+		list.Content = append(list.Content, adfNode{Type: "listItem"})
+		content = len(line) - len(text)
+		paragraph, open = nil, true
+		if text = strings.TrimSpace(text); text != "" {
+			paragraph = []string{text}
+		}
+		i, blank = i+1, false
 	}
+	flush()
 	return list, i
 }
 
@@ -404,6 +496,10 @@ func renderADFBlocks(nodes []adfNode, prefix string) string {
 	return b.String()
 }
 
+// renderADFList writes every line an item holds past its marker line at the
+// item's content column, and a blank line before each of its later blocks, so
+// the Markdown converts back to the same item: without the blank line, a
+// paragraph would join the one above it, or the nested item above it.
 func renderADFList(list adfNode, prefix string) string {
 	var b strings.Builder
 	for i, item := range list.Content {
@@ -411,19 +507,27 @@ func renderADFList(list adfNode, prefix string) string {
 		if list.Type == "orderedList" {
 			marker = strconv.Itoa(i+1) + ". "
 		}
+		pad := prefix + strings.Repeat(" ", len(marker))
 		first := true
 		for _, child := range item.Content {
 			switch child.Type {
 			case "bulletList", "orderedList":
-				b.WriteString(renderADFList(child, prefix+"  "))
+				b.WriteString(renderADFList(child, pad))
 			default:
-				text := strings.TrimRight(renderADFBlocks([]adfNode{child}, ""), "\n")
-				if first {
-					b.WriteString(prefix + marker + text + "\n")
-					first = false
-				} else {
-					b.WriteString(prefix + "  " + text + "\n")
+				lines := strings.Split(strings.TrimRight(renderADFBlocks([]adfNode{child}, ""), "\n"), "\n")
+				for j, line := range lines {
+					switch {
+					case j == 0 && first:
+						b.WriteString(prefix + marker + line + "\n")
+					case j == 0:
+						b.WriteString("\n" + pad + line + "\n")
+					case line == "":
+						b.WriteString("\n")
+					default:
+						b.WriteString(pad + line + "\n")
+					}
 				}
+				first = false
 			}
 		}
 		if first {
