@@ -1441,12 +1441,34 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Invalid batch payload: "+err.Error())
 			return
 		}
+		p := h.webPrincipal(r)
+		var defaultCreator, defaultAvatar string
+		if !p.Anonymous() {
+			defaultCreator = p.Name
+			if defaultCreator == "" {
+				defaultCreator = p.UserID
+			}
+			if settings, err := h.db.UserSettings(p.UserID); err == nil && settings != nil {
+				if strings.TrimSpace(settings.UserName) != "" && defaultCreator == p.UserID {
+					defaultCreator = settings.UserName
+				}
+				defaultAvatar = settings.UserAvatar
+			}
+		}
 		created := make([]models.Task, 0, len(reqs))
 		for _, req := range reqs {
 			if strings.TrimSpace(req.Title) == "" {
 				continue
 			}
-			t, err := h.db.CreateTask(req)
+			if !p.Anonymous() {
+				if req.Creator == "" {
+					req.Creator = defaultCreator
+				}
+				if req.CreatorAvatar == "" {
+					req.CreatorAvatar = defaultAvatar
+				}
+			}
+			t, err := h.db.CreateTaskAs(h.actingContext(r), req)
 			if err == nil && t != nil {
 				created = append(created, *t)
 			}
@@ -1493,6 +1515,26 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(req.Title) == "" {
 			writeError(w, http.StatusBadRequest, "Task title is required")
 			return
+		}
+
+		if p := h.webPrincipal(r); !p.Anonymous() {
+			creator := p.Name
+			if creator == "" {
+				creator = p.UserID
+			}
+			var avatar string
+			if settings, err := h.db.UserSettings(p.UserID); err == nil && settings != nil {
+				if strings.TrimSpace(settings.UserName) != "" && creator == p.UserID {
+					creator = settings.UserName
+				}
+				avatar = settings.UserAvatar
+			}
+			if req.Creator == "" {
+				req.Creator = creator
+			}
+			if req.CreatorAvatar == "" {
+				req.CreatorAvatar = avatar
+			}
 		}
 
 		// The creation carries whoever asked for it, so a tracker that

@@ -34,6 +34,7 @@ import { issueTypeStyle } from "../lib/issueTypes"
 import { Avatar } from "./Avatar"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
 import { resolveTaskStage } from "../lib/workflow"
+import { isSelectableStage } from "../lib/boardSelection"
 import type { Task, Status, Priority, WorkflowStage } from "../types"
 
 export const ListView: React.FC = () => {
@@ -56,6 +57,7 @@ export const ListView: React.FC = () => {
     moveTaskToTrackerStatus,
     moveTask,
     currentProject,
+    startBatchPickup,
     addToast,
     t,
   } = useApp()
@@ -174,6 +176,35 @@ export const ListView: React.FC = () => {
   const selectedTasks = useMemo(() => {
     return tasks.filter(t => selectedTaskIds.has(t.id))
   }, [tasks, selectedTaskIds])
+
+  // Use the same group and row order as the rendered tables.
+  const batchRows = !groupByStatus ? visibleTasks : boardGrouping === "workflow"
+    ? WORKFLOW_STAGES.filter(stage => !(hideDone && stage.id === "finished"))
+        .flatMap(stage => sortedTasks.filter(task => resolveTaskStage(task, currentProject) === stage.id))
+    : statusList.filter(status => !(hideDone && (status.id === "finished" || status.id === "done")))
+        .flatMap(status => sortedTasks.filter(task => task.status === status.id))
+  const batchTasks = batchRows.filter(task => selectedTaskIds.has(task.id))
+  const batchUnavailableReason = batchTasks.length !== selectedTaskIds.size || batchTasks.length === 0
+    ? "Sélectionnez uniquement des tâches visibles dans le backlog."
+    : batchTasks.some(task => task.projectId !== batchTasks[0].projectId)
+      ? "Sélectionnez des tâches d’un seul projet."
+      : batchTasks.some(task => !isSelectableStage(resolveTaskStage(task, currentProject)))
+        ? "Le lot accepte uniquement les tâches aux étapes New ou Clarified."
+        : ""
+
+  const launchSelectedBatch = async () => {
+    if (isBulkProcessing || batchUnavailableReason) return
+    const submittedIds = new Set(batchTasks.map(task => task.id))
+    setIsBulkProcessing(true)
+    setActiveBulkDropdown(null)
+    try {
+      if (await startBatchPickup([...submittedIds])) {
+        setSelectedTaskIds(previous => new Set([...previous].filter(id => !submittedIds.has(id))))
+      }
+    } finally {
+      setIsBulkProcessing(false)
+    }
+  }
 
   const isAllVisibleSelected = visibleTasks.length > 0 && visibleTasks.every(t => selectedTaskIds.has(t.id))
   const isSomeVisibleSelected = visibleTasks.some(t => selectedTaskIds.has(t.id)) && !isAllVisibleSelected
@@ -597,16 +628,25 @@ export const ListView: React.FC = () => {
           </div>
         </td>
 
-        {/* Assignee */}
+        {/* Assignee & Creator */}
         <td className="py-2.5 px-3 whitespace-nowrap text-xs text-[var(--text-secondary)]">
-          {task.assignee ? (
-            <div className="flex items-center gap-1.5">
-              <Avatar name={task.assignee} url={task.assigneeAvatar} size={20} />
-              <span className="truncate max-w-[90px]">{task.assignee}</span>
-            </div>
-          ) : (
-            <span className="text-[var(--text-muted)] text-[11px]">-</span>
-          )}
+          <div className="flex flex-col gap-0.5">
+            {task.assignee ? (
+              <div className="flex items-center gap-1.5" title={`Assigné : ${task.assignee}`}>
+                <Avatar name={task.assignee} url={task.assigneeAvatar} size={18} />
+                <span className="truncate max-w-[90px]">{task.assignee}</span>
+              </div>
+            ) : (
+              <span className="text-[var(--text-muted)] text-[11px]">-</span>
+            )}
+            {task.creator && (
+              <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" title={`Créé par : ${task.creator}`}>
+                <span className="opacity-70">par</span>
+                <Avatar name={task.creator} url={task.creatorAvatar} size={14} />
+                <span className="truncate max-w-[80px]">{task.creator}</span>
+              </div>
+            )}
+          </div>
         </td>
 
         {/* Due Date & Git / PR / MR */}
@@ -1018,6 +1058,20 @@ export const ListView: React.FC = () => {
               >
                 <X size={14} />
               </button>
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <button
+                type="button"
+                onClick={launchSelectedBatch}
+                disabled={isBulkProcessing || Boolean(batchUnavailableReason)}
+                title={batchUnavailableReason || "Lancer les tâches sélectionnées sur l’agent local"}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Sparkles size={13} />
+                {t.batchLaunch}
+              </button>
+              {batchUnavailableReason && <span className="text-[10px] text-[var(--text-muted)]">{batchUnavailableReason}</span>}
             </div>
 
             {/* Action 1: Status / Stage in Bulk */}

@@ -361,3 +361,36 @@ func TestMissingCredentialPointsAtThePersonalToken(t *testing.T) {
 		t.Fatalf("the message does not name the tracker: %q", msg)
 	}
 }
+
+func TestGithubSyncMapsCreatorAndAvatar(t *testing.T) {
+	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[{
+			"number": 42,
+			"title": "Bug report",
+			"body": "Something is broken",
+			"state": "open",
+			"user": {
+				"login": "octocat",
+				"avatar_url": "https://avatars.githubusercontent.com/u/1"
+			},
+			"assignees": [{"login": "dev"}]
+		}]`)
+	})
+	tasks, err := c.SyncFromGithub("acme/app", "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tasks) != 1 {
+		t.Fatalf("len(tasks) = %d, want 1", len(tasks))
+	}
+	if tasks[0].Creator != "octocat" {
+		t.Errorf("task.Creator = %q, want %q", tasks[0].Creator, "octocat")
+	}
+	if tasks[0].CreatorAvatar != "https://avatars.githubusercontent.com/u/1" {
+		t.Errorf("task.CreatorAvatar = %q, want %q", tasks[0].CreatorAvatar, "https://avatars.githubusercontent.com/u/1")
+	}
+	if tasks[0].Assignee != "dev" {
+		t.Errorf("task.Assignee = %q, want %q", tasks[0].Assignee, "dev")
+	}
+}

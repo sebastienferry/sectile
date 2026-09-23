@@ -5,11 +5,11 @@ Desktop now provides a read-only **Changes** view for each local execution, comp
 The desktop supports persistent workstation project disconnection, with active
 execution protection and explicit re-add. See [Remove a local project](desktop/README.md#remove-a-local-project).
 
-Outil moderne et agentique de gestion des tâches pour développeurs et équipes techniques, construit avec **Go**, **React 19**, **Tailwind CSS v4**, et **SQLite**.
+Modern, agentic task workflow manager for developers and engineering teams, built with **Go**, **React 19**, **Tailwind CSS v4**, and **SQLite**.
 
 ---
 
-## ✨ Fonctionnalités implémentées
+## ✨ Implemented Features
 
 - **Server-side tracker integration**:
   - GitHub REST supports synchronization, issue creation, updates and comments without an online agent.
@@ -18,69 +18,69 @@ Outil moderne et agentique de gestion des tâches pour développeurs et équipes
   - Local tasks remain in SQLite.
   - Tracker queues expose actual API errors in Activities.
 
-- 📐 **Frameworks Spec-Driven Design installables (Spec Kit & OpenSpec)** :
-  - **Installation réelle de la chaîne d'outils depuis l'interface** (onglet *Compétences IA & SDD* d'un projet, ou palette <kbd>Cmd+K</kbd>) :
-    - **GitHub Spec Kit** : installe la CLI `specify` via `uv` / `uvx` depuis `git+https://github.com/github/spec-kit.git`, puis exécute `specify init --here`. Scaffolde `.specify/` et `specs/` (spec.md, plan.md, tasks.md) ainsi que les commandes `/speckit.*` de l'agent.
-    - **OpenSpec** : installe la CLI `openspec` via `npm` / `npx` depuis `@fission-ai/openspec`, puis exécute `openspec init`. Scaffolde `openspec/` (propositions de changement, deltas de specs `ADDED` / `MODIFIED` / `REMOVED`, checklists).
-  - `GET /api/spec-framework/status` : indique, par framework, si la CLI est trouvée dans le PATH et si le répertoire de travail est déjà initialisé.
-  - `POST /api/spec-framework/install` : lance l'installation et renvoie **chaque commande exécutée** avec sa sortie, de sorte qu'un échec soit diagnosticable et rejouable à la main.
-  - Chaque installation est tracée comme une activité dans la vue *Activités*.
-  - Le framework choisi pilote le contenu de la skill `/specify-issue` scaffoldée dans le projet et le prompt envoyé à l'agent IA.
+- 📐 **Installable Spec-Driven Design Frameworks (Spec Kit & OpenSpec)**:
+  - **Real toolchain installation directly from the UI** (project *AI & SDD Skills* tab, or action palette <kbd>Cmd+K</kbd>):
+    - **GitHub Spec Kit**: installs the `specify` CLI via `uv` / `uvx` from `git+https://github.com/github/spec-kit.git`, then executes `specify init --here`. Scaffolds `.specify/` and `specs/` (spec.md, plan.md, tasks.md) as well as agent `/speckit.*` commands.
+    - **OpenSpec**: installs the `openspec` CLI via `npm` / `npx` from `@fission-ai/openspec`, then executes `openspec init`. Scaffolds `openspec/` (change proposals, spec deltas `ADDED` / `MODIFIED` / `REMOVED`, checklists).
+  - `GET /api/spec-framework/status`: reports per framework whether the CLI is found in `PATH` and whether the workspace is already initialized.
+  - `POST /api/spec-framework/install`: initiates the installation and returns **every executed command** with its output, making failures diagnosable and reproducible manually.
+  - Each installation is tracked as an activity in the *Activities* view.
+  - The selected framework guides the contents of the `/specify-issue` skill scaffolded into the project and the prompt sent to the AI agent.
 
-- 🤖 **Agent Copilot & Moteur IA Configurable (`agy`, `vibe`, `claude`)** :
-  - **Choix du moteur d'IA** : sans modèle de commande, chaque fournisseur est lancé
-    avec la ligne que Sectile atteste pour le mode d'exécution demandé. Pour `claude` :
-    - interactif : `claude --model <modèle> '<prompt>'`
-    - autonome : `claude -p --permission-mode bypassPermissions --model <modèle> '<prompt>'`
+- 🤖 **Agent Copilot & Configurable AI Engines (`agy`, `vibe`, `claude`)**:
+  - **AI Engine selection**: without a command template, each provider is launched
+    with the command line Sectile attests for the requested execution mode. For `claude`:
+    - interactive: `claude --model <model> '<prompt>'`
+    - autonomous: `claude -p --permission-mode bypassPermissions --model <model> '<prompt>'`
 
-    Les autres fournisseurs : `agy -i` en interactif, `vibe -p --auto-approve` et
-    `codex exec` en autonome. `agy`, `gemini` et `cursor` n'ont pas de mode autonome
-    attesté et refusent un lancement headless plutôt que d'en deviner un.
-  - **Modèle par lancement** : la liste des modèles de chaque moteur se règle globalement
-    (section *Moteur IA* du profil) et c'est elle que proposent le lanceur de la vue détail
-    et le menu `...` d'une carte. Le modèle résolu par la configuration y est le choix par
-    défaut : le garder ne change rien à la commande, en choisir un autre n'écrit aucun
-    réglage. Sur une carte, le choix est une sélection que la carte conserve, affichée en
-    quatre caractères devant ses boutons d'action ; tous ses lancements l'utilisent, chaîne
-    complète comprise.
-  - **Commandes personnalisées** : chaque mode a son champ, au global comme par projet,
-    et les deux s'héritent indépendamment. La commande autonome sert les lancements
-    headless ; laissée vide, ce sont les lancements headless qui retombent sur la
-    commande interactive, laquelle doit alors porter le
-    marqueur `{mode:AUTONOMOUS|INTERACTIVE}` pour dire quels mots appartiennent à
-    quel mode. Les écrans de réglages affichent les deux lignes résultantes.
-  - **Personnalisation des Prompts par Skill** :
-    1. 🔍 **Clarify** (`/clarify-issue`) : Analyse les ambiguïtés et génère les questions de cadrage.
-    2. 📝 **Specify** (`/specify-issue`) : Rédige la spec (Spec Kit ou OpenSpec, selon le framework du projet) et initialise la branche Git.
-    3. 💻 **Implement** (`/code-issue`) : Plan de code, modification des fichiers et tests unitaires.
+    Other providers: `agy -i` in interactive mode, `vibe -p --auto-approve` and
+    `codex exec` in autonomous mode. `agy`, `gemini` and `cursor` have no attested
+    autonomous mode and refuse a headless launch rather than guessing one.
+  - **Per-launch model**: the model list for each engine is configured globally
+    (*AI Engine* section of the profile) and is what the detail view launcher
+    and a card's `...` menu offer. The model resolved by configuration is the
+    default choice: keeping it does not alter the command, choosing another writes no
+    setting. On a card, the choice is a selection the card retains, displayed in
+    four characters in front of its action buttons; all its launches use it, including
+    the full chain.
+  - **Custom commands**: each mode has its own field, both globally and per project,
+    and both inherit independently. The autonomous command serves headless launches;
+    left empty, headless launches fall back to the interactive command, which must
+    then carry the `{mode:AUTONOMOUS|INTERACTIVE}` placeholder to indicate which words
+    belong to which mode. Settings screens display the two resulting command lines.
+  - **Prompt customization per skill**:
+    1. 🔍 **Clarify** (`/clarify-issue`): Analyzes ambiguities and generates framing questions.
+    2. 📝 **Specify** (`/specify-issue`): Drafts the specification (Spec Kit or OpenSpec, depending on the project's framework) and initializes the Git branch.
+    3. 💻 **Implement** (`/code-issue`): Code planning, file edits, and unit tests.
     4. **Adjust** (`/adjust-issue`): Review the full branch, address findings and available PR feedback, run final checks, and update the existing PR before human merge.
-    5. ⚡ **Auto-Pilot** (`/pick-issue`) : Routeur intelligent qui enchaîne automatiquement l'étape optimale.
-  - **Panneau de statut des CLI** : Vérification en temps réel de l'installation et de l'authentification de `git`, `gh`, `agy`, `claude`, `codex`, ainsi que des outils SDD `uv`, `specify` et `openspec`.
+    5. ⚡ **Auto-Pilot** (`/pickup-issue`): Intelligent router that automatically sequences the next optimal workflow stage.
+  - **CLI status panel**: Real-time verification of installation and authentication for `git`, `gh`, `agy`, `claude`, `codex`, as well as the SDD tools `uv`, `specify` and `openspec`.
 
-- 🗂 **Sidebar complète & Workflow Stages** :
-  - `Backlog` ➔ `À clarifier` ➔ `Spécifié` ➔ `En cours` ➔ `À valider` ➔ `Terminé` avec compteurs en temps réel.
-  - Bascule des vues (`Tableau Kanban` / `Vue Liste`).
-  - Filtres rapides (`Mes tâches`, `Priorité Haute`, `Étiquettes/Tags`) et filtre par source (`GitHub`, `Jira`, `Local`).
+- 🗂 **Comprehensive Sidebar & Workflow Stages**:
+  - `Backlog` ➔ `To Clarify` ➔ `Specified` ➔ `In Progress` ➔ `To Validate` ➔ `Done` with real-time counters.
+  - View toggle (`Kanban Board` / `List View`).
+  - Quick filters (`My Tasks`, `High Priority`, `Labels / Tags`) and source filter (`GitHub`, `Jira`, `Local`).
   - **User project bookmarks & dropdown search**: Personal project bookmarks with star toggles, dropdown project search across shared workspaces, and "All projects" board/facets filtered strictly to bookmarked projects. Bookmarked projects are also prioritized in task creation, clone, and detail modals.
-  - Repli / Dépli fluide de la barre latérale.
+  - Smooth sidebar expand / collapse.
 
-- 👤 **Profil & Ergonomie Personnalisée** :
-  - **Couleur d'accent dynamique** : *Indigo, Violet, Émeraude, Ambre, Rose, Cyan, Bleu, Orange*.
-  - **Thème** : Mode Sombre (Dark) / Mode Clair (Light).
-  - **Multi-langues** : Français (FR) / English (EN) avec bascule instantanée.
-  - **Taille d'affichage & Densité** :
-    - *Compact* (13px, espacements réduits, idéal écrans denses).
-    - *Standard* (14px, vue équilibrée).
-    - *Confortable* (15px, espacements aérés).
+- 👤 **Profile & Personalized Ergonomics**:
+  - **Dynamic accent color**: *Indigo, Violet, Emerald, Amber, Rose, Cyan, Blue, Orange*.
+  - **Theme**: Dark Mode / Light Mode.
+  - **Multi-language**: French (FR) / English (EN) with instant switching.
+  - **Display density & UI scaling**:
+    - *Compact* (13px, reduced spacing, ideal for dense screens).
+    - *Standard* (14px, balanced view).
+    - *Comfortable* (15px, spacious view).
 
-- 🔀 **Tableau Kanban & Vue Liste (Drag & Drop)** :
-  - **Vue Tableau Kanban** : Glisser-déposer fluide entre colonnes avec mise à jour automatique du tracker.
-  - **Vue Liste** : Regroupement par statut, tri multi-colonnes et édition inline.
+- 🔀 **Kanban Board & List View (Drag & Drop)**:
+  - **Kanban Board View**: Fluid drag-and-drop between columns with automatic tracker sync.
+  - **List View**: Grouping by status, multi-column sorting, and inline editing.
+  - **Backlog batch launch**: Select visible `new` or `clarified` tasks from one project and choose "Batch" ("Lot" in French). A preparation dialog lets you adjust the displayed execution order and choose the dedicated worktree name before launching. Cancelling preserves the selection; a failed launch keeps the dialog ready for retry.
 
-- 🔍 **Recherche Rapide (`/`) & Palette d'actions (`Cmd+K`)** :
-  - Raccourci clavier `/` pour cibler immédiatement la recherche.
-  - Palette d'actions avec recherche floue et exécution directe des skills au clavier.
-  - Dans la barre du terminal PTY, démarrer l'agent puis sélectionner un skill : Codex reçoit son nom sans `/`, les autres moteurs conservent le slash. Les noms personnalisés du projet sont respectés.
+- 🔍 **Quick Search (`/`) & Action Palette (`Cmd+K`)**:
+  - Keyboard shortcut `/` to immediately focus global search.
+  - Action palette (<kbd>Cmd+K</kbd>) with fuzzy search and direct keyboard skill execution.
+  - Workflow skills can be launched from the action palette, task card action menus, or the agent-owned desktop console; custom project command names and engine slash conventions are preserved.
 
 ---
 
@@ -228,7 +228,7 @@ port 5173 and proxies `/api` to `http://localhost:8090`.
 
 ### Tracker connection parameters
 
-**The interface is the primary way to configure them.** *Connecter votre tracker*
+**The interface is the primary way to configure them.** *Connect your tracker*
 asks for the instance URL, the repository or project slug and the token of the
 selected tracker — Jira, GitHub or GitLab — checks them against the instance, and
 saves them in the user configuration only once the instance has accepted them. No
@@ -243,8 +243,8 @@ keeps the stored token; sending the sentinel `__clear__` deletes it.
 
 **A Jira credential is personal, and only personal.** An Atlassian account
 belongs to a site, so the site, the account e-mail and the token travel
-together: all three are stored from the person's own profile, in *Connecter
-votre tracker*. A project put on Jira prefills its tracker URL from the
+together: all three are stored from the person's own profile, in *Connect your
+tracker*. A project put on Jira prefills its tracker URL from the
 instance of whoever creates it. No server-wide Jira credential appears in the
 interface at all; the `SECTILE_JIRA_*` variables remain only as a fallback for
 unattended work. An operation somebody asked for either carries their own token
@@ -253,8 +253,8 @@ it that nobody chose.
 
 **A tracker credential can be personal.** On Jira a comment, an assignment and
 a transition are attributed to the account whose token made the call, so a
-shared token makes the whole team sign as one integration account. *Profil >
-Trackers* therefore holds one zone per tracker Sectile can drive. Jira accepts
+shared token makes the whole team sign as one integration account. *Profile >
+Tracker Credentials* therefore holds one zone per tracker Sectile can drive. Jira accepts
 only a personal credential; GitHub accepts either, and falls back to the server
 token where nobody stored one. A personal token is encrypted with AES-256-GCM,
 bound to its owner and to its tracker, with the key held outside the database
@@ -444,27 +444,27 @@ written in [`AGENTS.md`](./AGENTS.md) and is meant to be executed as written
 whenever somebody asks for a release. See
 [ADR 0018](docs/adrs/0018-semver-tags-and-changelog.md).
 
-## 📚 Documentation Technique Complète
+## 📚 Comprehensive Technical Documentation
 
-Une suite documentaire complète pour développeurs et LLMs est disponible dans le dossier [`/docs`](./docs) :
+A comprehensive documentation suite for developers and LLMs is available in the [`/docs`](./docs) folder:
 
-- 🏛️ [**Architecture & Conception Générale** (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md) : Modèle de concurrence, persistance SQLite, isolation Git Worktrees, PTY ZSH & WebSockets.
-- ⚡ [**Capacités & Workflows Agentiques** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md) : Multi-projets, pipeline de 5 skills, Auto-Pilot, synchronisation GitHub / Jira.
-- 🎨 [**Composants UX & Design Frontend** (`docs/UX_COMPONENTS.md`)](./docs/UX_COMPONENTS.md) : Kanban drag-and-drop, vue liste, terminal interactif Xterm.js, inspecteur de Diff Git.
-- 🔌 [**Spécification API & Schéma de Données** (`docs/API_AND_DATA_SPEC.md`)](./docs/API_AND_DATA_SPEC.md) : Schéma SQLite complet, endpoints REST et agent-owned console protocol.
-- 🤖 [**Guide de Ré-implémentation pour LLMs** (`docs/REIMPLEMENTATION_GUIDE.md`)](./docs/REIMPLEMENTATION_GUIDE.md) : Blueprint étape par étape pour reconstruire Sectile de zéro.
+- 🏛️ [**Architecture & System Design** (`docs/ARCHITECTURE.md`)](./docs/ARCHITECTURE.md): Concurrency model, SQLite persistence, Git worktree isolation, and agent console protocols.
+- ⚡ [**Core Capabilities & Workflows** (`docs/CAPABILITIES.md`)](./docs/CAPABILITIES.md): Multi-project management, 5-skill autonomous pipeline, Auto-Pilot, and GitHub / Jira synchronization.
+- 🎨 [**UX Components & Frontend Design** (`docs/UX_COMPONENTS.md`)](./docs/UX_COMPONENTS.md): Drag-and-drop Kanban, tabular list view, agent console companion, and Git diff inspector.
+- 🔌 [**API Reference & Data Specifications** (`docs/API_AND_DATA_SPEC.md`)](./docs/API_AND_DATA_SPEC.md): Complete SQLite schema, REST endpoints, and agent-owned console protocol.
+- 🤖 [**Re-Implementation Guide for LLMs** (`docs/REIMPLEMENTATION_GUIDE.md`)](./docs/REIMPLEMENTATION_GUIDE.md): Step-by-step blueprint to rebuild Sectile from scratch.
 
 ---
 
-## ⌨️ Raccourcis Clavier
+## ⌨️ Keyboard Shortcuts
 
-| Raccourci | Action |
+| Shortcut | Action |
 |---|---|
-| `/` | Cibler la barre de recherche globale |
-| `Cmd+K` ou `Ctrl+K` | Ouvrir la palette de commandes & skills |
-| `N` ou `C` | Ouvrir la modale d'ajout rapide de tâche |
-| `Esc` | Fermer la modale / vider la recherche |
-| `↑` / `↓` + `Entrée` | Naviguer et valider dans la palette d'actions |
+| `/` | Focus global search bar |
+| `Cmd+K` or `Ctrl+K` | Open command & skill palette |
+| `N` or `C` | Open quick task creation modal |
+| `Esc` | Close modal / clear search |
+| `↑` / `↓` + `Enter` | Navigate and select in action palette |
 
 ## Remote execution and MCP
 
@@ -624,7 +624,7 @@ A disconnected or incompatible configuration API prevents execution.
 
 Before launching an LLM CLI, the local agent automatically registers Sectile in
 that CLI's **user-level** configuration, and installs the managed skills there
-too. Claude Code, Cursor and Gemini get a Streamable HTTP entry addressing the
+too. Unless an explicit desktop MCP preference is saved, Claude Code, Cursor and Gemini get a Streamable HTTP entry addressing the
 server's `/mcp` with the workstation key as bearer, so their Sectile tools keep
 working while the agent is stopped; the other CLIs get the
 `sectile-agent mcp --url <server>` stdio bridge with the key in its environment.
@@ -645,9 +645,7 @@ checkout on the next dispatch when they are unchanged, and preserved when edited
 | Cursor | `~/.cursor/mcp.json` | none |
 | Vibe | `~/.vibe/config.toml` | none |
 
-The agent that runs the tasks is always set up. A project can additionally set up
-Claude, Codex and Antigravity through the **Agents à configurer** checkboxes in the
-project's AI tab; unchecking an agent retires its installation on the next dispatch.
+The agent that runs the tasks is always set up. Agent configuration is managed per active provider and initialized via `sectile-agent init --provider <provider>`. Unused provider installations can be retired via CLI or profile settings.
 
 Custom command templates can use these providers. A `custom` provider is inferred
 from the template's executable name; unknown executables produce an explicit
@@ -703,11 +701,42 @@ A client limited to stdio runs the bridge with the same key:
 The bridge also reads `SECTILE_AGENT_URL`. Terminals launched by the agent
 inherit it, set to the server, together with `SECTILE_AGENT_TOKEN`. The agent
 gateway on `http://127.0.0.1:8091` still proxies `/mcp` and `/api/` and takes the
-same key. Set `SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in
+same key by default. Selecting local proxy mode in desktop settings explicitly
+allows native loopback MCP clients without a key; `/api/` remains authenticated.
+Set `SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in
 the session list; the bridge otherwise reports its host and process id.
 Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
+
+### Choosing the MCP connection
+
+In the web profile, **AI Engine** contains one **MCP configuration** for the
+selected provider, including API-key creation. Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO** to
+display one configuration. The supported UI engines are Antigravity, Claude and Codex.
+Copy the example into the indicated user configuration,
+merge it with existing entries, replace the API key placeholder, and restart the
+AI engine. HTTP needs no local Sectile process. STDIO starts `sectile-agent mcp`;
+install the binary in PATH or use its absolute path. Development previews use
+`http://localhost:8090` for remote MCP, independently of the Vite UI port.
+Set `VITE_MCP_SERVER_URL` to override the server URL shown in configuration
+examples; production otherwise uses the current web origin.
+
+Desktop **Settings → Agents CLI → MCP configuration** offers the same three choices. HTTP connects directly to the remote server
+with the pairing key or to the local no-auth proxy. STDIO starts a bridge
+to the remote server with the pairing key and needs no running daemon. **Update provider configuration** writes the selected
+provider's user file, preserving other servers and tool permissions. Remote mode
+works with the agent stopped. Local mode requires the agent to remain running
+and lets any native process on the workstation use MCP as the paired user.
+Browser origins and unexpected Host headers are rejected; the remote server and
+local API routes still require authentication. Selecting remote mode for every
+provider disables the no-auth proxy again.
+
+Choices are stored per provider in `mcpConnections` in workstation settings,
+with `transport` (`http` or `stdio`) and `target` (`remote` or `local`). They survive
+launch-time setup and refresh after agent restart, including a changed local port.
+The preview uses a key placeholder; the desktop update writes the real paired key
+only for remote connections. Reload the AI engine after applying a change.
 
 Optional workstation overrides belong in `~/.config/sectile/settings.json`:
 
@@ -844,7 +873,7 @@ processes cannot be controlled by the new supervisor.
 Project settings include **Create PR/MR**: choose the default **Draft after implementation**, or **Draft after specification** to review specs in an early draft.
 Skills reuse the same PR/MR during implementation and attach its URL through MCP. Adjust never creates a PR. Missing PRs recover through the configured earlier stage without downgrading completed work. `Create PR` (`create_pr`, `/create-pr`) remains available under Additional skills. It creates or reuses a PR without advancing the task stage or joining the automatic workflow. The legacy `review` invocation resolves to Adjust; inherited review customizations require reconciliation in Skills.
 
-To regenerate skills from the desktop app, open the project gear menu, select **Deployment**, and click **Deploy server skills**. Configure and save the local repository first, and stop active executions before deployment. The agent fetches the current server skill content; **Refresh from server** alone refreshes settings without deploying files. Skills are also refreshed when preparing task executions.
+To initialize a native provider from the desktop app, open the project gear menu, select **Deployment**, choose the **Initialization provider**, and click **Initialize**. This runs the same provider-specific skills and MCP initialization as `sectile-agent init --provider <provider>`. Separate MCP and skills results show success, failure, or unsupported skills, and initialization remains available to run again. The selection does not change the project’s execution provider. Configure and save the local repository first, and stop active executions before deployment. The agent fetches the current server skill content; **Refresh from server** alone refreshes settings without deploying files. Skills are also refreshed when preparing task executions.
 
 ### Desktop console host
 

@@ -6,7 +6,7 @@ import { useApp } from '../context/AppContext'
 
 interface AIModelFieldProps {
   provider: AIProvider | ''
-  commandTemplate: string
+  commandTemplate?: string
   value: string
   onChange: (value: string) => void
   /** Texte affiché quand le champ est vide : « défaut du CLI » ou « réglage global ». */
@@ -35,7 +35,7 @@ export const AIModelField: React.FC<AIModelFieldProps> = ({
   // The suggestions are the models configured for this provider: the same list
   // the launch surfaces offer, so adding one there makes it available here too.
   const suggestions = availableModels ?? providerModels(settings, provider)
-  const templateWins = templateGovernsCommand(provider, commandTemplate)
+  const templateWins = commandTemplate ? templateGovernsCommand(provider, commandTemplate) : false
   const ignored = !providerTakesModel(provider)
   const invalid = !isValidModel(value)
 

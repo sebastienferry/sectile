@@ -11,10 +11,17 @@ import (
 	"strings"
 )
 
+// MCPConnection records an explicit workstation connection preference.
+type MCPConnection struct {
+	Transport string `json:"transport"`
+	Target    string `json:"target"`
+}
+
 // Overrides stays on the workstation and is never uploaded to the server.
 type Overrides struct {
-	DisconnectedProjects map[string]bool   `json:"disconnectedProjects,omitempty"`
-	Commands             map[string]string `json:"commands,omitempty"`
+	MCPConnections       map[string]MCPConnection `json:"mcpConnections,omitempty"`
+	DisconnectedProjects map[string]bool          `json:"disconnectedProjects,omitempty"`
+	Commands             map[string]string        `json:"commands,omitempty"`
 	// CommandsAutonomous is the headless counterpart of Commands, per project.
 	CommandsAutonomous          map[string]string `json:"commandsAutonomous,omitempty"`
 	Parallelism                 map[string]int    `json:"parallelism,omitempty"`
@@ -44,6 +51,7 @@ func ReadOverrides(root string) (Overrides, error) {
 	err = json.Unmarshal(raw, &result)
 	// Disconnection is workstation-owned, never a repository override.
 	result.DisconnectedProjects = nil
+	result.MCPConnections = nil
 	return result, err
 }
 
@@ -54,28 +62,75 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 	serverCommand := c.AICommandTemplate
 	serverAutonomous := c.AICommandTemplateAutonomous
 	c.Skills = append([]Skill{}, c.Skills...)
+
+	baseProvider := c.AIProvider
+	baseCommand := serverCommand
+	baseAutonomous := serverAutonomous
+
 	if overrides.AIProvider != "" {
 		// A command written for another CLI cannot serve this one, so switching
 		// provider without bringing a command drops both.
-		if overrides.AIProvider != c.AIProvider && overrides.AICommandTemplate == "" {
-			c.AICommandTemplate = ""
-			c.AICommandTemplateAutonomous = ""
+		if overrides.AIProvider != baseProvider && overrides.AICommandTemplate == "" {
+			baseCommand = ""
+			baseAutonomous = ""
 		}
-		c.AIProvider = overrides.AIProvider
-	}
-	if projectProvider, ok := overrides.AIProviders[c.ProjectID]; ok && projectProvider != "" {
-		if projectProvider != c.AIProvider && overrides.AICommandTemplate == "" && overrides.Commands[c.ProjectID] == "" {
-			c.AICommandTemplate = ""
-			c.AICommandTemplateAutonomous = ""
-		}
-		c.AIProvider = projectProvider
+		baseProvider = overrides.AIProvider
 	}
 	if overrides.AICommandTemplate != "" {
-		c.AICommandTemplate = overrides.AICommandTemplate
+		baseCommand = overrides.AICommandTemplate
 	}
 	if overrides.AICommandTemplateAutonomous != "" {
-		c.AICommandTemplateAutonomous = overrides.AICommandTemplateAutonomous
+		baseAutonomous = overrides.AICommandTemplateAutonomous
 	}
+
+	c.AIProvider = baseProvider
+	c.AICommandTemplate = baseCommand
+	c.AICommandTemplateAutonomous = baseAutonomous
+
+	projectProvider, hasProjectProvider := overrides.AIProviders[c.ProjectID]
+	projectProvider = strings.TrimSpace(projectProvider)
+
+	projectCmd, hasProjectCmd := overrides.Commands[c.ProjectID]
+	projectAuto, hasProjectAuto := overrides.CommandsAutonomous[c.ProjectID]
+
+	if hasProjectProvider && projectProvider != "" {
+		c.AIProvider = projectProvider
+		if projectProvider != baseProvider {
+			if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
+				c.AICommandTemplate = projectCmd
+			} else {
+				c.AICommandTemplate = ""
+			}
+			if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
+				c.AICommandTemplateAutonomous = projectAuto
+			} else {
+				c.AICommandTemplateAutonomous = ""
+			}
+		} else {
+			if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
+				c.AICommandTemplate = projectCmd
+			} else {
+				c.AICommandTemplate = baseCommand
+			}
+			if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
+				c.AICommandTemplateAutonomous = projectAuto
+			} else {
+				c.AICommandTemplateAutonomous = baseAutonomous
+			}
+		}
+	} else {
+		if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
+			c.AICommandTemplate = projectCmd
+		} else {
+			c.AICommandTemplate = baseCommand
+		}
+		if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
+			c.AICommandTemplateAutonomous = projectAuto
+		} else {
+			c.AICommandTemplateAutonomous = baseAutonomous
+		}
+	}
+
 	if overrides.Terminal != "" {
 		c.ExternalTerminalCommand = overrides.Terminal
 	}
@@ -103,18 +158,6 @@ func ApplyOverrides(c Config, overrides Overrides) Config {
 			}
 			c.Skills[i].Content = content
 			c.Skills[i].CommandContent = content + "\n\n## Ticket\n$ARGUMENTS\n"
-		}
-	}
-	if command, ok := overrides.Commands[c.ProjectID]; ok {
-		c.AICommandTemplate = command
-		if command == "" {
-			c.AICommandTemplate = serverCommand
-		}
-	}
-	if command, ok := overrides.CommandsAutonomous[c.ProjectID]; ok {
-		c.AICommandTemplateAutonomous = command
-		if command == "" {
-			c.AICommandTemplateAutonomous = serverAutonomous
 		}
 	}
 	return c
@@ -146,6 +189,18 @@ func ManifestPath() (string, error) {
 // receives no managed file; it only holds the backups and the copies being retired
 // from the layout that preceded this release.
 func Scaffold(checkout string, config Config) ([]string, error) {
+	return scaffold(checkout, config, false)
+}
+
+// ScaffoldProvider refreshes one explicitly selected provider without retiring
+// managed skills installed for other providers on this workstation.
+func ScaffoldProvider(checkout string, config Config, provider string) ([]string, error) {
+	config.AIProvider = provider
+	config.SetupProviders = []string{provider}
+	return scaffold(checkout, config, true)
+}
+
+func scaffold(checkout string, config Config, preserveOtherProviders bool) ([]string, error) {
 	if config.SchemaVersion != Version {
 		return nil, fmt.Errorf("unsupported configuration version %d", config.SchemaVersion)
 	}
@@ -218,6 +273,19 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 			return backups, fmt.Errorf("invalid managed skill path %q", p)
 		}
 	}
+	untouched := map[string]string{}
+	if preserveOtherProviders {
+		loc, err := ResolveLocations(config.AIProvider)
+		if err != nil {
+			return backups, err
+		}
+		for path, hash := range manifest {
+			if !loc.InstallsSkills() || !managedPath(path, loc) {
+				untouched[path] = hash
+				delete(manifest, path)
+			}
+		}
+	}
 	install, err := refresh(fs, work, files, manifest, &backups, !hasCreatePR(config.Skills))
 	if err != nil {
 		return backups, err
@@ -238,6 +306,9 @@ func Scaffold(checkout string, config Config) ([]string, error) {
 	// The directory only ever held Sectile's scripts; Remove refuses a
 	// directory that still holds anything, which is the guard wanted here.
 	_ = fs.Remove(claudeHookDir)
+	for path, hash := range untouched {
+		install[path] = hash
+	}
 	raw, err := json.MarshalIndent(install, "", "  ")
 	if err != nil {
 		return backups, err
