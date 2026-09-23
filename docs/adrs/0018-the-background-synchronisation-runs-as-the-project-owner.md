@@ -85,3 +85,14 @@ not closed off by any of this: they would be an owner like another.
   on the activity rather than silent.
 - Deleting the owner's account, or their credential, returns the project to the
   server credential. The next person to save the project adopts it.
+- GitHub refuses a locked credential as Jira does (#312). Its adapter used to
+  turn a sealed token nobody unlocked into the project or server token, so a
+  pass read as the service account while its activity named the owner. That
+  refusal covers every GitHub call carrying an actor, a person's write as much
+  as a background read.
+- Two fallbacks on the project or server GitHub token remain, and both are
+  decided rather than left over: an ownerless project, as above, and an actor
+  who stored no personal GitHub token at all. Unlike Jira, GitHub keeps the
+  second one, because a shared GitHub token (`SECTILE_GITHUB_TOKEN` or the
+  project's own) is how GitHub deployments run, and refusing it would stop work
+  that has nothing to do with attribution.

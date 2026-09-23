@@ -3,6 +3,10 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,5 +131,55 @@ func TestABackgroundPassThatFoundNothingLeavesNoTrace(t *testing.T) {
 	}
 	if left := syncActivities(t, database, project.ID, false); len(left) != 0 {
 		t.Fatalf("a pass that imported nothing must leave nothing behind, got %d activity(ies)", len(left))
+	}
+}
+
+// On GitHub a sealed owner token nobody unlocked used to fall back on the
+// server token: the pass read as the service account while its activity named
+// the owner, whose credential was never touched. The read is refused instead,
+// and the failure still says whose credential it was (ADR 0018).
+func TestABackgroundGithubPassRefusesALockedOwnerToken(t *testing.T) {
+	var authorizations []string
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authorizations = append(authorizations, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[]`)
+	}))
+	defer site.Close()
+
+	database := testDB(t)
+	database.trackers.HTTP = site.Client()
+	database.trackers.GithubURL = site.URL
+	database.trackers.GithubToken = "server-token"
+	project, err := database.CreateProjectAs("u-ada", models.CreateProjectRequest{Name: "App", IssueTracker: "github", GithubRepo: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserTrackerCredential("u-ada", "github", "", "", "ada-token", "phrase"); err != nil {
+		t.Fatal(err)
+	}
+	database.LockUserTrackerCredential("u-ada", "github")
+
+	activity := models.TaskActivity{ID: "sync-locked", ProjectID: project.ID, SkillID: "sync_github", Status: "running", UserID: "u-ada", CreatedAt: time.Now()}
+	if err := database.AddTaskActivity(activity); err != nil {
+		t.Fatal(err)
+	}
+	settings, _ := database.GetSettings()
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_github", ActivityID: activity.ID, ProjectID: project.ID, ActingUser: "u-ada", Sync: SyncOptions{Background: true}}, settings)
+
+	for _, auth := range authorizations {
+		if strings.Contains(auth, "server-token") {
+			t.Fatalf("a locked owner token must not fall back on the server token, GitHub saw %v", authorizations)
+		}
+	}
+	got, err := database.GetActivityByID(activity.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != string(models.ActivityStatusFailed) {
+		t.Fatalf("a refused read is a failure, got %q", got.Status)
+	}
+	if got.UserID != "u-ada" {
+		t.Fatalf("the failure names the owner whose credential was refused, got %q", got.UserID)
 	}
 }
