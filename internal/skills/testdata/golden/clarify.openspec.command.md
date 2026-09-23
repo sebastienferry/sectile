@@ -12,7 +12,7 @@ Stage: new -> clarified.
 - If no renaming capability is available, skip the rename silently and continue. It never blocks, delays or replaces the work of the skill.
 
 ## Sectile reporting
-- Task access, the run indicator, stage transitions, pull request links and ticket comments follow `/report-stage`: read `report-stage/SKILL.md` in the same skills directory as this skill (`.claude/commands/report-stage.md` for Claude Code). Load it before the first ticket read.
+- Task access, the run indicator, stage transitions, pull request links and ticket comments follow `/report-stage`: read `report-stage/SKILL.md` in the same skills directory as this skill, for example `~/.claude/skills/report-stage/SKILL.md`. Load it before the first ticket read.
 - If it cannot be loaded, these rules still hold. Standalone: call start_run before work, reusing a supplied SECTILE_RUN_ID or launch runId, and call finish_run when the entire invocation ends, including errors or stopping for user input; a nested skill never finishes the outer run. Managed run: submit only through the supplied result contract, and call no transition or comment tool.
 - Gate: transition new → clarified only when the exit condition is met: the owner confirms the clarification is satisfactory (or zero product questions remain open in unattended pickup). Never transition new → clarified while any product question or decision remains open.
 

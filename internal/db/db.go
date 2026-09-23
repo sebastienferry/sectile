@@ -3714,6 +3714,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 // GetAvailableSkills exposes the workflow catalogue. It derives from the single
 // skills.StageSkills table: the skill the UI offers, the file installed in the
 // repository and the step the worker runs are by construction the same thing.
+// Helpers marked HideFromBoard are installed but never offered here.
 // The old pick-issue auto-pilot is gone, the autonomous run button replaced it.
 // UIScaleOptions are the four interface zoom levels the status bar switches
 // between. Four steps is what a quick switch can hold: a free number would need

@@ -41,8 +41,8 @@ Settled in the clarification (Rounds 1 and 2); none reopened here.
 2. **Pointer plus invariant (Q2).** Each task-scoped skill keeps a pointer to
    `/report-stage` that names its file in the agent's own skill directory, a 2–3
    line invariant, and its own one-line gate.
-3. **Exposure (Q3).** `report-stage` is provisioned like any other skill (every
-   agent skill directory and `.claude/commands/`) and listed in the skill editor,
+3. **Exposure (Q3).** `report-stage` is provisioned like any other skill (the provider's
+   user-level skills directory, e.g. `~/.claude/skills`) and listed in the skill editor,
    but it is not a board launch action.
 4. **D1.** The `## Report` bullets stay in each skill.
 5. **D2.** The gate stays in each skill; the helper is generic and takes the
@@ -129,8 +129,8 @@ look like a workflow step.
 **Acceptance**
 
 - **Given** a project provisioned by the agent, **then** `report-stage/SKILL.md`
-  exists in every agent skill directory and `.claude/commands/report-stage.md`
-  exists, like any other skill.
+  is installed in the provider's skills directory like any other skill
+  (the agent configuration carries it with directory `report-stage`).
 - **Given** `GET /api/skills` (the board and command palette catalogue), **then**
   `report_stage` is absent, and launching it as a job fails with "skill not found".
 - **Given** the project skill editor, **then** `report_stage` is listed with its

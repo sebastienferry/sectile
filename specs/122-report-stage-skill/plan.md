@@ -53,7 +53,7 @@ rename there would overwrite the caller's title (for example a batch's `#47 (+2)
 ## Sectile reporting
 - Task access, the run indicator, stage transitions, pull request links and ticket
   comments follow `/report-stage`: read `report-stage/SKILL.md` in the same skills
-  directory as this skill (`.claude/commands/report-stage.md` for Claude Code). Load
+  directory as this skill, for example `~/.claude/skills/report-stage/SKILL.md`. Load
   it before the first ticket read.
 - If it cannot be loaded, these rules still hold. Standalone: call start_run before
   work (reuse a supplied SECTILE_RUN_ID or launch runId) and finish_run when the whole
