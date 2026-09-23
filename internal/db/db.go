@@ -6135,8 +6135,13 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	if req.AIProvider != nil {
 		p.AIProvider = *req.AIProvider
 	}
+	// Both commands follow the same rule: absent keeps the stored value, empty
+	// clears it. They are trimmed as CreateProject trims them.
 	if req.AICommandTemplate != nil {
-		p.AICommandTemplate = *req.AICommandTemplate
+		p.AICommandTemplate = strings.TrimSpace(*req.AICommandTemplate)
+	}
+	if req.AICommandTemplateAutonomous != nil {
+		p.AICommandTemplateAutonomous = strings.TrimSpace(*req.AICommandTemplateAutonomous)
 	}
 	if req.SpecFramework != nil {
 		p.SpecFramework = models.NormalizeSpecFramework(*req.SpecFramework)

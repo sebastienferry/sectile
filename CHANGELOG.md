@@ -95,6 +95,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Editing a project saves its autonomous CLI command.** Only the interactive
+  command was kept when a project's settings were saved; the autonomous
+  (headless) one stayed at whatever the project was created with, in the web
+  interface and in the desktop app that inherits it. Emptying either command, or
+  turning the custom agent off, now clears it instead of silently keeping the
+  old value. A command lost by an earlier edit has to be entered once more.
+  (#249)
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the

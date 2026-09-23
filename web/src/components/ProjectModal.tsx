@@ -74,6 +74,7 @@ const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: st
 ]
 
 import { COMMAND_PRESETS } from '../lib/commandPresets'
+import { projectAgentCommands } from '../lib/commandTemplate'
 
 const AVAILABLE_ICONS = [
   { name: 'Folder', Icon: Folder, label: 'Dossier' },
@@ -231,7 +232,7 @@ export const ProjectModal: React.FC = () => {
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
 
-      const hasCustomAgent = Boolean(editingProject.aiProvider || editingProject.aiCommandTemplate)
+      const hasCustomAgent = Boolean(editingProject.aiProvider || editingProject.aiCommandTemplate || editingProject.aiCommandTemplateAutonomous)
       setUseCustomAgent(hasCustomAgent)
       setAiProvider(editingProject.aiProvider || '')
       setAiCommandTemplate(editingProject.aiCommandTemplate || '')
@@ -377,8 +378,7 @@ export const ProjectModal: React.FC = () => {
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
         aiProvider: useCustomAgent && aiProvider ? (aiProvider as AIProvider) : undefined,
-        aiCommandTemplate: useCustomAgent && aiCommandTemplate.trim() ? aiCommandTemplate.trim() : undefined,
-        aiCommandTemplateAutonomous: useCustomAgent && aiCommandAutonomous.trim() ? aiCommandAutonomous.trim() : undefined,
+        ...projectAgentCommands(useCustomAgent, aiCommandTemplate, aiCommandAutonomous),
         // Toujours transmis, y compris vide : c'est ainsi qu'on efface une valeur
         // au lieu de conserver silencieusement celle qui est enregistrée.
         aiModel: useCustomAgent ? aiModel.trim() : '',
