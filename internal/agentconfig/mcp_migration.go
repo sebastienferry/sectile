@@ -113,7 +113,9 @@ func migrateMCPRegistration(data map[string]any, provider string, transport map[
 	}
 	if provider == "vibe" {
 		policy["name"] = "sectile"
-		policy["transport"] = "stdio"
+		if _, ok := policy["transport"]; !ok {
+			policy["transport"] = "stdio"
+		}
 		data[key] = append(others, policy)
 	} else {
 		delete(servers, "taskflow")
