@@ -19,6 +19,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- Removed the permanent instructional hint below the desktop project list.
+
 - Consolidated MCP setup into one per-engine configuration with three choices:
   remote HTTP (default), local HTTP proxy, and STDIO. The engine selectors
   offer Antigravity, Claude and Codex using the existing compact controls. API-key creation now lives in the same web
