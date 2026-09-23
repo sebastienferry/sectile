@@ -77,6 +77,15 @@ var migrations = []migration{
 			"ALTER TABLE tasks ADD COLUMN creator_avatar TEXT NOT NULL DEFAULT '';",
 		},
 	},
+	{
+		// Cards carry their epic's colour only on the projects that ask for it,
+		// so every existing project starts with it off.
+		version: 3,
+		name:    "projects.epic_colors",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN epic_colors INTEGER NOT NULL DEFAULT 0;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

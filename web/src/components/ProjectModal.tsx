@@ -204,6 +204,8 @@ export const ProjectModal: React.FC = () => {
   // Vues optionnelles affichées par le projet. Vide vaut « aucune », ce que
   // porte un projet qui n'a jamais demandé Triage, Roadmap ou Timeline.
   const [enabledViews, setEnabledViews] = useState<OptionalViewMode[]>([])
+  // Couleur par épic sur les cartes. Désactivée tant que le projet ne la demande pas.
+  const [epicColors, setEpicColors] = useState(false)
   const [availableIssueTypes, setAvailableIssueTypes] = useState<string[]>([])
   const [isLoadingIssueTypes, setIsLoadingIssueTypes] = useState(false)
   const [detectedStatuses, setDetectedStatuses] = useState<DetectedStatus[]>([])
@@ -268,6 +270,7 @@ export const ProjectModal: React.FC = () => {
       setJiraProject(editingProject.jiraProject || '')
       setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
+      setEpicColors(editingProject.epicColors === true)
       setSkillOverrides(editingProject.skillOverrides || {})
 
 
@@ -300,6 +303,7 @@ export const ProjectModal: React.FC = () => {
       setAiSkillModels({})
       setSpecFramework(settings.specFramework || 'speckit')
       setUseWorktrees(true)
+      setEpicColors(false)
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
 
@@ -408,6 +412,7 @@ export const ProjectModal: React.FC = () => {
         jiraProject: jiraProject.trim().toUpperCase(),
         issueTypes,
         enabledViews,
+        epicColors,
         skillOverrides,
       }
 
@@ -749,6 +754,21 @@ export const ProjectModal: React.FC = () => {
                   latérale et dans la palette de commandes que pour les projets qui les
                   activent ici.
                 </p>
+                <label className="flex items-start gap-2 pt-1 text-xs text-[var(--text-secondary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={epicColors}
+                    onChange={e => setEpicColors(e.target.checked)}
+                    className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                  />
+                  <span>
+                    <span className="block font-bold text-[var(--text-primary)]">Couleur par épic</span>
+                    <span className="block text-[10px] text-[var(--text-muted)] leading-snug">
+                      Une barre et une pastille de la couleur de l'épic sur les cartes du Board,
+                      du Backlog, de la Timeline et sur les macros du Roadmap
+                    </span>
+                  </span>
+                </label>
               </div>
             </div>
           )}
