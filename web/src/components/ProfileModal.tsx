@@ -10,13 +10,11 @@ import {
   PanelRight,
   Square,
   Bot,
-  Terminal,
   FileCode,
   HelpCircle,
   Flame,
   ShieldCheck,
   CheckCircle2,
-  Info,
   KeyRound,
   UserRound,
   Monitor,
@@ -27,7 +25,7 @@ import {
 } from 'lucide-react'
 import { useApp, UI_SCALE_OPTIONS } from '../context/AppContext'
 import { SectileDesktopPanel, HeadlessCliAgentPanel } from './LocalAgentSetup'
-import { WorkstationsPanel, DirectMcpPanel } from './ApiKeys'
+import { WorkstationsPanel } from './ApiKeys'
 import { TrackerCredentialsTab } from './TrackerCredentialsTab'
 import { SignInStatus } from './SignInStatus'
 import { MCPEngineConfig } from './MCPEngineConfig'
@@ -35,23 +33,16 @@ import { Antigravity, Claude, OpenAI } from './icons'
 import type { Theme, Language, Density, ViewMode, DetailMode, AIProvider, SpecFramework } from '../types'
 import { AIModelField } from './AIModelField'
 import { ProviderModelsField } from './ProviderModelsField'
-import { CommandModePreview } from './CommandModePreview'
 import { isValidModel, providerModels } from '../lib/aiModels'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 
 type SettingsTab = 'account' | 'appearance' | 'trackers' | 'aiEngine' | 'sdd' | 'workstations'
 
-// A provider with no template runs the command lines the agent attests for each
-// execution mode, so selecting one clears the field rather than pinning a single
-// mode. Only a custom CLI has nothing to fall back to and needs a template.
-const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; defaultCmd: string; icon: React.ReactNode }[] = [
-  { id: 'agy', label: 'Antigravity', sub: 'Google Deepmind AGY CLI', defaultCmd: '', icon: <Antigravity size={16} /> },
-  { id: 'claude', label: 'Claude', sub: 'Anthropic Claude Code CLI', defaultCmd: '', icon: <Claude size={16} /> },
-  { id: 'codex', label: 'ChatGPT', sub: 'OpenAI Codex CLI', defaultCmd: '', icon: <OpenAI size={16} /> },
-  { id: 'custom', label: 'CLI Personnalisé', sub: 'Binaire ou script custom', defaultCmd: `/path/to/custom-cli {mode:-p|-i} '{prompt}'`, icon: <Terminal size={16} className="text-indigo-400" /> },
+const AI_PROVIDERS: { id: AIProvider; label: string; sub: string; icon: React.ReactNode }[] = [
+  { id: 'agy', label: 'Antigravity', sub: 'Google Deepmind AGY CLI', icon: <Antigravity size={16} /> },
+  { id: 'claude', label: 'Claude', sub: 'Anthropic Claude Code CLI', icon: <Claude size={16} /> },
+  { id: 'codex', label: 'Codex', sub: 'OpenAI Codex CLI', icon: <OpenAI size={16} /> },
 ]
-
-import { COMMAND_PRESETS } from '../lib/commandPresets'
 
 export const ProfileModal: React.FC = () => {
   const {
@@ -72,10 +63,8 @@ export const ProfileModal: React.FC = () => {
   const [detailMode, setDetailMode] = useState<DetailMode>(settings.detailMode || 'panel')
   const [uiScale, setUiScale] = useState<number>(settings.uiScale || 100)
 
-  // Agentic AI & CLI Configuration
+  // Agentic AI & Model Configuration
   const [aiProvider, setAiProvider] = useState<AIProvider>(settings.aiProvider || 'agy')
-  const [aiCommandTemplate, setAiCommandTemplate] = useState(settings.aiCommandTemplate || '')
-  const [aiCommandAutonomous, setAiCommandAutonomous] = useState(settings.aiCommandTemplateAutonomous || '')
   const [aiModel, setAiModel] = useState(settings.aiModel || '')
   const [aiProviderModels, setAiProviderModels] = useState<Record<string, string[]>>(settings.aiProviderModels || {})
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
@@ -97,8 +86,6 @@ export const ProfileModal: React.FC = () => {
       setDetailMode(settings.detailMode || 'panel')
       setUiScale(settings.uiScale || 100)
       setAiProvider(settings.aiProvider || 'agy')
-      setAiCommandTemplate(settings.aiCommandTemplate || '')
-      setAiCommandAutonomous(settings.aiCommandTemplateAutonomous || '')
       setAiModel(settings.aiModel || '')
       setAiProviderModels(settings.aiProviderModels || {})
       setSpecFramework(settings.specFramework || 'speckit')
@@ -134,12 +121,6 @@ export const ProfileModal: React.FC = () => {
 
   const handleProviderSelect = (provider: typeof AI_PROVIDERS[0]) => {
     setAiProvider(provider.id)
-    // A template written for another CLI cannot serve this one, and the empty
-    // value is the right default: it hands both modes back to the provider.
-    if (aiCommandTemplate.trim() === '' || AI_PROVIDERS.some(p => p.defaultCmd !== '' && p.defaultCmd === aiCommandTemplate)) {
-      setAiCommandTemplate(provider.defaultCmd)
-      setAiCommandAutonomous('')
-    }
   }
 
   // Un modèle mal formé désactive l'enregistrement : le bouton est en pied de
@@ -159,8 +140,6 @@ export const ProfileModal: React.FC = () => {
       detailMode,
       uiScale,
       aiProvider,
-      aiCommandTemplate: aiCommandTemplate.trim(),
-      aiCommandTemplateAutonomous: aiCommandAutonomous.trim(),
       aiModel: aiModel.trim(),
       aiProviderModels,
       specFramework,
@@ -518,107 +497,13 @@ export const ProfileModal: React.FC = () => {
 
                 <AIModelField
                   provider={aiProvider}
-                  commandTemplate={aiCommandTemplate}
                   value={aiModel}
                   onChange={setAiModel}
                   availableModels={providerModels({ aiProviderModels }, aiProvider)}
                   placeholder={t.profileModal.ai.defaultModelPlaceholder || 'Défaut du CLI'}
                   label={t.profileModal.ai.defaultModel}
                 />
-
-                {/* Command Line / CLI Parameters Section */}
-                <div className="space-y-2">
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] flex items-center gap-1.5">
-                    <Terminal size={14} className="text-indigo-400" />
-                    <span>
-                      {(t.profileModal.ai.cliParametersTitle || 'CLI & Commandes : {provider}')
-                        .replace('{provider}', AI_PROVIDERS.find(p => p.id === aiProvider)?.label || aiProvider.toUpperCase())}
-                    </span>
-                  </label>
-
-                  <div className="space-y-3 p-4 rounded-xl bg-[var(--bg-tertiary)]/70 border border-[var(--border-color)]">
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                        {t.profileModal.ai.cmdInteractive || 'Commande interactive'}
-                      </label>
-                      <input
-                        type="text"
-                        value={aiCommandTemplate}
-                        onChange={e => setAiCommandTemplate(e.target.value)}
-                        placeholder={`Ex : claude --model {model} '{prompt}'`}
-                        className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                      />
-                      <label className="block pt-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                        {t.profileModal.ai.cmdAutonomous || 'Commande autonome (headless)'}
-                      </label>
-                      <input
-                        type="text"
-                        value={aiCommandAutonomous}
-                        onChange={e => setAiCommandAutonomous(e.target.value)}
-                        placeholder={`Ex : claude -p --permission-mode bypassPermissions --model {model} '{prompt}'`}
-                        className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] transition-all"
-                      />
-                      <div className="flex flex-wrap items-center gap-1 text-[10.5px] text-[var(--text-muted)] leading-relaxed pt-1">
-                        <Info size={12} className="text-indigo-400 shrink-0" />
-                        <span className="font-semibold text-[var(--text-secondary)]">
-                          {t.profileModal.ai.availableVariables || 'Variables disponibles :'}
-                        </span>
-                        {[
-                          '{prompt}',
-                          '{issueKey}',
-                          '{issueTitle}',
-                          '{branchName}',
-                          '{repoPath}',
-                          '{model}',
-                          '{mode:AUTONOMOUS|INTERACTIVE}',
-                        ].map(token => (
-                          <button
-                            key={token}
-                            type="button"
-                            onClick={() => {
-                              setAiCommandTemplate(prev => prev ? `${prev} ${token}` : token)
-                            }}
-                            title={`+ ${token}`}
-                            className="bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] text-indigo-400 hover:text-indigo-300 border border-[var(--border-color)] px-1.5 py-0.5 rounded text-[9.5px] font-mono cursor-pointer transition-colors"
-                          >
-                            {token}
-                          </button>
-                        ))}
-                      </div>
-                      <CommandModePreview
-                        provider={aiProvider}
-                        template={aiCommandTemplate}
-                        model={aiModel}
-                        autonomousTemplate={aiCommandAutonomous}
-                      />
-                    </div>
-
-                    {/* Fast Preset buttons */}
-                    <div className="pt-2 border-t border-[var(--border-color)]">
-                      <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-bold mb-1.5">
-                        {t.profileModal.ai.fastPresets || 'Modèles de commande rapides :'}
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {COMMAND_PRESETS.map(preset => (
-                          <button
-                            key={preset.label}
-                            type="button"
-                            onClick={() => { setAiCommandTemplate(preset.cmd); setAiCommandAutonomous(preset.autonomous) }}
-                            className="px-2 py-1 bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)] text-[10.5px] rounded-lg font-mono transition-colors cursor-pointer"
-                          >
-                            {preset.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Direct MCP Configuration without local agent */}
-                <MCPEngineConfig
-                  selectedProvider={aiProvider}
-                  onNavigateToWorkstations={() => setActiveTab('workstations')}
-                />
+                <MCPEngineConfig key={aiProvider} selectedProvider={aiProvider} onNavigateToWorkstations={() => setActiveTab('workstations')} onKeyCreated={() => setDevicesVersion(v => v + 1)} />
               </div>
             )}
 
@@ -887,10 +772,7 @@ export const ProfileModal: React.FC = () => {
                 {/* 2. Sectile Desktop App */}
                 <SectileDesktopPanel />
 
-                {/* 3. Direct MCP Integration (AI Provider Desktop Apps) */}
-                <DirectMcpPanel onKeyCreated={() => setDevicesVersion(v => v + 1)} />
-
-                {/* 4. Headless Local Agent (CLI) */}
+                {/* 5. Headless Local Agent (CLI) */}
                 <HeadlessCliAgentPanel />
               </div>
             )}

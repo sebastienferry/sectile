@@ -624,7 +624,7 @@ A disconnected or incompatible configuration API prevents execution.
 
 Before launching an LLM CLI, the local agent automatically registers Sectile in
 that CLI's **user-level** configuration, and installs the managed skills there
-too. Claude Code, Cursor and Gemini get a Streamable HTTP entry addressing the
+too. Unless an explicit desktop MCP preference is saved, Claude Code, Cursor and Gemini get a Streamable HTTP entry addressing the
 server's `/mcp` with the workstation key as bearer, so their Sectile tools keep
 working while the agent is stopped; the other CLIs get the
 `sectile-agent mcp --url <server>` stdio bridge with the key in its environment.
@@ -701,11 +701,42 @@ A client limited to stdio runs the bridge with the same key:
 The bridge also reads `SECTILE_AGENT_URL`. Terminals launched by the agent
 inherit it, set to the server, together with `SECTILE_AGENT_TOKEN`. The agent
 gateway on `http://127.0.0.1:8091` still proxies `/mcp` and `/api/` and takes the
-same key. Set `SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in
+same key by default. Selecting local proxy mode in desktop settings explicitly
+allows native loopback MCP clients without a key; `/api/` remains authenticated.
+Set `SECTILE_MCP_CLIENT`, or pass `--client`, to name that client in
 the session list; the bridge otherwise reports its host and process id.
 Protocol output uses
 stdout; diagnostics use stderr. The stdio bridge never falls back to another
 database or server after an error.
+
+### Choosing the MCP connection
+
+In the web profile, **AI Engine** contains one **MCP configuration** for the
+selected provider, including API-key creation. Choose **Remote HTTP** (default), **Local HTTP proxy**, or **STDIO** to
+display one configuration. The supported UI engines are Antigravity, Claude and Codex.
+Copy the example into the indicated user configuration,
+merge it with existing entries, replace the API key placeholder, and restart the
+AI engine. HTTP needs no local Sectile process. STDIO starts `sectile-agent mcp`;
+install the binary in PATH or use its absolute path. Development previews use
+`http://localhost:8090` for remote MCP, independently of the Vite UI port.
+Set `VITE_MCP_SERVER_URL` to override the server URL shown in configuration
+examples; production otherwise uses the current web origin.
+
+Desktop **Settings → Agents CLI → MCP configuration** offers the same three choices. HTTP connects directly to the remote server
+with the pairing key or to the local no-auth proxy. STDIO starts a bridge
+to the remote server with the pairing key and needs no running daemon. **Update provider configuration** writes the selected
+provider's user file, preserving other servers and tool permissions. Remote mode
+works with the agent stopped. Local mode requires the agent to remain running
+and lets any native process on the workstation use MCP as the paired user.
+Browser origins and unexpected Host headers are rejected; the remote server and
+local API routes still require authentication. Selecting remote mode for every
+provider disables the no-auth proxy again.
+
+Choices are stored per provider in `mcpConnections` in workstation settings,
+with `transport` (`http` or `stdio`) and `target` (`remote` or `local`). They survive
+launch-time setup and refresh after agent restart, including a changed local port.
+The preview uses a key placeholder; the desktop update writes the real paired key
+only for remote connections. Reload the AI engine after applying a change.
 
 Optional workstation overrides belong in `~/.config/sectile/settings.json`:
 
