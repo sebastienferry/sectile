@@ -7,7 +7,7 @@
 - [x] Verify wide/narrow panel and modal layout and representative existing interactions in a browser.
 - [x] Update the changelog and run web build, lint and unit tests.
 - [x] Review complete diff against specification and current remote default branch.
-- [ ] Update the existing draft pull request, verify published head, and mark ready.
+- [x] Update the existing draft pull request, verify published head, and mark ready.
 
 ## Validation evidence — 2026-09-23
 
