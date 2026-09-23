@@ -47,6 +47,7 @@ import type { TeamMember, Status, Priority, DetailMode, SpecFramework, WorkflowS
 import { WORKFLOW_ORDER, prRecoverySkill, resolveTaskStage } from '../lib/workflow'
 import { addPullRequestLink, taskPullRequestLinks } from '../lib/pullRequests'
 import { TaskComments } from './TaskComments'
+import { Avatar } from './Avatar'
 import { LookupField, type LookupOption } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { sprintLookup, macroLookup, isProjectCompatible } from '../lib/lookups'
@@ -1038,6 +1039,26 @@ export const TaskDetailModal: React.FC = () => {
 
         </div>
 
+        {/* Creator (read-only authorship from tracker or local creation) */}
+        {selectedTask.creator && (
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+              Créé par
+            </label>
+            <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] h-[34px]">
+              <Avatar
+                name={selectedTask.creator}
+                url={selectedTask.creatorAvatar}
+                size={18}
+                title={`Créateur : ${selectedTask.creator}`}
+              />
+              <span className="truncate font-medium text-[var(--text-primary)]" title={selectedTask.creator}>
+                {selectedTask.creator}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Sprint : sélection ou recherche de sprint pour le ticket */}
         <div>
           <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
@@ -1837,9 +1858,23 @@ export const TaskDetailModal: React.FC = () => {
 
             {/* Panel Sticky Footer */}
             <div className="flex items-center justify-between px-6 py-3.5 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 shrink-0">
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {t.taskModal.created} {new Date(selectedTask.createdAt).toLocaleDateString()}
-              </span>
+              <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+                <span>
+                  {t.taskModal.created} {new Date(selectedTask.createdAt).toLocaleDateString()}
+                </span>
+                {selectedTask.creator && (
+                  <span className="flex items-center gap-1.5 border-l border-[var(--border-color)] pl-2">
+                    <span>Créé par</span>
+                    <Avatar
+                      name={selectedTask.creator}
+                      url={selectedTask.creatorAvatar}
+                      size={14}
+                      title={`Créé par ${selectedTask.creator}`}
+                    />
+                    <span className="font-medium text-[var(--text-secondary)]">{selectedTask.creator}</span>
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -2062,9 +2097,23 @@ export const TaskDetailModal: React.FC = () => {
 
         {/* Modal Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-[var(--border-color)] bg-[var(--bg-tertiary)]/30 shrink-0">
-          <span className="text-[11px] text-[var(--text-muted)]">
-            {t.taskModal.created} {new Date(selectedTask.createdAt).toLocaleDateString()}
-          </span>
+          <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
+            <span>
+              {t.taskModal.created} {new Date(selectedTask.createdAt).toLocaleDateString()}
+            </span>
+            {selectedTask.creator && (
+              <span className="flex items-center gap-1.5 border-l border-[var(--border-color)] pl-2">
+                <span>Créé par</span>
+                <Avatar
+                  name={selectedTask.creator}
+                  url={selectedTask.creatorAvatar}
+                  size={14}
+                  title={`Créé par ${selectedTask.creator}`}
+                />
+                <span className="font-medium text-[var(--text-secondary)]">{selectedTask.creator}</span>
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"

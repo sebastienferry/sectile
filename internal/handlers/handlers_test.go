@@ -520,3 +520,110 @@ func TestHealthEndpointReturnsSectileAPI(t *testing.T) {
 		t.Errorf("Expected service 'sectile-api' for backward compatibility, got %q", healthRes["service"])
 	}
 }
+
+func TestCreateTaskPopulatesCreatorFromAuthenticatedPrincipal(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	database, err := db.NewDB(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.Close()
+
+	proj, err := database.CreateProject(models.CreateProjectRequest{
+		Name:         "Local Test Project",
+		IssueTracker: "local",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
+
+	user, err := database.SignInLocal("alice@example.com")
+	if err != nil {
+		t.Fatalf("Failed to sign in user: %v", err)
+	}
+	token, _, err := database.CreateWebSession(user.ID)
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+	sessionCookie := &http.Cookie{Name: "sectile_session", Value: token}
+
+	avatarURL := "https://example.com/alice.png"
+	_, err = database.UpdateUserSettings(user.ID, models.Settings{UserAvatar: avatarURL})
+	if err != nil {
+		t.Fatalf("Failed to update user settings: %v", err)
+	}
+
+	h := handlers.NewHandler(database)
+
+	// 1. Authenticated task creation
+	taskBody := `{"title": "Alice Task", "source": "local", "projectId": "` + proj.ID + `"}`
+	req, _ := http.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(taskBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(sessionCookie)
+	rr := httptest.NewRecorder()
+	h.HandleTasks(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var created models.Task
+	if err := json.Unmarshal(rr.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if created.Creator != "alice@example.com" {
+		t.Errorf("Expected Creator 'alice@example.com', got %q", created.Creator)
+	}
+	if created.CreatorAvatar != avatarURL {
+		t.Errorf("Expected CreatorAvatar %q, got %q", avatarURL, created.CreatorAvatar)
+	}
+
+	// 2. Anonymous task creation
+	anonBody := `{"title": "Anonymous Task", "source": "local", "projectId": "` + proj.ID + `"}`
+	anonReq, _ := http.NewRequest(http.MethodPost, "/api/tasks", strings.NewReader(anonBody))
+	anonReq.Header.Set("Content-Type", "application/json")
+	anonRR := httptest.NewRecorder()
+	h.HandleTasks(anonRR, anonReq)
+
+	if anonRR.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d: %s", anonRR.Code, anonRR.Body.String())
+	}
+	var anonCreated models.Task
+	if err := json.Unmarshal(anonRR.Body.Bytes(), &anonCreated); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if anonCreated.Creator != "" {
+		t.Errorf("Expected empty Creator for anonymous task, got %q", anonCreated.Creator)
+	}
+	if anonCreated.CreatorAvatar != "" {
+		t.Errorf("Expected empty CreatorAvatar for anonymous task, got %q", anonCreated.CreatorAvatar)
+	}
+
+	// 3. Batch creation with authenticated session
+	batchBody := `[{"title": "Batch Task 1", "source": "local", "projectId": "` + proj.ID + `"}, {"title": "Batch Task 2", "source": "local", "projectId": "` + proj.ID + `"}]`
+	batchReq, _ := http.NewRequest(http.MethodPost, "/api/tasks/batch", strings.NewReader(batchBody))
+	batchReq.Header.Set("Content-Type", "application/json")
+	batchReq.AddCookie(sessionCookie)
+	batchRR := httptest.NewRecorder()
+	h.HandleTasks(batchRR, batchReq)
+
+	if batchRR.Code != http.StatusCreated {
+		t.Fatalf("Expected 201, got %d: %s", batchRR.Code, batchRR.Body.String())
+	}
+	var batchCreated []models.Task
+	if err := json.Unmarshal(batchRR.Body.Bytes(), &batchCreated); err != nil {
+		t.Fatalf("Failed to parse response: %v", err)
+	}
+	if len(batchCreated) != 2 {
+		t.Fatalf("Expected 2 tasks created, got %d", len(batchCreated))
+	}
+	for i, task := range batchCreated {
+		if task.Creator != "alice@example.com" {
+			t.Errorf("Batch task [%d] expected Creator 'alice@example.com', got %q", i, task.Creator)
+		}
+		if task.CreatorAvatar != avatarURL {
+			t.Errorf("Batch task [%d] expected CreatorAvatar %q, got %q", i, avatarURL, task.CreatorAvatar)
+		}
+	}
+}

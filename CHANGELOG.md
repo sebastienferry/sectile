@@ -15,6 +15,17 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Agents CLI workstation settings and local inheritance (#359).** The desktop
+  app now includes an **Agents CLI** category in its settings dialog to
+  configure workstation-wide CLI defaults (AI provider, AI model, and
+  interactive/autonomous command templates), saved in `~/.config/sectile/settings.json`.
+  Desktop project settings inherit from these workstation defaults, and CLI command
+  templates are removed from the central Web UI. Autonomous execution preflight
+  validation is delegated to the local agent daemon.
+- **Ticket creator and author attribution.** Synchronisation with GitHub and
+  Jira captures the original issue creator and avatar, and local task creation
+  attributes the task to the authenticated user. Authorship is displayed in the
+  task detail panel and list view.
 - **A macro's roadmap horizon now reaches the tracker.** Classifying a macro as
   NOW, NEXT or LATER writes a `roadmap:now`, `roadmap:next` or `roadmap:later`
   label on its epic and removes the other three, so the classification is
