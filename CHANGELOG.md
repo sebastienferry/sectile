@@ -102,7 +102,8 @@ test fixtures or internal plumbing.
   changes. The main checkout is never linked to or touched, `.env` files are not
   shared, and a failed install is logged without blocking the launch. Switching
   a task's branch from the board no longer leaves the agent stuck on its own
-  lock.
+  lock, and answers without waiting for the install, which runs in the
+  background.
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the

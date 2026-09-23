@@ -13,11 +13,15 @@ import (
 
 // fakeInstall replaces npmInstall for one test. It records the folders it ran in
 // and, unless fail names the folder, creates node_modules there as npm ci would.
+// When gate is set, each install signals started once recorded, then waits for
+// gate to close, standing in for a slow npm ci.
 type fakeInstall struct {
 	mu        sync.Mutex
 	dirs      []string
 	fail      map[string]bool
 	deadlines []bool
+	gate      chan struct{}
+	started   chan string
 }
 
 func useFakeInstall(t *testing.T) *fakeInstall {
@@ -26,11 +30,19 @@ func useFakeInstall(t *testing.T) *fakeInstall {
 	previous := npmInstall
 	npmInstall = func(ctx context.Context, dir string) error {
 		fake.mu.Lock()
-		defer fake.mu.Unlock()
 		_, hasDeadline := ctx.Deadline()
 		fake.dirs = append(fake.dirs, dir)
 		fake.deadlines = append(fake.deadlines, hasDeadline)
-		if fake.fail[dir] {
+		failed := fake.fail[dir]
+		gate, started := fake.gate, fake.started
+		fake.mu.Unlock()
+		if started != nil {
+			started <- dir
+		}
+		if gate != nil {
+			<-gate
+		}
+		if failed {
 			return errors.New("npm ci exited with status 1")
 		}
 		return os.MkdirAll(filepath.Join(dir, "node_modules", "typescript"), 0755)

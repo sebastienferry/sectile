@@ -17,7 +17,11 @@ Worktrees are created by `ensureLocalWorktree` (`internal/agent/agent_config.go`
 - the `prepare_workspace` operation (`internal/agent/agent_operations.go`), which the server
   sends for `POST /api/tasks/{id}/checkout-branch` through `DB.EnsureTaskWorktree`.
 
-Provisioning is added to `prepareDispatch`, so both callers get it.
+Provisioning is added to `prepareDispatch`, so both callers get it. The launch path waits for
+it. The `prepare_workspace` operation backs a synchronous board request, so it answers as soon
+as the worktree exists and runs `provisionWorktree` in the background, with a context detached
+from the operation's (which is cancelled once it answers). A launch that follows waits on the
+per-worktree mutex instead of installing a second time.
 
 ### Outside `prepareMu`
 
@@ -29,7 +33,9 @@ returns the resolved project root, and `prepareDispatch` becomes a wrapper: take
 preparation succeeded.
 
 Two preparations of the **same** worktree are serialised by a per-directory mutex held by the
-provisioning step, so two installs never run in one folder at once.
+provisioning step, so two installs never run in one folder at once. The mutex is keyed by the
+resolved path (`filepath.EvalSymlinks`): the path a worktree is created at and the one git reports
+for it later can differ, and two spellings would give one folder two locks.
 
 ### Existing deadlock in `prepare_workspace`
 
@@ -41,9 +47,8 @@ the lock itself.
 
 ### Server budget
 
-`operationTimeout` gives `prepare_workspace` the 45 s default. A first install exceeds it, so
-`prepare_workspace` gets a 17 minute budget. That stays above the agent's
-total provisioning timeout (15 minutes) plus the git work.
+`operationTimeout` gives `prepare_workspace` the 45 s default. Since the operation answers before
+the install, that default stays: `POST /api/tasks/{id}/checkout-branch` never waits on `npm ci`.
 
 ## The provisioning step (`internal/agent/provision.go`)
 
@@ -104,7 +109,9 @@ The injected `npmInstall` records the folders it was called for and creates `nod
 - a failing install → no stamp, the other folders are still attempted;
 - the context passed to the install carries a deadline.
 
-`internal/db/agentoperations_test.go`: the `prepare_workspace` row expects 17 minutes.
+`internal/agent/agent_operations_test.go`: `prepare_workspace` answers while the install is still
+running, and a launch of the same task waits for that install without running a second one; a
+launch preparation waits for its install before returning.
 
 ## Rejected alternatives
 

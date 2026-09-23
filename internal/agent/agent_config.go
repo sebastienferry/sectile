@@ -377,15 +377,22 @@ func ensureLocalWorktree(ctx context.Context, root string, task models.Task, use
 // prepareDispatch resolves the task's workspace, then provisions its
 // dependencies. The install can take minutes, so it runs once prepareMu is
 // released: holding the mutex through it would stall every other preparation on
-// the agent behind one npm ci.
+// the agent behind one npm ci. The launch path waits for the install, so the
+// session starts with its dependencies in place.
 func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, models.Task, error) {
-	d.prepareMu.Lock()
-	config, root, workDir, branch, task, err := d.prepareDispatchLocked(ctx, taskKey, useWorktrees...)
-	d.prepareMu.Unlock()
+	config, root, workDir, branch, task, err := d.prepareWorkspace(ctx, taskKey, useWorktrees...)
 	if err == nil {
 		provisionWorktree(ctx, root, workDir)
 	}
 	return config, workDir, branch, task, err
+}
+
+// prepareWorkspace resolves the task's workspace under prepareMu without
+// provisioning it, and returns the project root beside the working directory.
+func (d *agentDaemon) prepareWorkspace(ctx context.Context, taskKey string, useWorktrees ...bool) (agentconfig.Config, string, string, string, models.Task, error) {
+	d.prepareMu.Lock()
+	defer d.prepareMu.Unlock()
+	return d.prepareDispatchLocked(ctx, taskKey, useWorktrees...)
 }
 
 // prepareDispatchLocked is the part of prepareDispatch that runs under

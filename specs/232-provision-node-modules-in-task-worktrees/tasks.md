@@ -15,8 +15,9 @@ tree building and the suite green.
       the root too) and a wrapper that runs `provisionWorktree` after the lock is released.
 - [x] **B2** Remove the redundant `prepareMu` lock in the `prepare_workspace` case of
       `internal/agent/agent_operations.go` (existing self-deadlock).
-- [x] **B3** Give `prepare_workspace` a 17 minute budget in `operationTimeout`
-      (`internal/db/agentoperations.go`), and update `agentoperations_test.go`.
+- [x] **B3** Make `prepare_workspace` answer once the worktree exists and provision in the
+      background, so the board's branch checkout keeps the 45 s `operationTimeout` default; the
+      launch path still waits.
 
 ## Block C - Tests
 

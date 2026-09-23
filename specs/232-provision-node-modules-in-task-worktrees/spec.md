@@ -47,12 +47,15 @@ This document states behaviour and acceptance criteria only. Technical choices a
 3. **npm only.** A package folder is installed only when it also holds a `package-lock.json`.
    Otherwise it is skipped with a log line.
 4. **Idempotent, on every preparation.** Provisioning runs every time the agent prepares a task
-   workspace, both at launch and on `prepare_workspace`. An install is skipped when
+   workspace, both at launch and on `prepare_workspace` (where it runs in the background, see
+   decision 5). An install is skipped when
    `node_modules/.install-stamp` is newer than both `package.json` and `package-lock.json`,
    the convention the `Makefile` already follows.
 5. **The launch waits, but never fails because of provisioning.** The install runs before the
    session starts, with a bounded timeout. A failure, a timeout or a missing `npm` is logged, and
    the launch continues. A failed install writes no stamp, so it is retried at the next launch.
+   A branch checkout from the board (`prepare_workspace`) does not wait: it answers once the
+   worktree exists, and a launch that follows waits for that install rather than running another.
 6. **A link is never installed through.** When a worktree's `node_modules` exists and is not a
    plain directory (a symlink, a junction, a file), nothing is run in that folder.
 

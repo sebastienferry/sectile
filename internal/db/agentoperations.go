@@ -98,11 +98,6 @@ func operationTimeout(action string) time.Duration {
 	if action == "run_prompt" {
 		return 12 * time.Minute
 	}
-	// prepare_workspace installs the worktree's JavaScript dependencies before
-	// answering, which the agent bounds at fifteen minutes.
-	if action == "prepare_workspace" {
-		return 17 * time.Minute
-	}
 	if d, ok := localInspections[action]; ok {
 		return d
 	}

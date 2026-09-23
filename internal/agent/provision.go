@@ -62,7 +62,7 @@ func provisionWorktree(ctx context.Context, root, workDir string) {
 		// The main checkout keeps being managed by make web-deps and desktop-deps.
 		return
 	}
-	lock, _ := provisionLocks.LoadOrStore(filepath.Clean(workDir), &sync.Mutex{})
+	lock, _ := provisionLocks.LoadOrStore(provisionLockKey(workDir), &sync.Mutex{})
 	lock.(*sync.Mutex).Lock()
 	defer lock.(*sync.Mutex).Unlock()
 
@@ -96,6 +96,17 @@ func provisionWorktree(ctx context.Context, root, workDir string) {
 			log.Printf("[Agent] Dependencies installed in %s but the stamp was not written: %v", dir, err)
 		}
 	}
+}
+
+// provisionLockKey names a worktree the same way whichever path reached it. The
+// path a worktree is created at and the one git reports for it later can differ
+// (a symlinked temp directory, a Windows short name), and two spellings would
+// give one folder two locks.
+func provisionLockKey(workDir string) string {
+	if resolved, err := filepath.EvalSymlinks(workDir); err == nil {
+		return resolved
+	}
+	return filepath.Clean(workDir)
 }
 
 // packageFolders lists the worktree root and its direct subdirectories that
