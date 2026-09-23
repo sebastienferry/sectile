@@ -855,318 +855,444 @@ export const TaskDetailModal: React.FC = () => {
         />
       </div>
 
-      {/* Deux lignes de quatre champs. Première ligne : ce qui pilote le workflow
-          (statut, étape, priorité, projet). Seconde ligne, ci-dessous : qui porte
-          le ticket, pour quand et pour quelle équipe. Les six colonnes d'avant
-          écrasaient chaque champ sur un écran ordinaire. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Status */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            {t.taskModal.status}
-          </label>
-          {hasProjectStatuses ? (
-            <select
-              value={trackerStatus}
-              onChange={e => applyTrackerStatus(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-              title="Statuts du projet, tels que le tracker les nomme"
-            >
-              <option value="">— non défini —</option>
-              {projectColumns.map(col => (
-                <optgroup key={col.name} label={col.name}>
-                  {col.statuses.map(st => (
-                    <option key={st} value={st}>{st}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          ) : (
-            <select
-              value={status}
-              onChange={e => handleStatusChange(e.target.value as Status)}
-              className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-            >
-              <option value="to_clarify">{t.status.to_clarify} (#new)</option>
-              <option value="clarified">{t.status.clarified} (#clarified)</option>
-              <option value="to_implement">{t.status.to_implement} (#specified)</option>
-              <option value="to_test">{t.status.to_test} (#implemented)</option>
-              <option value="to_close">{t.status.to_close} (#reviewed)</option>
-              <option value="finished">{t.status.finished} (#finished)</option>
-            </select>
-          )}
-        </div>
-
-        {/* Étape du workflow agentique, couplée au statut par le mapping */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            Étape agentique
-          </label>
-          <select
-            value={currentStage}
-            onChange={e => applyStage(e.target.value as WorkflowStage)}
-            className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-            title="Label du workflow agentique. Le statut suit selon le mapping du projet."
-          >
-            {WORKFLOW_ORDER.map(stage => (
-              <option key={stage} value={stage}>#{stage}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Priority */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            {t.taskModal.priority}
-          </label>
-          <select
-            value={priority}
-            onChange={e => handlePriorityChange(e.target.value as Priority)}
-            className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-          >
-            <option value="urgent">{t.priority.urgent}</option>
-            <option value="high">{t.priority.high}</option>
-            <option value="medium">{t.priority.medium}</option>
-            <option value="low">{t.priority.low}</option>
-          </select>
-        </div>
-
-        {/* Project */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            Projet
-          </label>
-          <select
-            value={taskProjectId}
-            onChange={async (e) => {
-              const val = e.target.value
-              if (!val || val === taskProjectId) return
-              const sourceProj = projects.find(p => p.id === (selectedTask?.projectId || taskProjectId))
-              const targetProj = projects.find(p => p.id === val)
-              if (selectedTask) {
-                if (sourceProj && targetProj && !isProjectCompatible(sourceProj, targetProj)) {
-                  if (!confirm(`Attention: Le projet "${targetProj.name}" a un tracker différent de "${sourceProj.name}". Déplacer ce ticket vers ce projet quand même ?`)) {
-                    return
-                  }
-                }
-                setTaskProjectId(val)
-                const res = await migrateTasks([selectedTask.id], val)
-                if (res.success) {
-                  const updated = tasks.find(t => t.id === selectedTask.id)
-                  if (updated) setSelectedTask(updated)
-                }
-              } else {
-                setTaskProjectId(val)
-              }
-            }}
-            className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
-          >
-            {(() => {
-              const bookmarked = projects.filter(p => p.bookmarked)
-              const others = projects.filter(p => !p.bookmarked)
-              if (bookmarked.length > 0 && others.length > 0) {
-                return (
-                  <>
-                    <optgroup label="Favoris">
-                      {bookmarked.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.issueTracker || 'local'})
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="Autres projets">
-                      {others.map(p => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.issueTracker || 'local'})
-                        </option>
-                      ))}
-                    </optgroup>
-                  </>
-                )
-              }
-              return projects.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({p.issueTracker || 'local'})
-                </option>
-              ))
-            })()}
-          </select>
-        </div>
-
-      </div>
-
-      {/* Ligne dédiée : assigné, sprint, équipe, échéance. Ces quatre champs sont
-          ceux qu'on change en planifiant, et trois d'entre eux sont des écritures
-          tracker à part entière. */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Assignee : les membres de l'équipe du ticket sans frappe, puis toute
-            l'instance dès qu'on tape. Un assigné hors équipe reste proposé pour
-            ne pas effacer silencieusement ce que porte le ticket. */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            {t.taskModal.assignee}
-            {selectedTask.team && (
-              <span className="ml-1 font-normal normal-case tracking-normal text-[var(--text-muted)]">
-                · {selectedTask.team}
-              </span>
-            )}
-          </label>
-          {selectedTask.source === 'jira' ? (
-            <LookupField
-              value={assignee}
-              icon={<User size={12} />}
-              placeholder="Chercher une personne…"
-              clearLabel="Non assigné"
-              emptyHint="Personne trouvée. Tapez un nom ou un e-mail."
-              onSearch={searchAssignee}
-              onPick={option => {
-                setAssignee(option?.label || '')
-                setAssigneeAccountId(option?.id || '')
-              }}
-            />
-          ) : (
-            <div className="relative">
-              <input
-                type="text"
-                value={assignee}
-                onChange={e => setAssignee(e.target.value)}
-                placeholder="Assigné à..."
-                className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-              />
-              <User size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
-            </div>
-          )}
-
-        </div>
-
-        {/* Creator (read-only authorship from tracker or local creation) */}
-        {selectedTask.creator && (
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              Créé par
+      {/* Content comes first in both the visual and keyboard reading order. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-5 items-start">
+        {/* Description / Acceptance criteria */}
+        <div className="min-w-0 space-y-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+              Description & Contexte Technique
             </label>
-            <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] h-[34px]">
-              <Avatar
-                name={selectedTask.creator}
-                url={selectedTask.creatorAvatar}
-                size={18}
-                title={`Créateur : ${selectedTask.creator}`}
-              />
-              <span className="truncate font-medium text-[var(--text-primary)]" title={selectedTask.creator}>
-                {selectedTask.creator}
-              </span>
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={withComments}
+                  onChange={e => setWithComments(e.target.checked)}
+                  className="rounded border-[var(--border-color)] text-[var(--accent-color)] focus:ring-0 cursor-pointer"
+                />
+                <span>Inclure les commentaires</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => runSkill(selectedTask.id, 'rewrite_story', '', { withComments })}
+                disabled={isSkillRunning}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
+                title="Reformuler la description en User Story structurée GFM"
+              >
+                {isSkillRunning && runningSkillId === 'rewrite_story' ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Sparkles size={13} />
+                )}
+                <span>Reformuler la story</span>
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Sprint : sélection ou recherche de sprint pour le ticket */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            Sprint
-          </label>
-          <LookupField
-            value={sprint}
-            icon={<CalendarRange size={12} />}
-            placeholder="Chercher ou nommer un sprint…"
-            clearLabel="Backlog (aucun sprint)"
-            emptyHint="Aucun sprint trouvé. Tapez un nom pour créer."
-            onSearch={async (query: string) => {
-              const res = await searchSprint(query)
-              if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase())) {
-                res.unshift({ id: query.trim(), label: query.trim(), sublabel: 'Nouveau sprint' })
-              }
-              return res
-            }}
-            onPick={option => {
-              const val = option?.label || ''
-              setSprint(val)
-              if (selectedTask && selectedTask.source === 'jira') {
-                setTaskSprint(selectedTask.id, option?.id || '', val)
-              }
-            }}
+          {rewriteActivity?.output && rewriteActivity.id !== dismissedRewriteId && (
+            <div className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
+                  <Sparkles size={14} />
+                  Aperçu de la story reformulée
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (rewriteActivity.output) {
+                        setDescription(rewriteActivity.output)
+                        await updateTask(selectedTask.id, { description: rewriteActivity.output })
+                        setDismissedRewriteId(rewriteActivity.id)
+                        addToast({
+                          type: 'success',
+                          title: 'Description mise à jour',
+                          description: 'La description de la tâche a été remplacée par la version reformulée.',
+                        })
+                      }
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition-colors flex items-center gap-1"
+                  >
+                    <Check size={13} />
+                    Appliquer à la description
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDismissedRewriteId(rewriteActivity.id)}
+                    className="px-2 py-1 rounded-lg text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    Masquer
+                  </button>
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] max-h-60 overflow-y-auto">
+                <MarkdownEditor value={rewriteActivity.output} onChange={() => {}} minHeight={120} />
+              </div>
+            </div>
+          )}
+
+          <MarkdownEditor
+            value={description}
+            onChange={setDescription}
+            placeholder={t.taskModal.descPlaceholder}
+            minHeight={320}
+            maxHeight={window.innerHeight * 0.6}
           />
         </div>
 
-        {/* Équipe : le champ Team du tracker, modifiable. L'écriture part tout de
-            suite dans la file, contrairement aux champs texte qui attendent
-            l'enregistrement de la fiche : c'est une opération à part côté Jira. */}
-        {selectedTask.source === 'jira' && (
-          <div>
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-              Équipe
-            </label>
+        <div className="min-w-0 space-y-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Status */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.taskModal.status}
+              </label>
+              {hasProjectStatuses ? (
+                <select
+                  value={trackerStatus}
+                  onChange={e => applyTrackerStatus(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  title="Statuts du projet, tels que le tracker les nomme"
+                >
+                  <option value="">— non défini —</option>
+                  {projectColumns.map(col => (
+                    <optgroup key={col.name} label={col.name}>
+                      {col.statuses.map(st => (
+                        <option key={st} value={st}>{st}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              ) : (
+                <select
+                  value={status}
+                  onChange={e => handleStatusChange(e.target.value as Status)}
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                >
+                  <option value="to_clarify">{t.status.to_clarify} (#new)</option>
+                  <option value="clarified">{t.status.clarified} (#clarified)</option>
+                  <option value="to_implement">{t.status.to_implement} (#specified)</option>
+                  <option value="to_test">{t.status.to_test} (#implemented)</option>
+                  <option value="to_close">{t.status.to_close} (#reviewed)</option>
+                  <option value="finished">{t.status.finished} (#finished)</option>
+                </select>
+              )}
+            </div>
+
+            {/* Étape du workflow agentique, couplée au statut par le mapping */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Étape agentique
+              </label>
+              <select
+                value={currentStage}
+                onChange={e => applyStage(e.target.value as WorkflowStage)}
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                title="Label du workflow agentique. Le statut suit selon le mapping du projet."
+              >
+                {WORKFLOW_ORDER.map(stage => (
+                  <option key={stage} value={stage}>#{stage}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Priority */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.taskModal.priority}
+              </label>
+              <select
+                value={priority}
+                onChange={e => handlePriorityChange(e.target.value as Priority)}
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+              >
+                <option value="urgent">{t.priority.urgent}</option>
+                <option value="high">{t.priority.high}</option>
+                <option value="medium">{t.priority.medium}</option>
+                <option value="low">{t.priority.low}</option>
+              </select>
+            </div>
+
+            {/* Project */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Projet
+              </label>
+              <select
+                value={taskProjectId}
+                onChange={async (e) => {
+                  const val = e.target.value
+                  if (!val || val === taskProjectId) return
+                  const sourceProj = projects.find(p => p.id === (selectedTask?.projectId || taskProjectId))
+                  const targetProj = projects.find(p => p.id === val)
+                  if (selectedTask) {
+                    if (sourceProj && targetProj && !isProjectCompatible(sourceProj, targetProj)) {
+                      if (!confirm(`Attention: Le projet "${targetProj.name}" a un tracker différent de "${sourceProj.name}". Déplacer ce ticket vers ce projet quand même ?`)) {
+                        return
+                      }
+                    }
+                    setTaskProjectId(val)
+                    const res = await migrateTasks([selectedTask.id], val)
+                    if (res.success) {
+                      const updated = tasks.find(t => t.id === selectedTask.id)
+                      if (updated) setSelectedTask(updated)
+                    }
+                  } else {
+                    setTaskProjectId(val)
+                  }
+                }}
+                className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-medium"
+              >
+                {(() => {
+                  const bookmarked = projects.filter(p => p.bookmarked)
+                  const others = projects.filter(p => !p.bookmarked)
+                  if (bookmarked.length > 0 && others.length > 0) {
+                    return (
+                      <>
+                        <optgroup label="Favoris">
+                          {bookmarked.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.issueTracker || 'local'})
+                            </option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="Autres projets">
+                          {others.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name} ({p.issueTracker || 'local'})
+                            </option>
+                          ))}
+                        </optgroup>
+                      </>
+                    )
+                  }
+                  return projects.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.issueTracker || 'local'})
+                    </option>
+                  ))
+                })()}
+              </select>
+            </div>
+
+          </div>
+
+          {/* Planning metadata retains its existing tracker-specific controls. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Assignee: retain the current value alongside team and search results. */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.taskModal.assignee}
+                {selectedTask.team && (
+                  <span className="ml-1 font-normal normal-case tracking-normal text-[var(--text-muted)]">
+                    · {selectedTask.team}
+                  </span>
+                )}
+              </label>
+              {selectedTask.source === 'jira' ? (
+                <LookupField
+                  value={assignee}
+                  icon={<User size={12} />}
+                  placeholder="Chercher une personne…"
+                  clearLabel="Non assigné"
+                  emptyHint="Personne trouvée. Tapez un nom ou un e-mail."
+                  onSearch={searchAssignee}
+                  onPick={option => {
+                    setAssignee(option?.label || '')
+                    setAssigneeAccountId(option?.id || '')
+                  }}
+                />
+              ) : (
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={assignee}
+                    onChange={e => setAssignee(e.target.value)}
+                    placeholder="Assigné à..."
+                    className="w-full pl-7 pr-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                  />
+                  <User size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)]" />
+                </div>
+              )}
+
+            </div>
+
+            {/* Creator (read-only authorship from tracker or local creation) */}
+            {selectedTask.creator && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  Créé par
+                </label>
+                <div className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-secondary)] h-[34px]">
+                  <Avatar
+                    name={selectedTask.creator}
+                    url={selectedTask.creatorAvatar}
+                    size={18}
+                    title={`Créateur : ${selectedTask.creator}`}
+                  />
+                  <span className="truncate font-medium text-[var(--text-primary)]" title={selectedTask.creator}>
+                    {selectedTask.creator}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Sprint selection and lookup */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Sprint
+              </label>
               <LookupField
-                value={selectedTask.team || ''}
-                icon={<Users size={12} />}
-                placeholder="Chercher une équipe…"
-                clearLabel="Aucune équipe"
-                emptyHint="Aucune équipe trouvée pour cette recherche."
-                onSearch={searchTeam}
+                value={sprint}
+                icon={<CalendarRange size={12} />}
+                placeholder="Chercher ou nommer un sprint…"
+                clearLabel="Backlog (aucun sprint)"
+                emptyHint="Aucun sprint trouvé. Tapez un nom pour créer."
+                onSearch={async (query: string) => {
+                  const res = await searchSprint(query)
+                  if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase())) {
+                    res.unshift({ id: query.trim(), label: query.trim(), sublabel: 'Nouveau sprint' })
+                  }
+                  return res
+                }}
                 onPick={option => {
-                  setTaskTeam(selectedTask.id, option?.id || '', option?.label)
+                  const val = option?.label || ''
+                  setSprint(val)
+                  if (selectedTask && selectedTask.source === 'jira') {
+                    setTaskSprint(selectedTask.id, option?.id || '', val)
+                  }
                 }}
               />
+            </div>
+
+            {/* Team updates are queued immediately through the Jira operation. */}
+            {selectedTask.source === 'jira' && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  Équipe
+                </label>
+                  <LookupField
+                    value={selectedTask.team || ''}
+                    icon={<Users size={12} />}
+                    placeholder="Chercher une équipe…"
+                    clearLabel="Aucune équipe"
+                    emptyHint="Aucune équipe trouvée pour cette recherche."
+                    onSearch={searchTeam}
+                    onPick={option => {
+                      setTaskTeam(selectedTask.id, option?.id || '', option?.label)
+                    }}
+                  />
+              </div>
+            )}
+
+            {/* Select or create a macro / GitHub milestone. */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                Macro (Milestone)
+              </label>
+              <LookupField
+                value={selectedTask.parentKey || selectedTask.parentTitle || ''}
+                icon={<Target size={12} />}
+                placeholder="Assigner ou nommer une macro…"
+                clearLabel="Détacher de la macro"
+                emptyHint="Aucune macro trouvée. Tapez un nom pour créer."
+                onSearch={async (query: string) => {
+                  const res = await searchMacro(query)
+                  if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase() || o.id.toLowerCase() === query.trim().toLowerCase())) {
+                    res.unshift({ id: `__create__:${query.trim()}`, label: query.trim(), sublabel: 'Créer ce milestone GitHub' })
+                  }
+                  return res
+                }}
+                onPick={async (option) => {
+                  if (!selectedTask) return
+                  if (!option?.id) {
+                    await setTaskMacro(selectedTask.id, '')
+                    return
+                  }
+                  if (option.id.startsWith('__create__:')) {
+                    const title = option.id.replace('__create__:', '')
+                    const created = await createMacro(selectedTask.projectId || projects[0]?.id || 'default', title)
+                    if (created) {
+                      await setTaskMacro(selectedTask.id, created.key)
+                    }
+                  } else {
+                    await setTaskMacro(selectedTask.id, option.id)
+                  }
+                }}
+              />
+            </div>
+
+            {/* Due Date */}
+            <div>
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                {t.taskModal.dueDate}
+              </label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={dueDate}
+                  onChange={e => setDueDate(e.target.value)}
+                  className="w-full pl-7 pr-2 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
+                />
+                <Calendar size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)] pointer-events-none" />
+              </div>
+            </div>
           </div>
-        )}
 
-        {/* Macro (Milestone) : sélection ou création de macro / milestone GitHub */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            Macro (Milestone)
-          </label>
-          <LookupField
-            value={selectedTask.parentKey || selectedTask.parentTitle || ''}
-            icon={<Target size={12} />}
-            placeholder="Assigner ou nommer une macro…"
-            clearLabel="Détacher de la macro"
-            emptyHint="Aucune macro trouvée. Tapez un nom pour créer."
-            onSearch={async (query: string) => {
-              const res = await searchMacro(query)
-              if (query.trim() && !res.some(o => o.label.toLowerCase() === query.trim().toLowerCase() || o.id.toLowerCase() === query.trim().toLowerCase())) {
-                res.unshift({ id: `__create__:${query.trim()}`, label: query.trim(), sublabel: 'Créer ce milestone GitHub' })
-              }
-              return res
-            }}
-            onPick={async (option) => {
-              if (!selectedTask) return
-              if (!option?.id) {
-                await setTaskMacro(selectedTask.id, '')
-                return
-              }
-              if (option.id.startsWith('__create__:')) {
-                const title = option.id.replace('__create__:', '')
-                const created = await createMacro(selectedTask.projectId || projects[0]?.id || 'default', title)
-                if (created) {
-                  await setTaskMacro(selectedTask.id, created.key)
-                }
-              } else {
-                await setTaskMacro(selectedTask.id, option.id)
-              }
-            }}
-          />
-        </div>
+          {/* Labels */}
+          <div>
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+              {t.taskModal.labels}
+            </label>
+            <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
+              {labels.map(lbl => {
+                const lower = lbl.toLowerCase()
+                let badgeStyle = 'bg-[var(--accent-light)] accent-text'
+                if (lower === 'new' || lower === 'untouched') badgeStyle = 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
+                else if (lower === 'clarified') badgeStyle = 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
+                else if (lower === 'specified') badgeStyle = 'bg-blue-500/20 text-blue-300 border border-blue-500/40 font-bold'
+                else if (lower === 'implemented') badgeStyle = 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold'
+                else if (lower === 'reviewed') badgeStyle = 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold'
+                else if (lower === 'finished' || lower === 'closed') badgeStyle = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
 
-        {/* Due Date */}
-        <div>
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-            {t.taskModal.dueDate}
-          </label>
-          <div className="relative">
-            <input
-              type="date"
-              value={dueDate}
-              onChange={e => setDueDate(e.target.value)}
-              className="w-full pl-7 pr-2 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-            />
-            <Calendar size={12} className="absolute left-2.5 top-2.5 text-[var(--text-muted)] pointer-events-none" />
+                return (
+                  <span
+                    key={lbl}
+                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md ${badgeStyle}`}
+                  >
+                    #{lbl.replace(/^#+/, '')}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveLabel(lbl)}
+                      className="hover:opacity-75 ml-0.5"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                )
+              })}
+              <div className="flex items-center gap-1 min-w-[120px] flex-1">
+                <input
+                  type="text"
+                  value={newLabelInput}
+                  onChange={e => setNewLabelInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ',') {
+                      e.preventDefault()
+                      handleAddLabel()
+                    }
+                  }}
+                  placeholder={t.taskModal.addLabel}
+                  className="w-full text-xs bg-transparent border-none text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none px-1"
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Pull Requests : l'ensemble ordonné des PR du ticket. Un ticket en produit
-          couramment plusieurs — une première fusionnée, puis une suite poussée sur
-          la même branche. La dernière est la PR courante. Corriger ou détacher un
-          lien ici est la seule issue quand une PR a été enregistrée à tort. */}
+      {/* Pull requests span the full width below both columns. */}
       <div className="space-y-1.5">
         <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
           Pull Requests
@@ -1234,139 +1360,6 @@ export const TaskDetailModal: React.FC = () => {
         </div>
       </div>
 
-      {/* Description / Acceptance criteria */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-            Description & Contexte Technique
-          </label>
-          <div className="flex items-center gap-3">
-            <label className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={withComments}
-                onChange={e => setWithComments(e.target.checked)}
-                className="rounded border-[var(--border-color)] text-[var(--accent-color)] focus:ring-0 cursor-pointer"
-              />
-              <span>Inclure les commentaires</span>
-            </label>
-            <button
-              type="button"
-              onClick={() => runSkill(selectedTask.id, 'rewrite_story', '', { withComments })}
-              disabled={isSkillRunning}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 disabled:opacity-50 transition-colors"
-              title="Reformuler la description en User Story structurée GFM"
-            >
-              {isSkillRunning && runningSkillId === 'rewrite_story' ? (
-                <Loader2 size={13} className="animate-spin" />
-              ) : (
-                <Sparkles size={13} />
-              )}
-              <span>Reformuler la story</span>
-            </button>
-          </div>
-        </div>
-
-        {rewriteActivity?.output && rewriteActivity.id !== dismissedRewriteId && (
-          <div className="p-3.5 rounded-xl bg-cyan-950/20 border border-cyan-500/30 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-cyan-300 flex items-center gap-1.5">
-                <Sparkles size={14} />
-                Aperçu de la story reformulée
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (rewriteActivity.output) {
-                      setDescription(rewriteActivity.output)
-                      await updateTask(selectedTask.id, { description: rewriteActivity.output })
-                      setDismissedRewriteId(rewriteActivity.id)
-                      addToast({
-                        type: 'success',
-                        title: 'Description mise à jour',
-                        description: 'La description de la tâche a été remplacée par la version reformulée.',
-                      })
-                    }
-                  }}
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-cyan-500 text-slate-950 hover:bg-cyan-400 transition-colors flex items-center gap-1"
-                >
-                  <Check size={13} />
-                  Appliquer à la description
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDismissedRewriteId(rewriteActivity.id)}
-                  className="px-2 py-1 rounded-lg text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-                >
-                  Masquer
-                </button>
-              </div>
-            </div>
-            <div className="p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] max-h-60 overflow-y-auto">
-              <MarkdownEditor value={rewriteActivity.output} onChange={() => {}} minHeight={120} />
-            </div>
-          </div>
-        )}
-
-        <MarkdownEditor
-          value={description}
-          onChange={setDescription}
-          placeholder={t.taskModal.descPlaceholder}
-          minHeight={320}
-          maxHeight={window.innerHeight * 0.6}
-        />
-      </div>
-
-      {/* Labels */}
-      <div>
-        <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-          {t.taskModal.labels}
-        </label>
-        <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)]">
-          {labels.map(lbl => {
-            const lower = lbl.toLowerCase()
-            let badgeStyle = 'bg-[var(--accent-light)] accent-text'
-            if (lower === 'new' || lower === 'untouched') badgeStyle = 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold'
-            else if (lower === 'clarified') badgeStyle = 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
-            else if (lower === 'specified') badgeStyle = 'bg-blue-500/20 text-blue-300 border border-blue-500/40 font-bold'
-            else if (lower === 'implemented') badgeStyle = 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold'
-            else if (lower === 'reviewed') badgeStyle = 'bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold'
-            else if (lower === 'finished' || lower === 'closed') badgeStyle = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
-
-            return (
-              <span
-                key={lbl}
-                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md ${badgeStyle}`}
-              >
-                #{lbl.replace(/^#+/, '')}
-                <button
-                  type="button"
-                  onClick={() => handleRemoveLabel(lbl)}
-                  className="hover:opacity-75 ml-0.5"
-                >
-                  <X size={11} />
-                </button>
-              </span>
-            )
-          })}
-          <div className="flex items-center gap-1 min-w-[120px] flex-1">
-            <input
-              type="text"
-              value={newLabelInput}
-              onChange={e => setNewLabelInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' || e.key === ',') {
-                  e.preventDefault()
-                  handleAddLabel()
-                }
-              }}
-              placeholder={t.taskModal.addLabel}
-              className="w-full text-xs bg-transparent border-none text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none px-1"
-            />
-          </div>
-        </div>
-      </div>
     </div>
   )
 
@@ -1683,7 +1676,7 @@ export const TaskDetailModal: React.FC = () => {
 
         {/* Sliding Panel */}
         <div className="absolute inset-y-0 right-0 max-w-full flex pl-2 sm:pl-6">
-          <div className="w-[var(--app-w)] max-w-5xl 2xl:max-w-[1500px] bg-[var(--bg-secondary)] border-l border-[var(--border-color)] shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-200">
+          <div className="min-w-0 w-[var(--app-w)] max-w-5xl 2xl:max-w-[1500px] bg-[var(--bg-secondary)] border-l border-[var(--border-color)] shadow-2xl flex flex-col h-full animate-in slide-in-from-right duration-200">
             {/* Panel Header */}
             <div className="flex items-center justify-between px-6 py-3.5 border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 shrink-0">
               {/* Left: Référence ParentKey / TaskKey (chacune ouvre le tracker) */}
@@ -1907,7 +1900,7 @@ export const TaskDetailModal: React.FC = () => {
   return (
     <div className="fixed top-0 left-0 h-[var(--app-h)] w-[var(--app-w)] z-50 flex items-center justify-center p-2 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 select-none" {...backdrop}>
       <div
-        className={`relative w-full transition-all duration-200 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col ${
+        className={`relative min-w-0 w-full transition-all duration-200 bg-[var(--bg-secondary)] border border-[var(--border-color)] shadow-2xl overflow-hidden flex flex-col ${
           isMaximized
             ? 'w-full h-full max-w-none max-h-none rounded-2xl'
             : 'max-w-[calc(var(--app-w)*0.95)] xl:max-w-[1400px] 2xl:max-w-[1700px] h-[calc(var(--app-h)*0.94)] max-h-[calc(var(--app-h)*0.94)] rounded-2xl'

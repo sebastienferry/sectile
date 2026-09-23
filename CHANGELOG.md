@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- Issue details show description and technical context directly below the title, alongside metadata, with pull requests below; narrow views keep the content first.
+
 - Removed the permanent instructional hint below the desktop project list.
 
 - Consolidated MCP setup into one per-engine configuration with three choices:
