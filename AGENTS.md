@@ -66,6 +66,15 @@ proposing it.
 and is written **in English only**, whatever language the conversation or the
 commits are in.
 
+The entry is written by the pull request that makes the change, not at release
+time. A pull request that changes something a user can see adds its line under
+`## [Unreleased]`, following the rules below; one that changes nothing a user
+can see adds none. For the same reason, a specification carries a changelog
+acceptance criterion only when its change is visible to users. At release time,
+`[Unreleased]` is therefore already mostly written: read it against the commit
+range of step 2, add a line for each user-visible change that merged without
+one, and leave the lines that are already right as they are.
+
 - One line per user-visible change, grouped under `Added`, `Changed`,
   `Deprecated`, `Removed`, `Fixed` or `Security`. Omit the sections that would
   be empty.

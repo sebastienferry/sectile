@@ -427,7 +427,9 @@ workstation may have upgraded only one of them.
 The release notes live in [`CHANGELOG.md`](./CHANGELOG.md), in
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) format and **in
 English only**. The server embeds it and serves it on `GET /api/changelog`; the
-desktop app inlines it at build time.
+desktop app inlines it at build time. A pull request that changes something a
+user can see adds its own line under `## [Unreleased]`; the release promotes
+that section.
 
 What a pipeline produces depends on its ref:
 
