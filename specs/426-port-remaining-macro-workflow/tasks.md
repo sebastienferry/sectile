@@ -59,7 +59,8 @@ section; UI sections also run the browser tests.
 - [ ] T6.2 `CreateStoryUnderMacro` creates in the target and calls `JiraAdapter.SetParent(story, epic)`; failure returns a notice, key kept.
 - [ ] T6.3 Handler returns the notice with the created story.
 - [ ] T6.4 Tests with a fake tracker: no target → macro project, Jira parent written; Jira target same URL → created there, parent written; other URL / other kind / other GitHub repo → refused, no create call, line unchanged; parent failure → key recorded, notice; GitHub milestone path unchanged.
-- [ ] T6.5 Leave the target picker unimplemented until O1 is settled.
+- [ ] T6.5 Web target picker per line: macro project + same-instance projects (TS mirror of `sameTrackerInstance` in `web/src/lib/lookups.ts`), saved with the todos; read-only when the line has a story; invalid saved target flagged.
+- [ ] T6.6 Tests: TS helper table (Jira same/other URL, GitHub same/other repo, local, mixed kinds); Go and TS rules agree on the same fixtures.
 
 ## 7. Roadmap projects (US5, FR8)
 
@@ -73,7 +74,7 @@ section; UI sections also run the browser tests.
 - [ ] T8.1 `CapSprintManage`, `SprintManager`; `JiraAdapter.CreateSprint` / `UpdateSprint` / `DeleteSprint`.
 - [ ] T8.2 `internal/db/sprints.go`: batch create (validation, naming, conflict check, partial failure), update (with `moveOpenTo` before close), delete; mirror helpers.
 - [ ] T8.3 Routes `POST/PATCH/PUT/DELETE /api/projects/{id}/sprints[/{sprintId}]`.
-- [ ] T8.4 `SprintTimelineView` on Jira: calls the routes, renders the answer, no local `sprint-N` ids or default sprints, moves by id; GitHub: controls hidden; local: unchanged.
+- [ ] T8.4 `SprintTimelineView` on Jira: calls the routes, renders the answer, no local `sprint-N` ids or default sprints, moves by id; GitHub: controls hidden, existing local sprints shown read-only with no ticket move; local: unchanged.
 - [ ] T8.5 Tests against an `httptest` Jira: the three-sprint example of US6 (names, dates, board id); count 0/13 and weeks 0/5 refused before any request; taken name refused before any request; failure on the third → two mirrored, error text; rename/dates mirror Jira's answer; close with `moveOpenTo: next` moves open issues then closes; Jira refusal leaves the mirror unchanged; delete 404 is success; no board → refusal; GitHub project → 409.
 - [ ] T8.6 Web tests for `lib/sprints.ts` naming/date helpers used by the creation bar.
 
@@ -81,7 +82,7 @@ section; UI sections also run the browser tests.
 
 - [ ] T9.1 `CHANGELOG.md` `[Unreleased]` lines per plan.
 - [ ] T9.2 ADR "macro runs and worktrees" in `docs/adrs/`.
-- [ ] T9.3 Open the follow-up ticket for GitLab iterations (needs a GitLab tracker adapter) under M-7, after the owner's approval.
+- [x] T9.3 Follow-up ticket for GitLab iterations opened: #430 under M-7.
 
 ## Test plan summary
 
@@ -90,12 +91,7 @@ section; UI sections also run the browser tests.
 | US1 | T2.4 |
 | US2 | T3.2 |
 | US3 | T4.6, T4.7, T5.4, manual realignment on a test project |
-| US4 | T6.4 |
+| US4 | T6.4, T6.6 |
 | US5 | T7.4 |
 | US6 | T8.5, T8.6 |
 | US7 | T1.3, `tsc` |
-
-## Blocked by open requirements
-
-- O1 blocks T6.5 (target picker UI) only.
-- O2 blocks the GitHub branch of T8.4 only (whether existing local sprints stay visible read-only).

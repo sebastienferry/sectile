@@ -84,7 +84,7 @@ From the clarification (rounds 1 to 3), restated:
 6. Sprint management writes to the tracker, synchronously, and mirrors the
    answer locally. It is delivered **on Jira only**: Sectile has no GitLab
    tracker, and GitLab iterations are a follow-up ticket that depends on one
-   (Round 3). Nothing on GitHub.
+   (Round 3; follow-up #430). Nothing on GitHub.
 7. Sprint operations: batch creation (name pattern, count, start date, duration
    of 1 to 4 weeks), rename and dates, close, delete.
 8. `TargetProjectID` is consumed: a story is created in the target project when
@@ -97,7 +97,7 @@ From the clarification (rounds 1 to 3), restated:
     constant.
 
 Out of scope: the EPIC template field map and anything built on it, a
-`specify-macro` skill, sprints on GitHub, GitLab iterations (follow-up ticket),
+`specify-macro` skill, sprints on GitHub, GitLab iterations (follow-up ticket #430),
 a GitLab tracker adapter.
 
 ## User stories
@@ -245,8 +245,14 @@ so that the epic gathers the work wherever it lands.
   story key is still recorded on the line, and the outcome says that the parent
   was not written and why.
 - **Given** a GitHub macro, **then** the milestone is set as today.
-- **Given** a line, **then** its target project can be chosen among the
-  projects of the same tracker instance, and cleared. *(Open requirement O1.)*
+- **Given** a slicing line without a story, **then** a project picker on the
+  line offers the macro's project and every project on the same tracker
+  instance; choosing one saves it as the line's target, and choosing the
+  macro's project clears it. A line that already has a story shows its target
+  read-only.
+- **Given** a line whose saved target is no longer on the same tracker instance,
+  **then** the picker shows it flagged as invalid, and creating the story is
+  refused as above.
 
 ### US5 (P2): Attach stories from declared roadmap projects
 
@@ -314,8 +320,10 @@ moved to them and the next sync keeps them.
   shows the same sprints.
 - **Given** a GitHub project, **then** the timeline offers no sprint creation,
   edition, closing or deletion. **Given** a local project, **then** the
-  timeline behaves as today. *(Open requirement O2 for GitHub projects that
-  hold local sprints today.)*
+  timeline behaves as today.
+- **Given** a GitHub project that already holds sprints stored locally, **then**
+  the timeline still shows them, read-only: no edit, close, delete, and no
+  ticket move to them.
 
 ### US7 (P3): The `scenarios` source is gone
 
@@ -376,14 +384,6 @@ the code no longer promises it.
 
 ## Open requirements
 
-- **O1 (US4): choosing a target project on a slicing line.** No screen sets
-  `targetProjectId` today; the clarification settled how it is consumed, not how
-  it is set. Proposed: a project picker on each line listing the projects of
-  the same tracker instance. Until settled, the target can only be set through
-  the API and US4's last criterion is not implemented. Blocks: the UI part of
-  US4 only.
-- **O2 (US6): local sprints of GitHub projects.** The timeline today lets a
-  GitHub project hold sprints locally. The decision "nothing on GitHub" removes
-  the controls; whether sprints already stored locally on a GitHub project stay
-  visible, read-only, is not settled. Proposed: keep them visible, read-only.
-  Blocks: the GitHub branch of US6 only.
+None. O1 (target project picker) and O2 (local sprints of GitHub projects,
+kept visible read-only) were settled by the owner after the first draft; see
+Round 4 of the clarification.

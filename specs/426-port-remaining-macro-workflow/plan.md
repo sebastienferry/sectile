@@ -142,8 +142,8 @@ mirror Jira's answer into projects.sprints (replace / append / forget by id)
 | `internal/skills/testdata/golden/realign_macro.{speckit,openspec}.{skill,command}.md` (new) | Generated with `UPDATE_GOLDEN=1`. |
 | `web/src/types/index.ts` | Drop `'scenarios'` from `MacroTodoSource`; `Project.specRepoPath?`, `Project.roadmapProjects?`. |
 | `web/src/components/ProjectModal.tsx`, `web/src/locales/translations.ts` | "Dépôt des spécifications" input + hint (repository settings); "Projets de roadmap" comma list (Jira only); helpers `web/src/lib/roadmapProjects.ts` (`formatProjectKeyList`, `parseProjectKeyList`). |
-| `web/src/components/RoadmapView.tsx`, `web/src/context/AppContext.tsx` | "Réaligner la spec" button next to "Raffiner AI": disabled without agent (`useAgentStatus`) or while a macro run is active; `runMacroSkill(projectId, key, skillId)`; active-run indicator on the macro; refusal/notice of story creation surfaced as today's errors. |
-| `web/src/components/SprintTimelineView.tsx`, `web/src/lib/sprints.ts`, `AppContext.tsx` | On Jira: creation bar (pattern, count, start, weeks 1 to 4), rename/dates, close (with next sprint / backlog choice), delete (confirm) call the new routes and render the server's answer; moves pass the sprint **id**. On GitHub: no creation/edit/close/delete controls (O2 for existing local sprints). Local projects: unchanged. French strings through `translations.ts`. |
+| `web/src/components/RoadmapView.tsx`, `web/src/context/AppContext.tsx` | "Réaligner la spec" button next to "Raffiner AI": disabled without agent (`useAgentStatus`) or while a macro run is active; `runMacroSkill(projectId, key, skillId)`; active-run indicator on the macro; refusal/notice of story creation surfaced as today's errors. Per-line target project picker (macro project + same-instance projects, from a mirror of `sameTrackerInstance` in `web/src/lib/lookups.ts` next to `isProjectCompatible`), saved through the existing macro todos save; read-only once the line has a story; invalid saved target flagged. |
+| `web/src/components/SprintTimelineView.tsx`, `web/src/lib/sprints.ts`, `AppContext.tsx` | On Jira: creation bar (pattern, count, start, weeks 1 to 4), rename/dates, close (with next sprint / backlog choice), delete (confirm) call the new routes and render the server's answer; moves pass the sprint **id**. On GitHub: no creation/edit/close/delete controls; sprints already stored locally stay visible, read-only, and accept no ticket move. Local projects: unchanged. French strings through `translations.ts`. |
 | `desktop/` | No change expected: the console attaches by `sessionId` = runId. Verify a macro run appears in the run list with the macro key as its label; adjust the label if it shows a blank task key. |
 | `CHANGELOG.md` | Under `[Unreleased]`: `Added` specifications repository, macro worktree, realign-macro, Jira sprint management, roadmap projects; `Changed` stories created under a Jira epic now get the parent on Jira and honour the line's target project. |
 | `docs/adrs/00NN-macro-runs-and-worktrees.md` (new) | Why a macro run is a project activity with `macro_key` (not a pseudo task id, see #310), and why the macro worktree is created by the agent. |
@@ -212,7 +212,7 @@ Dispatch payload adds `"macroKey": "M-7"` with `taskId`/`taskKey` empty.
 - **Sprint writes through the tracker operation queue**: a sprint must exist on
   Jira before the UI can move tickets to it or show its id.
 - **GitLab iterations now**: needs a GitLab tracker adapter Sectile lacks
-  (follow-up ticket).
+  (follow-up ticket #430).
 
 ## Risks
 
