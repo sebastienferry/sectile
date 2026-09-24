@@ -647,21 +647,34 @@ func (d *DB) appendActivityStep(activityID string, step string) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	_ = d.conn.WithTx(func(tx *sqlTx) error {
+		steps, err := d.lockActivityStepsUnsafe(tx, activityID)
+		if err != nil {
+			return err
+		}
+		payload, err := json.Marshal(append(steps, step))
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec("UPDATE task_activities SET steps = ? WHERE id = ?", string(payload), activityID)
+		return err
+	})
+}
 
+// lockActivityStepsUnsafe reads an activity's steps on its locked row, so a step
+// appended at the same time by another server instance is kept rather than
+// overwritten by a list read before it. A list that does not parse reads as
+// empty, as it always has.
+func (d *DB) lockActivityStepsUnsafe(tx *sqlTx, activityID string) ([]string, error) {
 	var raw string
-	if err := d.conn.QueryRow("SELECT steps FROM task_activities WHERE id = ?", activityID).Scan(&raw); err != nil {
-		return
+	if err := tx.QueryRow("SELECT steps FROM task_activities WHERE id = ?"+d.forUpdate(), activityID).Scan(&raw); err != nil {
+		return nil, err
 	}
 	steps := []string{}
 	if strings.TrimSpace(raw) != "" {
 		_ = json.Unmarshal([]byte(raw), &steps)
 	}
-	steps = append(steps, step)
-	payload, err := json.Marshal(steps)
-	if err != nil {
-		return
-	}
-	_, _ = d.conn.Exec("UPDATE task_activities SET steps = ? WHERE id = ?", string(payload), activityID)
+	return steps, nil
 }
 
 // IsProjectCompatible checks whether two projects can share tasks and macros.
