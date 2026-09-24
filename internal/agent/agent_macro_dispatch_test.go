@@ -81,3 +81,21 @@ func TestMacroWorkspacePreparesWithoutATask(t *testing.T) {
 		t.Fatalf("the command must name the macro: %q %v", line, err)
 	}
 }
+
+// Two macros each have their own worktree: their runs must not queue behind
+// each other, while two runs of one macro still do.
+func TestMacroRunsShareACheckoutOnlyForTheSameMacro(t *testing.T) {
+	macroRun := func(key string) *controlledRun {
+		return &controlledRun{root: "/repo", isolated: true, desktop: desktopRun{ProjectID: "p1", MacroKey: key}}
+	}
+	if sharesCheckout(macroRun("M-7"), macroRun("M-8")) {
+		t.Fatal("two macros must not share a checkout")
+	}
+	if !sharesCheckout(macroRun("M-7"), macroRun("M-7")) {
+		t.Fatal("two runs of one macro must share its worktree")
+	}
+	task := &controlledRun{root: "/repo", isolated: true, taskID: ""}
+	if sharesCheckout(macroRun("M-7"), task) {
+		t.Fatal("a macro run and a task run in their own worktrees must not share")
+	}
+}

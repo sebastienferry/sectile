@@ -30,7 +30,9 @@ func (sp jiraSprint) model() models.TrackerSprint {
 }
 
 // jiraSprintDate writes a date the way the Agile API takes it, RFC3339. A bare
-// day given as an end date means the end of that day, so the sprint covers it.
+// day follows the convention batch creation uses, so a date edited in the
+// timeline reads back as the day it shows: a sprint starts at 09:00 and ends at
+// 08:59:59, one second before the next one starts.
 func jiraSprintDate(raw string, end bool) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if t, err := time.Parse(time.RFC3339, raw); err == nil {
@@ -40,10 +42,13 @@ func jiraSprintDate(raw string, end bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("date invalide %q : attendu AAAA-MM-JJ", raw)
 	}
+	// time.Date, not an added duration: a day with a clock change is not 24
+	// hours long, and 09:00 must stay 09:00.
+	at := time.Date(day.Year(), day.Month(), day.Day(), 9, 0, 0, 0, time.Local)
 	if end {
-		day = day.Add(24*time.Hour - time.Second)
+		at = at.Add(-time.Second)
 	}
-	return day.Format(time.RFC3339), nil
+	return at.Format(time.RFC3339), nil
 }
 
 // CreateSprint creates one sprint on the project's board.

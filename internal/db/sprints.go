@@ -146,8 +146,13 @@ func (d *DB) UpdateProjectSprint(ctx context.Context, projectID, sprintID string
 	if !found {
 		return nil, fmt.Errorf("sprint %s inconnu de ce projet : synchronisez le board", sprintID)
 	}
+	closing := patch.State != nil && strings.EqualFold(strings.TrimSpace(*patch.State), "closed")
+	// Jira closes only a started sprint. Saying so before anything moves keeps
+	// a refused close from leaving the tickets in another sprint.
+	if closing && current.State != "" && current.State != "active" {
+		return nil, fmt.Errorf("seul un sprint démarré peut être clôturé : « %s » est %s", current.Name, current.State)
+	}
 	if patch.MoveOpenTo != nil {
-		closing := patch.State != nil && strings.EqualFold(strings.TrimSpace(*patch.State), "closed")
 		if !closing {
 			return nil, fmt.Errorf("le déplacement des tickets ouverts n'accompagne que la clôture d'un sprint")
 		}
@@ -192,26 +197,33 @@ func (d *DB) moveOpenWork(ctx context.Context, proj *models.Project, ts tracker.
 		return fmt.Errorf("destination invalide %q : next ou backlog", destination)
 	}
 	d.mu.RLock()
-	rows, err := d.conn.Query("SELECT id, key FROM tasks WHERE project_id = ? AND sprint = ? AND status NOT IN (?, ?)",
+	rows, err := d.conn.Query("SELECT id, key, source FROM tasks WHERE project_id = ? AND sprint = ? AND status NOT IN (?, ?)",
 		proj.ID, sprint.Name, string(models.StatusFinished), string(models.StatusDone))
 	if err != nil {
 		d.mu.RUnlock()
 		return err
 	}
+	// Only the tracker's own work items are moved there; a card that exists on
+	// the board alone follows locally.
 	var ids, keys []string
 	for rows.Next() {
-		var id, key string
-		if rows.Scan(&id, &key) == nil {
-			ids, keys = append(ids, id), append(keys, key)
+		var id, key, source string
+		if rows.Scan(&id, &key, &source) == nil {
+			ids = append(ids, id)
+			if source == ts.Name() {
+				keys = append(keys, key)
+			}
 		}
 	}
 	rows.Close()
 	d.mu.RUnlock()
-	if len(keys) == 0 {
+	if len(ids) == 0 {
 		return nil
 	}
-	if err := ts.SetSprint(tracker.WithProject(ctx, proj.ID), targetID, keys); err != nil {
-		return fmt.Errorf("déplacement des %d ticket(s) ouvert(s) refusé, le sprint n'est pas clôturé : %w", len(keys), err)
+	if len(keys) > 0 {
+		if err := ts.SetSprint(tracker.WithProject(ctx, proj.ID), targetID, keys); err != nil {
+			return fmt.Errorf("déplacement des %d ticket(s) ouvert(s) refusé, le sprint n'est pas clôturé : %w", len(keys), err)
+		}
 	}
 	now := time.Now()
 	d.mu.Lock()
@@ -232,9 +244,20 @@ func (d *DB) DeleteProjectSprint(ctx context.Context, projectID, sprintID string
 	if err != nil {
 		return err
 	}
-	if err := manager.DeleteSprint(ctx, proj, sprintID); err != nil {
+	// Only a sprint of this project's board is deleted through it; one the
+	// project does not know is, for this project, already gone.
+	sprint, found := findSprint(proj.Sprints, sprintID)
+	if !found {
+		return nil
+	}
+	if err := manager.DeleteSprint(ctx, proj, sprint.ID); err != nil {
 		return err
 	}
+	// The tracker sends the sprint's work items to the backlog; the board says
+	// the same rather than naming a sprint that no longer exists.
+	d.mu.Lock()
+	_, _ = d.conn.Exec("UPDATE tasks SET sprint = '', updated_at = ? WHERE project_id = ? AND sprint = ?", time.Now(), proj.ID, sprint.Name)
+	d.mu.Unlock()
 	return d.mirrorSprints(proj.ID, func(list []models.TrackerSprint) []models.TrackerSprint {
 		kept := list[:0]
 		for _, sp := range list {
@@ -278,25 +301,31 @@ func findSprint(list []models.TrackerSprint, id string) (models.TrackerSprint, b
 
 // nextSprint is the first sprint not closed that starts after the given one,
 // by start date. Dates are compared as instants: two sites may write them with
-// different offsets.
+// different offsets. Jira often leaves a future sprint undated; when no dated
+// sprint follows, the first undated future one, in board order, is next.
 func nextSprint(list []models.TrackerSprint, after models.TrackerSprint) (models.TrackerSprint, bool) {
-	from, ok := sprintStart(after)
-	if !ok {
-		return models.TrackerSprint{}, false
-	}
+	from, dated := sprintStart(after)
 	var best models.TrackerSprint
 	var bestStart time.Time
 	found := false
 	for _, sp := range list {
 		start, ok := sprintStart(sp)
-		if sp.ID == after.ID || sp.State == "closed" || !ok || start.Before(from) {
+		if sp.ID == after.ID || sp.State == "closed" || !ok || (dated && start.Before(from)) {
 			continue
 		}
 		if !found || start.Before(bestStart) {
 			best, bestStart, found = sp, start, true
 		}
 	}
-	return best, found
+	if found {
+		return best, true
+	}
+	for _, sp := range list {
+		if _, ok := sprintStart(sp); !ok && sp.ID != after.ID && sp.State == "future" {
+			return sp, true
+		}
+	}
+	return models.TrackerSprint{}, false
 }
 
 func sprintStart(sp models.TrackerSprint) (time.Time, bool) {

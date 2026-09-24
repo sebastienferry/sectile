@@ -11,6 +11,11 @@ type MacroWorkspace struct {
 	Branch   string `json:"branch"`
 	Worktree bool   `json:"worktree"`
 	Warning  string `json:"warning,omitempty"`
+	// ProjectID, MacroKey and Todos are filled by the server when it relays the
+	// answer, so the skill has the slicing it aligns on without another call.
+	ProjectID string      `json:"projectId,omitempty"`
+	MacroKey  string      `json:"macroKey,omitempty"`
+	Todos     []MacroTodo `json:"todos,omitempty"`
 }
 
 // macroBranchSlugMax bounds the title part of a macro branch name, so that a

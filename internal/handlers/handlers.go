@@ -994,7 +994,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 
 		// Macro skill runs: /api/projects/{id}/macros/{key}/run-skill launches a
 		// macro-scoped skill on the local agent; .../runs lists the recent ones.
-		if len(parts) >= 4 && (parts[3] == "run-skill" || parts[3] == "runs") {
+		if len(parts) >= 4 && (parts[3] == "run-skill" || parts[3] == "runs" || parts[3] == "cancel-run") {
 			key := parts[2]
 			if decoded, err := url.PathUnescape(parts[2]); err == nil {
 				key = decoded
@@ -1004,6 +1004,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				h.handleMacroRunSkill(w, r, id, key)
 			case parts[3] == "runs" && r.Method == http.MethodGet:
 				h.handleMacroRuns(w, id, key)
+			case parts[3] == "cancel-run" && r.Method == http.MethodPost:
+				h.handleMacroCancelRun(w, r, id, key)
 			default:
 				writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 			}

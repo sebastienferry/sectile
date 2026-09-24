@@ -188,7 +188,10 @@ scenarios, decisions and prose it carries survive.
   until it ends.
 - **Given** no connected agent, **then** the button is disabled and says why.
 - **Given** a realignment already running for this macro, **then** a second
-  launch is refused.
+  launch is refused, even when both arrive at the same instant, and the panel
+  offers to stop the running one. Stopping asks the owner's agent to end the
+  process; an agent that cannot be reached closes the run only on an explicit
+  confirmation, saying no local process was stopped.
 - **Given** an agent session outside the desktop app, **when** the owner
   invokes `/realign-macro M-7`, **then** the skill prepares the macro worktree
   through the MCP tool and proceeds the same way.

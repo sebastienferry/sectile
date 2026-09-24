@@ -3,6 +3,7 @@ package db
 import (
 	"errors"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"tasks/internal/models"
@@ -86,5 +87,52 @@ func TestMacroRunNeedsAKnownMacro(t *testing.T) {
 	}
 	if _, err := database.StartMacroRun("missing", "M-7", "realign_macro", RunLaunch{}); err == nil {
 		t.Fatal("an unknown project must be refused")
+	}
+}
+
+// Two launches in the same instant must not both find the macro free.
+func TestConcurrentMacroLaunchesStartOneRun(t *testing.T) {
+	database, project := macroRunDB(t)
+	var wg sync.WaitGroup
+	results := make(chan error, 8)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := database.StartMacroRun(project.ID, "M-7", "realign_macro", RunLaunch{})
+			results <- err
+		}()
+	}
+	wg.Wait()
+	close(results)
+	started := 0
+	for err := range results {
+		if err == nil {
+			started++
+		} else if !errors.Is(err, ErrMacroRunBusy) {
+			t.Fatalf("a concurrent launch must be refused as busy, got %v", err)
+		}
+	}
+	if started != 1 {
+		t.Fatalf("exactly one run must start, got %d", started)
+	}
+}
+
+// The server's own closure names nobody: it never rewrites an outcome a
+// disconnection already recorded, which only the identified owner may do.
+func TestAnonymousClosureDoesNotReopenADisconnectedRun(t *testing.T) {
+	database, project := macroRunDB(t)
+	run, err := database.StartMacroRun(project.ID, "M-7", "realign_macro", RunLaunch{UserID: "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.FinishMacroRunAs(Actor{}, true, project.ID, "M-7", run.ID, "canceled", models.RunDisconnectNote); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.FinishMacroRunAs(Actor{}, true, project.ID, "M-7", run.ID, "completed", "late"); err == nil {
+		t.Fatal("an anonymous closure must not rewrite a disconnection")
+	}
+	if finished, err := database.FinishMacroRunAs(Actor{ID: "u1"}, false, project.ID, "M-7", run.ID, "completed", "done"); err != nil || finished.Status != "completed" {
+		t.Fatalf("the owner may still correct it: %+v %v", finished, err)
 	}
 }

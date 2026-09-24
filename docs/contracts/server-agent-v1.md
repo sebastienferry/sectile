@@ -219,7 +219,15 @@ server's specifications path is never used there. The worktree is
 `.tasks/worktrees/<KEY>` in that repository, on the existing branch named after
 the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
 is reused as is. With worktrees off, the checkout itself is returned with
-`worktree: false` and nothing is created.
+`worktree: false` and nothing is created. The server adds `projectId`,
+`macroKey` and the macro's `todos` when it relays the answer through the
+`prepare_macro_worktree` MCP tool, so a skill invoked by hand, which holds no API
+token, reads its input from the same call.
+
+A macro run is stopped with `POST /api/projects/{id}/macros/{key}/cancel-run`
+`{runId, force}`, which dispatches `cancel_run` with no task to the owner's agent,
+under the same rules as a task run: an agent that no longer has the run closes it
+as orphaned, and an unreachable agent needs `force`.
 
 A pull request can live in a repository other than the project's (#392): a
 project without a code remote, or not mono-repo, may name one through `prUrl`.

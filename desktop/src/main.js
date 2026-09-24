@@ -266,7 +266,7 @@ function renderQueue(project,group){
 }
 async function refreshSkillResult(id=selected){
  const run=runs.find(item=>item.id===id)
- if(!run||freeConsole(run)||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
+ if(!run||freeConsole(run)||macroRun(run)||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
  loadingSkillResults.add(run.id)
  try{
   const result=await api.runResult(run.id)
@@ -467,7 +467,8 @@ function render(options){
   const text=document.createElement('span');text.className='pr-label';text.textContent=label;selectedPR.append(text)
   selectedPR.onclick=()=>api.openPR(link.url).catch(error)
  }
- document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
+ // A macro run is relaunched from the macro panel: it has no task to relaunch here.
+ document.querySelector('#rerun').hidden=!current||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
@@ -1921,7 +1922,7 @@ async function refreshPRs(executions){
 function taskMenu(run){
  showDialog(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
  const related=()=>runs.filter(item=>taskKey(item)===taskKey(run))
- const relaunch=document.createElement('button');relaunch.textContent='Relaunch';relaunch.disabled=related().some(activeRun)
+ const relaunch=document.createElement('button');relaunch.textContent='Relaunch';relaunch.disabled=macroRun(run)||related().some(activeRun)
  relaunch.onclick=()=>{select(run);document.querySelector('#rerun').click()}
  const rename=document.createElement('form'),name=document.createElement('input'),save=document.createElement('button')
  name.setAttribute('aria-label','Local task name');name.value=taskState(run).name||run.taskKey||run.taskId||runLabel(run);name.maxLength=120;name.required=true

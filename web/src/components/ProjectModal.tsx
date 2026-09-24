@@ -1469,7 +1469,7 @@ export const ProjectModal: React.FC = () => {
                   className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                 />
                 <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
-                  Checkout qui porte les spécifications des macros, quand l'équipe les tient à part du code. Vide : le dépôt du projet. La découpe, le worktree de macro et le réalignement y lisent et écrivent ; le dépôt de code reste le répertoire de travail des agents.
+                  Checkout du serveur qui porte les spécifications des macros, quand l'équipe les tient à part du code : l'import de la découpe le lit. Vide : le dépôt du projet. Le worktree de macro et le réalignement tournent sur votre poste : leur dépôt des spécifications se déclare dans l'app desktop (Specifications repository). Le dépôt de code reste le répertoire de travail des agents.
                 </p>
               </div>
 

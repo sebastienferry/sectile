@@ -377,6 +377,9 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 	if result.IsError {
 		return fmt.Errorf("remote run completion was rejected: %v", result.Content)
 	}
+	if taskID == "" {
+		d.forgetMacroRun(runID)
+	}
 	return nil
 }
 
@@ -471,10 +474,14 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "The specifications repository must be an absolute path", 400)
 				return
 			}
-			if _, err := gitLocal(r.Context(), specPath, "rev-parse", "--show-toplevel"); err != nil {
+			top, err := gitLocal(r.Context(), specPath, "rev-parse", "--show-toplevel")
+			if err != nil {
 				http.Error(w, "Select a local Git repository for the specifications", 400)
 				return
 			}
+			// A folder inside a repository names that repository: the macro
+			// worktree is created at its root, where specs/ is looked for.
+			specPath = filepath.Clean(top)
 		}
 	}
 	d.prepareMu.Lock()

@@ -400,7 +400,8 @@ func TestRealignMacroSkillTemplate(t *testing.T) {
 		"Do not delete an entry",
 		"do not write on the default branch",
 		"prepare_macro_worktree",
-		"SECTILE_SPEC_REPO",
+		"Never `git add -A`",
+		"matches no entry any more",
 		"`macroKey`",
 		"Push nothing when you wrote nothing",
 	}

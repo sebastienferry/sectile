@@ -187,8 +187,10 @@ func TestClosingASprintMovesItsOpenWorkFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	finished, _ := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Finished", Source: "local"})
+	boardOnly, _ := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Board only", Source: "local"})
 	database.mu.Lock()
-	_, _ = database.conn.Exec("UPDATE tasks SET sprint = 'Sprint 1' WHERE id IN (?, ?)", open.ID, finished.ID)
+	_, _ = database.conn.Exec("UPDATE tasks SET sprint = 'Sprint 1' WHERE id IN (?, ?, ?)", open.ID, finished.ID, boardOnly.ID)
+	_, _ = database.conn.Exec("UPDATE tasks SET source = 'jira' WHERE id IN (?, ?)", open.ID, finished.ID)
 	_, _ = database.conn.Exec("UPDATE tasks SET status = ? WHERE id = ?", string(models.StatusFinished), finished.ID)
 	database.mu.Unlock()
 
@@ -207,21 +209,52 @@ func TestClosingASprintMovesItsOpenWorkFirst(t *testing.T) {
 	if moved.Sprint != "Sprint 2" {
 		t.Fatalf("the moved work item must name its new sprint, got %q", moved.Sprint)
 	}
+	// A card that exists on the board alone is not sent to Jira, and follows.
+	local, _ := database.GetTaskByID(boardOnly.ID)
+	if local.Sprint != "Sprint 2" {
+		t.Fatalf("a board-only card follows locally, got %q", local.Sprint)
+	}
+}
+
+func TestClosingASprintThatNeverStartedMovesNothing(t *testing.T) {
+	database, fake, project := sprintDB(t, "5")
+	sprints := []models.TrackerSprint{
+		{ID: "1", Name: "Sprint 1", State: "future", StartDate: "2026-10-05T09:00:00+02:00"},
+		{ID: "2", Name: "Sprint 2", State: "future"},
+	}
+	if _, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{Sprints: &sprints}); err != nil {
+		t.Fatal(err)
+	}
+	closed, next := "closed", "next"
+	if _, err := database.UpdateProjectSprint(context.Background(), project.ID, "1", models.SprintPatch{State: &closed, MoveOpenTo: &next}); err == nil || !strings.Contains(err.Error(), "démarré") {
+		t.Fatalf("closing a sprint that never started must be refused first, got %v", err)
+	}
+	if len(fake.order) != 0 {
+		t.Fatalf("nothing may be moved or closed, got %v", fake.order)
+	}
+}
+
+func TestAnUndatedFutureSprintIsNext(t *testing.T) {
+	active := models.TrackerSprint{ID: "1", Name: "Sprint 1", State: "active", StartDate: "2026-10-05T09:00:00Z"}
+	undated := models.TrackerSprint{ID: "2", Name: "Sprint 2", State: "future"}
+	if next, ok := nextSprint([]models.TrackerSprint{active, undated}, active); !ok || next.ID != "2" {
+		t.Fatalf("an undated future sprint must be next when no dated one follows, got %+v %v", next, ok)
+	}
 }
 
 func TestARefusedSprintUpdateLeavesTheMirror(t *testing.T) {
 	database, fake, project := sprintDB(t, "5")
-	sprints := []models.TrackerSprint{{ID: "1", Name: "Sprint 1", State: "future"}}
+	sprints := []models.TrackerSprint{{ID: "1", Name: "Sprint 1", State: "active"}}
 	if _, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{Sprints: &sprints}); err != nil {
 		t.Fatal(err)
 	}
-	fake.updateErr = errors.New("Sprint cannot be closed: it has not been started.")
+	fake.updateErr = errors.New("Sprint cannot be closed: 403 no permission.")
 	closed := "closed"
-	if _, err := database.UpdateProjectSprint(context.Background(), project.ID, "1", models.SprintPatch{State: &closed}); err == nil || !strings.Contains(err.Error(), "not been started") {
+	if _, err := database.UpdateProjectSprint(context.Background(), project.ID, "1", models.SprintPatch{State: &closed}); err == nil || !strings.Contains(err.Error(), "403") {
 		t.Fatalf("Jira's reason must reach the caller, got %v", err)
 	}
 	reread, _ := database.GetProjectByID(project.ID)
-	if reread.Sprints[0].State != "future" {
+	if reread.Sprints[0].State != "active" {
 		t.Fatalf("the mirror must be unchanged, got %+v", reread.Sprints)
 	}
 	// Moving the open work without closing is refused outright.
@@ -237,8 +270,19 @@ func TestDeletingASprintForgetsIt(t *testing.T) {
 	if _, err := database.UpdateProject(project.ID, models.UpdateProjectRequest{Sprints: &sprints}); err != nil {
 		t.Fatal(err)
 	}
+	card, _ := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "In sprint 1", Source: "local"})
+	database.mu.Lock()
+	_, _ = database.conn.Exec("UPDATE tasks SET sprint = 'Sprint 1' WHERE id = ?", card.ID)
+	database.mu.Unlock()
 	if err := database.DeleteProjectSprint(context.Background(), project.ID, "1"); err != nil {
 		t.Fatal(err)
+	}
+	if back, _ := database.GetTaskByID(card.ID); back.Sprint != "" {
+		t.Fatalf("a deleted sprint's cards go back to the backlog, got %q", back.Sprint)
+	}
+	// A sprint this project does not know is never sent to the tracker.
+	if err := database.DeleteProjectSprint(context.Background(), project.ID, "999"); err != nil || len(fake.deleted) != 1 {
+		t.Fatalf("an unknown sprint is already gone for this project: %v %v", err, fake.deleted)
 	}
 	reread, _ := database.GetProjectByID(project.ID)
 	if len(fake.deleted) != 1 || len(reread.Sprints) != 1 || reread.Sprints[0].ID != "2" {

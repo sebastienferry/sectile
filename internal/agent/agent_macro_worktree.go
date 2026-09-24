@@ -7,12 +7,16 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"tasks/internal/models"
 )
 
 // macroWorkspace is the answer the server relays, shared through models.
 type macroWorkspace = models.MacroWorkspace
+
+// macroFetchTimeout bounds the fetch that brings the default branch up to date.
+const macroFetchTimeout = 30 * time.Second
 
 // macroWorktreeLocks serialises the preparations of one specifications
 // repository: two launches for the same macro must land in the same tree, and
@@ -61,8 +65,15 @@ func ensureMacroWorktree(ctx context.Context, specRepo, macroKey, title string, 
 	}
 	if !hasOrigin {
 		warnings = append(warnings, "pas de distant origin : la base est la branche par défaut locale")
-	} else if _, err := gitLocal(ctx, specRepo, "fetch", "--quiet", "--prune", "origin"); err != nil {
-		warnings = append(warnings, "fetch impossible, la base peut être périmée : "+err.Error())
+	} else {
+		// A remote that hangs (a VPN down, a credential prompt) must not hold
+		// the launch: past the bound, the base is what is known locally.
+		fetchCtx, cancel := context.WithTimeout(ctx, macroFetchTimeout)
+		_, err := gitLocal(fetchCtx, specRepo, "fetch", "--quiet", "--prune", "origin")
+		cancel()
+		if err != nil {
+			warnings = append(warnings, "fetch impossible, la base peut être périmée : "+err.Error())
+		}
 	}
 
 	defaultBranch, base := macroBaseBranch(ctx, specRepo)
@@ -143,6 +154,20 @@ func macroBaseBranch(ctx context.Context, repo string) (name, base string) {
 		}
 		if _, err := gitLocal(ctx, repo, "show-ref", "--verify", "--quiet", "refs/heads/"+candidate); err == nil {
 			return candidate, "refs/heads/" + candidate
+		}
+	}
+	// A clone whose origin/HEAD was never recorded (a remote added by hand)
+	// and whose default branch has another name: the remote says which.
+	lsCtx, cancel := context.WithTimeout(ctx, macroFetchTimeout)
+	defer cancel()
+	if out, err := gitLocal(lsCtx, repo, "ls-remote", "--symref", "origin", "HEAD"); err == nil {
+		for _, line := range strings.Split(out, "\n") {
+			if rest, ok := strings.CutPrefix(line, "ref: refs/heads/"); ok {
+				name := strings.TrimSpace(strings.SplitN(rest, "\t", 2)[0])
+				if _, err := gitLocal(ctx, repo, "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+name); err == nil {
+					return name, "refs/remotes/origin/" + name
+				}
+			}
 		}
 	}
 	return "", ""

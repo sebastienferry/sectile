@@ -16,6 +16,7 @@ export interface MacroRun {
 }
 
 export interface AgentPresence {
+  userId?: string
   projectId: string
 }
 
@@ -27,10 +28,13 @@ export function activeMacroRun(runs: MacroRun[]): MacroRun | null {
 /**
  * Whether the launch button is offered, and the French reason when it is not.
  * An agent registered without a project serves every project, as the server's
- * routing does.
+ * routing does; only the signed-in user's agents count.
  */
-export function macroLaunchBlocker(agents: AgentPresence[], projectId: string, runs: MacroRun[]): string | null {
-  if (!agents.some(agent => !agent.projectId || agent.projectId === projectId)) {
+export function macroLaunchBlocker(agents: AgentPresence[], projectId: string, runs: MacroRun[], userId = ''): string | null {
+  // The server routes a launch to the caller's own agent: another person's
+  // agent on a shared server does not make the button usable.
+  const mine = userId ? agents.filter(agent => !agent.userId || agent.userId === userId) : agents
+  if (!mine.some(agent => !agent.projectId || agent.projectId === projectId)) {
     return "Connectez l'agent local pour lancer le réalignement."
   }
   if (activeMacroRun(runs)) {
@@ -62,4 +66,17 @@ export async function launchMacroSkill(projectId: string, macroKey: string, skil
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(data.error || `Lancement refusé (${res.status})`)
   return data.activity
+}
+
+/** Stops a macro run; force closes it when the agent cannot be reached. */
+export async function cancelMacroRun(projectId: string, macroKey: string, runId: string, force = false): Promise<void> {
+  const res = await fetch(macroURL(projectId, macroKey, 'cancel-run'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ runId, force }),
+  })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new Error(data.error || `Arrêt refusé (${res.status})`)
+  }
 }

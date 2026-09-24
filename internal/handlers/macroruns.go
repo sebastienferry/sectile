@@ -105,10 +105,86 @@ func (h *Handler) handleMacroRunSkill(w http.ResponseWriter, r *http.Request, pr
 // handleMacroRuns serves GET /api/projects/{id}/macros/{key}/runs: the macro's
 // recent skill runs, most recent first, the running one included.
 func (h *Handler) handleMacroRuns(w http.ResponseWriter, projectID, macroKey string) {
-	runs, err := h.db.MacroRuns(projectID, macroKey, 10)
+	// The route takes a slug as run-skill does; the runs are stored under the
+	// project's primary key.
+	project, err := h.db.GetProjectByID(projectID)
+	if err != nil || project == nil {
+		writeError(w, http.StatusNotFound, "Project not found")
+		return
+	}
+	runs, err := h.db.MacroRuns(project.ID, macroKey, 10)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"runs": runs})
+}
+
+// handleMacroCancelRun serves POST /api/projects/{id}/macros/{key}/cancel-run
+// {runId, force}: it stops a macro skill run the way a task run is stopped
+// (handleCancelRemoteRun). The owner's agent is asked to stop the process; an
+// agent that no longer has the run closes it as orphaned; an unreachable agent
+// needs force, and the note then says no local process was stopped.
+func (h *Handler) handleMacroCancelRun(w http.ResponseWriter, r *http.Request, projectID, macroKey string) {
+	var input struct {
+		RunID string `json:"runId"`
+		Force bool   `json:"force"`
+	}
+	if json.NewDecoder(r.Body).Decode(&input) != nil || input.RunID == "" {
+		writeError(w, http.StatusBadRequest, "runId is required")
+		return
+	}
+	project, err := h.db.GetProjectByID(projectID)
+	if err != nil || project == nil {
+		writeError(w, http.StatusNotFound, "Project not found")
+		return
+	}
+	active, err := h.db.ActiveRunOnMacro(project.ID, macroKey)
+	if err != nil || active == nil || active.ID != input.RunID {
+		writeError(w, http.StatusConflict, "Active remote execution not found on this macro")
+		return
+	}
+	caller, ok := h.requireOwnerOrAdmin(w, r, active.UserID)
+	if !ok {
+		return
+	}
+	userID := active.UserID
+	if userID == "" {
+		userID = caller.UserID
+	}
+	note := "Execution stopped by the local agent"
+	if active.Action == db.RunActionAgent {
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+		defer cancel()
+		dispatchErr := h.agentDispatcher.DispatchAndWait(ctx, userID, project.ID, "", agentconfig.Dispatch{
+			SchemaVersion: agentconfig.Version, ProjectID: project.ID, RunID: active.ID, Action: "cancel_run",
+		})
+		switch {
+		case dispatchErr == nil:
+		case errors.Is(dispatchErr, ErrRunNotOwned):
+			note = "Execution closed: the local agent restarted and no longer had this run"
+		case input.Force:
+			note = "Execution closed without reaching the local agent; any local process was left running"
+		case errors.Is(dispatchErr, ErrNoAgentConnected):
+			writeError(w, http.StatusBadGateway,
+				"No local agent is connected, so the execution could not be stopped. Retry once the agent is running, or force the close to clear the run without stopping any local process.")
+			return
+		default:
+			writeError(w, http.StatusBadGateway, dispatchErr.Error())
+			return
+		}
+	} else if !input.Force {
+		// A run a client reported by hand has no agent process to stop; closing
+		// it is the client's own report, or an explicit force.
+		writeError(w, http.StatusConflict, "This execution was reported by an agent session, not launched from Sectile: force the close to clear it.")
+		return
+	} else {
+		note = "Execution closed from Sectile; the session that reported it was not stopped"
+	}
+	activity, err := h.db.FinishMacroRunAs(db.Actor{}, true, project.ID, macroKey, active.ID, "canceled", note)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, activity)
 }

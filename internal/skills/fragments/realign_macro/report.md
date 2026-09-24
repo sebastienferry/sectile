@@ -1,5 +1,6 @@
 - What you added, one line each, with the entry you created and a note that its body is a stub.
 - What you renamed, old title then new one.
 - What you marked as to be removed, and why you did not delete it.
-- What you deliberately left alone, and why: an entry whose body you kept, a line you could not match to any entry, a line taken back from a story, an origin you do not know.
+- What you deliberately left alone, and why: an entry whose body you kept, a line whose entry no longer exists (unmatched), a line taken back from a story, an origin you do not know.
 - The files touched, with their paths, the branch they are on, and whether it was pushed.
+- The `warning` of `prepare_macro_worktree`, if it gave one.

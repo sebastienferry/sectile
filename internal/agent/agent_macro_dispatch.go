@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"tasks/internal/agentconfig"
@@ -56,14 +57,12 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 	// in a terminal the user answers.
 	payload.Mode = models.SkillModeInteractive
 	payload.TaskKey = macroKey
+	payload.MacroKey = macroKey
 	run, err := d.admitProjectRun(ctx, "", payload, config)
 	if err != nil {
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
 		return
 	}
-	d.queue.mu.Lock()
-	run.desktop.MacroKey = macroKey
-	d.queue.mu.Unlock()
 	d.sendStatus(conn, msg.MsgID, msg.TaskID, "completed", "Execution accepted into the local queue")
 
 	launched := false
@@ -154,32 +153,42 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 // a task dispatch does, then prepares the macro worktree in the specifications
 // repository. It returns the project checkout the skill runs in.
 func (d *agentDaemon) prepareMacroWorkspace(ctx context.Context, config agentconfig.Config, macroKey, title string) (agentconfig.Config, string, macroWorkspace, error) {
+	config, root, spec, err := d.prepareMacroSkills(ctx, config)
+	if err != nil {
+		return config, "", macroWorkspace{}, err
+	}
+	// The worktree is prepared outside prepareMu: it fetches, and a slow remote
+	// must not hold every other launch of the agent behind it. The worktree has
+	// its own per-repository lock.
+	workspace, err := ensureMacroWorktree(ctx, spec, macroKey, title, config.UseWorktrees)
+	return config, root, workspace, err
+}
+
+// prepareMacroSkills is the part of a macro launch that runs under prepareMu:
+// the checkout mapping, the skills and the MCP registration.
+func (d *agentDaemon) prepareMacroSkills(ctx context.Context, config agentconfig.Config) (agentconfig.Config, string, string, error) {
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
 	root, overrides, err := d.localProjectRoot(ctx, config)
 	if err != nil {
-		return config, "", macroWorkspace{}, err
+		return config, "", "", err
 	}
 	config = agentconfig.ApplyOverrides(config, overrides)
 	if err := config.Validate(); err != nil {
-		return config, "", macroWorkspace{}, err
+		return config, "", "", err
 	}
 	preserved, err := agentconfig.Scaffold(root, config)
 	for _, path := range preserved {
 		log.Printf("[Agent] Saved previous skill content: %s", path)
 	}
 	if err != nil {
-		return config, "", macroWorkspace{}, err
+		return config, "", "", err
 	}
 	if err := d.bootstrapLocalMCP(&config); err != nil {
-		return config, "", macroWorkspace{}, err
+		return config, "", "", err
 	}
 	spec, err := localSpecRepo(overrides, config.ProjectID, root)
-	if err != nil {
-		return config, "", macroWorkspace{}, err
-	}
-	workspace, err := ensureMacroWorktree(ctx, spec, macroKey, title, config.UseWorktrees)
-	return config, root, workspace, err
+	return config, root, spec, err
 }
 
 // macroWorkspaceFor answers the macro_worktree operation: the same preparation
@@ -203,8 +212,28 @@ func (d *agentDaemon) macroWorkspaceFor(ctx context.Context, projectID, macroKey
 	return ensureMacroWorktree(ctx, spec, macroKey, title, config.UseWorktrees)
 }
 
-// macroOfRun returns the project and macro of a macro run this agent holds.
+// macroRunIdentity is what reporting a macro run's end needs.
+type macroRunIdentity struct{ projectID, macroKey string }
+
+// macroRunIdentities remembers the project and macro of every macro run from
+// admission until its end is reported. The queue alone is not enough: clearing
+// finished executions from the desktop removes a run from it, possibly before
+// the goroutine reporting its exit has read it, and the macro would then stay
+// busy on the server for good.
+var macroRunIdentities sync.Map
+
+func (d *agentDaemon) rememberMacroRun(runID, projectID, macroKey string) {
+	macroRunIdentities.Store(runID, macroRunIdentity{projectID, macroKey})
+}
+
+func (d *agentDaemon) forgetMacroRun(runID string) { macroRunIdentities.Delete(runID) }
+
+// macroOfRun returns the project and macro of a macro run, "" for any other.
 func (d *agentDaemon) macroOfRun(runID string) (projectID, macroKey string) {
+	if value, ok := macroRunIdentities.Load(runID); ok {
+		identity := value.(macroRunIdentity)
+		return identity.projectID, identity.macroKey
+	}
 	d.queue.mu.Lock()
 	defer d.queue.mu.Unlock()
 	if run := d.queue.runs[runID]; run != nil {

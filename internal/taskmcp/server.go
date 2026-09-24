@@ -292,7 +292,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			sessions.Release(sessionID(req.Session), in.RunID)
 			return nil, activity, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "prepare_macro_worktree", Description: "Prepare the checkout a macro's specification is written in, on the caller's local agent: the macro's own worktree in the project's specifications repository, on the macro branch, created from the up-to-date default branch or reused as is. Returns path, branch, whether it is a dedicated worktree, and any warning. Call it before a macro skill writes, unless SECTILE_SPEC_REPO already names the checkout."},
+	mcp.AddTool(s, &mcp.Tool{Name: "prepare_macro_worktree", Description: "Prepare the checkout a macro's specification is written in, on the caller's local agent: the macro's own worktree in the project's specifications repository, on the macro branch, created from the up-to-date default branch or reused as is. Returns path, branch, whether it is a dedicated worktree, any warning, and the macro's slicing lines (todos) to align on. Call it before a macro skill reads or writes; it reuses the worktree a launch already prepared."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in macroWorktreeInput) (*mcp.CallToolResult, any, error) {
 			workspace, err := database.PrepareMacroWorktree(ctx, callerOf(resolve, req).UserID, in.ProjectID, in.MacroKey)
 			if err != nil {

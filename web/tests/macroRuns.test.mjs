@@ -21,3 +21,8 @@ test('the launch needs an agent serving the project', () => {
 test('a running realignment blocks a second launch', () => {
   assert.match(macroLaunchBlocker([{ projectId: 'p1' }], 'p1', [run({ status: 'running' })]), /déjà en cours/)
 })
+
+test('only the signed-in user\'s agents enable the launch', () => {
+  assert.match(macroLaunchBlocker([{ userId: 'other', projectId: 'p1' }], 'p1', [], 'me'), /agent local/)
+  assert.equal(macroLaunchBlocker([{ userId: 'me', projectId: 'p1' }], 'p1', [], 'me'), null)
+})

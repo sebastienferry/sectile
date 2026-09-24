@@ -142,7 +142,8 @@ func TestMacroRunSkillDispatchesWithoutATask(t *testing.T) {
 		t.Fatalf("expected 409 on a busy macro, got %d", second.StatusCode)
 	}
 
-	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/projects/"+project.ID+"/macros/M-7/runs", nil)
+	// The runs route takes the project slug as run-skill does.
+	req, _ := http.NewRequest(http.MethodGet, server.URL+"/api/projects/"+project.Slug+"/macros/M-7/runs", nil)
 	req.AddCookie(defaultSession(t, database))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -154,5 +155,37 @@ func TestMacroRunSkillDispatchesWithoutATask(t *testing.T) {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&listed); err != nil || len(listed.Runs) != 1 || listed.Runs[0].ID != dispatch.RunID {
 		t.Fatalf("the runs route must list the run: %+v %v", listed, err)
+	}
+}
+
+func TestMacroCancelRunClosesAnOrphanAndForcesWithoutAnAgent(t *testing.T) {
+	database, _, server, project := macroRunFixture(t)
+	run, err := database.StartMacroRun(project.ID, "M-7", "refine_macro", db.RunLaunch{UserID: db.ImplicitUserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(body string) int {
+		req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/projects/"+project.ID+"/macros/M-7/cancel-run", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.AddCookie(defaultSession(t, database))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	// No agent: the stop cannot be witnessed, so it needs force.
+	if code := post(`{"runId":"` + run.ID + `"}`); code != http.StatusBadGateway {
+		t.Fatalf("without an agent a stop is a 502, got %d", code)
+	}
+	if code := post(`{"runId":"` + run.ID + `","force":true}`); code != http.StatusOK {
+		t.Fatalf("a forced stop closes the run, got %d", code)
+	}
+	if active, _ := database.ActiveRunOnMacro(project.ID, "M-7"); active != nil {
+		t.Fatalf("the macro must be free again, got %+v", active)
+	}
+	if code := post(`{"runId":"` + run.ID + `","force":true}`); code != http.StatusConflict {
+		t.Fatalf("a closed run is not active any more, got %d", code)
 	}
 }

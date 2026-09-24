@@ -57,8 +57,8 @@ func TestJiraSprintUpdateSendsOnlyThePatchedFields(t *testing.T) {
 	if sprint.Name != "Renamed" || len(body) != 2 || body["name"] != "Renamed" {
 		t.Fatalf("sprint %+v, payload %v", sprint, body)
 	}
-	// A bare end day is the end of that day.
-	if got, _ := body["endDate"].(string); !strings.HasPrefix(got, "2026-10-20T23:59:59") {
+	// A bare end day ends one second before a 09:00 start, as a batch does.
+	if got, _ := body["endDate"].(string); !strings.HasPrefix(got, "2026-10-20T08:59:59") {
 		t.Fatalf("end date %q", got)
 	}
 	bogus := "paused"

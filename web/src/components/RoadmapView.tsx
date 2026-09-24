@@ -1826,9 +1826,11 @@ export const RoadmapView: React.FC = () => {
                             const savedName = projects.find(p => p.id === saved)?.name || saved
                             const invalid = saved !== '' && !options.some(p => p.id === saved)
                             if (todo.storyKey) {
-                              return saved ? (
+                              // Where the story was created, read-only; worth saying only
+                              // where another project could have received it.
+                              return saved || options.length > 0 ? (
                                 <span className="text-[9.5px] px-1.5 py-0.5 rounded shrink-0 text-[var(--text-muted)] border border-[var(--border-color)]" title="Projet où la story a été créée">
-                                  {savedName}
+                                  {saved ? savedName : currentProject.name}
                                 </span>
                               ) : null
                             }

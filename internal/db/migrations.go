@@ -199,6 +199,8 @@ var migrations = []migration{
 		statements: []string{
 			"ALTER TABLE task_activities ADD COLUMN macro_key TEXT NOT NULL DEFAULT '';",
 			"CREATE INDEX IF NOT EXISTS idx_task_activities_macro ON task_activities (project_id, macro_key);",
+			// One running run per macro, whichever server instance records it.
+			"CREATE UNIQUE INDEX IF NOT EXISTS idx_task_activities_macro_running ON task_activities (project_id, macro_key) WHERE status = 'running' AND macro_key <> '';",
 		},
 	},
 	{

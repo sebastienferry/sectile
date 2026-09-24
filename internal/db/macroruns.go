@@ -78,11 +78,6 @@ func (d *DB) startMacroRun(projectID, macroKey, skill, runID string, agentOwned 
 	if strings.TrimSpace(skill) == "" {
 		return nil, fmt.Errorf("skill is required")
 	}
-	if busy, err := d.ActiveRunOnMacro(project.ID, macro.Key); err != nil {
-		return nil, err
-	} else if busy != nil {
-		return nil, ErrMacroRunBusy
-	}
 	now := time.Now()
 	activity := &models.TaskActivity{ID: uuid.NewString(), ProjectID: project.ID,
 		SkillID: "remote_run", SkillName: skill, Action: RunActionClient,
@@ -92,19 +87,49 @@ func (d *DB) startMacroRun(projectID, macroKey, skill, runID string, agentOwned 
 	if agentOwned {
 		activity.Action = RunActionAgent
 	}
-	if err := d.AddTaskActivity(*activity); err != nil {
+	// The busy check and the record are one step: two launches in the same
+	// instant would otherwise both find the macro free and write in the same
+	// worktree. Across server instances the partial unique index of migration 10
+	// refuses the second one. The insert names the columns every activity has,
+	// the macro and the mode follow in the same transaction, so a run is never
+	// left without the macro that finds it.
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var busy int
+	if err := d.conn.QueryRow(`SELECT COUNT(*) FROM task_activities
+		WHERE project_id = ? AND task_id IS NULL AND skill_id = 'remote_run' AND status = 'running' AND UPPER(macro_key) = UPPER(?)`,
+		project.ID, macro.Key).Scan(&busy); err != nil {
 		return nil, err
 	}
-	// The insert names the columns every activity has; the macro and the mode
-	// follow, as run_mode does for a task run.
-	d.mu.Lock()
-	_, err = d.conn.Exec("UPDATE task_activities SET macro_key=?, run_mode=? WHERE id=?",
-		macro.Key, models.NormalizeSkillMode(launch.Mode), activity.ID)
-	d.mu.Unlock()
+	if busy > 0 {
+		return nil, ErrMacroRunBusy
+	}
+	tx, err := d.conn.Begin()
 	if err != nil {
 		return nil, err
 	}
+	if err := insertTaskActivity(tx, d.instanceID, *activity); err != nil {
+		_ = tx.Rollback()
+		return nil, err
+	}
+	if _, err := tx.Exec("UPDATE task_activities SET macro_key=?, run_mode=? WHERE id=?",
+		macro.Key, models.NormalizeSkillMode(launch.Mode), activity.ID); err != nil {
+		_ = tx.Rollback()
+		if isUniqueViolation(err) {
+			return nil, ErrMacroRunBusy
+		}
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return activity, nil
+}
+
+// isUniqueViolation recognises the refusal of a unique index, on either engine.
+func isUniqueViolation(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate key")
 }
 
 // macroKeyOfActivity reads the macro an activity belongs to, "" for any other.
@@ -195,13 +220,19 @@ func (d *DB) FinishMacroRunAs(caller Actor, admin bool, projectID, macroKey, run
 	if strings.Contains(existing.Summary, models.RunSilencePrefix) {
 		summary = existing.Summary + " - " + note
 	}
-	d.mu.Lock()
 	// As for a task run, a cancellation the server decided on a disconnection
-	// stays correctable by the identified owner.
+	// stays correctable by the identified owner, and only by them: the
+	// server's own closure names nobody and must never rewrite an outcome it
+	// just recorded.
+	closable := "status='running'"
+	args := []any{status, summary, time.Now(), runID, project.ID}
+	if strings.TrimSpace(caller.ID) != "" {
+		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
+		args = append(args, models.RunDisconnectNote+"%")
+	}
+	d.mu.Lock()
 	result, err := d.conn.Exec(`UPDATE task_activities SET status=?, summary=?, completed_at=?, waiting_since=NULL
-		WHERE id=? AND project_id=? AND task_id IS NULL AND skill_id='remote_run'
-		AND (status='running' OR (status='canceled' AND summary LIKE ?))`,
-		status, summary, time.Now(), runID, project.ID, models.RunDisconnectNote+"%")
+		WHERE id=? AND project_id=? AND task_id IS NULL AND skill_id='remote_run' AND `+closable, args...)
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -235,5 +266,8 @@ func (d *DB) PrepareMacroWorktree(ctx context.Context, userID, projectID, macroK
 	if err != nil {
 		return nil, err
 	}
+	// The slicing travels with the checkout, so a skill invoked by hand, which
+	// holds no API token, reads its input from the same answer.
+	workspace.ProjectID, workspace.MacroKey, workspace.Todos = project.ID, macro.Key, macro.Todos
 	return &workspace, nil
 }
