@@ -1216,7 +1216,7 @@ async function openProject(id){
   const repository=settingRow('Local repository',{stacked:true},picker)
   // Macro skills write specifications here; empty means the local repository.
   const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.placeholder='Same as the local repository';specPath.setAttribute('aria-label','Specifications repository')
-  const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…'
+  const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
   specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)specPath.value=selected}catch(err){error(err)}}
   const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
   const specRepository=settingRow('Specifications repository',{stacked:true},specPicker)
