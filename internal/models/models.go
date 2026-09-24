@@ -117,6 +117,9 @@ type Project struct {
 	// slicing import, the macro worktree and the realignment. The agents keep
 	// running in RepoPath.
 	SpecRepoPath string `json:"specRepoPath,omitempty"`
+	// RoadmapProjects are other Jira project keys whose story keys the slicing
+	// attaches to a line. They are read, never written.
+	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
@@ -377,6 +380,8 @@ type CreateProjectRequest struct {
 	EpicColors bool `json:"epicColors,omitempty"`
 	// SpecRepoPath is the specifications checkout. Empty means RepoPath.
 	SpecRepoPath string `json:"specRepoPath,omitempty"`
+	// RoadmapProjects are the Jira project keys the slicing also reads.
+	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
 	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
@@ -426,6 +431,7 @@ type UpdateProjectRequest struct {
 	RepoPath                    *string              `json:"repoPath,omitempty"`
 	RepoPaths                   *[]string            `json:"repoPaths,omitempty"`
 	SpecRepoPath                *string              `json:"specRepoPath,omitempty"`
+	RoadmapProjects             *[]string            `json:"roadmapProjects,omitempty"`
 	PRCreationStage             *string              `json:"prCreationStage,omitempty"`
 	DefaultSkillMode            *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage          *string              `json:"fullChainStopStage,omitempty"`

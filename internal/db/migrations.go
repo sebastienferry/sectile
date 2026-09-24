@@ -201,6 +201,15 @@ var migrations = []migration{
 			"CREATE INDEX IF NOT EXISTS idx_task_activities_macro ON task_activities (project_id, macro_key);",
 		},
 	},
+	{
+		// Other Jira projects whose story keys a project's slicing attaches
+		// (#426). A JSON array in TEXT, like enabled_views: read whole.
+		version: 11,
+		name:    "projects.roadmap_projects",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN roadmap_projects TEXT NOT NULL DEFAULT '[]';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

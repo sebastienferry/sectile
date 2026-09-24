@@ -36,6 +36,7 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_repo_path")
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
 }
 
 // appliedVersions is what the database says it has applied, in order.
@@ -296,6 +297,7 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_repo_path")
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= ?", 5); err != nil {
 		t.Fatalf("forgetting the migration: %v", err)
 	}

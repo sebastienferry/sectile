@@ -236,6 +236,8 @@ export interface Project {
    * code repository. Absent means repoPath. Read by the macro workflow only.
    */
   specRepoPath?: string
+  /** Other Jira project keys whose story keys the slicing attaches. Read, never written. */
+  roadmapProjects?: string[]
   /**
    * Chaque tâche travaille dans son propre worktree Git isolé, ou directement
    * dans le clone si l'option est désactivée. Vrai par défaut.

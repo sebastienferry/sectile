@@ -64,10 +64,10 @@ section; UI sections also run the browser tests.
 
 ## 7. Roadmap projects (US5, FR8)
 
-- [ ] T7.1 Migration `projects.roadmap_projects`; model, requests, db plumbing; `NormalizeRoadmapProjects` on write.
-- [ ] T7.2 `entryKeyPrefixes` includes them; write paths (story creation, parent, sprint move, labels) refuse a roadmap-project key.
-- [ ] T7.3 ProjectModal comma list (Jira only), `web/src/lib/roadmapProjects.ts` helpers with tests.
-- [ ] T7.4 Tests: normalisation (`abc, DEF abc SFE` on SFE → `ABC, DEF`); `ABC-12 …` attaches on import, `XYZ-1 …` does not; write refused on an `ABC-` key.
+- [x] T7.1 Migration `projects.roadmap_projects`; model, requests, db plumbing; `NormalizeRoadmapProjects` on write.
+- [x] T7.2 `entryKeyPrefixes` includes them; story creation from a line attached to a roadmap-project key is refused as read-only. The other write paths (parent, sprint move, labels) act on board tasks, and a roadmap project's story is never one, so they cannot reach it.
+- [x] T7.3 ProjectModal comma list (Jira only), `web/src/lib/roadmapProjects.ts` helpers with tests.
+- [x] T7.4 Tests: normalisation (`abc, DEF abc SFE` on SFE → `ABC, DEF`); `ABC-12 …` attaches on import, `XYZ-1 …` does not; write refused on an `ABC-` key.
 
 ## 8. Jira sprint management (US6, FR9, FR10)
 

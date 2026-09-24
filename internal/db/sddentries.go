@@ -113,21 +113,19 @@ func trimEntrySeparators(text string) string {
 	return strings.TrimSpace(text)
 }
 
-// entryKeyPrefixes rend les préfixes de clé qu'un projet sait rattacher.
-//
-// Sectile n'en connaît qu'un, celui du projet Jira. Taskativ y ajoute les
-// projets distants que sa roadmap lit ; ce réglage n'existe pas ici, et une clé
-// d'un autre projet restera donc dans le texte de la ligne, ce qui est le refus
-// prudent : une clé qu'on ne sait pas rattacher n'est pas une story.
+// entryKeyPrefixes returns the key prefixes a project attaches to a slicing
+// line: its own Jira key, then the roadmap projects it declares. A key of any
+// other project stays in the line's text, which is the careful refusal: a key
+// nobody declared is not a story of this roadmap.
 func entryKeyPrefixes(proj *models.Project) []string {
 	if proj == nil {
 		return nil
 	}
-	own := strings.ToUpper(strings.TrimSpace(proj.JiraProject))
-	if own == "" {
-		return nil
+	var prefixes []string
+	if own := strings.ToUpper(strings.TrimSpace(proj.JiraProject)); own != "" {
+		prefixes = append(prefixes, own)
 	}
-	return []string{own}
+	return append(prefixes, proj.RoadmapProjects...)
 }
 
 // normalizeTodoText rend la forme sur laquelle deux lignes sont dites égales.

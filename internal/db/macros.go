@@ -374,6 +374,9 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 	if todo == nil {
 		return nil, "", "", fmt.Errorf("ligne de TODO introuvable")
 	}
+	if isRoadmapProjectKey(proj, todo.StoryKey) {
+		return nil, "", "", fmt.Errorf("cette ligne est rattachée à %s, d'un projet de roadmap que Sectile lit sans jamais y écrire", todo.StoryKey)
+	}
 	if strings.TrimSpace(todo.StoryKey) != "" {
 		return nil, "", "", fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
 	}
