@@ -165,7 +165,7 @@ mirror Jira's answer into projects.sprints (replace / append / forget by id)
 | `web/src/components/SprintTimelineView.tsx`, `web/src/lib/sprints.ts`, `AppContext.tsx` | On Jira: creation bar (pattern, count, start, weeks 1 to 4), rename/dates, close (with next sprint / backlog choice), delete (confirm) call the new routes and render the server's answer; moves pass the sprint **id**. On GitHub: no creation/edit/close/delete controls; sprints already stored locally stay visible, read-only, and accept no ticket move. Local projects: unchanged. French strings through `translations.ts`. |
 | `desktop/` | No change expected: the console attaches by `sessionId` = runId. Verify a macro run appears in the run list with the macro key as its label; adjust the label if it shows a blank task key. |
 | `CHANGELOG.md` | Under `[Unreleased]`: `Added` specifications repository, macro worktree, realign-macro, Jira sprint management, roadmap projects; `Changed` stories created under a Jira epic now get the parent on Jira and honour the line's target project. |
-| `docs/adrs/00NN-macro-runs-and-worktrees.md` (new) | Why a macro run is a project activity with `macro_key` (not a pseudo task id, see #310), and why the macro worktree is created by the agent. |
+| `docs/adrs/0026-macro-runs-and-macro-worktrees.md` (new) | Why a macro run is a project activity with `macro_key` (not a pseudo task id, see #310), and why the macro worktree is created by the agent. |
 
 ## Data contracts
 

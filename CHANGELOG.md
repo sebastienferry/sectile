@@ -15,6 +15,18 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Realign a macro's specification with its slicing.** *Réaligner la spec*, in the macro panel, runs the new `realign-macro` skill on your local agent, in the desktop app's Run (or type `/realign-macro <KEY>` in an agent session). It brings the specification back in line with a slicing edited by hand: lines typed by hand become stub entries, renamed lines rename their entry, and entries no line points to any more are marked *to be removed*. It never rewrites the body of an entry and never deletes one, for Spec Kit and OpenSpec alike, and it commits and pushes the macro branch only when it wrote something. (#426)
+
+- **Each macro gets its own worktree.** A macro's specification is written in `.tasks/worktrees/<KEY>` of the specifications repository, on the macro's branch, started from the up-to-date default branch, so two macros specified at the same time no longer share untracked files. An existing worktree is reused with its uncommitted work; projects with worktrees off keep using the checkout. (#426)
+
+- **Declare where a project's specifications live.** The project options (Compétences IA & SDD) gain *Dépôt des spécifications*, for teams that keep their specifications apart from their code; the slicing import reads it, and the code repository stays the agents' working directory. On a workstation, the desktop project dialog has the matching *Specifications repository* field for macro skills. (#426)
+
+- **Manage Jira sprints from the timeline.** On a Jira project, *+ Sprints* creates a batch on the board (name pattern with `{n}`, count, start date, one to four weeks each); renaming, changing dates, closing, reopening and deleting are written to Jira and the timeline shows Jira's answer, so the next synchronisation keeps them. Closing can first move the unfinished tickets to the next sprint or to the backlog. On a GitHub project the timeline is read-only. (#426)
+
+- **Choose the project a slicing line's story is created in.** Each line offers the macro's project and the other projects of the same tracker instance (one Jira site, one GitHub repository); the story lands there, still under the macro's epic. A target on another tracker or site is refused by name, and nothing is created. (#426)
+
+- **Attach stories from the other Jira projects your roadmap reads.** *Projets de roadmap*, in a Jira project's tracker options, lists other project keys whose stories attach to slicing lines on import. Sectile only reads them and never writes to those projects. (#426)
+
 - **Zoom and density are in the status bar, and the zoom reaches further.** The bottom bar shows the current zoom and opens both settings where you are already looking, instead of four clicks away under Profile, Appearance. The ladder gains 80 %, 150 % and 175 %: stopping at 125 % left "it is too small" without an answer. The four levels you may already have chosen are unchanged, and a value written by another version snaps to the nearest step rather than being refused.
 
 - **Group a macro's tickets by phase and by goal.** Two tabs in the macro panel, *Phases* and *Objectifs*, split the same tickets along two axes carried by prefixed labels: `phase:` says the order of the work, `goal:` says what you are trying to obtain, and a ticket can serve one without belonging to the other. Drag a ticket between groups to move it; only that axis's label changes. Naming a group labels nothing, so the group waits empty as a target and the label becomes real on the first ticket dropped into it. Names are normalised on the way to the tracker, spaces becoming hyphens as Jira requires, and the resulting label is shown before it is applied.
@@ -35,6 +47,8 @@ test fixtures or internal plumbing.
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed
+
+- **A story created under a Jira epic now gets the epic as its parent on Jira**, not only on the Sectile board. If Jira refuses the parent, the story is kept and a warning says so. (#426)
 
 - **Triage, Roadmap and Timeline are now hidden by default and enabled per
   project.** Project settings, under General, carry a "Vues de l'espace de

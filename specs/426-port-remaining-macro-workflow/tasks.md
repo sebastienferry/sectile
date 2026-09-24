@@ -80,8 +80,8 @@ section; UI sections also run the browser tests.
 
 ## 9. Docs
 
-- [ ] T9.1 `CHANGELOG.md` `[Unreleased]` lines per plan.
-- [ ] T9.2 ADR "macro runs and worktrees" in `docs/adrs/`.
+- [x] T9.1 `CHANGELOG.md` `[Unreleased]` lines per plan.
+- [x] T9.2 ADR 0026 "macro skill runs are project activities, and macro worktrees live on the agent".
 - [x] T9.3 Follow-up ticket for GitLab iterations opened: #430 under M-7.
 
 ## Test plan summary
