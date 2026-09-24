@@ -1234,6 +1234,45 @@ func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs [
 	return projectCond, projectArgs, labelCond, labelArgs, nil
 }
 
+// lockDefaultProjectUnsafe serialises every change to which project is the
+// default, across server instances, by locking the settings row: a row lock
+// cannot cover a project that is not inserted yet, and "one default project"
+// spans every row of the table. It is always taken before any project row, so
+// two writers never wait on each other in opposite orders. The settings row is
+// seeded at open; it is inserted here too, for a database emptied since.
+func (d *DB) lockDefaultProjectUnsafe(tx *sqlTx) error {
+	return d.lockSettingsUnsafe(tx)
+}
+
+// lockSettingsUnsafe locks the single settings row until the transaction ends.
+func (d *DB) lockSettingsUnsafe(tx *sqlTx) error {
+	if _, err := tx.Exec("INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING"); err != nil {
+		return err
+	}
+	var id int
+	return tx.QueryRow("SELECT id FROM settings WHERE id = 1" + d.forUpdate()).Scan(&id)
+}
+
+// sourceConverting marks a local task while ConvertTaskToRemote creates its
+// tracker issue: the claim that keeps a second conversion, on this instance or
+// another, from creating a second issue. It never reaches a reader.
+const sourceConverting = "converting"
+
+// taskSource is where a task comes from: its recorded source, else what its key
+// looks like. A task being converted is still local until the issue exists.
+func taskSource(source sql.NullString, key string) string {
+	switch {
+	case source.Valid && source.String == sourceConverting:
+		return "local"
+	case source.Valid && source.String != "":
+		return source.String
+	case strings.HasPrefix(key, "#") || strings.HasPrefix(key, "GH-#") || strings.HasPrefix(key, "gh-"):
+		return "github"
+	default:
+		return "local"
+	}
+}
+
 // forUpdate is the row-locking clause of the engine, appended to a SELECT run
 // inside a transaction. See dialect.ForUpdate.
 func (d *DB) forUpdate() string {
@@ -1812,13 +1851,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 		if trackerStatus.Valid {
 			t.TrackerStatus = trackerStatus.String
 		}
-		if source.Valid && source.String != "" {
-			t.Source = source.String
-		} else if strings.HasPrefix(t.Key, "#") || strings.HasPrefix(t.Key, "GH-#") || strings.HasPrefix(t.Key, "gh-") {
-			t.Source = "github"
-		} else {
-			t.Source = "local"
-		}
+		t.Source = taskSource(source, t.Key)
 
 		if extURL.Valid && extURL.String != "" {
 			t.ExternalURL = &extURL.String
@@ -1981,13 +2014,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	if trackerStatus.Valid {
 		t.TrackerStatus = trackerStatus.String
 	}
-	if source.Valid && source.String != "" {
-		t.Source = source.String
-	} else if strings.HasPrefix(t.Key, "#") || strings.HasPrefix(t.Key, "GH-#") || strings.HasPrefix(t.Key, "gh-") {
-		t.Source = "github"
-	} else {
-		t.Source = "local"
-	}
+	t.Source = taskSource(source, t.Key)
 
 	if extURL.Valid && extURL.String != "" {
 		t.ExternalURL = &extURL.String
@@ -2188,7 +2215,11 @@ func (d *DB) DeleteGitBranch(projectIDOrPath string, branchName string, deleteRe
 	return d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "git_delete", Branch: branchName, DeleteRemote: deleteRemote}, nil)
 }
 
-func (d *DB) getNextTaskKey(projectID string, prefix string) (string, error) {
+// getNextTaskKey reads through q, a transaction that holds the project row
+// locked, so two local creations on two server instances never pick one key.
+func (d *DB) getNextTaskKey(q interface {
+	Query(string, ...any) (*sql.Rows, error)
+}, projectID string, prefix string) (string, error) {
 	if prefix == "" {
 		prefix = "TASK"
 	}
@@ -2201,7 +2232,7 @@ func (d *DB) getNextTaskKey(projectID string, prefix string) (string, error) {
 		args = []interface{}{projectID, prefix + "-%"}
 	}
 
-	rows, err := d.conn.Query(query, args...)
+	rows, err := q.Query(query, args...)
 	if err != nil {
 		return fmt.Sprintf("%s-1", prefix), nil
 	}
@@ -2369,9 +2400,10 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 // is what puts the person's own name on the ticket they just created rather
 // than a shared service account.
 func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*models.Task, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
+	// The tracker is called with no lock held (a store lock across an HTTP call
+	// stalls every writer for its duration): what it needs is read first, and
+	// the row is written afterwards in a transaction of its own.
+	d.mu.RLock()
 	settings, _ := d.getSettingsUnsafe()
 	if settings == nil {
 		settings = &models.Settings{
@@ -2389,6 +2421,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			projID = proj.ID
 		}
 	}
+	d.mu.RUnlock()
 
 	githubRepo := settings.GithubRepo
 	jiraProject := settings.JiraProject
@@ -2456,6 +2489,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 	}
 
 	// Remote creation requires confirmation from the server HTTP adapter.
+	local := true
 	ts, tsErr := d.TrackerForProject(proj)
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
 		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
@@ -2475,13 +2509,11 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		if created != nil {
 			id = ts.FormatTaskID(projID, created.Key, created.ID)
 			key = created.Key
+			local = false
 			extURL = created.ExternalURL
 		} else {
 			return nil, fmt.Errorf("%s issue creation failed: empty response", ts.Name())
 		}
-	} else {
-		// Local project tracker
-		key, _ = d.getNextTaskKey(projID, prefix)
 	}
 
 	if req.ExternalURL != nil && *req.ExternalURL != "" {
@@ -2490,40 +2522,62 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		cleanNum := strings.TrimPrefix(key, "#")
 		url := fmt.Sprintf("https://github.com/%s/issues/%s", models.CleanGithubRepo(githubRepo), cleanNum)
 		extURL = &url
-	} else if extURL == nil && req.Source == "jira" && jiraUrl != "" {
+	} else if extURL == nil && req.Source == "jira" && jiraUrl != "" && !local {
+		// A local key is only known inside the transaction below, which builds
+		// this URL itself.
 		url := fmt.Sprintf("%s/browse/%s", strings.TrimSuffix(jiraUrl, "/"), key)
 		extURL = &url
 	}
-
-	var maxPos int
-	_ = d.conn.QueryRow("SELECT COALESCE(MAX(position), -1) FROM tasks WHERE status = ?", req.Status).Scan(&maxPos)
-	newPos := maxPos + 1
 
 	labelsJSON, _ := json.Marshal(req.Labels)
 	if req.Labels == nil {
 		labelsJSON = []byte("[]")
 	}
-
 	isPinned := HasPinnedLabel(req.Labels)
-	pinnedVal := 0
-	if isPinned {
-		pinnedVal = 1
-		_, _ = d.conn.Exec(`
-			INSERT INTO pinned_tasks (task_id, pinned_at) VALUES (?, ?)
-			ON CONFLICT(task_id) DO UPDATE SET pinned_at = excluded.pinned_at
-		`, id, now.Format(time.RFC3339))
-	}
-
 	issueType := strings.TrimSpace(req.IssueType)
 	parentKey := req.ParentKey
 	parentTitle := req.ParentTitle
 	parentType := req.ParentType
 
-	_, err := d.conn.Exec(`
-		INSERT INTO tasks (id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, projID, key, req.Title, req.Description, string(req.Status), string(req.Priority), string(labelsJSON), pinnedVal, req.Assignee, req.AssigneeAvatar, req.Creator, req.CreatorAvatar, newPos, req.DueDate, req.Source, extURL, issueType, parentKey, parentTitle, parentType, strings.TrimSpace(req.Sprint), now, now)
+	// A local key is the project's highest plus one, computed on the locked
+	// project row so a creation racing on another instance waits for this one
+	// instead of picking the same number. Two tasks may still share a position,
+	// which only orders the column.
+	var newPos int
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	err := d.conn.WithTx(func(tx *sqlTx) error {
+		if local {
+			if projID != "" {
+				var locked string
+				if err := tx.QueryRow("SELECT id FROM projects WHERE id = ?"+d.forUpdate(), projID).Scan(&locked); err != nil && err != sql.ErrNoRows {
+					return err
+				}
+			}
+			key, _ = d.getNextTaskKey(tx, projID, prefix)
+			if req.Source == "jira" && jiraUrl != "" && extURL == nil && (req.ExternalURL == nil || *req.ExternalURL == "") {
+				url := fmt.Sprintf("%s/browse/%s", strings.TrimSuffix(jiraUrl, "/"), key)
+				extURL = &url
+			}
+		}
+		var maxPos int
+		_ = tx.QueryRow("SELECT COALESCE(MAX(position), -1) FROM tasks WHERE status = ?", req.Status).Scan(&maxPos)
+		newPos = maxPos + 1
 
+		if isPinned {
+			if _, err := tx.Exec(`
+				INSERT INTO pinned_tasks (task_id, pinned_at) VALUES (?, ?)
+				ON CONFLICT(task_id) DO UPDATE SET pinned_at = excluded.pinned_at
+			`, id, now.Format(time.RFC3339)); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`
+			INSERT INTO tasks (id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, id, projID, key, req.Title, req.Description, string(req.Status), string(req.Priority), string(labelsJSON), boolToInt(isPinned), req.Assignee, req.AssigneeAvatar, req.Creator, req.CreatorAvatar, newPos, req.DueDate, req.Source, extURL, issueType, parentKey, parentTitle, parentType, strings.TrimSpace(req.Sprint), now, now)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -3353,13 +3407,7 @@ func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, err
 	if trackerStatus.Valid {
 		t.TrackerStatus = trackerStatus.String
 	}
-	if source.Valid && source.String != "" {
-		t.Source = source.String
-	} else if strings.HasPrefix(t.Key, "#") || strings.HasPrefix(t.Key, "GH-#") || strings.HasPrefix(t.Key, "gh-") {
-		t.Source = "github"
-	} else {
-		t.Source = "local"
-	}
+	t.Source = taskSource(source, t.Key)
 
 	if extURL.Valid && extURL.String != "" {
 		t.ExternalURL = &extURL.String
@@ -3699,6 +3747,18 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// The settings row is locked before it is read, so a save racing on another
+	// server instance waits, and this one merges into what it committed rather
+	// than writing back every field from an older read.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := d.lockSettingsUnsafe(tx); err != nil {
+		return nil, err
+	}
+
 	cleared := make(map[string]bool, len(clear))
 	for _, name := range clear {
 		cleared[name] = true
@@ -3864,7 +3924,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 	settingsProviderModelsBytes, _ := json.Marshal(s.AIProviderModels)
 
 	now := time.Now()
-	_, err := d.conn.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO settings (id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, prompt_clarify, prompt_specify, prompt_implement, prompt_adjust, prompt_handoff, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at)
 		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -3911,6 +3971,9 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 			updated_at = excluded.updated_at
 	`, s.Theme, s.AccentColor, s.Language, s.Density, s.DefaultView, s.DetailMode, s.UserName, s.UserEmail, s.UserAvatar, s.AIProvider, s.AICommandTemplate, s.AICommandTemplateAutonomous, s.AIModel, string(settingsSkillModelsBytes), string(settingsProviderModelsBytes), s.RepoPath, s.IssueTracker, s.GithubRepo, s.JiraProject, s.JiraUrl, s.JiraEmail, s.JiraAPIToken, s.GithubApiUrl, s.GithubToken, s.GitlabUrl, s.GitlabProject, s.GitlabToken, s.PromptClarify, s.PromptSpecify, s.PromptImplement, s.PromptAdjust, s.PromptHandoff, s.PromptCreatePR, s.PromptPick, s.EditorCommand, s.ExternalTerminalCommand, s.SpecFramework, s.UIScale, autoSyncEnabledInt, s.AutoSyncIntervalSec, now)
 
+	if err == nil {
+		err = tx.Commit()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -5579,6 +5642,35 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		return nil, fmt.Errorf("tracker distant non supporté: %s", target)
 	}
 
+	// Claim the task before creating anything. The claim holds only while the
+	// key is still the one read above and no other conversion holds it: a
+	// second request, here or on another instance, fails here instead of
+	// creating a second issue, including one that read the task before the
+	// first conversion changed its key.
+	d.mu.Lock()
+	var previousSource sql.NullString
+	claimErr := d.conn.WithTx(func(tx *sqlTx) error {
+		var key string
+		if err := tx.QueryRow("SELECT key, source FROM tasks WHERE id = ?"+d.forUpdate(), task.ID).Scan(&key, &previousSource); err != nil {
+			return err
+		}
+		if key != task.Key || previousSource.String == sourceConverting {
+			return fmt.Errorf("la tâche %s est déjà en cours de conversion ou a déjà été convertie", task.Key)
+		}
+		_, err := tx.Exec("UPDATE tasks SET source = ? WHERE id = ?", sourceConverting, task.ID)
+		return err
+	})
+	d.mu.Unlock()
+	if claimErr != nil {
+		return nil, claimErr
+	}
+	// A conversion that does not end with an issue gives the task back as it was.
+	release := func() {
+		d.mu.Lock()
+		_, _ = d.conn.Exec("UPDATE tasks SET source = ? WHERE id = ? AND source = ?", previousSource, task.ID, sourceConverting)
+		d.mu.Unlock()
+	}
+
 	created, err := ts.CreateIssue(context.Background(), tracker.CreateIssueRequest{
 		Project:     proj,
 		Title:       task.Title,
@@ -5587,9 +5679,11 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		Labels:      task.Labels,
 	})
 	if err != nil {
+		release()
 		return nil, fmt.Errorf("création %s impossible: %w", ts.Name(), err)
 	}
 	if created == nil {
+		release()
 		return nil, fmt.Errorf("création %s impossible: ticket non retourné", ts.Name())
 	}
 	newKey = created.Key
@@ -5607,8 +5701,8 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	_, err = d.conn.Exec(`
 		UPDATE tasks
 		SET key = ?, source = ?, external_url = ?, labels = ?, updated_at = ?
-		WHERE id = ?
-	`, task.Key, task.Source, task.ExternalURL, string(labelsJSON), now, task.ID)
+		WHERE id = ? AND source = ?
+	`, task.Key, task.Source, task.ExternalURL, string(labelsJSON), now, task.ID, sourceConverting)
 	if err != nil {
 		return nil, err
 	}
@@ -6189,7 +6283,6 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 	isDefInt := 0
 	if req.IsDefault {
 		isDefInt = 1
-		_, _ = d.conn.Exec("UPDATE projects SET is_default = 0")
 	}
 
 	skillOverrides := req.SkillOverrides
@@ -6258,10 +6351,23 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		return nil, fmt.Errorf("prCreationStage must be specified or implemented")
 	}
 
-	_, err := d.conn.Exec(`
+	// The previous default is cleared in the same transaction as the insert,
+	// under the default-project lock, so there is never zero or two defaults.
+	err := d.conn.WithTx(func(tx *sqlTx) error {
+		if req.IsDefault {
+			if err := d.lockDefaultProjectUnsafe(tx); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("UPDATE projects SET is_default = 0"); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`
 		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, enabled_views, epic_colors, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, owner_user_id, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiCmdAutonomous, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, strings.TrimSpace(ownerUserID), now, now)
+		return err
+	})
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6291,6 +6397,34 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 // would otherwise hand its synchronisation to the last person who touched it.
 func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
+
+	// The project row is locked before it is read, so an edit racing on another
+	// server instance waits and this one merges into what it committed, instead
+	// of writing back every field from an older snapshot. A change of default
+	// takes the default-project lock first. The plain read below then sees the
+	// latest committed row, which nobody else can change until the commit.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		d.mu.Unlock()
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if req.IsDefault != nil {
+		if err := d.lockDefaultProjectUnsafe(tx); err != nil {
+			d.mu.Unlock()
+			return nil, err
+		}
+	}
+	var lockedID string
+	if err := tx.QueryRow("SELECT id FROM projects WHERE id = ?"+d.forUpdate(), id).Scan(&lockedID); err != nil && err != sql.ErrNoRows {
+		d.mu.Unlock()
+		return nil, err
+	}
 
 	p, err := d.getProjectByIDUnsafe(id)
 	if err != nil {
@@ -6447,7 +6581,7 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	if req.IsDefault != nil {
 		p.IsDefault = *req.IsDefault
 		if p.IsDefault {
-			_, _ = d.conn.Exec("UPDATE projects SET is_default = 0 WHERE id != ?", p.ID)
+			_, _ = tx.Exec("UPDATE projects SET is_default = 0 WHERE id != ?", p.ID)
 		}
 	}
 	p.UpdatedAt = time.Now()
@@ -6498,11 +6632,15 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		autoSyncEnabledInt = 1
 	}
 
-	_, err = d.conn.Exec(`
+	_, err = tx.Exec(`
 		UPDATE projects
 		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_command_template_autonomous = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
 	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AICommandTemplateAutonomous, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
+	if err == nil {
+		err = tx.Commit()
+		committed = err == nil
+	}
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6529,27 +6667,54 @@ func (d *DB) DeleteProject(id string) error {
 	if p == nil {
 		return fmt.Errorf("projet non trouvé")
 	}
-	if p.IsDefault {
-		return fmt.Errorf("impossible de supprimer le projet par défaut")
-	}
 
-	// Reassign tasks to default project
-	var defaultProjID string
-	_ = d.conn.QueryRow("SELECT id FROM projects WHERE is_default = 1 LIMIT 1").Scan(&defaultProjID)
-	if defaultProjID == "" {
-		defaultProjID = "default"
+	// Under the default-project lock, the project is checked again and its
+	// tasks moved to the default in one transaction: another instance making
+	// this project the default meanwhile either commits first, and the delete
+	// is refused, or waits and finds it gone.
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		if err := d.lockDefaultProjectUnsafe(tx); err != nil {
+			return err
+		}
+		var isDefault int
+		if err := tx.QueryRow("SELECT is_default FROM projects WHERE id = ?"+d.forUpdate(), p.ID).Scan(&isDefault); err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("projet non trouvé")
+			}
+			return err
+		}
+		if isDefault != 0 {
+			return fmt.Errorf("impossible de supprimer le projet par défaut")
+		}
+
+		// Reassign tasks to default project
+		var defaultProjID string
+		_ = tx.QueryRow("SELECT id FROM projects WHERE is_default = 1 LIMIT 1").Scan(&defaultProjID)
+		if defaultProjID == "" {
+			defaultProjID = "default"
+		}
+		if _, err := tx.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID); err != nil {
+			return err
+		}
+		// Explicit, like DeleteTask's: the ON DELETE CASCADE on project_id only
+		// fires under PostgreSQL, because this package never turns SQLite's
+		// foreign keys on.
+		if _, err := tx.Exec("DELETE FROM task_activities WHERE project_id = ?", p.ID); err != nil {
+			return err
+		}
+		_, err := tx.Exec("DELETE FROM projects WHERE id = ?", p.ID)
+		return err
+	})
+	if err != nil {
+		return err
 	}
-	_, _ = d.conn.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID)
-	_, _ = d.conn.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID)
 	// A saved view keeps selecting what is left; reading ignores the project
 	// anyway, so a failure here costs a stale id in a row, never a ghost.
 	_ = d.removeProjectFromBoardViewsUnsafe(p.ID, p.Slug)
-	// Explicit, like DeleteTask's: the ON DELETE CASCADE on project_id only
-	// fires under PostgreSQL, because this package never turns SQLite's foreign
-	// keys on.
-	_, _ = d.conn.Exec("DELETE FROM task_activities WHERE project_id = ?", p.ID)
-	_, err = d.conn.Exec("DELETE FROM projects WHERE id = ?", p.ID)
-	return err
+	return nil
 }
 
 // -------------------------------------------------------------
