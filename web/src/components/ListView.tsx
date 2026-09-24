@@ -33,6 +33,7 @@ import { useClickOutside } from "../hooks/useClickOutside"
 import { TaskFilters } from "./TaskFilters"
 import { BoardGroupingToggle } from "./BoardGroupingToggle"
 import { issueTypeStyle } from "../lib/issueTypes"
+import { PRIORITY_COLORS, PRIORITY_LEVELS } from "../lib/priority"
 import { Avatar } from "./Avatar"
 import { EpicBar, useEpicColors } from "./EpicMarker"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
@@ -188,12 +189,9 @@ export const ListView: React.FC = () => {
   ]
 
   // Pastilles flat (sans emoji ni bordure 3D)
-  const PRIORITY_OPTIONS: { id: Priority; label: string; color: string }[] = [
-    { id: "urgent", label: t.priority.urgent, color: "var(--status-danger)" },
-    { id: "high", label: t.priority.high, color: "var(--status-warn)" },
-    { id: "medium", label: t.priority.medium, color: "var(--status-info)" },
-    { id: "low", label: t.priority.low, color: "var(--text-muted)" },
-  ]
+  const PRIORITY_OPTIONS: { id: Priority; label: string; color: string }[] = PRIORITY_LEVELS.map(id => (
+    { id, label: t.priority[id], color: PRIORITY_COLORS[id] }
+  ))
 
   // -------------------------------------------------------------
   // Bulk Actions Selection Utilities

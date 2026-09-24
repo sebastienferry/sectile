@@ -50,6 +50,8 @@ test fixtures or internal plumbing.
 
 - **A story created under a Jira epic now gets the epic as its parent on Jira**, not only on the Sectile board. If Jira refuses the parent, the story is kept and a warning says so. (#426)
 
+- The priority field of the task detail, quick add and clone forms shows the same colour dot as the task's card, so the priority you pick reads the way the board will show it. (#434)
+
 - **Triage, Roadmap and Timeline are now hidden by default and enabled per
   project.** Project settings, under General, carry a "Vues de l'espace de
   travail" section where each project turns on the planning views it actually
