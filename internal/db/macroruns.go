@@ -226,7 +226,7 @@ func (d *DB) FinishMacroRunAs(caller Actor, admin bool, projectID, macroKey, run
 	args := []any{status, summary, time.Now(), runID, project.ID}
 	if strings.TrimSpace(caller.ID) != "" {
 		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
-		args = append(args, models.RunDisconnectNote+"%")
+		args = append(args, "%"+models.RunDisconnectNote+"%")
 	}
 	d.mu.Lock()
 	result, err := d.conn.Exec(`UPDATE task_activities SET status=?, summary=?, completed_at=?, waiting_since=NULL

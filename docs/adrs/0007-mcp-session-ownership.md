@@ -103,3 +103,32 @@ its owner through `finish_run`, so an accident no longer costs a chain.
 
 The decision itself — a run belongs to the session that started it, and a session
 ending closes it — is unchanged.
+
+## Second amendment (2026-09-24, #319)
+
+The first amendment left one case open on purpose: a client that died without
+closing its connection kept its run `running` for as long as the server lived,
+holding the board and the chain behind it. That consequence is now bounded, with
+two bounds rather than one.
+
+- **The silence bound still only observes.** `SECTILE_MCP_SESSION_TIMEOUT`, four
+  hours, appends its sentence, and the board shows the run as *silent*, read off
+  that sentence. No column is added; the state lasts until the run ends, even if
+  the client speaks again, which is the price of needing no migration.
+- **The abandon bound decides.** Past `SECTILE_MCP_SESSION_ABANDON_AFTER`, eight
+  hours by default and never less than the silence bound, the session is taken
+  for dead: the registry closes it, which cancels its runs with the disconnect
+  note, and closes the transport's session so a client that comes back is told
+  so. Eight hours was preferred to the 24 first proposed: a run waiting on its
+  owner through a working day survives it, and a dead client no longer holds the
+  board overnight.
+- **The verdict stays reversible.** The owner may still report the real outcome
+  through `finish_run`, as for any disconnection. The rewrite now matches the
+  disconnect note anywhere in the summary: matched as a prefix, it missed every
+  run that had been silenced first, which is exactly the run this bound closes.
+- **A human may close one sooner.** A client-created run can be closed from the
+  board by its owner or an admin, the way a disconnection would close it, and the
+  activities view's cancel goes through the same ownership and hand-back path.
+
+Agent-dispatched runs are out of this: their supervisor reports the real process
+exit, as ADR 0006 established.

@@ -3356,7 +3356,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const cancelActivity = async (id: string) => {
     try {
       const res = await fetch(`${API_BASE}/activities/${id}/cancel`, { method: 'POST' })
-      if (!res.ok) throw new Error('Cancel failed')
+      // A refusal says why: somebody else's run is theirs to cancel.
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Cancel failed')
       addToast({
         type: 'warning',
         title: t.toasts.activityCanceled,

@@ -26,6 +26,14 @@ const (
 // overrides it through SECTILE_MCP_SESSION_TIMEOUT.
 const defaultSilenceBound = 4 * time.Hour
 
+// defaultAbandonAfter is how long a session may say nothing before the registry
+// gives up on it (#319). A client that died without closing its connection is
+// indistinguishable from a silent one, so past this bound the session is closed
+// and its runs are canceled with the disconnect note, which leaves their owner
+// free to report the real outcome afterwards. The deployment overrides it
+// through SECTILE_MCP_SESSION_ABANDON_AFTER.
+const defaultAbandonAfter = 8 * time.Hour
+
 // silenceSweepDivisor sets how often the sweeper looks, as a fraction of the
 // bound, so a silence is noticed shortly after it crosses rather than a whole
 // bound later.
@@ -45,6 +53,14 @@ type RunNoter interface {
 	NoteRemoteRun(runID, note string) error
 }
 
+// RunWaiter clears the mark a session put on a run it declared blocked on the
+// user. The registry only ever clears: declaring a wait is the tool's business,
+// under the caller's identity, while ending one is an observation the registry
+// makes on its own, that the session spoke again or went away.
+type RunWaiter interface {
+	SetRemoteRunWaiting(runID string, waiting bool) error
+}
+
 // adoptedRun remembers what a session would leave behind. The task key is kept
 // because closing a run requires it, and the skill name because a disconnection
 // is worth reporting in terms an operator recognizes.
@@ -60,11 +76,20 @@ type liveSession struct {
 	version     string
 	connectedAt time.Time
 	runs        map[string]adoptedRun
+	// waiting names the runs this session declared blocked on the user. It is
+	// kept apart from runs because a session may report on a run it did not
+	// adopt, such as one a launcher created and handed over.
+	waiting map[string]bool
 	// lastSeen is the last client-to-server message, whatever it invoked.
 	lastSeen time.Time
 	// silentSince marks the stretch of silence already remarked upon, and is
 	// nil the rest of the time, so one stretch costs exactly one sentence.
 	silentSince *time.Time
+	// session is the transport's session, kept so that abandoning it closes the
+	// connection as well: a client that comes back is then told its session is
+	// gone rather than served by a registry that forgot it. Nil for a session
+	// opened without a transport, as tests do.
+	session *mcp.ServerSession
 }
 
 // SessionView projects a live session for the status API. It carries the
@@ -94,9 +119,13 @@ type SessionRegistry struct {
 	live  map[string]*liveSession
 	runs  RunCloser
 	notes RunNoter
+	waits RunWaiter
 	bound time.Duration
-	now   func() time.Time
-	stop  chan struct{}
+	// abandon is how long a silence lasts before the session is closed. It is
+	// never shorter than bound, so no session is closed before it was noticed.
+	abandon time.Duration
+	now     func() time.Time
+	stop    chan struct{}
 	// stopOnce keeps Stop idempotent: a server shut down twice, as tests do,
 	// must not panic on a closed channel.
 	stopOnce sync.Once
@@ -112,13 +141,37 @@ func NewSessionRegistry(runs RunCloser) *SessionRegistry {
 // bound and the sink that records an observed silence. The sweeper starts here
 // and stops with Stop, so a caller owns the goroutine it created.
 func NewSessionRegistryWith(runs RunCloser, notes RunNoter, bound time.Duration) *SessionRegistry {
+	return NewSessionRegistryBounded(runs, notes, bound, defaultAbandonAfter)
+}
+
+// NewSessionRegistryBounded is NewSessionRegistryWith with the deployment's
+// abandon bound as well. A non-positive bound takes its default, and an abandon
+// bound shorter than the silence bound is raised to it.
+func NewSessionRegistryBounded(runs RunCloser, notes RunNoter, bound, abandon time.Duration) *SessionRegistry {
 	if bound <= 0 {
 		bound = defaultSilenceBound
 	}
+	if abandon <= 0 {
+		abandon = defaultAbandonAfter
+	}
+	if abandon < bound {
+		abandon = bound
+	}
 	r := &SessionRegistry{live: make(map[string]*liveSession), runs: runs, notes: notes,
-		bound: bound, now: time.Now, stop: make(chan struct{})}
+		bound: bound, abandon: abandon, now: time.Now, stop: make(chan struct{})}
 	go r.sweep(bound / silenceSweepDivisor)
 	return r
+}
+
+// SetWaiter gives the registry the sink that clears waiting marks. Without one
+// the registry still tracks the marks, and a wait lasts until the run ends.
+func (r *SessionRegistry) SetWaiter(waits RunWaiter) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.waits = waits
+	r.mu.Unlock()
 }
 
 // Stop ends the sweeper. The registry keeps serving every other method, since a
@@ -130,9 +183,10 @@ func (r *SessionRegistry) Stop() {
 	r.stopOnce.Do(func() { close(r.stop) })
 }
 
-// sweep remarks on the sessions that crossed the bound. It cancels nothing:
-// silence says a client is slow, not that it is gone, and only a real ending
-// closes a run.
+// sweep remarks on the sessions that crossed the silence bound, and gives up on
+// those that crossed the abandon bound. A silence alone cancels nothing: it says
+// a client is slow, not that it is gone. Only a silence long enough to stand for
+// a client that died without a word closes its session.
 func (r *SessionRegistry) sweep(every time.Duration) {
 	if every <= 0 {
 		every = time.Second
@@ -163,8 +217,12 @@ func (r *SessionRegistry) markSilentSessions() {
 	now := r.now()
 	r.mu.Lock()
 	var pending []silentRun
+	var abandoned []*liveSession
 	for _, entry := range r.live {
 		silence := now.Sub(entry.lastSeen)
+		if silence >= r.abandon {
+			abandoned = append(abandoned, entry)
+		}
 		if silence < r.bound || entry.silentSince != nil {
 			continue
 		}
@@ -177,16 +235,38 @@ func (r *SessionRegistry) markSilentSessions() {
 		log.Printf("[MCP] session %s has been silent for %s: its runs stay open", entry.id, silence.Round(time.Minute))
 	}
 	r.mu.Unlock()
-	if r.notes == nil {
-		return
-	}
 	// Outside the lock, as with Close: annotating runs must not hold up the
-	// sessions still being served.
-	for _, run := range pending {
-		if err := r.notes.NoteRemoteRun(run.runID, run.note); err != nil {
-			log.Printf("[MCP] cannot note the silence on run %s: %v", run.runID, err)
+	// sessions still being served. The silence is noted before an abandonment
+	// closes the run, so the board reads the observation, then the verdict.
+	if r.notes != nil {
+		for _, run := range pending {
+			if err := r.notes.NoteRemoteRun(run.runID, run.note); err != nil {
+				log.Printf("[MCP] cannot note the silence on run %s: %v", run.runID, err)
+			}
 		}
 	}
+	for _, entry := range abandoned {
+		// The notes above ran outside the lock, and a client may have spoken in
+		// the meantime: a session is only given up on while it is still silent.
+		if !r.stillSilentFor(entry.id, r.abandon) {
+			continue
+		}
+		closed := r.Close(entry.id)
+		log.Printf("[MCP] session %s said nothing for %s: abandoned, %d run(s) closed", entry.id, r.abandon, closed)
+		if entry.session != nil {
+			// Its watcher then finds the session already forgotten.
+			_ = entry.session.Close()
+		}
+	}
+}
+
+// stillSilentFor says whether a session is still live and has said nothing for
+// at least the given duration.
+func (r *SessionRegistry) stillSilentFor(sessionID string, silence time.Duration) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry := r.live[sessionID]
+	return entry != nil && r.now().Sub(entry.lastSeen) >= silence
 }
 
 // Touch records that a client spoke. Any message counts, whichever tool or
@@ -217,6 +297,11 @@ func (r *SessionRegistry) Watch(session *mcp.ServerSession) {
 		info = params.ClientInfo
 	}
 	r.open(session.ID(), info)
+	r.mu.Lock()
+	if entry := r.live[session.ID()]; entry != nil {
+		entry.session = session
+	}
+	r.mu.Unlock()
 	go func() {
 		_ = session.Wait()
 		r.Close(session.ID())
@@ -225,7 +310,7 @@ func (r *SessionRegistry) Watch(session *mcp.ServerSession) {
 
 func (r *SessionRegistry) open(id string, info *mcp.Implementation) {
 	entry := &liveSession{id: id, client: "unknown", connectedAt: r.now(), lastSeen: r.now(),
-		runs: make(map[string]adoptedRun)}
+		runs: make(map[string]adoptedRun), waiting: make(map[string]bool)}
 	if info != nil {
 		if info.Name != "" {
 			entry.client = info.Name
@@ -262,6 +347,88 @@ func (r *SessionRegistry) Release(sessionID, runID string) {
 	}
 }
 
+// MarkWaiting records that a session declared one of its runs blocked on the
+// user, so that the session's next call can end the wait.
+func (r *SessionRegistry) MarkWaiting(sessionID, runID string) {
+	if r == nil || sessionID == "" || runID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entry := r.live[sessionID]; entry != nil {
+		entry.waiting[runID] = true
+	}
+}
+
+// ForgetWaiting drops a wait the session cleared itself.
+func (r *SessionRegistry) ForgetWaiting(sessionID, runID string) {
+	if r == nil || sessionID == "" || runID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if entry := r.live[sessionID]; entry != nil {
+		delete(entry.waiting, runID)
+	}
+}
+
+// Resume ends every wait a session declared. A session that makes a call is no
+// longer blocked on its owner, whatever it forgot to report, so a wait never
+// depends on the model remembering to clear it. It reports how many waits it
+// cleared.
+func (r *SessionRegistry) Resume(sessionID string) int {
+	if r == nil || sessionID == "" {
+		return 0
+	}
+	r.mu.Lock()
+	entry := r.live[sessionID]
+	if entry == nil || len(entry.waiting) == 0 {
+		r.mu.Unlock()
+		return 0
+	}
+	runIDs := make([]string, 0, len(entry.waiting))
+	for runID := range entry.waiting {
+		runIDs = append(runIDs, runID)
+	}
+	entry.waiting = make(map[string]bool)
+	waits := r.waits
+	r.mu.Unlock()
+	return clearWaits(waits, sessionID, runIDs)
+}
+
+// clearWaits clears the marks outside the registry lock, as Close does for the
+// runs it finishes. A run that already ended has no mark left to clear, which is
+// an ordinary race rather than a failure.
+func clearWaits(waits RunWaiter, sessionID string, runIDs []string) int {
+	if waits == nil {
+		return 0
+	}
+	cleared := 0
+	for _, runID := range runIDs {
+		if err := waits.SetRemoteRunWaiting(runID, false); err != nil {
+			log.Printf("[MCP] session %s: cannot clear the wait on run %s: %v", sessionID, runID, err)
+			continue
+		}
+		cleared++
+	}
+	return cleared
+}
+
+// ReleaseRun forgets a run in whichever session holds it, for a run closed from
+// outside MCP, such as from the board. The session no longer owns it, so its
+// ending must not close the run a second time.
+func (r *SessionRegistry) ReleaseRun(runID string) {
+	if r == nil || runID == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, entry := range r.live {
+		delete(entry.runs, runID)
+		delete(entry.waiting, runID)
+	}
+}
+
 // Close forgets a session and closes the runs it still owns. It reports how
 // many runs it closed, which is what a caller can act on; individual failures
 // are logged because a run that someone else already finished is an ordinary
@@ -273,10 +440,21 @@ func (r *SessionRegistry) Close(sessionID string) int {
 	r.mu.Lock()
 	entry := r.live[sessionID]
 	delete(r.live, sessionID)
+	waits := r.waits
 	r.mu.Unlock()
 	if entry == nil {
 		return 0
 	}
+	// A run this session waited on but does not own survives the session, and
+	// nobody is left to be waiting for. A run it owns is closed below, and its
+	// terminal status clears the mark.
+	var orphanedWaits []string
+	for runID := range entry.waiting {
+		if _, owned := entry.runs[runID]; !owned {
+			orphanedWaits = append(orphanedWaits, runID)
+		}
+	}
+	clearWaits(waits, sessionID, orphanedWaits)
 	// The database call happens outside the lock: closing runs must not block
 	// sessions that are still being served.
 	closed := 0

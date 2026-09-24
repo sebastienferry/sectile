@@ -15,6 +15,12 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Runs whose client has gone quiet are shown, and closed in time.** A run whose agent session has made no call for four hours shows as *silent* on the board and in the activities view instead of *running*. After eight hours of silence, Sectile takes the client for dead and cancels the run, so it no longer holds the board or its chain; its owner can still report how it really ended. The second delay is set with `SECTILE_MCP_SESSION_ABANDON_AFTER`. (#319)
+
+- **Close a client's run from the board.** A run started by an agent session rather than by your local agent shows *Close* on its badge, for its owner and for admins. Closing records it as disconnected, and its owner can still report the real outcome. The activities view's cancel now asks the same question: only the owner or an admin may cancel such a run. (#319)
+
+- **A run waiting for your answer says so again.** Before a skill asks you a question it cannot continue without, it marks its run as waiting: the board shows the amber *waiting* badge with how long it has been waiting, and the desktop app raises its "waiting for you" notification for runs it launched. The mark clears by itself as soon as the session does anything else, and headless runs are never marked. Permission prompts of the agent's own tools are not detected. (#318)
+
 - **Realign a macro's specification with its slicing.** *Réaligner la spec*, in the macro panel, runs the new `realign-macro` skill on your local agent, in the desktop app's Run (or type `/realign-macro <KEY>` in an agent session), and can be stopped from the same panel. It brings the specification back in line with a slicing edited by hand: lines typed by hand become stub entries, renamed lines rename their entry, and entries no line points to any more are marked *to be removed*. It never rewrites the body of an entry and never deletes one, for Spec Kit and OpenSpec alike, and it commits and pushes the macro branch only when it wrote something. (#426)
 
 - **Each macro gets its own worktree.** A macro's specification is written in `.tasks/worktrees/<KEY>` of the specifications repository, on the macro's branch, started from the up-to-date default branch, so two macros specified at the same time no longer share untracked files. An existing worktree is reused with its uncommitted work; projects with worktrees off keep using the checkout. (#426)
@@ -192,6 +198,8 @@ test fixtures or internal plumbing.
   off the high level on the next synchronisation.
 
 ### Fixed
+
+- **A run canceled after a long silence can be reported again.** A run that had gone silent and was then canceled as disconnected refused its owner's report of how it really ended; it now accepts it, like any other disconnected run. (#319)
 
 - **A run you stopped stays stopped.** An agent reporting a run as running a moment after it was canceled, finished or failed used to bring it back as running on the board; a run that has ended now keeps its outcome.
 

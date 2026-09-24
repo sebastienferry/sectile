@@ -394,6 +394,28 @@ note records that the client disconnected. Agent-dispatched runs keep their own
 reporting path. This indicator reports declared execution state, not process
 liveness.
 
+### Declaring a wait for the user
+
+A standalone skill calls `report_waiting(taskKey, runId, waiting)` with
+`waiting: true` right before it asks its user a question it cannot continue
+without. Ownership follows `finish_run`: the run's owner, an administrator, or
+anyone on a run with no recorded owner. The run keeps `running` and gains
+`waitingSince`; a repeated mark keeps the first instant. A headless run is left
+unmarked and the result says so (`applied: false`). The wait ends on the
+declaring session's next tool call other than `report_waiting` (a ping does not
+count), on `waiting: false`, on any terminal status, and when the declaring
+session ends. Tool permission prompts are not reported: only a question the model
+asks deliberately is.
+
+When a run an agent dispatched starts or stops waiting, the server sends the
+owner's agent a `run_waiting` message, `{"runId": "...", "waitingSince":
+"<RFC3339>"|null}`, locally or through another instance. An agent holding that
+run records `waitingSince` on its `/desktop/runs` entry, except for a headless
+run, and ignores a run it does not hold; the desktop raises its banner from that
+list. The message is additive: an agent that predates it logs the unknown type
+and carries on. A message sent while no agent is connected is lost, and the
+agent's list catches up on the next change.
+
 ## MCP session ownership
 
 `/mcp` is served statefully: each client holds one server session, identified by
@@ -425,6 +447,23 @@ message rearms the observation. A run canceled by a real disconnection stays
 recoverable: its owner, or an administrator, may still report its outcome through
 `finish_run`, which replays the hand-back on the corrected status. `SECTILE_MCP_CLIENT` names the
 bridge in the session list, defaulting to host and process id.
+
+`SECTILE_MCP_SESSION_ABANDON_AFTER` bounds how long a silence lasts before the
+session is taken for a client that died without closing its connection,
+defaulting to eight hours; a value below the silence bound is raised to it, and
+an unusable value keeps the default. Crossing it closes the session, the
+transport's included, and cancels the runs it owns with the disconnect note,
+after the silence sentence; their owner may still report the real outcome. The
+rewrite matches the disconnect note anywhere in the summary, so a run silenced
+and then closed stays recoverable.
+
+A run a client created has no agent to stop. `POST /api/tasks/{id}/cancel-run`
+closes it instead, for its owner or an administrator only (an ownerless run is an
+administrator's), through the same path as `finish_run`: status `canceled`, the
+disconnect note, the hand-back, and the run released from its session. The
+activities view's `POST /api/activities/{id}/cancel` closes it the same way,
+with a note of its own that makes the cancellation final. Agent-dispatched runs
+are unchanged.
 
 A restart destroys every session at once, so startup closes the runs those
 sessions owned, with status `canceled` and a note naming the restart. A run's
@@ -731,7 +770,7 @@ Messages explain recovery without returning subprocess output or source contents
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
-`finish_run`, `create_task`, `update_task` and `prepare_macro_worktree`. The former `sectile_` names are unsupported on both
+`finish_run`, `create_task`, `update_task`, `report_waiting` and `prepare_macro_worktree`. The former `sectile_` names are unsupported on both
 transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
