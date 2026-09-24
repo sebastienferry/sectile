@@ -149,7 +149,10 @@ in the other.
   checkout or another worktree), **then** that checkout is returned rather than
   a second one being created.
 - **Given** a path `.tasks/worktrees/M-7` that is not a valid worktree, **then**
-  it is cleaned up and re-created.
+  Git's stale record is pruned and the worktree is re-created when the directory
+  is empty; a directory that still holds files is never deleted, and the
+  preparation is refused naming it. A valid worktree of another branch at that
+  path is refused the same way.
 - **Given** macros M-7 and M-8 prepared one after the other, **then** they get
   two worktrees on two branches, and a file written in one never shows in the
   other.

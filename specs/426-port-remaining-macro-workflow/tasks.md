@@ -6,30 +6,30 @@ section; UI sections also run the browser tests.
 
 ## 0. Prepare the branch
 
-- [ ] T0.1 Rebase `feat/426` on `origin/main`; confirm the last migration version on `main` (8 at the time of writing) and number ours from the next one.
+- [x] T0.1 Bring `feat/426` up to date with `origin/main` (merge, see plan); the last migration on `main` is 8, ours start at 9.
 
 ## 1. Drop the `scenarios` source (US7, FR11)
 
-- [ ] T1.1 Delete `models.MacroTodoFromScenarios`; rewrite the origin comments so none counts three sources.
-- [ ] T1.2 Drop `'scenarios'` from `MacroTodoSource` in `web/src/types/index.ts`; `tsc` passes.
-- [ ] T1.3 Test: a stored todo with `sourceKind: "scenarios"` loads and is treated as typed by hand by the slicing merge.
+- [x] T1.1 Delete `models.MacroTodoFromScenarios`; rewrite the origin comments so none counts three sources.
+- [x] T1.2 Drop `'scenarios'` from `MacroTodoSource` in `web/src/types/index.ts`; `tsc` passes.
+- [x] T1.3 Test: a stored todo with `sourceKind: "scenarios"` loads and is treated as typed by hand by the slicing merge.
 
 ## 2. Specifications repository (US1, FR1)
 
-- [ ] T2.1 Migration `projects.spec_repo_path`; model, requests, SELECT/scan/INSERT/UPDATE in `db.go`; schema parity test.
-- [ ] T2.2 `macroSpecRepoPath` prefers `SpecRepoPath`; `FindMacroSpecDir` refusal names the option.
-- [ ] T2.3 ProjectModal input "Dépôt des spécifications" + hint; translations (fr, en).
-- [ ] T2.4 Tests: fallback to `repoPath` when empty or blank; slicing import from a second temp repository reads only it; update clears the value; refusal text.
+- [x] T2.1 Migration `projects.spec_repo_path`; model, requests, SELECT/scan/INSERT/UPDATE in `db.go`; schema parity test.
+- [x] T2.2 `macroSpecRepoPath` prefers `SpecRepoPath`; `FindMacroSpecDir` refusal names the option.
+- [x] T2.3 ProjectModal input "Dépôt des spécifications" + hint; translations (fr, en).
+- [x] T2.4 Tests: fallback to `repoPath` when empty or blank; slicing import from a second temp repository reads only it; update clears the value; refusal text.
 
 ## 3. Macro worktree (US2, FR2, FR4)
 
-- [ ] T3.1 `internal/workspace/macroworktree.go`: `MacroBranchName`, `EnsureMacroWorktree`, per-repository lock, info/exclude entry; branch matcher shared with `findMacroBranch`.
-- [ ] T3.2 Tests with temp repositories (bare remote + clone):
+- [x] T3.1 `internal/models/macrobranch.go` (`MacroBranchMatches`, `MacroBranchName`) and `internal/agent/agent_macro_worktree.go` (`ensureMacroWorktree`, per-repository lock, info/exclude entry); `findMacroBranch` uses the shared matcher.
+- [x] T3.2 Tests with temp repositories (bare remote + clone):
   - creates `.tasks/worktrees/M-7` on `M-7-<slug>` from `origin/main` after a new commit lands on the remote;
   - reuses an existing `M-7-foo` branch;
   - reuses a dirty worktree without touching its changes;
   - returns the main checkout when it is on the macro branch;
-  - re-creates an invalid directory at the worktree path;
+  - re-creates an empty stale directory at the worktree path, refuses a non-empty one without deleting it;
   - M-7 and M-8 get separate trees, an untracked file in one is absent from the other;
   - fetch failure (no remote) proceeds with a warning;
   - `useWorktrees=false` returns the repo, `worktree:false`, no tree created;

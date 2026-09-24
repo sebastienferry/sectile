@@ -2,8 +2,7 @@
 
 Spec: [`spec.md`](spec.md). Stack: Go server (`internal/db`, `internal/handlers`,
 `internal/trackerapi`, `internal/taskmcp`, `internal/skills`), Go local agent
-(`internal/agent`, `internal/agentconfig`, `internal/agentprotocol`), shared Git
-helpers (`internal/workspace`), React web client (`web/src`), Electron desktop
+(`internal/agent`, `internal/agentconfig`, `internal/agentprotocol`), React web client (`web/src`), Electron desktop
 console (`desktop/`, attaches to agent sessions only).
 
 Reference implementation: taskativ (`internal/db/macroworktree.go`,
@@ -15,10 +14,11 @@ runner.
 
 ## Before starting
 
-`feat/426` is three commits behind `origin/main`, which already has migrations
-7 and 8. Rebase on `origin/main` first (no pull request exists yet, so the
-rebase does not break a recorded PR commit). The migrations below are numbered
-from 9; if `main` gains another before the merge, renumber ours, never theirs.
+`feat/426` was three commits behind `origin/main`, which already had migrations
+7 and 8. It was brought up to date with a merge of `origin/main` (a rebase
+would have needed a force push, which the owner declined). The migrations
+below are numbered from 9; if `main` gains another before the merge, renumber
+ours, never theirs.
 
 ## Delivery order (one commit per item)
 
@@ -53,7 +53,7 @@ agent.handleDispatchStep ──► macro branch (MacroKey set, TaskID empty)
    │  fetchConfig(projectID)            (no task lookup)
    │  root = localProjectRoot(project)  (code repository: skills + cwd)
    │  specRepo = project.SpecRepoPath or root
-   │  workspace.EnsureMacroWorktree(specRepo, key, title, useWorktrees)
+   │  ensureMacroWorktree(specRepo, key, title, useWorktrees)
    │  Scaffold + bootstrapLocalMCP as today
    │  env: SECTILE_MACRO_KEY, SECTILE_MACRO_PROJECT_ID, SECTILE_SPEC_REPO,
    │       SECTILE_SPEC_BRANCH, SECTILE_SPEC_WORKTREE, SECTILE_RUN_ID; SECTILE_TASK_* empty
@@ -67,7 +67,7 @@ By hand: /realign-macro M-7 in any agent session
    ▼
 MCP prepare_macro_worktree{projectId, macroKey}
    ▼ server
-agent operation "macro_worktree" {ProjectID, MacroKey} ─► same workspace.EnsureMacroWorktree
+agent operation "macro_worktree" {ProjectID, MacroKey} ─► same ensureMacroWorktree
    ▼
 {path, branch, worktree, warning}
 ```
@@ -124,10 +124,11 @@ mirror Jira's answer into projects.sprints (replace / append / forget by id)
 | `internal/db/sddslicing.go` | `macroSpecRepoPath` returns `SpecRepoPath` when set, else `RepoPath`; the "Deux sources" header stays true. `FindMacroSpecDir` refusal mentions the "Dépôt des spécifications" option. |
 | `internal/db/sddentries.go` | `entryKeyPrefixes(proj)` returns the Jira key plus `proj.RoadmapProjects`; update its gap comment. |
 | `internal/db/roadmapprojects.go` (new) | `NormalizeRoadmapProjects(raw []string, ownKey string) []string` (upper-case, split on commas and blanks, dedupe, drop own key), `parseRoadmapProjects` (tolerant JSON), `isRoadmapProjectKey(proj, key)` used to refuse writes (FR8). |
-| `internal/workspace/macroworktree.go` (new) | `MacroBranchName(key, title)` (`KEY-<slug≤30>`); `EnsureMacroWorktree(specRepo, key, title string, useWorktrees bool) (MacroWorkspace, error)` with `MacroWorkspace{Path, Branch, Worktree bool, Warning string}`; per-repository lock; fetch `--prune` (non-fatal, warning); reuse valid tree, re-create invalid, reuse a checkout of the branch elsewhere, else `worktree add -b <branch> <path> origin/<default>` (or local default); `.git/info/exclude` entry; refuse the default branch. Branch lookup reuses the `findMacroBranch` matching rule (move the matcher here and have `sddslicing.go` call it). |
+| `internal/models/macrobranch.go` (new) | `MacroBranchMatches(ref, key)` (shared by the server slicing read and the agent) and `MacroBranchName(key, title)` (`KEY-<slug≤30>`). `findMacroBranch` in `sddslicing.go` calls the matcher. |
+| `internal/agent/agent_macro_worktree.go` (new) | `ensureMacroWorktree(ctx, specRepo, key, title, useWorktrees) (macroWorkspace, error)`, next to `ensureLocalWorktree` whose helpers it reuses (`gitLocal`, `worktreeForBranch`, `sameDirectory`): per-repository lock; fetch `--prune` (non-fatal, warning); existing macro branch (local, then `origin/`), else `MacroBranchName`; reuse a checkout of the branch anywhere; `.tasks/` in `info/exclude`; a stale path is pruned and removed only when empty, otherwise refused; `worktree add -b <branch> <path> origin/<default>` (or the local default); never the default branch. Placed in the agent rather than `internal/workspace`: the agent is its only caller, and the server may not import `workspace` (runtime boundary test). |
 | `internal/agentprotocol/operations.go` | `MacroKey string \`json:"macroKey,omitempty"\`` on `Operation`; operation `macro_worktree`. |
 | `internal/agentconfig/config.go` | `Dispatch.MacroKey`. |
-| `internal/agent/agent_operations.go` | `macro_worktree`: resolve the local code root and the spec repo for the project, call `EnsureMacroWorktree`, answer `{path, branch, worktree, warning}`. |
+| `internal/agent/agent_operations.go` | `macro_worktree`: resolve the local code root and the spec repo for the project, call `ensureMacroWorktree`, answer `{path, branch, worktree, warning}`. |
 | `internal/agent/agent.go`, `agent_config.go` | `handleDispatchStep`: a dispatch with `MacroKey` and no task takes a macro path (no task fetch, no task worktree, no `patchTask`), prepares the macro worktree, sets the `SECTILE_MACRO_*` / `SECTILE_SPEC_*` env, builds `/<command> <KEY>`. Admission and concurrency as for a task run, keyed on the run. |
 | `internal/agent/agent_desktop.go` | `finishDesktopRun` sends `projectId` + `macroKey` for a macro run. |
 | `internal/db/remoterun.go`, `skillresult.go`, `agentlaunch.go` | `StartMacroRun(projectID, macroKey, skill, launch)`, `FinishMacroRunAs(user, projectID, macroKey, runID, status, note)`, `ActiveRunOnMacro(projectID, macroKey)`; activities with `project_id` set, `task_id` NULL, `macro_key` set; no stage, no chain, no post-back. |

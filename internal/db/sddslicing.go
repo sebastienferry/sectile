@@ -218,14 +218,9 @@ func findMacroBranch(repoPath string, macroKey string) (string, error) {
 		if ref == "" {
 			continue
 		}
-		// Le nom de branche peut être préfixé par le distant, « origin/… », et
-		// par un type, « feat/… » : la clé est cherchée dans son dernier segment.
-		last := ref
-		if idx := strings.LastIndex(ref, "/"); idx >= 0 {
-			last = ref[idx+1:]
-		}
-		lower := strings.ToLower(last)
-		if lower == key || strings.HasPrefix(lower, key+"-") {
+		// The agent's macro worktree uses the same rule, so both sides name the
+		// same branch.
+		if models.MacroBranchMatches(ref, key) {
 			return ref, nil
 		}
 	}
