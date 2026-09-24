@@ -2682,7 +2682,20 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	existing, err := d.getTaskByIDUnsafe(id)
+	// The row is locked for the whole merge: an edit racing on another server
+	// instance waits, then merges into what this one wrote instead of writing
+	// back a snapshot that predates it. Queue work waits for the commit.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	existing, err := d.lockTaskUnsafe(tx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -2691,6 +2704,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	}
 
 	oldLabels := existing.Labels
+	repoPathToRegister := ""
 	oldAssignee := strings.TrimSpace(existing.Assignee)
 	var removedLabels []string
 
@@ -2845,8 +2859,8 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		} else {
 			existing.RepoPath = &trimmed
 			// Feed the project's list so the next ticket picks it from a menu
-			// instead of retyping the path.
-			d.registerProjectRepoPathUnsafe(existing.ProjectID, trimmed)
+			// instead of retyping the path, once the task is committed.
+			repoPathToRegister = trimmed
 		}
 	}
 	oldSprint := existing.Sprint
@@ -2868,18 +2882,18 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	pinnedVal := 0
 	if isPinned {
 		pinnedVal = 1
-		_, _ = d.conn.Exec(`
+		_, _ = tx.Exec(`
 			INSERT INTO pinned_tasks (task_id, pinned_at) VALUES (?, ?)
 			ON CONFLICT(task_id) DO NOTHING
 		`, existing.ID, existing.UpdatedAt.Format(time.RFC3339))
 	} else {
-		_, _ = d.conn.Exec(`DELETE FROM pinned_tasks WHERE task_id = ? OR task_id = ?`, existing.ID, existing.Key)
+		_, _ = tx.Exec(`DELETE FROM pinned_tasks WHERE task_id = ? OR task_id = ?`, existing.ID, existing.Key)
 	}
 	existing.Pinned = isPinned
 
 	labelsJSON, _ := json.Marshal(existing.Labels)
 
-	_, err = d.conn.Exec(`
+	_, err = tx.Exec(`
 		UPDATE tasks
 		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = ?, external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
 		WHERE id = ?
@@ -2897,7 +2911,14 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if len(existing.PrLinks) == 0 {
 			detached = 1
 		}
-		_, _ = d.conn.Exec("UPDATE tasks SET pr_links_detached = ? WHERE id = ?", detached, existing.ID)
+		_, _ = tx.Exec("UPDATE tasks SET pr_links_detached = ? WHERE id = ?", detached, existing.ID)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	committed = true
+	if repoPathToRegister != "" {
+		d.registerProjectRepoPathUnsafe(existing.ProjectID, repoPathToRegister)
 	}
 
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
@@ -3105,6 +3126,9 @@ func (d *DB) MoveTask(id string, newStatus models.Status, newPosition int) (*mod
 		return nil, fmt.Errorf("task not found")
 	}
 
+	// The shift is one statement and stays outside the transaction below:
+	// holding the moved task's lock while it locks its neighbours would let two
+	// moves on two instances wait on each other.
 	now := time.Now()
 	_, _ = d.conn.Exec(`
 		UPDATE tasks
@@ -3112,25 +3136,38 @@ func (d *DB) MoveTask(id string, newStatus models.Status, newPosition int) (*mod
 		WHERE status = ? AND position >= ? AND id != ?
 	`, string(newStatus), newPosition, id)
 
-	oldStage := GetStageLabelForStatus(existing.Status)
-	newStage := GetStageLabelForStatus(newStatus)
 	var removedLabels []string
-	if oldStage != newStage {
-		removedLabels = append(removedLabels, oldStage, "#"+oldStage)
-	}
+	// The labels are derived from the locked row, so a label another instance
+	// added meanwhile is kept.
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		locked, err := d.lockTaskUnsafe(tx, existing.ID)
+		if err != nil {
+			return err
+		}
+		if locked == nil {
+			return fmt.Errorf("task not found")
+		}
+		existing = locked
+		oldStage := GetStageLabelForStatus(existing.Status)
+		newStage := GetStageLabelForStatus(newStatus)
+		if oldStage != newStage {
+			removedLabels = append(removedLabels, oldStage, "#"+oldStage)
+		}
 
-	targetLabel := "#" + strings.TrimPrefix(newStage, "#")
-	existing.Status = newStatus
-	existing.Position = newPosition
-	existing.Labels = SetWorkflowLabel(existing.Labels, targetLabel)
-	existing.UpdatedAt = now
+		targetLabel := "#" + strings.TrimPrefix(newStage, "#")
+		existing.Status = newStatus
+		existing.Position = newPosition
+		existing.Labels = SetWorkflowLabel(existing.Labels, targetLabel)
+		existing.UpdatedAt = now
 
-	labelsJSON, _ := json.Marshal(existing.Labels)
-	_, err = d.conn.Exec(`
-		UPDATE tasks
-		SET status = ?, labels = ?, position = ?, updated_at = ?
-		WHERE id = ?
-	`, string(newStatus), string(labelsJSON), newPosition, now, existing.ID)
+		labelsJSON, _ := json.Marshal(existing.Labels)
+		_, err = tx.Exec(`
+			UPDATE tasks
+			SET status = ?, labels = ?, position = ?, updated_at = ?
+			WHERE id = ?
+		`, string(newStatus), string(labelsJSON), newPosition, now, existing.ID)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -3164,6 +3201,30 @@ func (d *DB) DeleteTask(id string) error {
 }
 
 func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
+	return d.taskByIDOn(d.conn, id, "")
+}
+
+// lockTaskUnsafe reads a task inside a transaction and locks its row until the
+// transaction ends, so another server process changing the same task waits for
+// this one and then reads what it wrote. Every read-decide-write on a task goes
+// through it: labels, pull-request links, stage and branch are then derived
+// from the state the previous writer committed, never from a stale snapshot.
+// See docs/db-concurrency-audit.md.
+//
+// Inside the transaction, write through tx only: under SQLite a write on the
+// plain connection would wait for the transaction that holds the file.
+func (d *DB) lockTaskUnsafe(tx *sqlTx, id string) (*models.Task, error) {
+	return d.taskByIDOn(tx, id, d.forUpdate())
+}
+
+// rowQuerier is what reading one row needs, from the pool or a transaction.
+type rowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// taskByIDOn reads a task by id, then by key, through q; lock is appended to
+// both SELECTs.
+func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, error) {
 	var t models.Task
 	var labelsJSON string
 	var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
@@ -3171,10 +3232,9 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 	var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 	var statusStr, priorityStr string
 
-	err := d.conn.QueryRow(`
+	err := q.QueryRow(`
 		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
-		FROM tasks WHERE id = ?
-	`, id).Scan(
+		FROM tasks WHERE id = ?`+lock, id).Scan(
 		&t.ID,
 		&t.ProjectID,
 		&t.Key,
@@ -3210,10 +3270,9 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 		&t.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		err = d.conn.QueryRow(`
+		err = q.QueryRow(`
 			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
-			FROM tasks WHERE key = ? LIMIT 1
-		`, id).Scan(
+			FROM tasks WHERE key = ? LIMIT 1`+lock, id).Scan(
 			&t.ID,
 			&t.ProjectID,
 			&t.Key,
