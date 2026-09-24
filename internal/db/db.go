@@ -1225,21 +1225,23 @@ func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs [
 		return "", nil, "", nil, err
 	}
 	projectCond, projectArgs = viewProjectScope(view.ProjectIDs)
-	labelCond, labelArgs = viewLabelScope(view.Labels, d.labelFold())
+	labelCond, labelArgs = viewLabelScope(view.Labels, d.lowerASCII("labels"))
 	return projectCond, projectArgs, labelCond, labelArgs, nil
 }
 
-// labelFold lowers a view label the way the engine's LOWER lowers the column,
-// so that a label always matches its own spelling. PostgreSQL folds every
-// letter; SQLite folds ASCII only, and lowering `É` on one side alone would
-// make `Équipe` miss `Équipe`.
-func (d *DB) labelFold() func(string) string {
-	if d.EngineName() == string(DriverPostgres) {
-		return strings.ToLower
+// lowerASCII folds a TEXT expression the way asciiLower folds the value it is
+// compared against: A-Z and nothing else, on either engine and whatever the
+// server's collation. Both sides must fold the same characters, otherwise
+// lowering `É` on one side alone makes `Équipe` miss `Équipe`.
+func (d *DB) lowerASCII(expr string) string {
+	if d == nil || d.dialect == nil {
+		return "LOWER(" + expr + ")"
 	}
-	return asciiLower
+	return d.dialect.LowerASCII(expr)
 }
 
+// asciiLower lowers A-Z, and leaves every other character as it is — an
+// accented letter included. It is the Go half of lowerASCII.
 func asciiLower(s string) string {
 	return strings.Map(func(r rune) rune {
 		if r >= 'A' && r <= 'Z' {
@@ -1270,18 +1272,20 @@ func viewProjectScope(projectIDs []string) (string, []interface{}) {
 // and regardless of case. tasks.labels is a JSON array written by
 // json.Marshal, so a whole label is exactly its quoted JSON token: `"backend"`
 // is found in `["Backend","ops"]` and not in `["backend-api"]`. LIKE wildcards
-// in a label are escaped. fold must lower the label as the engine's LOWER
-// lowers the column (see labelFold): under SQLite, case is then ignored for
-// ASCII letters only.
-func viewLabelScope(labels []string, fold func(string) string) (string, []interface{}) {
+// in a label are escaped.
+//
+// lowered is the SQL that folds the labels column, and must be the engine's
+// lowerASCII: the label is folded here with asciiLower, so case is ignored for
+// ASCII letters and any other character has to match its own spelling.
+func viewLabelScope(labels []string, lowered string) (string, []interface{}) {
 	if len(labels) == 0 {
 		return "", nil
 	}
 	clauses := make([]string, 0, len(labels))
 	args := make([]interface{}, 0, len(labels))
 	for _, label := range labels {
-		token, _ := json.Marshal(fold(label))
-		clauses = append(clauses, "LOWER(labels) LIKE ? ESCAPE '!'")
+		token, _ := json.Marshal(asciiLower(label))
+		clauses = append(clauses, lowered+" LIKE ? ESCAPE '!'")
 		args = append(args, "%"+escapeLike(string(token))+"%")
 	}
 	return "(" + strings.Join(clauses, " OR ") + ")", args
@@ -3847,11 +3851,19 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 // skills.StageSkills table: the skill the UI offers, the file installed in the
 // repository and the step the worker runs are by construction the same thing.
 // The old pick-issue auto-pilot is gone, the autonomous run button replaced it.
-// UIScaleOptions are the four interface zoom levels the status bar switches
-// between. Four steps is what a quick switch can hold: a free number would need
-// a settings screen and a keyboard, which is not what "make it bigger, now" asks
-// for.
-var UIScaleOptions = []int{90, 100, 112, 125}
+// UIScaleOptions are the interface zoom levels the status bar switches between.
+// A ladder rather than a free number: typing a percentage needs a settings
+// screen and a keyboard, which is not what "make it bigger, now" asks for.
+//
+// The four historical levels are kept as they were, 112 included rather than
+// rounded to 110: a setting somebody already chose does not move to make a
+// prettier sequence. The added steps go down, for whoever wants more tickets on
+// screen, and above all up, where stopping at 125 left "it is too small" without
+// an answer.
+//
+// The list must stay identical to UI_SCALE_OPTIONS in web/src/lib/uiScale.ts:
+// this one bounds what is stored, that one what is offered.
+var UIScaleOptions = []int{80, 90, 100, 112, 125, 150, 175}
 
 // NormalizeAutoSyncInterval floors the background loop's period. Below thirty
 // seconds, the tracker is polled faster than it changes, for nothing.

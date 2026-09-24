@@ -7,13 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This file is the release note every Sectile surface shows: the web interface
 serves it from the running server, and the desktop app embeds it at build time.
-It is written for the people who use Sectile, not for the people who wrote it —
+It is written for the people who use Sectile, not for the people who wrote it -
 one line per user-visible change, in English, and nothing about refactorings,
 test fixtures or internal plumbing.
 
 ## [Unreleased]
 
 ### Added
+
+- **Zoom and density are in the status bar, and the zoom reaches further.** The bottom bar shows the current zoom and opens both settings where you are already looking, instead of four clicks away under Profile, Appearance. The ladder gains 80 %, 150 % and 175 %: stopping at 125 % left "it is too small" without an answer. The four levels you may already have chosen are unchanged, and a value written by another version snaps to the nearest step rather than being refused.
+
+- **Group a macro's tickets by phase and by goal.** Two tabs in the macro panel, *Phases* and *Objectifs*, split the same tickets along two axes carried by prefixed labels: `phase:` says the order of the work, `goal:` says what you are trying to obtain, and a ticket can serve one without belonging to the other. Drag a ticket between groups to move it; only that axis's label changes. Naming a group labels nothing, so the group waits empty as a target and the label becomes real on the first ticket dropped into it. Names are normalised on the way to the tracker, spaces becoming hyphens as Jira requires, and the resulting label is shown before it is applied.
+
+- **Take the existing stories back into a macro's slicing.** *Reprendre les stories*, next to the other import buttons, writes one todo line per ticket already created under the macro, each arriving attached to its own. It is the reverse of *Créer story*: a macro whose tickets were created elsewhere had an empty slicing although the work was already sliced. Running it again adds nothing and says the slicing is up to date. A line that carries a story now also links straight to it on the tracker, and the list of a macro's tickets reads as one row per ticket, with its title, type, sprint and assignee, like the phase and goal groups.
+
+- **Import a macro's slicing from the repository's specification.** The macro panel, under Framing, offers *tasks.md* and *spec.md*: the first reads the group headings of the tasks file, one group being one story, the second the requirements or the prioritised user stories. Lines already there are kept, matched on their text rather than their position, so a ticked line keeps its tick and its story even when a group is inserted above it, and a line typed by hand survives. The two sources add up rather than replace each other. Nothing is written to the repository or the tracker, and no story is created: producing the slicing is a gesture you ask for, never a side effect of the synchronisation. When the specification is not merged yet, it is read from the macro's own branch, and the report says which file or branch it came from. A refusal names its cause: no repository configured, no specification folder for that key, or the chosen file missing next to the other one.
+
+- The Backlog can be condensed to one row per ticket: the button left of the filters drops the description excerpt and reduces the macro to its key, on the title line. The two details that made a row taller go with it (the time spent in the current state, the creator below the assignee), and the macro's title stays in the tooltip. The board and the roadmap keep their own density, and the choice is remembered for the next visit.
 
 - Projects can colour their cards per epic (project settings, General, "Couleur par épic"; off by default). A thin bar in the epic's colour, along the left edge, marks board cards, Backlog rows, sprint timeline items and Roadmap macros. The colour is derived from the epic key, so an epic looks the same in every view; tasks without an epic are unchanged.
 
@@ -90,13 +100,13 @@ test fixtures or internal plumbing.
   Until now the classification was kept locally and announced as pushed.
 - **The roadmap says how many classifications have not reached the tracker.** A
   counter in the roadmap toolbar lists the macros whose label is missing or no
-  longer matches — anything classified before the mirroring existed, or while
-  the tracker was unreachable — and pushes them all in one click. Macros that
+  longer matches - anything classified before the mirroring existed, or while
+  the tracker was unreachable - and pushes them all in one click. Macros that
   can never carry a label, such as GitHub milestones and epics belonging to
   another project, are left out rather than reported as late for ever.
 - **A condensed row for the roadmap.** **Condensed** in the roadmap toolbar
-  reduces each macro to one line — its key, its title, its open/total count, its
-  priority and a count of the tickets left to place — and puts NOW, NEXT and
+  reduces each macro to one line - its key, its title, its open/total count, its
+  priority and a count of the tickets left to place - and puts NOW, NEXT and
   LATER on it as three two-letter buttons, so a macro moves from one horizon to
   another without unfolding anything. The choice is remembered per browser. The
   **Hidden** tab keeps the unfolded row: none of the three buttons applies
@@ -122,9 +132,9 @@ test fixtures or internal plumbing.
   re-reading every ticket one by one.** A pass used to queue one read per
   unfinished work item, every few minutes: four hundred tickets meant four
   hundred requests and four hundred activity rows a pass, for ever. It now
-  files one single synchronisation per project, bounded on the update date —
+  files one single synchronisation per project, bounded on the update date -
   Jira is asked for `updated >= -15m`, GitHub for issues changed `since` the
-  previous pass — so the cost follows what actually changed rather than how
+  previous pass - so the cost follows what actually changed rather than how
   large the project is. A full read still runs every half hour, which is what
   notices a ticket that left the project's perimeter, and a tracker that cannot
   narrow a search is simply read in full. A pass that finds nothing leaves no
@@ -161,6 +171,13 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **A saved view selects the same tickets on every server.** A view label with
+  an accent, `Équipe`, matched its tickets or not depending on the locale the
+  PostgreSQL database was created with. Labels are now compared the same way
+  everywhere: upper and lower case are the same letter for A-Z, and any other
+  character, an accented one included, has to be spelled as it is on the ticket.
+  A view needing both `Équipe` and `équipe` lists the two labels.
+
 - **Projects are listed again on a server upgraded from an earlier version.**
   The per-project view setting added a column to the schema in a place that only
   reaches a database created from scratch, so every existing deployment was left
@@ -183,6 +200,15 @@ test fixtures or internal plumbing.
   loop's pacing: one of them claims a due project, a full read dated by any of
   them counts for all, and a rate limit pauses every server for ten minutes.
   The synchronisation status is the same whichever server answers. (#404)
+
+- **A server that fails to answer no longer looks like an empty deployment.**
+  Reading the projects, the issues, the settings or the saved board views used
+  to be discarded in silence when the server refused: the sidebar and the board
+  simply showed nothing, with no way to tell a broken deployment from an empty
+  one. A failed read now raises a toast naming the resource and what the server
+  answered, and while the projects or the issues are failing a banner stays on
+  screen, with a button to try again. Being signed out stays quiet, since it
+  already sends you to the sign-in screen.
 
 - **Starting a second server on PostgreSQL no longer interrupts the first one's
   work.** A server used to mark every running job as failed and every client run
@@ -221,7 +247,7 @@ test fixtures or internal plumbing.
   the foot of the sidebar and the button in the status bar displayed a name that
   no screen could edit any more, so they stayed on the seeded `Developer`
   whatever you typed in Settings → Account. They now show the name your account
-  carries — the same one your executions and your comments are signed with —
+  carries - the same one your executions and your comments are signed with -
   falling back to your address, then your account id, for an account that has
   never been named. Settings → Account remains the one place to change it: a name
   sent to `/api/settings` is accepted and ignored, as the address already was.
@@ -238,7 +264,7 @@ test fixtures or internal plumbing.
   the new wording.
 - **Projects hosted on GitLab can reach `implemented` and `reviewed`.** The stage
   evidence check only ever asked GitHub for the branch's pull request, so a
-  GitLab project — whatever its issue tracker — was refused with
+  GitLab project - whatever its issue tracker - was refused with
   `configure an explicit GitHub owner/repository` even with an open merge
   request on the checkout commit. The forge is now chosen from the code remote,
   and a GitLab merge request is read by the local agent with the `glab` login
@@ -250,15 +276,15 @@ test fixtures or internal plumbing.
 - Running execution icons now spin in the desktop sidebar and discussion header, while respecting reduced-motion preferences.
 
 - Terminal-owned executions now stop their child processes and report their exit when the supervisor receives a hangup or termination signal, preventing stale running entries and stop timeouts. Transient exit-report failures are retried, and Stop automatically recovers a run whose local terminal has already disappeared.
-- **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs — the
+- **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs - the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the
-  tracker setup — rendered a dark backdrop that reacted to nothing, and five of
+  tracker setup - rendered a dark backdrop that reacted to nothing, and five of
   them had no `Escape` either, so the × was the only way out. All of them now
   close on a click beside them and on `Escape`, through the same path as their
   close button: the task sheet still saves what was edited. A dialog opened over
   another closes alone, and a selection begun inside a dialog and released on
-  the backdrop no longer closes it — which the dialogs that already dismissed
+  the backdrop no longer closes it - which the dialogs that already dismissed
   used to do, taking the form with them.
 - **Cutting stories out of a macro no longer answers success without moving
   anything.** The move, the horizon push and the required-field lookup were
@@ -271,7 +297,7 @@ test fixtures or internal plumbing.
   read.** The background synchronisation left one entry on a ticket every time
   it re-read it, whether or not anything had moved. On a project of a few
   hundred tickets that is tens of thousands of "synchronised successfully" a
-  day, and a card's real history — a run, a transition, a comment — was buried
+  day, and a card's real history - a run, a transition, a comment - was buried
   under them. A background read that finds the ticket unchanged now leaves
   nothing behind. A read that finds a change still records it, and a read the
   tracker refuses is still kept: that one is the reason these entries are
@@ -279,7 +305,7 @@ test fixtures or internal plumbing.
 - **A closed ticket no longer fills its own activity list.** The background
   synchronisation re-read every work item that was not marked finished in
   Sectile, and left one activity on the ticket each time. A ticket the tracker
-  had closed — Jira's *Closed*, *Resolved*, *Won't Do*, GitHub's *closed* —
+  had closed - Jira's *Closed*, *Resolved*, *Won't Do*, GitHub's *closed* -
   counted as unfinished for as long as its workflow label said otherwise, so it
   was read again every few minutes, for ever. Sectile now asks the project's own
   board which columns land on the finished stage, falls back on the status name
@@ -303,12 +329,12 @@ test fixtures or internal plumbing.
   application, were never affected.
 - **Jira priorities follow the project's own scheme.** Sectile used to write the
   four names of Atlassian's default scheme, so a project whose priorities are
-  named otherwise — the Blocker/Critical/Major/Minor/Trivial set, a renamed or
-  translated one — refused every creation and every update with "The priority
+  named otherwise - the Blocker/Critical/Major/Minor/Trivial set, a renamed or
+  translated one - refused every creation and every update with "The priority
   selected is invalid". Sectile now asks the screen that will receive the write
   which priorities it takes, and sends one of those. A project whose creation
-  screen has no priority field at all is created without one — instead of being
-  refused — and the level is set straight afterwards, so it is not lost.
+  screen has no priority field at all is created without one - instead of being
+  refused - and the level is set straight afterwards, so it is not lost.
 
 ### Security
 
@@ -359,7 +385,7 @@ release mechanism that will keep the following entries short.
 ### Fixed
 
 - **Quiet agent runs are no longer canceled.** A run that stays silent for a
-  long time — a long build, a question waiting for its owner — used to be
+  long time - a long build, a question waiting for its owner - used to be
   canceled after fifteen minutes, which stopped an autonomous chain without a
   word. It now stays running, and its summary notes how long it has been quiet.
   A run canceled because its client disconnected can still be finished by the
