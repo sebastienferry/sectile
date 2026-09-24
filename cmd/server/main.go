@@ -186,6 +186,13 @@ func main() {
 	}
 	defer database.Close()
 
+	// Where the other instances reach this one's internal endpoints, when the
+	// store can be shared. See internal/db/presence.go.
+	internalPort := internalPortFromEnv(osGetenv)
+	if database.Shared() {
+		database.SetInstanceAddress(internalURL(osGetenv, internalPort))
+	}
+
 	// This process is one serving instance among those that may share the
 	// database: it keeps its row fresh and reclaims the work of instances that
 	// went away. See internal/db/instances.go.
@@ -200,6 +207,9 @@ func main() {
 	}
 
 	h := handlers.NewHandler(database)
+	if database.Shared() {
+		startInternalListener(h, internalPort)
+	}
 	h.SetDataDir(appDataDir())
 	h.SetPullOnConnect(true)
 	if os.Getenv("SECTILE_SERVER_TOKEN") != "" {

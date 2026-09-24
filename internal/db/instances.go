@@ -71,6 +71,7 @@ func (d *DB) recoverInterruptedRuns() {
 	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
 		interruptedClientRun, time.Now(), RunActionAgent)
 	_, _ = d.conn.Exec("DELETE FROM server_instances;")
+	_, _ = d.conn.Exec("DELETE FROM agent_presence;")
 }
 
 // reclaimDeadInstances ends the unfinished work of instances not seen since the
@@ -104,6 +105,11 @@ func (d *DB) reclaimDeadInstances(now time.Time) (int64, error) {
 	}
 	if _, err := d.conn.Exec(`DELETE FROM server_instances WHERE last_seen < ?`, cutoff); err != nil {
 		return 0, fmt.Errorf("forgetting dead instances: %w", err)
+	}
+	// The agents those instances held reconnect elsewhere and register there;
+	// until then nothing may be forwarded to an instance that is gone.
+	if _, err := d.conn.Exec(`DELETE FROM agent_presence WHERE instance_id NOT IN (SELECT id FROM server_instances)`); err != nil {
+		return 0, fmt.Errorf("forgetting the agents of dead instances: %w", err)
 	}
 	ended, _ := jobs.RowsAffected()
 	canceled, _ := runs.RowsAffected()
@@ -161,8 +167,8 @@ func (d *DB) registerInstance(now time.Time) error {
 	hostname, _ := os.Hostname()
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if _, err := d.conn.Exec(`INSERT INTO server_instances (id, hostname, pid, started_at, last_seen) VALUES (?, ?, ?, ?, ?)`,
-		d.instanceID, hostname, os.Getpid(), now, now); err != nil {
+	if _, err := d.conn.Exec(`INSERT INTO server_instances (id, hostname, pid, started_at, last_seen, address) VALUES (?, ?, ?, ?, ?, ?)`,
+		d.instanceID, hostname, os.Getpid(), now, now, d.instanceAddress); err != nil {
 		return fmt.Errorf("registering server instance %s: %w", d.instanceID, err)
 	}
 	return nil

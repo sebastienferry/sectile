@@ -66,17 +66,11 @@ export function useAgentStatus(pollIntervalMs = 30_000): AgentStatusState {
     let es: EventSource | null = null
     try {
       es = new EventSource(`${API_BASE}/events/sse`)
-      const handler = (event: MessageEvent) => {
-        try {
-          const data = JSON.parse(event.data)
-          if (data.type === 'agent_connected' || data.type === 'agent_disconnected') {
-            fetchStatus()
-          }
-        } catch {
-          // Ignore malformed SSE data.
-        }
-      }
-      es.addEventListener('message', handler)
+      // The server names every event after its type, so these arrive as named
+      // events: a listener on the unnamed 'message' event never fires.
+      const handler = () => fetchStatus()
+      es.addEventListener('agent_connected', handler)
+      es.addEventListener('agent_disconnected', handler)
     } catch {
       // SSE not available; rely on polling.
     }

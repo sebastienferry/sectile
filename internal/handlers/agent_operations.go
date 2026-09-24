@@ -22,8 +22,8 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 	if userID == "" {
 		userID = ImplicitUser
 	}
-	ac := d.WaitForAgent(ctx, userID, op.ProjectID, defaultAgentReconnectGrace)
-	if ac == nil {
+	route := d.waitForRoute(ctx, userID, op.ProjectID, defaultAgentReconnectGrace)
+	if route == nil {
 		if d.agentWasRecentlyConnected(userID, op.ProjectID) {
 			// Saying only "no local agent connected" reads as a configuration
 			// problem, when the agent was there moments ago and will be again.
@@ -31,12 +31,22 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 		}
 		return nil, fmt.Errorf("no local agent connected for project %s", op.ProjectID)
 	}
+	if route.remote != nil {
+		return d.cluster.operation(ctx, *route.remote, op)
+	}
+	return d.callOperationLocal(ctx, route.local, op)
+}
+
+// callOperationLocal runs an operation on a connection held here.
+func (d *AgentDispatcher) callOperationLocal(ctx context.Context, ac *AgentConn, op agentprotocol.Operation) (json.RawMessage, error) {
 	if op.Action == "execute_skill" || op.Action == "open_terminal" {
 		action := op.SkillID
 		if op.Action == "open_terminal" {
 			action = "open_terminal"
 		}
-		err := d.DispatchAndWait(ctx, ac.UserID, ac.ProjectID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
+		// On the connection already resolved: an operation forwarded here must
+		// not be forwarded again if the slot changes hands meanwhile.
+		err := d.dispatchAndWaitLocal(ctx, ac, ac.UserID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
 		return json.RawMessage("null"), err
 	}
 	raw, err := json.Marshal(op)

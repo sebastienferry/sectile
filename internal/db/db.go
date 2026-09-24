@@ -170,6 +170,9 @@ type DB struct {
 	// database. Every activity it creates or starts executing carries it. See
 	// internal/db/instances.go.
 	instanceID string
+	// instanceAddress is where the other instances reach this one's internal
+	// endpoints. See internal/db/presence.go.
+	instanceAddress string
 }
 
 // NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the

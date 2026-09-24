@@ -139,6 +139,49 @@ var migrations = []migration{
 			);`,
 		},
 	},
+	{
+		// The background synchronisation's pacing, backoff and status, shared
+		// by every server instance instead of held by each one. See
+		// internal/db/autosync.go.
+		version: 7,
+		name:    "auto_sync_state",
+		statements: []string{
+			`CREATE TABLE auto_sync_projects (
+				project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,
+				last_pass_at DATETIME,
+				last_full_sync_at DATETIME
+			);`,
+			`CREATE TABLE auto_sync_state (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				backoff_until DATETIME,
+				last_run_at DATETIME,
+				last_error TEXT NOT NULL DEFAULT '',
+				last_imported INTEGER NOT NULL DEFAULT 0,
+				passes INTEGER NOT NULL DEFAULT 0,
+				imported INTEGER NOT NULL DEFAULT 0
+			);`,
+			"INSERT INTO auto_sync_state (id) VALUES (1);",
+		},
+	},
+	{
+		// Which server instance holds each local agent, and where to reach
+		// that instance, so any instance can forward agent work to it. See
+		// internal/db/presence.go.
+		version: 8,
+		name:    "agent_presence",
+		statements: []string{
+			"ALTER TABLE server_instances ADD COLUMN address TEXT NOT NULL DEFAULT '';",
+			`CREATE TABLE agent_presence (
+				user_id TEXT NOT NULL,
+				project_id TEXT NOT NULL,
+				instance_id TEXT NOT NULL,
+				device_id TEXT NOT NULL DEFAULT '',
+				connected_at DATETIME NOT NULL,
+				disconnected_at DATETIME,
+				PRIMARY KEY (user_id, project_id)
+			);`,
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

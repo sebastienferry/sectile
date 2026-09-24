@@ -191,6 +191,22 @@ test fixtures or internal plumbing.
   ran, or before it started, keeps its canceled status instead of being
   overwritten by its own outcome, with one server as with several. (#405)
 
+- **A local agent is reachable whichever server receives the request.** With
+  several servers on one database, a stage transition, a launch or a workspace
+  operation arriving on a server the agent is not connected to used to fail with
+  "no local agent connected". The servers now forward the work to the one holding
+  the agent, over an internal port (`SECTILE_INTERNAL_PORT`, 8092 by default), and
+  the agent indicator lists the agents of every server. The indicator also
+  refreshes as soon as an agent connects or disconnects. (#406)
+
+- **Several servers sharing one database synchronise each project once.** The
+  background synchronisation used to run in every server, so each project was
+  read once per server per interval, and a tracker asking to slow down (rate
+  limit) was only heard by the server it answered. The servers now share the
+  loop's pacing: one of them claims a due project, a full read dated by any of
+  them counts for all, and a rate limit pauses every server for ten minutes.
+  The synchronisation status is the same whichever server answers. (#404)
+
 - **A server that fails to answer no longer looks like an empty deployment.**
   Reading the projects, the issues, the settings or the saved board views used
   to be discarded in silence when the server refused: the sidebar and the board
