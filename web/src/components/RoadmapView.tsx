@@ -44,6 +44,7 @@ import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { MacroLabelGroups } from './MacroLabelGroups'
+import { MacroTaskRow } from './MacroTaskRow'
 import { sprintLookup, isProjectCompatible } from '../lib/lookups'
 import {
   buildMacroRows,
@@ -1807,6 +1808,7 @@ export const RoadmapView: React.FC = () => {
                             {todo.text}
                           </span>
                           {todo.storyKey ? (
+                            <>
                             <button
                               type="button"
                               onClick={() => {
@@ -1823,6 +1825,24 @@ export const RoadmapView: React.FC = () => {
                             >
                               {todo.storyKey}
                             </button>
+                            {/* Le lien vers le tracker, distinct de l'ouverture
+                                dans Sectile : consulter la fiche et aller
+                                commenter le ticket ne sont pas le même geste. */}
+                            {(() => {
+                              const created = tasks.find(t => t.key === todo.storyKey)
+                              return created?.externalUrl ? (
+                                <a
+                                  href={created.externalUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="shrink-0 text-[var(--text-muted)] hover:text-[var(--accent-color)] transition-colors"
+                                  title={`Ouvrir ${todo.storyKey} sur le tracker`}
+                                >
+                                  <ExternalLink size={10} />
+                                </a>
+                              ) : null
+                            })()}
+                            </>
                           ) : (
                             <button
                               type="button"
@@ -1895,6 +1915,12 @@ export const RoadmapView: React.FC = () => {
                       {([
                         { source: 'tasks' as const, label: 'tasks.md', hint: "Un groupe de tasks.md par ligne : c'est le grain d'une story." },
                         { source: 'spec' as const, label: 'spec.md', hint: 'Une exigence ou une user story priorisée par ligne.' },
+                        // L'inverse de « Créer story » : celui-ci descend d'une
+                        // ligne vers un ticket, celui-là remonte d'un ticket
+                        // vers sa ligne. Une macro dont les stories ont été
+                        // créées ailleurs avait une découpe vide alors que le
+                        // travail était déjà découpé.
+                        { source: 'stories' as const, label: 'Reprendre les stories', hint: "Une ligne par ticket déjà créé sous la macro, chacune arrivant rattachée au sien." },
                       ]).map(option => (
                         <button
                           key={option.source}
@@ -1924,18 +1950,12 @@ export const RoadmapView: React.FC = () => {
                       <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
                         Tickets créés sous cette macro ({selected.tasks.length})
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
+                      {/* Une seule colonne, la même ligne que les groupes par
+                          objectif : une pastille qui ne porte que la clé oblige
+                          à survoler chaque ticket pour savoir de quoi il parle. */}
+                      <div className="flex flex-col gap-1">
                         {selected.tasks.map(task => (
-                          <button
-                            key={task.id}
-                            type="button"
-                            onClick={() => setSelectedTask(task)}
-                            className="text-[10.5px] font-mono px-2 py-1 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)]/40 cursor-pointer flex items-center gap-1.5 transition-colors"
-                            title={task.title}
-                          >
-                            <span style={{ color: 'var(--status-info)' }}>{task.key}</span>
-                            <span className="truncate max-w-[200px]">{task.title}</span>
-                          </button>
+                          <MacroTaskRow key={task.id} task={task} onOpen={setSelectedTask} />
                         ))}
                       </div>
                     </div>

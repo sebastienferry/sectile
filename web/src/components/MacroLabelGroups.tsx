@@ -1,8 +1,8 @@
 import React, { useCallback, useMemo, useState } from 'react'
-import { Check, GripVertical, Layers, Loader2, Plus, Tag } from 'lucide-react'
+import { Check, Layers, Plus, Tag } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { issueTypeStyle } from '../lib/issueTypes'
-import { Avatar } from './Avatar'
+import { MacroTaskRow } from './MacroTaskRow'
+import { isTaskDone } from '../lib/workflow'
 import { LABEL_AXES, axisLabelOf, axisNameOf, axisWords, isAxisLabel, type LabelAxis } from '../lib/labelAxes'
 import type { Task } from '../types'
 
@@ -22,8 +22,6 @@ import type { Task } from '../types'
  * ferait défiler le panneau longtemps avant d'atteindre le groupe suivant.
  */
 const ROWS_SHOWN = 12
-
-const isDone = (task: Task): boolean => task.status === 'finished' || task.status === 'done'
 
 interface AxisGroup {
   label: string
@@ -73,7 +71,7 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
       .filter(([label]) => (q ? nameOf(label).toLowerCase().includes(q) : true))
       // Les groupes les plus chargés d'abord : c'est là que le travail est.
       .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-      .map(([label, list]) => ({ label, tasks: list, done: list.filter(isDone).length }))
+      .map(([label, list]) => ({ label, tasks: list, done: list.filter(isTaskDone).length }))
   }, [tasks, filter, pendingGroups, carries, nameOf])
 
   // Un ticket sans aucun label de cet axe n'est rangé nulle part : c'est
@@ -156,70 +154,16 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
     },
   })
 
-  /**
-   * Un ticket par ligne, avec son titre.
-   *
-   * La clé seule, le titre en infobulle, ne permet pas de répartir une macro :
-   * on ne lit pas « PE-1841, PE-1853, PE-1862 » en survolant chaque pastille.
-   * Répartir demande de savoir de quoi on parle.
-   */
-  const renderRow = (task: Task, from: string) => {
-    const type = issueTypeStyle(task.issueType || '')
-    const done = isDone(task)
-    const working = busy === task.id
-    return (
-      <div
-        key={`${from}:${task.id}`}
-        {...dragProps(task, from)}
-        className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-colors ${
-          working ? 'opacity-50' : 'cursor-grab active:cursor-grabbing'
-        }`}
-        style={{
-          background: done ? 'rgb(var(--status-ok-rgb) / 0.09)' : 'var(--bg-primary)',
-          borderColor: done ? 'rgb(var(--status-ok-rgb) / 0.3)' : 'var(--border-color)',
-        }}
-        title={`${task.key} - ${task.title}${done ? ' (terminé)' : ''} · Glisser vers un groupe`}
-      >
-        <GripVertical size={10} className="text-[var(--text-muted)] opacity-60 shrink-0" />
-        {done && <Check size={10} className="shrink-0" style={{ color: 'var(--status-ok)' }} />}
-        <button
-          type="button"
-          onClick={() => setSelectedTask(task)}
-          className="text-[10px] font-mono font-bold shrink-0 cursor-pointer hover:underline"
-          style={{ color: done ? 'var(--status-ok)' : 'var(--accent-color)' }}
-        >
-          {task.key}
-        </button>
-        {task.issueType && (
-          <span
-            className="text-[9px] px-1 rounded font-bold shrink-0"
-            style={{ color: type.color, background: type.background }}
-          >
-            {type.short}
-          </span>
-        )}
-        <span
-          className="text-[11px] truncate flex-1 min-w-0"
-          style={{
-            color: done ? 'var(--text-muted)' : 'var(--text-primary)',
-            textDecoration: done ? 'line-through' : 'none',
-          }}
-        >
-          {task.title}
-        </span>
-        {task.sprint && (
-          <span
-            className="text-[9px] font-mono px-1 rounded shrink-0 max-w-[110px] truncate text-[var(--text-muted)] bg-[var(--bg-tertiary)] border border-[var(--border-color)]"
-            title={`Sprint : ${task.sprint}`}
-          >
-            {task.sprint}
-          </span>
-        )}
-        {task.assignee && <Avatar name={task.assignee} url={task.assigneeAvatar} size={16} />}
-        {working && <Loader2 size={10} className="animate-spin shrink-0" />}
-      </div>
-    )
-  }
+  const renderRow = (task: Task, from: string) => (
+    <MacroTaskRow
+      key={`${from}:${task.id}`}
+      task={task}
+      onOpen={setSelectedTask}
+      dragProps={dragProps(task, from)}
+      busy={busy === task.id}
+      title={`${task.key} - ${task.title}${isTaskDone(task) ? ' (terminé)' : ''} · Glisser vers un groupe`}
+    />
+  )
 
   const renderGroup = (label: string, list: Task[], done: number, isUnplaced: boolean) => {
     const target = hovered === (isUnplaced ? '' : label)
@@ -371,7 +315,7 @@ export const MacroLabelGroups: React.FC<{ axis: LabelAxis; tasks: Task[] }> = ({
 
       {/* Toujours en dernier, et toujours affiché tant qu'il reste des tickets à
           ranger : c'est la file d'attente de cette vue. */}
-      {unplaced.length > 0 && renderGroup('', unplaced, unplaced.filter(isDone).length, true)}
+      {unplaced.length > 0 && renderGroup('', unplaced, unplaced.filter(isTaskDone).length, true)}
     </div>
   )
 }

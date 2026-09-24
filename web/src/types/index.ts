@@ -118,8 +118,11 @@ export type EpicHorizon = MacroHorizon
  * L'absence de valeur vaut « saisie à la main », et c'est le cas le plus
  * intéressant de la liste : une ligne sans origine est un ajout que personne
  * n'a spécifié.
+ *
+ * « stories » est la seule qui ne décrive pas du travail à faire : la ligne
+ * reprend un ticket qui existe déjà, et arrive donc rattachée.
  */
-export type MacroTodoSource = 'tasks' | 'spec' | 'scenarios'
+export type MacroTodoSource = 'tasks' | 'spec' | 'scenarios' | 'stories'
 
 export interface MacroTodo {
   id: string

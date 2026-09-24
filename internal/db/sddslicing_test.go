@@ -487,3 +487,118 @@ func TestRepliSurLaBrancheDeLaMacro(t *testing.T) {
 func sddTime0() time.Time {
 	return time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 }
+
+// seedStory attache un ticket à une macro, comme la synchro le fait.
+func seedStory(t *testing.T, database *DB, projectID, macroKey, key, title string) {
+	t.Helper()
+	task, err := database.CreateTask(models.CreateTaskRequest{
+		Title:     title,
+		ProjectID: projectID,
+		ParentKey: macroKey,
+	})
+	if err != nil || task == nil {
+		t.Fatalf("préparation du ticket : %v", err)
+	}
+	database.mu.Lock()
+	_, err = database.conn.Exec("UPDATE tasks SET key = ? WHERE id = ?", key, task.ID)
+	database.mu.Unlock()
+	if err != nil {
+		t.Fatalf("préparation de la clé : %v", err)
+	}
+}
+
+// La reprise remonte d'un ticket vers sa ligne, là où « Créer story » descend
+// d'une ligne vers un ticket. Chaque ligne produite arrive déjà rattachée.
+func TestRepriseDesStoriesExistantes(t *testing.T) {
+	database, proj, _ := sddProject(t, "openspec")
+	seedMacro(t, database, proj.ID, "PE-500")
+	seedStory(t, database, proj.ID, "PE-500", "PE-501", "Poser le champ sur le modèle")
+	seedStory(t, database, proj.ID, "PE-500", "PE-502", "Porter la colonne")
+
+	meta, origin, err := database.TodosFromMacroStories(proj.ID, "PE-500")
+	if err != nil {
+		t.Fatalf("reprise : %v", err)
+	}
+	if len(meta.Todos) != 2 {
+		t.Fatalf("deux lignes attendues, obtenu %d : %v", len(meta.Todos), meta.Todos)
+	}
+	for _, todo := range meta.Todos {
+		if todo.StoryKey == "" {
+			t.Errorf("une ligne reprise arrive rattachée, obtenu %+v", todo)
+		}
+		if todo.SourceKind != models.MacroTodoFromStories {
+			t.Errorf("origine attendue %q, obtenu %q", models.MacroTodoFromStories, todo.SourceKind)
+		}
+	}
+	if !strings.Contains(origin, "2") {
+		t.Errorf("le compte rendu doit dire combien de lignes, obtenu %q", origin)
+	}
+}
+
+// La clé identifie, pas le texte : une ligne renommée à la main ne doit pas
+// voir son ticket revenir en double à la reprise suivante.
+func TestRepriseNeDupliquePasUneStoryDejaRattachee(t *testing.T) {
+	database, proj, _ := sddProject(t, "openspec")
+	seedMacro(t, database, proj.ID, "PE-510")
+	seedStory(t, database, proj.ID, "PE-510", "PE-511", "Titre d'origine")
+
+	first, _, err := database.TodosFromMacroStories(proj.ID, "PE-510")
+	if err != nil {
+		t.Fatalf("première reprise : %v", err)
+	}
+	renamed := append([]models.MacroTodo{}, first.Todos...)
+	renamed[0].Text = "Énoncé retravaillé à la main"
+	if _, err := database.SaveMacroMeta(proj.ID, "PE-510", nil, nil, nil, &renamed); err != nil {
+		t.Fatalf("renommage : %v", err)
+	}
+
+	second, origin, err := database.TodosFromMacroStories(proj.ID, "PE-510")
+	if err != nil {
+		t.Fatalf("seconde reprise : %v", err)
+	}
+	if len(second.Todos) != 1 {
+		t.Fatalf("une seule ligne attendue, obtenu %d : %v", len(second.Todos), second.Todos)
+	}
+	if second.Todos[0].Text != "Énoncé retravaillé à la main" {
+		t.Errorf("le texte retravaillé devait survivre, obtenu %q", second.Todos[0].Text)
+	}
+	// Rien à faire n'est pas une erreur, mais le silence se lirait comme un échec.
+	if !strings.Contains(origin, "à jour") {
+		t.Errorf("le compte rendu doit dire que la découpe est à jour, obtenu %q", origin)
+	}
+}
+
+// Les lignes déjà là, saisies ou importées, ne sont pas touchées par la reprise.
+func TestRepriseConserveLesLignesExistantes(t *testing.T) {
+	database, proj, _ := sddProject(t, "openspec")
+	seedMacro(t, database, proj.ID, "PE-520")
+	manual := []models.MacroTodo{{Text: "Prévenir l'équipe réseau"}}
+	if _, err := database.SaveMacroMeta(proj.ID, "PE-520", nil, nil, nil, &manual); err != nil {
+		t.Fatalf("préparation : %v", err)
+	}
+	seedStory(t, database, proj.ID, "PE-520", "PE-521", "Livrer la sonde")
+
+	meta, _, err := database.TodosFromMacroStories(proj.ID, "PE-520")
+	if err != nil {
+		t.Fatalf("reprise : %v", err)
+	}
+	if len(meta.Todos) != 2 {
+		t.Fatalf("deux lignes attendues, obtenu %d : %v", len(meta.Todos), meta.Todos)
+	}
+	if meta.Todos[0].Text != "Prévenir l'équipe réseau" || meta.Todos[0].SourceKind != "" {
+		t.Errorf("la ligne manuelle devait rester intacte et en tête, obtenu %+v", meta.Todos[0])
+	}
+}
+
+func TestRepriseSansTicketLeDit(t *testing.T) {
+	database, proj, _ := sddProject(t, "openspec")
+	seedMacro(t, database, proj.ID, "PE-530")
+
+	_, _, err := database.TodosFromMacroStories(proj.ID, "PE-530")
+	if err == nil {
+		t.Fatal("une macro sans ticket doit être dite")
+	}
+	if !strings.Contains(err.Error(), "PE-530") || !strings.Contains(err.Error(), "reprendre") {
+		t.Errorf("le refus doit nommer la macro et ce qu'il n'a pas pu faire : %v", err)
+	}
+}

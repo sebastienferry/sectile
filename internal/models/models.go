@@ -265,6 +265,10 @@ const (
 	// MacroTodoFromScenarios : un Functional Scenario de la macro elle-même. Seule
 	// des trois à venir du tracker et non du dépôt.
 	MacroTodoFromScenarios = "scenarios"
+	// MacroTodoFromStories : une story déjà créée sous la macro, reprise dans la
+	// découpe. La ligne arrive rattachée à son ticket, ce qui la distingue d'une
+	// ligne à faire et fait qu'une création en lot la passe.
+	MacroTodoFromStories = "stories"
 )
 
 // MacroTodo is one shaping item on a macro, before it becomes a story.

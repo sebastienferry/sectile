@@ -981,7 +981,17 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			// Un corps absent vaut la source par défaut : le geste courant ne
 			// doit pas exiger une charge utile pour être appelable.
 			_ = json.NewDecoder(r.Body).Decode(&req)
-			meta, origin, err := h.db.TodosFromSDD(id, key, db.NormalizeSlicingSource(req.Source))
+			// Les stories déjà créées ne sont pas une source de fichier : elles
+			// sont routées avant la normalisation, qui ne connaît que le dépôt
+			// et ferait retomber « stories » sur tasks.md en silence.
+			var meta *models.MacroMeta
+			var origin string
+			var err error
+			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
+				meta, origin, err = h.db.TodosFromMacroStories(id, key)
+			} else {
+				meta, origin, err = h.db.TodosFromSDD(id, key, db.NormalizeSlicingSource(req.Source))
+			}
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return

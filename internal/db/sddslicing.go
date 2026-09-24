@@ -463,3 +463,121 @@ func sourceUnitName(source SlicingSource) string {
 	}
 	return "section de tâches"
 }
+
+// TodosFromMacroStories produces the slicing from the stories the macro already
+// carries, and returns the updated macro plus what was read.
+//
+// L'inverse du bouton « Créer story » : celui-ci descend d'une ligne vers un
+// ticket, celui-là remonte d'un ticket vers sa ligne. Une macro dont les stories
+// ont été créées ailleurs, à la main ou par une synchro, avait une découpe vide
+// alors que le travail était déjà découpé, et la retaper pour ensuite rattacher
+// chaque ligne était le genre de corvée qui fait abandonner la découpe.
+//
+// Chaque ligne produite arrive déjà rattachée à sa story : c'est ce qui la
+// distingue d'une ligne à faire, et ce qui fait qu'une création en lot la passe
+// au lieu d'en produire un doublon.
+//
+// Une story qu'une ligne porte déjà n'en produit pas une seconde, quel que soit
+// son énoncé : c'est la clé qui identifie, pas le texte, sans quoi une ligne
+// renommée à la main verrait son ticket revenir en double à la prochaine reprise.
+func (d *DB) TodosFromMacroStories(projectID string, macroKey string) (*models.MacroMeta, string, error) {
+	projectID = strings.TrimSpace(projectID)
+	macroKey = strings.TrimSpace(macroKey)
+	if projectID == "" || macroKey == "" {
+		return nil, "", fmt.Errorf("projet et clé de macro obligatoires")
+	}
+
+	meta, err := d.macroMetaByKey(projectID, macroKey)
+	if err != nil {
+		return nil, "", err
+	}
+
+	attached := map[string]bool{}
+	for _, todo := range meta.Todos {
+		if key := strings.ToUpper(strings.TrimSpace(todo.StoryKey)); key != "" {
+			attached[key] = true
+		}
+	}
+
+	stories, err := d.macroStories(projectID, macroKey, meta.Title)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(stories) == 0 {
+		return nil, "", fmt.Errorf("aucun ticket sous %s : il n'y a rien à reprendre", strings.ToUpper(macroKey))
+	}
+
+	next := append([]models.MacroTodo{}, meta.Todos...)
+	added := 0
+	for _, story := range stories {
+		if attached[strings.ToUpper(story.Key)] {
+			continue
+		}
+		text := strings.TrimSpace(story.Title)
+		if text == "" {
+			// Un ticket sans titre garde sa clé pour énoncé : mieux vaut une
+			// ligne qui renvoie quelque part qu'une ligne vide, que la
+			// sauvegarde écarterait de toute façon.
+			text = story.Key
+		}
+		next = append(next, models.MacroTodo{
+			Text:        text,
+			StoryKey:    story.Key,
+			SourceKind:  models.MacroTodoFromStories,
+			SourceEntry: story.Key,
+		})
+		attached[strings.ToUpper(story.Key)] = true
+		added++
+	}
+
+	if added == 0 {
+		// Rien à faire n'est pas une erreur, mais le silence se lirait comme un
+		// échec : le compte rendu dit que la découpe était déjà à jour.
+		return meta, fmt.Sprintf("%d ticket(s) déjà repris : la découpe est à jour", len(stories)), nil
+	}
+
+	saved, err := d.SaveMacroMeta(projectID, macroKey, nil, nil, nil, &next)
+	if err != nil {
+		return nil, "", err
+	}
+	return saved, fmt.Sprintf("%d ligne(s) reprise(s) sur %d ticket(s)", added, len(stories)), nil
+}
+
+// macroStory is a child ticket of a macro, reduced to what a slicing line needs.
+type macroStory struct {
+	Key   string
+	Title string
+}
+
+// macroStories lists the tickets attached to a macro, in key order.
+//
+// Le titre de la macro est interrogé en plus de sa clé parce que la synchro
+// rattache par l'un ou par l'autre selon le tracker, et une reprise qui n'en
+// verrait que la moitié serait pire que pas de reprise du tout.
+func (d *DB) macroStories(projectID string, macroKey string, macroTitle string) ([]macroStory, error) {
+	d.mu.RLock()
+	rows, err := d.conn.Query(`
+		SELECT key, title
+		FROM tasks
+		WHERE project_id = ? AND (parent_key = ? OR parent_title = ?)
+		ORDER BY key ASC
+	`, projectID, macroKey, macroTitle)
+	d.mu.RUnlock()
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []macroStory{}
+	for rows.Next() {
+		var story macroStory
+		if err := rows.Scan(&story.Key, &story.Title); err != nil {
+			continue
+		}
+		if strings.TrimSpace(story.Key) == "" {
+			continue
+		}
+		out = append(out, story)
+	}
+	return out, nil
+}
