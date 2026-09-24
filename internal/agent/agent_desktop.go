@@ -238,18 +238,18 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// that acknowledgement. Recover it here instead of making every Stop
 		// retry wait twelve seconds and return 504 forever.
 		if d.recoverOrphanedPTYRun(id, run) {
-			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled after its local terminal closed")
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, true))
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		select {
 		case <-run.exited:
 			// The native client may have already reported completion via MCP.
-			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled")
+			_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, false))
 			w.WriteHeader(http.StatusNoContent)
 		case <-time.After(12 * time.Second):
 			if d.recoverOrphanedPTYRun(id, run) {
-				_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, "canceled", "Execution canceled after its local terminal closed")
+				_ = d.finishDesktopRun(context.Background(), entry.TaskID, id, stoppedStatus(entry.Skill), stoppedNote(entry.Skill, true))
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
@@ -314,7 +314,7 @@ func (d *agentDaemon) recoverOrphanedPTYRun(id string, run *controlledRun) bool 
 		return false
 	default:
 	}
-	run.desktop.Status = "canceled"
+	run.desktop.Status = stoppedStatus(run.desktop.Skill)
 	run.once.Do(func() { close(run.exited) })
 	return true
 }

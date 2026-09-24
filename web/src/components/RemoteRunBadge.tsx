@@ -18,11 +18,11 @@ const LABELS: Record<RunIndicatorState, string> = {
   canceled: 'Remote execution canceled',
 }
 
-/** The state glyph, at badge size, spinning or pulsing while the state lasts. */
-function StateGlyph({ state, spin }: { state: RunIndicatorState; spin: boolean }) {
+/** The state glyph, at badge size, pulsing while the state lasts. */
+function StateGlyph({ state, pulse }: { state: RunIndicatorState; pulse: boolean }) {
   return (
     <RunStateGlyph state={state} size={12}
-      className={spin ? 'animate-spin' : state === 'waiting' ? 'animate-pulse' : undefined} />
+      className={pulse ? 'motion-safe:animate-pulse' : state === 'waiting' ? 'animate-pulse' : undefined} />
   )
 }
 
@@ -101,10 +101,10 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   // The stop glyph replaces the state glyph only while the control is targeted.
   const showStop = cancelableRunIds.length > 0 && hovered && !canceling
   const glyph = canceling
-    ? <StateGlyph state="running" spin />
+    ? <StateGlyph state="running" pulse />
     : showStop
       ? <CircleStop size={12} aria-hidden="true" />
-      : <StateGlyph state={state} spin={state === 'running'} />
+      : <StateGlyph state={state} pulse={state === 'running'} />
 
   if (cancelableRunIds.length === 0) {
     return <span role="status" title={stateLabel} aria-label={stateLabel} className={shape} style={tint}>{glyph}</span>
@@ -118,7 +118,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
         aria-label={'Force close ' + skills}
         onClick={event => { event.stopPropagation(); void cancelRuns(cancelableRunIds, true) }}
         className={shape + interactive} style={tint}>
-        <StateGlyph state="canceled" spin={false} />
+        <StateGlyph state="canceled" pulse={false} />
       </button>
     )
   }

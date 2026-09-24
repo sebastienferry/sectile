@@ -192,12 +192,12 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await run.focus()
   runs=[{id:'run-b1',taskId:'b1',taskKey:'#1',projectId:'project-b',skill:'clarify',status:'running',directory:'/tmp/B',createdAt:new Date().toISOString()}]
   const state=rows.first().locator('.run-state')
-  await expect(state).toHaveAttribute('aria-label','Running')
+  await expect(state).toHaveAttribute('aria-label','Process: Running')
   await expect(run).toBeDisabled();await expect(run).toHaveAttribute('title','An execution is active on this task')
   // Disabling the focused control hands focus to the row's menu, never to the body.
   await expect(more).toBeFocused();await expect(more).toBeEnabled()
   runs=[{...runs[0],status:'completed'}]
-  await expect(state).toHaveAttribute('aria-label','Finished')
+  await expect(state).toHaveAttribute('aria-label','Process: Finished')
   await expect(run).toBeEnabled()
   // A control the refresh does not touch keeps focus.
   await expect(more).toBeFocused()
@@ -207,7 +207,7 @@ test('the tickets pane lists, sorts and launches a project\'s open tasks',async(
   await expect(state).toBeEmpty()
   // Selecting an execution leaves the pane instead of changing it behind a hidden view.
   runs=[{...runs[0],status:'running'}]
-  await expect(state).toHaveAttribute('aria-label','Running')
+  await expect(state).toHaveAttribute('aria-label','Process: Running')
   await page.locator('#runs .local-task .run').first().click()
   await expect(pane).toBeHidden()
   await expect(page.locator('#workspace article')).toBeVisible()

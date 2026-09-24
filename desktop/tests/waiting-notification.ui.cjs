@@ -63,7 +63,7 @@ test('a waiting session raises one native notification carrying the shared glyph
   const state=page.locator('.local-task .run .run-state')
   await state.waitFor()
   assert.equal(await state.getAttribute('data-run-state'),'waiting')
-  assert.equal(await state.getAttribute('aria-label'),'Waiting for you')
+  assert.equal(await state.getAttribute('aria-label'),'Process: Waiting for you')
 
   // Several more polls of the same state must stay silent.
   await page.waitForTimeout(5000)
@@ -77,7 +77,7 @@ test('a waiting session raises one native notification carrying the shared glyph
   assert.equal(second.icon,runStateIconDataUrl('completed'))
   // And the row follows the banner rather than keeping the wait it left behind.
   await page.waitForFunction(()=>document.querySelector('.local-task .run .run-state')?.dataset.runState==='completed')
-  assert.equal(await state.getAttribute('aria-label'),'Finished')
+  assert.equal(await state.getAttribute('aria-label'),'Process: Finished')
  } finally {
   await app?.close().catch(()=>{})
   server.close()
