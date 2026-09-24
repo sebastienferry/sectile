@@ -901,8 +901,8 @@ command. Commands use the task primary key and project identity with MCP
 instructions. Run them in a local repository where the project skills and
 Sectile MCP are already configured.
 
-Remote work is shown on task cards and list rows with a single run icon: spinning
-while running, a clock while queued, and a crossed circle for a few seconds after a
+Remote work is shown on task cards and list rows with a single run icon: a pulsing
+blue dot while running, a clock while queued, and a crossed circle for a few seconds after a
 cancellation. Hovering or focusing an icon for a run owned by your own agent turns it
 into a stop control that cancels the run in place.
 The MCP tools `start_run` and `finish_run` track the invocation
