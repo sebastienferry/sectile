@@ -4,6 +4,9 @@ import {
   mergeDetectedColumns,
   pickBoardId,
   pruneStageColumns,
+  recordedBoardId,
+  shouldImportBoard,
+  suggestedBoardId,
 } from '../src/lib/boardColumns.ts'
 
 test('detection produces one column per board column, with its grouped statuses', () => {
@@ -65,4 +68,35 @@ test('the board picker keeps the project board, else the first scrum one, else t
   assert.equal(pickBoardId(boards, 'gone'), '2')
   assert.equal(pickBoardId([{ id: '9', name: 'Only', type: 'kanban' }]), '9')
   assert.equal(pickBoardId([]), '')
+})
+
+const boards = [
+  { id: '1', name: 'Kanban', type: 'kanban' },
+  { id: '2', name: 'Scrum', type: 'scrum' },
+]
+
+test('the recorded board is the project board only while the tracker still lists it', () => {
+  assert.equal(recordedBoardId(boards, '1'), '1')
+  assert.equal(recordedBoardId(boards, ''), '')
+  assert.equal(recordedBoardId(boards, undefined), '')
+  assert.equal(recordedBoardId(boards, 'gone'), '')
+})
+
+test('the default board is suggested only while no board is recorded', () => {
+  assert.equal(suggestedBoardId(boards, ''), '2')
+  assert.equal(suggestedBoardId(boards, '1'), '')
+  assert.equal(suggestedBoardId(boards, '2'), '')
+  assert.equal(suggestedBoardId([], ''), '')
+})
+
+test('picking the suggested board imports it when no board is recorded', () => {
+  assert.equal(shouldImportBoard(suggestedBoardId(boards, ''), ''), true)
+  assert.equal(shouldImportBoard('1', ''), true)
+})
+
+test('picking another board imports it, the recorded board or the placeholder does not', () => {
+  assert.equal(shouldImportBoard('2', '1'), true)
+  assert.equal(shouldImportBoard('1', '1'), false)
+  assert.equal(shouldImportBoard('', ''), false)
+  assert.equal(shouldImportBoard('', '1'), false)
 })
