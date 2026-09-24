@@ -129,9 +129,15 @@ That works for the list, but the facets are a dozen SQL queries sharing one
 scope condition, and a Go filter would have meant rewriting each of them or
 counting from a second scan. Expressing the view as a condition keeps one code
 path for both. SQLite's `LOWER` folds ASCII only, so the view label is
-lowered the way the engine lowers the column (`labelFold`): a label always
-matches its own spelling, and case is ignored for non-ASCII letters under
-PostgreSQL only (ADR 0025).
+lowered the way the engine lowers the column: a label always matches its own
+spelling (ADR 0025).
+
+Corrected after #387 shipped: the engine's own `LOWER` is not a fold the code
+can rely on. PostgreSQL's follows the collation of the database, which is chosen
+when the cluster is created, so the same release selected an accented label on
+one server and not on another. The column is now lowered under an explicit
+collation (`dialect.LowerASCII`) and the label with `asciiLower`, which folds
+A-Z and nothing else on both engines.
 
 Rejected for step 4:
 

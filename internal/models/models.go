@@ -249,12 +249,54 @@ type MacroMeta struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// Origine d'une ligne de découpe : l'artefact d'où elle a été importée.
+//
+// La chaîne vide vaut « saisie à la main », ce qui est la bonne réponse pour
+// toutes les lignes enregistrées avant ces champs, et la plus intéressante de
+// la liste : une ligne sans origine est un ajout que personne n'a spécifié.
+const (
+	// MacroTodoFromTasks : un groupe de tasks.md. Un groupe vaut une story ; les
+	// lignes « - [ ] N.N » qu'il contient sont le détail d'exécution et ne
+	// deviennent jamais des lignes de découpe.
+	MacroTodoFromTasks = "tasks"
+	// MacroTodoFromSpec : une exigence de spec.md, ou une user story priorisée
+	// sous Spec Kit. Plus proche du sens métier, mais pas toujours livrable seule.
+	MacroTodoFromSpec = "spec"
+	// MacroTodoFromScenarios : un Functional Scenario de la macro elle-même. Seule
+	// des trois à venir du tracker et non du dépôt.
+	MacroTodoFromScenarios = "scenarios"
+	// MacroTodoFromStories : une story déjà créée sous la macro, reprise dans la
+	// découpe. La ligne arrive rattachée à son ticket, ce qui la distingue d'une
+	// ligne à faire et fait qu'une création en lot la passe.
+	MacroTodoFromStories = "stories"
+)
+
 // MacroTodo is one shaping item on a macro, before it becomes a story.
 type MacroTodo struct {
 	ID       string `json:"id"`
 	Text     string `json:"text"`
 	Done     bool   `json:"done"`
 	StoryKey string `json:"storyKey,omitempty"`
+	// TargetProjectID est le projet où créer la story de cette ligne. Vide vaut
+	// « le projet de la macro », ce qui garde le comportement d'origine par
+	// défaut et laisse valides les lignes enregistrées avant ce champ.
+	//
+	// Le champ est enregistré et rendu tel quel : la création de story ne le lit
+	// pas encore, elle crée toujours dans le projet de la macro.
+	TargetProjectID string `json:"targetProjectId,omitempty"`
+	// SourceKind dit de quel artefact la ligne a été importée, parmi les
+	// MacroTodoFrom* ci-dessus. Vide vaut « saisie à la main ».
+	//
+	// Sans lui la découpe ne voyage que dans un sens : une ligne renommée,
+	// ajoutée ou supprimée à la main laisse la spécification dire ce que
+	// l'équipe ne croit plus, et rien ne sait quelle entrée d'un fichier
+	// correspond à quelle ligne.
+	SourceKind string `json:"sourceKind,omitempty"`
+	// SourceEntry est le titre de l'entrée tel que l'artefact l'écrit, avant
+	// nettoyage. C'est lui qui permet de retrouver l'entrée dans le fichier :
+	// Text a perdu le préfixe de groupe, la clé et le renvoi final, et ne suffit
+	// donc plus à la désigner.
+	SourceEntry string `json:"sourceEntry,omitempty"`
 }
 
 // Backwards compatibility aliases
@@ -771,7 +813,8 @@ type Settings struct {
 	AutoSyncEnabled bool `json:"autoSyncEnabled"`
 	// AutoSyncIntervalSec is that loop's period, in seconds. Floored at 30.
 	AutoSyncIntervalSec int `json:"autoSyncIntervalSec"`
-	// UIScale is the interface zoom in percent (90, 100, 110, 125). Density only
+	// UIScale is the interface zoom in percent, on one of db.UIScaleOptions.
+	// Density only
 	// moves the root font size, which leaves every fixed pixel size untouched;
 	// the scale zooms the whole interface, which is what a large or a small
 	// screen actually needs.

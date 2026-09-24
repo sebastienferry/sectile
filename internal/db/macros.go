@@ -15,7 +15,7 @@ import (
 
 // Les macros ne sont pas des cartes simples : le tracker les traite comme des
 // conteneurs (ex : GitHub milestones) et la synchro n'importe que Task et Story.
-// Leur horizon — NOW, NEXT, LATER — est une décision produit, et le travail
+// Leur horizon - NOW, NEXT, LATER - est une décision produit, et le travail
 // de cadrage (framing, description, checklist TODOs) vit dans Sectile.
 
 const (
@@ -291,6 +291,14 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 				todo.ID = uuid.New().String()
 			}
 			todo.Text = text
+			// L'origine est nettoyée comme le texte : une source composée de
+			// blancs est une absence d'origine, pas une origine qui s'appelle
+			// « espace ». Un SourceKind inconnu est gardé tel quel plutôt que
+			// rejeté : une version ultérieure qui en ajoute un ne doit pas voir
+			// une version antérieure effacer ses lignes en les relisant.
+			todo.TargetProjectID = strings.TrimSpace(todo.TargetProjectID)
+			todo.SourceKind = strings.TrimSpace(todo.SourceKind)
+			todo.SourceEntry = strings.TrimSpace(todo.SourceEntry)
 			cleaned = append(cleaned, todo)
 		}
 		current.Todos = cleaned

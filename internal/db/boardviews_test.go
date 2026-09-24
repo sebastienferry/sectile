@@ -245,12 +245,22 @@ func checkBoardViewSelection(t *testing.T, f viewFixture) {
 			want:     []string{"shared story" + a, "shared story" + b},
 		},
 		{
-			// SQLite's LOWER leaves É alone: the label must still match its
-			// own spelling on both engines.
+			// Neither engine folds É: SQLite's LOWER cannot, and PostgreSQL's
+			// is asked not to, so that a cluster's collation cannot change what
+			// a view selects. The label matches its own spelling everywhere.
 			name:     "an accented label matches its own spelling",
 			projects: []string{f.alpha, f.beta},
 			labels:   []string{"Équipe"},
 			want:     []string{"beta equipe" + b},
+		},
+		{
+			// The other half of the same promise: case is folded for ASCII
+			// letters only. A PostgreSQL cluster whose LOWER folds `É` to `é`
+			// would otherwise select the ticket here and nowhere else.
+			name:     "an accented letter is not folded, whatever the engine",
+			projects: []string{f.alpha, f.beta},
+			labels:   []string{"équipe"},
+			want:     []string{},
 		},
 		{
 			name:     "board filters narrow the view",
@@ -412,5 +422,35 @@ func TestDeletingAUserDeletesTheirViews(t *testing.T) {
 	}
 	if left != 0 {
 		t.Errorf("%d views outlived their owner", left)
+	}
+}
+
+// TestViewLabelPredicateFoldsASCIIOnly pins the SQL itself, on both engines and
+// without a server. The fold has to be the same on either side of the
+// comparison — asciiLower on the value, LowerASCII on the column — and
+// PostgreSQL's has to name a collation, otherwise the very same query selects
+// differently on two clusters (docs/adrs/0025).
+func TestViewLabelPredicateFoldsASCIIOnly(t *testing.T) {
+	cases := []struct {
+		engine  string
+		lowered string
+		want    string
+	}{
+		{"SQLite", sqliteDialect{}.LowerASCII("labels"), "(LOWER(labels) LIKE ? ESCAPE '!')"},
+		{"PostgreSQL", postgresDialect{}.LowerASCII("labels"), `(LOWER(labels COLLATE "C") LIKE ? ESCAPE '!')`},
+	}
+	for _, c := range cases {
+		cond, args := viewLabelScope([]string{"Équipe"}, c.lowered)
+		if cond != c.want {
+			t.Errorf("%s condition = %q, want %q", c.engine, cond, c.want)
+		}
+		if len(args) != 1 || args[0] != `%"Équipe"%` {
+			t.Errorf("%s args = %#v, want the label with its accent kept", c.engine, args)
+		}
+	}
+	// The quoted collation name must not disturb the placeholder rewriting.
+	cond, _ := viewLabelScope([]string{"ui", "ops"}, postgresDialect{}.LowerASCII("labels"))
+	if got, want := rebindNumbered(cond), `(LOWER(labels COLLATE "C") LIKE $1 ESCAPE '!' OR LOWER(labels COLLATE "C") LIKE $2 ESCAPE '!')`; got != want {
+		t.Errorf("rebound = %q, want %q", got, want)
 	}
 }
