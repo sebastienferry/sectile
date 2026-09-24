@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext'
 import { McpSessions } from './McpSessions'
 import { ChangelogModal } from './ChangelogModal'
 import { useVersion } from '../hooks/useVersion'
+import { DisplayScaleMenu } from './DisplayScaleMenu'
 
 export function StatusBar() {
   const { currentProject, activities, setActiveView, setIsProfileOpen, settings } = useApp()
@@ -25,6 +26,9 @@ export function StatusBar() {
       <span>{currentProject?.name || 'All projects'}</span>
       <div className="flex items-center gap-4">
         <McpSessions />
+        {/* Le zoom et la densité, à portée du regard qui trouve l'écran trop
+            petit plutôt qu'à quatre clics dans les réglages. */}
+        <DisplayScaleMenu />
         <button type="button" onClick={() => setActiveView('activities')}>{statusLabel}</button>
         {/* The server's version, and the way into the release notes: knowing
             what you are running and knowing what changed are the same

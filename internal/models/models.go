@@ -809,7 +809,8 @@ type Settings struct {
 	AutoSyncEnabled bool `json:"autoSyncEnabled"`
 	// AutoSyncIntervalSec is that loop's period, in seconds. Floored at 30.
 	AutoSyncIntervalSec int `json:"autoSyncIntervalSec"`
-	// UIScale is the interface zoom in percent (90, 100, 110, 125). Density only
+	// UIScale is the interface zoom in percent, on one of db.UIScaleOptions.
+	// Density only
 	// moves the root font size, which leaves every fixed pixel size untouched;
 	// the scale zooms the whole interface, which is what a large or a small
 	// screen actually needs.

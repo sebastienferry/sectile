@@ -622,7 +622,8 @@ export interface UserSettings {
   language: Language
   density: Density
   /**
-   * Zoom de l'interface en pourcentage (90, 100, 112, 125). La densité ne bouge
+   * Zoom de l'interface en pourcentage, sur un des crans de lib/uiScale.
+   * La densité ne bouge
    * que la taille de police racine, ce qui laisse intactes toutes les tailles
    * fixées en pixels : l'échelle, elle, zoome toute l'interface.
    */

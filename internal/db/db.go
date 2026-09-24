@@ -3865,11 +3865,19 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 // skills.StageSkills table: the skill the UI offers, the file installed in the
 // repository and the step the worker runs are by construction the same thing.
 // The old pick-issue auto-pilot is gone, the autonomous run button replaced it.
-// UIScaleOptions are the four interface zoom levels the status bar switches
-// between. Four steps is what a quick switch can hold: a free number would need
-// a settings screen and a keyboard, which is not what "make it bigger, now" asks
-// for.
-var UIScaleOptions = []int{90, 100, 112, 125}
+// UIScaleOptions are the interface zoom levels the status bar switches between.
+// A ladder rather than a free number: typing a percentage needs a settings
+// screen and a keyboard, which is not what "make it bigger, now" asks for.
+//
+// The four historical levels are kept as they were, 112 included rather than
+// rounded to 110: a setting somebody already chose does not move to make a
+// prettier sequence. The added steps go down, for whoever wants more tickets on
+// screen, and above all up, where stopping at 125 left "it is too small" without
+// an answer.
+//
+// The list must stay identical to UI_SCALE_OPTIONS in web/src/lib/uiScale.ts:
+// this one bounds what is stored, that one what is offered.
+var UIScaleOptions = []int{80, 90, 100, 112, 125, 150, 175}
 
 // NormalizeAutoSyncInterval floors the background loop's period. Below thirty
 // seconds, the tracker is polled faster than it changes, for nothing.

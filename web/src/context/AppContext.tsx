@@ -421,12 +421,13 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 const API_BASE = '/api'
 
 /**
- * Les quatre niveaux de zoom de l'interface, dans l'ordre du commutateur de la
- * barre d'état. Quatre crans est ce qu'un réglage rapide peut porter : un nombre
- * libre demanderait un écran de réglages, ce qui n'est pas ce que demande « c'est
- * trop petit, tout de suite ». La même liste borne la valeur côté serveur.
+ * Les crans de zoom de l'interface, réexportés depuis leur module.
+ *
+ * Ils y vivent avec le pas et le bornage, testables sans monter un rendu. La
+ * réexportation garde valides les imports déjà écrits sur ce contexte.
  */
-export const UI_SCALE_OPTIONS = [90, 100, 112, 125]
+export { UI_SCALE_OPTIONS } from '../lib/uiScale'
+import { normalizeUIScale } from '../lib/uiScale'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
@@ -943,7 +944,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // tailles de cette interface sont en pixels et qu'une taille de police
     // racine ne les touche pas. Le zoom est appliqué au document entier, donc
     // les panneaux, la barre latérale et les modales suivent ensemble.
-    const scale = UI_SCALE_OPTIONS.includes(settings.uiScale || 100) ? settings.uiScale || 100 : 100
+    const scale = normalizeUIScale(settings.uiScale)
     root.style.zoom = scale === 100 ? '' : String(scale / 100)
     // --ui-zoom accompagne le zoom : les hauteurs d'écran s'en servent pour rester
     // dans la fenêtre, sinon la barre d'état passe sous le bord bas.
