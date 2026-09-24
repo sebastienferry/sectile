@@ -122,7 +122,7 @@ export type EpicHorizon = MacroHorizon
  * « stories » est la seule qui ne décrive pas du travail à faire : la ligne
  * reprend un ticket qui existe déjà, et arrive donc rattachée.
  */
-export type MacroTodoSource = 'tasks' | 'spec' | 'scenarios' | 'stories'
+export type MacroTodoSource = 'tasks' | 'spec' | 'stories'
 
 export interface MacroTodo {
   id: string

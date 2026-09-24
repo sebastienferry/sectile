@@ -351,6 +351,9 @@ func TestMacroTodoOriginIsTrimmedAndUnknownKindKept(t *testing.T) {
 	todos := []models.MacroTodo{
 		{ID: "blank", Text: "Blank origin", SourceKind: "   ", SourceEntry: "\t", TargetProjectID: " "},
 		{ID: "future", Text: "Origin from a later version", SourceKind: " design "},
+		// The scenarios source was removed (#426); a line an older build saved
+		// with it is an unknown origin like any other, never dropped.
+		{ID: "retired", Text: "Origin this version no longer reads", SourceKind: "scenarios"},
 	}
 	if _, err := database.SaveMacroMeta(proj.ID, "M-2", nil, nil, nil, &todos); err != nil {
 		t.Fatalf("SaveMacroMeta failed: %v", err)
@@ -360,8 +363,8 @@ func TestMacroTodoOriginIsTrimmedAndUnknownKindKept(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetProjectMacros failed: %v", err)
 	}
-	if len(metas) != 1 || len(metas[0].Todos) != 2 {
-		t.Fatalf("expected one macro carrying two todos, got %d macro(s)", len(metas))
+	if len(metas) != 1 || len(metas[0].Todos) != 3 {
+		t.Fatalf("expected one macro carrying three todos, got %d macro(s)", len(metas))
 	}
 
 	blank := metas[0].Todos[0]
@@ -370,5 +373,8 @@ func TestMacroTodoOriginIsTrimmedAndUnknownKindKept(t *testing.T) {
 	}
 	if kind := metas[0].Todos[1].SourceKind; kind != "design" {
 		t.Errorf("an unknown source kind must be kept as written, got %q", kind)
+	}
+	if kind := metas[0].Todos[2].SourceKind; kind != "scenarios" {
+		t.Errorf("a retired source kind must be kept as written, got %q", kind)
 	}
 }

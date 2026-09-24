@@ -336,7 +336,9 @@ the code no longer promises it.
   `MacroTodoSource` type no longer exist, and no comment counts three
   repository or tracker sources.
 - **Given** a line saved with `sourceKind: "scenarios"` (none is expected),
-  **then** it is loaded and shown as a line typed by hand.
+  **then** it is loaded and saved back unchanged, like any origin this version
+  does not know (the forward-compatibility rule of the slicing), and no reader
+  or button offers `scenarios`.
 
 ## Functional requirements
 
