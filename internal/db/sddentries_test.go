@@ -153,12 +153,19 @@ func TestDescribeAttachedCountsOnlyAttached(t *testing.T) {
 	}
 }
 
-// Sectile n'a qu'un chemin de dépôt par projet, celui des options du projet.
-func TestMacroSpecRepoPathUsesTheProjectRepository(t *testing.T) {
+// The specifications repository is the declared one, else the code
+// repository; blanks are an absence, not a path.
+func TestMacroSpecRepoPathPrefersTheSpecificationsRepository(t *testing.T) {
 	if got := macroSpecRepoPath(&models.Project{RepoPath: " /code "}); got != "/code" {
-		t.Fatalf("/code attendu, obtenu %q", got)
+		t.Fatalf("expected /code, got %q", got)
+	}
+	if got := macroSpecRepoPath(&models.Project{RepoPath: "/code", SpecRepoPath: " /wiki "}); got != "/wiki" {
+		t.Fatalf("expected /wiki, got %q", got)
+	}
+	if got := macroSpecRepoPath(&models.Project{RepoPath: "/code", SpecRepoPath: "  "}); got != "/code" {
+		t.Fatalf("a blank specifications path must fall back to the code repository, got %q", got)
 	}
 	if got := macroSpecRepoPath(nil); got != "" {
-		t.Fatalf("chaîne vide attendue pour un projet absent, obtenu %q", got)
+		t.Fatalf("expected an empty path for a missing project, got %q", got)
 	}
 }

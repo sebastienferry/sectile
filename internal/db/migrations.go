@@ -182,6 +182,15 @@ var migrations = []migration{
 			);`,
 		},
 	},
+	{
+		// The checkout carrying a project's specifications, when it is not
+		// the code repository (#426). Empty means the code repository.
+		version: 9,
+		name:    "projects.spec_repo_path",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN spec_repo_path TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

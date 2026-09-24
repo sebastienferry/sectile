@@ -107,6 +107,12 @@ type Project struct {
 	// It is fed automatically: whenever a ticket pins a new CWD, that path is
 	// registered here so the next ticket can pick it instead of retyping it.
 	RepoPaths []string `json:"repoPaths,omitempty"`
+	// SpecRepoPath is the checkout carrying the project's specifications, when
+	// a team keeps them apart from its code. Empty means the code repository
+	// (RepoPath) carries them. It is read for the macro workflow only: the
+	// slicing import, the macro worktree and the realignment. The agents keep
+	// running in RepoPath.
+	SpecRepoPath string `json:"specRepoPath,omitempty"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
@@ -367,6 +373,8 @@ type CreateProjectRequest struct {
 	EnabledViews []string `json:"enabledViews,omitempty"`
 	// EpicColors paints each card with the colour of its epic. Off when absent.
 	EpicColors bool `json:"epicColors,omitempty"`
+	// SpecRepoPath is the specifications checkout. Empty means RepoPath.
+	SpecRepoPath string `json:"specRepoPath,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
 	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
@@ -415,6 +423,7 @@ type UpdateProjectRequest struct {
 	Color                       *string              `json:"color,omitempty"`
 	RepoPath                    *string              `json:"repoPath,omitempty"`
 	RepoPaths                   *[]string            `json:"repoPaths,omitempty"`
+	SpecRepoPath                *string              `json:"specRepoPath,omitempty"`
 	PRCreationStage             *string              `json:"prCreationStage,omitempty"`
 	DefaultSkillMode            *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage          *string              `json:"fullChainStopStage,omitempty"`

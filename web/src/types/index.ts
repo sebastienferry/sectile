@@ -232,6 +232,11 @@ export interface Project {
    */
   repoPaths?: string[]
   /**
+   * Checkout that carries the project's specifications when it is not the
+   * code repository. Absent means repoPath. Read by the macro workflow only.
+   */
+  specRepoPath?: string
+  /**
    * Chaque tâche travaille dans son propre worktree Git isolé, ou directement
    * dans le clone si l'option est désactivée. Vrai par défaut.
    */
