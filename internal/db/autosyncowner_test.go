@@ -155,7 +155,7 @@ func TestABackgroundGithubPassRefusesALockedOwnerToken(t *testing.T) {
 	database.trackers.HTTP = site.Client()
 	database.trackers.GithubURL = site.URL
 	database.trackers.GithubToken = "server-token"
-	database.auto = &autoSync{lastFullSync: map[string]time.Time{}, lastPassAt: map[string]time.Time{}}
+	database.auto = &autoSync{}
 	enabled := true
 	project, err := database.CreateProjectAs("u-ada", models.CreateProjectRequest{Name: "App", IssueTracker: "github", GithubRepo: "acme/app"})
 	if err != nil {
