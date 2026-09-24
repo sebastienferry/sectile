@@ -246,6 +246,11 @@ func (r *SessionRegistry) markSilentSessions() {
 		}
 	}
 	for _, entry := range abandoned {
+		// The notes above ran outside the lock, and a client may have spoken in
+		// the meantime: a session is only given up on while it is still silent.
+		if !r.stillSilentFor(entry.id, r.abandon) {
+			continue
+		}
 		closed := r.Close(entry.id)
 		log.Printf("[MCP] session %s said nothing for %s: abandoned, %d run(s) closed", entry.id, r.abandon, closed)
 		if entry.session != nil {
@@ -253,6 +258,15 @@ func (r *SessionRegistry) markSilentSessions() {
 			_ = entry.session.Close()
 		}
 	}
+}
+
+// stillSilentFor says whether a session is still live and has said nothing for
+// at least the given duration.
+func (r *SessionRegistry) stillSilentFor(sessionID string, silence time.Duration) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	entry := r.live[sessionID]
+	return entry != nil && r.now().Sub(entry.lastSeen) >= silence
 }
 
 // Touch records that a client spoke. Any message counts, whichever tool or

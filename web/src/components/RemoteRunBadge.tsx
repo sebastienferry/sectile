@@ -14,7 +14,7 @@ import { runEngineLabel } from '../lib/runEngine'
 // drift apart.
 const LABELS: Record<RunIndicatorState, string> = {
   waiting: 'Remote execution waiting for you',
-  silent: 'Remote execution silent: its client has made no call for hours',
+  silent: 'Remote execution silent: its client stopped making calls a while ago',
   running: 'Remote execution running',
   queued: 'Remote execution queued',
   canceled: 'Remote execution canceled',
