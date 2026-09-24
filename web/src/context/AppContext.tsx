@@ -35,6 +35,7 @@ import type {
   MacroMeta,
   MacroHorizon,
   MacroTodo,
+  MacroTodoSource,
   TrackerTeam,
   TeamMember,
   TeamWorkload,
@@ -222,7 +223,7 @@ interface AppContextType {
   availableParents: { key: string; title: string; type: string; count: number }[]
   /**
    * Resolves the display name of a workflow skill, honouring the project's
-   * `skillOverrides`. Pass `projectId` to resolve against a specific project —
+   * `skillOverrides`. Pass `projectId` to resolve against a specific project -
    * a task's project is not necessarily the one selected in the sidebar.
    */
   skillLabel: (skillId: string, fallback?: string, projectId?: string) => string
@@ -307,6 +308,8 @@ interface AppContextType {
   saveMacroMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
+  /** Produit la découpe d'une macro depuis les artefacts SDD du dépôt. */
+  produceMacroSlicing: (projectId: string, macroKey: string, source: MacroTodoSource) => Promise<MacroMeta | null>
   createStoryFromEpicTodo: (projectId: string, epicKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   pendingHorizonPushes: (projectId: string) => Promise<MacroMeta[]>
   /** Met la poussée des labels d'horizon en file d'activités. Retourne true si la file a accepté. */
@@ -433,12 +436,13 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 const API_BASE = '/api'
 
 /**
- * Les quatre niveaux de zoom de l'interface, dans l'ordre du commutateur de la
- * barre d'état. Quatre crans est ce qu'un réglage rapide peut porter : un nombre
- * libre demanderait un écran de réglages, ce qui n'est pas ce que demande « c'est
- * trop petit, tout de suite ». La même liste borne la valeur côté serveur.
+ * Les crans de zoom de l'interface, réexportés depuis leur module.
+ *
+ * Ils y vivent avec le pas et le bornage, testables sans monter un rendu. La
+ * réexportation garde valides les imports déjà écrits sur ce contexte.
  */
-export const UI_SCALE_OPTIONS = [90, 100, 112, 125]
+export { UI_SCALE_OPTIONS } from '../lib/uiScale'
+import { normalizeUIScale } from '../lib/uiScale'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
@@ -989,7 +993,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // tailles de cette interface sont en pixels et qu'une taille de police
     // racine ne les touche pas. Le zoom est appliqué au document entier, donc
     // les panneaux, la barre latérale et les modales suivent ensemble.
-    const scale = UI_SCALE_OPTIONS.includes(settings.uiScale || 100) ? settings.uiScale || 100 : 100
+    const scale = normalizeUIScale(settings.uiScale)
     root.style.zoom = scale === 100 ? '' : String(scale / 100)
     // --ui-zoom accompagne le zoom : les hauteurs d'écran s'en servent pour rester
     // dans la fenêtre, sinon la barre d'état passe sous le bord bas.
@@ -1867,7 +1871,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation globale lancée',
-        description: activeProj ? `Projet ${activeProj.name} — Suivi dans Activités.` : 'La tâche a été ajoutée à la file d\'attente.',
+        description: activeProj ? `Projet ${activeProj.name} - Suivi dans Activités.` : 'La tâche a été ajoutée à la file d\'attente.',
       })
     } catch (err: any) {
       addToast({
@@ -1902,7 +1906,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation GitHub lancée',
-        description: targetRepo ? `Dépôt ${targetRepo} (${activeProj?.name || ''}) — Suivi dans Activités.` : 'Synchronisation GitHub en cours...',
+        description: targetRepo ? `Dépôt ${targetRepo} (${activeProj?.name || ''}) - Suivi dans Activités.` : 'Synchronisation GitHub en cours...',
       })
     } catch (err: any) {
       addToast({
@@ -1937,7 +1941,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation Jira lancée',
-        description: targetKey ? `Projet Jira ${targetKey} (${activeProj?.name || ''}) — Suivi dans Activités.` : 'Synchronisation Jira en cours...',
+        description: targetKey ? `Projet Jira ${targetKey} (${activeProj?.name || ''}) - Suivi dans Activités.` : 'Synchronisation Jira en cours...',
       })
     } catch (err: any) {
       addToast({
@@ -2485,6 +2489,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
   const createStoryFromEpicTodo = createStoryFromMacroTodo
+
+  // Produire la découpe depuis les artefacts SDD du dépôt.
+  //
+  // Un geste, jamais un effet de bord de la synchro : produire à chaque passe
+  // se battrait contre les lignes modifiées à la main, et une ligne supprimée
+  // exprès reviendrait. Rien n'est écrit dans le dépôt ni sur le tracker.
+  //
+  // L'origine lue est remontée telle quelle dans le message : la découpe peut
+  // venir de l'arbre de travail ou de la branche de la macro, et ne pas dire
+  // lequel laisse deviner pourquoi elle ne correspond pas à ce qu'on a sous les
+  // yeux.
+  const produceMacroSlicing = async (
+    projectId: string,
+    macroKey: string,
+    source: MacroTodoSource
+  ): Promise<MacroMeta | null> => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(macroKey)}/slicing`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source }),
+        }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Découpe refusée')
+      const macro: MacroMeta | null = data.macro || data.epic || null
+      addToast({
+        type: 'success',
+        title: `Découpe produite pour ${macroKey}`,
+        description: data.origin || '',
+      })
+      return macro
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Découpe non produite', description: err.message })
+      return null
+    }
+  }
 
   // Rattrapage : les épics classés avant que le miroir en label existe, et ceux
   // dont la poussée a échoué, restent invisibles dans Jira jusqu'à ce qu'on les
@@ -3761,6 +3804,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         saveMacroMeta,
         saveEpicMeta,
         createStoryFromMacroTodo,
+        produceMacroSlicing,
         createStoryFromEpicTodo,
         pendingHorizonPushes,
         pushPendingHorizons,
