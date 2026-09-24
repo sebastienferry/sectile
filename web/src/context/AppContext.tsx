@@ -2480,6 +2480,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         title: 'Story créée',
         description: `${data.storyKey} rattachée à ${macroKey}`,
       })
+      // The story exists; what the tracker refused is said, not hidden.
+      if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       const m = data.macro || data.epic || null
       return { macro: m, epic: m, storyKey: data.storyKey || '' }
@@ -2691,6 +2693,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Création refusée')
       addToast({ type: 'success', title: 'Story créée', description: `${data.storyKey} sous ${macroKey}` })
+      if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       return data.storyKey || ''
     } catch (err: any) {

@@ -14,6 +14,58 @@ export const isProjectCompatible = (
   return false
 }
 
+/** What an empty tracker address of a project falls back to. */
+export interface TrackerDefaults {
+  jiraUrl?: string
+  githubApiUrl?: string
+}
+
+const DEFAULT_GITHUB_API = 'https://api.github.com'
+
+/** The tracker a project writes to, by the server's rule (Registry.ForProject). */
+export const trackerKindOf = (p: Project): string => {
+  const kind = (p.issueTracker || '').toLowerCase().trim()
+  if (kind === '' || kind === 'local') return p.githubRepo?.trim() ? 'github' : 'local'
+  return kind
+}
+
+/** A tracker URL reduced to what tells two sites apart, as the server does. */
+export const trackerAddress = (raw: string | undefined): string => {
+  let address = (raw || '').trim()
+  const scheme = address.indexOf('://')
+  if (scheme >= 0) address = address.slice(scheme + 3)
+  address = address.replace(/\/+$/, '')
+  const slash = address.indexOf('/')
+  return slash >= 0 ? address.slice(0, slash).toLowerCase() + address.slice(slash) : address.toLowerCase()
+}
+
+/**
+ * Whether a story created in target can take a macro of macroProject as its
+ * parent: the same Jira site, the same GitHub repository, or the local board
+ * on both sides. The server applies the same rule and has the last word; this
+ * one only decides what the target picker offers.
+ */
+export const sameTrackerInstance = (macroProject: Project, target: Project, defaults: TrackerDefaults = {}): boolean => {
+  if (macroProject.id === target.id) return true
+  const kind = trackerKindOf(macroProject)
+  if (kind !== trackerKindOf(target)) return false
+  if (kind === 'local') return true
+  if (kind === 'jira') {
+    const site = (p: Project) => trackerAddress(p.trackerUrl?.trim() ? p.trackerUrl : defaults.jiraUrl)
+    return site(macroProject) !== '' && site(macroProject) === site(target)
+  }
+  if (kind === 'github') {
+    const api = (p: Project) => trackerAddress(p.githubApiUrl?.trim() || defaults.githubApiUrl?.trim() || DEFAULT_GITHUB_API)
+    return api(macroProject) === api(target)
+      && (macroProject.githubRepo || '').trim().toLowerCase() === (target.githubRepo || '').trim().toLowerCase()
+  }
+  return false
+}
+
+/** The other projects a slicing line's story may be created in. */
+export const targetProjectOptions = (macroProject: Project, projects: Project[], defaults: TrackerDefaults = {}): Project[] =>
+  projects.filter(p => p.id !== macroProject.id && sameTrackerInstance(macroProject, p, defaults))
+
 /**
  * Sources de recherche pour les champs de type lookup.
  *

@@ -55,12 +55,12 @@ section; UI sections also run the browser tests.
 
 ## 6. Target project and Jira parent (US4, FR7)
 
-- [ ] T6.1 `sameTrackerInstance` with French reasons; `CreateStoryFromMacroTodo` consumes `TargetProjectID`; missing target refused.
-- [ ] T6.2 `CreateStoryUnderMacro` creates in the target and calls `JiraAdapter.SetParent(story, epic)`; failure returns a notice, key kept.
-- [ ] T6.3 Handler returns the notice with the created story.
-- [ ] T6.4 Tests with a fake tracker: no target → macro project, Jira parent written; Jira target same URL → created there, parent written; other URL / other kind / other GitHub repo → refused, no create call, line unchanged; parent failure → key recorded, notice; GitHub milestone path unchanged.
-- [ ] T6.5 Web target picker per line: macro project + same-instance projects (TS mirror of `sameTrackerInstance` in `web/src/lib/lookups.ts`), saved with the todos; read-only when the line has a story; invalid saved target flagged.
-- [ ] T6.6 Tests: TS helper table (Jira same/other URL, GitHub same/other repo, local, mixed kinds); Go and TS rules agree on the same fixtures.
+- [x] T6.1 `sameTrackerInstance` with French reasons; `CreateStoryFromMacroTodo` consumes `TargetProjectID`; missing target refused.
+- [x] T6.2 `CreateStoryUnderMacro` creates in the target and calls `JiraAdapter.SetParent(story, epic)`; failure returns a notice, key kept.
+- [x] T6.3 Handler returns the notice with the created story.
+- [x] T6.4 Tests with a fake tracker: no target → macro project, Jira parent written; Jira target same URL → created there, parent written; other URL / other kind / other GitHub repo → refused, no create call, line unchanged; parent failure → key recorded, notice; GitHub milestone path unchanged.
+- [x] T6.5 Web target picker per line: macro project + same-instance projects (TS mirror of `sameTrackerInstance` in `web/src/lib/lookups.ts`), saved with the todos; read-only when the line has a story; invalid saved target flagged.
+- [x] T6.6 Tests: TS helper table (Jira same/other URL, GitHub same/other repo, local, mixed kinds); Go and TS rules agree on the same fixtures.
 
 ## 7. Roadmap projects (US5, FR8)
 

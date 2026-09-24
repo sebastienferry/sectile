@@ -284,12 +284,10 @@ type MacroTodo struct {
 	Text     string `json:"text"`
 	Done     bool   `json:"done"`
 	StoryKey string `json:"storyKey,omitempty"`
-	// TargetProjectID est le projet où créer la story de cette ligne. Vide vaut
-	// « le projet de la macro », ce qui garde le comportement d'origine par
-	// défaut et laisse valides les lignes enregistrées avant ce champ.
-	//
-	// Le champ est enregistré et rendu tel quel : la création de story ne le lit
-	// pas encore, elle crée toujours dans le projet de la macro.
+	// TargetProjectID is the project this line's story is created in. Empty
+	// means the macro's own project, which keeps lines saved before the field
+	// valid. Story creation refuses a target that is not on the macro's tracker
+	// instance, where the macro could not be the story's parent.
 	TargetProjectID string `json:"targetProjectId,omitempty"`
 	// SourceKind dit de quel artefact la ligne a été importée, parmi les
 	// MacroTodoFrom* ci-dessus. Vide vaut « saisie à la main ».

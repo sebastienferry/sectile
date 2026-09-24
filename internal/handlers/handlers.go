@@ -945,20 +945,20 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if strings.TrimSpace(req.TodoID) == "" {
-			task, err := h.db.CreateStoryUnderMacro(id, macroKey, req.Title)
+			task, notice, err := h.db.CreateStoryUnderMacro(id, macroKey, req.Title)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]interface{}{"task": task, "storyKey": task.Key})
+			writeJSON(w, http.StatusOK, map[string]interface{}{"task": task, "storyKey": task.Key, "notice": notice})
 			return
 		}
-		meta, key, err := h.db.CreateStoryFromMacroTodo(id, macroKey, req.TodoID)
+		meta, key, notice, err := h.db.CreateStoryFromMacroTodo(id, macroKey, req.TodoID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": key})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": key, "notice": notice})
 		return
 	}
 
