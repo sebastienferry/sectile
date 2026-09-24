@@ -185,6 +185,28 @@ test fixtures or internal plumbing.
   up empty and the board showed nothing. The column is now added on start,
   whatever version the database comes from, and no setting is lost.
 
+- **Live updates and cancellations reach every server sharing a database.** A
+  board open on one server now shows a change made through another, and
+  canceling a job stops it on the server that runs it. A job canceled while it
+  ran, or before it started, keeps its canceled status instead of being
+  overwritten by its own outcome, with one server as with several. (#405)
+
+- **A local agent is reachable whichever server receives the request.** With
+  several servers on one database, a stage transition, a launch or a workspace
+  operation arriving on a server the agent is not connected to used to fail with
+  "no local agent connected". The servers now forward the work to the one holding
+  the agent, over an internal port (`SECTILE_INTERNAL_PORT`, 8092 by default), and
+  the agent indicator lists the agents of every server. The indicator also
+  refreshes as soon as an agent connects or disconnects. (#406)
+
+- **Several servers sharing one database synchronise each project once.** The
+  background synchronisation used to run in every server, so each project was
+  read once per server per interval, and a tracker asking to slow down (rate
+  limit) was only heard by the server it answered. The servers now share the
+  loop's pacing: one of them claims a due project, a full read dated by any of
+  them counts for all, and a rate limit pauses every server for ten minutes.
+  The synchronisation status is the same whichever server answers. (#404)
+
 - **A server that fails to answer no longer looks like an empty deployment.**
   Reading the projects, the issues, the settings or the saved board views used
   to be discarded in silence when the server refused: the sidebar and the board
@@ -260,6 +282,11 @@ test fixtures or internal plumbing.
 - Running execution icons now spin in the desktop sidebar and discussion header, while respecting reduced-motion preferences.
 
 - Terminal-owned executions now stop their child processes and report their exit when the supervisor receives a hangup or termination signal, preventing stale running entries and stop timeouts. Transient exit-report failures are retried, and Stop automatically recovers a run whose local terminal has already disappeared.
+- **The suggested Jira board can be confirmed from the board picker.** On a
+  project with no board recorded yet, the picker in the project settings now
+  starts on "Choisir un board…" and marks the default board as "(suggéré)".
+  Picking it records it and imports its columns, as picking any other board
+  does, instead of waiting for the next synchronisation. (#375)
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs - the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the

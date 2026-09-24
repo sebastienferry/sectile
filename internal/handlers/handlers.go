@@ -94,6 +94,7 @@ func NewHandler(database *db.DB) *Handler {
 				Error:    errStr,
 			})
 		})
+		database.OnRelayedEvent(h.deliverRelayedEvent)
 	}
 	return h
 }
@@ -115,7 +116,28 @@ func (h *Handler) UnsubscribeEvents(ch chan Event) {
 	}
 }
 
+// localOnlyEvents are delivered to this instance's browsers and never relayed:
+// terminal output is emitted per chunk, and nothing in another instance reads it.
+var localOnlyEvents = map[string]bool{"agent_pty_output": true}
+
+// BroadcastEvent delivers an event to this instance's browsers, then relays it
+// to the other instances sharing the database, which deliver it to theirs.
 func (h *Handler) BroadcastEvent(event Event) {
+	h.broadcastLocal(event)
+	if h.db == nil || localOnlyEvents[event.Type] {
+		return
+	}
+	taskID, activityID := "", ""
+	if event.Task != nil {
+		taskID = event.Task.ID
+	}
+	if event.Activity != nil {
+		activityID = event.Activity.ID
+	}
+	h.db.PublishEvent(event.Type, taskID, activityID, event.Error)
+}
+
+func (h *Handler) broadcastLocal(event Event) {
 	h.subMu.RLock()
 	defer h.subMu.RUnlock()
 	for ch := range h.subscribers {
@@ -124,6 +146,24 @@ func (h *Handler) BroadcastEvent(event Event) {
 		default:
 		}
 	}
+}
+
+// deliverRelayedEvent turns what another instance published back into the
+// event its browsers received, with the task and activity as they now stand,
+// and delivers it here only: relaying it again would echo it between instances.
+func (h *Handler) deliverRelayedEvent(msg db.BusMessage) {
+	event := Event{Type: msg.Type, Error: msg.Error}
+	if msg.TaskID != "" {
+		if task, err := h.db.GetTaskByID(msg.TaskID); err == nil {
+			event.Task = task
+		}
+	}
+	if msg.ActivityID != "" {
+		if activity, err := h.db.GetActivityByID(msg.ActivityID); err == nil {
+			event.Activity = activity
+		}
+	}
+	h.broadcastLocal(event)
 }
 
 // SetDataDir tells the handler where the application's own files live.
@@ -2022,7 +2062,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			projectID = task.ProjectID
 		}
 		userID := h.webSessionUser(r)
-		ac := h.agentDispatcher.Lookup(userID, projectID)
+		ac := h.agentDispatcher.Route(userID, projectID)
 
 		// 1. If a local agent daemon is connected, delegate the execution directly to it!
 		if ac != nil {
@@ -2245,7 +2285,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
 			userID := h.webSessionUser(r)
-			if ac := h.agentDispatcher.Lookup(userID, task.ProjectID); ac != nil {
+			if ac := h.agentDispatcher.Route(userID, task.ProjectID); ac != nil {
 				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
 					"taskKey": task.Key, "taskId": task.ID, "projectId": task.ProjectID, "skillId": req.SkillID, "action": req.SkillID,
 				})
@@ -3261,7 +3301,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 		req.ProjectID = "default"
 	}
 
-	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
+	ac := h.agentDispatcher.Route(req.UserID, req.ProjectID)
 	if ac == nil {
 		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'sectile-agent' on your workstation.")
 		return
@@ -3285,6 +3325,33 @@ func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
 	}
 	log.Printf("[AgentConnect] Pulled %d running/queued tasks from agent %s", len(tasks), ac.DeviceID)
 	h.ApplyAgentRunningTasksFor(ac.UserID, tasks)
+}
+
+func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tasks, err := h.agentDispatcher.PullRemoteTasks(ctx, location)
+	if err != nil {
+		log.Printf("[AgentConnect] Could not pull running tasks from %s on instance %s: %v", location.DeviceID, location.InstanceID, err)
+		return
+	}
+	h.ApplyAgentRunningTasksFor(location.UserID, tasks)
+}
+
+// EnableAgentCluster makes this instance record its agents in the shared
+// store and forward work for agents other instances hold. Without a server
+// key the instances cannot authenticate each other: agents connected here
+// keep working, and forwarding refuses with the reason.
+func (h *Handler) EnableAgentCluster() error {
+	token, err := h.db.InternalToken()
+	h.agentDispatcher.SetCluster(h.db, token, err)
+	return err
+}
+
+// InternalHandler serves the endpoints other instances forward agent work to.
+// It belongs on the internal listener, never on the public one.
+func (h *Handler) InternalHandler() http.Handler {
+	return h.agentDispatcher.InternalHandler()
 }
 
 // ApplyAgentRunningTasks syncs a set of agent tasks to the database and broadcasts updates.
@@ -3384,10 +3451,16 @@ func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
 	for _, ac := range activeConns {
 		go h.pullAndApplyAgentTasks(ac)
 	}
+	// Agents connected to other instances sharing the database report through
+	// the instance holding them.
+	remote := h.agentDispatcher.RemoteAgents()
+	for _, location := range remote {
+		go h.pullAndApplyRemoteAgentTasks(location)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":          "ok",
-		"connectedAgents": len(activeConns),
+		"connectedAgents": len(activeConns) + len(remote),
 	})
 }
 
@@ -3497,7 +3570,7 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID
 	if userID == "" {
 		userID = ImplicitUser
 	}
-	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
+	if ac := h.agentDispatcher.Route(userID, projectID); ac != nil {
 		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
 		launchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()
