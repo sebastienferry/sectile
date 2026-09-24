@@ -48,10 +48,10 @@ section; UI sections also run the browser tests.
 
 ## 5. `realign-macro` skill (US3 behaviour, FR5)
 
-- [ ] T5.1 `SkillDirNames` aliases; catalog entry `realign_macro` (scope macro, interactive); run contract for macro skills.
-- [ ] T5.2 Fragments `internal/skills/fragments/realign_macro/*` (Spec Kit and OpenSpec steps, guard, report) per spec US3.
-- [ ] T5.3 Golden files `realign_macro.{speckit,openspec}.{skill,command}.md` via `UPDATE_GOLDEN=1`.
-- [ ] T5.4 Tests (port of taskativ `realignmacro_test.go`): body names the four cases, the orphan suffix, "never renumber", "never delete", "never the default branch", no `scenarios` case; framework variant follows the project; alias resolution; the skill appears as a macro skill.
+- [x] T5.1 `SkillDirNames` aliases; catalog entry `realign_macro` (scope macro, interactive); run contract for macro skills (`contracts/macro-run.md`, rendered for every macro-scoped skill, `refine_macro` included).
+- [x] T5.2 Fragments `internal/skills/fragments/realign_macro/*` (Spec Kit and OpenSpec steps, guard, report) per spec US3.
+- [x] T5.3 Golden files `realign_macro.{speckit,openspec}.{skill,command}.md` via `UPDATE_GOLDEN=1`.
+- [x] T5.4 Tests (port of taskativ `realignmacro_test.go`): body names the four cases, the orphan suffix, "never renumber", "never delete", "never the default branch", no `scenarios` case; framework variant follows the project; alias resolution; the skill appears as a macro skill.
 
 ## 6. Target project and Jira parent (US4, FR7)
 

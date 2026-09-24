@@ -1,0 +1,3 @@
+Make the macro's specification say what the team now believes, and nothing more.
+
+The slicing travelled one way only: the specification proposed lines, they were imported into the macro, and then the real decisions happened on them. A line was renamed, split in two, dropped, or typed by hand while looking at the code. Nothing brought that back, so the specification kept saying something nobody defends any more. You are closing that loop, surgically: what you must not do matters more here than what you do.
