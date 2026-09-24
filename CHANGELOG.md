@@ -185,6 +185,12 @@ test fixtures or internal plumbing.
   up empty and the board showed nothing. The column is now added on start,
   whatever version the database comes from, and no setting is lost.
 
+- **Live updates and cancellations reach every server sharing a database.** A
+  board open on one server now shows a change made through another, and
+  canceling a job stops it on the server that runs it. A job canceled while it
+  ran, or before it started, keeps its canceled status instead of being
+  overwritten by its own outcome, with one server as with several. (#405)
+
 - **A local agent is reachable whichever server receives the request.** With
   several servers on one database, a stage transition, a launch or a workspace
   operation arriving on a server the agent is not connected to used to fail with

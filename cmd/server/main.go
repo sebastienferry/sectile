@@ -200,6 +200,11 @@ func main() {
 		log.Fatalf("Fatal database error: %v", err)
 	}
 	log.Printf("   instance : %s", database.InstanceID())
+	// Live updates and cancellations made through another instance reach this
+	// one's browsers and jobs. See internal/db/bus.go.
+	if _, err := database.StartEventBus(); err != nil {
+		log.Fatalf("Fatal database error: %v", err)
+	}
 
 	h := handlers.NewHandler(database)
 	if database.Shared() {

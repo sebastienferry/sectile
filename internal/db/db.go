@@ -159,6 +159,10 @@ type DB struct {
 	cancelMu          sync.Mutex
 	postBackListeners []PostBackListener
 	postBackMu        sync.RWMutex
+	// relayed receives the events other server instances published. See
+	// internal/db/bus.go.
+	relayed   []func(BusMessage)
+	relayedMu sync.RWMutex
 	// jobs counts the queue work in flight, so Close can wait for it instead of
 	// pulling the database out from under a write.
 	jobs inFlightJobs
@@ -3964,7 +3968,7 @@ func (d *DB) runJobGuarded(job SkillJob) {
 			_, _ = d.conn.Exec(`
 				UPDATE task_activities
 				SET status = 'failed', summary = ?, error = ?, completed_at = ?
-				WHERE id = ?
+				WHERE id = ? AND status != 'canceled'
 			`, "Échec interne pendant l'exécution de la skill", fmt.Sprintf("panique: %v", rec), time.Now(), job.ActivityID)
 			d.mu.Unlock()
 		}
@@ -4013,14 +4017,20 @@ func (d *DB) processSkillJob(job SkillJob) {
 		d.cancelMu.Unlock()
 	}()
 
-	// The instance executing the job owns it from here, whoever created it.
+	// The instance executing the job owns it from here, whoever created it. A
+	// cancellation that landed since the check above, possibly through another
+	// instance, wins: the job does not start.
 	d.mu.Lock()
 	_, _ = d.conn.Exec(`
 		UPDATE task_activities
 		SET status = 'running', started_at = ?, instance_id = ?
-		WHERE id = ?
+		WHERE id = ? AND status != 'canceled'
 	`, now, d.instanceID, job.ActivityID)
+	_ = d.conn.QueryRow("SELECT status FROM task_activities WHERE id = ?", job.ActivityID).Scan(&currentStatus)
 	d.mu.Unlock()
+	if currentStatus == string(models.ActivityStatusCanceled) {
+		return
+	}
 
 	// 3. Special handling for background Sync jobs
 	if strings.HasPrefix(job.SkillID, "sync_") {
@@ -4076,7 +4086,7 @@ func (d *DB) processSkillJob(job SkillJob) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_, _ = d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch',status=?,summary=?,error=?,completed_at=? WHERE id=?", status, summary, errorText, time.Now(), job.ActivityID)
+	_, _ = d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch',status=?,summary=?,error=?,completed_at=? WHERE id=? AND status != 'canceled'", status, summary, errorText, time.Now(), job.ActivityID)
 }
 
 // trackerDisplayName spells a tracker for the activity log.
@@ -4361,7 +4371,7 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 	_, _ = d.conn.Exec(`
 		UPDATE task_activities
 		SET status = ?, summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
-		WHERE id = ?
+		WHERE id = ? AND status != 'canceled'
 	`, status, summary, strings.Join(outputLines, "\n"), string(stepsJSON), errText, completedTime, job.ActivityID)
 	d.mu.Unlock()
 }
@@ -4508,7 +4518,7 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 		_, _ = d.conn.Exec(`
 			UPDATE task_activities
 			SET status = 'failed', error = 'Tâche introuvable pour la synchronisation tracker', completed_at = CURRENT_TIMESTAMP
-			WHERE id = ?
+			WHERE id = ? AND status != 'canceled'
 		`, job.ActivityID)
 		d.mu.Unlock()
 		return
@@ -4616,7 +4626,7 @@ func (d *DB) processTrackerUpdateJob(ctx context.Context, job SkillJob) {
 	_, _ = d.conn.Exec(`
 		UPDATE task_activities
 		SET status = ?, summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
-		WHERE id = ?
+		WHERE id = ? AND status != 'canceled'
 	`, status, summary, outputText, string(stepsJSON), errText, completedTime, job.ActivityID)
 	d.mu.Unlock()
 }
@@ -5355,23 +5365,34 @@ func (d *DB) RetryActivity(activityID string) (*models.TaskActivity, error) {
 	return newAct, err
 }
 
+// CancelActivity stops an activity and records it as canceled. The job may be
+// running in another server instance sharing the database, so after recording
+// the cancellation it is published for whichever instance holds the job.
 func (d *DB) CancelActivity(activityID string) error {
-	d.cancelMu.Lock()
-	if cancel, exists := d.cancelMap[activityID]; exists {
-		cancel()
-		delete(d.cancelMap, activityID)
-	}
-	d.cancelMu.Unlock()
+	d.cancelLocal(activityID)
 
 	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	_, err := d.conn.Exec(`
 		UPDATE task_activities
 		SET status = 'canceled', summary = 'Annulée par l''utilisateur', completed_at = CURRENT_TIMESTAMP, waiting_since = NULL
 		WHERE id = ? AND status IN ('queued', 'pending', 'running')
 	`, activityID)
-	return err
+	d.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	d.publish(BusMessage{Kind: busKindCancel, ActivityID: activityID})
+	return nil
+}
+
+// cancelLocal stops the job this process is running for an activity, if any.
+func (d *DB) cancelLocal(activityID string) {
+	d.cancelMu.Lock()
+	defer d.cancelMu.Unlock()
+	if cancel, exists := d.cancelMap[activityID]; exists {
+		cancel()
+		delete(d.cancelMap, activityID)
+	}
 }
 
 func (d *DB) DeleteActivity(activityID string) error {
