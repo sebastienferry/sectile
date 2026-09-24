@@ -29,6 +29,10 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN enabled_views")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN instance_id")
 	_, _ = d.conn.Exec("DROP TABLE server_instances")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_state")
+	_, _ = d.conn.Exec("DROP TABLE agent_presence")
+	_, _ = d.conn.Exec("ALTER TABLE server_instances DROP COLUMN address")
 }
 
 // appliedVersions is what the database says it has applied, in order.
@@ -283,6 +287,9 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	// Nor anything the migrations after it add, which reopening replays.
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN instance_id")
 	_, _ = d.conn.Exec("DROP TABLE server_instances")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_projects")
+	_, _ = d.conn.Exec("DROP TABLE auto_sync_state")
+	_, _ = d.conn.Exec("DROP TABLE agent_presence")
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= ?", 5); err != nil {
 		t.Fatalf("forgetting the migration: %v", err)
 	}

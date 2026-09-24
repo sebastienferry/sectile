@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -60,9 +61,7 @@ func TestTheFirstPassIsFullAndTheNextIsBoundedOnWhatMoved(t *testing.T) {
 
 	// Wind the interval gate back so a second pass runs at all, and date the
 	// previous one far enough for the window to be worth asserting on.
-	database.auto.mu.Lock()
-	database.auto.lastPassAt[project.ID] = time.Now().Add(-10 * time.Minute)
-	database.auto.mu.Unlock()
+	setAutoSyncLastPass(t, database, project.ID, time.Now().UTC().Add(-10*time.Minute))
 
 	fake.mu.Lock()
 	fake.syncs = 0
@@ -95,9 +94,7 @@ func TestATrackerThatCannotNarrowASearchIsAskedForEverything(t *testing.T) {
 	}
 	syncActivities(t, database, project.ID, false)
 
-	database.auto.mu.Lock()
-	database.auto.lastPassAt[project.ID] = time.Now().Add(-10 * time.Minute)
-	database.auto.mu.Unlock()
+	setAutoSyncLastPass(t, database, project.ID, time.Now().UTC().Add(-10*time.Minute))
 	fake.mu.Lock()
 	fake.syncs = 0
 	fake.mu.Unlock()
@@ -128,7 +125,7 @@ func TestASynchronisationSomebodyAskedForReadsTheWholeProject(t *testing.T) {
 func autoSyncTestDB(t *testing.T, fake *fakeTracker) (*DB, *models.Project) {
 	t.Helper()
 	database, project := jiraTestDB(t, fake)
-	database.auto = &autoSync{lastFullSync: map[string]time.Time{}, lastPassAt: map[string]time.Time{}}
+	database.auto = &autoSync{}
 
 	enabled := true
 	project, err := database.UpdateProjectAs("u-ada", project.ID, models.UpdateProjectRequest{AutoSyncEnabled: &enabled})
@@ -136,6 +133,30 @@ func autoSyncTestDB(t *testing.T, fake *fakeTracker) (*DB, *models.Project) {
 		t.Fatal(err)
 	}
 	return database, project
+}
+
+// setAutoSyncLastPass dates a project's previous pass, as another pass or
+// another instance would have.
+func setAutoSyncLastPass(t *testing.T, database *DB, projectID string, at time.Time) {
+	t.Helper()
+	if _, err := database.conn.Exec(`INSERT INTO auto_sync_projects (project_id, last_pass_at) VALUES (?, ?)
+		ON CONFLICT (project_id) DO UPDATE SET last_pass_at = excluded.last_pass_at`, projectID, at); err != nil {
+		t.Fatalf("dating the previous pass: %v", err)
+	}
+}
+
+// autoSyncLastFull is when a project was last read in full, if ever.
+func autoSyncLastFull(t *testing.T, database *DB, projectID string) (time.Time, bool) {
+	t.Helper()
+	var at sql.NullTime
+	err := database.conn.QueryRow(`SELECT last_full_sync_at FROM auto_sync_projects WHERE project_id = ?`, projectID).Scan(&at)
+	if err == sql.ErrNoRows {
+		return time.Time{}, false
+	}
+	if err != nil {
+		t.Fatalf("reading the full-read date: %v", err)
+	}
+	return at.Time, at.Valid
 }
 
 func withoutCapability(caps []tracker.Capability, drop tracker.Capability) []tracker.Capability {
@@ -207,10 +228,8 @@ func TestAFullPassThatFailedIsNotDated(t *testing.T) {
 	}
 	syncActivities(t, database, project.ID, true)
 
-	database.auto.mu.Lock()
-	database.auto.lastPassAt[project.ID] = time.Now().Add(-10 * time.Minute)
-	_, dated := database.auto.lastFullSync[project.ID]
-	database.auto.mu.Unlock()
+	setAutoSyncLastPass(t, database, project.ID, time.Now().UTC().Add(-10*time.Minute))
+	_, dated := autoSyncLastFull(t, database, project.ID)
 	if dated {
 		t.Fatal("a refused read must not count as the full pass it never was")
 	}
