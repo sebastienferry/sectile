@@ -129,6 +129,10 @@ func (d *agentDaemon) handleMacroDispatch(ctx context.Context, conn *websocket.C
 		"SECTILE_LOOPBACK_URL":     d.loopback.url,
 	}
 	sessionID := payload.RunID
+	if d.terminal.manager == nil {
+		launchFailure = fmt.Errorf("terminal manager unavailable")
+		return
+	}
 	if _, err := d.terminal.manager.GetOrCreateSession(sessionID, root, envVars); err != nil {
 		launchFailure = err
 		return
