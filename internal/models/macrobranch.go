@@ -2,6 +2,17 @@ package models
 
 import "strings"
 
+// MacroWorkspace is where a macro's specification is written: the checkout,
+// the branch it carries, whether that checkout is a dedicated worktree, and
+// what the caller should know about how it was obtained. The agent prepares
+// it; the server relays it to the MCP tool that asked.
+type MacroWorkspace struct {
+	Path     string `json:"path"`
+	Branch   string `json:"branch"`
+	Worktree bool   `json:"worktree"`
+	Warning  string `json:"warning,omitempty"`
+}
+
 // macroBranchSlugMax bounds the title part of a macro branch name, so that a
 // long macro title does not produce a branch name nobody can type.
 const macroBranchSlugMax = 30

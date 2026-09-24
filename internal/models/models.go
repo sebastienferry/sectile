@@ -84,6 +84,10 @@ type TaskActivity struct {
 	// UserName is the owner's display name or e-mail, resolved when the row is
 	// read. It is never stored: a rename must show everywhere at once.
 	UserName string `json:"userName,omitempty"`
+	// MacroKey names the macro a macro skill run belongs to. Such a run is a
+	// project activity with no task; the field is read by the macro run
+	// queries only and is empty everywhere else.
+	MacroKey string `json:"macroKey,omitempty"`
 }
 
 type ActivityStats struct {

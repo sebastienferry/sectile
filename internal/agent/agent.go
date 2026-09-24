@@ -831,6 +831,10 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.cancelRun(ctx, conn, msg, payload)
 		return
 	}
+	if strings.TrimSpace(payload.MacroKey) != "" {
+		d.handleMacroDispatch(ctx, conn, msg, payload)
+		return
+	}
 	log.Printf("🚀 [Agent] Received job dispatch for task %s (id=%s): action=%s skill=%s", payload.TaskKey, msg.TaskID, payload.Action, payload.SkillID)
 	fmt.Printf("\n⚡ ========================================================\n")
 	fmt.Printf("🚀 [Agent] Received job dispatch for task %s\n", payload.TaskKey)

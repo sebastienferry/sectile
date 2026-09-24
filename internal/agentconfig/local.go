@@ -23,10 +23,14 @@ type Overrides struct {
 	DisconnectedProjects map[string]bool          `json:"disconnectedProjects,omitempty"`
 	Commands             map[string]string        `json:"commands,omitempty"`
 	// CommandsAutonomous is the headless counterpart of Commands, per project.
-	CommandsAutonomous          map[string]string `json:"commandsAutonomous,omitempty"`
-	Parallelism                 map[string]int    `json:"parallelism,omitempty"`
-	Worktrees                   map[string]bool   `json:"worktrees,omitempty"`
-	Projects                    map[string]string `json:"projects"`
+	CommandsAutonomous map[string]string `json:"commandsAutonomous,omitempty"`
+	Parallelism        map[string]int    `json:"parallelism,omitempty"`
+	Worktrees          map[string]bool   `json:"worktrees,omitempty"`
+	Projects           map[string]string `json:"projects"`
+	// SpecRepos maps a project to the local checkout carrying its
+	// specifications, when it is not the project's own repository. Like
+	// Projects it is workstation-owned: the server's path is never used here.
+	SpecRepos                   map[string]string `json:"specRepos,omitempty"`
 	AIProviders                 map[string]string `json:"aiProviders,omitempty"`
 	AIModels                    map[string]string `json:"aiModels,omitempty"`
 	AIProvider                  string            `json:"aiProvider"`

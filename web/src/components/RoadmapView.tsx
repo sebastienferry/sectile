@@ -71,6 +71,7 @@ import {
   type RoadmapRowDisplayMode,
 } from '../lib/roadmapDisplayMode'
 import type { MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
+import { MacroRealignButton } from './MacroRealignButton'
 
 /**
  * Roadmap des macros, d'après le design « Roadmap Epics.dc.html ».
@@ -1696,6 +1697,14 @@ export const RoadmapView: React.FC = () => {
                             {isRefining ? <Loader2 size={10} className="animate-spin text-orange-400" /> : <Sparkles size={10} className="text-orange-400" />}
                             <span>Raffiner AI</span>
                           </button>
+                          {currentProject?.id && (
+                            <MacroRealignButton
+                              projectId={currentProject.id}
+                              macroKey={selected.key}
+                              onError={message => addToast({ type: 'error', title: 'Réalignement impossible', description: message })}
+                              onLaunched={message => addToast({ type: 'success', title: 'Réalignement lancé', description: message })}
+                            />
+                          )}
                           {draftDirty && (
                             <button
                               type="button"

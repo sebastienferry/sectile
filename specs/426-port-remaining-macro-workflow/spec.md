@@ -158,6 +158,11 @@ in the other.
   other.
 - **Given** a fetch that fails (no network, no remote), **then** preparation
   continues from what is known locally and says the base may be stale.
+- **Given** a workstation, **then** the specifications checkout the agent
+  prepares the worktree in is the one declared for the project in the desktop
+  app ("Specifications repository"), else the project's local checkout. The
+  project's server-side specifications path is read by the server's slicing
+  import only.
 - **Given** `useWorktrees` off, **then** no worktree is created; preparation
   returns the specifications repository and the macro branch, and says that the
   checkout is used directly.

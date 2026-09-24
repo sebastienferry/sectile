@@ -191,6 +191,16 @@ var migrations = []migration{
 			"ALTER TABLE projects ADD COLUMN spec_repo_path TEXT NOT NULL DEFAULT '';",
 		},
 	},
+	{
+		// The macro a macro skill run belongs to (#426). Such a run is a project
+		// activity with no task; empty on every other activity.
+		version: 10,
+		name:    "task_activities.macro_key",
+		statements: []string{
+			"ALTER TABLE task_activities ADD COLUMN macro_key TEXT NOT NULL DEFAULT '';",
+			"CREATE INDEX IF NOT EXISTS idx_task_activities_macro ON task_activities (project_id, macro_key);",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

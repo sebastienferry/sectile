@@ -141,6 +141,16 @@ var ErrRunNotYours = errors.New("this execution belongs to another user")
 // FinishRemoteRun completes only the specified execution, preserving concurrent runs.
 // It checks no identity; callers that have one use FinishRemoteRunAs.
 func (d *DB) FinishRemoteRun(taskKey, runID, status, note string) (*models.TaskActivity, error) {
+	// A macro skill run has no task key to name. The session that adopted one
+	// closes it through here on a disconnection, without an identity, as the
+	// server closes a task run it adopted.
+	if strings.TrimSpace(taskKey) == "" {
+		if key := d.macroKeyOfActivity(runID); key != "" {
+			if activity, err := d.GetActivityByID(runID); err == nil && activity != nil {
+				return d.FinishMacroRunAs(Actor{}, true, activity.ProjectID, key, runID, status, note)
+			}
+		}
+	}
 	return d.finishRemoteRun(taskKey, runID, status, note, nil)
 }
 

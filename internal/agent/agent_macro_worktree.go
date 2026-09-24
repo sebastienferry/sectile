@@ -11,15 +11,8 @@ import (
 	"tasks/internal/models"
 )
 
-// macroWorkspace is where a macro's specification is written: the checkout,
-// the branch it carries, whether that checkout is a dedicated worktree, and
-// what the caller should know about how it was obtained.
-type macroWorkspace struct {
-	Path     string `json:"path"`
-	Branch   string `json:"branch"`
-	Worktree bool   `json:"worktree"`
-	Warning  string `json:"warning,omitempty"`
-}
+// macroWorkspace is the answer the server relays, shared through models.
+type macroWorkspace = models.MacroWorkspace
 
 // macroWorktreeLocks serialises the preparations of one specifications
 // repository: two launches for the same macro must land in the same tree, and

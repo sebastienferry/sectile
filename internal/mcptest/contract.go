@@ -30,6 +30,8 @@ func AssertNaming(t *testing.T, ctx context.Context, session *mcp.ClientSession,
 		"finish_run":          {"taskKey": task.ID, "status": "completed", "note": "Canonical contract"},
 		"create_task":         {"projectId": "default", "title": "Canonical contract"},
 		"update_task":         {"taskKey": task.ID, "title": "Canonical contract updated"},
+		// Listed for the catalog check only: it needs a connected agent.
+		"prepare_macro_worktree": {"projectId": "default", "macroKey": "M-1"},
 	}
 	list, err := session.ListTools(ctx, nil)
 	if err != nil {

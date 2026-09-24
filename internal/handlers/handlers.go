@@ -985,6 +985,24 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Macro skill runs: /api/projects/{id}/macros/{key}/run-skill launches a
+		// macro-scoped skill on the local agent; .../runs lists the recent ones.
+		if len(parts) >= 4 && (parts[3] == "run-skill" || parts[3] == "runs") {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			switch {
+			case parts[3] == "run-skill" && r.Method == http.MethodPost:
+				h.handleMacroRunSkill(w, r, id, key)
+			case parts[3] == "runs" && r.Method == http.MethodGet:
+				h.handleMacroRuns(w, id, key)
+			default:
+				writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			}
+			return
+		}
+
 		// Refinement: /api/projects/{id}/macros/{key}/refine
 		if len(parts) >= 4 && parts[3] == "refine" && r.Method == http.MethodPost {
 			key := parts[2]

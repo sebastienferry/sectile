@@ -52,7 +52,8 @@ agentDispatcher.DispatchAndWait  "dispatch_step"  Dispatch{..., MacroKey, Projec
 agent.handleDispatchStep ──► macro branch (MacroKey set, TaskID empty)
    │  fetchConfig(projectID)            (no task lookup)
    │  root = localProjectRoot(project)  (code repository: skills + cwd)
-   │  specRepo = project.SpecRepoPath or root
+   │  specRepo = workstation mapping settings.specRepos[project] or root
+   │             (the server's SpecRepoPath is never sent: AgentConfig carries no server path)
    │  ensureMacroWorktree(specRepo, key, title, useWorktrees)
    │  Scaffold + bootstrapLocalMCP as today
    │  env: SECTILE_MACRO_KEY, SECTILE_MACRO_PROJECT_ID, SECTILE_SPEC_REPO,
@@ -71,6 +72,14 @@ agent operation "macro_worktree" {ProjectID, MacroKey} ─► same ensureMacroWo
    ▼
 {path, branch, worktree, warning}
 ```
+
+**Two paths for one setting (owner decision, 2026-09-24).** The project's
+`specRepoPath` is read by the server only, for the slicing import it runs on
+its own filesystem. The agent never receives it: `AgentConfig` exposes no
+server path by design, so the workstation declares its own specifications
+checkout per project (`specRepos` in the local settings, next to `projects`),
+edited in the desktop project dialog. Without a mapping the project's local
+checkout carries the specifications.
 
 The shape of the macro dispatch follows the taskless desktop console
 (`internal/agent/agent_console.go` `launchConsole`): no task, mapped checkout,
@@ -127,11 +136,17 @@ mirror Jira's answer into projects.sprints (replace / append / forget by id)
 | `internal/models/macrobranch.go` (new) | `MacroBranchMatches(ref, key)` (shared by the server slicing read and the agent) and `MacroBranchName(key, title)` (`KEY-<slug≤30>`). `findMacroBranch` in `sddslicing.go` calls the matcher. |
 | `internal/agent/agent_macro_worktree.go` (new) | `ensureMacroWorktree(ctx, specRepo, key, title, useWorktrees) (macroWorkspace, error)`, next to `ensureLocalWorktree` whose helpers it reuses (`gitLocal`, `worktreeForBranch`, `sameDirectory`): per-repository lock; fetch `--prune` (non-fatal, warning); existing macro branch (local, then `origin/`), else `MacroBranchName`; reuse a checkout of the branch anywhere; `.tasks/` in `info/exclude`; a stale path is pruned and removed only when empty, otherwise refused; `worktree add -b <branch> <path> origin/<default>` (or the local default); never the default branch. Placed in the agent rather than `internal/workspace`: the agent is its only caller, and the server may not import `workspace` (runtime boundary test). |
 | `internal/agentprotocol/operations.go` | `MacroKey string \`json:"macroKey,omitempty"\`` on `Operation`; operation `macro_worktree`. |
-| `internal/agentconfig/config.go` | `Dispatch.MacroKey`. |
+| `internal/agentconfig/config.go` | `Dispatch.MacroKey`, `Dispatch.MacroTitle`. |
+| `internal/agentconfig/local.go` | `Overrides.SpecRepos map[projectID]path`, workstation-owned like `Projects`. |
+| `internal/agent/agent_macro_dispatch.go` (new) | `handleMacroDispatch` (interactive only, admission and slot as a task run, no task read, no branch recorded), `prepareMacroWorkspace`, `macroWorkspaceFor` (operation), `localSpecRepo`, `macroOfRun`. |
+| `internal/agent/agent_desktop.go` | `desktopRun.MacroKey`; `/desktop/projects` reads and writes `specPath`; `finishDesktopRun` reports a macro run under `projectId` + `macroKey`. |
+| `desktop/src/main.js` | "Specifications repository" field in the project dialog (General); macro runs grouped by macro, no next-step lookup, no task link. |
+| `internal/agentmcp/mcp.go`, `internal/mcptest/contract.go` | The stdio bridge and the catalog contract know eleven tools. |
+| `docs/contracts/server-agent-v1.md`, `docs/ARCHITECTURE.md`, `README.md` | Macro dispatch, `macro_worktree`, the macro form of `start_run`/`finish_run`, `prepare_macro_worktree`. |
 | `internal/agent/agent_operations.go` | `macro_worktree`: resolve the local code root and the spec repo for the project, call `ensureMacroWorktree`, answer `{path, branch, worktree, warning}`. |
 | `internal/agent/agent.go`, `agent_config.go` | `handleDispatchStep`: a dispatch with `MacroKey` and no task takes a macro path (no task fetch, no task worktree, no `patchTask`), prepares the macro worktree, sets the `SECTILE_MACRO_*` / `SECTILE_SPEC_*` env, builds `/<command> <KEY>`. Admission and concurrency as for a task run, keyed on the run. |
 | `internal/agent/agent_desktop.go` | `finishDesktopRun` sends `projectId` + `macroKey` for a macro run. |
-| `internal/db/remoterun.go`, `skillresult.go`, `agentlaunch.go` | `StartMacroRun(projectID, macroKey, skill, launch)`, `FinishMacroRunAs(user, projectID, macroKey, runID, status, note)`, `ActiveRunOnMacro(projectID, macroKey)`; activities with `project_id` set, `task_id` NULL, `macro_key` set; no stage, no chain, no post-back. |
+| `internal/db/macroruns.go` (new), `remoterun.go` | `StartMacroRun`, `StartMacroRunBy` (MCP, runId reuse), `FinishMacroRunAs`, `ActiveRunOnMacro`, `MacroRuns`, `PrepareMacroWorktree` (relays the `macro_worktree` operation); activities with `project_id` set, `task_id` NULL, `macro_key` written by an UPDATE after the insert (as `run_mode` is), so the six explicit column lists of `task_activities` are untouched; no stage, no chain, no post-back. `FinishRemoteRun("", runID)` closes an adopted macro run on a session end. |
 | `internal/db/macros.go` | `CreateStoryFromMacroTodo` consumes `TargetProjectID`; `sameTrackerInstance(a, b *models.Project) (bool, string)` returning the French reason; `CreateStoryUnderMacro` takes the target project and writes the Jira parent through `SetParent`, returning a notice on failure; refuse when the line's `StoryKey` belongs to a roadmap project. `GetMacroActivities` (or a filter on project activities) for the panel. |
 | `internal/trackerapi/jira.go` | `CreateSprint(ctx, boardID, name, start, end)`, `UpdateSprint(ctx, id, patch)`, `DeleteSprint(ctx, id)` on `/rest/agile/1.0/sprint`; dates RFC3339, a bare end day becomes 23:59:59; 404 on delete is success; Jira errors surfaced through `jiraError`. Declare `CapSprintManage`. |
 | `internal/tracker/tracker.go` | `CapSprintManage` and its French `CapabilityLabel`; optional `SprintManager` interface. |

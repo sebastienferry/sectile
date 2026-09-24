@@ -38,12 +38,12 @@ section; UI sections also run the browser tests.
 
 ## 4. Macro runs (US3 launch, FR3, FR6)
 
-- [ ] T4.1 Migration `task_activities.macro_key` + index; `StartMacroRun`, `FinishMacroRunAs`, `ActiveRunOnMacro`; activities with `project_id`, `macro_key`, `task_id` NULL.
-- [ ] T4.2 `POST /api/projects/{id}/macros/{key}/run-skill`: skill must be macro-scoped; 409 busy; 424 no agent; dispatch with `MacroKey`.
-- [ ] T4.3 `agentconfig.Dispatch.MacroKey`; agent macro path in `handleDispatchStep` (no task fetch, macro worktree, env, command `/<cmd> <KEY>`); `finishDesktopRun` sends the macro form.
-- [ ] T4.4 Agent operation `macro_worktree`; MCP tool `prepare_macro_worktree`; `start_run` / `finish_run` accept `projectId` + `macroKey` (exactly one form, else a clear error).
-- [ ] T4.5 Web: "Réaligner la spec" button, disabled without agent or while busy; active-run indicator on the macro.
-- [ ] T4.6 Tests: handler refuses a task skill and a busy macro; dispatch payload carries `macroKey` and no task; agent macro dispatch builds env and command without calling `/api/tasks`; MCP start/finish with the macro form update the macro activity and refuse mixed forms; PostgreSQL run (see memory on the test DSN) accepts `task_id` NULL with `macro_key`.
+- [x] T4.1 Migration `task_activities.macro_key` + index; `StartMacroRun`, `FinishMacroRunAs`, `ActiveRunOnMacro`; activities with `project_id`, `macro_key`, `task_id` NULL.
+- [x] T4.2 `POST /api/projects/{id}/macros/{key}/run-skill`: skill must be macro-scoped; 409 busy; 424 no agent; dispatch with `MacroKey`.
+- [x] T4.3 `agentconfig.Dispatch.MacroKey`, workstation `specRepos` mapping (agent API + desktop dialog); agent macro path in `handleDispatchStep` (no task fetch, macro worktree, env, command `/<cmd> <KEY>`); `finishDesktopRun` sends the macro form.
+- [x] T4.4 Agent operation `macro_worktree`; MCP tool `prepare_macro_worktree`; `start_run` / `finish_run` accept `projectId` + `macroKey` (exactly one form, else a clear error).
+- [x] T4.5 Web: "Réaligner la spec" button, disabled without agent or while busy; active-run indicator on the macro.
+- [x] T4.6 Tests: handler refuses a task skill and a busy macro; dispatch payload carries `macroKey` and no task; agent macro dispatch builds env and command without calling `/api/tasks`; MCP start/finish with the macro form update the macro activity and refuse mixed forms; PostgreSQL run (see memory on the test DSN) accepts `task_id` NULL with `macro_key`.
 - [ ] T4.7 Desktop: a macro run shows in the console with the macro key as label (manual check, fix the label if blank).
 
 ## 5. `realign-macro` skill (US3 behaviour, FR5)
