@@ -1,16 +1,7 @@
 import React, { useEffect } from 'react'
 import { Pin, Terminal as TerminalIcon, X } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import type { Priority } from '../types'
-
-// Même code couleur que la pastille de priorité des cartes, pour qu'une épingle
-// se lise comme le ticket qu'elle représente.
-const PRIORITY_DOT: Record<Priority, string> = {
-  urgent: 'var(--status-danger)',
-  high: 'var(--status-warn)',
-  medium: 'var(--status-info)',
-  low: 'var(--text-muted)',
-}
+import { priorityColor } from '../lib/priority'
 
 /**
  * Barre des tickets épinglés, sous l'en-tête.
@@ -51,7 +42,8 @@ export const PinnedBar: React.FC = () => {
 
       {pinnedTasks.map((task, index) => {
         const isCurrent = selectedTask?.id === task.id
-        const dot = PRIORITY_DOT[task.priority] || 'var(--text-muted)'
+        // Same colour as the card's priority dot, so a pin reads as the task it stands for.
+        const dot = priorityColor(task.priority)
         return (
           <div
             key={task.id}
