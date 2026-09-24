@@ -27,9 +27,9 @@ React 19 + TypeScript (web), Go (server). No migration, no new dependency.
   (`target="_blank" rel="noopener noreferrer"`, `aria-label` from translations).
 - `web/src/context/AppContext.tsx`: `addToast` uses `toastDuration`; `createTask`,
   `createStoryUnderMacro`, `createStoryFromMacroTodo` attach
-  `link: { label: t.toasts.openTask + ' ' + key, onOpen: () => setSelectedTask(task),
+  `link: { label: t.toasts.openCreated + ' ' + key, onOpen: () => setSelectedTask(task),
   externalUrl: task.externalUrl }` when the response carries a task.
-- `web/src/locales/translations.ts`: `toasts.openTask`, `toasts.openInTracker`.
+- `web/src/locales/translations.ts`: `toasts.openCreated`, `toasts.openInTracker`.
 
 ## Rejected alternatives
 
@@ -41,4 +41,4 @@ React 19 + TypeScript (web), Go (server). No migration, no new dependency.
 
 - `web/tests/toastTimer.test.mjs`: durations, pause/resume keeps the remaining time,
   overlapping pauses, cancel.
-- `internal/handlers`: the todo branch returns `task` with the story key.
+- `internal/db/macros_test.go`: the todo story comes back as a task, and the todo line carries its key (the handler only forwards it; the package has no test of this endpoint).

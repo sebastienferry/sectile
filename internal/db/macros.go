@@ -335,22 +335,23 @@ func (d *DB) saveEpicMetaFull(projectID string, key string, horizon *string, des
 	return d.saveMacroMetaFull(projectID, key, horizon, description, nil, todos, title, status, closed)
 }
 
-// CreateStoryFromMacroTodo turns a line of macro shaping into a real story in the tracker.
-func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID string) (*models.MacroMeta, string, error) {
+// CreateStoryFromMacroTodo turns a line of macro shaping into a real story in the tracker
+// and returns the macro metadata with the story it created.
+func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID string) (*models.MacroMeta, *models.Task, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	todoID = strings.TrimSpace(todoID)
 	if projectID == "" || macroKey == "" || todoID == "" {
-		return nil, "", fmt.Errorf("projet, macro et ligne de TODO obligatoires")
+		return nil, nil, fmt.Errorf("projet, macro et ligne de TODO obligatoires")
 	}
 
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
-		return nil, "", fmt.Errorf("projet non trouvé")
+		return nil, nil, fmt.Errorf("projet non trouvé")
 	}
 	metas, err := d.GetProjectMacros(projectID)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	var meta *models.MacroMeta
 	for i := range metas {
@@ -360,7 +361,7 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 		}
 	}
 	if meta == nil {
-		return nil, "", fmt.Errorf("macro %s sans cadrage enregistré", macroKey)
+		return nil, nil, fmt.Errorf("macro %s sans cadrage enregistré", macroKey)
 	}
 
 	var todo *models.MacroTodo
@@ -371,26 +372,26 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 		}
 	}
 	if todo == nil {
-		return nil, "", fmt.Errorf("ligne de TODO introuvable")
+		return nil, nil, fmt.Errorf("ligne de TODO introuvable")
 	}
 	if strings.TrimSpace(todo.StoryKey) != "" {
-		return nil, "", fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
+		return nil, nil, fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
 	}
 
 	task, err := d.CreateStoryUnderMacro(projectID, macroKey, todo.Text)
 	if err != nil {
-		return nil, "", fmt.Errorf("erreur création de story: %w", err)
+		return nil, nil, fmt.Errorf("erreur création de story: %w", err)
 	}
 
 	todo.StoryKey = task.Key
 	saved, err := d.SaveMacroMeta(projectID, macroKey, nil, nil, nil, &meta.Todos)
 	if err != nil {
-		return meta, task.Key, nil
+		return meta, task, nil
 	}
-	return saved, task.Key, nil
+	return saved, task, nil
 }
 
-func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID string) (*models.EpicMeta, string, error) {
+func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID string) (*models.EpicMeta, *models.Task, error) {
 	return d.CreateStoryFromMacroTodo(projectID, epicKey, todoID)
 }
 

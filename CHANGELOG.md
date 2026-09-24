@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **The "created" toast links to the new ticket.** After a quick add, or a story created from the Roadmap (typed or from a slicing line), the toast offers *Ouvrir <key>*, which opens the ticket's detail, and an icon to its GitHub or Jira page when it has one. Such a toast stays 8 s instead of 3.5 s and waits while the pointer or the keyboard is on it; other toasts are unchanged. (#432)
+
 - **Zoom and density are in the status bar, and the zoom reaches further.** The bottom bar shows the current zoom and opens both settings where you are already looking, instead of four clicks away under Profile, Appearance. The ladder gains 80 %, 150 % and 175 %: stopping at 125 % left "it is too small" without an answer. The four levels you may already have chosen are unchanged, and a value written by another version snaps to the nearest step rather than being refused.
 
 - **Group a macro's tickets by phase and by goal.** Two tabs in the macro panel, *Phases* and *Objectifs*, split the same tickets along two axes carried by prefixed labels: `phase:` says the order of the work, `goal:` says what you are trying to obtain, and a ticket can serve one without belonging to the other. Drag a ticket between groups to move it; only that axis's label changes. Naming a group labels nothing, so the group waits empty as a target and the label becomes real on the first ticket dropped into it. Names are normalised on the way to the tracker, spaces becoming hyphens as Jira requires, and the resulting label is shown before it is applied.
