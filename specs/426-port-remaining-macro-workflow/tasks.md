@@ -71,12 +71,12 @@ section; UI sections also run the browser tests.
 
 ## 8. Jira sprint management (US6, FR9, FR10)
 
-- [ ] T8.1 `CapSprintManage`, `SprintManager`; `JiraAdapter.CreateSprint` / `UpdateSprint` / `DeleteSprint`.
-- [ ] T8.2 `internal/db/sprints.go`: batch create (validation, naming, conflict check, partial failure), update (with `moveOpenTo` before close), delete; mirror helpers.
-- [ ] T8.3 Routes `POST/PATCH/PUT/DELETE /api/projects/{id}/sprints[/{sprintId}]`.
-- [ ] T8.4 `SprintTimelineView` on Jira: calls the routes, renders the answer, no local `sprint-N` ids or default sprints, moves by id; GitHub: controls hidden, existing local sprints shown read-only with no ticket move; local: unchanged.
-- [ ] T8.5 Tests against an `httptest` Jira: the three-sprint example of US6 (names, dates, board id); count 0/13 and weeks 0/5 refused before any request; taken name refused before any request; failure on the third → two mirrored, error text; rename/dates mirror Jira's answer; close with `moveOpenTo: next` moves open issues then closes; Jira refusal leaves the mirror unchanged; delete 404 is success; no board → refusal; GitHub project → 409.
-- [ ] T8.6 Web tests for `lib/sprints.ts` naming/date helpers used by the creation bar.
+- [x] T8.1 `CapSprintManage`, `SprintManager`; `JiraAdapter.CreateSprint` / `UpdateSprint` / `DeleteSprint`.
+- [x] T8.2 `internal/db/sprints.go`: batch create (validation, naming, conflict check, partial failure), update (with `moveOpenTo` before close), delete; mirror helpers.
+- [x] T8.3 Routes `POST/PATCH/PUT/DELETE /api/projects/{id}/sprints[/{sprintId}]`.
+- [x] T8.4 `SprintTimelineView` on Jira: calls the routes, renders the answer, no local `sprint-N` ids or default sprints, moves by id; GitHub: controls hidden, existing local sprints shown read-only with no ticket move; local: unchanged.
+- [x] T8.5 Tests against an `httptest` Jira: the three-sprint example of US6 (names, dates, board id); count 0/13 and weeks 0/5 refused before any request; taken name refused before any request; failure on the third → two mirrored, error text; rename/dates mirror Jira's answer; close with `moveOpenTo: next` moves open issues then closes; Jira refusal leaves the mirror unchanged; delete 404 is success; no board → refusal; GitHub project → 409.
+- [x] T8.6 Web tests for `lib/sprints.ts` (`sprintManagementOf`, `sprintTarget`, `nextBatchStart`); the batch naming is tested server-side (`sprintBatchName`).
 
 ## 9. Docs
 

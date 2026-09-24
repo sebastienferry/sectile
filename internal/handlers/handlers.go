@@ -831,6 +831,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/sprints[/{sprintId}]: manage the tracker's
+	// sprints (create a batch, rename, re-date, close, delete).
+	if len(parts) >= 2 && parts[1] == "sprints" {
+		h.handleProjectSprints(w, r, id, parts)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/sprint-move: send a batch of work items to a
 	// sprint, which is what planning from the roadmap does.
 	if len(parts) >= 2 && parts[1] == "sprint-move" && r.Method == http.MethodPost {

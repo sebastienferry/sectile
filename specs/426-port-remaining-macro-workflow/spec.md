@@ -295,9 +295,10 @@ moved to them and the next sync keeps them.
 
 - **Given** a Jira project with a board, **when** the owner creates 3 sprints
   with pattern `Sprint {n}`, start `2026-10-05` and 2 weeks, **then** Jira
-  receives `Sprint 1` from 2026-10-05 to 2026-10-18, `Sprint 2` from 2026-10-19
-  to 2026-11-01 and `Sprint 3` from 2026-11-02 to 2026-11-15, and the timeline
-  shows the three sprints with their Jira ids.
+  receives `Sprint 1` starting 2026-10-05 at 09:00, `Sprint 2` starting
+  2026-10-19 at 09:00 and `Sprint 3` starting 2026-11-02 at 09:00, each ending
+  one second before the next one starts (the last on 2026-11-16 at 08:59:59),
+  and the timeline shows the three sprints with their Jira ids.
 - A pattern without `{n}` names a single sprint as typed and numbers a batch
   `"<pattern> 1"`, `"<pattern> 2"`, …; an empty pattern defaults to
   `Sprint <start date>`.

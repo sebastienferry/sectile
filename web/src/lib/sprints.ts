@@ -197,3 +197,43 @@ export const getSprintRelativeInfo = (sprint: TrackerSprint): { label: string; t
     type: 'past',
   }
 }
+
+/**
+ * Who owns a project's sprints, which decides what the timeline may do:
+ * - `tracker`: the tracker (Jira) holds them; every change is written there
+ *   first and the timeline shows the tracker's answer;
+ * - `readonly`: the tracker has no sprints (GitHub); sprints stored locally
+ *   are shown, nothing is created, changed or moved into them;
+ * - `local`: the local board, which keeps the timeline's own sprints.
+ */
+export type SprintManagement = 'tracker' | 'readonly' | 'local'
+
+export const sprintManagementOf = (project?: { issueTracker?: string; githubRepo?: string } | null): SprintManagement => {
+  const tracker = (project?.issueTracker || '').toLowerCase().trim()
+  if (tracker === 'jira') return 'tracker'
+  if (tracker === 'github' || ((tracker === '' || tracker === 'local') && project?.githubRepo?.trim())) return 'readonly'
+  return 'local'
+}
+
+/**
+ * The id and name to move work items to, from a sprint named or identified by
+ * value. A tracker moves work items by sprint id, never by name; the local
+ * board keeps using the name as both, as it always has. An empty value is the
+ * backlog.
+ */
+export const sprintTarget = (sprints: TrackerSprint[], value: string, management: SprintManagement): { id: string; name: string } => {
+  const wanted = value.trim()
+  if (!wanted) return { id: '', name: '' }
+  const sprint = sprints.find(sp => sp.id === wanted) || sprints.find(sp => sp.name.toLowerCase().trim() === wanted.toLowerCase())
+  const name = sprint?.name || wanted
+  return { id: management === 'tracker' && sprint?.id ? sprint.id : name, name }
+}
+
+/** The day after the last sprint ends, where a new batch starts by default. */
+export const nextBatchStart = (sprints: TrackerSprint[], fallback: string): string => {
+  const ends = sprints.map(sp => (sp.endDate ? new Date(sp.endDate) : null)).filter((d): d is Date => d !== null && !isNaN(d.getTime()))
+  if (ends.length === 0) return fallback
+  const last = new Date(Math.max(...ends.map(d => d.getTime())))
+  last.setDate(last.getDate() + 1)
+  return formatDateISO(last)
+}

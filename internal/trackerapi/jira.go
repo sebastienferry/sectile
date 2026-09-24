@@ -32,7 +32,7 @@ func NewJiraAdapter(client *Client) *JiraAdapter {
 				tracker.CapCreate, tracker.CapUpdate, tracker.CapDelete, tracker.CapSync,
 				tracker.CapGet, tracker.CapComment, tracker.CapLabels, tracker.CapAssign,
 				tracker.CapTransition, tracker.CapSprint, tracker.CapTeam, tracker.CapEpic,
-				tracker.CapBoard, tracker.CapIncrementalSync,
+				tracker.CapBoard, tracker.CapIncrementalSync, tracker.CapSprintManage,
 			},
 		},
 		client: client,
