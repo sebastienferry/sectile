@@ -378,3 +378,36 @@ func TestMacroTodoOriginIsTrimmedAndUnknownKindKept(t *testing.T) {
 		t.Errorf("a retired source kind must be kept as written, got %q", kind)
 	}
 }
+
+// The Roadmap links its "story created" toast to the new ticket, so turning a
+// todo line into a story has to hand the created task back, not only its key.
+func TestCreateStoryFromMacroTodoReturnsTheTask(t *testing.T) {
+	database, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.Close()
+
+	proj, err := database.CreateProject(models.CreateProjectRequest{Name: "Todo story", Slug: "todo-story", IssueTracker: "local"})
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
+	todos := []models.MacroTodo{{ID: "t1", Text: "Link the toast"}}
+	if _, err := database.SaveMacroMeta(proj.ID, "M-40", nil, nil, nil, &todos); err != nil {
+		t.Fatalf("Failed to save macro: %v", err)
+	}
+
+	meta, task, _, err := database.CreateStoryFromMacroTodo(proj.ID, "M-40", "t1")
+	if err != nil {
+		t.Fatalf("CreateStoryFromMacroTodo: %v", err)
+	}
+	if task == nil || task.ID == "" || task.Key == "" {
+		t.Fatalf("expected the created task, got %+v", task)
+	}
+	if task.Title != "Link the toast" || task.ParentKey != "M-40" {
+		t.Errorf("task = %q under %q, want %q under M-40", task.Title, task.ParentKey, "Link the toast")
+	}
+	if meta == nil || len(meta.Todos) != 1 || meta.Todos[0].StoryKey != task.Key {
+		t.Errorf("the todo line should carry the story key %q, got %+v", task.Key, meta)
+	}
+}

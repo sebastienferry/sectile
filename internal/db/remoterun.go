@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -46,6 +47,9 @@ type RunLaunch struct {
 	// the launching agent's key is bound to. Only the owner or an admin may
 	// stop it.
 	UserID string
+	// Force marks a run started with "Launch anyway", next to another active
+	// run on the task. It is recorded as concurrent, out of the one-run rule.
+	Force bool
 }
 
 // StartRemoteRun creates an independent execution record with no owner. It
@@ -104,9 +108,14 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 		Provider: strings.TrimSpace(launch.Provider), Model: strings.TrimSpace(launch.Model)}
 	if agentOwned {
 		activity.Action = RunActionAgent
+		activity.Concurrent = launch.Force
+	} else {
+		// A client declaring its own run is never refused (#308): the session
+		// is already running, and refusing would only lose track of it.
+		activity.Concurrent = true
 	}
 	if err := d.AddTaskActivity(*activity); err != nil {
-		return nil, err
+		return nil, d.taskBusy(task.ID, err)
 	}
 	launch.Stage = d.StageOfTask(task)
 	if launch.Mode != "" || launch.Stage != "" || launch.ChainStop != "" {
@@ -190,12 +199,11 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 		return nil, fmt.Errorf("task not found")
 	}
 	// A silence was an observation, not an outcome: the report joins it rather
-	// than erasing the only trace of why the run looked quiet.
-	summary := note
-	if existing, err := d.GetActivityByID(runID); err == nil && existing != nil &&
-		strings.Contains(existing.Summary, models.RunSilencePrefix) {
-		summary = existing.Summary + " — " + note
-	}
+	// than erasing the only trace of why the run looked quiet. The join happens
+	// in the closing statement, on the summary as it is then, so a note another
+	// instance added a moment before is not lost. The prefix holds neither % nor
+	// _, so LIKE matches it literally.
+	summaryExpr := "CASE WHEN summary LIKE ? THEN summary || ? || ? ELSE ? END"
 	d.mu.Lock()
 	// A run canceled by a disconnection is still its owner's to report on: the
 	// server decided that outcome in the client's absence, so the client may
@@ -205,12 +213,12 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 	// sentence to it; a cancellation someone typed opens on another text and
 	// stays final.
 	closable := "status='running'"
-	args := []any{status, summary, time.Now(), runID, task.ID}
+	args := []any{status, "%" + models.RunSilencePrefix + "%", " \u2014 ", note, note, time.Now(), runID, task.ID}
 	if authorize != nil {
 		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
 		args = append(args, models.RunDisconnectNote+"%")
 	}
-	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary=?, completed_at=?, waiting_since=NULL WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
+	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary="+summaryExpr+", completed_at=?, waiting_since=NULL WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -236,7 +244,11 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 }
 
 // SyncRemoteRunStatus reconciles a remote run's execution status reported by an agent.
-// It updates existing records (clearing previous restart/failure errors) or inserts a new record.
+// It updates an existing record or inserts a new one. A run that already ended
+// stays ended: a late "running" from the agent never reopens a run the server,
+// its owner or another instance has closed (#407). A terminal run may still move
+// to another terminal status, since an owner may report the real outcome of a
+// run the server closed (ADR 0007).
 func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillName, status, summary string, startedAt *time.Time) (*models.TaskActivity, error) {
 	return d.SyncRemoteRunStatusFor("", activityID, taskID, projectID, taskKey, skillName, status, summary, startedAt)
 }
@@ -273,10 +285,12 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 			if startedAt != nil && !startedAt.IsZero() {
 				sAt = *startedAt
 			}
-			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = COALESCE(started_at, ?) WHERE id = ?`,
+			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = COALESCE(started_at, ?)
+				WHERE id = ? AND status NOT IN ('completed', 'failed', 'canceled')`,
 				status, summary, sAt, activityID)
 		} else if status == "queued" {
-			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = NULL WHERE id = ?`,
+			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = NULL
+				WHERE id = ? AND status NOT IN ('completed', 'failed', 'canceled')`,
 				status, summary, activityID)
 		} else {
 			// A terminal status ends the run, and a terminal run is never waiting.
@@ -305,8 +319,13 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 		} else if status == "running" {
 			sAt = now
 		}
-		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, user_id)
-			VALUES (?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?, ?)`,
+		// A run the server did not create is already executing on the agent:
+		// refusing it would only lose track of it, so it is concurrent, out of
+		// the one-run rule. Another instance inserting the same report first is
+		// not an error.
+		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, user_id, concurrent)
+			VALUES (?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?, ?, 1)
+			ON CONFLICT (id) DO NOTHING`,
 			activityID, realTaskID, skillName, action, status, summary, sAt, now, ownerID)
 		if err != nil {
 			d.mu.Unlock()
@@ -366,7 +385,8 @@ func (d *DB) SetRemoteRunWaiting(runID string, waiting bool) error {
 // RemoteRunOutputLimit bounds what one autonomous run can record. A headless CLI
 // streams everything it prints into a single activity, and an unbounded record
 // grows with the run. Past the limit the output keeps its head, which is where
-// the launch and the first errors are, and says it was cut.
+// the launch and the first errors are, and says it was cut. The limit counts
+// characters, as SQL's LENGTH does on both engines.
 const RemoteRunOutputLimit = 256 * 1024
 
 const remoteRunOutputTruncated = "\n\n[output truncated: the run printed more than the recorded limit]"
@@ -423,19 +443,26 @@ func (d *DB) AppendRemoteRunOutput(taskKey, runID, chunk string) error {
 	if task == nil {
 		return fmt.Errorf("task not found")
 	}
+	// One statement, so two instances appending to the same run at once both
+	// land: the row lock of the UPDATE orders them, and each appends to what the
+	// other committed. LENGTH and SUBSTR count characters on both engines, so a
+	// cut never splits a multi-byte character, which PostgreSQL would refuse.
+	// The marker holds neither % nor _, so LIKE matches it literally.
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	var current string
-	if err := d.conn.QueryRow("SELECT output FROM task_activities WHERE id=? AND task_id=? AND skill_id='remote_run'", runID, task.ID).Scan(&current); err != nil {
+	res, err := d.conn.Exec(`
+		UPDATE task_activities SET output = CASE
+			WHEN output LIKE '%' || ? THEN output
+			WHEN LENGTH(output) + LENGTH(CAST(? AS TEXT)) > ? THEN SUBSTR(output || CAST(? AS TEXT), 1, ?) || ?
+			ELSE output || CAST(? AS TEXT)
+		END
+		WHERE id = ? AND task_id = ? AND skill_id = 'remote_run'`,
+		remoteRunOutputTruncated, chunk, RemoteRunOutputLimit, chunk, RemoteRunOutputLimit, remoteRunOutputTruncated, chunk, runID, task.ID)
+	if err != nil {
 		return err
 	}
-	if strings.HasSuffix(current, remoteRunOutputTruncated) {
-		return nil
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
 	}
-	combined := current + chunk
-	if len(combined) > RemoteRunOutputLimit {
-		combined = combined[:RemoteRunOutputLimit] + remoteRunOutputTruncated
-	}
-	_, err = d.conn.Exec("UPDATE task_activities SET output=? WHERE id=? AND task_id=?", combined, runID, task.ID)
-	return err
+	return nil
 }

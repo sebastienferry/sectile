@@ -23,6 +23,7 @@ import type {
   BoardCardDisplayMode,
   WorkflowStage,
   ToastMessage,
+  ToastLink,
   Skill,
   TaskActivity,
   ActivityStats,
@@ -443,6 +444,7 @@ const API_BASE = '/api'
  */
 export { UI_SCALE_OPTIONS } from '../lib/uiScale'
 import { normalizeUIScale } from '../lib/uiScale'
+import { toastDuration } from '../lib/toastTimer'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
@@ -922,7 +924,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
     const id = Math.random().toString(36).substring(2, 9)
-    const newToast: ToastMessage = { ...toast, id, duration: toast.duration || 3500 }
+    const newToast: ToastMessage = { ...toast, id, duration: toastDuration(toast) }
     setToasts(prev => [...prev, newToast])
   }, [])
 
@@ -931,6 +933,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [])
 
   const t = useMemo(() => translations[settings.language] || translations.fr, [settings.language])
+
+  // The link a creation toast offers: the new ticket in the detail view, and
+  // its tracker page when it has one.
+  const createdTaskLink = useCallback((task: Task): ToastLink => ({
+    label: `${t.toasts.openCreated} ${task.key}`,
+    onOpen: () => setSelectedTask(task),
+    externalUrl: task.externalUrl || undefined,
+  }), [t])
 
   /**
    * Le seul endroit où une lecture ratée devient visible. Un 401 se tait : la
@@ -2096,6 +2106,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: t.toasts.taskCreated,
         description: `${created.key}: ${created.title} (${(created.source || 'local').toUpperCase()})`,
+        link: createdTaskLink(created),
       })
       return created
     } catch (err: any) {
@@ -2479,6 +2490,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: 'Story créée',
         description: `${data.storyKey} rattachée à ${macroKey}`,
+        link: data.task ? createdTaskLink(data.task) : undefined,
       })
       // The story exists; what the tracker refused is said, not hidden.
       if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
@@ -2692,7 +2704,12 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Création refusée')
-      addToast({ type: 'success', title: 'Story créée', description: `${data.storyKey} sous ${macroKey}` })
+      addToast({
+        type: 'success',
+        title: 'Story créée',
+        description: `${data.storyKey} sous ${macroKey}`,
+        link: data.task ? createdTaskLink(data.task) : undefined,
+      })
       if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       return data.storyKey || ''

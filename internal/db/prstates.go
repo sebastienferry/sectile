@@ -61,31 +61,34 @@ func (d *DB) refreshPullRequestStates(ctx context.Context, projectID string, tas
 	return warnings
 }
 
-// Re-read inside the write lock: a concurrent user detachment or new PR must
-// survive a slow response from the forge. Only state on matching URLs changes.
+// Re-read on the locked row: a concurrent user detachment or new PR, on this
+// instance or another, must survive a slow response from the forge. Only state
+// on matching URLs changes.
 func (d *DB) applyPullRequestStates(taskID string, states map[string]string) error {
 	if len(states) == 0 {
 		return nil
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	task, err := d.getTaskByIDUnsafe(taskID)
-	if err != nil || task == nil {
-		return err
-	}
-	changed := false
-	for i := range task.PrLinks {
-		state := models.NormalizePullRequestState(states[task.PrLinks[i].URL])
-		if state != "" && task.PrLinks[i].State != state {
-			task.PrLinks[i].State = state
-			changed = true
+	return d.conn.WithTx(func(tx *sqlTx) error {
+		task, err := d.lockTaskUnsafe(tx, taskID)
+		if err != nil || task == nil {
+			return err
 		}
-	}
-	if !changed {
-		return nil
-	}
-	_, err = d.conn.Exec("UPDATE tasks SET pr_links = ? WHERE id = ?", encodePullRequestLinks(task.PrLinks), taskID)
-	return err
+		changed := false
+		for i := range task.PrLinks {
+			state := models.NormalizePullRequestState(states[task.PrLinks[i].URL])
+			if state != "" && task.PrLinks[i].State != state {
+				task.PrLinks[i].State = state
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		_, err = tx.Exec("UPDATE tasks SET pr_links = ? WHERE id = ?", encodePullRequestLinks(task.PrLinks), taskID)
+		return err
+	})
 }
 
 func (d *DB) refreshProjectPullRequestStates(ctx context.Context, projectID string) []string {

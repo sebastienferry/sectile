@@ -764,12 +764,21 @@ export interface CliStatus {
   details: string
 }
 
+// A link a toast offers to the thing it announces: opened in the app, and on
+// its tracker page when it has one.
+export interface ToastLink {
+  label: string
+  onOpen: () => void
+  externalUrl?: string
+}
+
 export interface ToastMessage {
   id: string
   type: 'success' | 'info' | 'warning' | 'error'
   title: string
   description?: string
   duration?: number
+  link?: ToastLink
 }
 
 export interface InstalledSkillInfo {

@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"hash/fnv"
 	"log"
+	"math/rand"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -123,6 +126,77 @@ func (postgresDialect) RunsLegacyMigrations() bool { return false }
 // ServesOneProcess is false: several server instances may share one PostgreSQL
 // database, so a start only reclaims the work of instances that are gone.
 func (postgresDialect) ServesOneProcess() bool { return false }
+
+// ForUpdate locks the selected rows until the transaction ends. Under the
+// default READ COMMITTED isolation, a second transaction selecting the same row
+// FOR UPDATE waits, then reads the version the first one committed.
+func (postgresDialect) ForUpdate() string { return " FOR UPDATE" }
+
+// projectWorkerLockClass is the first half of the two-key advisory lock that
+// stands for "a server-side job of this project is running". PostgreSQL keeps
+// the two-int4 key space apart from the single-bigint one migrationLockKey
+// lives in, so the two can never collide.
+const projectWorkerLockClass int32 = 0x5EC7
+
+// projectWorkerRetry is how long a job waits before asking again for its
+// project's advisory lock. A variable so the tests can shorten it.
+var projectWorkerRetry = 500 * time.Millisecond
+
+// projectWorkerSlots caps the connections this process reserves for project
+// worker locks. Each running job holds one for its whole duration, and its own
+// queries need others from the same pool of 25: left uncapped, 25 projects
+// served at once would hold the whole pool and wait on it forever.
+var projectWorkerSlots = make(chan struct{}, 8)
+
+// projectWorkerKey hashes a project id onto the second half of the lock key.
+// Two projects sharing a hash only run their jobs one after the other, which
+// is harmless.
+func projectWorkerKey(projectID string) int32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(projectID))
+	return int32(h.Sum32())
+}
+
+// AcquireProjectWorker takes the project's session advisory lock on a
+// connection reserved for it, as LockForMigration does and for the same reason:
+// the lock belongs to the connection that took it.
+//
+// It asks with pg_try_advisory_lock and gives the connection back between two
+// attempts, so a job waiting for its turn never pins one of the pool's
+// connections. If the held connection dies mid-job PostgreSQL releases the lock
+// on its own; the release then only logs.
+func (postgresDialect) AcquireProjectWorker(conn *sqlConn, projectID string) (func(), error) {
+	ctx := context.Background()
+	key := projectWorkerKey(projectID)
+	projectWorkerSlots <- struct{}{}
+	for {
+		held, err := conn.db.Conn(ctx)
+		if err != nil {
+			<-projectWorkerSlots
+			return func() {}, err
+		}
+		var acquired bool
+		if err := held.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1, $2)", projectWorkerLockClass, key).Scan(&acquired); err != nil {
+			held.Close()
+			<-projectWorkerSlots
+			return func() {}, err
+		}
+		if acquired {
+			return func() {
+				if _, err := held.ExecContext(ctx, "SELECT pg_advisory_unlock($1, $2)", projectWorkerLockClass, key); err != nil {
+					log.Printf("[skill] releasing the worker lock of project %s: %v", projectID, err)
+				}
+				held.Close()
+				<-projectWorkerSlots
+			}, nil
+		}
+		held.Close()
+		// Up to a fifth either way, so replicas waiting on one project do not
+		// ask in step.
+		jitter := time.Duration(rand.Int63n(int64(projectWorkerRetry)/5*2+1)) - projectWorkerRetry/5
+		time.Sleep(projectWorkerRetry + jitter)
+	}
+}
 
 // MigrateActivityAttachment walks an existing table to the current schema with
 // ALTER TABLE, cleaning the data in the middle: PostgreSQL validates a foreign

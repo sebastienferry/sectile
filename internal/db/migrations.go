@@ -183,9 +183,40 @@ var migrations = []migration{
 		},
 	},
 	{
+		// One ordinary active run per task, enforced by the database so it
+		// holds across server processes (#407). A run started with "Launch
+		// anyway", declared by a client without a launcher, or reported by an
+		// agent the server did not know carries concurrent = 1 and stays out of
+		// the index. Tasks that already hold several active runs keep them all:
+		// the surplus is marked concurrent rather than canceled, so a rolling
+		// deploy never ends a live run of the other instance. The skill list is
+		// frozen here; see activeRunSkillIDs.
+		version: 9,
+		name:    "one_active_run",
+		statements: []string{
+			"ALTER TABLE task_activities ADD COLUMN concurrent INTEGER NOT NULL DEFAULT 0;",
+			`UPDATE task_activities SET concurrent = 1
+			WHERE task_id IS NOT NULL AND concurrent = 0
+			AND status IN ('queued', 'pending', 'running')
+			AND skill_id IN ('remote_run', 'clarify', 'specify', 'implement', 'adjust', 'handoff', 'create_pr', 'pickup', 'rewrite_story', 'refine_macro', 'pickup_issues', 'review', 'pick')
+			AND id <> (
+				SELECT k.id FROM task_activities k
+				WHERE k.task_id = task_activities.task_id AND k.concurrent = 0
+				AND k.status IN ('queued', 'pending', 'running')
+				AND k.skill_id IN ('remote_run', 'clarify', 'specify', 'implement', 'adjust', 'handoff', 'create_pr', 'pickup', 'rewrite_story', 'refine_macro', 'pickup_issues', 'review', 'pick')
+				ORDER BY (k.skill_id = 'remote_run') DESC, k.started_at IS NULL, k.started_at, k.created_at, k.id
+				LIMIT 1
+			);`,
+			`CREATE UNIQUE INDEX idx_activities_one_active_run ON task_activities (task_id)
+			WHERE task_id IS NOT NULL AND concurrent = 0
+			AND status IN ('queued', 'pending', 'running')
+			AND skill_id IN ('remote_run', 'clarify', 'specify', 'implement', 'adjust', 'handoff', 'create_pr', 'pickup', 'rewrite_story', 'refine_macro', 'pickup_issues', 'review', 'pick');`,
+		},
+	},
+	{
 		// The checkout carrying a project's specifications, when it is not
 		// the code repository (#426). Empty means the code repository.
-		version: 9,
+		version: 10,
 		name:    "projects.spec_repo_path",
 		statements: []string{
 			"ALTER TABLE projects ADD COLUMN spec_repo_path TEXT NOT NULL DEFAULT '';",
@@ -194,7 +225,7 @@ var migrations = []migration{
 	{
 		// The macro a macro skill run belongs to (#426). Such a run is a project
 		// activity with no task; empty on every other activity.
-		version: 10,
+		version: 11,
 		name:    "task_activities.macro_key",
 		statements: []string{
 			"ALTER TABLE task_activities ADD COLUMN macro_key TEXT NOT NULL DEFAULT '';",
@@ -206,10 +237,26 @@ var migrations = []migration{
 	{
 		// Other Jira projects whose story keys a project's slicing attaches
 		// (#426). A JSON array in TEXT, like enabled_views: read whole.
-		version: 11,
+		version: 12,
 		name:    "projects.roadmap_projects",
 		statements: []string{
 			"ALTER TABLE projects ADD COLUMN roadmap_projects TEXT NOT NULL DEFAULT '[]';",
+		},
+	},
+	{
+		// realign_macro joined the catalog (#426), so the one-active-run index
+		// is recreated with it, as activeRunSkillIDs requires. A macro run is a
+		// project activity with no task_id, which the index leaves out anyway;
+		// the list stays the catalog, not a guess about which skill reaches a
+		// task. Frozen copy of the list, as a migration must carry.
+		version: 13,
+		name:    "one_active_run.realign_macro",
+		statements: []string{
+			"DROP INDEX IF EXISTS idx_activities_one_active_run;",
+			`CREATE UNIQUE INDEX idx_activities_one_active_run ON task_activities (task_id)
+			WHERE task_id IS NOT NULL AND concurrent = 0
+			AND status IN ('queued', 'pending', 'running')
+			AND skill_id IN ('remote_run', 'clarify', 'specify', 'implement', 'adjust', 'handoff', 'create_pr', 'pickup', 'rewrite_story', 'refine_macro', 'pickup_issues', 'review', 'pick', 'realign_macro');`,
 		},
 	},
 }

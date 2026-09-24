@@ -18,7 +18,9 @@ func TestLocalLaunchDoesNotOwnStageTransition(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, act := range []models.TaskActivity{
-		{ID: "legacy", TaskID: task.ID, SkillID: "clarify", Action: "Exécution de clarify sur l'agent local", Status: "running", CreatedAt: time.Now()},
+		// Migration 9 marks such a leftover concurrent, as it sits next to the
+		// managed run below.
+		{ID: "legacy", TaskID: task.ID, SkillID: "clarify", Action: "Exécution de clarify sur l'agent local", Status: "running", CreatedAt: time.Now(), Concurrent: true},
 		{ID: "new", TaskID: task.ID, SkillID: "agent_launch", Status: "running", CreatedAt: time.Now()},
 	} {
 		if err := d.AddTaskActivity(act); err != nil {

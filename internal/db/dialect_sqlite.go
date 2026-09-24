@@ -28,7 +28,13 @@ func (sqliteDialect) Open(cfg Config) (*sql.DB, error) {
 	// read back, so the Scan fails and the endpoint answers 500. The requested
 	// format ends with the offset itself and round trips in any zone. See
 	// repairNumericZoneTimestamps for the rows written before this was set.
-	conn, err := sql.Open("sqlite", cfg.Path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_time_format=sqlite")
+	//
+	// _txlock=immediate: a transaction takes the write lock when it begins. A
+	// deferred one that reads a row, then writes it, fails at once with
+	// SQLITE_BUSY when another connection wrote in between, busy_timeout
+	// notwithstanding; the read-decide-write transactions of #407 are exactly
+	// that shape. Taken up front, the lock is waited for like any other.
+	conn, err := sql.Open("sqlite", cfg.Path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_time_format=sqlite&_txlock=immediate")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database: %w", err)
 	}
@@ -68,6 +74,17 @@ func (sqliteDialect) RunsLegacyMigrations() bool { return true }
 // enforces it; it is the assumption the deployment makes, and the one the
 // restart recovery relies on.
 func (sqliteDialect) ServesOneProcess() bool { return true }
+
+// ForUpdate is empty: SQLite has no row locks, and its single writer plus DB.mu
+// already serialise every read-decide-write sequence of the one process that
+// holds the file.
+func (sqliteDialect) ForUpdate() string { return "" }
+
+// AcquireProjectWorker has nothing to take, for the reason ServesOneProcess
+// gives.
+func (sqliteDialect) AcquireProjectWorker(*sqlConn, string) (func(), error) {
+	return func() {}, nil
+}
 
 // MigrateActivityAttachment rebuilds task_activities: SQLite can neither relax
 // a NOT NULL, nor add a foreign key, nor add a CHECK through ALTER TABLE.

@@ -264,16 +264,26 @@ func (d *DB) MoveTaskToTrackerStatus(ctx context.Context, taskIDOrKey string, st
 		targetStage = "new"
 	}
 
-	newLabels := SetWorkflowLabel(task.Labels, "#"+strings.TrimPrefix(targetStage, "#"))
-	labelsJSON, _ := json.Marshal(newLabels)
-
-	newStatus := task.Status
-	if internalSt, ok := InternalStatusForStage(targetStage); ok {
-		newStatus = internalSt
-	}
-
+	// The labels are derived from the locked row rather than from the task read
+	// above, so a label another instance added meanwhile is kept.
 	d.mu.Lock()
-	_, execErr := d.conn.Exec("UPDATE tasks SET tracker_status = ?, labels = ?, status = ?, updated_at = ? WHERE id = ?", statusName, string(labelsJSON), string(newStatus), time.Now(), task.ID)
+	execErr := d.conn.WithTx(func(tx *sqlTx) error {
+		locked, err := d.lockTaskUnsafe(tx, task.ID)
+		if err != nil {
+			return err
+		}
+		if locked == nil {
+			return fmt.Errorf("tâche non trouvée")
+		}
+		newLabels := SetWorkflowLabel(locked.Labels, "#"+strings.TrimPrefix(targetStage, "#"))
+		labelsJSON, _ := json.Marshal(newLabels)
+		newStatus := locked.Status
+		if internalSt, ok := InternalStatusForStage(targetStage); ok {
+			newStatus = internalSt
+		}
+		_, err = tx.Exec("UPDATE tasks SET tracker_status = ?, labels = ?, status = ?, updated_at = ? WHERE id = ?", statusName, string(labelsJSON), string(newStatus), time.Now(), task.ID)
+		return err
+	})
 	d.mu.Unlock()
 	if execErr != nil {
 		return nil, nil, execErr

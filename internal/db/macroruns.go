@@ -19,6 +19,10 @@ import (
 // PostgreSQL. It has no stage, so it neither checks nor moves one, and its end
 // hands nothing back to a workflow chain.
 
+// macroRunningIndex is the partial unique index that allows one running run
+// per macro (migration 11), across server instances.
+const macroRunningIndex = "idx_task_activities_macro_running"
+
 // ErrMacroRunBusy refuses a second launch on a macro that is already running
 // one. Two realignments of one specification would write in the same
 // worktree at the same time.
@@ -115,7 +119,7 @@ func (d *DB) startMacroRun(projectID, macroKey, skill, runID string, agentOwned 
 	if _, err := tx.Exec("UPDATE task_activities SET macro_key=?, run_mode=? WHERE id=?",
 		macro.Key, models.NormalizeSkillMode(launch.Mode), activity.ID); err != nil {
 		_ = tx.Rollback()
-		if isUniqueViolation(err) {
+		if isUniqueViolation(err, macroRunningIndex) {
 			return nil, ErrMacroRunBusy
 		}
 		return nil, err
@@ -124,12 +128,6 @@ func (d *DB) startMacroRun(projectID, macroKey, skill, runID string, agentOwned 
 		return nil, err
 	}
 	return activity, nil
-}
-
-// isUniqueViolation recognises the refusal of a unique index, on either engine.
-func isUniqueViolation(err error) bool {
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "unique") || strings.Contains(msg, "duplicate key")
 }
 
 // macroKeyOfActivity reads the macro an activity belongs to, "" for any other.

@@ -41,6 +41,30 @@ func (c *sqlConn) Begin() (*sqlTx, error) {
 	return &sqlTx{tx: tx, dialect: c.dialect}, nil
 }
 
+// WithTx runs fn in a transaction: committed when fn returns nil, rolled back
+// when it returns an error or panics, the panic then carrying on. Queue pushes
+// belong after WithTx returns, never inside fn: a rolled-back transaction must
+// not leave a job behind.
+func (c *sqlConn) WithTx(fn func(tx *sqlTx) error) (err error) {
+	tx, err := c.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			_ = tx.Rollback()
+			panic(rec)
+		}
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if err = fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (c *sqlConn) Close() error       { return c.db.Close() }
 func (c *sqlConn) Stats() sql.DBStats { return c.db.Stats() }
 func (c *sqlConn) Ping() error        { return c.db.Ping() }

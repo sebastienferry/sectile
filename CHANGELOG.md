@@ -27,6 +27,8 @@ test fixtures or internal plumbing.
 
 - **Attach stories from the other Jira projects your roadmap reads.** *Projets de roadmap*, in a Jira project's tracker options, lists other project keys whose stories attach to slicing lines on import. Sectile only reads them and never writes to those projects. (#426)
 
+- **The "created" toast links to the new ticket.** After a quick add, or a story created from the Roadmap (typed or from a slicing line), the toast offers *Ouvrir <key>*, which opens the ticket's detail, and an icon to its GitHub or Jira page when it has one. Such a toast stays 8 s instead of 3.5 s and waits while the pointer or the keyboard is on it; other toasts are unchanged. (#432)
+
 - **Zoom and density are in the status bar, and the zoom reaches further.** The bottom bar shows the current zoom and opens both settings where you are already looking, instead of four clicks away under Profile, Appearance. The ladder gains 80 %, 150 % and 175 %: stopping at 125 % left "it is too small" without an answer. The four levels you may already have chosen are unchanged, and a value written by another version snaps to the nearest step rather than being refused.
 
 - **Group a macro's tickets by phase and by goal.** Two tabs in the macro panel, *Phases* and *Objectifs*, split the same tickets along two axes carried by prefixed labels: `phase:` says the order of the work, `goal:` says what you are trying to obtain, and a ticket can serve one without belonging to the other. Drag a ticket between groups to move it; only that axis's label changes. Naming a group labels nothing, so the group waits empty as a target and the label becomes real on the first ticket dropped into it. Names are normalised on the way to the tracker, spaces becoming hyphens as Jira requires, and the resulting label is shown before it is applied.
@@ -51,6 +53,8 @@ test fixtures or internal plumbing.
 - **A story created under a Jira epic now gets the epic as its parent on Jira**, not only on the Sectile board. If Jira refuses the parent, the story is kept and a warning says so. (#426)
 
 - The priority field of the task detail, quick add and clone forms shows the same colour dot as the task's card, so the priority you pick reads the way the board will show it. (#434)
+
+- **A queued run now makes its task busy.** A skill waiting for its turn in the queue will start an agent on the ticket, so launching another run on the same ticket is refused, as it already was for a running one, with a message saying the run is queued. The refusal covers the next step, the full chain and a retry too, which used to queue a second run. "Launch anyway" still starts one next to it, and a session you start yourself from a terminal is never refused.
 
 - **Triage, Roadmap and Timeline are now hidden by default and enabled per
   project.** Project settings, under General, carry a "Vues de l'espace de
@@ -186,6 +190,8 @@ test fixtures or internal plumbing.
   off the high level on the next synchronisation.
 
 ### Fixed
+
+- **A run you stopped stays stopped.** An agent reporting a run as running a moment after it was canceled, finished or failed used to bring it back as running on the board; a run that has ended now keeps its outcome.
 
 - **A saved view selects the same tickets on every server.** A view label with
   an accent, `Équipe`, matched its tickets or not depending on the locale the
