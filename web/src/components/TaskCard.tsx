@@ -32,6 +32,7 @@ import {
 import type { Task, Priority, SkillMode } from '../types'
 import { useApp } from '../context/AppContext'
 import { issueTypeStyle } from '../lib/issueTypes'
+import { PRIORITY_LEVELS, priorityColor } from '../lib/priority'
 import { Avatar } from './Avatar'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { shortElapsed, isElapsedStale } from '../lib/elapsed'
@@ -251,21 +252,13 @@ export const TaskCard: React.FC<TaskCardProps> = ({
   }, [activities, task.id])
 
   // Priorité : simple pastille de couleur (le libellé reste en infobulle)
-  const PRIORITY_DOTS: Record<Priority, { color: string; label: string }> = {
-    urgent: { color: 'var(--status-danger)', label: t.priority.urgent },
-    high: { color: 'var(--status-warn)', label: t.priority.high },
-    medium: { color: 'var(--status-info)', label: t.priority.medium },
-    low: { color: 'var(--text-muted)', label: t.priority.low },
-  }
-
   const getPriorityBadge = (priority: Priority) => {
-    const dot = PRIORITY_DOTS[priority]
-    if (!dot) return null
+    if (!PRIORITY_LEVELS.includes(priority)) return null
     return (
       <span
         className="w-2 h-2 rounded-full shrink-0 ring-1 ring-black/10"
-        style={{ backgroundColor: dot.color }}
-        title={`${t.taskModal.priority} : ${dot.label}`}
+        style={{ backgroundColor: priorityColor(priority) }}
+        title={`${t.taskModal.priority} : ${t.priority[priority]}`}
       />
     )
   }
