@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"tasks/internal/models"
 )
@@ -134,5 +135,26 @@ func TestAnonymousClosureDoesNotReopenADisconnectedRun(t *testing.T) {
 	}
 	if finished, err := database.FinishMacroRunAs(Actor{ID: "u1"}, false, project.ID, "M-7", run.ID, "completed", "done"); err != nil || finished.Status != "completed" {
 		t.Fatalf("the owner may still correct it: %+v %v", finished, err)
+	}
+}
+
+// A macro run that fell silent before its session was closed carries the
+// silence sentence ahead of the disconnect note, and stays its owner's to
+// correct (#319).
+func TestASilencedThenDisconnectedMacroRunIsRecoverable(t *testing.T) {
+	database, project := macroRunDB(t)
+	run, err := database.StartMacroRun(project.ID, "M-7", "realign_macro", RunLaunch{UserID: "u1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.NoteRemoteRun(run.ID, models.RunSilenceNote(8*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.FinishRemoteRun("", run.ID, "canceled", models.RunDisconnectNote); err != nil {
+		t.Fatal(err)
+	}
+	finished, err := database.FinishMacroRunAs(Actor{ID: "u1"}, false, project.ID, "M-7", run.ID, "completed", "done")
+	if err != nil || finished.Status != "completed" {
+		t.Fatalf("the owner could not recover a silenced then closed run: %+v %v", finished, err)
 	}
 }

@@ -448,6 +448,23 @@ recoverable: its owner, or an administrator, may still report its outcome throug
 `finish_run`, which replays the hand-back on the corrected status. `SECTILE_MCP_CLIENT` names the
 bridge in the session list, defaulting to host and process id.
 
+`SECTILE_MCP_SESSION_ABANDON_AFTER` bounds how long a silence lasts before the
+session is taken for a client that died without closing its connection,
+defaulting to eight hours; a value below the silence bound is raised to it, and
+an unusable value keeps the default. Crossing it closes the session, the
+transport's included, and cancels the runs it owns with the disconnect note,
+after the silence sentence; their owner may still report the real outcome. The
+rewrite matches the disconnect note anywhere in the summary, so a run silenced
+and then closed stays recoverable.
+
+A run a client created has no agent to stop. `POST /api/tasks/{id}/cancel-run`
+closes it instead, for its owner or an administrator only (an ownerless run is an
+administrator's), through the same path as `finish_run`: status `canceled`, the
+disconnect note, the hand-back, and the run released from its session. The
+activities view's `POST /api/activities/{id}/cancel` closes it the same way,
+with a note of its own that makes the cancellation final. Agent-dispatched runs
+are unchanged.
+
 A restart destroys every session at once, so startup closes the runs those
 sessions owned, with status `canceled` and a note naming the restart. A run's
 action records its owner and survives the restart: `Agent-owned remote execution`

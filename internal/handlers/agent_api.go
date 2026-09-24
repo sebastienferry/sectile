@@ -36,6 +36,29 @@ func mcpSilenceNotice() time.Duration {
 	return timeout
 }
 
+// defaultMCPAbandonAfter is how long a client may say nothing before Sectile
+// gives up on it (#319): past it the session is closed and its runs are canceled
+// with the disconnect note, which their owner may still correct. Eight hours
+// covers a run waiting on its owner through a working day, while a client that
+// died no longer holds the board and its chain until the server restarts.
+const defaultMCPAbandonAfter = 8 * time.Hour
+
+// mcpAbandonAfter reads the deployment's override under the same rules as the
+// silence bound, and never returns less than that bound: a session is always
+// remarked upon before it is closed.
+func mcpAbandonAfter(silence time.Duration) time.Duration {
+	abandon := defaultMCPAbandonAfter
+	if raw := strings.TrimSpace(os.Getenv("SECTILE_MCP_SESSION_ABANDON_AFTER")); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+			abandon = parsed
+		}
+	}
+	if abandon < silence {
+		return silence
+	}
+	return abandon
+}
+
 // AgentAPIAuth shares the agent handshake's identity policy: every machine
 // surface takes the workstation API key as a bearer credential. An expired key
 // is refused by name so the owner knows to renew it rather than retype it.

@@ -590,6 +590,7 @@ export interface TranslationSchema {
       total: string
       running: string
       waiting: string
+      silent: string
       queued: string
       completed: string
       failed: string
@@ -1337,6 +1338,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         total: 'Total exécutions',
         running: 'En cours',
         waiting: 'En attente de vous',
+        silent: 'Silencieuses',
         queued: 'En attente',
         completed: 'Terminées',
         failed: 'Échouées',
@@ -2082,6 +2084,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         total: 'Total Runs',
         running: 'Running',
         waiting: 'Waiting for you',
+        silent: 'Silent',
         queued: 'Queued',
         completed: 'Completed',
         failed: 'Failed',

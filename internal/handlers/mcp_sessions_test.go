@@ -273,3 +273,24 @@ func TestMCPSilenceNoticeOverride(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPAbandonAfterOverride(t *testing.T) {
+	if got := mcpAbandonAfter(4 * time.Hour); got != defaultMCPAbandonAfter {
+		t.Fatalf("default abandon bound = %s, want %s", got, defaultMCPAbandonAfter)
+	}
+	t.Setenv("SECTILE_MCP_SESSION_ABANDON_AFTER", "12h")
+	if got := mcpAbandonAfter(4 * time.Hour); got != 12*time.Hour {
+		t.Fatalf("configured abandon bound = %s, want 12h", got)
+	}
+	// A session is always remarked upon before it is closed.
+	t.Setenv("SECTILE_MCP_SESSION_ABANDON_AFTER", "1h")
+	if got := mcpAbandonAfter(4 * time.Hour); got != 4*time.Hour {
+		t.Fatalf("abandon bound below the silence bound = %s, want it raised to 4h", got)
+	}
+	for _, raw := range []string{"never", "-1m", "0"} {
+		t.Setenv("SECTILE_MCP_SESSION_ABANDON_AFTER", raw)
+		if got := mcpAbandonAfter(4 * time.Hour); got != defaultMCPAbandonAfter {
+			t.Fatalf("abandon bound for %q = %s, want the default", raw, got)
+		}
+	}
+}

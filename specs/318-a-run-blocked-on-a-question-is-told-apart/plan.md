@@ -36,7 +36,7 @@ unknown type):
    `FinishRemoteRunAs`, and returns `applied=false` for an autonomous run
    (`run_mode`, read through `runOutcomeOf`).
 2. **Registry** (`internal/taskmcp/sessions.go`). A `RunWaiter` sink
-   (`SetRemoteRunWaiting`) and, per session, the set of runs it declared waiting.
+   (`SetRemoteRunWaiting`, given through `SetWaiter`) and, per session, the set of runs it declared waiting.
    `MarkWaiting`/`ForgetWaiting` maintain it; `Resume(sessionID)` clears the set
    and the marks. `Close` clears the marks of the runs it did not close (a run it
    closes is cleared by its terminal status). `ReleaseRun(runID)` forgets a run
@@ -50,10 +50,14 @@ unknown type):
    run on the calling session.
 5. **Push to the agent** (`internal/handlers/handlers.go`). The existing
    post-back listener already sees every run change. For a running `remote_run`
-   with an owner it dispatches `run_waiting` through
+   an agent dispatched, with an owner, it dispatches `run_waiting` through
    `AgentDispatcher.Dispatch(owner, project, ...)`, which reaches the owner's
    agent locally or through the #406 forwarding. A missing agent is not an error.
-   Terminal changes are not pushed: the agent observes the exit itself.
+   Only a mark, or the clear of a mark this instance sent (`pushedWaits`), is
+   pushed: pushing every change would slip messages ahead of the exchanges an
+   agent waits for. The run is re-read before sending, since listeners run
+   concurrently. Terminal changes are not pushed: the agent observes the exit
+   itself. A client-created run is on no agent's list and is never pushed.
 6. **Agent** (`internal/agent`). `desktopRun.WaitingSince` comes back
    (`json:"waitingSince,omitzero"`, as before #260). `handleMessage` gains a
    `run_waiting` case which, under `d.queue.mu`, sets or clears it on a run it

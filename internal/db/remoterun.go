@@ -209,14 +209,15 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 	// server decided that outcome in the client's absence, so the client may
 	// correct it. Only an identified caller may, since the server's own closure
 	// path has no identity and must never rewrite an outcome it just recorded.
-	// The note is matched as a prefix because the hand-back appends its own
-	// sentence to it; a cancellation someone typed opens on another text and
-	// stays final.
+	// The note is matched anywhere in the summary: the hand-back appends its own
+	// sentence after it, and a silence sentence comes before it on a run that
+	// fell quiet before it was closed (#319). A cancellation someone typed never
+	// carries that sentence and stays final.
 	closable := "status='running'"
 	args := []any{status, "%" + models.RunSilencePrefix + "%", " \u2014 ", note, note, time.Now(), runID, task.ID}
 	if authorize != nil {
 		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
-		args = append(args, models.RunDisconnectNote+"%")
+		args = append(args, "%"+models.RunDisconnectNote+"%")
 	}
 	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary="+summaryExpr+", completed_at=?, waiting_since=NULL WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
 	d.mu.Unlock()

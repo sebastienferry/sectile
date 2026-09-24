@@ -142,6 +142,40 @@ func TestADeliberateCancellationStaysFinal(t *testing.T) {
 	})
 }
 
+// A run that fell silent and was then closed by a disconnection carries the
+// silence sentence ahead of the disconnect note. Its owner must still be able to
+// report the real outcome: matching the note as a prefix missed it (#319).
+func TestASilencedThenDisconnectedRunIsRecoverable(t *testing.T) {
+	recoveryEngines(t, func(t *testing.T, d *DB, project *models.Project) {
+		owner, err := d.SignInLocal("alice@example.com")
+		if err != nil {
+			t.Fatal(err)
+		}
+		task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "abandoned"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		run, err := d.StartRemoteRunBy(owner.ID, task.ID, "implement", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := d.NoteRemoteRun(run.ID, models.RunSilenceNote(8*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		closed, err := d.FinishRemoteRun(task.ID, run.ID, "canceled", models.RunDisconnectNote)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.HasPrefix(closed.Summary, models.RunDisconnectNote) {
+			t.Fatalf("summary %q no longer opens on the silence, the test proves nothing", closed.Summary)
+		}
+		recovered, err := d.FinishRemoteRunAs(Actor{ID: owner.ID}, false, task.ID, run.ID, "completed", "done after all")
+		if err != nil || recovered.Status != "completed" {
+			t.Fatalf("the owner could not recover a silenced then closed run: %+v %v", recovered, err)
+		}
+	})
+}
+
 // A silence was an observation. The outcome joins it rather than erasing the
 // only trace of why the run looked quiet.
 func TestAReportedOutcomeJoinsTheSilenceItFollows(t *testing.T) {

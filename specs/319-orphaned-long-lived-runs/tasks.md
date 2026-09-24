@@ -5,25 +5,25 @@ branch, since both change `sessions.go`.
 
 ## 1. Server
 
-- [ ] T1 - Rewrite predicate matches the note anywhere; tests for a silenced then
+- [x] T1 - Rewrite predicate matches the note anywhere; tests for a silenced then
       closed task run and macro run. *(FR5)*
-- [ ] T2 - `RegistryConfig`, abandon bound, SDK session kept and closed; unit
+- [x] T2 - `NewSessionRegistryBounded`, abandon bound, SDK session kept and closed; unit
       tests (abandon closes, below bound keeps, clamp). *(FR1)*
-- [ ] T3 - `mcpAbandonAfter` and its wiring; override test. *(FR2)*
-- [ ] T4 - `handleCancelRemoteRun` client branch; handler tests (owner, admin,
+- [x] T3 - `mcpAbandonAfter` and its wiring; override test. *(FR2)*
+- [x] T4 - `handleCancelRemoteRun` client branch; handler tests (owner, admin,
       stranger, ownerless member). *(FR4)*
-- [ ] T5 - Activities cancel of a client run; handler tests. *(FR6)*
+- [x] T5 - Activities cancel of a client run; handler tests. *(FR6)*
 
 ## 2. Web
 
-- [ ] T6 - `silent` run state and precedence; `runStates` and
+- [x] T6 - `silent` run state and precedence; `runStates` and
       `remoteRunIndicator` tests. *(FR3)*
-- [ ] T7 - `closableRunIds` and the Close button; indicator tests. *(FR4)*
-- [ ] T8 - Labels, classes and translations; `cancelActivity` error message.
+- [x] T7 - `closableRunIds` and the Close button; indicator tests. *(FR4)*
+- [x] T8 - Labels, classes and translations; `cancelActivity` error message.
 
 ## 3. Documentation
 
-- [ ] T9 - ADR 0007 second amendment, contract, README, `.env.sample`, CHANGELOG.
+- [x] T9 - ADR 0007 second amendment, contract, README, `.env.sample`, CHANGELOG.
 
 ## Test plan
 

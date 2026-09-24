@@ -343,3 +343,74 @@ func TestReleasedRunIsNotClosedByItsSession(t *testing.T) {
 	nilRegistry.MarkWaiting("session-1", "run-1")
 	nilRegistry.Resume("session-1")
 }
+
+// A session silent past the abandon bound stands for a client that died without
+// a word: its runs are closed with the disconnect note, after the silence
+// sentence, and the session is forgotten (#319).
+func TestAbandonedSessionClosesItsRuns(t *testing.T) {
+	closer, notes := &recordingCloser{}, &recordingNoter{}
+	registry := NewSessionRegistryBounded(closer, notes, time.Hour, 3*time.Hour)
+	registry.Stop()
+	base := time.Unix(1700000000, 0)
+	registry.now = func() time.Time { return base }
+	registry.open("session-1", nil)
+	registry.Adopt("session-1", "run-1", "TASK-1", "implement")
+
+	registry.now = func() time.Time { return base.Add(2 * time.Hour) }
+	registry.markSilentSessions()
+	if calls := closer.recorded(); len(calls) != 0 {
+		t.Fatalf("a session below the abandon bound was closed: %v", calls)
+	}
+
+	registry.now = func() time.Time { return base.Add(3 * time.Hour) }
+	registry.markSilentSessions()
+	if calls := closer.recorded(); len(calls) != 1 || calls[0] != "TASK-1/run-1/"+disconnectStatus {
+		t.Fatalf("finish calls = %v, want the run canceled on abandonment", calls)
+	}
+	if len(notes.recorded()) != 1 {
+		t.Fatalf("notes = %v, want the one silence sentence before the closure", notes.recorded())
+	}
+	if snapshot := registry.Snapshot(); len(snapshot) != 0 {
+		t.Fatalf("snapshot = %v, want the abandoned session gone", snapshot)
+	}
+}
+
+// A message resets the clock, so a session that speaks now and then is never
+// abandoned, however long it lives.
+func TestSpeakingSessionIsNeverAbandoned(t *testing.T) {
+	closer := &recordingCloser{}
+	registry := NewSessionRegistryBounded(closer, &recordingNoter{}, time.Hour, 3*time.Hour)
+	registry.Stop()
+	base := time.Unix(1700000000, 0)
+	registry.now = func() time.Time { return base }
+	registry.open("session-1", nil)
+	registry.Adopt("session-1", "run-1", "TASK-1", "implement")
+	for hour := 2; hour <= 20; hour += 2 {
+		registry.now = func() time.Time { return base.Add(time.Duration(hour) * time.Hour) }
+		registry.Touch("session-1")
+		registry.markSilentSessions()
+	}
+	if calls := closer.recorded(); len(calls) != 0 {
+		t.Fatalf("a session that kept speaking was abandoned: %v", calls)
+	}
+}
+
+// No session is closed before its silence was remarked upon: an abandon bound
+// below the silence bound is raised to it, and invalid values take defaults.
+func TestAbandonBoundIsNeverBelowTheSilenceBound(t *testing.T) {
+	for _, tc := range []struct {
+		silence, abandon, want time.Duration
+	}{
+		{time.Hour, 30 * time.Minute, time.Hour},
+		{time.Hour, 0, defaultAbandonAfter},
+		{0, -time.Minute, defaultAbandonAfter},
+		{10 * time.Hour, 0, 10 * time.Hour},
+		{time.Hour, 2 * time.Hour, 2 * time.Hour},
+	} {
+		registry := NewSessionRegistryBounded(nil, nil, tc.silence, tc.abandon)
+		registry.Stop()
+		if registry.abandon != tc.want {
+			t.Errorf("silence %s, abandon %s: got %s, want %s", tc.silence, tc.abandon, registry.abandon, tc.want)
+		}
+	}
+}

@@ -41,3 +41,18 @@ test('running is a filled dot whose fill resolves to the state colour on its own
   assert.match(svg, new RegExp('<svg [^>]*color="' + RUN_STATES.running.color + '"'))
   assert.equal(RUN_STATES.running.pulses, true)
 })
+
+const SILENCE = 'Execution reported by a local agent or native client - No MCP call for 4h0m0s: the client may be busy or waiting for input, and this run stays open'
+
+test('a running run whose summary records a silence is silent (#319)', () => {
+  assert.equal(runStateOf({ status: 'running', summary: SILENCE }), 'silent')
+  assert.equal(runStateOf({ status: 'running', summary: 'Execution running on local agent' }), 'running')
+})
+
+test('a declared wait and an ended run both outrank a silence', () => {
+  assert.equal(runStateOf({ status: 'running', summary: SILENCE, waitingSince: '2026-09-17T10:00:00Z' }), 'waiting')
+  for (const status of ['completed', 'failed', 'canceled']) {
+    assert.equal(runStateOf({ status, summary: SILENCE }), status)
+  }
+  assert.equal(runStateOf({ status: 'queued', summary: SILENCE }), 'queued')
+})

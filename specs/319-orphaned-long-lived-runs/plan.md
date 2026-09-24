@@ -2,9 +2,11 @@
 
 ## Design
 
-1. **Registry** (`internal/taskmcp/sessions.go`). A `RegistryConfig` carries the
-   sinks and both bounds; `NewSessionRegistryWith` keeps its signature and
-   defaults the abandon bound. `liveSession` keeps the `*mcp.ServerSession` it
+1. **Registry** (`internal/taskmcp/sessions.go`). `NewSessionRegistryBounded`
+   takes both bounds (defaults, then the abandon bound raised to the silence
+   bound); `NewSessionRegistryWith` keeps its signature and defaults the abandon
+   bound. A config struct was considered and dropped: two durations did not
+   justify it. `liveSession` keeps the `*mcp.ServerSession` it
    was watched with. The sweep that already remarks on silences also collects the
    sessions past the abandon bound; outside the lock it calls `Close` (which
    cancels the adopted runs with `RunDisconnectNote`) and then closes the SDK

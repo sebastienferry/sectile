@@ -80,7 +80,7 @@ func NewHandler(database *db.DB) *Handler {
 		db:                database,
 		subscribers:       make(map[chan Event]bool),
 		agentDispatcher:   NewAgentDispatcher(),
-		mcpSessions:       taskmcp.NewSessionRegistryWith(runs, notes, mcpSilenceNotice()),
+		mcpSessions:       taskmcp.NewSessionRegistryBounded(runs, notes, mcpSilenceNotice(), mcpAbandonAfter(mcpSilenceNotice())),
 		agentPingInterval: defaultAgentPingInterval,
 		agentReadTimeout:  defaultAgentReadTimeout,
 	}
@@ -3107,6 +3107,29 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/activities/{id}/cancel
 	if len(parts) >= 2 && parts[1] == "cancel" && r.Method == http.MethodPost {
+		// A run a client created is closed like a reported end (#319): only its
+		// owner or an admin may, the workflow is handed back, and its MCP
+		// session forgets it. Cancelling it as a plain activity skipped all
+		// three.
+		if act, err := h.db.GetActivityByID(id); err == nil && act != nil && act.SkillID == "remote_run" &&
+			act.Action == db.RunActionClient && act.TaskID != "" && act.Status == "running" {
+			caller, ok := h.requireOwnerOrAdmin(w, r, act.UserID)
+			if !ok {
+				return
+			}
+			_, err := h.db.FinishRemoteRunAs(caller.Actor(), caller.IsAdmin(), act.TaskID, id, "canceled", "Execution canceled from the activities view")
+			if errors.Is(err, db.ErrRunNotYours) {
+				writeError(w, http.StatusForbidden, msgNotOwner)
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+			h.mcpSessions.ReleaseRun(id)
+			writeJSON(w, http.StatusOK, map[string]string{"message": "Activité annulée avec succès"})
+			return
+		}
 		if err := h.db.CancelActivity(id); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

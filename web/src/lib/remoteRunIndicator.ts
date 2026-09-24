@@ -1,18 +1,26 @@
 import type { TaskActivity } from '../types'
+import { isSilentSummary } from '../../../shared/runStates.ts'
 
 /** Remote executions are the only activities this indicator represents. */
 const REMOTE_RUN_SKILL = 'remote_run'
 /** Only a run started by the user's own agent can be stopped. */
 const AGENT_OWNED_ACTION = 'Agent-owned remote execution'
+/**
+ * A run a connected client created has no agent to stop; it can only be closed,
+ * the way a disconnection would close it (#319).
+ */
+const CLIENT_ACTION = 'Remote skill execution'
 /** A cancellation stays visible long enough for the user to see its effect. */
 export const CANCELED_VISIBILITY_MS = 30_000
 
-export type RunIndicatorState = 'waiting' | 'running' | 'queued' | 'canceled'
+export type RunIndicatorState = 'waiting' | 'silent' | 'running' | 'queued' | 'canceled'
 
 export interface RunIndicator {
   state: RunIndicatorState
   runs: TaskActivity[]
   cancelableRunIds: string[]
+  /** Client-created runs the viewer may close: their own, or any for an admin. */
+  closableRunIds: string[]
   count: number
   /** When the displayed wait started, for the state 'waiting' alone. */
   waitingSince?: string
@@ -36,32 +44,51 @@ function isVisibleCancellation(activity: TaskActivity, now: number): boolean {
   return now - endedAt <= CANCELED_VISIBILITY_MS
 }
 
+/** Who is looking at the badge, which decides what it may offer to close. */
+export interface RunViewer {
+  userId?: string
+  role?: string
+}
+
+/**
+ * A silent run is a running run whose session stopped speaking long enough for
+ * the server to write it down. Its summary keeps the sentence, so it stays
+ * silent until it ends.
+ */
+function isSilent(activity: TaskActivity): boolean {
+  return activity.status === 'running' && !activity.waitingSince && isSilentSummary(activity.summary)
+}
+
 /**
  * Reduces a task's remote runs to a single displayable state:
- * waiting, then running, then queued, then recently canceled.
+ * waiting, then silent, then running, then queued, then recently canceled.
  *
  * Waiting outranks running because it is the only state that asks something of
  * the user: a task with one blocked run and one working run is a task to open.
+ * Silent comes next: it asks nothing yet, but it is the run to look at first.
  */
 export function deriveRunIndicator(
   activities: TaskActivity[],
   taskId: string,
   now: number = Date.now(),
+  viewer?: RunViewer,
 ): RunIndicator | null {
   const runs = activities.filter(activity => activity.taskId === taskId && activity.skillId === REMOTE_RUN_SKILL)
   const waiting = runs.filter(isWaiting)
   // Running keeps every executing run, waiting ones included: the count and the
   // accessible label report the whole picture, not only the blocked part.
   const running = runs.filter(run => run.status === 'running')
+  const silent = running.filter(isSilent)
   const queued = runs.filter(run => run.status === 'queued')
   const canceled = runs.filter(run => isVisibleCancellation(run, now))
 
   const selected: [RunIndicatorState, TaskActivity[]] | null =
     waiting.length > 0 ? ['waiting', running]
-      : running.length > 0 ? ['running', running]
+      : silent.length > 0 ? ['silent', running]
+        : running.length > 0 ? ['running', running]
         : queued.length > 0 ? ['queued', queued]
           : canceled.length > 0 ? ['canceled', canceled]
-            : null
+              : null
   if (!selected) return null
 
   const [state, selectedRuns] = selected
@@ -70,6 +97,15 @@ export function deriveRunIndicator(
   const cancelableRunIds = state === 'canceled'
     ? []
     : selectedRuns.filter(run => run.action === AGENT_OWNED_ACTION).map(run => run.id)
+  // The server decides in the end; this only avoids offering a button that
+  // would be refused. An ownerless run is an admin's, as on the server.
+  const isAdmin = viewer?.role === 'admin'
+  const closableRunIds = state === 'canceled'
+    ? []
+    : selectedRuns
+      .filter(run => run.status === 'running' && run.action === CLIENT_ACTION)
+      .filter(run => isAdmin || (!!viewer?.userId && run.userId === viewer.userId))
+      .map(run => run.id)
 
   // The earliest wait is the one reported: it is the longest, and the one the
   // user has been keeping waiting.
@@ -78,7 +114,7 @@ export function deriveRunIndicator(
     .filter(value => !Number.isNaN(Date.parse(value)))
     .sort()[0]
 
-  return { state, runs: selectedRuns, cancelableRunIds, count: selectedRuns.length, waitingSince }
+  return { state, runs: selectedRuns, cancelableRunIds, closableRunIds, count: selectedRuns.length, waitingSince }
 }
 
 /**
