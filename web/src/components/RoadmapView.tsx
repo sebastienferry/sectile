@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Target,
+  Layers,
+  Goal,
   CalendarRange,
   Route,
   Compass,
@@ -41,6 +43,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey'
 import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
+import { MacroLabelGroups } from './MacroLabelGroups'
 import { sprintLookup, isProjectCompatible } from '../lib/lookups'
 import {
   buildMacroRows,
@@ -127,7 +130,7 @@ export const RoadmapView: React.FC = () => {
   const epicColorsOn = useEpicColors()()
 
   const [tab, setTab] = useState<HorizonTab>('now')
-  const [displayMode, setDisplayMode] = useState<'framing' | 'execution'>('execution')
+  const [displayMode, setDisplayMode] = useState<'framing' | 'execution' | 'phases' | 'goals'>('execution')
   const [macroMeta, setMacroMeta] = useState<MacroMeta[]>([])
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [onlyIssues, setOnlyIssues] = useState(false)
@@ -916,6 +919,35 @@ export const RoadmapView: React.FC = () => {
               <Target size={12} />
               <span>Execution</span>
             </button>
+            {/* Les deux axes de découpe. Ils sont des modes du panneau et non
+                une vue à part : on répartit les tickets d'une macro en la
+                lisant, pas en quittant son panneau. */}
+            <button
+              type="button"
+              onClick={() => setDisplayMode('phases')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                displayMode === 'phases'
+                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Phases : l'ordre du travail, porté par des labels « phase:… »"
+            >
+              <Layers size={12} />
+              <span>Phases</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayMode('goals')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                displayMode === 'goals'
+                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Objectifs : ce qu'on cherche à obtenir, porté par des labels « goal:… »"
+            >
+              <Goal size={12} />
+              <span>Objectifs</span>
+            </button>
           </div>
 
           <button
@@ -1236,7 +1268,17 @@ export const RoadmapView: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pt-3.5 pb-7 flex flex-col gap-4">
-              {displayMode === 'execution' ? (
+              {/* La clé porte l'axe, et ce n'est pas cosmétique : les deux vues
+                  montent le même composant au même endroit de l'arbre, donc
+                  React le réutiliserait en ne changeant que la prop. Son état
+                  interne survivrait au passage d'une vue à l'autre, si bien
+                  qu'un groupe nommé en Phases apparaîtrait dans les Objectifs,
+                  avec la recherche et les groupes dépliés de l'autre axe. */}
+              {displayMode === 'phases' ? (
+                <MacroLabelGroups key="phase" axis="phase" tasks={selected.tasks} />
+              ) : displayMode === 'goals' ? (
+                <MacroLabelGroups key="goal" axis="goal" tasks={selected.tasks} />
+              ) : displayMode === 'execution' ? (
                 <>
                   {/* Prototypage : ajouter une story a la volée, ou pousser un
                       ticket existant dans la macro. */}

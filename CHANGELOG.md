@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Group a macro's tickets by phase and by goal.** Two tabs in the macro panel, *Phases* and *Objectifs*, split the same tickets along two axes carried by prefixed labels: `phase:` says the order of the work, `goal:` says what you are trying to obtain, and a ticket can serve one without belonging to the other. Drag a ticket between groups to move it; only that axis's label changes. Naming a group labels nothing, so the group waits empty as a target and the label becomes real on the first ticket dropped into it. Names are normalised on the way to the tracker, spaces becoming hyphens as Jira requires, and the resulting label is shown before it is applied.
+
 - **Import a macro's slicing from the repository's specification.** The macro panel, under Framing, offers *tasks.md* and *spec.md*: the first reads the group headings of the tasks file, one group being one story, the second the requirements or the prioritised user stories. Lines already there are kept, matched on their text rather than their position, so a ticked line keeps its tick and its story even when a group is inserted above it, and a line typed by hand survives. The two sources add up rather than replace each other. Nothing is written to the repository or the tracker, and no story is created: producing the slicing is a gesture you ask for, never a side effect of the synchronisation. When the specification is not merged yet, it is read from the macro's own branch, and the report says which file or branch it came from. A refusal names its cause: no repository configured, no specification folder for that key, or the chosen file missing next to the other one.
 
 - The Backlog can be condensed to one row per ticket: the button left of the filters drops the description excerpt and reduces the macro to its key, on the title line. The two details that made a row taller go with it (the time spent in the current state, the creator below the assignee), and the macro's title stays in the tooltip. The board and the roadmap keep their own density, and the choice is remembered for the next visit.
@@ -277,11 +279,11 @@ test fixtures or internal plumbing.
 - **Jira priorities follow the project's own scheme.** Sectile used to write the
   four names of Atlassian's default scheme, so a project whose priorities are
   named otherwise - the Blocker/Critical/Major/Minor/Trivial set, a renamed or
-  translated one — refused every creation and every update with "The priority
+  translated one - refused every creation and every update with "The priority
   selected is invalid". Sectile now asks the screen that will receive the write
   which priorities it takes, and sends one of those. A project whose creation
-  screen has no priority field at all is created without one — instead of being
-  refused — and the level is set straight afterwards, so it is not lost.
+  screen has no priority field at all is created without one - instead of being
+  refused - and the level is set straight afterwards, so it is not lost.
 
 ### Security
 
@@ -332,7 +334,7 @@ release mechanism that will keep the following entries short.
 ### Fixed
 
 - **Quiet agent runs are no longer canceled.** A run that stays silent for a
-  long time — a long build, a question waiting for its owner — used to be
+  long time - a long build, a question waiting for its owner - used to be
   canceled after fifteen minutes, which stopped an autonomous chain without a
   word. It now stays running, and its summary notes how long it has been quiet.
   A run canceled because its client disconnected can still be finished by the
