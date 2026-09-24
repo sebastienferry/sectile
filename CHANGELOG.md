@@ -13,6 +13,8 @@ test fixtures or internal plumbing.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-24
+
 ### Added
 
 - **Zoom and density are in the status bar, and the zoom reaches further.** The bottom bar shows the current zoom and opens both settings where you are already looking, instead of four clicks away under Profile, Appearance. The ladder gains 80 %, 150 % and 175 %: stopping at 125 % left "it is too small" without an answer. The four levels you may already have chosen are unchanged, and a value written by another version snaps to the nearest step rather than being refused.
@@ -33,27 +35,6 @@ test fixtures or internal plumbing.
   board filters are remembered per view (#387).
 
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
-
-### Changed
-
-- **Triage, Roadmap and Timeline are now hidden by default and enabled per
-  project.** Project settings, under General, carry a "Vues de l'espace de
-  travail" section where each project turns on the planning views it actually
-  uses. A view that is off appears neither in the sidebar nor in the command
-  palette, and switching to a project that does not use the view you are on
-  returns you to the board. Existing projects start with all three off.
-
-- Issue details show description and technical context directly below the title, alongside metadata, with pull requests below; narrow views keep the content first.
-
-- Removed the permanent instructional hint below the desktop project list.
-
-- Consolidated MCP setup into one per-engine configuration with three choices:
-  remote HTTP (default), local HTTP proxy, and STDIO. The engine selectors
-  offer Antigravity, Claude and Codex using the existing compact controls. API-key creation now lives in the same web
-  view, and desktop shows only the selected connection configuration.
-
-### Added
-
 - **The Triage view is back.** It lists the work items that are missing a
   sprint, a macro, a team or an assignee, groups them by what they lack, and
   lets you fix several at once. It is off by default; enable it per project in
@@ -124,6 +105,21 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Triage, Roadmap and Timeline are now hidden by default and enabled per
+  project.** Project settings, under General, carry a "Vues de l'espace de
+  travail" section where each project turns on the planning views it actually
+  uses. A view that is off appears neither in the sidebar nor in the command
+  palette, and switching to a project that does not use the view you are on
+  returns you to the board. Existing projects start with all three off.
+
+- Issue details show description and technical context directly below the title, alongside metadata, with pull requests below; narrow views keep the content first.
+
+- Removed the permanent instructional hint below the desktop project list.
+
+- Consolidated MCP setup into one per-engine configuration with three choices:
+  remote HTTP (default), local HTTP proxy, and STDIO. The engine selectors
+  offer Antigravity, Claude and Codex using the existing compact controls. API-key creation now lives in the same web
+  view, and desktop shows only the selected connection configuration.
 - Desktop console cleanup uses an unboxed broom icon, and task toolbar icons no longer have button frames. Icon controls show visible tooltips on hover and keyboard focus, including disabled actions.
 
 - Desktop settings use a larger dialog, open on User profile, and list Agent connection, AI Engine CLI, Agent logs, and Changelog in that order, with Changelog at the bottom of the sidebar. The User profile no longer shows the Credential row, and Agent connection shows a green or orange dot beside the server link status, plus Start, Stop, and Restart controls beside the local agent.
@@ -367,5 +363,6 @@ release mechanism that will keep the following entries short.
   A run canceled because its client disconnected can still be finished by the
   agent that owns it, so the chain carries on. (#315)
 
-[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/sebastienferry/sectile/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sebastienferry/sectile/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/sebastienferry/sectile/releases/tag/v0.1.0
