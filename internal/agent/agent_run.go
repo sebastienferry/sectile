@@ -60,6 +60,28 @@ func (q *runQueue) canceled(run *controlledRun) bool {
 	return run.canceled
 }
 
+// stoppedStatus is how a run the user stopped ends. A discussion has no work to
+// interrupt: stopping it is the ordinary way it ends, so it completes, where a
+// skill run stopped midway is canceled.
+func stoppedStatus(skill string) string {
+	if models.NormalizeSkillID(skill) == "discuss" {
+		return "completed"
+	}
+	return "canceled"
+}
+
+// stoppedNote is the note finish_run records alongside stoppedStatus.
+func stoppedNote(skill string, terminalClosed bool) string {
+	note := "Execution canceled"
+	if stoppedStatus(skill) == "completed" {
+		note = "Discussion ended"
+	}
+	if terminalClosed {
+		note += " after its local terminal closed"
+	}
+	return note
+}
+
 type controlledRun struct {
 	sequence uint64
 	limit    int
@@ -141,7 +163,7 @@ func (d *agentDaemon) handleRunControl(w http.ResponseWriter, r *http.Request) {
 			result.Status = "failed"
 		}
 		if run.canceled {
-			result.Status = "canceled"
+			result.Status = stoppedStatus(run.desktop.Skill)
 		}
 		run.desktop.Status = result.Status
 		go func() { _ = d.finishDesktopRun(context.Background(), run.taskID, id, result.Status, "") }()

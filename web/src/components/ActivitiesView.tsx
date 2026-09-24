@@ -121,7 +121,7 @@ export const ActivitiesView: React.FC = () => {
     return (
       <span className={'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border '
         + (STATE_CLASSES[state] || NEUTRAL_CLASSES)}>
-        <RunStateGlyph state={state} className={state === 'running' ? 'animate-spin' : undefined} />
+        <RunStateGlyph state={state} />
         <span>{wording}</span>
       </span>
     )

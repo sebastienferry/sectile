@@ -16,6 +16,12 @@ test('skill checkmark requires matching execution and workflow progress',async()
  assert.equal(skillResult({...run,kind:'console'},null),null)
  assert.equal(skillResult({...run,kind:'console',status:'canceled'},null),null)
  assert.equal(skillResult({...run,kind:'console',cancelRequested:true},null).label,'Stopping console')
+ // Nor does a discussion, whatever the server recorded for it.
+ const discussion={...run,skill:'discuss'}
+ assert.equal(skillResult(discussion,{...result,activity:{...result.activity,skillId:'discuss'}}),null)
+ assert.equal(skillResult({...discussion,status:'completed'},null),null)
+ assert.equal(skillResult({...discussion,status:'canceled'},{...result,activity:{...result.activity,skillId:'discuss',status:'canceled'}}),null)
+ assert.equal(skillResult({...discussion,cancelRequested:true},null).label,'Stopping discussion')
  // A stop already taken effect is no longer pending.
  assert.equal(skillResult({...run,status:'canceled',cancelRequested:true},null),null)
  assert.equal(skillResult(run,{...result,task:{labels:['new']}}).label,'Awaiting stage validation')

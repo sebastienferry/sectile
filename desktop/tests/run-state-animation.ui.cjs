@@ -3,7 +3,7 @@ const assert=require('node:assert/strict')
 const {_electron:electron,expect}=require('@playwright/test')
 const http=require('node:http'),fs=require('node:fs'),os=require('node:os'),path=require('node:path')
 
-test('desktop running icons rotate across polls and stop for other states or reduced motion',async()=>{
+test('desktop running icons pulse across polls and stop for other states or reduced motion',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-run-animation-'))
  const run={id:'run',taskId:'task',taskKey:'#377',projectId:'project',skill:'implement',directory:'/tmp/repo',status:'running'}
  let polls=0
@@ -38,11 +38,11 @@ test('desktop running icons rotate across polls and stop for other states or red
     window.__iconSamples.push({el,animation:a,time:a.currentTime})
     return {duration:t.duration,iterations:String(t.iterations),easing:t.easing}
    })
-   assert.deepEqual(timing,{duration:1000,iterations:'Infinity',easing:'linear'})
+   assert.deepEqual(timing,{duration:2000,iterations:'Infinity',easing:'linear'})
    const before=await icon.evaluate(el=>getComputedStyle(el).transform)
    await expect.poll(()=>icon.evaluate(el=>getComputedStyle(el).transform)).not.toBe(before)
   }
-  assert.equal(await page.locator('#run-state .run-state-label').evaluate(el=>getComputedStyle(el).transform),'none','The label must not rotate')
+  assert.equal(await page.locator('#run-state .run-state-label').evaluate(el=>getComputedStyle(el).transform),'none','The label must not pulse')
   const startPoll=polls
   await expect.poll(()=>polls).toBeGreaterThan(startPoll+1)
   assert.ok(await page.evaluate(()=>window.__iconSamples.every(({el,animation,time})=>el.isConnected&&el.getAnimations()[0]===animation&&animation.currentTime>time)),'Polling must preserve and advance each running animation')

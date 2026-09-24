@@ -23,8 +23,8 @@ export interface RunState {
   announcement: string
   /** The state's colour, as a literal so a notification icon can carry it. */
   color: string
-  /** Whether the glyph turns while the state lasts. Ignored on a notification. */
-  spins?: boolean
+  /** Whether the glyph pulses while the state lasts. Ignored on a notification. */
+  pulses?: boolean
   icon: IconNode[]
 }
 
@@ -48,8 +48,10 @@ export const RUN_STATES = {
     label: 'Running',
     announcement: 'is running',
     color: '#60a5fa',
-    spins: true,
-    icon: [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
+    pulses: true,
+    // A solid dot rather than a spinning arc: an arc reads as a check mark at a
+    // glance, and a dot says "live" without having to move.
+    icon: [['circle', { cx: 12, cy: 12, r: 6, fill: 'currentColor' }]],
   },
   queued: {
     id: 'queued',
@@ -106,8 +108,10 @@ export function runStateSvg(id: string, size = 64): string {
       return `<${tag} ${pairs.join(' ')}/>`
     })
     .join('')
+  // `color` resolves the `currentColor` a filled glyph uses, which standalone
+  // markup has no container to inherit from.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"`
-    + ` fill="none" stroke="${state.color}" stroke-width="2" stroke-linecap="round"`
+    + ` color="${state.color}" fill="none" stroke="${state.color}" stroke-width="2" stroke-linecap="round"`
     + ` stroke-linejoin="round">${elements}</svg>`
 }
 

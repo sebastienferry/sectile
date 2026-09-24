@@ -52,6 +52,8 @@ test fixtures or internal plumbing.
 
 - **A story created under a Jira epic now gets the epic as its parent on Jira**, not only on the Sectile board. If Jira refuses the parent, the story is kept and a warning says so. (#426)
 
+- **Ending a discussion in the desktop app no longer reads as a cancellation.** Stopping a discussion, or stopping it after its console closed, now reports it *Finished* with the green check, here and in the task's activity history, and a discussion no longer shows a skill badge since it runs no skill. Stopping a skill run still cancels it, and a discussion whose CLI exits in error still fails. The run indicators also read better: the state now comes before the title in the sidebar and the header, its tooltip starts with *Process:* while the skill badge's starts with *Skill:*, and *Running* is a pulsing blue dot instead of a spinner (still under reduced motion), on the desktop notification and the web badges too. (#438)
+
 - The priority field of the task detail, quick add and clone forms shows the same colour dot as the task's card, so the priority you pick reads the way the board will show it. (#434)
 
 - **A queued run now makes its task busy.** A skill waiting for its turn in the queue will start an agent on the ticket, so launching another run on the same ticket is refused, as it already was for a running one, with a message saying the run is queued. The refusal covers the next step, the full chain and a retry too, which used to queue a second run. "Launch anyway" still starts one next to it, and a session you start yourself from a terminal is never refused.

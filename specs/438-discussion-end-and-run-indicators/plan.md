@@ -45,8 +45,12 @@ shutdown also map `canceled` to `canceled`; they stay as they are (FR 4).
   notification icon). `RunStateGlyph` inherits the badge colour as today.
 - Desktop CSS: the spin keyframes become a slow opacity/scale pulse on
   `[data-run-state=running] svg`, disabled under `prefers-reduced-motion`.
-- Web: `RemoteRunBadge` and `ActivitiesView` apply `animate-spin` to the running
-  glyph; a spinning dot shows nothing, so they use `motion-safe:animate-pulse`.
+- Web: `RemoteRunBadge` and `ActivitiesView` applied `animate-spin` to the
+  running glyph; a spinning dot shows nothing. `RemoteRunBadge` pulses it
+  (`motion-safe:animate-pulse`); `ActivitiesView` leaves it still, since its
+  running badge already pulses as a whole.
+- The tickets pane draws its state cell with the same `renderRunState`, so it
+  carries the `Process:` tooltip too.
 - Placement: the sidebar row appends `state, title, status`; in the header the
   `#run-state` span moves before `#title` in the static markup.
 
