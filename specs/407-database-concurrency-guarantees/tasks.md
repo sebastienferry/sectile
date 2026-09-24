@@ -99,6 +99,19 @@ Default engine (SQLite), no DSN needed:
 - `CreateProjectAs` used to clear the previous default before a validation that
   could refuse the project; the clear now happens in the insert's transaction.
 
+## Adjustments after review
+
+- The conversion claim survived no concurrent edit: full-row task writers wrote
+  `source` back as `local`. They now keep `converting`; the claim expires after
+  five minutes; the final write locks the task and fails loudly if the claim was
+  lost (`TestAnEditDuringAConversionKeepsBoth`, `TestAStaleConversionClaimIsTakenOver`).
+- FR5 on the queued path: `enqueueSkillOnTask` checks `ActiveRunOnTask` before
+  its insert, so a concurrent run makes the task busy there too
+  (`TestEnqueueNextToAConcurrentRunIsRefused`).
+- "Launch anyway" with nothing active records an ordinary run.
+- `UpdateProjectAs` locks the row when called with a slug as well.
+- At most eight worker-lock connections are reserved per process.
+
 ## Test plan
 
 `go build ./...`, `go vet ./...`, `go test ./internal/db/... ./internal/handlers/... ./internal/taskmcp/...`,

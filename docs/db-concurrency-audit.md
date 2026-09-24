@@ -37,7 +37,9 @@ In order of preference:
    `task_activities.concurrent = 1` and stay out of it.
 5. **Advisory lock** (**Q3**): `dialect.AcquireProjectWorker` takes
    `pg_try_advisory_lock(0x5EC7, fnv32a(project))` on a reserved connection, so one
-   server-side job per project runs across all instances.
+   server-side job per project runs across all instances. At most eight such
+   connections are reserved per process, so running jobs never exhaust the pool
+   their own queries need.
 
 `SERIALIZABLE` was rejected: every transaction would need a retry loop on
 `40001`, and the SQLite drivers refuse non-default isolation levels. See
@@ -70,11 +72,11 @@ Classes: READ 54, SINGLE 47, RMW 18, RCW 15, MEM 3.
 | trackerops.go:826 | finishTrackerOp | RMW | steps JSON appended in Go (status guard from #405) | LOCK activity row |
 | remoterun.go:189 | finishRemoteRun | RMW | summary joined in Go from an unlocked read | SQL-1 `CASE` on the summary, `status = 'running'` kept |
 | remoterun.go:255 | SyncRemoteRunStatusFor | RCW | exists check, then UPDATE with no status guard or INSERT | COND `status NOT IN (terminal)`; else `INSERT ... ON CONFLICT (id) DO NOTHING`, `concurrent = 1` |
-| db.go:4971 | enqueueSkillOnTask | RCW | queued skill inserted with no active-run check; insert error ignored | Q4 (`concurrent = 0`), `ErrTaskBusy` before `enqueueJob` |
+| db.go:4971 | enqueueSkillOnTask | RCW | queued skill inserted with no active-run check; insert error ignored | `ActiveRunOnTask` first (a concurrent run makes the task busy too, FR5), then Q4 (`concurrent = 0`) for the race; `ErrTaskBusy` before `enqueueJob` |
 | skillresult.go:28 | ActiveRunOnTask | READ | | Q4 predicate (queued counts, legacy action clause dropped) |
 | db.go:3336 | AddTaskActivity | SINGLE | | Q4 via `insertTaskActivity` (startRemoteRun, StartAgentRun) |
 | db.go:2362 | CreateTaskAs | RCW | key and position as MAX+1; tracker `CreateIssue` over HTTP under the lock | CreateIssue before any lock; LOCK projects row around MAX+1 plus INSERT; duplicate position accepted |
-| db.go:5502 | ConvertTaskToRemote | RCW | issue created without a claim, then key, source, labels from the snapshot | COND claim `source 'local' -> 'converting'`, final UPDATE `WHERE source = 'converting'`, reset on failure |
+| db.go:5502 | ConvertTaskToRemote | RCW | issue created without a claim, then key, source, labels from the snapshot | LOCK claim `source -> 'converting'` (expires after 5 minutes, for a server that stopped mid-conversion); full-row task writers keep the claim; the final write locks the task, keeps edits made meanwhile, and fails naming the created issue if the claim was lost; reset on tracker failure |
 | db.go:6044 | CreateProjectAs | RCW | clear default then INSERT, no tx | LOCK settings row id=1 as sentinel, both in one tx (the default is no longer cleared before a validation that may refuse the project) |
 | db.go:6197 | UpdateProjectAs | RMW | whole project row merged; default-project rule | LOCK projects row (plus sentinel when isDefault changes) |
 | db.go:6426 | DeleteProject | RCW | checks is_default, reassigns and deletes in several statements | LOCK settings row then projects row; recheck and delete in one tx (a failed statement now aborts the deletion) |

@@ -142,6 +142,12 @@ const projectWorkerLockClass int32 = 0x5EC7
 // project's advisory lock. A variable so the tests can shorten it.
 var projectWorkerRetry = 500 * time.Millisecond
 
+// projectWorkerSlots caps the connections this process reserves for project
+// worker locks. Each running job holds one for its whole duration, and its own
+// queries need others from the same pool of 25: left uncapped, 25 projects
+// served at once would hold the whole pool and wait on it forever.
+var projectWorkerSlots = make(chan struct{}, 8)
+
 // projectWorkerKey hashes a project id onto the second half of the lock key.
 // Two projects sharing a hash only run their jobs one after the other, which
 // is harmless.
@@ -162,14 +168,17 @@ func projectWorkerKey(projectID string) int32 {
 func (postgresDialect) AcquireProjectWorker(conn *sqlConn, projectID string) (func(), error) {
 	ctx := context.Background()
 	key := projectWorkerKey(projectID)
+	projectWorkerSlots <- struct{}{}
 	for {
 		held, err := conn.db.Conn(ctx)
 		if err != nil {
+			<-projectWorkerSlots
 			return func() {}, err
 		}
 		var acquired bool
 		if err := held.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1, $2)", projectWorkerLockClass, key).Scan(&acquired); err != nil {
 			held.Close()
+			<-projectWorkerSlots
 			return func() {}, err
 		}
 		if acquired {
@@ -178,6 +187,7 @@ func (postgresDialect) AcquireProjectWorker(conn *sqlConn, projectID string) (fu
 					log.Printf("[skill] releasing the worker lock of project %s: %v", projectID, err)
 				}
 				held.Close()
+				<-projectWorkerSlots
 			}, nil
 		}
 		held.Close()

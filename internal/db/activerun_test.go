@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"tasks/internal/models"
 	"tasks/internal/skills"
+	"tasks/internal/tracker"
 )
 
 func activeRunDB(t *testing.T) (*DB, string) {
@@ -194,5 +196,84 @@ func TestRunOutputIsCutOnACharacterBoundary(t *testing.T) {
 	}
 	if err := d.AppendRemoteRunOutput("t1", "missing", "x"); err == nil {
 		t.Fatal("appending to an unknown run must fail")
+	}
+}
+
+// FR5 on the queued path: a session somebody declared by hand is concurrent,
+// so the index lets it through, but the task is still busy for a new run.
+func TestEnqueueNextToAConcurrentRunIsRefused(t *testing.T) {
+	d, _ := activeRunDB(t)
+	client, err := d.StartRemoteRunBy("u1", "t1", "clarify", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = d.EnqueueSkillOnTask("t1", "clarify", "")
+	var busy *TaskBusyError
+	if !errors.As(err, &busy) || busy.Active == nil || busy.Active.ID != client.ID {
+		t.Fatalf("enqueue next to a client session: %v", err)
+	}
+}
+
+// editingTracker edits the task while the issue is being created, as a person
+// or an agent post-back would during a slow tracker call.
+type editingTracker struct {
+	tracker.BaseTicketingSystem
+	edit func()
+}
+
+func (e *editingTracker) CreateIssue(ctx context.Context, req tracker.CreateIssueRequest) (*models.Task, error) {
+	e.edit()
+	return &models.Task{Key: "REM-1"}, nil
+}
+
+func convertibleTask(t *testing.T, d *DB) {
+	t.Helper()
+	if _, err := d.conn.Exec(`INSERT INTO tasks (id, project_id, key, title, status, priority, source) VALUES ('t2','p1','P-1','Before','backlog','medium','local')`); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// An edit made during the tracker call neither erases the conversion claim nor
+// is overwritten by the conversion.
+func TestAnEditDuringAConversionKeepsBoth(t *testing.T) {
+	d, _ := activeRunDB(t)
+	convertibleTask(t, d)
+	title := "Edited meanwhile"
+	fake := &editingTracker{BaseTicketingSystem: tracker.BaseTicketingSystem{TrackerName: "remote", Capabilities: []tracker.Capability{tracker.CapCreate}}}
+	fake.edit = func() {
+		if _, err := d.UpdateTask("t2", models.UpdateTaskRequest{Title: &title}); err != nil {
+			t.Errorf("editing during the conversion: %v", err)
+		}
+	}
+	d.TrackerRegistry().Register("remote", fake)
+
+	if _, err := d.ConvertTaskToRemote("t2", "remote"); err != nil {
+		t.Fatalf("conversion: %v", err)
+	}
+	task, _ := d.GetTaskByID("t2")
+	if task.Key != "REM-1" || task.Source != "remote" || task.Title != title {
+		t.Fatalf("task = %s / %s / %q", task.Key, task.Source, task.Title)
+	}
+}
+
+// A claim left by a server that stopped mid-conversion expires instead of
+// refusing the task forever; a fresh one still refuses.
+func TestAStaleConversionClaimIsTakenOver(t *testing.T) {
+	d, _ := activeRunDB(t)
+	convertibleTask(t, d)
+	fake := &editingTracker{BaseTicketingSystem: tracker.BaseTicketingSystem{TrackerName: "remote", Capabilities: []tracker.Capability{tracker.CapCreate}}, edit: func() {}}
+	d.TrackerRegistry().Register("remote", fake)
+
+	if _, err := d.conn.Exec(`UPDATE tasks SET source = 'converting', updated_at = ? WHERE id = 't2'`, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.ConvertTaskToRemote("t2", "remote"); err == nil {
+		t.Fatal("a conversion in progress must refuse a second one")
+	}
+	if _, err := d.conn.Exec(`UPDATE tasks SET updated_at = ? WHERE id = 't2'`, time.Now().Add(-convertClaimExpiry-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.ConvertTaskToRemote("t2", "remote"); err != nil {
+		t.Fatalf("a stale claim was not taken over: %v", err)
 	}
 }

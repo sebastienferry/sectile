@@ -1258,6 +1258,10 @@ func (d *DB) lockSettingsUnsafe(tx *sqlTx) error {
 // another, from creating a second issue. It never reaches a reader.
 const sourceConverting = "converting"
 
+// convertClaimExpiry is how long a conversion claim holds. A tracker call takes
+// seconds; a claim this old was left by a server that stopped mid-conversion.
+const convertClaimExpiry = 5 * time.Minute
+
 // taskSource is where a task comes from: its recorded source, else what its key
 // looks like. A task being converted is still local until the issue exists.
 func taskSource(source sql.NullString, key string) string {
@@ -2949,7 +2953,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 
 	_, err = tx.Exec(`
 		UPDATE tasks
-		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = ?, external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
+		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = CASE WHEN source = 'converting' THEN source ELSE ? END, external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
 		WHERE id = ?
 	`, existing.ProjectID, existing.Title, existing.Description, string(existing.Status), string(existing.Priority), string(labelsJSON), pinnedVal, existing.Assignee, existing.AssigneeAvatar, existing.Position, existing.DueDate, existing.BranchName, existing.PrURL, encodePullRequestLinks(existing.PrLinks), repoPathValue(existing.RepoPath), existing.TrackerStatus, existing.Source, existing.ExternalURL, existing.IssueType, existing.Sprint, existing.UpdatedAt, existing.ID)
 
@@ -5121,9 +5125,16 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 		CreatedAt: now,
 	}
 
-	// The insert is the busy check: the database refuses a second ordinary
-	// active run on the task, from this server or any other. Nothing is queued
-	// for a refused run.
+	// Every active run makes the task busy, a concurrent one included: a
+	// session somebody started by hand is no reason to start a second agent.
+	// The insert then settles the race the check cannot: the database refuses a
+	// second ordinary active run on the task, from this server or any other.
+	// Nothing is queued for a refused run.
+	if active, err := d.ActiveRunOnTask(task.ID); err != nil {
+		return nil, nil, err
+	} else if active != nil {
+		return nil, nil, &TaskBusyError{Active: active}
+	}
 	d.mu.Lock()
 	err = d.addTaskActivityDirect(act)
 	d.mu.Unlock()
@@ -5652,13 +5663,19 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	var previousSource sql.NullString
 	claimErr := d.conn.WithTx(func(tx *sqlTx) error {
 		var key string
-		if err := tx.QueryRow("SELECT key, source FROM tasks WHERE id = ?"+d.forUpdate(), task.ID).Scan(&key, &previousSource); err != nil {
+		var claimedAt time.Time
+		if err := tx.QueryRow("SELECT key, source, updated_at FROM tasks WHERE id = ?"+d.forUpdate(), task.ID).Scan(&key, &previousSource, &claimedAt); err != nil {
 			return err
 		}
-		if key != task.Key || previousSource.String == sourceConverting {
+		// A claim older than convertClaimExpiry belongs to a conversion that
+		// died with its server: it is taken over rather than refusing the task
+		// forever. Its previous source is unknown by then; the task was local.
+		if previousSource.String == sourceConverting && time.Since(claimedAt) >= convertClaimExpiry {
+			previousSource = sql.NullString{String: "local", Valid: true}
+		} else if key != task.Key || previousSource.String == sourceConverting {
 			return fmt.Errorf("la tâche %s est déjà en cours de conversion ou a déjà été convertie", task.Key)
 		}
-		_, err := tx.Exec("UPDATE tasks SET source = ? WHERE id = ?", sourceConverting, task.ID)
+		_, err := tx.Exec("UPDATE tasks SET source = ?, updated_at = ? WHERE id = ?", sourceConverting, time.Now(), task.ID)
 		return err
 	})
 	d.mu.Unlock()
@@ -5693,17 +5710,36 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	task.Key = newKey
-	task.Source = target
-	task.ExternalURL = extURL
-	task.UpdatedAt = now
-
-	labelsJSON, _ := json.Marshal(task.Labels)
-	_, err = d.conn.Exec(`
-		UPDATE tasks
-		SET key = ?, source = ?, external_url = ?, labels = ?, updated_at = ?
-		WHERE id = ? AND source = ?
-	`, task.Key, task.Source, task.ExternalURL, string(labelsJSON), now, task.ID, sourceConverting)
+	// The task is written from its locked row, so an edit made during the
+	// tracker call is kept, and only while the claim is still this conversion's.
+	// A claim lost meanwhile leaves an issue nobody records: say which one
+	// rather than report a success.
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		locked, err := d.lockTaskUnsafe(tx, task.ID)
+		if err != nil {
+			return err
+		}
+		var source string
+		if err := tx.QueryRow("SELECT COALESCE(source, '') FROM tasks WHERE id = ?", task.ID).Scan(&source); err != nil {
+			return err
+		}
+		if locked == nil || source != sourceConverting {
+			return fmt.Errorf("conversion de %s interrompue : l'issue %s a été créée sur %s mais n'est pas rattachée à la tâche", task.Key, newKey, ts.Name())
+		}
+		task = locked
+		task.Labels = SetWorkflowLabel(task.Labels, "#"+GetStageLabelForStatus(task.Status))
+		task.Key = newKey
+		task.Source = target
+		task.ExternalURL = extURL
+		task.UpdatedAt = now
+		labelsJSON, _ := json.Marshal(task.Labels)
+		_, err = tx.Exec(`
+			UPDATE tasks
+			SET key = ?, source = ?, external_url = ?, labels = ?, updated_at = ?
+			WHERE id = ?
+		`, task.Key, task.Source, task.ExternalURL, string(labelsJSON), now, task.ID)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -6422,7 +6458,7 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		}
 	}
 	var lockedID string
-	if err := tx.QueryRow("SELECT id FROM projects WHERE id = ?"+d.forUpdate(), id).Scan(&lockedID); err != nil && err != sql.ErrNoRows {
+	if err := tx.QueryRow("SELECT id FROM projects WHERE id = ? OR slug = ?"+d.forUpdate(), id, id).Scan(&lockedID); err != nil && err != sql.ErrNoRows {
 		d.mu.Unlock()
 		return nil, err
 	}

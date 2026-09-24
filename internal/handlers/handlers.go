@@ -2099,8 +2099,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			// busy check that holds across server instances: a launch that lost
 			// the race to another one is refused here and leaves no trace.
 			// "Launch anyway" records a concurrent run, which the database lets
-			// sit next to the active one.
-			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force})
+			// sit next to the active one; with nothing active it is an ordinary
+			// launch.
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force && active != nil})
 			if writeTaskBusy(w, runErr) {
 				return
 			}
