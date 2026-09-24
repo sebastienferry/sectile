@@ -185,6 +185,14 @@ test fixtures or internal plumbing.
   up empty and the board showed nothing. The column is now added on start,
   whatever version the database comes from, and no setting is lost.
 
+- **A local agent is reachable whichever server receives the request.** With
+  several servers on one database, a stage transition, a launch or a workspace
+  operation arriving on a server the agent is not connected to used to fail with
+  "no local agent connected". The servers now forward the work to the one holding
+  the agent, over an internal port (`SECTILE_INTERNAL_PORT`, 8092 by default), and
+  the agent indicator lists the agents of every server. The indicator also
+  refreshes as soon as an agent connects or disconnects. (#406)
+
 - **Several servers sharing one database synchronise each project once.** The
   background synchronisation used to run in every server, so each project was
   read once per server per interval, and a tracker asking to slow down (rate

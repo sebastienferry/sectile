@@ -163,6 +163,25 @@ var migrations = []migration{
 			"INSERT INTO auto_sync_state (id) VALUES (1);",
 		},
 	},
+	{
+		// Which server instance holds each local agent, and where to reach
+		// that instance, so any instance can forward agent work to it. See
+		// internal/db/presence.go.
+		version: 8,
+		name:    "agent_presence",
+		statements: []string{
+			"ALTER TABLE server_instances ADD COLUMN address TEXT NOT NULL DEFAULT '';",
+			`CREATE TABLE agent_presence (
+				user_id TEXT NOT NULL,
+				project_id TEXT NOT NULL,
+				instance_id TEXT NOT NULL,
+				device_id TEXT NOT NULL DEFAULT '',
+				connected_at DATETIME NOT NULL,
+				disconnected_at DATETIME,
+				PRIMARY KEY (user_id, project_id)
+			);`,
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
