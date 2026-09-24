@@ -287,6 +287,17 @@ test fixtures or internal plumbing.
   starts on "Choisir un board…" and marks the default board as "(suggéré)".
   Picking it records it and imports its columns, as picking any other board
   does, instead of waiting for the next synchronisation. (#375)
+- **A locked personal GitHub token stops the call instead of borrowing the
+  server's.** When somebody sealed their GitHub token behind a passphrase and
+  had not unlocked it, Sectile quietly used the project or server token instead:
+  the background synchronisation of a project they own read as the service
+  account while its activity named them, and their own writes went out under an
+  account they did not choose. Such a call made through the GitHub tracker
+  adapter now fails and says the credential is locked, as Jira already did. The
+  branch pull request lookup and the GitHub GraphQL reads, which resolve their
+  credential through `trackerAs`, still fall back and are out of scope of this
+  change. Somebody who stored no GitHub token at all still uses the project or
+  server token.
 - **Clicking beside a dialog closes it, as `Escape` does.** Ten dialogs - the
   quick add, the clone, the command palette, the task sheet and its expanded
   specification reader, the three roadmap dialogs, the sprint closing and the
