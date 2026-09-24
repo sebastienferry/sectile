@@ -726,6 +726,8 @@ export interface TranslationSchema {
   }
   toasts: {
     taskCreated: string
+    openCreated: string
+    openInTracker: string
     taskUpdated: string
     taskMoved: string
     taskDeleted: string
@@ -1471,6 +1473,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     toasts: {
       taskCreated: 'Tâche créée avec succès !',
+      openCreated: 'Ouvrir',
+      openInTracker: 'Ouvrir dans le tracker',
       taskUpdated: 'Tâche mise à jour !',
       taskMoved: 'Statut de la tâche mis à jour',
       taskDeleted: 'Tâche supprimée',
@@ -2214,6 +2218,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
     },
     toasts: {
       taskCreated: 'Task created successfully!',
+      openCreated: 'Open',
+      openInTracker: 'Open in the tracker',
       taskUpdated: 'Task updated successfully!',
       taskMoved: 'Task status updated',
       taskDeleted: 'Task deleted',
