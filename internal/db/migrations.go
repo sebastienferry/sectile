@@ -122,6 +122,23 @@ var migrations = []migration{
 			"ALTER TABLE projects ADD COLUMN enabled_views TEXT NOT NULL DEFAULT '[]';",
 		},
 	},
+	{
+		// The server process owning a piece of work, so that one instance
+		// starting does not reclaim what another live instance runs. See
+		// internal/db/instances.go.
+		version: 6,
+		name:    "server_instances",
+		statements: []string{
+			"ALTER TABLE task_activities ADD COLUMN instance_id TEXT NOT NULL DEFAULT '';",
+			`CREATE TABLE server_instances (
+				id TEXT PRIMARY KEY,
+				hostname TEXT NOT NULL DEFAULT '',
+				pid INTEGER NOT NULL DEFAULT 0,
+				started_at DATETIME NOT NULL,
+				last_seen DATETIME NOT NULL
+			);`,
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

@@ -162,6 +162,10 @@ type DB struct {
 	// jobs counts the queue work in flight, so Close can wait for it instead of
 	// pulling the database out from under a write.
 	jobs inFlightJobs
+	// instanceID names this process among the server instances sharing the
+	// database. Every activity it creates or starts executing carries it. See
+	// internal/db/instances.go.
+	instanceID string
 }
 
 // NewDB opens a SQLite database at dbPath. It is the path-shaped entry point the
@@ -223,6 +227,7 @@ func openWith(cfg Config, d dialect) (*DB, error) {
 		jobQueue:        make(chan SkillJob, 100),
 		limiter:         newProjectLimiter(),
 		cancelMap:       make(map[string]context.CancelFunc),
+		instanceID:      uuid.NewString(),
 	}
 	// The client resolves its credentials through the store, which is the only
 	// component able to read the settings and the project override.
@@ -680,28 +685,6 @@ func (d *DB) reconcileLateColumns() {
 	for _, column := range lateColumns {
 		_, _ = d.conn.Exec(column.addStatement())
 	}
-}
-
-// recoverInterruptedRuns closes the work the previous process was still running
-// when it stopped. It runs on every start, on every engine.
-//
-// It used to live inside applyLegacyMigrations, which only ever runs on SQLite.
-// A PostgreSQL deployment therefore never recovered anything: a restart left
-// its activities `running` forever, with nothing able to close them. Being a
-// repair of data rather than of schema is what let it hide there; it is not a
-// migration, and the numbered scheme has no place for something that must run
-// every time. See docs/adrs/0021.
-func (d *DB) recoverInterruptedRuns() {
-	// Work the server itself was running cannot survive its own restart.
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'failed', error = 'Interrupted by server restart' WHERE status IN ('running', 'queued', 'pending') AND skill_id != 'remote_run';")
-	// A remote run dispatched to an agent outlives the server: its supervisor
-	// watches the real process and reports the outcome on reconnection. A run a
-	// client started is owned by that client's MCP session, which the restart
-	// destroyed along with every other, so nothing is left that could ever close
-	// it. Canceled rather than failed: the work did not fail here, its outcome
-	// merely became unknowable.
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
-		"Interrupted by server restart: the client session that owned this run is gone", time.Now(), RunActionAgent)
 }
 
 // applyLegacyMigrations brings a database written by an earlier version up to
@@ -3322,22 +3305,23 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 }
 
 func (d *DB) addTaskActivityDirect(act models.TaskActivity) error {
-	return insertTaskActivity(d.conn, act)
+	return insertTaskActivity(d.conn, d.instanceID, act)
 }
 
 type activityExecutor interface {
 	Exec(string, ...any) (sql.Result, error)
 }
 
-func insertTaskActivity(conn activityExecutor, act models.TaskActivity) error {
+// insertTaskActivity records an activity owned by the given server instance.
+func insertTaskActivity(conn activityExecutor, instanceID string, act models.TaskActivity) error {
 	stepsJSON, _ := json.Marshal(act.Steps)
 	if act.Steps == nil {
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model)
-		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model)
+		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, instance_id)
+		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model, instanceID)
 	return err
 }
 
@@ -4026,12 +4010,13 @@ func (d *DB) processSkillJob(job SkillJob) {
 		d.cancelMu.Unlock()
 	}()
 
+	// The instance executing the job owns it from here, whoever created it.
 	d.mu.Lock()
 	_, _ = d.conn.Exec(`
 		UPDATE task_activities
-		SET status = 'running', started_at = ?
+		SET status = 'running', started_at = ?, instance_id = ?
 		WHERE id = ?
-	`, now, job.ActivityID)
+	`, now, d.instanceID, job.ActivityID)
 	d.mu.Unlock()
 
 	// 3. Special handling for background Sync jobs

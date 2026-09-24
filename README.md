@@ -518,6 +518,14 @@ restart destroys every session at once, so startup closes the runs they owned as
 canceled; runs dispatched to an agent are preserved, because that agent
 reconnects and reports the real process exit.
 
+Each server process registers itself in the database and refreshes that record
+every ten seconds; every job it runs and every client run it holds records it as
+owner. On SQLite, which one process uses at a time, a start reclaims all
+unfinished work as described above. On PostgreSQL, where another server may be
+serving from the same database, a start and every live server only reclaim the
+work of servers not heard from for 45 seconds, so a rolling deploy no longer
+interrupts the server it replaces.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect

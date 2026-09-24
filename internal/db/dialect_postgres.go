@@ -110,6 +110,10 @@ func (postgresDialect) LockForMigration(conn *sqlConn) (func(), error) {
 
 func (postgresDialect) RunsLegacyMigrations() bool { return false }
 
+// ServesOneProcess is false: several server instances may share one PostgreSQL
+// database, so a start only reclaims the work of instances that are gone.
+func (postgresDialect) ServesOneProcess() bool { return false }
+
 // MigrateActivityAttachment walks an existing table to the current schema with
 // ALTER TABLE, cleaning the data in the middle: PostgreSQL validates a foreign
 // key against the rows already there, and every "sync-<x>" identifier would

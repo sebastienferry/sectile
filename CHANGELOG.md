@@ -194,6 +194,14 @@ test fixtures or internal plumbing.
   screen, with a button to try again. Being signed out stays quiet, since it
   already sends you to the sign-in screen.
 
+- **Starting a second server on PostgreSQL no longer interrupts the first one's
+  work.** A server used to mark every running job as failed and every client run
+  as canceled when it started, including the work of another server sharing the
+  same PostgreSQL database, which a rolling deploy does for a few seconds. Each
+  server now only reclaims the work of servers that stopped answering for 45
+  seconds. A single SQLite server still reclaims everything at start, as before.
+  (#403)
+
 - **A coordination project can record a pull request from another repository.**
   When a project has no code remote, or is not mono-repo, a stage transition
   whose `prUrl` points to another GitHub or GitLab repository is now checked

@@ -186,6 +186,14 @@ func main() {
 	}
 	defer database.Close()
 
+	// This process is one serving instance among those that may share the
+	// database: it keeps its row fresh and reclaims the work of instances that
+	// went away. See internal/db/instances.go.
+	if _, err := database.StartInstance(); err != nil {
+		log.Fatalf("Fatal database error: %v", err)
+	}
+	log.Printf("   instance : %s", database.InstanceID())
+
 	h := handlers.NewHandler(database)
 	h.SetDataDir(appDataDir())
 	h.SetPullOnConnect(true)
