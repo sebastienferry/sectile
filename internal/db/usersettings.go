@@ -94,7 +94,8 @@ func (d *DB) UpdateUserSettings(userID string, s models.Settings) (*models.Setti
 	if err != nil {
 		return nil, err
 	}
-	merged := PersonalSettings(s)
+	requested := PersonalSettings(s)
+	merged := requested
 	for _, field := range []struct{ value, fallback *string }{
 		{&merged.Theme, &current.Theme},
 		{&merged.AccentColor, &current.AccentColor},
@@ -118,32 +119,43 @@ func (d *DB) UpdateUserSettings(userID string, s models.Settings) (*models.Setti
 	merged.UIScale = NormalizeUIScale(merged.UIScale)
 	merged.UpdatedAt = time.Now()
 
+	// The merge happens in the statement itself: a field the request leaves
+	// empty keeps what the row holds when the statement runs, not what it held
+	// when it was read above, so two saves of different fields on two server
+	// instances both land. The values read above only seed a new row.
+	keep := func(column string) string {
+		return column + " = CASE WHEN ? = '' THEN user_settings." + column + " ELSE excluded." + column + " END"
+	}
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	_, err = d.conn.Exec(`
 		INSERT INTO user_settings (user_id, theme, accent_color, language, density, default_view, detail_mode,
 		                           ui_scale, user_name, user_email, user_avatar, editor_command,
 		                           external_terminal_command, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id) DO UPDATE SET
-			theme = excluded.theme,
-			accent_color = excluded.accent_color,
-			language = excluded.language,
-			density = excluded.density,
-			default_view = excluded.default_view,
-			detail_mode = excluded.detail_mode,
-			ui_scale = excluded.ui_scale,
-			user_name = excluded.user_name,
-			user_email = excluded.user_email,
-			user_avatar = excluded.user_avatar,
-			editor_command = excluded.editor_command,
-			external_terminal_command = excluded.external_terminal_command,
+			`+keep("theme")+`,
+			`+keep("accent_color")+`,
+			`+keep("language")+`,
+			`+keep("density")+`,
+			`+keep("default_view")+`,
+			`+keep("detail_mode")+`,
+			ui_scale = CASE WHEN ? = 0 THEN user_settings.ui_scale ELSE excluded.ui_scale END,
+			`+keep("user_name")+`,
+			`+keep("user_email")+`,
+			`+keep("user_avatar")+`,
+			`+keep("editor_command")+`,
+			`+keep("external_terminal_command")+`,
 			updated_at = excluded.updated_at
 	`, userID, merged.Theme, merged.AccentColor, merged.Language, merged.Density, merged.DefaultView,
 		merged.DetailMode, merged.UIScale, merged.UserName, merged.UserEmail, merged.UserAvatar,
-		merged.EditorCommand, merged.ExternalTerminalCommand, merged.UpdatedAt)
+		merged.EditorCommand, merged.ExternalTerminalCommand, merged.UpdatedAt,
+		requested.Theme, requested.AccentColor, requested.Language, requested.Density, requested.DefaultView,
+		requested.DetailMode, requested.UIScale, requested.UserName, requested.UserEmail, requested.UserAvatar,
+		requested.EditorCommand, requested.ExternalTerminalCommand)
+	d.mu.Unlock()
 	if err != nil {
 		return nil, err
 	}
-	return &merged, nil
+	// What the row holds now, which may carry a field another save wrote.
+	return d.UserSettings(userID)
 }

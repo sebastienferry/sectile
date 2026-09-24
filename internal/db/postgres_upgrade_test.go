@@ -82,11 +82,12 @@ func TestPostgresRecoversInterruptedRuns(t *testing.T) {
 	seedTask(t, d)
 
 	// A skill the server itself was running, and a remote run owned by a client
-	// session the restart destroyed. They end differently on purpose.
+	// session the restart destroyed. They end differently on purpose. A client
+	// declared the second one, so it is concurrent and may share the task.
 	if _, err := d.conn.Exec(
-		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status)
-		 VALUES ('a-local', 't1', 'implement', 'Implement', 'run', 'running'),
-		        ('a-remote', 't1', 'remote_run', 'Remote', 'client', 'running')`); err != nil {
+		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, concurrent)
+		 VALUES ('a-local', 't1', 'implement', 'Implement', 'run', 'running', 0),
+		        ('a-remote', 't1', 'remote_run', 'Remote', 'client', 'running', 1)`); err != nil {
 		t.Fatalf("inserting the interrupted runs: %v", err)
 	}
 

@@ -134,54 +134,69 @@ func (d *DB) applyDiscoveredPullRequests(task *models.Task, found []models.TaskP
 	if task == nil || len(found) == 0 {
 		return nil, nil, nil
 	}
-	links := models.NormalizePullRequestLinks(task.PrLinks)
-	seeding := len(links) == 0
-	branch := ""
-	for _, candidate := range found {
-		url := strings.TrimSpace(candidate.URL)
-		if url == "" {
-			continue
+	// Discovery read the forge from a snapshot of the task. The merge runs on
+	// the row locked and read again, so a link another writer attached in the
+	// meantime, on this instance or another, is kept rather than overwritten.
+	var links []models.TaskPullRequest
+	var branchValue *string
+	d.mu.Lock()
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		locked, err := d.lockTaskUnsafe(tx, task.ID)
+		if err != nil || locked == nil {
+			return err
 		}
-		if !seeding {
-			if refusal := models.AcceptPullRequest(links, url, candidate.Branch); refusal != nil {
-				warnings = append(warnings, fmt.Sprintf("%s : %v", task.Key, refusal))
+		links = models.NormalizePullRequestLinks(locked.PrLinks)
+		seeding := len(links) == 0
+		branch := ""
+		for _, candidate := range found {
+			url := strings.TrimSpace(candidate.URL)
+			if url == "" {
 				continue
 			}
+			if !seeding {
+				if refusal := models.AcceptPullRequest(links, url, candidate.Branch); refusal != nil {
+					warnings = append(warnings, fmt.Sprintf("%s : %v", task.Key, refusal))
+					continue
+				}
+			}
+			grown := models.AppendPullRequestLink(links, url, candidate.Branch)
+			if len(grown) == len(links) {
+				continue
+			}
+			links = grown
+			attached = append(attached, url)
+			if branch == "" {
+				branch = strings.TrimSpace(candidate.Branch)
+			}
 		}
-		grown := models.AppendPullRequestLink(links, url, candidate.Branch)
-		if len(grown) == len(links) {
-			continue
+		if len(attached) == 0 {
+			return nil
 		}
-		links = grown
-		attached = append(attached, url)
-		if branch == "" {
-			branch = strings.TrimSpace(candidate.Branch)
-		}
-	}
-	if len(attached) == 0 {
-		return nil, warnings, nil
-	}
 
-	// The branch a rediscovered pull request carries seeds `branch_name` only
-	// when the task has none: it makes the branch lookup work from the next
-	// synchronisation onwards, and a recorded branch is never overwritten.
-	branchValue := task.BranchName
-	if branchValue == nil || strings.TrimSpace(*branchValue) == "" {
-		if branch != "" {
-			seeded := branch
-			branchValue = &seeded
+		// The branch a rediscovered pull request carries seeds `branch_name` only
+		// when the task has none: it makes the branch lookup work from the next
+		// synchronisation onwards, and a recorded branch is never overwritten.
+		branchValue = locked.BranchName
+		if branchValue == nil || strings.TrimSpace(*branchValue) == "" {
+			if branch != "" {
+				seeded := branch
+				branchValue = &seeded
+			}
 		}
-	}
 
-	// One statement for `pr_url` and `pr_links`, as every other write path
-	// does, so the current pull request can never diverge from the set. The
-	// detachment flag falls with it: a link is attached again.
-	d.mu.Lock()
-	_, err = d.conn.Exec("UPDATE tasks SET pr_url = ?, pr_links = ?, branch_name = ?, pr_links_detached = 0 WHERE id = ?",
-		pullRequestURLValue(links), encodePullRequestLinks(links), branchValue, task.ID)
+		// One statement for `pr_url` and `pr_links`, as every other write path
+		// does, so the current pull request can never diverge from the set. The
+		// detachment flag falls with it: a link is attached again.
+		_, err = tx.Exec("UPDATE tasks SET pr_url = ?, pr_links = ?, branch_name = ?, pr_links_detached = 0 WHERE id = ?",
+			pullRequestURLValue(links), encodePullRequestLinks(links), branchValue, task.ID)
+		return err
+	})
 	d.mu.Unlock()
 	if err != nil {
 		return nil, warnings, err
+	}
+	if len(attached) == 0 {
+		return nil, warnings, nil
 	}
 	task.PrLinks = links
 	task.PrURL = pullRequestURLValue(links)

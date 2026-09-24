@@ -186,6 +186,15 @@ The established database lookup order remains unchanged. `DB` uses an RWMutex;
 helpers suffixed `Unsafe` assume the caller already holds the appropriate lock.
 Avoid calling public locking methods while holding that lock.
 
+That mutex stops at the process boundary, so no invariant depends on it: several
+server processes may share one PostgreSQL database. A read-decide-write either
+runs as one statement, as a conditional update, or in a transaction that locks
+its row with `SELECT ... FOR UPDATE` (a no-op on SQLite, whose single writer
+already serialises). One ordinary active run per task is a partial unique index,
+and one server-side job per project a PostgreSQL advisory lock. Every section the
+mutex protects, and what makes it hold across processes, is listed in
+[the concurrency audit](db-concurrency-audit.md).
+
 Tracker jobs run on the server even when no agent is connected. GitHub repository
 identity is explicit configuration. Native HTTP clients
 paginate lists and follow redirects within the same origin while preserving the

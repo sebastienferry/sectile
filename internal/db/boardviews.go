@@ -155,6 +155,11 @@ func (d *DB) CreateBoardView(userID string, req models.BoardViewRequest) (*model
 	if _, err := d.conn.Exec(`INSERT INTO board_views (id, user_id, name, name_key, project_ids, labels, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		view.ID, userID, view.Name, boardViewNameKey(view.Name), string(projectsJSON), string(labelsJSON), now, now); err != nil {
+		// The name check above reads before this insert; the unique index is
+		// what refuses a name another instance saved in between.
+		if isUniqueViolation(err, "idx_board_views_user_name") {
+			return nil, ErrBoardViewNameTaken
+		}
 		return nil, err
 	}
 	return view, nil
@@ -164,6 +169,19 @@ func (d *DB) CreateBoardView(userID string, req models.BoardViewRequest) (*model
 func (d *DB) UpdateBoardView(userID, id string, req models.BoardViewRequest) (*models.BoardView, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	// The row is locked before it is read, so the fields the request leaves are
+	// the ones an edit on another server instance may just have committed, not
+	// an older read of them.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var lockedID string
+	if err := tx.QueryRow("SELECT id FROM board_views WHERE id = ? AND user_id = ?"+d.forUpdate(), strings.TrimSpace(id), strings.TrimSpace(userID)).Scan(&lockedID); err != nil && err != sql.ErrNoRows {
+		return nil, err
+	}
 
 	view, err := d.getBoardViewUnsafe(userID, id)
 	if err != nil {
@@ -186,9 +204,15 @@ func (d *DB) UpdateBoardView(userID, id string, req models.BoardViewRequest) (*m
 
 	projectsJSON, _ := json.Marshal(view.ProjectIDs)
 	labelsJSON, _ := json.Marshal(view.Labels)
-	if _, err := d.conn.Exec(`UPDATE board_views SET name = ?, name_key = ?, project_ids = ?, labels = ?, updated_at = ?
+	if _, err := tx.Exec(`UPDATE board_views SET name = ?, name_key = ?, project_ids = ?, labels = ?, updated_at = ?
 		WHERE id = ? AND user_id = ?`,
 		view.Name, boardViewNameKey(view.Name), string(projectsJSON), string(labelsJSON), view.UpdatedAt, view.ID, strings.TrimSpace(userID)); err != nil {
+		if isUniqueViolation(err, "idx_board_views_user_name") {
+			return nil, ErrBoardViewNameTaken
+		}
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return view, nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"runtime/debug"
@@ -1233,6 +1234,58 @@ func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs [
 	return projectCond, projectArgs, labelCond, labelArgs, nil
 }
 
+// lockDefaultProjectUnsafe serialises every change to which project is the
+// default, across server instances, by locking the settings row: a row lock
+// cannot cover a project that is not inserted yet, and "one default project"
+// spans every row of the table. It is always taken before any project row, so
+// two writers never wait on each other in opposite orders. The settings row is
+// seeded at open; it is inserted here too, for a database emptied since.
+func (d *DB) lockDefaultProjectUnsafe(tx *sqlTx) error {
+	return d.lockSettingsUnsafe(tx)
+}
+
+// lockSettingsUnsafe locks the single settings row until the transaction ends.
+func (d *DB) lockSettingsUnsafe(tx *sqlTx) error {
+	if _, err := tx.Exec("INSERT INTO settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING"); err != nil {
+		return err
+	}
+	var id int
+	return tx.QueryRow("SELECT id FROM settings WHERE id = 1" + d.forUpdate()).Scan(&id)
+}
+
+// sourceConverting marks a local task while ConvertTaskToRemote creates its
+// tracker issue: the claim that keeps a second conversion, on this instance or
+// another, from creating a second issue. It never reaches a reader.
+const sourceConverting = "converting"
+
+// convertClaimExpiry is how long a conversion claim holds. A tracker call takes
+// seconds; a claim this old was left by a server that stopped mid-conversion.
+const convertClaimExpiry = 5 * time.Minute
+
+// taskSource is where a task comes from: its recorded source, else what its key
+// looks like. A task being converted is still local until the issue exists.
+func taskSource(source sql.NullString, key string) string {
+	switch {
+	case source.Valid && source.String == sourceConverting:
+		return "local"
+	case source.Valid && source.String != "":
+		return source.String
+	case strings.HasPrefix(key, "#") || strings.HasPrefix(key, "GH-#") || strings.HasPrefix(key, "gh-"):
+		return "github"
+	default:
+		return "local"
+	}
+}
+
+// forUpdate is the row-locking clause of the engine, appended to a SELECT run
+// inside a transaction. See dialect.ForUpdate.
+func (d *DB) forUpdate() string {
+	if d == nil || d.dialect == nil {
+		return ""
+	}
+	return d.dialect.ForUpdate()
+}
+
 // lowerASCII folds a TEXT expression the way asciiLower folds the value it is
 // compared against: A-Z and nothing else, on either engine and whatever the
 // server's collation. Both sides must fold the same characters, otherwise
@@ -1802,13 +1855,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 		if trackerStatus.Valid {
 			t.TrackerStatus = trackerStatus.String
 		}
-		if source.Valid && source.String != "" {
-			t.Source = source.String
-		} else if strings.HasPrefix(t.Key, "#") || strings.HasPrefix(t.Key, "GH-#") || strings.HasPrefix(t.Key, "gh-") {
-			t.Source = "github"
-		} else {
-			t.Source = "local"
-		}
+		t.Source = taskSource(source, t.Key)
 
 		if extURL.Valid && extURL.String != "" {
 			t.ExternalURL = &extURL.String
@@ -1971,13 +2018,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	if trackerStatus.Valid {
 		t.TrackerStatus = trackerStatus.String
 	}
-	if source.Valid && source.String != "" {
-		t.Source = source.String
-	} else if strings.HasPrefix(t.Key, "#") || strings.HasPrefix(t.Key, "GH-#") || strings.HasPrefix(t.Key, "gh-") {
-		t.Source = "github"
-	} else {
-		t.Source = "local"
-	}
+	t.Source = taskSource(source, t.Key)
 
 	if extURL.Valid && extURL.String != "" {
 		t.ExternalURL = &extURL.String
@@ -2178,7 +2219,11 @@ func (d *DB) DeleteGitBranch(projectIDOrPath string, branchName string, deleteRe
 	return d.callAgent(agentprotocol.Operation{ProjectID: projectIDOrPath, Action: "git_delete", Branch: branchName, DeleteRemote: deleteRemote}, nil)
 }
 
-func (d *DB) getNextTaskKey(projectID string, prefix string) (string, error) {
+// getNextTaskKey reads through q, a transaction that holds the project row
+// locked, so two local creations on two server instances never pick one key.
+func (d *DB) getNextTaskKey(q interface {
+	Query(string, ...any) (*sql.Rows, error)
+}, projectID string, prefix string) (string, error) {
 	if prefix == "" {
 		prefix = "TASK"
 	}
@@ -2191,7 +2236,7 @@ func (d *DB) getNextTaskKey(projectID string, prefix string) (string, error) {
 		args = []interface{}{projectID, prefix + "-%"}
 	}
 
-	rows, err := d.conn.Query(query, args...)
+	rows, err := q.Query(query, args...)
 	if err != nil {
 		return fmt.Sprintf("%s-1", prefix), nil
 	}
@@ -2359,9 +2404,10 @@ func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 // is what puts the person's own name on the ticket they just created rather
 // than a shared service account.
 func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*models.Task, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
+	// The tracker is called with no lock held (a store lock across an HTTP call
+	// stalls every writer for its duration): what it needs is read first, and
+	// the row is written afterwards in a transaction of its own.
+	d.mu.RLock()
 	settings, _ := d.getSettingsUnsafe()
 	if settings == nil {
 		settings = &models.Settings{
@@ -2379,6 +2425,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			projID = proj.ID
 		}
 	}
+	d.mu.RUnlock()
 
 	githubRepo := settings.GithubRepo
 	jiraProject := settings.JiraProject
@@ -2446,6 +2493,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 	}
 
 	// Remote creation requires confirmation from the server HTTP adapter.
+	local := true
 	ts, tsErr := d.TrackerForProject(proj)
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
 		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
@@ -2465,13 +2513,11 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		if created != nil {
 			id = ts.FormatTaskID(projID, created.Key, created.ID)
 			key = created.Key
+			local = false
 			extURL = created.ExternalURL
 		} else {
 			return nil, fmt.Errorf("%s issue creation failed: empty response", ts.Name())
 		}
-	} else {
-		// Local project tracker
-		key, _ = d.getNextTaskKey(projID, prefix)
 	}
 
 	if req.ExternalURL != nil && *req.ExternalURL != "" {
@@ -2480,40 +2526,62 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		cleanNum := strings.TrimPrefix(key, "#")
 		url := fmt.Sprintf("https://github.com/%s/issues/%s", models.CleanGithubRepo(githubRepo), cleanNum)
 		extURL = &url
-	} else if extURL == nil && req.Source == "jira" && jiraUrl != "" {
+	} else if extURL == nil && req.Source == "jira" && jiraUrl != "" && !local {
+		// A local key is only known inside the transaction below, which builds
+		// this URL itself.
 		url := fmt.Sprintf("%s/browse/%s", strings.TrimSuffix(jiraUrl, "/"), key)
 		extURL = &url
 	}
-
-	var maxPos int
-	_ = d.conn.QueryRow("SELECT COALESCE(MAX(position), -1) FROM tasks WHERE status = ?", req.Status).Scan(&maxPos)
-	newPos := maxPos + 1
 
 	labelsJSON, _ := json.Marshal(req.Labels)
 	if req.Labels == nil {
 		labelsJSON = []byte("[]")
 	}
-
 	isPinned := HasPinnedLabel(req.Labels)
-	pinnedVal := 0
-	if isPinned {
-		pinnedVal = 1
-		_, _ = d.conn.Exec(`
-			INSERT INTO pinned_tasks (task_id, pinned_at) VALUES (?, ?)
-			ON CONFLICT(task_id) DO UPDATE SET pinned_at = excluded.pinned_at
-		`, id, now.Format(time.RFC3339))
-	}
-
 	issueType := strings.TrimSpace(req.IssueType)
 	parentKey := req.ParentKey
 	parentTitle := req.ParentTitle
 	parentType := req.ParentType
 
-	_, err := d.conn.Exec(`
-		INSERT INTO tasks (id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, id, projID, key, req.Title, req.Description, string(req.Status), string(req.Priority), string(labelsJSON), pinnedVal, req.Assignee, req.AssigneeAvatar, req.Creator, req.CreatorAvatar, newPos, req.DueDate, req.Source, extURL, issueType, parentKey, parentTitle, parentType, strings.TrimSpace(req.Sprint), now, now)
+	// A local key is the project's highest plus one, computed on the locked
+	// project row so a creation racing on another instance waits for this one
+	// instead of picking the same number. Two tasks may still share a position,
+	// which only orders the column.
+	var newPos int
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	err := d.conn.WithTx(func(tx *sqlTx) error {
+		if local {
+			if projID != "" {
+				var locked string
+				if err := tx.QueryRow("SELECT id FROM projects WHERE id = ?"+d.forUpdate(), projID).Scan(&locked); err != nil && err != sql.ErrNoRows {
+					return err
+				}
+			}
+			key, _ = d.getNextTaskKey(tx, projID, prefix)
+			if req.Source == "jira" && jiraUrl != "" && extURL == nil && (req.ExternalURL == nil || *req.ExternalURL == "") {
+				url := fmt.Sprintf("%s/browse/%s", strings.TrimSuffix(jiraUrl, "/"), key)
+				extURL = &url
+			}
+		}
+		var maxPos int
+		_ = tx.QueryRow("SELECT COALESCE(MAX(position), -1) FROM tasks WHERE status = ?", req.Status).Scan(&maxPos)
+		newPos = maxPos + 1
 
+		if isPinned {
+			if _, err := tx.Exec(`
+				INSERT INTO pinned_tasks (task_id, pinned_at) VALUES (?, ?)
+				ON CONFLICT(task_id) DO UPDATE SET pinned_at = excluded.pinned_at
+			`, id, now.Format(time.RFC3339)); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`
+			INSERT INTO tasks (id, project_id, key, title, description, status, priority, labels, pinned, assignee, assignee_avatar, creator, creator_avatar, position, due_date, source, external_url, issue_type, parent_key, parent_title, parent_type, sprint, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, id, projID, key, req.Title, req.Description, string(req.Status), string(req.Priority), string(labelsJSON), boolToInt(isPinned), req.Assignee, req.AssigneeAvatar, req.Creator, req.CreatorAvatar, newPos, req.DueDate, req.Source, extURL, issueType, parentKey, parentTitle, parentType, strings.TrimSpace(req.Sprint), now, now)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -2672,7 +2740,20 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	existing, err := d.getTaskByIDUnsafe(id)
+	// The row is locked for the whole merge: an edit racing on another server
+	// instance waits, then merges into what this one wrote instead of writing
+	// back a snapshot that predates it. Queue work waits for the commit.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	existing, err := d.lockTaskUnsafe(tx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -2681,6 +2762,7 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	}
 
 	oldLabels := existing.Labels
+	repoPathToRegister := ""
 	oldAssignee := strings.TrimSpace(existing.Assignee)
 	var removedLabels []string
 
@@ -2835,8 +2917,8 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		} else {
 			existing.RepoPath = &trimmed
 			// Feed the project's list so the next ticket picks it from a menu
-			// instead of retyping the path.
-			d.registerProjectRepoPathUnsafe(existing.ProjectID, trimmed)
+			// instead of retyping the path, once the task is committed.
+			repoPathToRegister = trimmed
 		}
 	}
 	oldSprint := existing.Sprint
@@ -2858,20 +2940,20 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 	pinnedVal := 0
 	if isPinned {
 		pinnedVal = 1
-		_, _ = d.conn.Exec(`
+		_, _ = tx.Exec(`
 			INSERT INTO pinned_tasks (task_id, pinned_at) VALUES (?, ?)
 			ON CONFLICT(task_id) DO NOTHING
 		`, existing.ID, existing.UpdatedAt.Format(time.RFC3339))
 	} else {
-		_, _ = d.conn.Exec(`DELETE FROM pinned_tasks WHERE task_id = ? OR task_id = ?`, existing.ID, existing.Key)
+		_, _ = tx.Exec(`DELETE FROM pinned_tasks WHERE task_id = ? OR task_id = ?`, existing.ID, existing.Key)
 	}
 	existing.Pinned = isPinned
 
 	labelsJSON, _ := json.Marshal(existing.Labels)
 
-	_, err = d.conn.Exec(`
+	_, err = tx.Exec(`
 		UPDATE tasks
-		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = ?, external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
+		SET project_id = ?, title = ?, description = ?, status = ?, priority = ?, labels = ?, pinned = ?, assignee = ?, assignee_avatar = ?, position = ?, due_date = ?, branch_name = ?, pr_url = ?, pr_links = ?, repo_path = ?, tracker_status = ?, source = CASE WHEN source = 'converting' THEN source ELSE ? END, external_url = ?, issue_type = ?, sprint = ?, updated_at = ?
 		WHERE id = ?
 	`, existing.ProjectID, existing.Title, existing.Description, string(existing.Status), string(existing.Priority), string(labelsJSON), pinnedVal, existing.Assignee, existing.AssigneeAvatar, existing.Position, existing.DueDate, existing.BranchName, existing.PrURL, encodePullRequestLinks(existing.PrLinks), repoPathValue(existing.RepoPath), existing.TrackerStatus, existing.Source, existing.ExternalURL, existing.IssueType, existing.Sprint, existing.UpdatedAt, existing.ID)
 
@@ -2887,7 +2969,14 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		if len(existing.PrLinks) == 0 {
 			detached = 1
 		}
-		_, _ = d.conn.Exec("UPDATE tasks SET pr_links_detached = ? WHERE id = ?", detached, existing.ID)
+		_, _ = tx.Exec("UPDATE tasks SET pr_links_detached = ? WHERE id = ?", detached, existing.ID)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	committed = true
+	if repoPathToRegister != "" {
+		d.registerProjectRepoPathUnsafe(existing.ProjectID, repoPathToRegister)
 	}
 
 	// Enqueue async CLI tracker sync in task activities queue whenever task is modified
@@ -3095,6 +3184,9 @@ func (d *DB) MoveTask(id string, newStatus models.Status, newPosition int) (*mod
 		return nil, fmt.Errorf("task not found")
 	}
 
+	// The shift is one statement and stays outside the transaction below:
+	// holding the moved task's lock while it locks its neighbours would let two
+	// moves on two instances wait on each other.
 	now := time.Now()
 	_, _ = d.conn.Exec(`
 		UPDATE tasks
@@ -3102,25 +3194,38 @@ func (d *DB) MoveTask(id string, newStatus models.Status, newPosition int) (*mod
 		WHERE status = ? AND position >= ? AND id != ?
 	`, string(newStatus), newPosition, id)
 
-	oldStage := GetStageLabelForStatus(existing.Status)
-	newStage := GetStageLabelForStatus(newStatus)
 	var removedLabels []string
-	if oldStage != newStage {
-		removedLabels = append(removedLabels, oldStage, "#"+oldStage)
-	}
+	// The labels are derived from the locked row, so a label another instance
+	// added meanwhile is kept.
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		locked, err := d.lockTaskUnsafe(tx, existing.ID)
+		if err != nil {
+			return err
+		}
+		if locked == nil {
+			return fmt.Errorf("task not found")
+		}
+		existing = locked
+		oldStage := GetStageLabelForStatus(existing.Status)
+		newStage := GetStageLabelForStatus(newStatus)
+		if oldStage != newStage {
+			removedLabels = append(removedLabels, oldStage, "#"+oldStage)
+		}
 
-	targetLabel := "#" + strings.TrimPrefix(newStage, "#")
-	existing.Status = newStatus
-	existing.Position = newPosition
-	existing.Labels = SetWorkflowLabel(existing.Labels, targetLabel)
-	existing.UpdatedAt = now
+		targetLabel := "#" + strings.TrimPrefix(newStage, "#")
+		existing.Status = newStatus
+		existing.Position = newPosition
+		existing.Labels = SetWorkflowLabel(existing.Labels, targetLabel)
+		existing.UpdatedAt = now
 
-	labelsJSON, _ := json.Marshal(existing.Labels)
-	_, err = d.conn.Exec(`
-		UPDATE tasks
-		SET status = ?, labels = ?, position = ?, updated_at = ?
-		WHERE id = ?
-	`, string(newStatus), string(labelsJSON), newPosition, now, existing.ID)
+		labelsJSON, _ := json.Marshal(existing.Labels)
+		_, err = tx.Exec(`
+			UPDATE tasks
+			SET status = ?, labels = ?, position = ?, updated_at = ?
+			WHERE id = ?
+		`, string(newStatus), string(labelsJSON), newPosition, now, existing.ID)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -3154,6 +3259,30 @@ func (d *DB) DeleteTask(id string) error {
 }
 
 func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
+	return d.taskByIDOn(d.conn, id, "")
+}
+
+// lockTaskUnsafe reads a task inside a transaction and locks its row until the
+// transaction ends, so another server process changing the same task waits for
+// this one and then reads what it wrote. Every read-decide-write on a task goes
+// through it: labels, pull-request links, stage and branch are then derived
+// from the state the previous writer committed, never from a stale snapshot.
+// See docs/db-concurrency-audit.md.
+//
+// Inside the transaction, write through tx only: under SQLite a write on the
+// plain connection would wait for the transaction that holds the file.
+func (d *DB) lockTaskUnsafe(tx *sqlTx, id string) (*models.Task, error) {
+	return d.taskByIDOn(tx, id, d.forUpdate())
+}
+
+// rowQuerier is what reading one row needs, from the pool or a transaction.
+type rowQuerier interface {
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// taskByIDOn reads a task by id, then by key, through q; lock is appended to
+// both SELECTs.
+func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, error) {
 	var t models.Task
 	var labelsJSON string
 	var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
@@ -3161,10 +3290,9 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 	var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 	var statusStr, priorityStr string
 
-	err := d.conn.QueryRow(`
+	err := q.QueryRow(`
 		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
-		FROM tasks WHERE id = ?
-	`, id).Scan(
+		FROM tasks WHERE id = ?`+lock, id).Scan(
 		&t.ID,
 		&t.ProjectID,
 		&t.Key,
@@ -3200,10 +3328,9 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 		&t.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
-		err = d.conn.QueryRow(`
+		err = q.QueryRow(`
 			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
-			FROM tasks WHERE key = ? LIMIT 1
-		`, id).Scan(
+			FROM tasks WHERE key = ? LIMIT 1`+lock, id).Scan(
 			&t.ID,
 			&t.ProjectID,
 			&t.Key,
@@ -3284,13 +3411,7 @@ func (d *DB) getTaskByIDUnsafe(id string) (*models.Task, error) {
 	if trackerStatus.Valid {
 		t.TrackerStatus = trackerStatus.String
 	}
-	if source.Valid && source.String != "" {
-		t.Source = source.String
-	} else if strings.HasPrefix(t.Key, "#") || strings.HasPrefix(t.Key, "GH-#") || strings.HasPrefix(t.Key, "gh-") {
-		t.Source = "github"
-	} else {
-		t.Source = "local"
-	}
+	t.Source = taskSource(source, t.Key)
 
 	if extURL.Valid && extURL.String != "" {
 		t.ExternalURL = &extURL.String
@@ -3326,9 +3447,9 @@ func insertTaskActivity(conn activityExecutor, instanceID string, act models.Tas
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, instance_id)
-		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model, instanceID)
+		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent)
+		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model, instanceID, boolToInt(act.Concurrent))
 	return err
 }
 
@@ -3367,7 +3488,7 @@ func (d *DB) getProjectActivitiesUnsafe(projectID string) ([]models.TaskActivity
 func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
 		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
-		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent
 		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE `+column+` = ? ORDER BY a.created_at DESC
 	`, id)
 	if err != nil {
@@ -3383,7 +3504,7 @@ func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, err
 		var startedAt, completedAt, waitingSince sql.NullTime
 		var ownerName, ownerEmail string
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel)
+		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel, &a.Concurrent)
 		if err != nil {
 			continue
 		}
@@ -3630,6 +3751,18 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
+	// The settings row is locked before it is read, so a save racing on another
+	// server instance waits, and this one merges into what it committed rather
+	// than writing back every field from an older read.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := d.lockSettingsUnsafe(tx); err != nil {
+		return nil, err
+	}
+
 	cleared := make(map[string]bool, len(clear))
 	for _, name := range clear {
 		cleared[name] = true
@@ -3795,7 +3928,7 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 	settingsProviderModelsBytes, _ := json.Marshal(s.AIProviderModels)
 
 	now := time.Now()
-	_, err := d.conn.Exec(`
+	_, err = tx.Exec(`
 		INSERT INTO settings (id, theme, accent_color, language, density, default_view, detail_mode, user_name, user_email, user_avatar, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, ai_provider_models, repo_path, issue_tracker, github_repo, jira_project, jira_url, jira_email, jira_api_token, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, prompt_clarify, prompt_specify, prompt_implement, prompt_adjust, prompt_handoff, prompt_create_pr, prompt_pick, editor_command, external_terminal_command, spec_framework, ui_scale, auto_sync_enabled, auto_sync_interval_sec, updated_at)
 		VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
@@ -3842,6 +3975,9 @@ func (d *DB) UpdateSettings(s models.Settings, clear ...string) (*models.Setting
 			updated_at = excluded.updated_at
 	`, s.Theme, s.AccentColor, s.Language, s.Density, s.DefaultView, s.DetailMode, s.UserName, s.UserEmail, s.UserAvatar, s.AIProvider, s.AICommandTemplate, s.AICommandTemplateAutonomous, s.AIModel, string(settingsSkillModelsBytes), string(settingsProviderModelsBytes), s.RepoPath, s.IssueTracker, s.GithubRepo, s.JiraProject, s.JiraUrl, s.JiraEmail, s.JiraAPIToken, s.GithubApiUrl, s.GithubToken, s.GitlabUrl, s.GitlabProject, s.GitlabToken, s.PromptClarify, s.PromptSpecify, s.PromptImplement, s.PromptAdjust, s.PromptHandoff, s.PromptCreatePR, s.PromptPick, s.EditorCommand, s.ExternalTerminalCommand, s.SpecFramework, s.UIScale, autoSyncEnabledInt, s.AutoSyncIntervalSec, now)
 
+	if err == nil {
+		err = tx.Commit()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -3949,8 +4085,18 @@ func (d *DB) startQueueWorker() {
 
 			// One server-side skill worker per project. Execution parallelism is a
 			// workstation setting owned by the local agent, not a server-side one.
+			// The limiter decides inside this process; the project lock extends
+			// the rule to every server instance sharing the database. The job
+			// stays queued while it waits for either.
 			d.limiter.Acquire(projID, 1)
 			defer d.limiter.Release(projID)
+			release, err := d.dialect.AcquireProjectWorker(d.conn, projID)
+			if err != nil {
+				// Degraded to one worker per instance rather than a stuck queue.
+				log.Printf("[skill] worker lock of project %s unavailable, running without it: %v", projID, err)
+			} else {
+				defer release()
+			}
 
 			d.runJobGuarded(j)
 		}(job)
@@ -4059,12 +4205,18 @@ func (d *DB) processSkillJob(job SkillJob) {
 		return
 	}
 
-	// This activity tracks dispatch, not skill completion. The remote run owns results.
+	// This activity tracks dispatch, not skill completion. The remote run owns
+	// results. The rename also takes the queued row out of the one-run index,
+	// which is what lets the remote run below take its place: a rename that
+	// failed would make that run collide with its own launch.
 	d.mu.Lock()
-	_, _ = d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch' WHERE id=?", job.ActivityID)
+	_, err := d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch' WHERE id=?", job.ActivityID)
 	d.mu.Unlock()
 
-	task, err := d.GetTaskByID(job.TaskID)
+	var task *models.Task
+	if err == nil {
+		task, err = d.GetTaskByID(job.TaskID)
+	}
 	if err == nil && task != nil {
 		var run *models.TaskActivity
 		provider, model := d.ResolveTaskEngine(task.ProjectID, job.SkillID, job.Model)
@@ -4083,6 +4235,11 @@ func (d *DB) processSkillJob(job SkillJob) {
 		status = "failed"
 		summary = "Agent launch failed"
 		errorText = err.Error()
+		// Another run became active on the task while this one waited in the
+		// queue, on this server or another.
+		if errors.Is(err, ErrTaskBusy) {
+			summary = "Agent launch refused: another run is active on this task"
+		}
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -4968,9 +5125,22 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 		CreatedAt: now,
 	}
 
+	// Every active run makes the task busy, a concurrent one included: a
+	// session somebody started by hand is no reason to start a second agent.
+	// The insert then settles the race the check cannot: the database refuses a
+	// second ordinary active run on the task, from this server or any other.
+	// Nothing is queued for a refused run.
+	if active, err := d.ActiveRunOnTask(task.ID); err != nil {
+		return nil, nil, err
+	} else if active != nil {
+		return nil, nil, &TaskBusyError{Active: active}
+	}
 	d.mu.Lock()
-	_ = d.addTaskActivityDirect(act)
+	err = d.addTaskActivityDirect(act)
 	d.mu.Unlock()
+	if err != nil {
+		return nil, nil, d.taskBusy(task.ID, err)
+	}
 
 	// Push to background channel worker
 	stopStage := ""
@@ -5233,7 +5403,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), COALESCE(t.key, ''), COALESCE(t.title, ''), a.skill_id, a.skill_name,
 		       a.action, a.status, a.summary, a.output, a.steps, a.prompt,
 		       a.created_at, a.started_at, a.completed_at, a.error, a.waiting_since,
-		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent
 		FROM task_activities a
 		LEFT JOIN tasks t ON a.task_id = t.id
 		LEFT JOIN users u ON u.id = a.user_id
@@ -5262,6 +5432,7 @@ func (d *DB) GetActivityByID(id string) (*models.TaskActivity, error) {
 		&ownerEmail,
 		&runProvider,
 		&runModel,
+		&a.Concurrent,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -5483,6 +5654,41 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		return nil, fmt.Errorf("tracker distant non supporté: %s", target)
 	}
 
+	// Claim the task before creating anything. The claim holds only while the
+	// key is still the one read above and no other conversion holds it: a
+	// second request, here or on another instance, fails here instead of
+	// creating a second issue, including one that read the task before the
+	// first conversion changed its key.
+	d.mu.Lock()
+	var previousSource sql.NullString
+	claimErr := d.conn.WithTx(func(tx *sqlTx) error {
+		var key string
+		var claimedAt time.Time
+		if err := tx.QueryRow("SELECT key, source, updated_at FROM tasks WHERE id = ?"+d.forUpdate(), task.ID).Scan(&key, &previousSource, &claimedAt); err != nil {
+			return err
+		}
+		// A claim older than convertClaimExpiry belongs to a conversion that
+		// died with its server: it is taken over rather than refusing the task
+		// forever. Its previous source is unknown by then; the task was local.
+		if previousSource.String == sourceConverting && time.Since(claimedAt) >= convertClaimExpiry {
+			previousSource = sql.NullString{String: "local", Valid: true}
+		} else if key != task.Key || previousSource.String == sourceConverting {
+			return fmt.Errorf("la tâche %s est déjà en cours de conversion ou a déjà été convertie", task.Key)
+		}
+		_, err := tx.Exec("UPDATE tasks SET source = ?, updated_at = ? WHERE id = ?", sourceConverting, time.Now(), task.ID)
+		return err
+	})
+	d.mu.Unlock()
+	if claimErr != nil {
+		return nil, claimErr
+	}
+	// A conversion that does not end with an issue gives the task back as it was.
+	release := func() {
+		d.mu.Lock()
+		_, _ = d.conn.Exec("UPDATE tasks SET source = ? WHERE id = ? AND source = ?", previousSource, task.ID, sourceConverting)
+		d.mu.Unlock()
+	}
+
 	created, err := ts.CreateIssue(context.Background(), tracker.CreateIssueRequest{
 		Project:     proj,
 		Title:       task.Title,
@@ -5491,9 +5697,11 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		Labels:      task.Labels,
 	})
 	if err != nil {
+		release()
 		return nil, fmt.Errorf("création %s impossible: %w", ts.Name(), err)
 	}
 	if created == nil {
+		release()
 		return nil, fmt.Errorf("création %s impossible: ticket non retourné", ts.Name())
 	}
 	newKey = created.Key
@@ -5502,17 +5710,36 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	task.Key = newKey
-	task.Source = target
-	task.ExternalURL = extURL
-	task.UpdatedAt = now
-
-	labelsJSON, _ := json.Marshal(task.Labels)
-	_, err = d.conn.Exec(`
-		UPDATE tasks
-		SET key = ?, source = ?, external_url = ?, labels = ?, updated_at = ?
-		WHERE id = ?
-	`, task.Key, task.Source, task.ExternalURL, string(labelsJSON), now, task.ID)
+	// The task is written from its locked row, so an edit made during the
+	// tracker call is kept, and only while the claim is still this conversion's.
+	// A claim lost meanwhile leaves an issue nobody records: say which one
+	// rather than report a success.
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		locked, err := d.lockTaskUnsafe(tx, task.ID)
+		if err != nil {
+			return err
+		}
+		var source string
+		if err := tx.QueryRow("SELECT COALESCE(source, '') FROM tasks WHERE id = ?", task.ID).Scan(&source); err != nil {
+			return err
+		}
+		if locked == nil || source != sourceConverting {
+			return fmt.Errorf("conversion de %s interrompue : l'issue %s a été créée sur %s mais n'est pas rattachée à la tâche", task.Key, newKey, ts.Name())
+		}
+		task = locked
+		task.Labels = SetWorkflowLabel(task.Labels, "#"+GetStageLabelForStatus(task.Status))
+		task.Key = newKey
+		task.Source = target
+		task.ExternalURL = extURL
+		task.UpdatedAt = now
+		labelsJSON, _ := json.Marshal(task.Labels)
+		_, err = tx.Exec(`
+			UPDATE tasks
+			SET key = ?, source = ?, external_url = ?, labels = ?, updated_at = ?
+			WHERE id = ?
+		`, task.Key, task.Source, task.ExternalURL, string(labelsJSON), now, task.ID)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -6093,7 +6320,6 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 	isDefInt := 0
 	if req.IsDefault {
 		isDefInt = 1
-		_, _ = d.conn.Exec("UPDATE projects SET is_default = 0")
 	}
 
 	skillOverrides := req.SkillOverrides
@@ -6162,10 +6388,23 @@ func (d *DB) CreateProjectAs(ownerUserID string, req models.CreateProjectRequest
 		return nil, fmt.Errorf("prCreationStage must be specified or implemented")
 	}
 
-	_, err := d.conn.Exec(`
+	// The previous default is cleared in the same transaction as the insert,
+	// under the default-project lock, so there is never zero or two defaults.
+	err := d.conn.WithTx(func(tx *sqlTx) error {
+		if req.IsDefault {
+			if err := d.lockDefaultProjectUnsafe(tx); err != nil {
+				return err
+			}
+			if _, err := tx.Exec("UPDATE projects SET is_default = 0"); err != nil {
+				return err
+			}
+		}
+		_, err := tx.Exec(`
 		INSERT INTO projects (id, name, slug, description, icon, color, repo_path, repo_paths, use_worktrees, default_skill_mode, full_chain_stop_stage, pr_creation_stage, board_id, tracker_columns, stage_columns, sprints, issue_types, enabled_views, epic_colors, mono_repo, git_remote_url, github_repo, github_api_url, github_token, gitlab_url, gitlab_project, gitlab_token, jira_project, issue_tracker, tracker_url, is_default, skill_overrides, setup_providers, ai_provider, ai_command_template, ai_command_template_autonomous, ai_model, ai_skill_models, spec_framework, auto_sync_enabled, auto_sync_interval_min, tty_mode, external_terminal_command, owner_user_id, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, id, name, slug, req.Description, icon, color, req.RepoPath, string(repoPathsBytes), useWorktreesInt, models.NormalizeSkillMode(req.DefaultSkillMode), models.NormalizeFullChainStopStage(req.FullChainStopStage), prCreationStage, req.BoardID, "[]", "{}", "[]", string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, monoRepoInt, gitRemote, githubRepo, strings.TrimSpace(req.GithubApiUrl), strings.TrimSpace(req.GithubToken), strings.TrimSpace(req.GitlabUrl), strings.TrimSpace(req.GitlabProject), strings.TrimSpace(req.GitlabToken), jiraProject, issueTracker, req.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), aiProvider, aiCmd, aiCmdAutonomous, aiModel, string(aiSkillModelsBytes), specFramework, autoSyncEnabledInt, autoSyncIntervalMin, ttyMode, extTermCmd, strings.TrimSpace(ownerUserID), now, now)
+		return err
+	})
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6195,6 +6434,34 @@ func (d *DB) UpdateProject(id string, req models.UpdateProjectRequest) (*models.
 // would otherwise hand its synchronisation to the last person who touched it.
 func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdateProjectRequest) (*models.Project, error) {
 	d.mu.Lock()
+
+	// The project row is locked before it is read, so an edit racing on another
+	// server instance waits and this one merges into what it committed, instead
+	// of writing back every field from an older snapshot. A change of default
+	// takes the default-project lock first. The plain read below then sees the
+	// latest committed row, which nobody else can change until the commit.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		d.mu.Unlock()
+		return nil, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	if req.IsDefault != nil {
+		if err := d.lockDefaultProjectUnsafe(tx); err != nil {
+			d.mu.Unlock()
+			return nil, err
+		}
+	}
+	var lockedID string
+	if err := tx.QueryRow("SELECT id FROM projects WHERE id = ? OR slug = ?"+d.forUpdate(), id, id).Scan(&lockedID); err != nil && err != sql.ErrNoRows {
+		d.mu.Unlock()
+		return nil, err
+	}
 
 	p, err := d.getProjectByIDUnsafe(id)
 	if err != nil {
@@ -6351,7 +6618,7 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	if req.IsDefault != nil {
 		p.IsDefault = *req.IsDefault
 		if p.IsDefault {
-			_, _ = d.conn.Exec("UPDATE projects SET is_default = 0 WHERE id != ?", p.ID)
+			_, _ = tx.Exec("UPDATE projects SET is_default = 0 WHERE id != ?", p.ID)
 		}
 	}
 	p.UpdatedAt = time.Now()
@@ -6402,11 +6669,15 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 		autoSyncEnabledInt = 1
 	}
 
-	_, err = d.conn.Exec(`
+	_, err = tx.Exec(`
 		UPDATE projects
 		SET name = ?, slug = ?, description = ?, icon = ?, color = ?, repo_path = ?, repo_paths = ?, use_worktrees = ?, default_skill_mode = ?, full_chain_stop_stage = ?, pr_creation_stage = ?, board_id = ?, tracker_columns = ?, stage_columns = ?, sprints = ?, issue_types = ?, enabled_views = ?, epic_colors = ?, mono_repo = ?, git_remote_url = ?, github_repo = ?, github_api_url = ?, github_token = ?, gitlab_url = ?, gitlab_project = ?, gitlab_token = ?, jira_project = ?, issue_tracker = ?, tracker_url = ?, is_default = ?, skill_overrides = ?, setup_providers = ?, ai_provider = ?, ai_command_template = ?, ai_command_template_autonomous = ?, ai_model = ?, ai_skill_models = ?, spec_framework = ?, auto_sync_enabled = ?, auto_sync_interval_min = ?, tty_mode = ?, external_terminal_command = ?, owner_user_id = ?, updated_at = ?
 		WHERE id = ?
 	`, p.Name, p.Slug, p.Description, p.Icon, p.Color, p.RepoPath, string(repoPathsBytes), useWorktreesInt, p.DefaultSkillMode, p.FullChainStopStage, p.PRCreationStage, p.BoardID, string(trackerColumnsBytes), string(stageColumnsBytes), string(sprintsBytes), string(issueTypesBytes), string(enabledViewsBytes), epicColorsInt, monoRepoInt, p.GitRemoteUrl, p.GithubRepo, p.GithubApiUrl, p.GithubToken, p.GitlabUrl, p.GitlabProject, p.GitlabToken, p.JiraProject, p.IssueTracker, p.TrackerUrl, isDefInt, string(skillOverridesBytes), string(setupProvidersBytes), p.AIProvider, p.AICommandTemplate, p.AICommandTemplateAutonomous, p.AIModel, string(projSkillModelsBytes), p.SpecFramework, autoSyncEnabledInt, p.AutoSyncIntervalMin, p.TtyMode, p.ExternalTerminalCommand, strings.TrimSpace(p.OwnerUserID), p.UpdatedAt, p.ID)
+	if err == nil {
+		err = tx.Commit()
+		committed = err == nil
+	}
 	if err != nil {
 		d.mu.Unlock()
 		return nil, err
@@ -6433,27 +6704,54 @@ func (d *DB) DeleteProject(id string) error {
 	if p == nil {
 		return fmt.Errorf("projet non trouvé")
 	}
-	if p.IsDefault {
-		return fmt.Errorf("impossible de supprimer le projet par défaut")
-	}
 
-	// Reassign tasks to default project
-	var defaultProjID string
-	_ = d.conn.QueryRow("SELECT id FROM projects WHERE is_default = 1 LIMIT 1").Scan(&defaultProjID)
-	if defaultProjID == "" {
-		defaultProjID = "default"
+	// Under the default-project lock, the project is checked again and its
+	// tasks moved to the default in one transaction: another instance making
+	// this project the default meanwhile either commits first, and the delete
+	// is refused, or waits and finds it gone.
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		if err := d.lockDefaultProjectUnsafe(tx); err != nil {
+			return err
+		}
+		var isDefault int
+		if err := tx.QueryRow("SELECT is_default FROM projects WHERE id = ?"+d.forUpdate(), p.ID).Scan(&isDefault); err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("projet non trouvé")
+			}
+			return err
+		}
+		if isDefault != 0 {
+			return fmt.Errorf("impossible de supprimer le projet par défaut")
+		}
+
+		// Reassign tasks to default project
+		var defaultProjID string
+		_ = tx.QueryRow("SELECT id FROM projects WHERE is_default = 1 LIMIT 1").Scan(&defaultProjID)
+		if defaultProjID == "" {
+			defaultProjID = "default"
+		}
+		if _, err := tx.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID); err != nil {
+			return err
+		}
+		// Explicit, like DeleteTask's: the ON DELETE CASCADE on project_id only
+		// fires under PostgreSQL, because this package never turns SQLite's
+		// foreign keys on.
+		if _, err := tx.Exec("DELETE FROM task_activities WHERE project_id = ?", p.ID); err != nil {
+			return err
+		}
+		_, err := tx.Exec("DELETE FROM projects WHERE id = ?", p.ID)
+		return err
+	})
+	if err != nil {
+		return err
 	}
-	_, _ = d.conn.Exec("UPDATE tasks SET project_id = ? WHERE project_id = ?", defaultProjID, p.ID)
-	_, _ = d.conn.Exec("DELETE FROM user_project_bookmarks WHERE project_id = ?", p.ID)
 	// A saved view keeps selecting what is left; reading ignores the project
 	// anyway, so a failure here costs a stale id in a row, never a ghost.
 	_ = d.removeProjectFromBoardViewsUnsafe(p.ID, p.Slug)
-	// Explicit, like DeleteTask's: the ON DELETE CASCADE on project_id only
-	// fires under PostgreSQL, because this package never turns SQLite's foreign
-	// keys on.
-	_, _ = d.conn.Exec("DELETE FROM task_activities WHERE project_id = ?", p.ID)
-	_, err = d.conn.Exec("DELETE FROM projects WHERE id = ?", p.ID)
-	return err
+	return nil
 }
 
 // -------------------------------------------------------------

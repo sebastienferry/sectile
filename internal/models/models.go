@@ -76,6 +76,12 @@ type TaskActivity struct {
 	// own, and because the UI wants to say how long the wait has lasted. Any
 	// terminal status clears it.
 	WaitingSince *time.Time `json:"waitingSince,omitempty"`
+	// Concurrent marks a run allowed next to another active run on the same
+	// task: one started with "Launch anyway", one a client declared without a
+	// launcher, one an agent reported that the server did not create. Every
+	// other run is ordinary, and the database allows one ordinary active run per
+	// task.
+	Concurrent bool `json:"concurrent,omitempty"`
 	// UserID is the user who created the activity: the signed-in person for a
 	// launch from the interface, the key holder for a run reported over MCP, the
 	// agent's user for a run the agent owns. Empty on rows written before

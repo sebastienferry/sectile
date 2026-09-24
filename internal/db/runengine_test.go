@@ -141,6 +141,10 @@ func TestQueuedLaunchCarriesTheModel(t *testing.T) {
 		}
 		select {
 		case op := <-sent:
+			// End the run, so the next launch does not find the task busy.
+			if _, err := database.FinishRemoteRun(task.ID, op.RunID, "completed", "done"); err != nil {
+				t.Fatal(err)
+			}
 			return op
 		case <-time.After(5 * time.Second):
 			t.Fatal("the worker sent no operation")

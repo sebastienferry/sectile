@@ -53,15 +53,31 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 		_, request := evidenceTerms(pr.Forge)
 		return pr, fmt.Errorf("adjustment requires a ready %s", request)
 	}
-	links := models.AppendPullRequestLink(task.PrLinks, pr.URL, pr.Branch)
-	if len(links) != len(task.PrLinks) {
-		d.mu.Lock()
-		_, err = d.conn.Exec("UPDATE tasks SET pr_url = ?, pr_links = ?, pr_links_detached = 0 WHERE id = ?",
-			pullRequestURLValue(links), encodePullRequestLinks(links), task.ID)
-		d.mu.Unlock()
-		if err != nil {
-			return pr, err
+	if len(models.AppendPullRequestLink(task.PrLinks, pr.URL, pr.Branch)) == len(task.PrLinks) {
+		return pr, nil
+	}
+	// The link is appended to the set on the locked row, not to the snapshot
+	// the forge lookup started from, so a link attached meanwhile survives.
+	var links []models.TaskPullRequest
+	d.mu.Lock()
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		locked, err := d.lockTaskUnsafe(tx, task.ID)
+		if err != nil || locked == nil {
+			return err
 		}
+		links = models.AppendPullRequestLink(locked.PrLinks, pr.URL, pr.Branch)
+		if len(links) == len(locked.PrLinks) {
+			return nil
+		}
+		_, err = tx.Exec("UPDATE tasks SET pr_url = ?, pr_links = ?, pr_links_detached = 0 WHERE id = ?",
+			pullRequestURLValue(links), encodePullRequestLinks(links), task.ID)
+		return err
+	})
+	d.mu.Unlock()
+	if err != nil {
+		return pr, err
+	}
+	if links != nil {
 		task.PrLinks = links
 		task.PrURL = pullRequestURLValue(links)
 	}
