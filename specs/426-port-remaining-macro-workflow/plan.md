@@ -17,7 +17,7 @@ runner.
 `feat/426` was three commits behind `origin/main`, which already had migrations
 7 and 8. It was brought up to date with a merge of `origin/main` (a rebase
 would have needed a force push, which the owner declined). The migrations
-below are numbered from 9; if `main` gains another before the merge, renumber
+below were first numbered from 9; `main` then took 9 (`one_active_run`, #433), so ours are 10 to 12, plus 13, which recreates #433's one-active-run index with `realign_macro` as its catalog rule requires. If `main` gains another before the merge, renumber
 ours, never theirs.
 
 ## Delivery order (one commit per item)
@@ -127,7 +127,7 @@ mirror Jira's answer into projects.sprints (replace / append / forget by id)
 | File | Change |
 | --- | --- |
 | `internal/models/models.go` | Remove `MacroTodoFromScenarios` and fix the "trois" comment (US7). `Project.SpecRepoPath` (`specRepoPath`), `Project.RoadmapProjects []string` (`roadmapProjects`) and their `CreateProjectRequest` / `UpdateProjectRequest` fields (`*string`, `*[]string`). `SkillDirNames`: `realign_macro`, `realign-macro` → `"realign-macro"`. `SprintPatch{Name, Start, End, State, MoveOpenTo *string}`. Update the `TargetProjectID` comment (now consumed). |
-| `internal/db/migrations.go` | v9 `projects.spec_repo_path` (`TEXT NOT NULL DEFAULT ''`); v10 `projects.roadmap_projects` (`TEXT NOT NULL DEFAULT '[]'`); v11 `task_activities.macro_key` (`TEXT NOT NULL DEFAULT ''`) + index `(project_id, macro_key)`. Never the baseline (`lateColumns` and the baseline `CREATE TABLE` stay frozen). |
+| `internal/db/migrations.go` | v10 `projects.spec_repo_path` (`TEXT NOT NULL DEFAULT ''`); v11 `task_activities.macro_key` (`TEXT NOT NULL DEFAULT ''`) + index `(project_id, macro_key)` + partial unique index, one running run per macro; v12 `projects.roadmap_projects` (`TEXT NOT NULL DEFAULT '[]'`); v13 recreates `idx_activities_one_active_run` with `realign_macro`. Never the baseline (`lateColumns` and the baseline `CREATE TABLE` stay frozen). |
 | `internal/db/db.go` | Project SELECT lists and scans (both), INSERT, UPDATE and request handling for the two project columns; `NormalizeRoadmapProjects` on create/update. |
 | `internal/db/schemaparity_test.go` | Passes with the new columns on both engines. |
 | `internal/db/sddslicing.go` | `macroSpecRepoPath` returns `SpecRepoPath` when set, else `RepoPath`; the "Deux sources" header stays true. `FindMacroSpecDir` refusal mentions the "Dépôt des spécifications" option. |

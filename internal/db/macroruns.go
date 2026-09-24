@@ -93,7 +93,7 @@ func (d *DB) startMacroRun(projectID, macroKey, skill, runID string, agentOwned 
 	}
 	// The busy check and the record are one step: two launches in the same
 	// instant would otherwise both find the macro free and write in the same
-	// worktree. Across server instances the partial unique index of migration 10
+	// worktree. Across server instances the partial unique index of migration 11
 	// refuses the second one. The insert names the columns every activity has,
 	// the macro and the mode follow in the same transaction, so a run is never
 	// left without the macro that finds it.
