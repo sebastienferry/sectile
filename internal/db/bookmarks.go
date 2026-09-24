@@ -158,15 +158,17 @@ func (d *DB) ToggleProjectBookmark(userID, projectID string) (bool, error) {
 		return false, err
 	}
 
-	var count int
-	err = d.conn.QueryRow("SELECT COUNT(*) FROM user_project_bookmarks WHERE user_id = ? AND project_id = ?", userID, actualID).Scan(&count)
+	// The delete is the check: when it removes a row the bookmark was set and
+	// is now gone, otherwise it is set. Two toggles on two server instances then
+	// take turns on the row instead of both deciding from one count.
+	res, err := d.conn.Exec("DELETE FROM user_project_bookmarks WHERE user_id = ? AND project_id = ?", userID, actualID)
 	if err != nil {
 		return false, err
 	}
-
-	if count > 0 {
-		_, err = d.conn.Exec("DELETE FROM user_project_bookmarks WHERE user_id = ? AND project_id = ?", userID, actualID)
+	if n, err := res.RowsAffected(); err != nil {
 		return false, err
+	} else if n > 0 {
+		return false, nil
 	}
 
 	_, err = d.conn.Exec("INSERT INTO user_project_bookmarks (user_id, project_id) VALUES (?, ?) ON CONFLICT DO NOTHING", userID, actualID)
