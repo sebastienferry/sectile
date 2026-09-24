@@ -602,3 +602,45 @@ func TestRepriseSansTicketLeDit(t *testing.T) {
 		t.Errorf("le refus doit nommer la macro et ce qu'il n'a pas pu faire : %v", err)
 	}
 }
+
+// A declared specifications repository is where the slicing is read, and the
+// code repository is not looked at, even when it carries a folder of its own.
+func TestSlicingReadsTheSpecificationsRepository(t *testing.T) {
+	database, proj, code := sddProject(t, "openspec")
+	writeSpecDir(t, code, "openspec/changes", "pe-450-in-code", map[string]string{"tasks.md": "## 1. From the code repository\n"})
+	wiki := t.TempDir()
+	writeSpecDir(t, wiki, "openspec/changes", "pe-450-in-wiki", map[string]string{"tasks.md": tasksFile})
+	seedMacro(t, database, proj.ID, "PE-450")
+
+	if _, err := database.UpdateProject(proj.ID, models.UpdateProjectRequest{SpecRepoPath: &wiki}); err != nil {
+		t.Fatalf("declaring the specifications repository: %v", err)
+	}
+	meta, origin, err := database.TodosFromSDD(proj.ID, "PE-450", SlicingFromTasks)
+	if err != nil {
+		t.Fatalf("slicing: %v", err)
+	}
+	if len(meta.Todos) != 3 {
+		t.Fatalf("expected the three groups of the wiki, got %v", meta.Todos)
+	}
+	if !strings.Contains(origin, "pe-450-in-wiki") {
+		t.Fatalf("the origin must name the wiki folder, got %q", origin)
+	}
+
+	// Clearing the setting restores the code repository.
+	empty := ""
+	updated, err := database.UpdateProject(proj.ID, models.UpdateProjectRequest{SpecRepoPath: &empty})
+	if err != nil || updated.SpecRepoPath != "" {
+		t.Fatalf("clearing the specifications repository: %v, %+v", err, updated)
+	}
+	if updated.RepoPath != code {
+		t.Fatalf("the code repository must be untouched, got %q", updated.RepoPath)
+	}
+}
+
+// The refusal says where the specifications repository is declared.
+func TestMissingSpecFolderNamesTheSetting(t *testing.T) {
+	_, err := FindMacroSpecDir(t.TempDir(), "speckit", "PE-70")
+	if err == nil || !strings.Contains(err.Error(), "Dépôt des spécifications") {
+		t.Fatalf("the refusal must name the option, got %v", err)
+	}
+}

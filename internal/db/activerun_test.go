@@ -138,6 +138,12 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 	for _, stmt := range []string{
 		"DROP INDEX idx_activities_one_active_run",
 		"ALTER TABLE task_activities DROP COLUMN concurrent",
+		// Nor anything the migrations after 9 add, which reopening replays.
+		"ALTER TABLE projects DROP COLUMN spec_repo_path",
+		"DROP INDEX idx_task_activities_macro_running",
+		"DROP INDEX idx_task_activities_macro",
+		"ALTER TABLE task_activities DROP COLUMN macro_key",
+		"ALTER TABLE projects DROP COLUMN roadmap_projects",
 		"DELETE FROM schema_migrations WHERE version >= 9",
 		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES
 			('old-skill', 't1', 'clarify', 'clarify', 'run', 'running', '2026-09-01 10:00:00'),

@@ -66,16 +66,18 @@ func sddSearchRoots(specFramework string) []string {
 	return []string{"specs"}
 }
 
-// macroSpecRepoPath rend le dépôt où chercher les spécifications d'un projet.
+// macroSpecRepoPath returns the checkout to read a project's specifications
+// from: its declared specifications repository, else its code repository.
 //
-// Sectile n'a qu'un chemin de dépôt par projet. Taskativ en distingue deux, le
-// dépôt de code et un dépôt de spécifications partagé par l'équipe ; tant que ce
-// second réglage n'existe pas ici, une équipe qui sépare les deux devra pointer
-// le projet sur celui qui porte les spécifications, et le refus de recherche le
-// dit explicitement.
+// It is the single reader of that choice, so the slicing import, the macro
+// worktree and the realignment all land in the same checkout. The agents'
+// working directory stays RepoPath whatever this returns.
 func macroSpecRepoPath(proj *models.Project) string {
 	if proj == nil {
 		return ""
+	}
+	if spec := strings.TrimSpace(proj.SpecRepoPath); spec != "" {
+		return spec
 	}
 	return strings.TrimSpace(proj.RepoPath)
 }
@@ -131,7 +133,7 @@ func FindMacroSpecDir(repoPath string, specFramework string, macroKey string) (s
 		// première cause de ce refus est de chercher dans le dépôt de code quand
 		// les spécifications vivent ailleurs, et un message qui ne dit que
 		// « dans specs » laisse croire à un problème de branche.
-		return "", fmt.Errorf("aucun dossier de spécification pour %s dans %s (cherché sous %s) : soit la spécification est sur la branche de la macro, non fusionnée, soit ce dépôt n'est pas celui qui les porte",
+		return "", fmt.Errorf("aucun dossier de spécification pour %s dans %s (cherché sous %s) : soit la spécification est sur la branche de la macro, non fusionnée, soit ce dépôt n'est pas celui qui les porte (le « Dépôt des spécifications » se déclare dans les options du projet)",
 			strings.ToUpper(macroKey), repoPath, strings.Join(sddSearchRoots(specFramework), ", "))
 	}
 	sort.Slice(found, func(i, j int) bool { return found[i].modTime > found[j].modTime })
@@ -216,14 +218,9 @@ func findMacroBranch(repoPath string, macroKey string) (string, error) {
 		if ref == "" {
 			continue
 		}
-		// Le nom de branche peut être préfixé par le distant, « origin/… », et
-		// par un type, « feat/… » : la clé est cherchée dans son dernier segment.
-		last := ref
-		if idx := strings.LastIndex(ref, "/"); idx >= 0 {
-			last = ref[idx+1:]
-		}
-		lower := strings.ToLower(last)
-		if lower == key || strings.HasPrefix(lower, key+"-") {
+		// The agent's macro worktree uses the same rule, so both sides name the
+		// same branch.
+		if models.MacroBranchMatches(ref, key) {
 			return ref, nil
 		}
 	}

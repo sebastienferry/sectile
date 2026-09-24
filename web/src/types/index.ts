@@ -122,7 +122,7 @@ export type EpicHorizon = MacroHorizon
  * « stories » est la seule qui ne décrive pas du travail à faire : la ligne
  * reprend un ticket qui existe déjà, et arrive donc rattachée.
  */
-export type MacroTodoSource = 'tasks' | 'spec' | 'scenarios' | 'stories'
+export type MacroTodoSource = 'tasks' | 'spec' | 'stories'
 
 export interface MacroTodo {
   id: string
@@ -231,6 +231,13 @@ export interface Project {
    * dès qu'un ticket épingle un nouveau CWD, le chemin est enregistré ici.
    */
   repoPaths?: string[]
+  /**
+   * Checkout that carries the project's specifications when it is not the
+   * code repository. Absent means repoPath. Read by the macro workflow only.
+   */
+  specRepoPath?: string
+  /** Other Jira project keys whose story keys the slicing attaches. Read, never written. */
+  roadmapProjects?: string[]
   /**
    * Chaque tâche travaille dans son propre worktree Git isolé, ou directement
    * dans le clone si l'option est désactivée. Vrai par défaut.

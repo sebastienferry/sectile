@@ -36,7 +36,12 @@ import {
   formatDateInput,
   getMonday,
   getSprintRelativeInfo,
+  nextBatchStart,
+  nextSprintAfter,
+  sprintManagementOf,
+  sprintTarget,
 } from '../lib/sprints'
+import { createSprints, deleteSprint, updateSprint, type SprintPatch } from '../lib/sprintApi'
 import type { Task, TrackerSprint, WorkflowStage } from '../types'
 import { resolveTaskStage } from '../lib/workflow'
 import { Avatar } from './Avatar'
@@ -50,6 +55,8 @@ export const SprintTimelineView: React.FC = () => {
     tasks,
     currentProject,
     updateProject,
+    fetchProjects,
+    refreshTasks,
     setTaskSprint,
     setTasksSprint,
     setSelectedTask,
@@ -63,19 +70,49 @@ export const SprintTimelineView: React.FC = () => {
   const showsEpicBarOf = (task: Task) =>
     showsEpicColors(task.projectId) && Boolean(task.parentKey?.trim())
 
-  // Project sprints (or defaults if none yet)
+  // Who owns the sprints: the tracker (written there first), nobody (GitHub:
+  // read-only), or the local board, which keeps its own.
+  const management = sprintManagementOf(currentProject)
+  const trackerOwned = management === 'tracker'
+  const readOnly = management === 'readonly'
+
+  // Project sprints. Only the local board invents default ones: a tracker's
+  // sprints are the tracker's, and made-up ids could never receive a ticket.
   const sprints: TrackerSprint[] = useMemo(() => {
     if (currentProject?.sprints && currentProject.sprints.length > 0) {
       return currentProject.sprints
     }
-    return generateDefaultSprints(4)
-  }, [currentProject?.sprints])
+    return management === 'local' ? generateDefaultSprints(4) : []
+  }, [currentProject?.sprints, management])
+
+  // Tracker-owned batch creation form.
+  const [isCreatingBatch, setIsCreatingBatch] = useState(false)
+  const [batchPattern, setBatchPattern] = useState('Sprint {n}')
+  const [batchCount, setBatchCount] = useState(1)
+  const [batchBusyCreate, setBatchBusyCreate] = useState(false)
+
+  // Runs one tracker write, then re-reads the project to show the tracker's
+  // answer. A refusal is shown with the tracker's reason, and nothing changes.
+  const trackerWrite = async <T,>(title: string, write: () => Promise<T>): Promise<T | null> => {
+    try {
+      const result = await write()
+      // The server re-links the tasks a rename or a close moved, so both are
+      // read back, not only the sprint list.
+      await Promise.all([fetchProjects(), refreshTasks()])
+      return result
+    } catch (err) {
+      addToast({ type: 'error', title, description: err instanceof Error ? err.message : String(err) })
+      return null
+    }
+  }
+  const moveTarget = (value: string) => sprintTarget(sprints, value, management)
 
   // Configuration state
   const [durationDays, setDurationDays] = useState<number>(14)
   const [startDateStr, setStartDateStr] = useState<string>(() => {
     if (sprints.length > 0 && sprints[0].startDate) {
-      return sprints[0].startDate
+      // A tracker writes RFC3339; the date input and the batch route take a day.
+      return formatDateInput(sprints[0].startDate)
     }
     return formatDateISO(getMonday(new Date()))
   })
@@ -307,8 +344,14 @@ export const SprintTimelineView: React.FC = () => {
     await saveSprints(updated)
   }
 
-  // Add next consecutive sprint
+  // Add next consecutive sprint. On a tracker, a batch is created there: the
+  // form opens, starting the day after the last sprint.
   const handleAddSprint = async () => {
+    if (trackerOwned) {
+      setStartDateStr(nextBatchStart(sprints, startDateStr))
+      setIsCreatingBatch(true)
+      return
+    }
     let nextStart = new Date(startDateStr)
     if (sprints.length > 0) {
       const last = sprints[sprints.length - 1]
@@ -334,10 +377,32 @@ export const SprintTimelineView: React.FC = () => {
     await saveSprints(updated)
   }
 
+  const handleCreateBatch = async () => {
+    if (!currentProject?.id) return
+    setBatchBusyCreate(true)
+    const result = await trackerWrite('Sprints non créés', () =>
+      createSprints(currentProject.id, { name: batchPattern, count: batchCount, start: startDateStr, weeks: Math.round(durationDays / 7) })
+    )
+    setBatchBusyCreate(false)
+    if (!result) return
+    if (result.error) {
+      addToast({ type: 'warning', title: 'Création interrompue', description: result.error })
+    } else {
+      addToast({ type: 'success', title: 'Sprints créés', description: `${result.created.length} sprint(s) créé(s) sur le tracker.` })
+      setIsCreatingBatch(false)
+    }
+  }
+
   // Delete a sprint
   const handleDeleteSprint = async (index: number) => {
     const sprintToDelete = sprints[index]
     if (!window.confirm(`Supprimer le ${sprintToDelete.name} ? Les tâches associées seront renvoyées au backlog.`)) {
+      return
+    }
+    if (trackerOwned) {
+      if (!currentProject?.id || !sprintToDelete.id) return
+      const done = await trackerWrite('Sprint non supprimé', () => deleteSprint(currentProject.id, sprintToDelete.id!).then(() => true))
+      if (done) addToast({ type: 'success', title: `${sprintToDelete.name} supprimé`, description: 'Supprimé sur le tracker.' })
       return
     }
     const updated = sprints.filter((_, i) => i !== index)
@@ -361,6 +426,28 @@ export const SprintTimelineView: React.FC = () => {
     }
     const oldName = sprints[index].name
     const newName = editSprintName.trim()
+
+    if (trackerOwned) {
+      // The tracker renames and re-dates; the server re-links the tasks that
+      // carried the old name. Only what changed is sent.
+      const current = sprints[index]
+      if (!currentProject?.id || !current.id) return
+      const patch: SprintPatch = {}
+      if (newName !== oldName) patch.name = newName
+      if (current.state === 'closed') {
+        // Jira keeps a closed sprint's dates and state; only its name changes.
+        setEditingSprintIndex(null)
+        if (patch.name) await trackerWrite('Sprint non modifié', () => updateSprint(currentProject.id, current.id!, patch))
+        return
+      }
+      if (editSprintStartDate && editSprintStartDate !== formatDateInput(current.startDate)) patch.start = editSprintStartDate
+      if (editSprintEndDate && editSprintEndDate !== formatDateInput(current.endDate)) patch.end = editSprintEndDate
+      if (editSprintState !== current.state) patch.state = editSprintState
+      setEditingSprintIndex(null)
+      if (Object.keys(patch).length === 0) return
+      await trackerWrite('Sprint non modifié', () => updateSprint(currentProject.id, current.id!, patch))
+      return
+    }
 
     let updated = sprints.map((sp, i) => {
       if (i === index) {
@@ -396,7 +483,7 @@ export const SprintTimelineView: React.FC = () => {
   // Close Sprint Handlers
   const handleStartCloseSprint = (sprint: TrackerSprint, index: number) => {
     setClosingSprint({ sprint, index })
-    setCloseSprintDestination(index < sprints.length - 1 ? 'next' : 'backlog')
+    setCloseSprintDestination((trackerOwned ? nextSprintAfter(sprints, sprint) !== null : index < sprints.length - 1) ? 'next' : 'backlog')
     setCloseSprintActivateNext(true)
   }
 
@@ -404,6 +491,24 @@ export const SprintTimelineView: React.FC = () => {
     if (!closingSprint || !currentProject?.id) return
     const { sprint, index } = closingSprint
     setIsClosingSprintBusy(true)
+
+    if (trackerOwned) {
+      // The server moves the unfinished work on the tracker, then closes; the
+      // sprint it hands over to is the next one by start date, as here.
+      const nextSprint = nextSprintAfter(sprints, sprint)
+      const patch: SprintPatch = { state: 'closed' }
+      if (closeSprintDestination === 'next' || closeSprintDestination === 'backlog') patch.moveOpenTo = closeSprintDestination
+      const closed = sprint.id ? await trackerWrite('Sprint non clôturé', () => updateSprint(currentProject.id, sprint.id!, patch)) : null
+      if (closed && closeSprintActivateNext && nextSprint?.id && nextSprint.state === 'future') {
+        await trackerWrite(`${nextSprint.name} non démarré`, () => updateSprint(currentProject.id, nextSprint.id!, { state: 'active' }))
+      }
+      if (closed) {
+        addToast({ type: 'success', title: `${sprint.name} clôturé !`, description: 'Clôturé sur le tracker.' })
+        setClosingSprint(null)
+      }
+      setIsClosingSprintBusy(false)
+      return
+    }
 
     try {
       const sprintKey = sprint.name.toLowerCase().trim()
@@ -464,6 +569,13 @@ export const SprintTimelineView: React.FC = () => {
   }
 
   const handleReopenSprint = async (index: number) => {
+    if (trackerOwned) {
+      const sprint = sprints[index]
+      if (!currentProject?.id || !sprint.id) return
+      const reopened = await trackerWrite('Sprint non réouvert', () => updateSprint(currentProject.id, sprint.id!, { state: 'active' }))
+      if (reopened) addToast({ type: 'info', title: `${sprint.name} réouvert`, description: 'Repassé en Actif sur le tracker.' })
+      return
+    }
     const updated = sprints.map((sp, i) => (i === index ? { ...sp, state: 'active' } : sp))
     await saveSprints(updated)
     addToast({
@@ -513,10 +625,11 @@ export const SprintTimelineView: React.FC = () => {
       const singleId = e.dataTransfer.getData(DRAG_TASK_ID)
       if (singleId) taskIds = [singleId]
     }
-    if (taskIds.length === 0) return
+    if (taskIds.length === 0 || readOnly) return
+    const target = moveTarget(sprintName)
 
     if (currentProject?.id && taskIds.length > 1) {
-      await setTasksSprint(currentProject.id, taskIds, sprintName, sprintName)
+      await setTasksSprint(currentProject.id, taskIds, target.id, target.name)
       addToast({
         type: 'success',
         title: 'Tâches planifiées',
@@ -524,7 +637,7 @@ export const SprintTimelineView: React.FC = () => {
       })
     } else {
       for (const id of taskIds) {
-        await setTaskSprint(id, sprintName, sprintName)
+        await setTaskSprint(id, target.id, target.name)
       }
     }
 
@@ -532,17 +645,20 @@ export const SprintTimelineView: React.FC = () => {
   }
 
   const handleRemoveTaskFromSprint = async (taskId: string) => {
+    if (readOnly) return
     await setTaskSprint(taskId, '', '')
   }
 
   // Batch assign from Backlog
   const handleApplyBatchSprint = async () => {
+    if (readOnly) return
     const ids = Object.keys(checkedTaskIds).filter(id => checkedTaskIds[id])
     if (ids.length === 0 || !batchTargetSprint) return
 
     setBatchBusy(true)
+    const target = moveTarget(batchTargetSprint)
     if (currentProject?.id) {
-      await setTasksSprint(currentProject.id, ids, batchTargetSprint, batchTargetSprint)
+      await setTasksSprint(currentProject.id, ids, target.id, target.name)
       addToast({
         type: 'success',
         title: 'Tâches affectées',
@@ -550,7 +666,7 @@ export const SprintTimelineView: React.FC = () => {
       })
     } else {
       for (const id of ids) {
-        await setTaskSprint(id, batchTargetSprint, batchTargetSprint)
+        await setTaskSprint(id, target.id, target.name)
       }
     }
     setCheckedTaskIds({})
@@ -560,6 +676,7 @@ export const SprintTimelineView: React.FC = () => {
 
   // Batch remove tasks from sprint (send back to backlog)
   const handleBatchRemoveFromSprint = async () => {
+    if (readOnly) return
     const ids = selectedSprintTaskIds.length > 0 ? selectedSprintTaskIds : selectedTaskIds
     if (ids.length === 0) return
 
@@ -614,6 +731,7 @@ export const SprintTimelineView: React.FC = () => {
                   type="button"
                   onClick={() => {
                     setDurationDays(d.days)
+                    if (management !== 'local') return
                     const updated = calculateSprintDates(sprints, startDateStr, d.days)
                     saveSprints(updated)
                   }}
@@ -636,6 +754,7 @@ export const SprintTimelineView: React.FC = () => {
                 value={startDateStr}
                 onChange={e => {
                   setStartDateStr(e.target.value)
+                  if (management !== 'local') return
                   const updated = calculateSprintDates(sprints, e.target.value, durationDays)
                   saveSprints(updated)
                 }}
@@ -697,7 +816,7 @@ export const SprintTimelineView: React.FC = () => {
               </button>
             )}
 
-            <button
+            {management === 'local' && <button
               type="button"
               onClick={handleRecalculateAll}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-[var(--bg-tertiary)] hover:bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] transition-all cursor-pointer shadow-xs"
@@ -705,17 +824,18 @@ export const SprintTimelineView: React.FC = () => {
             >
               <RefreshCw size={12} className="text-cyan-400" />
               <span>Recalculer</span>
-            </button>
+            </button>}
 
-            <button
+            {!readOnly && <button
               type="button"
+              disabled={trackerOwned && !currentProject?.boardId}
               onClick={handleAddSprint}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-[var(--accent-color)] hover:opacity-90 text-white transition-all cursor-pointer shadow-xs"
-              title="Ajouter un nouveau sprint consécutif"
+              title={trackerOwned && !currentProject?.boardId ? "Choisissez d'abord un board dans les options du projet" : 'Ajouter un nouveau sprint consécutif'}
             >
               <Plus size={13} />
-              <span>+ Sprint</span>
-            </button>
+              <span>{trackerOwned ? '+ Sprints' : '+ Sprint'}</span>
+            </button>}
 
             <button
               type="button"
@@ -740,6 +860,50 @@ export const SprintTimelineView: React.FC = () => {
         </div>
       </div>
 
+      {/* Tracker-owned batch creation: written to the tracker, shown from its answer. */}
+      {trackerOwned && isCreatingBatch && (
+        <div className="border-b border-[var(--border-color)] bg-[var(--bg-tertiary)]/40 px-4 py-2 flex items-center gap-2 flex-wrap text-xs shrink-0">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Nouveaux sprints sur le tracker</span>
+          <input
+            aria-label="Modèle de nom"
+            value={batchPattern}
+            onChange={e => setBatchPattern(e.target.value)}
+            placeholder="Sprint {n}"
+            className="px-2 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono text-[11px] w-36"
+            title="{n} est remplacé par le numéro du sprint dans le lot"
+          />
+          <label className="flex items-center gap-1 text-[var(--text-secondary)]">
+            Nombre
+            <input
+              type="number"
+              min={1}
+              max={12}
+              value={batchCount}
+              onChange={e => setBatchCount(Math.max(1, Math.min(12, Number(e.target.value) || 1)))}
+              className="w-14 px-1.5 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono text-[11px]"
+            />
+          </label>
+          <span className="text-[var(--text-muted)] text-[10.5px]">
+            à partir du {formatDateFR(startDateStr)}, {Math.round(durationDays / 7)} semaine(s) chacun
+          </span>
+          <button
+            type="button"
+            disabled={batchBusyCreate}
+            onClick={handleCreateBatch}
+            className="px-3 py-1 rounded-lg text-xs font-bold bg-[var(--accent-color)] text-white hover:opacity-90 disabled:opacity-40 cursor-pointer"
+          >
+            {batchBusyCreate ? <Loader2 size={12} className="animate-spin" /> : 'Créer'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsCreatingBatch(false)}
+            className="px-2 py-1 rounded-lg text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+          >
+            Annuler
+          </button>
+        </div>
+      )}
+
       {/* Global Batch Action Bar for Selected Tasks */}
       {selectedTaskIds.length > 0 && (
         <div className="bg-[var(--accent-light)]/30 border-b border-[var(--accent-color)]/30 px-4 py-2 flex items-center justify-between gap-3 text-xs animate-in fade-in duration-150 shrink-0 flex-wrap">
@@ -759,6 +923,7 @@ export const SprintTimelineView: React.FC = () => {
             {/* Target sprint dropdown */}
             <select
               value={batchTargetSprint}
+              disabled={readOnly}
               onChange={e => setBatchTargetSprint(e.target.value)}
               className="text-xs px-2.5 py-1 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer font-medium"
             >
@@ -782,7 +947,7 @@ export const SprintTimelineView: React.FC = () => {
             {/* Retirer du sprint / Renvoyer au backlog */}
             <button
               type="button"
-              disabled={batchBusy}
+              disabled={batchBusy || readOnly}
               onClick={handleBatchRemoveFromSprint}
               className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-400 hover:bg-amber-500/25 border border-amber-500/30 transition-all cursor-pointer shadow-xs disabled:opacity-40"
               title="Retirer les tâches sélectionnées du sprint et les renvoyer au backlog"
@@ -874,7 +1039,7 @@ export const SprintTimelineView: React.FC = () => {
                   <div
                     onDragOver={isBacklogOpen ? e => handleDragOver(e, sprint.name) : undefined}
                     onDragLeave={isBacklogOpen ? () => setDragOverSprint(null) : undefined}
-                    onDrop={isBacklogOpen ? e => handleDropOnSprint(e, sprint.name) : undefined}
+                    onDrop={isBacklogOpen && !readOnly ? e => handleDropOnSprint(e, sprint.name) : undefined}
                     className={`flex-1 w-full border bg-[var(--bg-secondary)]/90 shadow-sm transition-all duration-200 overflow-hidden ${
                       isBacklogOpen ? 'rounded-2xl' : 'rounded-xl'
                     } ${
@@ -975,7 +1140,7 @@ export const SprintTimelineView: React.FC = () => {
                         </div>
 
                         {/* Décalage option */}
-                        <div className="flex items-center gap-2 pt-0.5">
+                        {management === 'local' && <div className="flex items-center gap-2 pt-0.5">
                           <label className="flex items-center gap-1.5 text-[11px] text-[var(--text-secondary)] cursor-pointer select-none">
                             <input
                               type="checkbox"
@@ -985,7 +1150,7 @@ export const SprintTimelineView: React.FC = () => {
                             />
                             <span>Décaler automatiquement les dates des sprints suivants pour préserver l'enchaînement</span>
                           </label>
-                        </div>
+                        </div>}
                       </div>
                     ) : (
                       <div
@@ -1039,6 +1204,7 @@ export const SprintTimelineView: React.FC = () => {
                           {/* Clickable Date Range Button */}
                           <button
                             type="button"
+                            disabled={readOnly}
                             onClick={() => handleStartEditSprint(index, sprint)}
                             className="flex items-center gap-1 text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] px-2 py-0.5 rounded-lg border border-transparent hover:border-[var(--border-color)] font-mono text-[10.5px] transition-colors cursor-pointer"
                             title="Cliquer pour modifier les dates du sprint"
@@ -1069,7 +1235,8 @@ export const SprintTimelineView: React.FC = () => {
 
                           <div className="flex items-center gap-1 pl-1">
                             {/* Close Sprint / Reopen Sprint Button */}
-                            {sprint.state === 'closed' ? (
+                            {/* Jira never reopens a closed sprint, so neither does a tracker-owned timeline. */}
+                            {readOnly || (trackerOwned && sprint.state === 'closed') ? null : sprint.state === 'closed' ? (
                               <button
                                 type="button"
                                 onClick={() => handleReopenSprint(index)}
@@ -1092,24 +1259,24 @@ export const SprintTimelineView: React.FC = () => {
                             )}
 
                             {/* Edit Sprint Button */}
-                            <button
+                            {!readOnly && <button
                               type="button"
                               onClick={() => handleStartEditSprint(index, sprint)}
                               className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
                               title="Modifier les dates et le statut"
                             >
                               <SlidersHorizontal size={12} />
-                            </button>
+                            </button>}
 
                             {/* Delete Sprint Button */}
-                            <button
+                            {!readOnly && <button
                               type="button"
                               onClick={() => handleDeleteSprint(index)}
                               className="p-1 rounded-lg text-[var(--text-muted)] hover:text-rose-400 transition-colors cursor-pointer"
                               title="Supprimer ce sprint"
                             >
                               <Trash2 size={12} />
-                            </button>
+                            </button>}
 
                             {/* Collapse/Expand for Closed Sprints */}
                             {sprint.state === 'closed' && (
@@ -1186,6 +1353,7 @@ export const SprintTimelineView: React.FC = () => {
                                     e.stopPropagation()
                                     handleRemoveTaskFromSprint(task.id)
                                   }}
+                                  hidden={readOnly}
                                   className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer ml-0.5"
                                   title="Retirer du sprint (renvoyer au backlog)"
                                 >
@@ -1245,6 +1413,7 @@ export const SprintTimelineView: React.FC = () => {
                                       e.stopPropagation()
                                       handleRemoveTaskFromSprint(task.id)
                                     }}
+                                    hidden={readOnly}
                                     className="text-[var(--text-muted)] hover:text-rose-400 p-0.5 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
                                     title="Retirer du sprint (renvoyer au backlog)"
                                   >
@@ -1308,6 +1477,7 @@ export const SprintTimelineView: React.FC = () => {
                                     e.stopPropagation()
                                     handleRemoveTaskFromSprint(task.id)
                                   }}
+                                  hidden={readOnly}
                                   className="p-0.5 rounded text-[var(--text-muted)] hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                                   title="Retirer du sprint"
                                 >
@@ -1366,6 +1536,7 @@ export const SprintTimelineView: React.FC = () => {
                                         e.stopPropagation()
                                         handleRemoveTaskFromSprint(task.id)
                                       }}
+                                      hidden={readOnly}
                                       className="p-1 rounded text-[var(--text-muted)] hover:text-rose-400 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
                                       title="Retirer du sprint (renvoyer au backlog)"
                                     >
@@ -1497,6 +1668,7 @@ export const SprintTimelineView: React.FC = () => {
               <div className="p-2 border-b border-[var(--border-color)] bg-[var(--accent-light)]/25 flex items-center gap-1.5 shrink-0">
                 <select
                   value={batchTargetSprint}
+                  disabled={readOnly}
                   onChange={e => setBatchTargetSprint(e.target.value)}
                   className="flex-1 text-xs px-2 py-1 rounded bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none cursor-pointer"
                 >
@@ -1567,9 +1739,11 @@ export const SprintTimelineView: React.FC = () => {
                       </span>
                       <select
                         value=""
+                        disabled={readOnly}
                         onChange={e => {
                           if (e.target.value) {
-                            setTaskSprint(task.id, e.target.value, e.target.value)
+                            const target = moveTarget(e.target.value)
+                            setTaskSprint(task.id, target.id, target.name)
                           }
                         }}
                         onClick={e => e.stopPropagation()}
@@ -1638,9 +1812,11 @@ export const SprintTimelineView: React.FC = () => {
                       {/* Quick Assign Dropdown */}
                       <select
                         value=""
+                        disabled={readOnly}
                         onChange={e => {
                           if (e.target.value) {
-                            setTaskSprint(task.id, e.target.value, e.target.value)
+                            const target = moveTarget(e.target.value)
+                            setTaskSprint(task.id, target.id, target.name)
                           }
                         }}
                         onClick={e => e.stopPropagation()}

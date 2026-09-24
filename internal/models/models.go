@@ -90,6 +90,10 @@ type TaskActivity struct {
 	// UserName is the owner's display name or e-mail, resolved when the row is
 	// read. It is never stored: a rename must show everywhere at once.
 	UserName string `json:"userName,omitempty"`
+	// MacroKey names the macro a macro skill run belongs to. Such a run is a
+	// project activity with no task; the field is read by the macro run
+	// queries only and is empty everywhere else.
+	MacroKey string `json:"macroKey,omitempty"`
 }
 
 type ActivityStats struct {
@@ -113,6 +117,15 @@ type Project struct {
 	// It is fed automatically: whenever a ticket pins a new CWD, that path is
 	// registered here so the next ticket can pick it instead of retyping it.
 	RepoPaths []string `json:"repoPaths,omitempty"`
+	// SpecRepoPath is the checkout carrying the project's specifications, when
+	// a team keeps them apart from its code. Empty means the code repository
+	// (RepoPath) carries them. It is read for the macro workflow only: the
+	// slicing import, the macro worktree and the realignment. The agents keep
+	// running in RepoPath.
+	SpecRepoPath string `json:"specRepoPath,omitempty"`
+	// RoadmapProjects are other Jira project keys whose story keys the slicing
+	// attaches to a line. They are read, never written.
+	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
@@ -237,6 +250,18 @@ type TrackerSprint struct {
 	EndDate   string `json:"endDate,omitempty"`
 }
 
+// SprintPatch changes a tracker sprint. A nil field is left as it is. Dates
+// are YYYY-MM-DD or RFC3339; State is "active", "future" or "closed".
+// MoveOpenTo only goes with closing: "next" moves the sprint's unfinished work
+// items to the following sprint first, "backlog" to the backlog.
+type SprintPatch struct {
+	Name       *string `json:"name,omitempty"`
+	Start      *string `json:"start,omitempty"`
+	End        *string `json:"end,omitempty"`
+	State      *string `json:"state,omitempty"`
+	MoveOpenTo *string `json:"moveOpenTo,omitempty"`
+}
+
 // MacroMeta is the macro-level data Sectile owns. Macros are containers referenced by their children
 // so their horizon, their framing notes and their todo list have nowhere else to live.
 type MacroMeta struct {
@@ -268,9 +293,6 @@ const (
 	// MacroTodoFromSpec : une exigence de spec.md, ou une user story priorisée
 	// sous Spec Kit. Plus proche du sens métier, mais pas toujours livrable seule.
 	MacroTodoFromSpec = "spec"
-	// MacroTodoFromScenarios : un Functional Scenario de la macro elle-même. Seule
-	// des trois à venir du tracker et non du dépôt.
-	MacroTodoFromScenarios = "scenarios"
 	// MacroTodoFromStories : une story déjà créée sous la macro, reprise dans la
 	// découpe. La ligne arrive rattachée à son ticket, ce qui la distingue d'une
 	// ligne à faire et fait qu'une création en lot la passe.
@@ -283,12 +305,10 @@ type MacroTodo struct {
 	Text     string `json:"text"`
 	Done     bool   `json:"done"`
 	StoryKey string `json:"storyKey,omitempty"`
-	// TargetProjectID est le projet où créer la story de cette ligne. Vide vaut
-	// « le projet de la macro », ce qui garde le comportement d'origine par
-	// défaut et laisse valides les lignes enregistrées avant ce champ.
-	//
-	// Le champ est enregistré et rendu tel quel : la création de story ne le lit
-	// pas encore, elle crée toujours dans le projet de la macro.
+	// TargetProjectID is the project this line's story is created in. Empty
+	// means the macro's own project, which keeps lines saved before the field
+	// valid. Story creation refuses a target that is not on the macro's tracker
+	// instance, where the macro could not be the story's parent.
 	TargetProjectID string `json:"targetProjectId,omitempty"`
 	// SourceKind dit de quel artefact la ligne a été importée, parmi les
 	// MacroTodoFrom* ci-dessus. Vide vaut « saisie à la main ».
@@ -376,6 +396,10 @@ type CreateProjectRequest struct {
 	EnabledViews []string `json:"enabledViews,omitempty"`
 	// EpicColors paints each card with the colour of its epic. Off when absent.
 	EpicColors bool `json:"epicColors,omitempty"`
+	// SpecRepoPath is the specifications checkout. Empty means RepoPath.
+	SpecRepoPath string `json:"specRepoPath,omitempty"`
+	// RoadmapProjects are the Jira project keys the slicing also reads.
+	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
 	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
@@ -424,6 +448,8 @@ type UpdateProjectRequest struct {
 	Color                       *string              `json:"color,omitempty"`
 	RepoPath                    *string              `json:"repoPath,omitempty"`
 	RepoPaths                   *[]string            `json:"repoPaths,omitempty"`
+	SpecRepoPath                *string              `json:"specRepoPath,omitempty"`
+	RoadmapProjects             *[]string            `json:"roadmapProjects,omitempty"`
 	PRCreationStage             *string              `json:"prCreationStage,omitempty"`
 	DefaultSkillMode            *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage          *string              `json:"fullChainStopStage,omitempty"`
@@ -597,6 +623,9 @@ var SkillDirNames = map[string]string{
 	"rewrite_story": "rewrite-story",
 	"rewrite-story": "rewrite-story",
 	"rewrite":       "rewrite-story",
+	"realign_macro": "realign-macro",
+	"realign-macro": "realign-macro",
+	"realign":       "realign-macro",
 	"refine_macro":  "refine-macro",
 	"refine-macro":  "refine-macro",
 	"refine":        "refine-macro",

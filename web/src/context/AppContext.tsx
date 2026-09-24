@@ -2492,6 +2492,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         description: `${data.storyKey} rattachée à ${macroKey}`,
         link: data.task ? createdTaskLink(data.task) : undefined,
       })
+      // The story exists; what the tracker refused is said, not hidden.
+      if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       const m = data.macro || data.epic || null
       return { macro: m, epic: m, storyKey: data.storyKey || '' }
@@ -2708,6 +2710,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         description: `${data.storyKey} sous ${macroKey}`,
         link: data.task ? createdTaskLink(data.task) : undefined,
       })
+      if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       return data.storyKey || ''
     } catch (err: any) {

@@ -227,6 +227,28 @@ var StageSkills = []StageSkill{
 		GuardTitle:      "Do not",
 	},
 	{
+		ID:          "realign_macro",
+		Name:        "Realign Macro",
+		DirName:     models.SkillDirNames["realign_macro"],
+		Command:     "/realign-macro",
+		FromStage:   "macro",
+		ToStage:     "macro",
+		Scope:       "macro",
+		Mode:        models.SkillModeInteractive,
+		Description: "Remet la spécification de la macro en ligne avec sa découpe, sans toucher au corps de ce qui existe déjà.",
+		Icon:        "GitCompareArrows",
+		Color:       "sky",
+		Steps: []string{
+			"Lecture de la découpe et de l'origine de chaque ligne",
+			"Comparaison avec les entrées de la spécification, sur la branche de la macro",
+			"Ajout, renommage et marquage « à retirer », jamais de suppression",
+			"Commit et push de la branche de la macro, compte rendu de ce qui a changé",
+		},
+		Title:           "Realign Macro",
+		FrontmatterDesc: "Bring the macro's specification back in line with its slicing: add what was added, rename what was renamed, mark what disappeared. Never rewrite the body of an entry that already exists.",
+		GuardTitle:      "Do not",
+	},
+	{
 		ID:          "pickup_issues",
 		Name:        "Batch Pickup & Auto-Pilot to PR",
 		DirName:     models.SkillDirNames["pickup_issues"],
@@ -262,6 +284,9 @@ func StageSkillByID(skillID string) (StageSkill, bool) {
 	}
 	if skillID == "refine" || skillID == "refine-macro" || skillID == "refine_macro" {
 		skillID = "refine_macro"
+	}
+	if skillID == "realign" || skillID == "realign-macro" || skillID == "realign_macro" {
+		skillID = "realign_macro"
 	}
 	for _, s := range StageSkills {
 		if s.ID == skillID {
@@ -332,6 +357,22 @@ func refineMacroFrameworkName(specFramework string) string {
 		return "Refine Macro (Spec Kit SDD)"
 	}
 	return "Refine Macro (Spec-Driven Design)"
+}
+
+func realignMacroFrameworkName(specFramework string) string {
+	if strings.EqualFold(strings.TrimSpace(specFramework), "openspec") {
+		return "Realign Macro (OpenSpec SDD)"
+	}
+	return "Realign Macro (Spec Kit SDD)"
+}
+
+// renderMacroRunContract tells a macro skill how to report its run: under its
+// project and macro, never under a task, and without any stage.
+func renderMacroRunContract(s StageSkill) string {
+	if s.Scope != "macro" {
+		return ""
+	}
+	return strings.TrimRight(readContractFragment("macro-run"), "\n") + "\n"
 }
 
 // renderTaskAccessContract keeps task access consistent across skills and commands.
@@ -406,6 +447,9 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 	if s.ID == "refine_macro" {
 		name = refineMacroFrameworkName(specFramework)
 	}
+	if s.ID == "realign_macro" {
+		name = realignMacroFrameworkName(specFramework)
+	}
 
 	if s.ID == "pickup" || s.ID == "pickup_issues" {
 		steps = renderPickupSteps(specFramework, s.ID == "pickup_issues")
@@ -444,6 +488,9 @@ func RenderSkillContent(s StageSkill, specFramework string) string {
 		fmt.Fprintf(&b, "## %s\n%s\n\n", guardTitle, guard)
 	}
 	if contract := renderTicketTransitionContract(s); contract != "" {
+		fmt.Fprintf(&b, "## Report\n%s\n\n", report)
+		b.WriteString(contract)
+	} else if contract := renderMacroRunContract(s); contract != "" {
 		fmt.Fprintf(&b, "## Report\n%s\n\n", report)
 		b.WriteString(contract)
 	} else {

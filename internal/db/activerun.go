@@ -9,7 +9,7 @@ import (
 )
 
 // activeRunIndex is the partial unique index that allows one ordinary active
-// run per task (migration 9). The database enforces it, so it holds across
+// run per task (migration 9, recreated by 13). The database enforces it, so it holds across
 // server processes and on every path that inserts a run, where a check made in
 // Go before the insert only holds on the path that makes it.
 const activeRunIndex = "idx_activities_one_active_run"
@@ -33,7 +33,7 @@ var activeRunStatuses = []string{
 var activeRunSkillIDs = []string{
 	"remote_run", "clarify", "specify", "implement", "adjust", "handoff",
 	"create_pr", "pickup", "rewrite_story", "refine_macro", "pickup_issues",
-	"review", "pick",
+	"review", "pick", "realign_macro",
 }
 
 // activeRunPredicate is the SQL condition selecting the active runs, ordinary or

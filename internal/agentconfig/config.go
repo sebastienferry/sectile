@@ -64,6 +64,13 @@ type Dispatch struct {
 	// Empty means no override; an agent that predates the field ignores it and
 	// runs the configured model.
 	Model string `json:"model,omitempty"`
+	// MacroKey names the macro a macro-scoped skill runs for. A dispatch that
+	// carries it has no task: TaskID and TaskKey are empty, ProjectID is set.
+	// An agent that predates the field reads it as a task dispatch without a
+	// task and refuses it, which is the failure a server wants to see.
+	MacroKey string `json:"macroKey,omitempty"`
+	// MacroTitle is the macro's title, used to name a new macro branch.
+	MacroTitle string `json:"macroTitle,omitempty"`
 }
 
 // Project is a discovery record. ID is the server primary key, not a display name.

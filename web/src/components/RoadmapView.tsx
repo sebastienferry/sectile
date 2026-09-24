@@ -45,7 +45,7 @@ import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
 import { MacroLabelGroups } from './MacroLabelGroups'
 import { MacroTaskRow } from './MacroTaskRow'
-import { sprintLookup, isProjectCompatible } from '../lib/lookups'
+import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
 import {
   buildMacroRows,
   placementIssues,
@@ -71,6 +71,7 @@ import {
   type RoadmapRowDisplayMode,
 } from '../lib/roadmapDisplayMode'
 import type { MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
+import { MacroRealignButton } from './MacroRealignButton'
 
 /**
  * Roadmap des macros, d'après le design « Roadmap Epics.dc.html ».
@@ -94,6 +95,7 @@ export const RoadmapView: React.FC = () => {
     tasks,
     projects,
     currentProject,
+    settings,
     setSelectedTask,
     fetchProjectMacros,
     saveMacroMeta,
@@ -1696,6 +1698,14 @@ export const RoadmapView: React.FC = () => {
                             {isRefining ? <Loader2 size={10} className="animate-spin text-orange-400" /> : <Sparkles size={10} className="text-orange-400" />}
                             <span>Raffiner AI</span>
                           </button>
+                          {currentProject?.id && (
+                            <MacroRealignButton
+                              projectId={currentProject.id}
+                              macroKey={selected.key}
+                              onError={message => addToast({ type: 'error', title: 'Réalignement impossible', description: message })}
+                              onLaunched={message => addToast({ type: 'success', title: 'Réalignement lancé', description: message })}
+                            />
+                          )}
                           {draftDirty && (
                             <button
                               type="button"
@@ -1807,6 +1817,42 @@ export const RoadmapView: React.FC = () => {
                             }}>
                             {todo.text}
                           </span>
+                          {currentProject && (() => {
+                            // Where the line's story lands: the macro's project by
+                            // default, or another project of the same tracker
+                            // instance, where the epic can still be its parent.
+                            const options = targetProjectOptions(currentProject, projects, { jiraUrl: settings.jiraUrl, githubApiUrl: settings.githubApiUrl })
+                            const saved = todo.targetProjectId && todo.targetProjectId !== currentProject.id ? todo.targetProjectId : ''
+                            const savedName = projects.find(p => p.id === saved)?.name || saved
+                            const invalid = saved !== '' && !options.some(p => p.id === saved)
+                            if (todo.storyKey) {
+                              // Where the story was created, read-only; worth saying only
+                              // where another project could have received it.
+                              return saved || options.length > 0 ? (
+                                <span className="text-[9.5px] px-1.5 py-0.5 rounded shrink-0 text-[var(--text-muted)] border border-[var(--border-color)]" title="Projet où la story a été créée">
+                                  {saved ? savedName : currentProject.name}
+                                </span>
+                              ) : null
+                            }
+                            if (options.length === 0 && !saved) return null
+                            return (
+                              <select
+                                aria-label={`Projet cible de « ${todo.text} »`}
+                                value={saved}
+                                onChange={e =>
+                                  persist(selected.key, {
+                                    todos: todosOf(selected).map(t => (t.id === todo.id ? { ...t, targetProjectId: e.target.value || undefined } : t)),
+                                  })
+                                }
+                                className={`text-[9.5px] max-w-[120px] px-1 py-0.5 rounded shrink-0 bg-[var(--bg-secondary)] border cursor-pointer ${invalid ? 'border-rose-500 text-rose-300' : 'border-[var(--border-color)] text-[var(--text-secondary)]'}`}
+                                title={invalid ? 'Ce projet ne partage plus le tracker de la macro : la création de la story sera refusée.' : 'Projet où créer la story'}
+                              >
+                                <option value="">{currentProject.name}</option>
+                                {options.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                {invalid && <option value={saved}>{savedName} (incompatible)</option>}
+                              </select>
+                            )
+                          })()}
                           {todo.storyKey ? (
                             <>
                             <button

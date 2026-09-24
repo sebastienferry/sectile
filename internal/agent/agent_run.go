@@ -246,8 +246,11 @@ func (d *agentDaemon) enqueueRunLocked(taskID string, payload agentconfig.Dispat
 	}
 	d.queue.sequence++
 	run := &controlledRun{taskID: taskID, exited: make(chan struct{}), sequence: d.queue.sequence, limit: limit, root: root, isolated: isolated,
-		desktop: desktopRun{CreatedAt: time.Now().UTC(), Prompt: payload.Prompt, ID: payload.RunID, TaskID: taskID, TaskKey: payload.TaskKey, ProjectID: projectID, Skill: payload.SkillID, Directory: root, Status: "queued"}}
+		desktop: desktopRun{CreatedAt: time.Now().UTC(), Prompt: payload.Prompt, ID: payload.RunID, TaskID: taskID, TaskKey: payload.TaskKey, MacroKey: payload.MacroKey, ProjectID: projectID, Skill: payload.SkillID, Directory: root, Status: "queued"}}
 	d.queue.runs[payload.RunID] = run
+	if payload.MacroKey != "" {
+		d.rememberMacroRun(payload.RunID, projectID, payload.MacroKey)
+	}
 	return run, nil
 }
 
@@ -270,7 +273,18 @@ func sharesCheckout(other, run *controlledRun) bool {
 	if run.isConsole() {
 		return !other.isolated
 	}
-	return !other.isolated || !run.isolated || other.taskID == run.taskID
+	return !other.isolated || !run.isolated || sameWork(other, run)
+}
+
+// sameWork reports whether two runs work on the same item: the same task, or
+// the same macro. Macro runs carry no task, so their empty task ids are equal
+// for every pair of them and would serialise two macros that each have their
+// own worktree.
+func sameWork(a, b *controlledRun) bool {
+	if a.desktop.MacroKey != "" || b.desktop.MacroKey != "" {
+		return a.desktop.ProjectID == b.desktop.ProjectID && a.desktop.MacroKey == b.desktop.MacroKey
+	}
+	return a.taskID == b.taskID
 }
 
 func (d *agentDaemon) awaitRunSlot(ctx context.Context, run *controlledRun) error {

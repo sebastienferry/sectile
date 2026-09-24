@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // Les macros ne sont pas des cartes simples : le tracker les traite comme des
@@ -353,22 +354,23 @@ func (d *DB) saveEpicMetaFull(projectID string, key string, horizon *string, des
 }
 
 // CreateStoryFromMacroTodo turns a line of macro shaping into a real story in the tracker
-// and returns the macro metadata with the story it created.
-func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID string) (*models.MacroMeta, *models.Task, error) {
+// and returns the macro metadata with the story it created, and a notice saying
+// what the tracker refused (the Jira parent) when the story exists anyway.
+func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID string) (*models.MacroMeta, *models.Task, string, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	todoID = strings.TrimSpace(todoID)
 	if projectID == "" || macroKey == "" || todoID == "" {
-		return nil, nil, fmt.Errorf("projet, macro et ligne de TODO obligatoires")
+		return nil, nil, "", fmt.Errorf("projet, macro et ligne de TODO obligatoires")
 	}
 
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
-		return nil, nil, fmt.Errorf("projet non trouvé")
+		return nil, nil, "", fmt.Errorf("projet non trouvé")
 	}
 	metas, err := d.GetProjectMacros(projectID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	var meta *models.MacroMeta
 	for i := range metas {
@@ -378,7 +380,7 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 		}
 	}
 	if meta == nil {
-		return nil, nil, fmt.Errorf("macro %s sans cadrage enregistré", macroKey)
+		return nil, nil, "", fmt.Errorf("macro %s sans cadrage enregistré", macroKey)
 	}
 
 	var todo *models.MacroTodo
@@ -389,26 +391,46 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 		}
 	}
 	if todo == nil {
-		return nil, nil, fmt.Errorf("ligne de TODO introuvable")
+		return nil, nil, "", fmt.Errorf("ligne de TODO introuvable")
+	}
+	if isRoadmapProjectKey(proj, todo.StoryKey) {
+		return nil, nil, "", fmt.Errorf("cette ligne est rattachée à %s, d'un projet de roadmap que Sectile lit sans jamais y écrire", todo.StoryKey)
 	}
 	if strings.TrimSpace(todo.StoryKey) != "" {
-		return nil, nil, fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
+		return nil, nil, "", fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
 	}
 
-	task, err := d.CreateStoryUnderMacro(projectID, macroKey, todo.Text)
+	// The line's target project is where its story lands; empty is the
+	// macro's own project. It is refused before anything is written when the
+	// macro could not be the story's parent there.
+	target := proj
+	if targetID := strings.TrimSpace(todo.TargetProjectID); targetID != "" && targetID != proj.ID {
+		target, err = d.GetProjectByID(targetID)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		if target == nil {
+			return nil, nil, "", fmt.Errorf("le projet cible %s n'existe plus : choisissez-en un autre pour cette ligne", targetID)
+		}
+		if same, reason := d.sameTrackerInstance(proj, target); !same {
+			return nil, nil, "", fmt.Errorf("%s", reason)
+		}
+	}
+
+	task, notice, err := d.createStoryUnder(proj, target, macroKey, todo.Text)
 	if err != nil {
-		return nil, nil, fmt.Errorf("erreur création de story: %w", err)
+		return nil, nil, "", fmt.Errorf("erreur création de story: %w", err)
 	}
 
 	todo.StoryKey = task.Key
 	saved, err := d.SaveMacroMeta(projectID, macroKey, nil, nil, nil, &meta.Todos)
 	if err != nil {
-		return meta, task, nil
+		return meta, task, notice, nil
 	}
-	return saved, task, nil
+	return saved, task, notice, nil
 }
 
-func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID string) (*models.EpicMeta, *models.Task, error) {
+func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID string) (*models.EpicMeta, *models.Task, string, error) {
 	return d.CreateStoryFromMacroTodo(projectID, epicKey, todoID)
 }
 
@@ -506,28 +528,37 @@ func (d *DB) writeTaskParentLocally(task *models.Task, macroKey string) error {
 	return err
 }
 
-// CreateStoryUnderMacro creates a story task attached under a macro.
-func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title string) (*models.Task, error) {
+// CreateStoryUnderMacro creates a story in the macro's own project, attached
+// under the macro. The notice says what could not be written on the tracker.
+func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title string) (*models.Task, string, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
-		return nil, fmt.Errorf("projet non trouvé")
+		return nil, "", fmt.Errorf("projet non trouvé")
 	}
+	return d.createStoryUnder(proj, proj, macroKey, title)
+}
 
+// createStoryUnder creates a story in target, attached under a macro of
+// macroProject, the caller having checked that the two share a tracker
+// instance. The parent is written on the tracker where the tracker has one: a
+// GitHub milestone, a Jira epic. A parent the tracker refuses does not undo the
+// story, which exists by then: the notice says it was kept locally only.
+func (d *DB) createStoryUnder(macroProject, target *models.Project, macroKey string, title string) (*models.Task, string, error) {
 	parentTitle := ""
 	d.mu.RLock()
-	_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", projectID, macroKey).Scan(&parentTitle)
+	_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", macroProject.ID, macroKey).Scan(&parentTitle)
 	d.mu.RUnlock()
 	if parentTitle == "" {
 		parentTitle = macroKey
 	}
 
 	task, err := d.CreateTask(models.CreateTaskRequest{
-		ProjectID: projectID,
+		ProjectID: target.ID,
 		Title:     title,
 		Priority:  models.PriorityMedium,
 	})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	_ = d.writeTaskParentLocally(task, macroKey)
@@ -535,17 +566,26 @@ func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title stri
 	task.ParentTitle = parentTitle
 	task.ParentType = "macro"
 
-	if proj.IssueTracker == "github" || task.Source == "github" {
+	notice := ""
+	switch {
+	case target.IssueTracker == "github" || task.Source == "github":
 		var issueNum int
 		_, _ = fmt.Sscanf(strings.TrimPrefix(task.Key, "#"), "%d", &issueNum)
 		if issueNum > 0 {
-			_ = d.tracker(proj.ID).SetGithubIssueMilestone(proj.GithubRepo, proj.RepoPath, issueNum, parentTitle)
+			_ = d.tracker(target.ID).SetGithubIssueMilestone(target.GithubRepo, target.RepoPath, issueNum, parentTitle)
+		}
+	case task.Source == "jira":
+		// The epic parents the story on Jira itself, not only on the board.
+		if ts, tsErr := d.TrackerForProject(target); tsErr != nil {
+			notice = fmt.Sprintf("épic %s non posé comme parent sur Jira : %v ; rattachement gardé en local", macroKey, tsErr)
+		} else if setErr := ts.SetParent(tracker.WithProject(context.Background(), target.ID), task.Key, macroKey); setErr != nil {
+			notice = fmt.Sprintf("épic %s non posé comme parent sur Jira : %v ; rattachement gardé en local", macroKey, setErr)
 		}
 	}
-	return task, nil
+	return task, notice, nil
 }
 
-func (d *DB) CreateStoryUnderEpic(projectID string, epicKey string, title string) (*models.Task, error) {
+func (d *DB) CreateStoryUnderEpic(projectID string, epicKey string, title string) (*models.Task, string, error) {
 	return d.CreateStoryUnderMacro(projectID, epicKey, title)
 }
 

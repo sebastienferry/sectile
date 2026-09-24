@@ -58,6 +58,10 @@ const (
 	// declare it is asked for everything, which is still one paginated read
 	// rather than one read per work item.
 	CapIncrementalSync Capability = "incremental_sync"
+	// CapSprintManage creates, renames, re-dates, closes and deletes the
+	// tracker's own sprints. It is distinct from CapSprint, which only puts
+	// work items into a sprint that already exists.
+	CapSprintManage Capability = "sprint_manage"
 )
 
 // CapabilityLabel names an operation in the language the interface speaks, for
@@ -94,6 +98,8 @@ func CapabilityLabel(c Capability) string {
 		return "la découverte des pull requests"
 	case CapIncrementalSync:
 		return "la synchronisation incrémentale"
+	case CapSprintManage:
+		return "la gestion des sprints"
 	}
 	return string(c)
 }

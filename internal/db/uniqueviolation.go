@@ -13,6 +13,7 @@ import (
 var uniqueIndexColumns = map[string]string{
 	activeRunIndex:              "task_activities.task_id",
 	"idx_board_views_user_name": "board_views.user_id, board_views.name_key",
+	macroRunningIndex:           "task_activities.project_id, task_activities.macro_key",
 }
 
 // isUniqueViolation reports whether err is a write refused by the named unique

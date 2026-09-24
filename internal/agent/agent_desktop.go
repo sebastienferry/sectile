@@ -54,11 +54,14 @@ type desktopRun struct {
 	ID              string    `json:"id"`
 	TaskID          string    `json:"taskId"`
 	TaskKey         string    `json:"taskKey"`
-	ProjectID       string    `json:"projectId"`
-	Skill           string    `json:"skill"`
-	SessionID       string    `json:"sessionId"`
-	Directory       string    `json:"directory"`
-	Status          string    `json:"status"`
+	// MacroKey is set on a macro skill run, which has no task. TaskKey then
+	// carries the macro key too, for the label.
+	MacroKey  string `json:"macroKey,omitempty"`
+	ProjectID string `json:"projectId"`
+	Skill     string `json:"skill"`
+	SessionID string `json:"sessionId"`
+	Directory string `json:"directory"`
+	Status    string `json:"status"`
 	// ExternalTerminal marks the terminal emulator currently attached to or running this session.
 	ExternalTerminal string `json:"externalTerminal,omitempty"`
 	// Headless marks a run that has no PTY on purpose. The desktop shows its
@@ -345,8 +348,15 @@ func (d *agentDaemon) writeDesktopInfo() error {
 // path always ends the same way; a headless run has a real result to carry,
 // including the error that stopped it.
 func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, status, note string) error {
+	// A run without a task is either a free console, which reports nothing, or
+	// a macro skill run, which reports under its macro.
+	arguments := map[string]string{"taskKey": taskID}
 	if taskID == "" {
-		return nil
+		projectID, macroKey := d.macroOfRun(runID)
+		if macroKey == "" {
+			return nil
+		}
+		arguments = map[string]string{"projectId": projectID, "macroKey": macroKey}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -359,12 +369,16 @@ func (d *agentDaemon) finishDesktopRun(ctx context.Context, taskID, runID, statu
 	if strings.TrimSpace(note) == "" {
 		note = "Local console process exited"
 	}
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: map[string]string{"taskKey": taskID, "runId": runID, "status": status, "note": note}})
+	arguments["runId"], arguments["status"], arguments["note"] = runID, status, note
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "finish_run", Arguments: arguments})
 	if err != nil {
 		return err
 	}
 	if result.IsError {
 		return fmt.Errorf("remote run completion was rejected: %v", result.Content)
+	}
+	if taskID == "" {
+		d.forgetMacroRun(runID)
 	}
 	return nil
 }
@@ -436,6 +450,9 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		UseWorktrees                *bool   `json:"useWorktrees"`
 		Terminal                    *string `json:"terminal"`
 		InheritTerminal             bool    `json:"inheritTerminal"`
+		// SpecPath is the local specifications checkout; empty clears it, so
+		// the project's own checkout carries the specifications again.
+		SpecPath *string `json:"specPath"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
@@ -448,6 +465,24 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if _, err := gitLocal(r.Context(), input.Path, "rev-parse", "--show-toplevel"); err != nil {
 		http.Error(w, "Select a local Git repository", 400)
 		return
+	}
+	specPath := ""
+	if input.SpecPath != nil {
+		specPath = strings.TrimSpace(*input.SpecPath)
+		if specPath != "" {
+			if !filepath.IsAbs(specPath) {
+				http.Error(w, "The specifications repository must be an absolute path", 400)
+				return
+			}
+			top, err := gitLocal(r.Context(), specPath, "rev-parse", "--show-toplevel")
+			if err != nil {
+				http.Error(w, "Select a local Git repository for the specifications", 400)
+				return
+			}
+			// A folder inside a repository names that repository: the macro
+			// worktree is created at its root, where specs/ is looked for.
+			specPath = filepath.Clean(top)
+		}
 	}
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
@@ -553,6 +588,16 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		overrides.Parallelism[input.ProjectID] = *input.Parallelism
 	}
 	overrides.Projects[input.ProjectID] = input.Path
+	if input.SpecPath != nil {
+		if specPath == "" {
+			delete(overrides.SpecRepos, input.ProjectID)
+		} else {
+			if overrides.SpecRepos == nil {
+				overrides.SpecRepos = map[string]string{}
+			}
+			overrides.SpecRepos[input.ProjectID] = specPath
+		}
+	}
 	if input.UseWorktrees != nil {
 		if overrides.Worktrees == nil {
 			overrides.Worktrees = map[string]bool{}
@@ -702,6 +747,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"server":                      config,
 			"monoRepo":                    project.MonoRepo,
 			"path":                        root,
+			"specPath":                    overrides.SpecRepos[id],
 			"useWorktrees":                effective.UseWorktrees,
 			"configured":                  mappingErr == nil,
 			"aiCommandTemplate":           effective.AICommandTemplate,

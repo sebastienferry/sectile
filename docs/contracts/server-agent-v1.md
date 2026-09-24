@@ -115,6 +115,32 @@ agent ignores obsolete configuration/path fields and fetches current settings.
 Versionless legacy dispatches are accepted; other nonzero versions are rejected.
 Upgrade server and agent together for the initial v1 rollout.
 
+A macro-scoped skill (`realign_macro`, #426) is dispatched with the same
+message and no task: `taskId`, `taskKey` and the envelope's `taskId` are empty,
+`projectId` is set, and the payload names the macro:
+
+```json
+{
+  "schemaVersion": 1,
+  "taskId": "",
+  "taskKey": "",
+  "projectId": "actual-project-id",
+  "macroKey": "M-7",
+  "macroTitle": "Ux improvements and fixes",
+  "skillId": "realign_macro",
+  "action": "realign_macro",
+  "mode": "interactive",
+  "runId": "remote-run-id"
+}
+```
+
+The agent runs it interactively in the project's mapped checkout, after
+preparing the macro worktree (below), with `SECTILE_MACRO_KEY`,
+`SECTILE_MACRO_PROJECT_ID`, `SECTILE_SPEC_REPO`, `SECTILE_SPEC_BRANCH` and
+`SECTILE_SPEC_WORKTREE` in its environment and every `SECTILE_TASK_*` empty. It
+reads no task and records no branch. An agent that predates `macroKey` refuses
+the dispatch as a task dispatch without a task.
+
 `step_status` correlates with `msgId` and reports `running`, `completed` or
 `failed`, with a summary. `completed` acknowledges launch only, not completion of
 the requested workflow stage. Web launch requests wait up to 45 seconds. The
@@ -183,6 +209,25 @@ itself failed and never that the request is absent:
 
 Without `origin` in the task checkout, the lookup fails with
 `project checkout has no origin remote; ...` rather than a Git exit status.
+
+`macro_worktree` (`payload.macroKey`, `payload.macroTitle`, no task) prepares a
+macro's specification checkout on the workstation and answers
+`{"path", "branch", "worktree", "warning"}`. The specifications repository is the
+workstation's own mapping for the project (`specRepos` in the local settings,
+edited in the desktop project dialog), else the project's mapped checkout; the
+server's specifications path is never used there. The worktree is
+`.tasks/worktrees/<KEY>` in that repository, on the existing branch named after
+the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
+is reused as is. With worktrees off, the checkout itself is returned with
+`worktree: false` and nothing is created. The server adds `projectId`,
+`macroKey` and the macro's `todos` when it relays the answer through the
+`prepare_macro_worktree` MCP tool, so a skill invoked by hand, which holds no API
+token, reads its input from the same call.
+
+A macro run is stopped with `POST /api/projects/{id}/macros/{key}/cancel-run`
+`{runId, force}`, which dispatches `cancel_run` with no task to the owner's agent,
+under the same rules as a task run: an agent that no longer has the run closes it
+as orphaned, and an unreachable agent needs `force`.
 
 A pull request can live in a repository other than the project's (#392): a
 project without a code remote, or not mono-repo, may name one through `prUrl`.
@@ -333,6 +378,10 @@ Standalone skills call `start_run(taskKey, skill, runId?)`, retaining
 the returned activity ID. A supplied launcher run ID reuses the existing run.
 The invocation owner calls `finish_run(taskKey, runId, status, note)`
 with completed, failed or canceled when it ends, including a stop for user input.
+A macro skill run names `projectId` and `macroKey` instead of `taskKey`, in both
+calls; naming both forms, or a macro key without its project, is refused. Such a
+run is a project activity with no task, and its end hands nothing back to a
+workflow chain.
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
@@ -682,7 +731,7 @@ Messages explain recovery without returning subprocess output or source contents
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
-`finish_run`, `create_task` and `update_task`. The former `sectile_` names are unsupported on both
+`finish_run`, `create_task`, `update_task` and `prepare_macro_worktree`. The former `sectile_` names are unsupported on both
 transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 

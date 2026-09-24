@@ -851,6 +851,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/sprints[/{sprintId}]: manage the tracker's
+	// sprints (create a batch, rename, re-date, close, delete).
+	if len(parts) >= 2 && parts[1] == "sprints" {
+		h.handleProjectSprints(w, r, id, parts)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/sprint-move: send a batch of work items to a
 	// sprint, which is what planning from the roadmap does.
 	if len(parts) >= 2 && parts[1] == "sprint-move" && r.Method == http.MethodPost {
@@ -965,20 +972,20 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if strings.TrimSpace(req.TodoID) == "" {
-			task, err := h.db.CreateStoryUnderMacro(id, macroKey, req.Title)
+			task, notice, err := h.db.CreateStoryUnderMacro(id, macroKey, req.Title)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]interface{}{"task": task, "storyKey": task.Key})
+			writeJSON(w, http.StatusOK, map[string]interface{}{"task": task, "storyKey": task.Key, "notice": notice})
 			return
 		}
-		meta, task, err := h.db.CreateStoryFromMacroTodo(id, macroKey, req.TodoID)
+		meta, task, notice, err := h.db.CreateStoryFromMacroTodo(id, macroKey, req.TodoID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": task.Key, "task": task})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": task.Key, "task": task, "notice": notice})
 		return
 	}
 
@@ -1002,6 +1009,26 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			writeJSON(w, http.StatusOK, created)
+			return
+		}
+
+		// Macro skill runs: /api/projects/{id}/macros/{key}/run-skill launches a
+		// macro-scoped skill on the local agent; .../runs lists the recent ones.
+		if len(parts) >= 4 && (parts[3] == "run-skill" || parts[3] == "runs" || parts[3] == "cancel-run") {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			switch {
+			case parts[3] == "run-skill" && r.Method == http.MethodPost:
+				h.handleMacroRunSkill(w, r, id, key)
+			case parts[3] == "runs" && r.Method == http.MethodGet:
+				h.handleMacroRuns(w, id, key)
+			case parts[3] == "cancel-run" && r.Method == http.MethodPost:
+				h.handleMacroCancelRun(w, r, id, key)
+			default:
+				writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			}
 			return
 		}
 

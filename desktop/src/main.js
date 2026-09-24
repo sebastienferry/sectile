@@ -75,7 +75,9 @@ const freeConsole=run=>run?.kind==='console'
 // compétence peuvent tourner contre des modèles différents. Une console libre
 // garde son libellé, son moteur est déjà dans son nom.
 const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+' console':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
-const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:run.taskId])
+// A macro skill run has no task: its executions group under the macro.
+const macroRun=run=>!!run?.macroKey
+const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
 function formatTerminalName(term){
@@ -264,7 +266,7 @@ function renderQueue(project,group){
 }
 async function refreshSkillResult(id=selected){
  const run=runs.find(item=>item.id===id)
- if(!run||freeConsole(run)||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
+ if(!run||freeConsole(run)||macroRun(run)||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
  loadingSkillResults.add(run.id)
  try{
   const result=await api.runResult(run.id)
@@ -423,7 +425,7 @@ function render(options){
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
-    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.onclick=()=>api.openTask(run.taskId).catch(error)
+    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
     const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
     const stateLabel=renderRunState(state,run)
@@ -465,7 +467,8 @@ function render(options){
   const text=document.createElement('span');text.className='pr-label';text.textContent=label;selectedPR.append(text)
   selectedPR.onclick=()=>api.openPR(link.url).catch(error)
  }
- document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
+ // A macro run is relaunched from the macro panel: it has no task to relaunch here.
+ document.querySelector('#rerun').hidden=!current||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
@@ -1212,6 +1215,13 @@ async function openProject(id){
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
   const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
   const repository=settingRow('Local repository',{stacked:true},picker)
+  // Macro skills write specifications here; empty means the local repository.
+  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.placeholder='Same as the local repository';specPath.setAttribute('aria-label','Specifications repository')
+  const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
+  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)specPath.value=selected}catch(err){error(err)}}
+  const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
+  const specRepository=settingRow('Specifications repository',{stacked:true},specPicker)
+  specRepository.hint.textContent='Optional · Where macro skills prepare their worktree when the specifications live apart from the code.'
   let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
   let parallelism=info.parallelism||1
   const controls={}
@@ -1415,7 +1425,7 @@ async function openProject(id){
   updateTerminal()
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section)
+  panels.General.append(repository.section,specRepository.section)
   panels.Execution.append(controls.worktrees.section,controls.parallel.section,terminalRow.section)
   panels.Agent.append(providerRow.section,modelRow.section,commandRow.section,autonomousRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
@@ -1436,7 +1446,7 @@ async function openProject(id){
    save.disabled=true
    try{
     const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
-    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
+    await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
     projectStateVersion++;disconnectedProjects.delete(id)
     notice.textContent='Local configuration saved';await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
@@ -1912,7 +1922,7 @@ async function refreshPRs(executions){
 function taskMenu(run){
  showDialog(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
  const related=()=>runs.filter(item=>taskKey(item)===taskKey(run))
- const relaunch=document.createElement('button');relaunch.textContent='Relaunch';relaunch.disabled=related().some(activeRun)
+ const relaunch=document.createElement('button');relaunch.textContent='Relaunch';relaunch.disabled=macroRun(run)||related().some(activeRun)
  relaunch.onclick=()=>{select(run);document.querySelector('#rerun').click()}
  const rename=document.createElement('form'),name=document.createElement('input'),save=document.createElement('button')
  name.setAttribute('aria-label','Local task name');name.value=taskState(run).name||run.taskKey||run.taskId||runLabel(run);name.maxLength=120;name.required=true
@@ -2094,7 +2104,7 @@ async function refreshNextStep(){
  if(run&&submittingSteps.has(taskKey(run)))return
  const generation=++nextStepGeneration
  nextStepUpdated=Date.now()
- if(!run||freeConsole(run)){nextStepData=null;renderNextStep();return}
+ if(!run||freeConsole(run)||macroRun(run)){nextStepData=null;renderNextStep();return}
  if(nextStepData?.key!==taskKey(run))nextStepData=null
  renderNextStep()
  try{
