@@ -73,6 +73,10 @@ type desktopRun struct {
 	// An agent that cannot trace sends nothing here, and that notice is what its
 	// runs keep showing.
 	Trace bool `json:"trace,omitempty"`
+	// WaitingSince is set while the session is blocked on the user. The desktop
+	// reads it to raise its notification and to mark the run in its list. The
+	// server sends it, as the session declares it over MCP (#318).
+	WaitingSince time.Time `json:"waitingSince,omitzero"`
 }
 
 func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {

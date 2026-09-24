@@ -58,6 +58,10 @@ type Handler struct {
 	// at construction; tests shorten them to observe a drop quickly.
 	agentPingInterval time.Duration
 	agentReadTimeout  time.Duration
+	// pushedWaits names the runs whose wait this instance sent to an agent, so
+	// that clearing one is sent too while every other change of a live run is
+	// not: those would reach the agent ahead of the messages it waits for.
+	pushedWaits sync.Map
 }
 
 func (h *Handler) SetPullOnConnect(enable bool) {
@@ -82,7 +86,9 @@ func NewHandler(database *db.DB) *Handler {
 	}
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
+		h.mcpSessions.SetWaiter(database)
 		database.RegisterPostBackListener(func(task *models.Task, activity *models.TaskActivity, err error) {
+			h.pushRunWaiting(task, activity)
 			errStr := ""
 			if err != nil {
 				errStr = err.Error()
@@ -97,6 +103,38 @@ func NewHandler(database *db.DB) *Handler {
 		database.OnRelayedEvent(h.deliverRelayedEvent)
 	}
 	return h
+}
+
+// pushRunWaiting tells the owner's agent that a live run started or stopped
+// waiting, since the desktop banner reads the agent's run list and a wait is now
+// declared on the server, over MCP. Only a run an agent dispatched can be on an
+// agent's list. The listener cannot tell what changed, so a mark is sent every
+// time it is seen and a clear only for a run whose mark was sent from here. A
+// finished run is not sent, because the agent sees the exit itself. An agent
+// that is not connected simply misses it.
+func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivity) {
+	if task == nil || activity == nil || activity.SkillID != "remote_run" || activity.Action != db.RunActionAgent || activity.UserID == "" {
+		return
+	}
+	// Listeners run concurrently, so a mark and the clear that follows it may be
+	// delivered out of order. Sending the run as it is now, rather than as it was
+	// when this notification was raised, makes the last message the true one.
+	if current, err := h.db.GetActivityByID(activity.ID); err == nil && current != nil {
+		activity = current
+	}
+	if activity.Status != "running" {
+		h.pushedWaits.Delete(activity.ID)
+		return
+	}
+	if activity.WaitingSince == nil {
+		if _, pushed := h.pushedWaits.LoadAndDelete(activity.ID); !pushed {
+			return
+		}
+	} else {
+		h.pushedWaits.Store(activity.ID, true)
+	}
+	_ = h.agentDispatcher.Dispatch(activity.UserID, task.ProjectID, agentprotocol.RunWaitingType, task.ID,
+		agentprotocol.RunWaiting{RunID: activity.ID, WaitingSince: activity.WaitingSince})
 }
 
 func (h *Handler) SubscribeEvents() chan Event {
@@ -3078,8 +3116,8 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sub-action: /api/activities/{id}/waiting
-	// Reported by a Claude Code hook through the local agent loopback when the
-	// session blocks on the user, and again when it resumes.
+	// Sets or clears the mark by hand. A session declares its own wait through
+	// the report_waiting MCP tool, which ends by itself on its next call.
 	if len(parts) >= 2 && parts[1] == "waiting" && r.Method == http.MethodPost {
 		var body struct {
 			Waiting *bool `json:"waiting"`

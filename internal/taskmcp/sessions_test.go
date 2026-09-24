@@ -257,3 +257,89 @@ func TestSilenceToleratesSessionsWithoutRuns(t *testing.T) {
 	nilRegistry.markSilentSessions()
 	nilRegistry.Stop()
 }
+
+// recordingWaiter stands in for the database's waiting mark.
+type recordingWaiter struct {
+	mu      sync.Mutex
+	cleared []string
+}
+
+func (w *recordingWaiter) SetRemoteRunWaiting(runID string, waiting bool) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !waiting {
+		w.cleared = append(w.cleared, runID)
+	}
+	return nil
+}
+
+func (w *recordingWaiter) recorded() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]string(nil), w.cleared...)
+}
+
+// A session that speaks again is no longer blocked: Resume clears every wait it
+// declared, once, and leaves other sessions' waits alone.
+func TestResumeClearsOnlyTheSessionsOwnWaits(t *testing.T) {
+	waits := &recordingWaiter{}
+	registry := silentRegistry(t, &recordingCloser{}, nil, time.Hour)
+	registry.SetWaiter(waits)
+	registry.open("session-1", nil)
+	registry.open("session-2", nil)
+	registry.MarkWaiting("session-1", "run-1")
+	registry.MarkWaiting("session-2", "run-2")
+
+	if cleared := registry.Resume("session-1"); cleared != 1 {
+		t.Fatalf("cleared = %d, want 1", cleared)
+	}
+	if cleared := registry.Resume("session-1"); cleared != 0 {
+		t.Fatalf("a second resume cleared %d waits, want none", cleared)
+	}
+	if got := waits.recorded(); len(got) != 1 || got[0] != "run-1" {
+		t.Fatalf("cleared = %v, want only run-1", got)
+	}
+
+	registry.ForgetWaiting("session-2", "run-2")
+	if cleared := registry.Resume("session-2"); cleared != 0 {
+		t.Fatalf("a wait the session cleared itself was cleared again: %d", cleared)
+	}
+}
+
+// Closing a session clears the waits it declared on runs it does not own; the
+// runs it owns are closed, and their terminal status clears their mark.
+func TestCloseClearsWaitsOnRunsTheSessionDoesNotOwn(t *testing.T) {
+	waits, closer := &recordingWaiter{}, &recordingCloser{}
+	registry := silentRegistry(t, closer, nil, time.Hour)
+	registry.SetWaiter(waits)
+	registry.open("session-1", nil)
+	registry.Adopt("session-1", "owned", "TASK-1", "clarify")
+	registry.MarkWaiting("session-1", "owned")
+	registry.MarkWaiting("session-1", "launched")
+
+	registry.Close("session-1")
+	if got := waits.recorded(); len(got) != 1 || got[0] != "launched" {
+		t.Fatalf("cleared = %v, want only the run the session did not own", got)
+	}
+	if got := closer.recorded(); len(got) != 1 || got[0] != "TASK-1/owned/"+disconnectStatus {
+		t.Fatalf("closed = %v, want the owned run", got)
+	}
+}
+
+// A run closed from the board is no longer the session's to close.
+func TestReleasedRunIsNotClosedByItsSession(t *testing.T) {
+	closer := &recordingCloser{}
+	registry := silentRegistry(t, closer, nil, time.Hour)
+	registry.open("session-1", nil)
+	registry.Adopt("session-1", "run-1", "TASK-1", "clarify")
+	registry.ReleaseRun("run-1")
+	registry.ReleaseRun("")
+
+	if closed := registry.Close("session-1"); closed != 0 {
+		t.Fatalf("closed = %d, want 0 for a released run", closed)
+	}
+	var nilRegistry *SessionRegistry
+	nilRegistry.ReleaseRun("run-1")
+	nilRegistry.MarkWaiting("session-1", "run-1")
+	nilRegistry.Resume("session-1")
+}

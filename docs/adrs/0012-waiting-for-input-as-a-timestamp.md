@@ -1,6 +1,6 @@
 # ADR 0012: The waiting state is a timestamp on the run, reported through the loopback
 
-Status: Accepted, then revised — the hook transport is withdrawn (see the last revision)
+Status: Accepted, then revised: the hook transport is withdrawn (#260), and an MCP tool is the reporter (#318)
 
 ## Context
 
@@ -224,3 +224,27 @@ any release that installed a hook has the script removed through the managed
 manifest and its registrations dropped from the settings file, on the next
 project setup and for whichever provider that project uses, leaving third-party
 hooks, every other key, and an unparseable file exactly as they were.
+
+## Revision (#318): the model declares its wait over MCP
+
+The model kept by #260 has a reporter again, and it is the one this ADR first
+set aside: an MCP tool, `report_waiting`. The reason given for the loopback no
+longer holds. The reporter was a shell script with no MCP client; now it is the
+model itself, which already speaks MCP for `start_run` and `finish_run`, and is
+the only party that knows it is about to block. Nothing runs per tool call, and
+nothing is written outside Sectile.
+
+- **Declared by the model, ended by the server.** A model that forgets to clear
+  its wait must not leave a run waiting for hours, so the server ends the wait on
+  the declaring session's next tool call. A ping does not count: the stdio bridge
+  pings every minute whatever the model is doing. `waiting: false`, any terminal
+  status, and the end of the session clear it as well.
+- **Ownership follows `finish_run`**, and the first mark wins, so the elapsed time
+  shown is the real one. A headless run is never marked.
+- **The desktop is fed from the server.** The wait is declared on the server, and
+  the desktop reads the agent's run list, so the server pushes a `run_waiting`
+  message to the owner's agent, which restores `waitingSince` on its run.
+  Nothing is sent to the tracker.
+- **What is not covered.** A tool permission prompt is raised by the client, not
+  asked by the model, and is not detected. The question text is not stored: the
+  mark stays a timestamp and needs no migration.

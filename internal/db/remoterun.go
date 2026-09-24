@@ -129,7 +129,7 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 }
 
 // NoteRemoteRun appends one sentence to a remote run that is still running. It
-// is how an observation about a run — a silence, so far — reaches the board
+// is how an observation about a run (a silence, so far) reaches the board
 // without pretending to be an outcome: a finished run is never annotated after
 // the fact, and no other field is touched.
 func (d *DB) NoteRemoteRun(runID, note string) error {
@@ -346,19 +346,23 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 
 // SetRemoteRunWaiting marks a running remote execution as blocked on the user,
 // or clears that mark when it resumes. Only a run still `running` is touched: a
-// hook reporting late, after the session already ended, must not resurrect a
-// waiting state on a closed run. Like its neighbours it ends on
-// notifyPostBackListeners, which is what carries the change to the UI.
+// report arriving late, after the session already ended, must not resurrect a
+// waiting state on a closed run. The first mark wins: a second waiting report
+// keeps the original instant, so the elapsed time the board shows is the real
+// one. Like its neighbours it ends on notifyPostBackListeners, which is what
+// carries the change to the UI.
 func (d *DB) SetRemoteRunWaiting(runID string, waiting bool) error {
 	if strings.TrimSpace(runID) == "" {
 		return fmt.Errorf("run id is required")
 	}
-	var waitingSince any
+	statement := "UPDATE task_activities SET waiting_since=NULL WHERE id=? AND skill_id='remote_run' AND status='running'"
+	args := []any{runID}
 	if waiting {
-		waitingSince = time.Now()
+		statement = "UPDATE task_activities SET waiting_since=COALESCE(waiting_since, ?) WHERE id=? AND skill_id='remote_run' AND status='running'"
+		args = []any{time.Now(), runID}
 	}
 	d.mu.Lock()
-	result, err := d.conn.Exec("UPDATE task_activities SET waiting_since=? WHERE id=? AND skill_id='remote_run' AND status='running'", waitingSince, runID)
+	result, err := d.conn.Exec(statement, args...)
 	d.mu.Unlock()
 	if err != nil {
 		return err
@@ -380,6 +384,46 @@ func (d *DB) SetRemoteRunWaiting(runID string, waiting bool) error {
 	}
 	d.notifyPostBackListeners(task, activity, nil)
 	return nil
+}
+
+// ReportRemoteRunWaitingAs is SetRemoteRunWaiting for a session reporting on a
+// run, under the ownership rule of FinishRemoteRunAs: the owner, an admin, or
+// anyone on a run with no recorded owner. It reports whether the mark was
+// applied. A headless run has nobody to answer it, so a wait declared on one is
+// accepted and ignored rather than shown to an owner who cannot act on it.
+func (d *DB) ReportRemoteRunWaitingAs(caller Actor, admin bool, taskKey, runID string, waiting bool) (*models.TaskActivity, bool, error) {
+	runID = strings.TrimSpace(runID)
+	if strings.TrimSpace(taskKey) == "" || runID == "" {
+		return nil, false, fmt.Errorf("taskKey and runId are required")
+	}
+	task, err := d.GetTaskByID(taskKey)
+	if err != nil {
+		return nil, false, err
+	}
+	if task == nil {
+		return nil, false, fmt.Errorf("task not found")
+	}
+	existing, err := d.GetActivityByID(runID)
+	if err != nil {
+		return nil, false, err
+	}
+	if existing == nil || existing.TaskID != task.ID || existing.SkillID != "remote_run" || existing.Status != "running" {
+		return nil, false, fmt.Errorf("remote run not found or no longer running")
+	}
+	if !admin && existing.UserID != "" && existing.UserID != caller.ID {
+		return nil, false, ErrRunNotYours
+	}
+	if waiting && models.NormalizeSkillMode(d.runOutcomeOf(runID).Mode) == models.SkillModeAutonomous {
+		return existing, false, nil
+	}
+	if err := d.SetRemoteRunWaiting(runID, waiting); err != nil {
+		return nil, false, err
+	}
+	activity, err := d.GetActivityByID(runID)
+	if err != nil {
+		return nil, false, err
+	}
+	return activity, true, nil
 }
 
 // RemoteRunOutputLimit bounds what one autonomous run can record. A headless CLI
