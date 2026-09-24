@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   boardViewFormError,
   filterScopeKey,
+  foldViewLabel,
   initialLabelsForView,
   normalizeViewLabels,
   readViewParam,
@@ -42,6 +43,10 @@ test('only a single-label view prefills the label of a new ticket', () => {
 
 test('labels are trimmed, deduplicated regardless of case, first spelling kept', () => {
   assert.deepEqual(normalizeViewLabels([' Platform ', '', 'platform', 'ops', 'OPS']), ['Platform', 'ops'])
+  // Accents are not case folded: the selection treats them as two labels, so
+  // the form must keep both rather than silently drop one (docs/adrs/0025).
+  assert.deepEqual(normalizeViewLabels(['\u00c9quipe', '\u00e9quipe']), ['\u00c9quipe', '\u00e9quipe'])
+  assert.equal(foldViewLabel('\u00c9QUIPE'), '\u00c9quipe')
 })
 
 test('the form says what prevents saving', () => {

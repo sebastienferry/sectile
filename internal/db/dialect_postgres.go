@@ -59,6 +59,17 @@ func (postgresDialect) connConfig(cfg Config) (*pgx.ConnConfig, error) {
 
 func (postgresDialect) Rebind(query string) string { return rebindNumbered(query) }
 
+// LowerASCII lowers under the C collation rather than the database's own.
+//
+// LOWER follows the collation of its argument, and that collation is a property
+// of the cluster, not of PostgreSQL: one created with `initdb --locale=C` leaves
+// `É` alone, one using an ICU or builtin C.UTF-8 locale folds it to `é`. A
+// predicate comparing the column against a value folded in Go therefore matched
+// on one server and not on the next. `COLLATE "C"` is built in, exists in every
+// database whatever its encoding, and folds ASCII letters only — which is
+// exactly what SQLite's LOWER does, so both engines mean the same thing.
+func (postgresDialect) LowerASCII(expr string) string { return `LOWER(` + expr + ` COLLATE "C")` }
+
 func (postgresDialect) ColumnsQuery() string {
 	return "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position"
 }

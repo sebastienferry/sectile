@@ -1005,6 +1005,45 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Slicing: /api/projects/{id}/macros/{key}/slicing produces the macro's
+		// todo lines from the SDD artefacts of the project's repository.
+		//
+		// Rien n'est écrit dans le dépôt ni sur le tracker, et aucune story
+		// n'est créée : c'est une lecture, et la découpe reste modifiable.
+		if len(parts) >= 4 && parts[3] == "slicing" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			var req struct {
+				Source string `json:"source"`
+			}
+			// Un corps absent vaut la source par défaut : le geste courant ne
+			// doit pas exiger une charge utile pour être appelable.
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			// Les stories déjà créées ne sont pas une source de fichier : elles
+			// sont routées avant la normalisation, qui ne connaît que le dépôt
+			// et ferait retomber « stories » sur tasks.md en silence.
+			var meta *models.MacroMeta
+			var origin string
+			var err error
+			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
+				meta, origin, err = h.db.TodosFromMacroStories(id, key)
+			} else {
+				meta, origin, err = h.db.TodosFromSDD(id, key, db.NormalizeSlicingSource(req.Source))
+			}
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"macro":  meta,
+				"epic":   meta,
+				"origin": origin,
+			})
+			return
+		}
+
 		switch r.Method {
 		case http.MethodGet:
 			macros, err := h.db.GetProjectMacros(id)

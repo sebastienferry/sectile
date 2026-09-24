@@ -251,3 +251,124 @@ func TestRefineMacro(t *testing.T) {
 		t.Errorf("Expected error for empty framing description, got nil")
 	}
 }
+
+// L'origine d'une ligne de découpe fait l'aller-retour, et son absence reste
+// lisible : les lignes enregistrées avant ces champs valent « saisie à la
+// main », et rien dans la relecture ne doit les distinguer d'un choix.
+func TestMacroTodoOriginRoundTrip(t *testing.T) {
+	tempDir := t.TempDir()
+	database, err := NewDB(filepath.Join(tempDir, "test.db"))
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.Close()
+
+	proj, err := database.CreateProject(models.CreateProjectRequest{
+		Name:         "Origin Project",
+		Slug:         "origin-project",
+		IssueTracker: "local",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
+
+	todos := []models.MacroTodo{
+		{
+			ID:              "imported",
+			Text:            "Import the slicing",
+			SourceKind:      models.MacroTodoFromTasks,
+			SourceEntry:     "## Group 3 - Import the slicing [P1]",
+			TargetProjectID: "other-project",
+		},
+		{ID: "by-hand", Text: "Ask the PM about the quarter"},
+	}
+	if _, err := database.SaveMacroMeta(proj.ID, "M-1", nil, nil, nil, &todos); err != nil {
+		t.Fatalf("SaveMacroMeta failed: %v", err)
+	}
+
+	metas, err := database.GetProjectMacros(proj.ID)
+	if err != nil {
+		t.Fatalf("GetProjectMacros failed: %v", err)
+	}
+	if len(metas) != 1 || len(metas[0].Todos) != 2 {
+		t.Fatalf("expected one macro carrying two todos, got %d macro(s)", len(metas))
+	}
+
+	imported := metas[0].Todos[0]
+	if imported.SourceKind != models.MacroTodoFromTasks {
+		t.Errorf("expected source kind %q, got %q", models.MacroTodoFromTasks, imported.SourceKind)
+	}
+	if imported.SourceEntry != "## Group 3 - Import the slicing [P1]" {
+		t.Errorf("expected the raw entry title to survive, got %q", imported.SourceEntry)
+	}
+	if imported.TargetProjectID != "other-project" {
+		t.Errorf("expected target project %q, got %q", "other-project", imported.TargetProjectID)
+	}
+
+	byHand := metas[0].Todos[1]
+	if byHand.SourceKind != "" || byHand.SourceEntry != "" || byHand.TargetProjectID != "" {
+		t.Errorf("a hand-typed line must carry no origin, got %+v", byHand)
+	}
+}
+
+// Une ligne écrite avant ces champs se relit sans origine, et non en erreur :
+// la colonne porte du JSON, et c'est cette absence de clé qui tient lieu de
+// migration.
+func TestMacroTodoLegacyRowReadsWithoutOrigin(t *testing.T) {
+	legacy := `[{"id":"old","text":"Written before the origin fields","done":true,"storyKey":"PE-42"}]`
+	todos := parseMacroTodos(legacy)
+	if len(todos) != 1 {
+		t.Fatalf("expected one todo, got %d", len(todos))
+	}
+	if todos[0].Text != "Written before the origin fields" || !todos[0].Done || todos[0].StoryKey != "PE-42" {
+		t.Errorf("the known fields must be unchanged, got %+v", todos[0])
+	}
+	if todos[0].SourceKind != "" || todos[0].SourceEntry != "" || todos[0].TargetProjectID != "" {
+		t.Errorf("a legacy line must read as hand-typed, got %+v", todos[0])
+	}
+}
+
+// Une origine faite de blancs est une absence d'origine ; une origine inconnue
+// est gardée telle quelle, pour qu'une version antérieure ne vide pas les
+// lignes qu'une version ultérieure a écrites.
+func TestMacroTodoOriginIsTrimmedAndUnknownKindKept(t *testing.T) {
+	tempDir := t.TempDir()
+	database, err := NewDB(filepath.Join(tempDir, "test.db"))
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer database.Close()
+
+	proj, err := database.CreateProject(models.CreateProjectRequest{
+		Name:         "Trim Project",
+		Slug:         "trim-project",
+		IssueTracker: "local",
+	})
+	if err != nil {
+		t.Fatalf("Failed to create project: %v", err)
+	}
+
+	todos := []models.MacroTodo{
+		{ID: "blank", Text: "Blank origin", SourceKind: "   ", SourceEntry: "\t", TargetProjectID: " "},
+		{ID: "future", Text: "Origin from a later version", SourceKind: " design "},
+	}
+	if _, err := database.SaveMacroMeta(proj.ID, "M-2", nil, nil, nil, &todos); err != nil {
+		t.Fatalf("SaveMacroMeta failed: %v", err)
+	}
+
+	metas, err := database.GetProjectMacros(proj.ID)
+	if err != nil {
+		t.Fatalf("GetProjectMacros failed: %v", err)
+	}
+	if len(metas) != 1 || len(metas[0].Todos) != 2 {
+		t.Fatalf("expected one macro carrying two todos, got %d macro(s)", len(metas))
+	}
+
+	blank := metas[0].Todos[0]
+	if blank.SourceKind != "" || blank.SourceEntry != "" || blank.TargetProjectID != "" {
+		t.Errorf("a blank origin must read as none, got %+v", blank)
+	}
+	if kind := metas[0].Todos[1].SourceKind; kind != "design" {
+		t.Errorf("an unknown source kind must be kept as written, got %q", kind)
+	}
+}

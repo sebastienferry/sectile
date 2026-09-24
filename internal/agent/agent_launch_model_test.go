@@ -1,12 +1,29 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
 )
+
+// stubEngine puts an executable of that name first on PATH, so a test that
+// resolves an engine binary does not depend on what the host has installed.
+func stubEngine(t *testing.T, name string) {
+	t.Helper()
+	dir := t.TempDir()
+	if runtime.GOOS == "windows" {
+		name += ".bat"
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+}
 
 func launchConfig() agentconfig.Config {
 	return agentconfig.Config{
@@ -127,6 +144,12 @@ func TestDispatchCommandCarriesTheLaunchModelHeadless(t *testing.T) {
 // A discussion resolves the project model and never reads the override: it is
 // not a skill run, and its launch surface offers no model.
 func TestDispatchCommandIgnoresTheOverrideForADiscussion(t *testing.T) {
+	// A discussion opens the engine as a live session, so the dispatch resolves
+	// the binary on PATH. The runner that builds the image has no `claude`, and
+	// a workstation has whichever one its user installed: both are answered by
+	// a stub, which is also what keeps the assertion about the model rather
+	// than about the machine.
+	stubEngine(t, "claude")
 	line, err := dispatchCommand(launchConfig(), "#203", "discuss", "discuss", "", "", models.SkillModeInteractive, "claude-opus-5")
 	if err != nil {
 		t.Fatal(err)

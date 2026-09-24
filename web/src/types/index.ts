@@ -112,12 +112,30 @@ export interface TrackerSprint {
 export type MacroHorizon = 'now' | 'next' | 'later' | 'hidden'
 export type EpicHorizon = MacroHorizon
 
+/**
+ * Artefact d'où une ligne de découpe a été importée.
+ *
+ * L'absence de valeur vaut « saisie à la main », et c'est le cas le plus
+ * intéressant de la liste : une ligne sans origine est un ajout que personne
+ * n'a spécifié.
+ *
+ * « stories » est la seule qui ne décrive pas du travail à faire : la ligne
+ * reprend un ticket qui existe déjà, et arrive donc rattachée.
+ */
+export type MacroTodoSource = 'tasks' | 'spec' | 'scenarios' | 'stories'
+
 export interface MacroTodo {
   id: string
   text: string
   done: boolean
   /** Ticket créé depuis cette ligne de TODO, s'il existe. */
   storyKey?: string
+  /** Projet où créer la story. Absent vaut « le projet de la macro ». */
+  targetProjectId?: string
+  /** Artefact d'origine. Absent vaut « saisie à la main ». */
+  sourceKind?: MacroTodoSource
+  /** Titre de l'entrée tel que l'artefact l'écrit, avant nettoyage. */
+  sourceEntry?: string
 }
 export type EpicTodo = MacroTodo
 
@@ -430,7 +448,7 @@ export interface Task {
   /** Tracker work item type. Only "Task" and "Story" are imported. */
   issueType?: string
   /**
-   * Parent work item — an epic, or a parent story for a sub-task — carried as a
+   * Parent work item - an epic, or a parent story for a sub-task - carried as a
    * property of the task rather than as a card of its own.
    */
   parentKey?: string
@@ -607,7 +625,8 @@ export interface UserSettings {
   language: Language
   density: Density
   /**
-   * Zoom de l'interface en pourcentage (90, 100, 112, 125). La densité ne bouge
+   * Zoom de l'interface en pourcentage, sur un des crans de lib/uiScale.
+   * La densité ne bouge
    * que la taille de police racine, ce qui laisse intactes toutes les tailles
    * fixées en pixels : l'échelle, elle, zoome toute l'interface.
    */

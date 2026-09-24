@@ -38,12 +38,17 @@ const boardViewColumns = "id, name, project_ids, labels, created_at, updated_at"
 // entry for labels that differ only by case, in the spelling first entered.
 // Matching ignores case anyway; storing `Backend` and `backend` side by side
 // would only show the same chip twice.
+//
+// "Differ only by case" is asciiLower, the same fold the selection uses: with
+// strings.ToLower here, `Équipe` and `équipe` would collapse into one entry
+// while the query still treats them as two distinct labels, and the dropped one
+// would silently stop selecting its tickets.
 func NormalizeViewLabels(labels []string) []string {
 	out := []string{}
 	seen := map[string]bool{}
 	for _, label := range labels {
 		label = strings.TrimSpace(label)
-		key := strings.ToLower(label)
+		key := asciiLower(label)
 		if label == "" || seen[key] {
 			continue
 		}

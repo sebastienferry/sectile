@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"tasks/internal/agentprotocol"
@@ -158,9 +159,15 @@ func TestForeignGitHubPullRequestOnAMultiRepositoryProject(t *testing.T) {
 	no := false
 	d, task := crossRepoTask(t, models.CreateProjectRequest{Name: "Multi", GitRemoteUrl: "git@github.com:acme/app.git", MonoRepo: &no})
 	const prURL = "https://github.com/acme/tools/pull/5"
+	// The transition queues a postback job, and the queue worker replays the
+	// same lookup from its own goroutine: the recorded call has to be guarded
+	// or the read below races it.
+	var mu sync.Mutex
 	var asked []string
 	d.prEvidenceLookup = func(repo, branch, url string) (trackerapi.PullRequest, error) {
+		mu.Lock()
 		asked = []string{repo, branch, url}
+		mu.Unlock()
 		return trackerapi.PullRequest{URL: prURL, Branch: sfeBranch, SHA: "pr-head", Open: true}, nil
 	}
 	d.SetAgentOperations(func(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
@@ -173,8 +180,11 @@ func TestForeignGitHubPullRequestOnAMultiRepositoryProject(t *testing.T) {
 	if err != nil || got.PrURL == nil || *got.PrURL != prURL {
 		t.Fatalf("foreign GitHub pull request refused: %+v %v", got, err)
 	}
-	if !slices.Equal(asked, []string{"github.com/acme/tools", sfeBranch, prURL}) {
-		t.Fatalf("lookup asked %v", asked)
+	mu.Lock()
+	recorded := append([]string(nil), asked...)
+	mu.Unlock()
+	if !slices.Equal(recorded, []string{"github.com/acme/tools", sfeBranch, prURL}) {
+		t.Fatalf("lookup asked %v", recorded)
 	}
 }
 
