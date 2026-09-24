@@ -203,6 +203,10 @@ func describeActiveRun(a *models.TaskActivity) string {
 	if strings.TrimSpace(name) == "" {
 		name = a.SkillID
 	}
+	// A queued run has not started, so it has no time to name.
+	if a.Status == string(models.ActivityStatusQueued) || a.Status == string(models.ActivityStatusPending) {
+		return fmt.Sprintf("A run of %s is queued on this task.", name)
+	}
 	started := "an unknown time"
 	if a.StartedAt != nil {
 		started = a.StartedAt.Format(time.RFC3339)
@@ -211,6 +215,22 @@ func describeActiveRun(a *models.TaskActivity) string {
 		return fmt.Sprintf("A run of %s started at %s is still active on this task, waiting for user input.", name, started)
 	}
 	return fmt.Sprintf("A run of %s started at %s is still active on this task.", name, started)
+}
+
+// writeTaskBusy answers a launch the database refused because the task already
+// carries an active run, with the body the busy check answers, and reports
+// whether it did. Any other error is left to the caller.
+func writeTaskBusy(w http.ResponseWriter, err error) bool {
+	var busy *db.TaskBusyError
+	if !errors.As(err, &busy) {
+		return false
+	}
+	body := map[string]string{"error": "Another run is active on this task."}
+	if busy.Active != nil {
+		body = map[string]string{"error": describeActiveRun(busy.Active), "activeRunId": busy.Active.ID}
+	}
+	writeJSON(w, http.StatusConflict, body)
+	return true
 }
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
@@ -2068,6 +2088,23 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if ac != nil {
 			log.Printf("🚀 [Dispatch] Delegating skill %s on task %s (%s) to connected local agent (device=%s)", req.SkillID, task.Key, task.ID, ac.DeviceID)
 
+			// The mode is resolved before the run is recorded: it is what tells,
+			// once the run is over, whether anything was supposed to come back
+			// from it without a user closing a session.
+			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
+			// The engine the server resolves is what the run shows until the
+			// agent reports the one it really built its command line with.
+			provider, model := h.db.ResolveTaskEngine(projectID, req.SkillID, req.Model)
+			// The run is recorded before the launch record, and its insert is the
+			// busy check that holds across server instances: a launch that lost
+			// the race to another one is refused here and leaves no trace.
+			// "Launch anyway" records a concurrent run, which the database lets
+			// sit next to the active one.
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force})
+			if writeTaskBusy(w, runErr) {
+				return
+			}
+
 			activityID := uuid.New().String()
 			now := time.Now()
 			act := models.TaskActivity{
@@ -2090,14 +2127,6 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = h.db.AddTaskActivity(act)
 
-			// The mode is resolved before the run is recorded: it is what tells,
-			// once the run is over, whether anything was supposed to come back
-			// from it without a user closing a session.
-			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
-			// The engine the server resolves is what the run shows until the
-			// agent reports the one it really built its command line with.
-			provider, model := h.db.ResolveTaskEngine(projectID, req.SkillID, req.Model)
-			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID})
 			if runErr != nil {
 				act.Status = "failed"
 				act.Error = runErr.Error()
@@ -2472,6 +2501,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 		if req.Auto {
 			_, act, err := h.db.EnqueueFullChainRun(task.ID)
+			if writeTaskBusy(w, err) {
+				return
+			}
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -2487,6 +2519,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, act, err := h.db.EnqueueSkillOnTaskWithOverrides(task.ID, step.SkillID, "", req.Mode, req.Model)
+		if writeTaskBusy(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2993,6 +3028,9 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/activities/{id}/retry
 	if len(parts) >= 2 && parts[1] == "retry" && r.Method == http.MethodPost {
 		act, err := h.db.RetryActivity(id)
+		if writeTaskBusy(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return

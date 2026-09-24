@@ -46,6 +46,9 @@ type RunLaunch struct {
 	// the launching agent's key is bound to. Only the owner or an admin may
 	// stop it.
 	UserID string
+	// Force marks a run started with "Launch anyway", next to another active
+	// run on the task. It is recorded as concurrent, out of the one-run rule.
+	Force bool
 }
 
 // StartRemoteRun creates an independent execution record with no owner. It
@@ -104,9 +107,14 @@ func (d *DB) startRemoteRun(taskKey, skill, runID string, agentOwned bool, launc
 		Provider: strings.TrimSpace(launch.Provider), Model: strings.TrimSpace(launch.Model)}
 	if agentOwned {
 		activity.Action = RunActionAgent
+		activity.Concurrent = launch.Force
+	} else {
+		// A client declaring its own run is never refused (#308): the session
+		// is already running, and refusing would only lose track of it.
+		activity.Concurrent = true
 	}
 	if err := d.AddTaskActivity(*activity); err != nil {
-		return nil, err
+		return nil, d.taskBusy(task.ID, err)
 	}
 	launch.Stage = d.StageOfTask(task)
 	if launch.Mode != "" || launch.Stage != "" || launch.ChainStop != "" {
@@ -226,7 +234,11 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 }
 
 // SyncRemoteRunStatus reconciles a remote run's execution status reported by an agent.
-// It updates existing records (clearing previous restart/failure errors) or inserts a new record.
+// It updates an existing record or inserts a new one. A run that already ended
+// stays ended: a late "running" from the agent never reopens a run the server,
+// its owner or another instance has closed (#407). A terminal run may still move
+// to another terminal status, since an owner may report the real outcome of a
+// run the server closed (ADR 0007).
 func (d *DB) SyncRemoteRunStatus(activityID, taskID, projectID, taskKey, skillName, status, summary string, startedAt *time.Time) (*models.TaskActivity, error) {
 	return d.SyncRemoteRunStatusFor("", activityID, taskID, projectID, taskKey, skillName, status, summary, startedAt)
 }
@@ -263,10 +275,12 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 			if startedAt != nil && !startedAt.IsZero() {
 				sAt = *startedAt
 			}
-			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = COALESCE(started_at, ?) WHERE id = ?`,
+			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = COALESCE(started_at, ?)
+				WHERE id = ? AND status NOT IN ('completed', 'failed', 'canceled')`,
 				status, summary, sAt, activityID)
 		} else if status == "queued" {
-			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = NULL WHERE id = ?`,
+			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, error = '', completed_at = NULL, started_at = NULL
+				WHERE id = ? AND status NOT IN ('completed', 'failed', 'canceled')`,
 				status, summary, activityID)
 		} else {
 			// A terminal status ends the run, and a terminal run is never waiting.
@@ -295,8 +309,13 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 		} else if status == "running" {
 			sAt = now
 		}
-		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, user_id)
-			VALUES (?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?, ?)`,
+		// A run the server did not create is already executing on the agent:
+		// refusing it would only lose track of it, so it is concurrent, out of
+		// the one-run rule. Another instance inserting the same report first is
+		// not an error.
+		_, err = d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, user_id, concurrent)
+			VALUES (?, ?, 'remote_run', ?, ?, ?, ?, '', '[]', '', ?, NULL, '', ?, ?, 1)
+			ON CONFLICT (id) DO NOTHING`,
 			activityID, realTaskID, skillName, action, status, summary, sAt, now, ownerID)
 		if err != nil {
 			d.mu.Unlock()

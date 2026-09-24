@@ -26,9 +26,11 @@ func seedInstances(t *testing.T, d *DB, now time.Time) {
 	}
 }
 
+// seedOwnedActivity puts several active runs on one task, which only concurrent
+// runs may share; the restart rules do not look at the flag.
 func seedOwnedActivity(t *testing.T, d *DB, id, skillID, action, status, instanceID string) {
 	t.Helper()
-	if _, err := d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, instance_id) VALUES (?, 't1', ?, 'S', ?, ?, ?)`,
+	if _, err := d.conn.Exec(`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, instance_id, concurrent) VALUES (?, 't1', ?, 'S', ?, ?, ?, 1)`,
 		id, skillID, action, status, instanceID); err != nil {
 		t.Fatalf("seeding activity %s: %v", id, err)
 	}

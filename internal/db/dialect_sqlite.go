@@ -69,6 +69,17 @@ func (sqliteDialect) RunsLegacyMigrations() bool { return true }
 // restart recovery relies on.
 func (sqliteDialect) ServesOneProcess() bool { return true }
 
+// ForUpdate is empty: SQLite has no row locks, and its single writer plus DB.mu
+// already serialise every read-decide-write sequence of the one process that
+// holds the file.
+func (sqliteDialect) ForUpdate() string { return "" }
+
+// AcquireProjectWorker has nothing to take, for the reason ServesOneProcess
+// gives.
+func (sqliteDialect) AcquireProjectWorker(*sqlConn, string) (func(), error) {
+	return func() {}, nil
+}
+
 // MigrateActivityAttachment rebuilds task_activities: SQLite can neither relax
 // a NOT NULL, nor add a foreign key, nor add a CHECK through ALTER TABLE.
 //

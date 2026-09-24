@@ -120,6 +120,17 @@ type dialect interface {
 	// is false, other live instances may own some of it. See docs/adrs/0016 and
 	// internal/db/instances.go.
 	ServesOneProcess() bool
+	// ForUpdate is the clause that locks the rows a SELECT returns until the
+	// transaction ends, or nothing on an engine whose writers are already
+	// serialised. It is what lets a read-decide-write sequence hold across
+	// server processes, where DB.mu stops at the process boundary. See
+	// docs/db-concurrency-audit.md.
+	ForUpdate() string
+	// AcquireProjectWorker waits until no other server process runs a
+	// server-side job for the project, and returns the release. It never holds a
+	// database connection while waiting. An engine serving one process has
+	// nothing to take: the in-process ProjectLimiter already decides.
+	AcquireProjectWorker(conn *sqlConn, projectID string) (func(), error)
 	// Name is what the startup log calls this engine.
 	Name() string
 }

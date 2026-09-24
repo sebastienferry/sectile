@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"runtime/debug"
@@ -1231,6 +1232,15 @@ func (d *DB) taskScopeUnsafe(scope TaskScope) (projectCond string, projectArgs [
 	projectCond, projectArgs = viewProjectScope(view.ProjectIDs)
 	labelCond, labelArgs = viewLabelScope(view.Labels, d.lowerASCII("labels"))
 	return projectCond, projectArgs, labelCond, labelArgs, nil
+}
+
+// forUpdate is the row-locking clause of the engine, appended to a SELECT run
+// inside a transaction. See dialect.ForUpdate.
+func (d *DB) forUpdate() string {
+	if d == nil || d.dialect == nil {
+		return ""
+	}
+	return d.dialect.ForUpdate()
 }
 
 // lowerASCII folds a TEXT expression the way asciiLower folds the value it is
@@ -3326,9 +3336,9 @@ func insertTaskActivity(conn activityExecutor, instanceID string, act models.Tas
 		stepsJSON = []byte("[]")
 	}
 	_, err := conn.Exec(`
-		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, instance_id)
-		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model, instanceID)
+		INSERT INTO task_activities (id, task_id, project_id, skill_id, skill_name, action, status, summary, output, steps, prompt, started_at, completed_at, error, created_at, waiting_since, user_id, run_provider, run_model, instance_id, concurrent)
+		VALUES (?, NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, act.ID, act.TaskID, act.ProjectID, act.SkillID, act.SkillName, act.Action, act.Status, act.Summary, act.Output, string(stepsJSON), act.Prompt, act.StartedAt, act.CompletedAt, act.Error, act.CreatedAt, act.WaitingSince, act.UserID, act.Provider, act.Model, instanceID, boolToInt(act.Concurrent))
 	return err
 }
 
@@ -3367,7 +3377,7 @@ func (d *DB) getProjectActivitiesUnsafe(projectID string) ([]models.TaskActivity
 func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, error) {
 	rows, err := d.conn.Query(`
 		SELECT a.id, COALESCE(a.task_id, ''), COALESCE(a.project_id, ''), a.skill_id, a.skill_name, a.action, a.status, a.summary, a.output, a.steps, a.prompt, a.started_at, a.completed_at, a.error, a.created_at, a.waiting_since,
-		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model
+		       a.user_id, COALESCE(NULLIF(u.chosen_name, ''), u.display_name, ''), COALESCE(u.email, ''), a.run_provider, a.run_model, a.concurrent
 		FROM task_activities a LEFT JOIN users u ON u.id = a.user_id WHERE `+column+` = ? ORDER BY a.created_at DESC
 	`, id)
 	if err != nil {
@@ -3383,7 +3393,7 @@ func (d *DB) activitiesAttachedTo(column, id string) ([]models.TaskActivity, err
 		var startedAt, completedAt, waitingSince sql.NullTime
 		var ownerName, ownerEmail string
 
-		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel)
+		err := rows.Scan(&a.ID, &a.TaskID, &a.ProjectID, &a.SkillID, &a.SkillName, &a.Action, &a.Status, &a.Summary, &a.Output, &stepsJSON, &prompt, &startedAt, &completedAt, &errStr, &a.CreatedAt, &waitingSince, &a.UserID, &ownerName, &ownerEmail, &runProvider, &runModel, &a.Concurrent)
 		if err != nil {
 			continue
 		}
@@ -3949,8 +3959,18 @@ func (d *DB) startQueueWorker() {
 
 			// One server-side skill worker per project. Execution parallelism is a
 			// workstation setting owned by the local agent, not a server-side one.
+			// The limiter decides inside this process; the project lock extends
+			// the rule to every server instance sharing the database. The job
+			// stays queued while it waits for either.
 			d.limiter.Acquire(projID, 1)
 			defer d.limiter.Release(projID)
+			release, err := d.dialect.AcquireProjectWorker(d.conn, projID)
+			if err != nil {
+				// Degraded to one worker per instance rather than a stuck queue.
+				log.Printf("[skill] worker lock of project %s unavailable, running without it: %v", projID, err)
+			} else {
+				defer release()
+			}
 
 			d.runJobGuarded(j)
 		}(job)
@@ -4059,12 +4079,18 @@ func (d *DB) processSkillJob(job SkillJob) {
 		return
 	}
 
-	// This activity tracks dispatch, not skill completion. The remote run owns results.
+	// This activity tracks dispatch, not skill completion. The remote run owns
+	// results. The rename also takes the queued row out of the one-run index,
+	// which is what lets the remote run below take its place: a rename that
+	// failed would make that run collide with its own launch.
 	d.mu.Lock()
-	_, _ = d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch' WHERE id=?", job.ActivityID)
+	_, err := d.conn.Exec("UPDATE task_activities SET skill_id='agent_launch' WHERE id=?", job.ActivityID)
 	d.mu.Unlock()
 
-	task, err := d.GetTaskByID(job.TaskID)
+	var task *models.Task
+	if err == nil {
+		task, err = d.GetTaskByID(job.TaskID)
+	}
 	if err == nil && task != nil {
 		var run *models.TaskActivity
 		provider, model := d.ResolveTaskEngine(task.ProjectID, job.SkillID, job.Model)
@@ -4083,6 +4109,11 @@ func (d *DB) processSkillJob(job SkillJob) {
 		status = "failed"
 		summary = "Agent launch failed"
 		errorText = err.Error()
+		// Another run became active on the task while this one waited in the
+		// queue, on this server or another.
+		if errors.Is(err, ErrTaskBusy) {
+			summary = "Agent launch refused: another run is active on this task"
+		}
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -4968,9 +4999,15 @@ func (d *DB) enqueueSkillOnTask(taskID string, skillID string, prompt string, au
 		CreatedAt: now,
 	}
 
+	// The insert is the busy check: the database refuses a second ordinary
+	// active run on the task, from this server or any other. Nothing is queued
+	// for a refused run.
 	d.mu.Lock()
-	_ = d.addTaskActivityDirect(act)
+	err = d.addTaskActivityDirect(act)
 	d.mu.Unlock()
+	if err != nil {
+		return nil, nil, d.taskBusy(task.ID, err)
+	}
 
 	// Push to background channel worker
 	stopStage := ""
