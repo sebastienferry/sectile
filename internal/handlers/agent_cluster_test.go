@@ -307,3 +307,53 @@ func TestInternalCallsNeedTheSharedBearer(t *testing.T) {
 		t.Fatalf("forwarding without a key = %v", err)
 	}
 }
+
+// A skill launched through the other instance is confirmed by the agent held
+// there, on the connection the operation was forwarded to.
+func TestASkillLaunchReachesAnAgentHeldByAnotherInstance(t *testing.T) {
+	c := newCluster(t, "A", "B")
+	agent := connectClusterAgent(t, c[0].dispatcher, "u1", "project", "laptop")
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := c[1].dispatcher.CallOperation(ctx, agentprotocol.Operation{UserID: "u1", ProjectID: "project", TaskID: "t1", Action: "execute_skill", SkillID: "clarify"})
+		done <- err
+	}()
+	request := readAgentMessage(t, agent)
+	if request.Type != "dispatch_step" || request.TaskID != "t1" {
+		t.Fatalf("agent received %+v", request)
+	}
+	if err := agent.WriteJSON(AgentMessage{Type: "step_status", MsgID: request.MsgID, Payload: json.RawMessage(`{"status":"completed","summary":"ok"}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("forwarded skill launch failed: %v", err)
+	}
+}
+
+// Closing a rebound slot leaves alone an agent the instance holds for every
+// project of the same user.
+func TestClosingARemoteSlotKeepsTheAgentRegisteredForEveryProject(t *testing.T) {
+	c := newCluster(t, "A", "B")
+	agent := connectClusterAgent(t, c[0].dispatcher, "u1", "default", "laptop")
+
+	req, err := http.NewRequest(http.MethodPost, c[0].view.address+internalAgentPath+"close", strings.NewReader(`{"userId":"u1","projectId":"project"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+clusterToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+
+	if err := c[0].dispatcher.Dispatch("u1", "default", "pty_input", "t1", map[string]string{"data": "ls"}); err != nil {
+		t.Fatalf("the agent registered for every project was closed: %v", err)
+	}
+	if msg := readAgentMessage(t, agent); msg.Type != "pty_input" {
+		t.Fatalf("agent received %+v", msg)
+	}
+}

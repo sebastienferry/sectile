@@ -320,6 +320,17 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 			userID = ImplicitUser
 		}
 	}
+	if verb == "close" {
+		// A rebind names the exact slot it took over. The project fallbacks
+		// would close an agent registered for every project instead.
+		d.mu.RLock()
+		ac := d.agents[agentKey{UserID: userID, ProjectID: projectID}]
+		d.mu.RUnlock()
+		if ac != nil {
+			ac.Close(4001, "Session Rebound")
+		}
+		return nil, nil
+	}
 	ac := d.Lookup(userID, projectID)
 	if ac == nil {
 		return nil, fmt.Errorf("%w for user %s on project %s on this instance", ErrNoAgentConnected, userID, projectID)
@@ -345,9 +356,6 @@ func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req in
 			return nil, err
 		}
 		return json.Marshal(tasks)
-	case "close":
-		ac.Close(4001, "Session Rebound")
-		return nil, nil
 	}
 	return nil, fmt.Errorf("unknown internal verb %q", verb)
 }

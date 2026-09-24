@@ -44,7 +44,9 @@ func (d *AgentDispatcher) callOperationLocal(ctx context.Context, ac *AgentConn,
 		if op.Action == "open_terminal" {
 			action = "open_terminal"
 		}
-		err := d.DispatchAndWait(ctx, ac.UserID, ac.ProjectID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
+		// On the connection already resolved: an operation forwarded here must
+		// not be forwarded again if the slot changes hands meanwhile.
+		err := d.dispatchAndWaitLocal(ctx, ac, ac.UserID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
 		return json.RawMessage("null"), err
 	}
 	raw, err := json.Marshal(op)
