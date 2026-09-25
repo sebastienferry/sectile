@@ -343,6 +343,32 @@ saved as typed. Next to the field, the settings show what the folder in effect
 is: *Git repository*, *Folder (not a Git repository)*, or *Not found* when it
 was deleted since. In a plain folder, macro skills write in place, with no
 worktree, branch, commit or push.
+A plain folder can also be made a Git repository from the settings; see
+below.
+
+### Initializing a Git repository for a project folder
+
+When **General → Local repository**, or a Specifications folder of its own,
+names a folder that is not a Git repository, the settings offer to initialize
+one: *Initialize a Git repository* creates it in that folder, on `main`, with
+an empty first commit, and *Not now* leaves the folder as it is. The offer is
+examined when the settings open, when *Choose folder…* returns and when a typed
+value is committed. A Git folder with no commit yet is offered the first commit
+alone, on the branch its `HEAD` already names.
+
+The repository stays on the workstation: no remote is added and nothing is
+pushed. It only exists so Sectile can create worktrees from it. Nothing in the
+folder is staged, so worktrees start without the files already there. `.tasks/`
+is excluded through the repository's `info/exclude`, and no `.gitignore` is
+created. The commit uses the workstation's Git identity; when Git refuses it,
+its message is shown under the field and the repository stays without a commit,
+so the offer shown again makes the commit alone. The filesystem root and the
+home directory are never initialized.
+
+Initializing does not save the settings. Declining keeps today's behaviour: the
+Local repository still refuses a folder outside any Git checkout, and a
+Specifications folder is saved and written in place as a plain folder. The
+offer needs a local agent that supports it; an older agent shows none.
 
 ### User configuration and commands
 

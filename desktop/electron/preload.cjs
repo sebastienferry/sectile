@@ -30,6 +30,8 @@ contextBridge.exposeInMainWorld('localAgent',{
  mapProject:mapping=>ipcRenderer.invoke('map-project',mapping),
  repositories:projectId=>ipcRenderer.invoke('repositories',projectId),
  mapRepository:mapping=>ipcRenderer.invoke('map-repository',mapping),
+ gitState:path=>ipcRenderer.invoke('git-state',path),
+ gitInit:path=>ipcRenderer.invoke('git-init',path),
  clearHistory:()=>ipcRenderer.invoke('clear-history'),
  gitDiff:id=>ipcRenderer.invoke('git-diff',id),
  runs:()=>ipcRenderer.invoke('runs'),
