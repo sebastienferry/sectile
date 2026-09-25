@@ -12,6 +12,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 type taskInput struct {
@@ -164,6 +165,23 @@ type Caller struct {
 	UserID string
 	Name   string
 	Role   string
+	// Anonymous says the credential names no person, like the shared server
+	// key: the call may read and report runs, never write to a tracker.
+	Anonymous bool
+}
+
+// AnonymousWriteRefusal refuses a tracker write from a caller Sectile cannot
+// tie to a person: signing it with the server account would make a user action
+// anonymous on the tracker (#482). The REST handlers answer with it too.
+const AnonymousWriteRefusal = "tracker write refused: this key is not tied to a user; pair the desktop app or use a personal API key"
+
+// requireCaller refuses a write tool called by nobody in particular, before
+// anything is written.
+func requireCaller(caller Caller) error {
+	if caller.Anonymous || strings.TrimSpace(caller.UserID) == "" {
+		return fmt.Errorf("%s", AnonymousWriteRefusal)
+	}
+	return nil
 }
 
 // CallerResolver maps the headers of an MCP request to its caller. It returns
@@ -238,9 +256,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			// The task is already read. A tracker that cannot be reached costs the
 			// session its comments, not its ticket, so the failure is reported as a
-			// field and never as an empty discussion.
+			// field and never as an empty discussion. Comments are read as the
+			// caller, with their own tracker account, as the web detail view reads
+			// them for its viewer.
 			result := map[string]any{"task": task}
-			comments, err := database.GetTaskComments(task.ID)
+			comments, err := database.GetTaskCommentsAs(tracker.WithActingUser(ctx, callerOf(resolve, req).UserID), task.ID)
 			if err != nil {
 				result["commentsError"] = err.Error()
 			} else {
@@ -260,7 +280,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if strings.TrimSpace(in.Note) == "" {
 			return nil, nil, fmt.Errorf("note is required")
 		}
-		task, activity, err := database.TransitionTaskStageWithPRs(callerOf(resolve, req).UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
+		caller := callerOf(resolve, req)
+		if err := requireCaller(caller); err != nil {
+			return nil, nil, err
+		}
+		task, activity, err := database.TransitionTaskStageWithPRs(caller.UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -272,6 +296,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 				return nil, nil, fmt.Errorf("taskKey and body are required")
 			}
 			caller := callerOf(resolve, req)
+			if err := requireCaller(caller); err != nil {
+				return nil, nil, err
+			}
 			comments, err := database.PostTaskCommentBy(db.Actor{ID: caller.UserID, Name: caller.Name}, in.TaskKey, in.Body)
 			return nil, map[string]any{"comments": comments}, err
 		})
@@ -380,6 +407,10 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"parentKey":   map[string]any{"type": "string", "description": "Key of the parent macro or epic."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in createTaskInput) (*mcp.CallToolResult, any, error) {
+		caller := callerOf(resolve, req)
+		if err := requireCaller(caller); err != nil {
+			return nil, nil, err
+		}
 		projectID := strings.TrimSpace(in.ProjectID)
 		if projectID == "" {
 			return nil, nil, fmt.Errorf("projectId is required: name the project explicitly, list_projects reports the available primary keys")
@@ -397,7 +428,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if project == nil {
 			return nil, nil, fmt.Errorf("project not found: %s", projectID)
 		}
-		task, err := database.CreateTask(models.CreateTaskRequest{
+		// The issue is created as the caller, exactly as from the web: under
+		// their own tracker credential, never the server's.
+		task, err := database.CreateTaskAs(tracker.WithActingUser(ctx, caller.UserID), models.CreateTaskRequest{
 			// Remote creation is required, not preferred: a ticket an agent files
 			// has to exist where a human will see it.
 			RequireRemoteCreation: true,
@@ -425,6 +458,10 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"labels":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Custom labels. The task's workflow stage label is preserved."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in updateTaskInput) (*mcp.CallToolResult, any, error) {
+		caller := callerOf(resolve, req)
+		if err := requireCaller(caller); err != nil {
+			return nil, nil, err
+		}
 		taskKey := strings.TrimSpace(in.TaskKey)
 		if taskKey == "" {
 			return nil, nil, fmt.Errorf("taskKey is required")
@@ -484,7 +521,6 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			labels = &sanitized
 		}
 
-		caller := callerOf(resolve, req)
 		actor := db.Actor{ID: caller.UserID, Name: caller.Name}
 		task, err := database.UpdateTaskBy(actor, existing.ID, models.UpdateTaskRequest{
 			Title:       title,

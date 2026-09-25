@@ -202,11 +202,15 @@ func Has(list []Capability, c Capability) bool {
 // TicketingSystem method already takes one, and a tracker credential is
 // personal on the trackers where a write is attributed to the token's account.
 //
-// A context that names nobody is the normal case for background work, and it
-// resolves to the server-wide credential. That is deliberate: the queue has no
-// acting user to speak of until one is recorded on the job itself.
+// A context that names nobody is not, by itself, background work. A write that
+// lost its author on the way looks exactly like the synchronisation, and that is
+// how a person's comment ended up signed by the server account (#482). So the
+// work nobody asked for says so with WithUnattended, and a write whose context
+// carries neither a person nor that marker is refused rather than guessed.
 
 type actingUserKey struct{}
+
+type unattendedKey struct{}
 
 // WithActingUser marks the context with whoever asked for the operation.
 func WithActingUser(ctx context.Context, userID string) context.Context {
@@ -223,6 +227,23 @@ func ActingUser(ctx context.Context) string {
 	}
 	user, _ := ctx.Value(actingUserKey{}).(string)
 	return user
+}
+
+// WithUnattended marks the context as work nobody asked for: the
+// synchronisation pass, or a job no person launched. Its tracker writes use the
+// server credential. A person named on the same context still wins.
+func WithUnattended(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unattendedKey{}, true)
+}
+
+// Unattended reports whether the context is marked as work nobody asked for and
+// names no person.
+func Unattended(ctx context.Context) bool {
+	if ctx == nil || ActingUser(ctx) != "" {
+		return false
+	}
+	marked, _ := ctx.Value(unattendedKey{}).(bool)
+	return marked
 }
 
 // The project travels the same way, and for the same reason: half of the write

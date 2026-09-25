@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"tasks/internal/models"
 	"tasks/internal/tracker"
@@ -79,11 +80,17 @@ func overrideWith(target *string, override string) {
 // tracker returns the tracker client carrying the credentials of one project.
 func (d *DB) tracker(projectID string) *trackerapi.Client { return d.trackers.For(projectID) }
 
+// trackerForWrite is the client of a write made directly on the tracker client,
+// such as a GitHub milestone: the acting person's own credential, the server's
+// for unattended work, and a refusal otherwise (trackerapi.ForWrite, #482).
+func (d *DB) trackerForWrite(ctx context.Context, trackerName, projectID string) (*trackerapi.Client, error) {
+	return d.trackers.ForWrite(ctx, trackerName, projectID)
+}
+
 // trackerAs is tracker with the credentials of the person who asked for the
-// work substituted where they stored any. A tracker attributes a write to the
-// account behind the token, so an operation somebody asked for travels under
-// their own token rather than the server's. Unattended work names nobody and
-// keeps the project credential, which is why an empty user is not an error.
+// work substituted where they stored any. It is for reads only: it falls back
+// to the project credential when theirs cannot be resolved, which a read may do
+// and a write may not. Writes use trackerForWrite.
 func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client {
 	client, _, err := d.trackers.ForActingUser(userID, trackerName, projectID)
 	if err != nil || client == nil {
@@ -161,9 +168,16 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 				return "", err
 			}
 		}
-		return client.CheckGithub(ctx,
-			firstNonEmpty(apiURL, site, client.GithubURL),
-			firstNonEmpty(token, own, client.GithubToken))
+		probed := firstNonEmpty(apiURL, site, client.GithubURL)
+		account, err := client.CheckGithub(ctx, probed, firstNonEmpty(token, own, client.GithubToken))
+		// Only a check of the caller's own stored token, on the site it is
+		// stored for, says whose it is. A typed token, or the server's one,
+		// proves nothing about the caller: the admin setup screen goes
+		// through here too.
+		if err == nil && token == "" && own != "" && sameGithubSite(probed, firstNonEmpty(site, client.GithubURL)) {
+			d.recordTrackerAccount(tracker.ActingUser(ctx), "github", account)
+		}
+		return account, err
 	case "gitlab":
 		return client.CheckGitlab(ctx, firstNonEmpty(apiURL, client.GitlabURL), firstNonEmpty(token, client.GitlabToken))
 	case "jira":
@@ -181,13 +195,77 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 				return "", err
 			}
 		}
-		return client.CheckJira(ctx,
-			firstNonEmpty(apiURL, site, client.JiraURL),
-			firstNonEmpty(email, mail, client.JiraEmail),
-			firstNonEmpty(token, own, client.JiraToken))
+		probedSite, probedEmail := firstNonEmpty(apiURL, site, client.JiraURL), firstNonEmpty(email, mail, client.JiraEmail)
+		account, err := client.CheckJira(ctx, probedSite, probedEmail, firstNonEmpty(token, own, client.JiraToken))
+		// As for GitHub: the stored token, on its own site and with its own
+		// e-mail, or nothing is learnt.
+		if err == nil && token == "" && own != "" &&
+			trackerapi.JiraSite(probedSite) == trackerapi.JiraSite(firstNonEmpty(site, client.JiraURL)) &&
+			strings.EqualFold(strings.TrimSpace(probedEmail), strings.TrimSpace(firstNonEmpty(mail, client.JiraEmail))) {
+			d.recordTrackerAccount(tracker.ActingUser(ctx), "jira", account)
+		}
+		return account, err
 	default:
 		return "", fmt.Errorf("aucune vérification de connexion pour le tracker %q", trackerName)
 	}
+}
+
+// ConfirmUserTrackerCredential asks the tracker whom one person's stored
+// credential belongs to, and records the answer for My Tasks (#468). It is
+// called right after the credential is saved, while a sealed one is still
+// open. A failure leaves the account empty and is only reported: the
+// credential itself is stored either way.
+func (d *DB) ConfirmUserTrackerCredential(ctx context.Context, userID, trackerName string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, credentialCheckTimeout)
+	defer cancel()
+	trackerName = strings.ToLower(strings.TrimSpace(trackerName))
+	d.mu.RLock()
+	site, email, token, err := d.userTrackerCredential(userID, trackerName)
+	d.mu.RUnlock()
+	if err != nil {
+		return "", err
+	}
+	client := d.tracker("")
+	var account string
+	switch trackerName {
+	case "github":
+		account, err = client.CheckGithub(ctx, firstNonEmpty(site, client.GithubURL), token)
+	case "gitlab":
+		account, err = client.CheckGitlab(ctx, firstNonEmpty(site, client.GitlabURL), token)
+	case "jira":
+		account, err = client.CheckJira(ctx, firstNonEmpty(site, client.JiraURL), firstNonEmpty(email, client.JiraEmail), token)
+	default:
+		return "", fmt.Errorf("aucune vérification de connexion pour le tracker %q", trackerName)
+	}
+	if err != nil {
+		return "", err
+	}
+	return account, d.SetUserTrackerCredentialAccount(userID, trackerName, account)
+}
+
+// recordTrackerAccount keeps what a check learnt about the caller's own
+// credential. Failing to write it down does not fail the check, which did
+// answer.
+func (d *DB) recordTrackerAccount(userID, trackerName, account string) {
+	if strings.TrimSpace(userID) == "" {
+		return
+	}
+	if err := d.SetUserTrackerCredentialAccount(userID, trackerName, account); err != nil {
+		log.Printf("[TrackerCredentials] compte %s non enregistré : %v", trackerName, err)
+	}
+}
+
+// sameGithubSite says whether two GitHub API addresses are one, an empty one
+// being the public instance, as the client reads it.
+func sameGithubSite(a, b string) bool {
+	norm := func(raw string) string {
+		raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+		if raw == "" {
+			raw = trackerapi.DefaultGithubURL
+		}
+		return strings.ToLower(raw)
+	}
+	return norm(a) == norm(b)
 }
 
 // SaveTrackerCredentials stores one tracker's connection parameters in the user
@@ -267,4 +345,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// isTrackerWriteRefusal reports a write the tracker client refused before
+// sending it: the acting person has no credential of their own for the
+// provider, or the write lost its author on the way (#482).
+func isTrackerWriteRefusal(err error) bool {
+	var missing *trackerapi.MissingPersonalCredentialError
+	return errors.As(err, &missing) || errors.Is(err, trackerapi.ErrNoActingUser)
 }

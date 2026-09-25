@@ -7,6 +7,7 @@ import {
   saveBoardCardDisplayMode,
   toggleBoardCardDisplayMode as toggleDisplayModeValue,
 } from '../lib/boardDisplayMode'
+import { loadBoardSort, saveBoardSort, type BoardSort } from '../lib/boardSort'
 import type {
   BoardView,
   BoardViewPayload,
@@ -65,6 +66,7 @@ import {
   type ReadResource,
 } from '../lib/apiRead'
 import { filterScopeKey, readViewParam, withViewParam } from '../lib/boardViews'
+import { ASSIGNEE_IDENTITIES_PATH, type AssigneeIdentities } from '../lib/myTasks'
 import {
   INTERNAL_STATUS_BY_STAGE,
   resolveTaskStage, skillForStage,
@@ -123,6 +125,9 @@ interface AppContextType {
   boardCardDisplayMode: BoardCardDisplayMode
   setBoardCardDisplayMode: (mode: BoardCardDisplayMode) => void
   toggleBoardCardDisplayMode: () => void
+  /** The card order shared by the Board and the Backlog (#402). */
+  boardSort: BoardSort
+  setBoardSort: (sort: BoardSort) => void
   searchQuery: string
   setSearchQuery: (query: string) => void
   statusFilter: Status | null
@@ -214,6 +219,15 @@ interface AppContextType {
   setLabelFilter: (label: string | null) => void
   assigneeFilter: string | null
   setAssigneeFilter: (assignee: string | null) => void
+  /**
+   * My Tasks (#468): the tickets assigned to me, whoever I am on each ticket's
+   * tracker. The server resolves "me"; turning it on clears the person filter,
+   * and choosing a person turns it off.
+   */
+  myTasksOnly: boolean
+  setMyTasksOnly: (value: boolean) => void
+  /** Who "me" is on each tracker of the current scope, for the button's tooltip. */
+  myTasksIdentities: AssigneeIdentities | null
   sourceFilter: 'all' | TaskSource
   setSourceFilter: (source: 'all' | TaskSource) => void
   /** Filters the board on a parent work item key (epic, or parent story). */
@@ -541,6 +555,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       return next
     })
   }, [])
+
+  const [boardSort, setBoardSortState] = useState<BoardSort>(loadBoardSort)
+
+  const setBoardSort = useCallback((sort: BoardSort) => {
+    setBoardSortState(sort)
+    saveBoardSort(sort)
+  }, [])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilterState] = useState<Status | null>(null)
   const [priorityFilter, setPriorityFilterState] = useState<Priority | null>(null)
@@ -582,6 +603,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activeOnly, setActiveOnlyState] = useState<boolean>(false)
   const [teamFilter, setTeamFilterState] = useState<string | null>(null)
   const [assigneeFilter, setAssigneeFilterState] = useState<string | null>(null)
+  const [myTasksOnly, setMyTasksOnlyState] = useState<boolean>(false)
+  const [myTasksIdentities, setMyTasksIdentities] = useState<AssigneeIdentities | null>(null)
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskSource>('all')
   const [parentFilter, setParentFilterState] = useState<string | null>(null)
   // Remembered per browser, as the desktop app already does (#474).
@@ -809,9 +832,18 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     persistFilter({ issueTypes: values.length > 0 ? JSON.stringify(values) : null })
   }, [persistFilter])
 
+  // Choosing a person and My Tasks exclude each other: one answers "whose
+  // tickets", the other "mine", and both at once would mean nothing.
   const setAssigneeFilter = useCallback((value: string | null) => {
     setAssigneeFilterState(value)
-    persistFilter({ assignee: value })
+    if (value) setMyTasksOnlyState(false)
+    persistFilter(value ? { assignee: value, mine: null } : { assignee: null })
+  }, [persistFilter])
+
+  const setMyTasksOnly = useCallback((value: boolean) => {
+    setMyTasksOnlyState(value)
+    if (value) setAssigneeFilterState(null)
+    persistFilter(value ? { mine: '1', assignee: null } : { mine: null })
   }, [persistFilter])
 
   const setParentFilter = useCallback((value: string | null) => {
@@ -1173,11 +1205,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // L'assigné se filtre côté serveur comme le reste : il n'était appliqué
     // nulle part, ce qui laissait « Mes tâches » sans effet.
     if (assigneeFilter) params.append('assignee', assigneeFilter)
+    // My Tasks sends no name: the server knows who "me" is on each tracker.
+    if (myTasksOnly) params.append('mine', '1')
     trackerStatusFilters.forEach(status => params.append('trackerStatus', status))
     issueTypeFilters.forEach(type => params.append('issueType', type))
     if (pinnedOnly) params.append('pinned', '1')
     return params.toString()
-  }, [selectedProjectId, selectedViewId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, trackerStatusFilters, issueTypeFilters, pinnedOnly])
+  }, [selectedProjectId, selectedViewId, searchQuery, activeView, statusFilter, priorityFilter, labelFilter, sprintFilter, teamFilter, parentFilter, assigneeFilter, myTasksOnly, trackerStatusFilters, issueTypeFilters, pinnedOnly])
 
   // Resolve desktop deep links independently of board filters and pagination.
   useEffect(() => {
@@ -1235,7 +1269,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setSprintFilterState(stored.sprint ?? null)
     setTeamFilterState(stored.team ?? null)
     setParentFilterState(stored.parent ?? null)
+    // A name remembered by an earlier version stays a person filter (#468).
     setAssigneeFilterState(stored.assignee ?? null)
+    setMyTasksOnlyState(stored.mine === '1')
     try {
       const raw = stored.trackerStatuses
       setTrackerStatusFiltersState(raw ? JSON.parse(raw) : [])
@@ -1433,13 +1469,36 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok) return { ok: false, error: data.error || 'Vérification impossible' }
+        // Verifying a stored personal credential teaches the server whose it
+        // is, which My Tasks and the profile then show.
+        refreshUserCredentials()
         return data
       } catch (err: any) {
         return { ok: false, error: err.message || 'Serveur injoignable' }
       }
     },
-    []
+    [refreshUserCredentials]
   )
+
+  // Who "me" is on each tracker of the scope, for the My Tasks tooltip. Read
+  // again whenever the scope or the personal credentials change: saving,
+  // verifying or deleting one is what teaches or forgets an identity.
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (selectedViewId) params.append('viewId', selectedViewId)
+    else if (selectedProjectId && selectedProjectId !== 'all') params.append('projectId', selectedProjectId)
+    const controller = new AbortController()
+    fetch(`${ASSIGNEE_IDENTITIES_PATH}?${params.toString()}`, { signal: controller.signal })
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (controller.signal.aborted) return
+        setMyTasksIdentities(data && Array.isArray(data.trackers) ? data : null)
+      })
+      .catch(() => {
+        // Unreachable server: the tooltip falls back on the label alone.
+      })
+    return () => controller.abort()
+  }, [selectedProjectId, selectedViewId, userCredentials, settings.userName, settings.userEmail])
 
   const fetchAutoSyncStatus = useCallback(async () => {
     try {
@@ -3771,6 +3830,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         boardCardDisplayMode,
         setBoardCardDisplayMode,
         toggleBoardCardDisplayMode,
+        boardSort,
+        setBoardSort,
         moveTaskWorkflowStage,
         searchQuery,
         setSearchQuery,
@@ -3792,6 +3853,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setLabelFilter,
         assigneeFilter,
         setAssigneeFilter,
+        myTasksOnly,
+        setMyTasksOnly,
+        myTasksIdentities,
         trackerStatusFilters,
         setTrackerStatusFilters,
         issueTypeFilters,

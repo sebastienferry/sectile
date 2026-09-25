@@ -3,6 +3,7 @@ package trackerapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -65,9 +66,23 @@ func (j *JiraAdapter) forProject(ctx context.Context, p *models.Project) (*Clien
 	// writing under the server account would put a name on it that nobody
 	// chose. Unattended work names nobody and keeps the server credential.
 	if user != "" && !personal {
-		return nil, fmt.Errorf("no personal Jira token for this user: store one in your profile, or the work would be attributed to the server account")
+		return nil, &MissingPersonalCredentialError{Tracker: "jira"}
 	}
 	return client, nil
+}
+
+// forWrite is the client of one write: the acting person's own credential, the
+// server's for unattended work, and a refusal for a context naming neither
+// (ForWrite). Reads keep forProject.
+func (j *JiraAdapter) forWrite(ctx context.Context, p *models.Project) (*Client, error) {
+	projectID := ""
+	if p != nil {
+		projectID = p.ID
+	}
+	if projectID == "" {
+		projectID = tracker.Project(ctx)
+	}
+	return j.client.ForWrite(ctx, "jira", projectID)
 }
 
 func (j *JiraAdapter) projectKey(p *models.Project) (string, error) {
@@ -249,7 +264,7 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 			}
 		}
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -269,6 +284,15 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		Key string `json:"key"`
 	}
 	if err := c.jira(ctx, http.MethodPost, "/rest/api/3/issue", nil, map[string]any{"fields": fields}, &created); err != nil {
+		// Jira names a missing mandatory field by id, and only the first ones
+		// it meets. The creation screen is read after a refusal only, so a
+		// creation that succeeds costs no extra request.
+		var httpErr *HTTPError
+		if errors.As(err, &httpErr) && httpErr.Status == http.StatusBadRequest {
+			if missing := j.missingRequiredFields(ctx, req.Project, issueType, fields); missing != "" {
+				return nil, fmt.Errorf("%w; fields this project requires on creation for %s: %s", err, issueType, missing)
+			}
+		}
 		return nil, err
 	}
 	if strings.TrimSpace(created.Key) == "" {
@@ -338,7 +362,7 @@ func (j *JiraAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssueRe
 	if err != nil {
 		return err
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Project)
 	if err != nil {
 		return err
 	}
@@ -425,7 +449,7 @@ func (j *JiraAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssueRe
 	}
 	// A Jira deletion is destructive and irreversible; closing is what the
 	// board means by removing a card, whether or not CloseOnly is set.
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Project)
 	if err != nil {
 		return err
 	}
@@ -556,7 +580,7 @@ func (j *JiraAdapter) AddComment(ctx context.Context, req tracker.AddCommentRequ
 	if err != nil {
 		return err
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Project)
 	if err != nil {
 		return err
 	}
@@ -629,7 +653,7 @@ func (j *JiraAdapter) Assign(ctx context.Context, key string, personID string) e
 	if err != nil {
 		return err
 	}
-	c, err := j.forProject(ctx, nil)
+	c, err := j.forWrite(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -641,7 +665,7 @@ func (j *JiraAdapter) Transition(ctx context.Context, key string, status string)
 	if err != nil {
 		return err
 	}
-	c, err := j.forProject(ctx, nil)
+	c, err := j.forWrite(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -662,7 +686,7 @@ func (j *JiraAdapter) SetSprint(ctx context.Context, sprintID string, keys []str
 	if id := strings.TrimSpace(sprintID); id != "" {
 		path = "/rest/agile/1.0/sprint/" + url.PathEscape(id) + "/issue"
 	}
-	c, err := j.forProject(ctx, nil)
+	c, err := j.forWrite(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -685,7 +709,7 @@ func (j *JiraAdapter) SetTeam(ctx context.Context, key string, teamID string) er
 	if err != nil {
 		return err
 	}
-	c, err := j.forProject(ctx, nil)
+	c, err := j.forWrite(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -701,7 +725,7 @@ func (j *JiraAdapter) SetParent(ctx context.Context, key string, parentKey strin
 	if p := strings.TrimSpace(parentKey); p != "" {
 		parent = map[string]string{"key": strings.ToUpper(p)}
 	}
-	c, err := j.forProject(ctx, nil)
+	c, err := j.forWrite(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -718,7 +742,7 @@ func (j *JiraAdapter) UpdateLabels(ctx context.Context, key string, add []string
 	if len(ops) == 0 {
 		return nil
 	}
-	c, err := j.forProject(ctx, nil)
+	c, err := j.forWrite(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -1011,6 +1035,27 @@ func (j *JiraAdapter) optionFields(ctx context.Context, project *models.Project,
 		}
 	}
 	return out, nil
+}
+
+// missingRequiredFields lists, as "Name (id)", the fields the creation screen
+// of issueType makes mandatory and the creation body sent did not carry. The
+// body is what counts, not the request's custom fields: a description, labels
+// or a priority the adapter sent are not missing, whatever Jira refused over.
+// It answers an empty string when the screen cannot be read: the refusal it
+// completes is then returned as Jira wrote it.
+func (j *JiraAdapter) missingRequiredFields(ctx context.Context, project *models.Project, issueType string, sent map[string]any) string {
+	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Project: project, IssueType: issueType})
+	if err != nil {
+		return ""
+	}
+	missing := []string{}
+	for _, field := range required {
+		if _, ok := sent[field.ID]; ok {
+			continue
+		}
+		missing = append(missing, fmt.Sprintf("%s (%s)", field.Name, field.ID))
+	}
+	return strings.Join(missing, ", ")
 }
 
 // RequiredCreateFields lists what the site makes mandatory on creation for one

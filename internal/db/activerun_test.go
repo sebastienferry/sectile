@@ -153,6 +153,7 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"DROP TABLE server_tracker_credentials",
 		"ALTER TABLE projects ADD COLUMN github_token TEXT NOT NULL DEFAULT ''",
 		"ALTER TABLE projects ADD COLUMN gitlab_token TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE user_tracker_credentials DROP COLUMN account",
 		"DELETE FROM schema_migrations WHERE version >= 9",
 		`INSERT INTO task_activities (id, task_id, skill_id, skill_name, action, status, created_at) VALUES
 			('old-skill', 't1', 'clarify', 'clarify', 'run', 'running', '2026-09-01 10:00:00'),
@@ -262,7 +263,7 @@ func TestAnEditDuringAConversionKeepsBoth(t *testing.T) {
 	}
 	d.TrackerRegistry().Register("remote", fake)
 
-	if _, err := d.ConvertTaskToRemote("t2", "remote"); err != nil {
+	if _, err := d.ConvertTaskToRemote(context.Background(), "t2", "remote"); err != nil {
 		t.Fatalf("conversion: %v", err)
 	}
 	task, _ := d.GetTaskByID("t2")
@@ -282,13 +283,13 @@ func TestAStaleConversionClaimIsTakenOver(t *testing.T) {
 	if _, err := d.conn.Exec(`UPDATE tasks SET source = 'converting', updated_at = ? WHERE id = 't2'`, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ConvertTaskToRemote("t2", "remote"); err == nil {
+	if _, err := d.ConvertTaskToRemote(context.Background(), "t2", "remote"); err == nil {
 		t.Fatal("a conversion in progress must refuse a second one")
 	}
 	if _, err := d.conn.Exec(`UPDATE tasks SET updated_at = ? WHERE id = 't2'`, time.Now().Add(-convertClaimExpiry-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ConvertTaskToRemote("t2", "remote"); err != nil {
+	if _, err := d.ConvertTaskToRemote(context.Background(), "t2", "remote"); err != nil {
 		t.Fatalf("a stale claim was not taken over: %v", err)
 	}
 }

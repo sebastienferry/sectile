@@ -1226,6 +1226,9 @@ type TaskScope struct {
 	UserID    string
 	ProjectID string
 	ViewID    string
+	// Mine keeps the tickets assigned to me, as MyTasks says who that is on
+	// each tracker. Nil means no My Tasks filter.
+	Mine *MyTasks
 }
 
 // taskScopeUnsafe returns the scope as two SQL conditions over tasks: the
@@ -1791,6 +1794,12 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 			conditions = append(conditions, "assignee = ?")
 			args = append(args, assignee)
 		}
+	}
+
+	if scope.Mine != nil {
+		cond, mineArgs := d.myTasksCondition(*scope.Mine)
+		conditions = append(conditions, cond)
+		args = append(args, mineArgs...)
 	}
 
 	sqlQuery := "SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"
@@ -2466,8 +2475,10 @@ func SetWorkflowLabel(existingLabels []string, targetLabel string) []string {
 	return result
 }
 
-// CreateTask creates a work item with no acting user, which is what background
-// and machine callers do: the remote creation then uses the server credential.
+// CreateTask creates a work item naming nobody. It serves local boards: on a
+// remote tracker the creation names neither a person nor unattended work, and
+// is refused rather than signed by the server account (#482). A creation
+// somebody asked for uses CreateTaskAs.
 func (d *DB) CreateTask(req models.CreateTaskRequest) (*models.Task, error) {
 	return d.CreateTaskAs(context.Background(), req)
 }
@@ -2547,8 +2558,22 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		req.Source = trackerName
 	}
 
-	if req.RequireRemoteCreation && req.Source != "local" && req.Source != "github" {
-		return nil, fmt.Errorf("remote task creation is not supported for tracker %q", req.Source)
+	// Under the strict contract a task is filed on its tracker or not at all:
+	// the adapter must resolve, be the one the request names, and create.
+	ts, tsErr := d.TrackerForProject(proj)
+	if req.RequireRemoteCreation && req.Source != "local" {
+		switch {
+		case tsErr != nil:
+			return nil, fmt.Errorf("cannot create the task on tracker %q: %w", req.Source, tsErr)
+		case ts == nil || !strings.EqualFold(ts.Name(), req.Source):
+			uses := "none"
+			if ts != nil {
+				uses = ts.Name()
+			}
+			return nil, fmt.Errorf("cannot create the task on tracker %q: the project uses %q", req.Source, uses)
+		case !ts.Supports(tracker.CapCreate):
+			return nil, fmt.Errorf("cannot create the task on tracker %q: it does not support creation", req.Source)
+		}
 	}
 	// Action Create -> Status: to_clarify, Label: New
 	if req.Status == "" {
@@ -2567,7 +2592,6 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 
 	// Remote creation requires confirmation from the server HTTP adapter.
 	local := true
-	ts, tsErr := d.TrackerForProject(proj)
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
 		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
 			Project:     proj,
@@ -2575,13 +2599,11 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			Description: req.Description,
 			Priority:    req.Priority,
 			Labels:      req.Labels,
+			IssueType:   strings.TrimSpace(req.IssueType),
+			ParentKey:   strings.TrimSpace(req.ParentKey),
 		})
 		if err != nil {
-			trackerTitle := ts.Name()
-			if strings.EqualFold(trackerTitle, "github") {
-				trackerTitle = "GitHub"
-			}
-			return nil, fmt.Errorf("%s issue creation failed: %v", trackerTitle, err)
+			return nil, fmt.Errorf("%s issue creation failed: %w", trackerDisplayName(ts.Name()), err)
 		}
 		if created != nil {
 			id = ts.FormatTaskID(projID, created.Key, created.ID)
@@ -2589,7 +2611,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			local = false
 			extURL = created.ExternalURL
 		} else {
-			return nil, fmt.Errorf("%s issue creation failed: empty response", ts.Name())
+			return nil, fmt.Errorf("%s issue creation failed: empty response", trackerDisplayName(ts.Name()))
 		}
 	}
 
@@ -2691,7 +2713,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 }
 
 // CloneTask creates a duplicate/clone of an existing task with customized or preserved parameters.
-func (d *DB) CloneTask(taskID string, req models.CloneTaskRequest) (*models.Task, error) {
+func (d *DB) CloneTask(ctx context.Context, taskID string, req models.CloneTaskRequest) (*models.Task, error) {
 	d.mu.RLock()
 	src, err := d.getTaskByIDUnsafe(taskID)
 	d.mu.RUnlock()
@@ -2786,7 +2808,7 @@ func (d *DB) CloneTask(taskID string, req models.CloneTaskRequest) (*models.Task
 		ParentType:     parentType,
 	}
 
-	return d.CreateTask(createReq)
+	return d.CreateTaskAs(ctx, createReq)
 }
 
 // UpdateTask edits a work item with no acting user, for callers who have none.
@@ -3268,7 +3290,9 @@ func (d *DB) getSettingsUnsafe() (*models.Settings, error) {
 	return &s, nil
 }
 
-func (d *DB) MoveTask(id string, newStatus models.Status, newPosition int) (*models.Task, error) {
+// MoveTaskBy moves a card on the board on behalf of whoever dropped it: the
+// status and labels it queues for the tracker go out under their credential.
+func (d *DB) MoveTaskBy(actor Actor, id string, newStatus models.Status, newPosition int) (*models.Task, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -3328,7 +3352,7 @@ func (d *DB) MoveTask(id string, newStatus models.Status, newPosition int) (*mod
 
 	// Enqueue async CLI tracker sync in task activities queue
 	// Déplacement d'étape : seuls le statut et les labels bougent.
-	d.enqueueTrackerUpdateUnsafe(existing, &newStatus, existing.Labels, removedLabels, TrackerFieldChanges{})
+	d.enqueueTrackerUpdateAsUnsafe(actor.ID, existing, &newStatus, existing.Labels, removedLabels, TrackerFieldChanges{})
 
 	acts, _ := d.getTaskActivitiesUnsafe(existing.ID)
 	existing.Activities = acts
@@ -4436,7 +4460,11 @@ func (d *DB) afterTrackerSync(ctx context.Context, proj *models.Project, ts trac
 
 func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.Settings) {
 	// The context carries no acting user: every call of a synchronisation
-	// authenticates with the server credential of its provider (#464).
+	// authenticates with the server credential of its provider (#464), and is
+	// marked as work nobody asked for, so a write it makes on its own is not
+	// mistaken for one that lost its author (#482). A sync a person asked for
+	// is unattended too: the activity records who asked, not whose credential.
+	ctx = tracker.WithUnattended(ctx)
 	var steps []string
 	var summary string
 	var outputLines []string
@@ -4643,22 +4671,19 @@ var skillStageLabel = map[string]string{
 	"handoff":   "finished",
 }
 
-// enqueueTrackerUpdateUnsafe schedules the tracker sync. changed says which
-// editable fields the caller actually touched; anything else is left alone on
-// the tracker side.
+// TrackerFieldChanges says which editable fields the caller of a tracker sync
+// actually touched; anything else is left alone on the tracker side.
 type TrackerFieldChanges struct {
 	Title       bool
 	Description bool
 	Priority    bool
 }
 
-func (d *DB) enqueueTrackerUpdateUnsafe(task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
-	d.enqueueTrackerUpdateAsUnsafe("", task, status, labels, removedLabels, changed)
-}
-
-// enqueueTrackerUpdateAsUnsafe queues the same write on behalf of whoever asked
-// for it. A tracker whose credential belongs to a person can then resolve
-// theirs when the worker picks the job up, long after the request ended.
+// enqueueTrackerUpdateAsUnsafe schedules the tracker sync on behalf of whoever
+// asked for it, so the worker resolves their credential long after the request
+// ended.
+// There is no variant without an actor: every such write is somebody's, and one
+// that names nobody is refused by the tracker client (#482).
 func (d *DB) enqueueTrackerUpdateAsUnsafe(actorID string, task *models.Task, status *models.Status, labels []string, removedLabels []string, changed TrackerFieldChanges) {
 	if task == nil {
 		return
@@ -5686,12 +5711,6 @@ func (d *DB) ClearCompletedActivities() (int, error) {
 	return int(affected), nil
 }
 
-// AddTaskComment posts to the tracker with no acting user, for callers who
-// have none.
-func (d *DB) AddTaskComment(taskID string, body string) error {
-	return d.AddTaskCommentAs(context.Background(), taskID, body)
-}
-
 // AddTaskCommentAs posts on behalf of whoever the context names. On a tracker
 // that attributes a comment to the account behind the token, this is what puts
 // the person's own name on what they wrote.
@@ -5719,7 +5738,10 @@ func (d *DB) AddTaskCommentAs(ctx context.Context, taskID string, body string) e
 	})
 }
 
-func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, error) {
+// ConvertTaskToRemote creates the task's issue on the tracker on behalf of
+// whoever the context names, under their own credential. A refused creation
+// leaves the task local.
+func (d *DB) ConvertTaskToRemote(ctx context.Context, taskID string, target string) (*models.Task, error) {
 	d.mu.RLock()
 	task, err := d.getTaskByIDUnsafe(taskID)
 	settings, _ := d.getSettingsUnsafe()
@@ -5789,7 +5811,7 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 		d.mu.Unlock()
 	}
 
-	created, err := ts.CreateIssue(context.Background(), tracker.CreateIssueRequest{
+	created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
 		Project:     proj,
 		Title:       task.Title,
 		Description: task.Description,
@@ -5845,7 +5867,7 @@ func (d *DB) ConvertTaskToRemote(taskID string, target string) (*models.Task, er
 	}
 
 	// Creation is confirmed; synchronize its state through the observable queue.
-	d.enqueueTrackerUpdateUnsafe(task, &task.Status, task.Labels, nil, TrackerFieldChanges{})
+	d.enqueueTrackerUpdateAsUnsafe(tracker.ActingUser(ctx), task, &task.Status, task.Labels, nil, TrackerFieldChanges{})
 
 	outputMsg := fmt.Sprintf("Tâche locale convertie vers %s.\nClé distante : %s", strings.ToUpper(target), task.Key)
 	if extURL != nil {

@@ -115,7 +115,7 @@ func TestSameTrackerInstanceFixtures(t *testing.T) {
 
 func TestStoryWithoutTargetLandsInTheMacroProjectUnderItsEpic(t *testing.T) {
 	database, fake, macroProject, line := jiraStoryDB(t, func(_, _ *models.Project) string { return "" })
-	_, story, notice, err := database.CreateStoryFromMacroTodo(macroProject.ID, "PE-100", line)
+	_, story, notice, err := database.CreateStoryFromMacroTodo(context.Background(), macroProject.ID, "PE-100", line)
 	key := storyKeyOf(story)
 	if err != nil || notice != "" {
 		t.Fatalf("create: %q %q %v", key, notice, err)
@@ -130,7 +130,7 @@ func TestStoryWithoutTargetLandsInTheMacroProjectUnderItsEpic(t *testing.T) {
 
 func TestStoryLandsInATargetOfTheSameSite(t *testing.T) {
 	database, fake, macroProject, line := jiraStoryDB(t, func(sameSite, _ *models.Project) string { return sameSite.ID })
-	meta, story, _, err := database.CreateStoryFromMacroTodo(macroProject.ID, "PE-100", line)
+	meta, story, _, err := database.CreateStoryFromMacroTodo(context.Background(), macroProject.ID, "PE-100", line)
 	key := storyKeyOf(story)
 	if err != nil {
 		t.Fatalf("create: %v", err)
@@ -145,7 +145,7 @@ func TestStoryLandsInATargetOfTheSameSite(t *testing.T) {
 
 func TestTargetOnAnotherSiteIsRefusedBeforeAnyWrite(t *testing.T) {
 	database, fake, macroProject, line := jiraStoryDB(t, func(_, otherSite *models.Project) string { return otherSite.ID })
-	_, _, _, err := database.CreateStoryFromMacroTodo(macroProject.ID, "PE-100", line)
+	_, _, _, err := database.CreateStoryFromMacroTodo(context.Background(), macroProject.ID, "PE-100", line)
 	if err == nil || !strings.Contains(err.Error(), "Elsewhere") || !strings.Contains(err.Error(), "instance Jira") {
 		t.Fatalf("the refusal must name the target and the reason, got %v", err)
 	}
@@ -160,7 +160,7 @@ func TestTargetOnAnotherSiteIsRefusedBeforeAnyWrite(t *testing.T) {
 
 func TestMissingTargetIsRefused(t *testing.T) {
 	database, fake, macroProject, line := jiraStoryDB(t, func(_, _ *models.Project) string { return "gone-project" })
-	_, _, _, err := database.CreateStoryFromMacroTodo(macroProject.ID, "PE-100", line)
+	_, _, _, err := database.CreateStoryFromMacroTodo(context.Background(), macroProject.ID, "PE-100", line)
 	if err == nil || !strings.Contains(err.Error(), "gone-project") || len(fake.created) != 0 {
 		t.Fatalf("a missing target must be refused by name, got %v, created %v", err, fake.created)
 	}
@@ -169,7 +169,7 @@ func TestMissingTargetIsRefused(t *testing.T) {
 func TestARefusedParentKeepsTheStory(t *testing.T) {
 	database, fake, macroProject, line := jiraStoryDB(t, func(_, _ *models.Project) string { return "" })
 	fake.parentErr = errors.New("403 no permission to edit parent")
-	meta, story, notice, err := database.CreateStoryFromMacroTodo(macroProject.ID, "PE-100", line)
+	meta, story, notice, err := database.CreateStoryFromMacroTodo(context.Background(), macroProject.ID, "PE-100", line)
 	key := storyKeyOf(story)
 	if err != nil {
 		t.Fatalf("the story exists, the call must not fail: %v", err)
@@ -193,7 +193,7 @@ func TestLocalStoryIsParentedLocallyOnly(t *testing.T) {
 	if _, err := database.SaveMacroMeta(project.ID, "M-1", nil, nil, nil, &todos); err != nil {
 		t.Fatal(err)
 	}
-	_, story, notice, err := database.CreateStoryFromMacroTodo(project.ID, "M-1", "line")
+	_, story, notice, err := database.CreateStoryFromMacroTodo(context.Background(), project.ID, "M-1", "line")
 	key := storyKeyOf(story)
 	if err != nil || notice != "" || key == "" {
 		t.Fatalf("local story: %q %q %v", key, notice, err)
