@@ -672,6 +672,9 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	delete(settings.CommandsAutonomous, id)
 	delete(settings.AIProviders, id)
 	delete(settings.AIModels, id)
+	// The specifications folder goes with the project: a project added again
+	// starts from the inherited value, not from a folder chosen before.
+	delete(settings.SpecRepos, id)
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
