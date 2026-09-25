@@ -12,6 +12,7 @@ import (
 
 	"tasks/internal/models"
 	"tasks/internal/tracker"
+	"tasks/internal/trackerapi"
 )
 
 // Les macros ne sont pas des cartes simples : le tracker les traite comme des
@@ -183,8 +184,16 @@ func parseEpicTodos(raw string) []models.EpicTodo {
 }
 
 // SaveMacroMeta upserts a macro's horizon, description and todos checklist.
+// SaveMacroMeta records what Sectile alone owns on a macro: its horizon,
+// description, framing and slicing. It writes nothing to the tracker; an edit a
+// person makes goes through UpdateMacro, which carries their credential.
 func (d *DB) SaveMacroMeta(projectID string, key string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo) (*models.MacroMeta, error) {
-	return d.UpdateMacro(projectID, key, nil, horizon, description, framingComment, todos, nil)
+	projectID = strings.TrimSpace(projectID)
+	key = strings.TrimSpace(key)
+	if projectID == "" || key == "" {
+		return nil, fmt.Errorf("projet et clé de macro obligatoires")
+	}
+	return d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, nil, nil, nil)
 }
 
 func (d *DB) SaveEpicMeta(projectID string, key string, horizon *string, description *string, todos *[]models.EpicTodo) (*models.EpicMeta, error) {
@@ -192,15 +201,23 @@ func (d *DB) SaveEpicMeta(projectID string, key string, horizon *string, descrip
 }
 
 // UpdateMacro updates macro metadata (title, horizon, description, framingComment, todos, closed) locally and in GitHub milestone if applicable.
-func (d *DB) UpdateMacro(projectID string, key string, title *string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, closed *bool) (*models.MacroMeta, error) {
+//
+// The milestone is written as whoever the context names. A write the tracker
+// client refuses for want of their credential keeps the local edit, as any
+// failed milestone write does, and is returned with the saved macro so the
+// person learns that GitHub was not updated (#482).
+func (d *DB) UpdateMacro(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, closed *bool) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
 		return nil, fmt.Errorf("projet et clé de macro obligatoires")
 	}
 
+	var refused error
 	proj, _ := d.GetProjectByID(projectID)
-	if proj != nil && (proj.IssueTracker == "github" || proj.GithubRepo != "") {
+	// Only what the milestone carries travels: the horizon, the framing and the
+	// slicing are Sectile's own.
+	if proj != nil && (proj.IssueTracker == "github" || proj.GithubRepo != "") && (title != nil || description != nil || closed != nil) {
 		var num int
 		if strings.HasPrefix(strings.ToUpper(key), "M-") {
 			_, _ = fmt.Sscanf(strings.ToUpper(key), "M-%d", &num)
@@ -222,7 +239,11 @@ func (d *DB) UpdateMacro(projectID string, key string, title *string, horizon *s
 			if description != nil {
 				newDesc = *description
 			}
-			_ = d.tracker(proj.ID).UpdateGithubMilestone(proj.GithubRepo, proj.RepoPath, num, newTitle, newDesc, state)
+			if client, err := d.trackerForWrite(ctx, "github", proj.ID); err != nil {
+				refused = err
+			} else {
+				_ = client.UpdateGithubMilestone(proj.GithubRepo, proj.RepoPath, num, newTitle, newDesc, state)
+			}
 		}
 	}
 
@@ -234,11 +255,15 @@ func (d *DB) UpdateMacro(projectID string, key string, title *string, horizon *s
 		d.mu.Unlock()
 	}
 
-	return d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, title, nil, closed)
+	saved, err := d.saveMacroMetaFull(projectID, key, horizon, description, framingComment, todos, title, nil, closed)
+	if err == nil && refused != nil {
+		return saved, fmt.Errorf("milestone GitHub de %s non mis à jour, modification gardée en local : %w", key, refused)
+	}
+	return saved, err
 }
 
-func (d *DB) UpdateEpic(projectID string, key string, title *string, horizon *string, description *string, todos *[]models.EpicTodo, closed *bool) (*models.EpicMeta, error) {
-	return d.UpdateMacro(projectID, key, title, horizon, description, nil, todos, closed)
+func (d *DB) UpdateEpic(ctx context.Context, projectID string, key string, title *string, horizon *string, description *string, todos *[]models.EpicTodo, closed *bool) (*models.EpicMeta, error) {
+	return d.UpdateMacro(ctx, projectID, key, title, horizon, description, nil, todos, closed)
 }
 
 func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, description *string, framingComment *string, todos *[]models.MacroTodo, title *string, status *string, closed *bool) (*models.MacroMeta, error) {
@@ -356,7 +381,9 @@ func (d *DB) saveEpicMetaFull(projectID string, key string, horizon *string, des
 // CreateStoryFromMacroTodo turns a line of macro shaping into a real story in the tracker
 // and returns the macro metadata with the story it created, and a notice saying
 // what the tracker refused (the Jira parent) when the story exists anyway.
-func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID string) (*models.MacroMeta, *models.Task, string, error) {
+//
+// The story and its parent are written as whoever the context names.
+func (d *DB) CreateStoryFromMacroTodo(ctx context.Context, projectID string, macroKey string, todoID string) (*models.MacroMeta, *models.Task, string, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	todoID = strings.TrimSpace(todoID)
@@ -417,7 +444,7 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 		}
 	}
 
-	task, notice, err := d.createStoryUnder(proj, target, macroKey, todo.Text)
+	task, notice, err := d.createStoryUnder(ctx, proj, target, macroKey, todo.Text)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("erreur création de story: %w", err)
 	}
@@ -430,8 +457,8 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 	return saved, task, notice, nil
 }
 
-func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID string) (*models.EpicMeta, *models.Task, string, error) {
-	return d.CreateStoryFromMacroTodo(projectID, epicKey, todoID)
+func (d *DB) CreateStoryFromEpicTodo(ctx context.Context, projectID string, epicKey string, todoID string) (*models.EpicMeta, *models.Task, string, error) {
+	return d.CreateStoryFromMacroTodo(ctx, projectID, epicKey, todoID)
 }
 
 // SetTaskMacro queues the attachment of a ticket to a macro.
@@ -458,8 +485,11 @@ func (d *DB) SetTaskEpic(ctx context.Context, taskIDOrKey string, epicKey string
 	return d.SetTaskMacro(ctx, taskIDOrKey, epicKey)
 }
 
-// applyTaskMacro performs the attachment of a task to a macro (milestone).
-func (d *DB) applyTaskMacro(taskIDOrKey string, macroKey string, steps *[]string) (*models.Task, error) {
+// applyTaskMacro performs the attachment of a task to a macro (milestone), as
+// whoever the context names. A milestone write refused for want of their
+// credential keeps the local attachment and is returned with the task, so the
+// queued activity ends in failure rather than claiming GitHub was updated.
+func (d *DB) applyTaskMacro(ctx context.Context, taskIDOrKey string, macroKey string, steps *[]string) (*models.Task, error) {
 	task, err := d.GetTaskByID(taskIDOrKey)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("tâche introuvable")
@@ -491,7 +521,12 @@ func (d *DB) applyTaskMacro(taskIDOrKey string, macroKey string, steps *[]string
 					milestoneTarget = cleanMacroKey
 				}
 			}
-			if err := d.tracker(proj.ID).SetGithubIssueMilestone(proj.GithubRepo, proj.RepoPath, issueNum, milestoneTarget); err != nil {
+			client, refused := d.trackerForWrite(ctx, "github", proj.ID)
+			if refused != nil {
+				*steps = append(*steps, fmt.Sprintf("⚠️ Synchro milestone GitHub échouée pour %s: %v, gardé en local", task.Key, refused))
+				return task, refused
+			}
+			if err := client.SetGithubIssueMilestone(proj.GithubRepo, proj.RepoPath, issueNum, milestoneTarget); err != nil {
 				*steps = append(*steps, fmt.Sprintf("⚠️ Synchro milestone GitHub échouée pour %s: %v, gardé en local", task.Key, err))
 			} else {
 				if milestoneTarget == "" {
@@ -508,8 +543,8 @@ func (d *DB) applyTaskMacro(taskIDOrKey string, macroKey string, steps *[]string
 	return task, nil
 }
 
-func (d *DB) applyTaskEpic(taskIDOrKey string, epicKey string, steps *[]string) (*models.Task, error) {
-	return d.applyTaskMacro(taskIDOrKey, epicKey, steps)
+func (d *DB) applyTaskEpic(ctx context.Context, taskIDOrKey string, epicKey string, steps *[]string) (*models.Task, error) {
+	return d.applyTaskMacro(ctx, taskIDOrKey, epicKey, steps)
 }
 
 // writeTaskParentLocally mirrors the attachment in the local database.
@@ -529,13 +564,14 @@ func (d *DB) writeTaskParentLocally(task *models.Task, macroKey string) error {
 }
 
 // CreateStoryUnderMacro creates a story in the macro's own project, attached
-// under the macro. The notice says what could not be written on the tracker.
-func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title string) (*models.Task, string, error) {
+// under the macro, as whoever the context names. The notice says what could not
+// be written on the tracker.
+func (d *DB) CreateStoryUnderMacro(ctx context.Context, projectID string, macroKey string, title string) (*models.Task, string, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
 		return nil, "", fmt.Errorf("projet non trouvé")
 	}
-	return d.createStoryUnder(proj, proj, macroKey, title)
+	return d.createStoryUnder(ctx, proj, proj, macroKey, title)
 }
 
 // createStoryUnder creates a story in target, attached under a macro of
@@ -543,7 +579,7 @@ func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title stri
 // instance. The parent is written on the tracker where the tracker has one: a
 // GitHub milestone, a Jira epic. A parent the tracker refuses does not undo the
 // story, which exists by then: the notice says it was kept locally only.
-func (d *DB) createStoryUnder(macroProject, target *models.Project, macroKey string, title string) (*models.Task, string, error) {
+func (d *DB) createStoryUnder(ctx context.Context, macroProject, target *models.Project, macroKey string, title string) (*models.Task, string, error) {
 	parentTitle := ""
 	d.mu.RLock()
 	_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", macroProject.ID, macroKey).Scan(&parentTitle)
@@ -552,7 +588,7 @@ func (d *DB) createStoryUnder(macroProject, target *models.Project, macroKey str
 		parentTitle = macroKey
 	}
 
-	task, err := d.CreateTask(models.CreateTaskRequest{
+	task, err := d.CreateTaskAs(ctx, models.CreateTaskRequest{
 		ProjectID: target.ID,
 		Title:     title,
 		Priority:  models.PriorityMedium,
@@ -572,25 +608,35 @@ func (d *DB) createStoryUnder(macroProject, target *models.Project, macroKey str
 		var issueNum int
 		_, _ = fmt.Sscanf(strings.TrimPrefix(task.Key, "#"), "%d", &issueNum)
 		if issueNum > 0 {
-			_ = d.tracker(target.ID).SetGithubIssueMilestone(target.GithubRepo, target.RepoPath, issueNum, parentTitle)
+			client, err := d.trackerForWrite(ctx, "github", target.ID)
+			if err == nil {
+				err = client.SetGithubIssueMilestone(target.GithubRepo, target.RepoPath, issueNum, parentTitle)
+			}
+			if err != nil {
+				notice = fmt.Sprintf("milestone %s non posé sur GitHub : %v ; rattachement gardé en local", macroKey, err)
+			}
 		}
 	case task.Source == "jira":
 		// The epic parents the story on Jira itself, not only on the board.
 		if ts, tsErr := d.TrackerForProject(target); tsErr != nil {
 			notice = fmt.Sprintf("épic %s non posé comme parent sur Jira : %v ; rattachement gardé en local", macroKey, tsErr)
-		} else if setErr := ts.SetParent(tracker.WithProject(context.Background(), target.ID), task.Key, macroKey); setErr != nil {
+		} else if setErr := ts.SetParent(tracker.WithProject(ctx, target.ID), task.Key, macroKey); setErr != nil {
 			notice = fmt.Sprintf("épic %s non posé comme parent sur Jira : %v ; rattachement gardé en local", macroKey, setErr)
 		}
 	}
 	return task, notice, nil
 }
 
-func (d *DB) CreateStoryUnderEpic(projectID string, epicKey string, title string) (*models.Task, string, error) {
-	return d.CreateStoryUnderMacro(projectID, epicKey, title)
+func (d *DB) CreateStoryUnderEpic(ctx context.Context, projectID string, epicKey string, title string) (*models.Task, string, error) {
+	return d.CreateStoryUnderMacro(ctx, projectID, epicKey, title)
 }
 
 // CreateMacro creates the macro in the tracker (e.g. GitHub milestone) and records it locally.
-func (d *DB) CreateMacro(projectID string, title string, horizon string, fields map[string]string) (*models.MacroMeta, error) {
+//
+// The milestone is created as whoever the context names. When the tracker
+// client refuses it for want of their credential, the macro is recorded locally
+// as on any failed creation, and the refusal is returned with it (#482).
+func (d *DB) CreateMacro(ctx context.Context, projectID string, title string, horizon string, fields map[string]string) (*models.MacroMeta, error) {
 	projectID = strings.TrimSpace(projectID)
 	title = strings.TrimSpace(title)
 	if projectID == "" || title == "" {
@@ -603,9 +649,11 @@ func (d *DB) CreateMacro(projectID string, title string, horizon string, fields 
 	}
 
 	key := ""
+	var refused error
 	if (proj.IssueTracker == "github" || proj.GithubRepo != "") && proj.GithubRepo != "" {
-		num, err := d.tracker(proj.ID).CreateGithubMilestone(proj.GithubRepo, proj.RepoPath, title, "")
-		if err == nil && num > 0 {
+		if client, err := d.trackerForWrite(ctx, "github", proj.ID); err != nil {
+			refused = err
+		} else if num, err := client.CreateGithubMilestone(proj.GithubRepo, proj.RepoPath, title, ""); err == nil && num > 0 {
 			key = fmt.Sprintf("M-%d", num)
 		}
 	}
@@ -627,21 +675,30 @@ func (d *DB) CreateMacro(projectID string, title string, horizon string, fields 
 	if h == "" {
 		h = HorizonNow
 	}
-	return d.saveMacroMetaFull(projectID, key, &h, nil, nil, nil, &title, &status, &closed)
+	created, err := d.saveMacroMetaFull(projectID, key, &h, nil, nil, nil, &title, &status, &closed)
+	if err == nil && refused != nil {
+		return created, fmt.Errorf("milestone GitHub non créé, macro %s gardée en local : %w", key, refused)
+	}
+	return created, err
 }
 
-func (d *DB) CreateEpic(projectID string, title string, horizon string, fields map[string]string) (*models.EpicMeta, error) {
-	return d.CreateMacro(projectID, title, horizon, fields)
+func (d *DB) CreateEpic(ctx context.Context, projectID string, title string, horizon string, fields map[string]string) (*models.EpicMeta, error) {
+	return d.CreateMacro(ctx, projectID, title, horizon, fields)
 }
 
 // DeleteMacro deletes a macro (and its GitHub milestone if applicable) and detaches its child tasks.
-func (d *DB) DeleteMacro(projectID string, key string) error {
+//
+// The milestone is deleted as whoever the context names. A deletion the tracker
+// client refuses for want of their credential still deletes the macro locally,
+// as any failed milestone deletion does, and the refusal is returned (#482).
+func (d *DB) DeleteMacro(ctx context.Context, projectID string, key string) error {
 	projectID = strings.TrimSpace(projectID)
 	key = strings.TrimSpace(key)
 	if projectID == "" || key == "" {
 		return fmt.Errorf("projet et clé de macro obligatoires")
 	}
 
+	var refused error
 	proj, _ := d.GetProjectByID(projectID)
 	if proj != nil && (proj.IssueTracker == "github" || proj.GithubRepo != "") {
 		var num int
@@ -649,7 +706,11 @@ func (d *DB) DeleteMacro(projectID string, key string) error {
 			_, _ = fmt.Sscanf(strings.ToUpper(key), "M-%d", &num)
 		}
 		if num > 0 {
-			_ = d.tracker(proj.ID).DeleteGithubMilestone(proj.GithubRepo, proj.RepoPath, num)
+			if client, err := d.trackerForWrite(ctx, "github", proj.ID); err != nil {
+				refused = err
+			} else {
+				_ = client.DeleteGithubMilestone(proj.GithubRepo, proj.RepoPath, num)
+			}
 		}
 	}
 
@@ -658,11 +719,14 @@ func (d *DB) DeleteMacro(projectID string, key string) error {
 	_, err := d.conn.Exec("DELETE FROM macros WHERE project_id = ? AND key = ?", projectID, key)
 	_, _ = d.conn.Exec("UPDATE tasks SET parent_key = '', parent_title = '' WHERE project_id = ? AND (parent_key = ? OR parent_title = ?)", projectID, key, key)
 	d.mu.Unlock()
+	if err == nil && refused != nil {
+		return fmt.Errorf("macro %s supprimée en local, milestone GitHub non supprimé : %w", key, refused)
+	}
 	return err
 }
 
-func (d *DB) DeleteEpic(projectID string, key string) error {
-	return d.DeleteMacro(projectID, key)
+func (d *DB) DeleteEpic(ctx context.Context, projectID string, key string) error {
+	return d.DeleteMacro(ctx, projectID, key)
 }
 
 // MoveTasksToMacro queues moving a batch of tickets to a macro.
@@ -758,7 +822,10 @@ func IsProjectCompatible(p1, p2 *models.Project) bool {
 }
 
 // MigrateMacro moves a macro and optionally its attached tasks from one project to another compatible project.
-func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProjectID string, migrateTasks bool) (*models.MacroMeta, int, error) {
+// MigrateMacro moves a macro, and optionally its tasks, to another compatible
+// project. Its GitHub writes are made as whoever the context names; a refusal
+// for want of their credential stops the migration before anything moves.
+func (d *DB) MigrateMacro(ctx context.Context, sourceProjectID string, macroKey string, targetProjectID string, migrateTasks bool) (*models.MacroMeta, int, error) {
 	sourceProjectID = strings.TrimSpace(sourceProjectID)
 	macroKey = strings.TrimSpace(macroKey)
 	targetProjectID = strings.TrimSpace(targetProjectID)
@@ -781,6 +848,22 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 
 	if !IsProjectCompatible(sourceProj, targetProj) {
 		return nil, 0, fmt.Errorf("les projets %s et %s ne sont pas compatibles (trackers différents)", sourceProj.Name, targetProj.Name)
+	}
+
+	// The credentials are resolved before anything moves: a migration half
+	// done because the person has no GitHub token would leave the macro in one
+	// project and its milestone in none.
+	targetIsGithub := targetProj.IssueTracker == "github" || targetProj.GithubRepo != ""
+	var targetWriter, sourceWriter *trackerapi.Client
+	if targetIsGithub {
+		if targetWriter, err = d.trackerForWrite(ctx, "github", targetProj.ID); err != nil {
+			return nil, 0, err
+		}
+	}
+	if migrateTasks && githubTransferBetween(sourceProj, targetProj) {
+		if sourceWriter, err = d.trackerForWrite(ctx, "github", sourceProj.ID); err != nil {
+			return nil, 0, err
+		}
 	}
 
 	d.mu.Lock()
@@ -812,7 +895,7 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 	targetMacroKey := macroKey
 
 	// 2. Handle GitHub milestones migration if target is GitHub
-	if targetProj.IssueTracker == "github" || targetProj.GithubRepo != "" {
+	if targetIsGithub {
 		targetMilestones, _ := d.tracker(targetProj.ID).ListGithubMilestones(targetProj.GithubRepo, targetProj.RepoPath)
 		var existingNum int
 		for _, m := range targetMilestones {
@@ -824,7 +907,7 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 		if existingNum > 0 {
 			targetMacroKey = fmt.Sprintf("M-%d", existingNum)
 		} else {
-			newNum, createErr := d.tracker(targetProj.ID).CreateGithubMilestone(targetProj.GithubRepo, targetProj.RepoPath, title, description)
+			newNum, createErr := targetWriter.CreateGithubMilestone(targetProj.GithubRepo, targetProj.RepoPath, title, description)
 			if createErr == nil && newNum > 0 {
 				targetMacroKey = fmt.Sprintf("M-%d", newNum)
 			}
@@ -905,22 +988,18 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 				newKey := t.key
 				newExternalUrl := t.externalUrl.String
 
-				if (sourceProj.IssueTracker == "github" || sourceProj.GithubRepo != "") &&
-					(targetProj.IssueTracker == "github" || targetProj.GithubRepo != "") &&
-					sourceProj.GithubRepo != "" && targetProj.GithubRepo != "" &&
-					sourceProj.GithubRepo != targetProj.GithubRepo {
-
+				if sourceWriter != nil {
 					var issueNum int
 					_, _ = fmt.Sscanf(strings.TrimPrefix(t.key, "#"), "%d", &issueNum)
 					if issueNum > 0 {
-						num, u, transferErr := d.tracker(sourceProj.ID).TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
+						num, u, transferErr := sourceWriter.TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
 						if transferErr == nil && num > 0 {
 							newKey = fmt.Sprintf("#%d", num)
 							newID = fmt.Sprintf("gh-%s-%d", targetProjectID, num)
 							if u != "" {
 								newExternalUrl = u
 							}
-							_ = d.tracker(targetProj.ID).SetGithubIssueMilestone(targetProj.GithubRepo, targetProj.RepoPath, num, title)
+							_ = targetWriter.SetGithubIssueMilestone(targetProj.GithubRepo, targetProj.RepoPath, num, title)
 						}
 					}
 				}
@@ -958,12 +1037,26 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 	return res, migratedTasksCount, nil
 }
 
-func (d *DB) MigrateEpic(sourceProjectID string, epicKey string, targetProjectID string, migrateTasks bool) (*models.EpicMeta, int, error) {
-	return d.MigrateMacro(sourceProjectID, epicKey, targetProjectID, migrateTasks)
+func (d *DB) MigrateEpic(ctx context.Context, sourceProjectID string, epicKey string, targetProjectID string, migrateTasks bool) (*models.EpicMeta, int, error) {
+	return d.MigrateMacro(ctx, sourceProjectID, epicKey, targetProjectID, migrateTasks)
+}
+
+// githubTransferBetween reports whether moving a task between the two projects
+// transfers its GitHub issue from one repository to the other.
+func githubTransferBetween(source, target *models.Project) bool {
+	return source != nil && target != nil &&
+		(source.IssueTracker == "github" || source.GithubRepo != "") &&
+		(target.IssueTracker == "github" || target.GithubRepo != "") &&
+		source.GithubRepo != "" && target.GithubRepo != "" &&
+		source.GithubRepo != target.GithubRepo
 }
 
 // MigrateTasks moves a slice of tasks from their current project to another compatible project.
-func (d *DB) MigrateTasks(taskIDs []string, targetProjectID string) (int, error) {
+//
+// An issue transfer is made as whoever the context names. A refusal for want of
+// their credential stops the migration before that task moves, and returns how
+// many had moved by then.
+func (d *DB) MigrateTasks(ctx context.Context, taskIDs []string, targetProjectID string) (int, error) {
 	targetProjectID = strings.TrimSpace(targetProjectID)
 	if targetProjectID == "" {
 		return 0, fmt.Errorf("projet cible obligatoire")
@@ -1001,16 +1094,19 @@ func (d *DB) MigrateTasks(taskIDs []string, targetProjectID string) (int, error)
 		newParentKey := task.ParentKey
 		newParentTitle := task.ParentTitle
 
-		if sourceProj != nil &&
-			(sourceProj.IssueTracker == "github" || sourceProj.GithubRepo != "") &&
-			(targetProj.IssueTracker == "github" || targetProj.GithubRepo != "") &&
-			sourceProj.GithubRepo != "" && targetProj.GithubRepo != "" &&
-			sourceProj.GithubRepo != targetProj.GithubRepo {
-
+		if githubTransferBetween(sourceProj, targetProj) {
 			var issueNum int
 			_, _ = fmt.Sscanf(strings.TrimPrefix(task.Key, "#"), "%d", &issueNum)
 			if issueNum > 0 {
-				num, u, transferErr := d.tracker(sourceProj.ID).TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
+				sourceWriter, err := d.trackerForWrite(ctx, "github", sourceProj.ID)
+				if err != nil {
+					return migratedCount, err
+				}
+				targetWriter, err := d.trackerForWrite(ctx, "github", targetProj.ID)
+				if err != nil {
+					return migratedCount, err
+				}
+				num, u, transferErr := sourceWriter.TransferGithubIssue(sourceProj.GithubRepo, sourceProj.RepoPath, issueNum, targetProj.GithubRepo, targetProj.RepoPath)
 				if transferErr == nil && num > 0 {
 					newKey = fmt.Sprintf("#%d", num)
 					newID = fmt.Sprintf("gh-%s-%d", targetProjectID, num)
@@ -1023,7 +1119,7 @@ func (d *DB) MigrateTasks(taskIDs []string, targetProjectID string) (int, error)
 						for _, m := range targetMilestones {
 							if strings.EqualFold(strings.TrimSpace(m.Title), strings.TrimSpace(newParentTitle)) {
 								newParentKey = fmt.Sprintf("M-%d", m.Number)
-								_ = d.tracker(targetProj.ID).SetGithubIssueMilestone(targetProj.GithubRepo, targetProj.RepoPath, num, newParentTitle)
+								_ = targetWriter.SetGithubIssueMilestone(targetProj.GithubRepo, targetProj.RepoPath, num, newParentTitle)
 								break
 							}
 						}

@@ -261,7 +261,7 @@ func TestAnEditDuringAConversionKeepsBoth(t *testing.T) {
 	}
 	d.TrackerRegistry().Register("remote", fake)
 
-	if _, err := d.ConvertTaskToRemote("t2", "remote"); err != nil {
+	if _, err := d.ConvertTaskToRemote(context.Background(), "t2", "remote"); err != nil {
 		t.Fatalf("conversion: %v", err)
 	}
 	task, _ := d.GetTaskByID("t2")
@@ -281,13 +281,13 @@ func TestAStaleConversionClaimIsTakenOver(t *testing.T) {
 	if _, err := d.conn.Exec(`UPDATE tasks SET source = 'converting', updated_at = ? WHERE id = 't2'`, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ConvertTaskToRemote("t2", "remote"); err == nil {
+	if _, err := d.ConvertTaskToRemote(context.Background(), "t2", "remote"); err == nil {
 		t.Fatal("a conversion in progress must refuse a second one")
 	}
 	if _, err := d.conn.Exec(`UPDATE tasks SET updated_at = ? WHERE id = 't2'`, time.Now().Add(-convertClaimExpiry-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := d.ConvertTaskToRemote("t2", "remote"); err != nil {
+	if _, err := d.ConvertTaskToRemote(context.Background(), "t2", "remote"); err != nil {
 		t.Fatalf("a stale claim was not taken over: %v", err)
 	}
 }

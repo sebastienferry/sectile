@@ -92,5 +92,5 @@ func writeSprintError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	writeError(w, http.StatusBadRequest, err.Error())
+	writeTrackerError(w, http.StatusBadRequest, err)
 }

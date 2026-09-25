@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,7 +85,7 @@ func TestMigrateMacroAndTasks(t *testing.T) {
 	}
 
 	// Migrate macro and attached tasks from p1 to p2
-	migratedMacro, taskCount, err := database.MigrateMacro(p1.ID, "M-1", p2.ID, true)
+	migratedMacro, taskCount, err := database.MigrateMacro(context.Background(), p1.ID, "M-1", p2.ID, true)
 	if err != nil {
 		t.Fatalf("MigrateMacro failed: %v", err)
 	}
@@ -142,7 +143,7 @@ func TestMigrateSingleTask(t *testing.T) {
 		t.Fatalf("Failed to create task: %v", err)
 	}
 
-	count, err := database.MigrateTasks([]string{task.ID}, p2.ID)
+	count, err := database.MigrateTasks(context.Background(), []string{task.ID}, p2.ID)
 	if err != nil {
 		t.Fatalf("MigrateTasks failed: %v", err)
 	}
@@ -397,7 +398,7 @@ func TestCreateStoryFromMacroTodoReturnsTheTask(t *testing.T) {
 		t.Fatalf("Failed to save macro: %v", err)
 	}
 
-	meta, task, _, err := database.CreateStoryFromMacroTodo(proj.ID, "M-40", "t1")
+	meta, task, _, err := database.CreateStoryFromMacroTodo(context.Background(), proj.ID, "M-40", "t1")
 	if err != nil {
 		t.Fatalf("CreateStoryFromMacroTodo: %v", err)
 	}

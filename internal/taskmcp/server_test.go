@@ -12,15 +12,51 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	sectiletracker "tasks/internal/tracker"
 )
 
-// call runs one tool against an in-process server and returns its structured result.
+// tester is the person behind the calls of call: a write tool refuses a caller
+// that names nobody (#482).
+var tester = Caller{UserID: "usr_tester", Name: "Tester"}
+
+// asTester stores a personal GitHub token for tester and returns a context
+// acting as them, for the tests whose writes reach a tracker.
+func asTester(t *testing.T, database *db.DB) context.Context {
+	t.Helper()
+	if err := database.EnsureUser(tester.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserTrackerCredential(tester.UserID, "github", "", "", "tester-token", ""); err != nil {
+		t.Fatal(err)
+	}
+	return sectiletracker.WithActingUser(context.Background(), tester.UserID)
+}
+
+// call runs one tool against an in-process server, as tester, and returns its
+// structured result.
 func call(t *testing.T, database *db.DB, name string, args map[string]any) (map[string]any, error) {
 	t.Helper()
+	return callAs(t, database, &tester, name, args)
+}
+
+// callAs runs one tool as caller, over HTTP: the caller is resolved from the
+// request headers, which an in-memory transport does not carry. A nil caller is
+// a request that names nobody.
+func callAs(t *testing.T, database *db.DB, caller *Caller, name string, args map[string]any) (map[string]any, error) {
+	t.Helper()
 	ctx := context.Background()
-	client, server := mcp.NewInMemoryTransports()
-	go func() { _ = NewServer(database, nil).Run(ctx, server) }()
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, client, nil)
+	resolve := func(http.Header) (Caller, bool) {
+		if caller == nil {
+			return Caller{}, false
+		}
+		return *caller, true
+	}
+	srv := httptest.NewServer(mcp.NewStreamableHTTPHandler(
+		func(*http.Request) *mcp.Server { return NewServerWithCallers(database, nil, resolve) },
+		&mcp.StreamableHTTPOptions{JSONResponse: true},
+	))
+	defer srv.Close()
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +122,7 @@ func TestTaskReadSurvivesUnreachableTracker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(models.CreateTaskRequest{Title: "Remote issue", ProjectID: project.ID})
+	task, err := database.CreateTaskAs(asTester(t, database), models.CreateTaskRequest{Title: "Remote issue", ProjectID: project.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,9 +211,11 @@ func TestProjectContextOmitsSkillBodies(t *testing.T) {
 // board: the whole point of the tool is that a human sees the result.
 func TestCreateTaskReachesTheTracker(t *testing.T) {
 	var created int
+	var signedBy string
 	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			created++
+			signedBy = r.Header.Get("Authorization")
 			w.WriteHeader(http.StatusCreated)
 			_, _ = w.Write([]byte(`{"number":42,"title":"Follow-up","state":"open","html_url":"https://github.com/acme/app/issues/42"}`))
 			return
@@ -197,6 +235,8 @@ func TestCreateTaskReachesTheTracker(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	asTester(t, database)
+
 	result, err := call(t, database, "create_task", map[string]any{
 		"projectId": project.ID, "title": "Follow-up", "description": "Left over from the handoff",
 		"issueType": "Task", "priority": "high", "labels": []any{"CustomerCase"},
@@ -210,6 +250,11 @@ func TestCreateTaskReachesTheTracker(t *testing.T) {
 	}
 	if created != 1 {
 		t.Fatalf("tracker issue not created exactly once: %d", created)
+	}
+	// The issue is created as the caller, exactly as from the web, never under
+	// the server account (#482).
+	if signedBy != "Bearer tester-token" {
+		t.Fatalf("the issue must be created with the caller's own token, got %q", signedBy)
 	}
 	if task["key"] != "#42" {
 		t.Fatalf("tracker key not carried back: %v", task["key"])
@@ -547,7 +592,13 @@ func TestUpdateTaskCallerAttributionAndTrackerSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	task, err := database.CreateTask(models.CreateTaskRequest{
+	if err := database.EnsureUser("usr_alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserTrackerCredential("usr_alice", "github", "", "", "alice-token", ""); err != nil {
+		t.Fatal(err)
+	}
+	task, err := database.CreateTaskAs(sectiletracker.WithActingUser(context.Background(), "usr_alice"), models.CreateTaskRequest{
 		ProjectID: project.ID,
 		Title:     "Remote task",
 	})
@@ -603,5 +654,78 @@ func TestUpdateTaskCallerAttributionAndTrackerSync(t *testing.T) {
 	}
 	if trackerUpdate.UserID != "usr_alice" {
 		t.Fatalf("expected tracker_update activity attributed to usr_alice, got %q", trackerUpdate.UserID)
+	}
+}
+
+// A caller Sectile cannot tie to a person writes nothing: every write tool is
+// refused before any change, while reads still answer (#482). The shared server
+// key is one such caller; a transport that names nobody is another.
+func TestWriteToolsRefuseACallerThatNamesNobody(t *testing.T) {
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "Untouched"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := &Caller{UserID: "default", Name: "Default", Anonymous: true}
+
+	for _, caller := range []*Caller{nil, shared} {
+		for name, args := range map[string]map[string]any{
+			"create_task":      {"projectId": "default", "title": "Anonymous"},
+			"update_task":      {"taskKey": task.ID, "title": "Anonymous"},
+			"add_comment":      {"taskKey": task.ID, "body": "Anonymous"},
+			"transition_stage": {"taskKey": task.ID, "stage": "clarified", "note": "Anonymous"},
+		} {
+			if _, err := callAs(t, database, caller, name, args); err == nil || !strings.Contains(err.Error(), "not tied to a user") {
+				t.Fatalf("%s by %+v must be refused by name, got %v", name, caller, err)
+			}
+		}
+		if _, err := callAs(t, database, caller, "get_task", map[string]any{"taskKey": task.ID}); err != nil {
+			t.Fatalf("a read must still answer %+v: %v", caller, err)
+		}
+	}
+	unchanged, err := database.GetTaskByID(task.ID)
+	if err != nil || unchanged.Title != "Untouched" || unchanged.Status != models.StatusToClarify {
+		t.Fatalf("a refused write changed the task: %+v %v", unchanged, err)
+	}
+	if tasks, _ := database.GetTasks("", "", "", "", "default", "", "", "", "", nil, nil, false); len(tasks) != 1 {
+		t.Fatalf("a refused creation filed a task: %d", len(tasks))
+	}
+}
+
+// A person without a GitHub token of their own creates nothing through an
+// agent session: the server token is not theirs to sign with (#482).
+func TestCreateTaskRefusesAPersonWithoutATrackerCredential(t *testing.T) {
+	requests := 0
+	tracker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"number":42,"title":"Follow-up","state":"open"}`))
+	}))
+	defer tracker.Close()
+	t.Setenv("SECTILE_GITHUB_API_URL", tracker.URL)
+	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Tracker backed", IssueTracker: "github", GithubRepo: "acme/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.EnsureUser(tester.UserID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = call(t, database, "create_task", map[string]any{"projectId": project.ID, "title": "Follow-up"})
+	if err == nil || !strings.Contains(err.Error(), "no personal GitHub token") || !strings.Contains(err.Error(), "Profile → Tracker credentials") {
+		t.Fatalf("the creation must be refused with the missing-credential message, got %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("a refused creation must reach nothing, GitHub received %d request(s)", requests)
 	}
 }

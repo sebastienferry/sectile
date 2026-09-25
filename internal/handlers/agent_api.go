@@ -243,7 +243,9 @@ func (h *Handler) mcpCaller(header http.Header) (taskmcp.Caller, bool) {
 		return taskmcp.Caller{}, false
 	}
 	p := h.principalFor(credential.UserID)
-	return taskmcp.Caller{UserID: p.UserID, Name: p.Name, Role: p.Role}, true
+	// A key paired to no device is the shared server key: it names the
+	// implicit account, not a person, so its tracker writes are refused.
+	return taskmcp.Caller{UserID: p.UserID, Name: p.Name, Role: p.Role, Anonymous: credential.Device == nil}, true
 }
 
 // HandleMCPSessions reports the clients currently connected to the MCP

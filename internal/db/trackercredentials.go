@@ -79,11 +79,17 @@ func overrideWith(target *string, override string) {
 // tracker returns the tracker client carrying the credentials of one project.
 func (d *DB) tracker(projectID string) *trackerapi.Client { return d.trackers.For(projectID) }
 
+// trackerForWrite is the client of a write made directly on the tracker client,
+// such as a GitHub milestone: the acting person's own credential, the server's
+// for unattended work, and a refusal otherwise (trackerapi.ForWrite, #482).
+func (d *DB) trackerForWrite(ctx context.Context, trackerName, projectID string) (*trackerapi.Client, error) {
+	return d.trackers.ForWrite(ctx, trackerName, projectID)
+}
+
 // trackerAs is tracker with the credentials of the person who asked for the
-// work substituted where they stored any. A tracker attributes a write to the
-// account behind the token, so an operation somebody asked for travels under
-// their own token rather than the server's. Unattended work names nobody and
-// keeps the project credential, which is why an empty user is not an error.
+// work substituted where they stored any. It is for reads only: it falls back
+// to the project credential when theirs cannot be resolved, which a read may do
+// and a write may not. Writes use trackerForWrite.
 func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client {
 	client, _, err := d.trackers.ForActingUser(userID, trackerName, projectID)
 	if err != nil || client == nil {
@@ -267,4 +273,12 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// isTrackerWriteRefusal reports a write the tracker client refused before
+// sending it: the acting person has no credential of their own for the
+// provider, or the write lost its author on the way (#482).
+func isTrackerWriteRefusal(err error) bool {
+	var missing *trackerapi.MissingPersonalCredentialError
+	return errors.As(err, &missing) || errors.Is(err, trackerapi.ErrNoActingUser)
 }
