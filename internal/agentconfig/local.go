@@ -17,25 +17,34 @@ type MCPConnection struct {
 	Target    string `json:"target"`
 }
 
-// Overrides stays on the workstation and is never uploaded to the server.
-type Overrides struct {
-	MCPConnections       map[string]MCPConnection `json:"mcpConnections,omitempty"`
-	DisconnectedProjects map[string]bool          `json:"disconnectedProjects,omitempty"`
-	Commands             map[string]string        `json:"commands,omitempty"`
-	// CommandsAutonomous is the headless counterpart of Commands, per project.
-	CommandsAutonomous map[string]string `json:"commandsAutonomous,omitempty"`
-	Parallelism        map[string]int    `json:"parallelism,omitempty"`
-	Worktrees          map[string]bool   `json:"worktrees,omitempty"`
-	Projects           map[string]string `json:"projects"`
-	// SpecRepos maps a project to its specifications folder on this
-	// workstation, a Git checkout or a plain folder. Only overrides are
-	// stored: without one, a mono-repo project uses its code checkout and a
-	// multi-repo project has none. The server holds no such path.
-	SpecRepos map[string]string `json:"specRepos,omitempty"`
+// Settings is the workstation's configuration, read from
+// ~/.config/sectile/settings.json and never uploaded to the server. Since #305
+// it is the only source of the execution settings: the workstation defaults,
+// one section per project, and what the server no longer holds.
+type Settings struct {
+	Layout          int                        `json:"layout,omitempty"`
+	Defaults        Defaults                   `json:"defaults"`
+	ProjectSettings map[string]ProjectSettings `json:"projectSettings,omitempty"`
 	// Repositories maps a repository, by identity, to the local folder that
 	// holds its checkout (#456). Keyed by repository rather than by project,
 	// one checkout serves every project that works in it.
-	Repositories                map[string]string `json:"repositories,omitempty"`
+	Repositories         map[string]string        `json:"repositories,omitempty"`
+	DisconnectedProjects map[string]bool          `json:"disconnectedProjects,omitempty"`
+	MCPConnections       map[string]MCPConnection `json:"mcpConnections,omitempty"`
+	// Skills overrides a skill's content, by skill ID.
+	Skills map[string]string `json:"skills,omitempty"`
+	Seeded Seeded            `json:"seeded"`
+}
+
+// legacySettings is the layout that predates #305: global scalars mixed with
+// per-project maps. It is only read, and folded into Settings.
+type legacySettings struct {
+	Commands                    map[string]string `json:"commands,omitempty"`
+	CommandsAutonomous          map[string]string `json:"commandsAutonomous,omitempty"`
+	Parallelism                 map[string]int    `json:"parallelism,omitempty"`
+	Worktrees                   map[string]bool   `json:"worktrees,omitempty"`
+	Projects                    map[string]string `json:"projects"`
+	SpecRepos                   map[string]string `json:"specRepos,omitempty"`
 	AIProviders                 map[string]string `json:"aiProviders,omitempty"`
 	AIModels                    map[string]string `json:"aiModels,omitempty"`
 	AIProvider                  string            `json:"aiProvider"`
@@ -45,131 +54,173 @@ type Overrides struct {
 	AISkillModels               map[string]string `json:"aiSkillModels,omitempty"`
 	Terminal                    string            `json:"terminal"`
 	Terminals                   map[string]string `json:"terminals,omitempty"`
-	Skills                      map[string]string `json:"skills"`
 }
 
-func ReadOverrides(root string) (Overrides, error) {
-	var result Overrides
+// legacyKeys are the keys of legacySettings, removed from the file when it is
+// rewritten in the current layout.
+var legacyKeys = []string{"projects", "worktrees", "parallelism", "commands", "commandsAutonomous", "specRepos", "aiProviders", "aiModels", "aiProvider", "aiCommandTemplate", "aiCommandTemplateAutonomous", "aiModel", "aiSkillModels", "terminal", "terminals"}
+
+// fold maps the legacy keys onto the current layout, with the same meaning.
+func (l legacySettings) fold() Settings {
+	var s Settings
+	s.Defaults.AIProvider = l.AIProvider
+	s.Defaults.AICommandTemplate = l.AICommandTemplate
+	s.Defaults.AICommandTemplateAutonomous = l.AICommandTemplateAutonomous
+	s.Defaults.AIModel = l.AIModel
+	s.Defaults.AISkillModels = l.AISkillModels
+	s.Defaults.Terminal = l.Terminal
+	edit := func(id string, change func(*ProjectSettings)) {
+		p := s.Project(id)
+		change(&p)
+		s.SetProject(id, p)
+	}
+	for id, path := range l.Projects {
+		edit(id, func(p *ProjectSettings) { p.Path = path })
+	}
+	for id, path := range l.SpecRepos {
+		edit(id, func(p *ProjectSettings) { p.SpecPath = path })
+	}
+	for id, value := range l.Worktrees {
+		value := value
+		edit(id, func(p *ProjectSettings) { p.UseWorktrees = &value })
+	}
+	for id, value := range l.Parallelism {
+		edit(id, func(p *ProjectSettings) { p.Parallelism = value })
+	}
+	for id, value := range l.Terminals {
+		edit(id, func(p *ProjectSettings) { p.Terminal = value })
+	}
+	for id, value := range l.AIProviders {
+		edit(id, func(p *ProjectSettings) { p.AIProvider = value })
+	}
+	for id, value := range l.AIModels {
+		edit(id, func(p *ProjectSettings) { p.AIModel = value })
+	}
+	for id, value := range l.Commands {
+		edit(id, func(p *ProjectSettings) { p.AICommandTemplate = value })
+	}
+	for id, value := range l.CommandsAutonomous {
+		edit(id, func(p *ProjectSettings) { p.AICommandTemplateAutonomous = value })
+	}
+	return s
+}
+
+// overlay lays top over base: a value top states wins, a value it leaves empty
+// is taken from base. Maps merge key by key.
+func overlay(base, top Settings) Settings {
+	out := top
+	out.Defaults = Defaults{
+		Execution:        overlayExecution(base.Defaults.Execution, top.Defaults.Execution),
+		AIProviderModels: top.Defaults.AIProviderModels,
+		EditorCommand:    firstSet(top.Defaults.EditorCommand, base.Defaults.EditorCommand),
+	}
+	if out.Defaults.AIProviderModels == nil {
+		out.Defaults.AIProviderModels = base.Defaults.AIProviderModels
+	}
+	out.ProjectSettings = nil
+	for id, p := range base.ProjectSettings {
+		out.SetProject(id, p)
+	}
+	for id, p := range top.ProjectSettings {
+		b := out.Project(id)
+		out.SetProject(id, ProjectSettings{
+			Path:          firstSet(p.Path, b.Path),
+			SpecPath:      firstSet(p.SpecPath, b.SpecPath),
+			Execution:     overlayExecution(b.Execution, p.Execution),
+			SkillCommands: mergeStrings(b.SkillCommands, p.SkillCommands),
+		})
+	}
+	out.Repositories = mergeStrings(base.Repositories, top.Repositories)
+	out.Skills = mergeStrings(base.Skills, top.Skills)
+	return out
+}
+
+func overlayExecution(base, top Execution) Execution {
+	out := Execution{
+		AIProvider:                  firstSet(top.AIProvider, base.AIProvider),
+		AICommandTemplate:           firstSet(top.AICommandTemplate, base.AICommandTemplate),
+		AICommandTemplateAutonomous: firstSet(top.AICommandTemplateAutonomous, base.AICommandTemplateAutonomous),
+		AIModel:                     firstSet(top.AIModel, base.AIModel),
+		AISkillModels:               mergeStrings(base.AISkillModels, top.AISkillModels),
+		Terminal:                    firstSet(top.Terminal, base.Terminal),
+		UseWorktrees:                top.UseWorktrees,
+		Parallelism:                 top.Parallelism,
+		SetupProviders:              top.SetupProviders,
+	}
+	if out.UseWorktrees == nil {
+		out.UseWorktrees = base.UseWorktrees
+	}
+	if out.Parallelism == 0 {
+		out.Parallelism = base.Parallelism
+	}
+	if out.SetupProviders == nil {
+		out.SetupProviders = base.SetupProviders
+	}
+	return out
+}
+
+func firstSet(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func mergeStrings(base, top map[string]string) map[string]string {
+	if len(base) == 0 && len(top) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(top))
+	for key, value := range base {
+		out[key] = value
+	}
+	for key, value := range top {
+		if strings.TrimSpace(value) != "" || out[key] == "" {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+// readLegacyRepositoryFile reads a checkout's .taskflow/agent.json, the path
+// that preceded ~/.config/sectile/settings.json. It is read only, as a
+// fallback, and never written.
+func readLegacyRepositoryFile(root string) (Settings, error) {
 	raw, err := os.ReadFile(filepath.Join(root, ".taskflow", "agent.json"))
 	if os.IsNotExist(err) {
-		return result, nil
+		return Settings{}, nil
 	}
 	if err != nil {
-		return result, err
+		return Settings{}, err
 	}
-	err = json.Unmarshal(raw, &result)
-	// Disconnection is workstation-owned, never a repository override.
-	result.DisconnectedProjects = nil
-	result.MCPConnections = nil
-	return result, err
+	var legacy legacySettings
+	if err := json.Unmarshal(raw, &legacy); err != nil {
+		return Settings{}, err
+	}
+	var current struct {
+		Skills       map[string]string `json:"skills"`
+		Repositories map[string]string `json:"repositories"`
+	}
+	if err := json.Unmarshal(raw, &current); err != nil {
+		return Settings{}, err
+	}
+	s := legacy.fold()
+	// Disconnection and MCP connections are workstation-owned, never a
+	// repository override.
+	s.Skills, s.Repositories = current.Skills, current.Repositories
+	return s, nil
 }
 
-func ApplyOverrides(c Config, overrides Overrides) Config {
-	if value, ok := overrides.Worktrees[c.ProjectID]; ok {
-		c.UseWorktrees = value
+// WithRepositoryFile lays the settings over a checkout's legacy
+// .taskflow/agent.json, which fills what they leave unset.
+func WithRepositoryFile(s Settings, root string) (Settings, error) {
+	legacy, err := readLegacyRepositoryFile(root)
+	if err != nil {
+		return s, err
 	}
-	serverCommand := c.AICommandTemplate
-	serverAutonomous := c.AICommandTemplateAutonomous
-	c.Skills = append([]Skill{}, c.Skills...)
-
-	baseProvider := c.AIProvider
-	baseCommand := serverCommand
-	baseAutonomous := serverAutonomous
-
-	if overrides.AIProvider != "" {
-		// A command written for another CLI cannot serve this one, so switching
-		// provider without bringing a command drops both.
-		if overrides.AIProvider != baseProvider && overrides.AICommandTemplate == "" {
-			baseCommand = ""
-			baseAutonomous = ""
-		}
-		baseProvider = overrides.AIProvider
-	}
-	if overrides.AICommandTemplate != "" {
-		baseCommand = overrides.AICommandTemplate
-	}
-	if overrides.AICommandTemplateAutonomous != "" {
-		baseAutonomous = overrides.AICommandTemplateAutonomous
-	}
-
-	c.AIProvider = baseProvider
-	c.AICommandTemplate = baseCommand
-	c.AICommandTemplateAutonomous = baseAutonomous
-
-	projectProvider, hasProjectProvider := overrides.AIProviders[c.ProjectID]
-	projectProvider = strings.TrimSpace(projectProvider)
-
-	projectCmd, hasProjectCmd := overrides.Commands[c.ProjectID]
-	projectAuto, hasProjectAuto := overrides.CommandsAutonomous[c.ProjectID]
-
-	if hasProjectProvider && projectProvider != "" {
-		c.AIProvider = projectProvider
-		if projectProvider != baseProvider {
-			if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
-				c.AICommandTemplate = projectCmd
-			} else {
-				c.AICommandTemplate = ""
-			}
-			if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
-				c.AICommandTemplateAutonomous = projectAuto
-			} else {
-				c.AICommandTemplateAutonomous = ""
-			}
-		} else {
-			if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
-				c.AICommandTemplate = projectCmd
-			} else {
-				c.AICommandTemplate = baseCommand
-			}
-			if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
-				c.AICommandTemplateAutonomous = projectAuto
-			} else {
-				c.AICommandTemplateAutonomous = baseAutonomous
-			}
-		}
-	} else {
-		if hasProjectCmd && strings.TrimSpace(projectCmd) != "" {
-			c.AICommandTemplate = projectCmd
-		} else {
-			c.AICommandTemplate = baseCommand
-		}
-		if hasProjectAuto && strings.TrimSpace(projectAuto) != "" {
-			c.AICommandTemplateAutonomous = projectAuto
-		} else {
-			c.AICommandTemplateAutonomous = baseAutonomous
-		}
-	}
-
-	if overrides.Terminal != "" {
-		c.ExternalTerminalCommand = overrides.Terminal
-	}
-	if projectTerminal, ok := overrides.Terminals[c.ProjectID]; ok && strings.TrimSpace(projectTerminal) != "" {
-		c.ExternalTerminalCommand = strings.TrimSpace(projectTerminal)
-	}
-	model := overrides.AIModel
-	if projectModel, ok := overrides.AIModels[c.ProjectID]; ok && strings.TrimSpace(projectModel) != "" {
-		model = projectModel
-	}
-	models := MergeModels(ModelConfig{Model: model, SkillModels: overrides.AISkillModels}, c.Models())
-	c.AIModel, c.AISkillModels = models.Model, models.SkillModels
-	for i := range c.Skills {
-		id := c.Skills[i].ID
-		if id == "adjust" {
-			for _, legacy := range []string{"review"} {
-				if strings.TrimSpace(overrides.Skills[id]) == "" && strings.TrimSpace(overrides.Skills[legacy]) != "" {
-					c.Skills[i].RequiresReconciliation = true
-				}
-			}
-		}
-		if content, ok := overrides.Skills[id]; ok {
-			if id == "adjust" {
-				content += "\n" + c.Skills[i].Content
-			}
-			c.Skills[i].Content = content
-			c.Skills[i].CommandContent = content + "\n\n## Ticket\n$ARGUMENTS\n"
-		}
-	}
-	return c
+	return overlay(legacy, s), nil
 }
 
 func hasCreatePR(skills []Skill) bool {
@@ -434,12 +485,16 @@ func refresh(fs, work *os.Root, files, manifest map[string]string, backups *[]st
 const MaxParallelism = 10
 
 // ExecutionLimit is workstation-owned and serializes shared checkout execution.
-// Without a local override a project runs a single execution at a time.
-func ExecutionLimit(projectID string, useWorktrees bool, overrides Overrides) int {
+// The project section speaks over the workstation defaults; without either a
+// project runs a single execution at a time.
+func ExecutionLimit(projectID string, useWorktrees bool, settings Settings) int {
 	if !useWorktrees {
 		return 1
 	}
-	n := overrides.Parallelism[projectID]
+	n := settings.ProjectSettings[projectID].Parallelism
+	if n == 0 {
+		n = settings.Defaults.Parallelism
+	}
 	if n < 1 {
 		return 1
 	}

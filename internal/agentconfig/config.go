@@ -57,16 +57,15 @@ func (c Config) IsMonoRepo() bool { return c.MonoRepo == nil || *c.MonoRepo }
 // Dispatch carries launch intent only. Execution settings are fetched separately.
 // A zero version is accepted for legacy senders; new senders always emit Version.
 type Dispatch struct {
-	RunID            string `json:"runId,omitempty"`
-	SchemaVersion    int    `json:"schemaVersion,omitempty"`
-	TaskID           string `json:"taskId"`
-	TaskKey          string `json:"taskKey"`
-	ProjectID        string `json:"projectId,omitempty"`
-	SkillID          string `json:"skillId,omitempty"`
-	Action           string `json:"action"`
-	Prompt           string `json:"prompt,omitempty"`
-	Command          string `json:"command,omitempty"`
-	TerminalOverride string `json:"terminalOverride,omitempty"`
+	RunID         string `json:"runId,omitempty"`
+	SchemaVersion int    `json:"schemaVersion,omitempty"`
+	TaskID        string `json:"taskId"`
+	TaskKey       string `json:"taskKey"`
+	ProjectID     string `json:"projectId,omitempty"`
+	SkillID       string `json:"skillId,omitempty"`
+	Action        string `json:"action"`
+	Prompt        string `json:"prompt,omitempty"`
+	Command       string `json:"command,omitempty"`
 	// Mode is the execution mode resolved by the server: "interactive" opens a
 	// terminal the user answers, "autonomous" runs the CLI headless. Empty is
 	// read as interactive, which keeps an older server working.

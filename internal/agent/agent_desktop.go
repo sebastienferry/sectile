@@ -214,6 +214,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		d.desktopTasks(w, r)
 		return
 	}
+	if r.URL.Path == "/desktop/workstation" {
+		d.desktopWorkstation(w, r)
+		return
+	}
 	if r.URL.Path == "/desktop/project" {
 		d.desktopProject(w, r)
 		return
@@ -466,7 +470,8 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, p := range projects.Projects {
 			root, _, _ := d.localProjectRoot(r.Context(), agentconfig.Config{ProjectID: p.ID, GitRemoteURL: p.GitRemoteURL})
-			mapped, configured := settings.Projects[p.ID]
+			mapped := settings.ProjectPath(p.ID)
+			configured := mapped != ""
 			if root == "" {
 				root = mapped
 			}
@@ -484,31 +489,13 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", 405)
 		return
 	}
-	var input struct {
-		ProjectID                   string  `json:"projectId"`
-		Path                        string  `json:"path"`
-		AIProvider                  *string `json:"aiProvider"`
-		AIModel                     *string `json:"aiModel"`
-		InheritAIProvider           bool    `json:"inheritAiProvider"`
-		InheritAIModel              bool    `json:"inheritAiModel"`
-		AICommandTemplate           *string `json:"aiCommandTemplate"`
-		AICommandTemplateAutonomous *string `json:"aiCommandTemplateAutonomous"`
-		InheritCommand              bool    `json:"inheritCommand"`
-		InheritWorktrees            bool    `json:"inheritWorktrees"`
-		Parallelism                 *int    `json:"parallelism"`
-		UseWorktrees                *bool   `json:"useWorktrees"`
-		Terminal                    *string `json:"terminal"`
-		InheritTerminal             bool    `json:"inheritTerminal"`
-		// SpecPath is the specifications folder on this workstation; empty
-		// clears the override, so a mono-repo checkout carries the
-		// specifications again.
-		SpecPath *string `json:"specPath"`
-	}
-	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
+	var input projectSettingsInput
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
 		return
 	}
-	if _, err := d.fetchConfig(r.Context(), input.ProjectID, ""); err != nil {
+	config, err := d.fetchConfig(r.Context(), input.ProjectID, "")
+	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -526,145 +513,33 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
-	root := d.repoRoot
-	if root == "" {
-		root, _ = os.Getwd()
-		root = findRepoRoot(root)
-	}
-	overrides, err := agentconfig.ReadSettings(root)
+	unlock := agentconfig.LockSettings()
+	defer unlock()
+	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	if input.AIProvider != nil && !input.InheritAIProvider {
-		provider := strings.TrimSpace(*input.AIProvider)
-		if err := agentconfig.ValidProvider(provider); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-		if provider == "custom" {
-			cmd := ""
-			if input.AICommandTemplate != nil && !input.InheritCommand {
-				cmd = strings.TrimSpace(*input.AICommandTemplate)
-			} else if !input.InheritCommand {
-				cmd = overrides.Commands[input.ProjectID]
-			}
-			if !strings.Contains(cmd, "{prompt}") {
-				http.Error(w, "Custom provider requires a command template containing {prompt}", 400)
-				return
-			}
-		}
-	}
-	if input.AIModel != nil && !input.InheritAIModel {
-		if err := agentconfig.ValidModel(*input.AIModel); err != nil {
-			http.Error(w, err.Error(), 400)
-			return
-		}
-	}
-	if overrides.Projects == nil {
-		overrides.Projects = map[string]string{}
-	}
-	if input.InheritAIProvider {
-		delete(overrides.AIProviders, input.ProjectID)
-	} else if input.AIProvider != nil {
-		provider := strings.TrimSpace(*input.AIProvider)
-		if provider == "" {
-			delete(overrides.AIProviders, input.ProjectID)
-		} else {
-			if overrides.AIProviders == nil {
-				overrides.AIProviders = map[string]string{}
-			}
-			overrides.AIProviders[input.ProjectID] = provider
-		}
-	}
-	if input.InheritAIModel {
-		delete(overrides.AIModels, input.ProjectID)
-	} else if input.AIModel != nil {
-		model := strings.TrimSpace(*input.AIModel)
-		if model == "" {
-			delete(overrides.AIModels, input.ProjectID)
-		} else {
-			if overrides.AIModels == nil {
-				overrides.AIModels = map[string]string{}
-			}
-			overrides.AIModels[input.ProjectID] = model
-		}
-	}
-	// The two commands are overridden together: a workstation that pins only the
-	// interactive one would keep running the server's headless command beside it,
-	// which is the opposite of what an override is for.
-	if input.AICommandTemplate != nil || input.AICommandTemplateAutonomous != nil || input.InheritCommand {
-		if overrides.Commands == nil {
-			overrides.Commands = map[string]string{}
-		}
-		if overrides.CommandsAutonomous == nil {
-			overrides.CommandsAutonomous = map[string]string{}
-		}
-		command, autonomous := "", ""
-		if input.AICommandTemplate != nil {
-			command = strings.TrimSpace(*input.AICommandTemplate)
-		}
-		if input.AICommandTemplateAutonomous != nil {
-			autonomous = strings.TrimSpace(*input.AICommandTemplateAutonomous)
-		}
-		if len(command) > 4096 || len(autonomous) > 4096 {
-			http.Error(w, "CLI command is too long", 400)
-			return
-		}
-		if input.InheritCommand {
-			command, autonomous = "", ""
-		}
-		overrides.Commands[input.ProjectID] = command
-		overrides.CommandsAutonomous[input.ProjectID] = autonomous
-	}
-	if input.Parallelism != nil {
-		if *input.Parallelism < 1 || *input.Parallelism > agentconfig.MaxParallelism {
-			http.Error(w, fmt.Sprintf("Parallelism must be between 1 and %d", agentconfig.MaxParallelism), 400)
-			return
-		}
-		if overrides.Parallelism == nil {
-			overrides.Parallelism = map[string]int{}
-		}
-		overrides.Parallelism[input.ProjectID] = *input.Parallelism
-	}
-	overrides.Projects[input.ProjectID] = input.Path
+	project := input.apply(settings.Project(input.ProjectID))
+	project.Path = input.Path
 	if input.SpecPath != nil {
-		if specPath == "" {
-			delete(overrides.SpecRepos, input.ProjectID)
-		} else {
-			if overrides.SpecRepos == nil {
-				overrides.SpecRepos = map[string]string{}
-			}
-			overrides.SpecRepos[input.ProjectID] = specPath
-		}
+		project.SpecPath = specPath
 	}
-	if input.UseWorktrees != nil {
-		if overrides.Worktrees == nil {
-			overrides.Worktrees = map[string]bool{}
-		}
-		overrides.Worktrees[input.ProjectID] = *input.UseWorktrees
+	if err := agentconfig.ValidateProject(project); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
 	}
-	if input.InheritWorktrees {
-		delete(overrides.Worktrees, input.ProjectID)
+	settings.SetProject(input.ProjectID, project)
+	if resolved := agentconfig.Resolve(config, settings); resolved.AIProvider == "custom" && resolved.AICommandTemplate == "" {
+		http.Error(w, "Custom provider requires a command template containing {prompt}", 400)
+		return
 	}
-	if input.InheritTerminal {
-		delete(overrides.Terminals, input.ProjectID)
-	} else if input.Terminal != nil {
-		termChoice := strings.TrimSpace(*input.Terminal)
-		if termChoice == "" {
-			delete(overrides.Terminals, input.ProjectID)
-		} else {
-			if overrides.Terminals == nil {
-				overrides.Terminals = map[string]string{}
-			}
-			overrides.Terminals[input.ProjectID] = termChoice
-		}
-	}
-	delete(overrides.DisconnectedProjects, input.ProjectID)
-	if err := agentconfig.WriteSettings(overrides); err != nil {
+	delete(settings.DisconnectedProjects, input.ProjectID)
+	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	d.reportCapabilitiesLater()
 	w.WriteHeader(204)
 }
 
@@ -701,6 +576,8 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	unlock := agentconfig.LockSettings()
+	defer unlock()
 	settings, err := agentconfig.ReadSettings(d.localSettingsRoot())
 	if err != nil {
 		http.Error(w, err.Error(), 500)
@@ -710,20 +587,16 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 		settings.DisconnectedProjects = map[string]bool{}
 	}
 	settings.DisconnectedProjects[id] = true
-	delete(settings.Projects, id)
-	delete(settings.Worktrees, id)
-	delete(settings.Parallelism, id)
-	delete(settings.Commands, id)
-	delete(settings.CommandsAutonomous, id)
-	delete(settings.AIProviders, id)
-	delete(settings.AIModels, id)
-	// The specifications folder goes with the project: a project added again
-	// starts from the inherited value, not from a folder chosen before.
-	delete(settings.SpecRepos, id)
+	// The whole section goes with the project, the specifications folder
+	// included: a project added again starts from the inherited values, not
+	// from what was chosen before. Its seed marker stays, so the server values
+	// are not taken a second time.
+	delete(settings.ProjectSettings, id)
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
+	d.reportCapabilitiesLater()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -826,39 +699,42 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 502)
 			return
 		}
-		effective := agentconfig.ApplyOverrides(config, overrides)
-		_, worktreeOverride := overrides.Worktrees[id]
+		effective := agentconfig.Resolve(config, overrides)
+		section := overrides.Project(id)
 		// The inherited folder follows the code checkout: only an override is
 		// stored, so a later change of the local repository carries it along.
 		specDefault := ""
 		if project.MonoRepo && mappingErr == nil {
 			specDefault = root
 		}
-		specEffective := strings.TrimSpace(overrides.SpecRepos[id])
-		if specEffective == "" {
+		specEffective := section.SpecPath
+		if strings.TrimSpace(specEffective) == "" {
 			specEffective = specDefault
 		}
+		fields := executionFields(config, overrides)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"server":                      config,
+			"server":                      withoutExecution(config),
 			"monoRepo":                    project.MonoRepo,
 			"path":                        root,
-			"specPath":                    overrides.SpecRepos[id],
+			"specPath":                    section.SpecPath,
 			"specDefault":                 specDefault,
 			"specKind":                    specFolderKind(r.Context(), specEffective),
 			"useWorktrees":                effective.UseWorktrees,
 			"configured":                  mappingErr == nil,
 			"aiCommandTemplate":           effective.AICommandTemplate,
 			"aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous,
-			"commandOverride":             overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "",
-			"worktreeOverride":            worktreeOverride,
+			"commandOverride":             section.AICommandTemplate != "" || section.AICommandTemplateAutonomous != "",
+			"worktreeOverride":            section.UseWorktrees != nil,
 			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
 			"aiProvider":                  effective.AIProvider,
 			"aiModel":                     effective.AIModel,
-			"aiProviderOverride":          overrides.AIProviders[id] != "",
-			"aiModelOverride":             overrides.AIModels[id] != "",
+			"aiProviderOverride":          section.AIProvider != "",
+			"aiModelOverride":             section.AIModel != "",
 			"terminal":                    effective.ExternalTerminalCommand,
-			"terminalOverride":            overrides.Terminals[id] != "",
+			"terminalOverride":            section.Terminal != "",
+			"fields":                      fields,
+			"skills":                      skillNames(config),
 		})
 		return
 	}
@@ -1168,34 +1044,24 @@ func (d *agentDaemon) desktopRunResult(w http.ResponseWriter, r *http.Request) {
 }
 
 // resolveTerminalForProject determines the terminal emulator based on precedence:
-// 1. Explicit call override
-// 2. Project local override (overrides.Terminals[projectID])
-// 3. Workstation setting (overrides.Terminal)
-// 4. Server project configuration (config.ExternalTerminalCommand)
-// 5. Agent daemon flag (d.terminal.app)
+// 1. Explicit call override (the terminal picked for this very action)
+// 2. The agent's explicit --terminal flag
+// 3. Project section of the workstation settings
+// 4. Workstation defaults
+// 5. Agent daemon default (d.terminal.app)
 // 6. System auto-detection (detectDefaultTerminal())
+// The server holds no terminal any more (#305).
 func (d *agentDaemon) resolveTerminalForProject(ctx context.Context, projectID, override string) string {
 	override = strings.TrimSpace(override)
 	if override != "" {
 		return override
 	}
-	base := d.repoRoot
-	if base == "" {
-		base, _ = os.Getwd()
-		base = findRepoRoot(base)
+	if d.terminal.explicit && d.terminal.app != "" {
+		return d.terminal.app
 	}
-	overrides, err := agentconfig.ReadSettings(base)
-	if err == nil {
-		if projectID != "" && overrides.Terminals[projectID] != "" {
-			return overrides.Terminals[projectID]
-		}
-		if overrides.Terminal != "" {
-			return overrides.Terminal
-		}
-	}
-	if projectID != "" {
-		if config, err := d.fetchConfig(ctx, projectID, ""); err == nil && config.ExternalTerminalCommand != "" {
-			return config.ExternalTerminalCommand
+	if settings, err := agentconfig.ReadSettings(d.localSettingsRoot()); err == nil {
+		if terminal := settings.Terminal(projectID); terminal != "" {
+			return terminal
 		}
 	}
 	if d.terminal.app != "" {

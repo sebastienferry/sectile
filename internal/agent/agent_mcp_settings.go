@@ -75,11 +75,14 @@ func (d *agentDaemon) desktopMCP(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 400)
 			return
 		}
-		if settings.MCPConnections == nil {
-			settings.MCPConnections = map[string]agentconfig.MCPConnection{}
-		}
-		settings.MCPConnections[provider] = choice
-		if err := agentconfig.WriteSettings(settings); err != nil {
+		_, err = agentconfig.UpdateSettings(d.localSettingsRoot(), func(settings *agentconfig.Settings) error {
+			if settings.MCPConnections == nil {
+				settings.MCPConnections = map[string]agentconfig.MCPConnection{}
+			}
+			settings.MCPConnections[provider] = choice
+			return nil
+		})
+		if err != nil {
 			http.Error(w, "Provider configuration updated, but preference could not be saved: "+err.Error(), 500)
 			return
 		}

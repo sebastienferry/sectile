@@ -58,7 +58,7 @@ func (d *agentDaemon) desktopConsole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := uuid.NewString()
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.Resolve(config, overrides)
 	command, err := consoleCommand(input.Provider, agentconfig.ResolveModel(config, ""))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

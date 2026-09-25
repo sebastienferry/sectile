@@ -239,7 +239,7 @@ func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payloa
 	if err != nil {
 		return nil, err
 	}
-	config = agentconfig.ApplyOverrides(config, overrides)
+	config = agentconfig.Resolve(config, overrides)
 	mode := liveSessionMode(payload.SkillID, payload.Action, payload.Mode)
 	if models.NormalizeSkillMode(mode) == models.SkillModeAutonomous {
 		if !models.SupportsAutonomousRun(config.AIProvider, config.AICommandTemplate, config.AICommandTemplateAutonomous) {

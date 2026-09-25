@@ -2548,14 +2548,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/tasks/{id}/tty-external: open a native external terminal for the task
 	if (subAction == "tty-external" || subAction == "terminal-external") && r.Method == http.MethodPost {
 		var req struct {
-			Command         string `json:"command"`
-			SkillID         string `json:"skillId"`
-			TerminalCommand string `json:"terminalCommand"`
+			Command string `json:"command"`
+			SkillID string `json:"skillId"`
 		}
 		if r.Body != nil {
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
-		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID, req.TerminalCommand)
+		res, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), id, req.Command, req.SkillID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -3019,8 +3018,6 @@ func (h *Handler) composedSettings(userID string) (*models.Settings, error) {
 	composed.UserName = personal.UserName
 	composed.UserEmail = personal.UserEmail
 	composed.UserAvatar = personal.UserAvatar
-	composed.EditorCommand = personal.EditorCommand
-	composed.ExternalTerminalCommand = personal.ExternalTerminalCommand
 	if user, err := h.db.GetUser(userID); err == nil && user != nil {
 		// Name() is the chain the rest of the application already shows: the
 		// chosen name, then the one the sign-in supplied, then the address,
@@ -3771,16 +3768,17 @@ func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleOpenEditor opens a workspace, worktree, or path in the user's code editor (default: code)
+// HandleOpenEditor opens a task or a project in the editor of the workstation
+// that serves it. The editor is the workstation's own setting (#305): the
+// server names none.
 func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
 	var req struct {
-		TaskID        string `json:"taskId"`
-		ProjectID     string `json:"projectId"`
-		EditorCommand string `json:"editorCommand"`
+		TaskID    string `json:"taskId"`
+		ProjectID string `json:"projectId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -3794,15 +3792,7 @@ func (h *Handler) HandleOpenEditor(w http.ResponseWriter, r *http.Request) {
 		}
 		req.ProjectID = task.ProjectID
 	}
-	if req.EditorCommand == "" {
-		// The editor is a personal command too, so it is the caller's own,
-		// falling back to the deployment default through UserSettings.
-		settings, _ := h.db.UserSettings(h.webSessionUser(r))
-		if settings != nil {
-			req.EditorCommand = settings.EditorCommand
-		}
-	}
-	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor", Editor: req.EditorCommand}, nil); err != nil {
+	if err := h.db.AgentOperation(agentprotocol.Operation{ProjectID: req.ProjectID, TaskID: req.TaskID, Action: "open_editor"}, nil); err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
@@ -3815,10 +3805,9 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	var req struct {
-		TaskID          string `json:"taskId"`
-		SkillID         string `json:"skillId"`
-		Command         string `json:"command"`
-		TerminalCommand string `json:"terminalCommand"`
+		TaskID  string `json:"taskId"`
+		SkillID string `json:"skillId"`
+		Command string `json:"command"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -3828,7 +3817,7 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "Select a task to open an agent console")
 		return
 	}
-	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID, req.TerminalCommand)
+	result, err := h.launchTaskExternalTerminal(r.Context(), h.webSessionUser(r), req.TaskID, req.Command, req.SkillID)
 	if err != nil {
 		writeError(w, http.StatusConflict, err.Error())
 		return
@@ -3838,38 +3827,18 @@ func (h *Handler) HandleOpenExternalTerminal(w http.ResponseWriter, r *http.Requ
 
 // LaunchTaskExternalTerminal serves callers with no HTTP request of their own,
 // which is why it names the implicit user rather than resolving one.
-func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
-	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID, customTermCmd)
+func (h *Handler) LaunchTaskExternalTerminal(taskID, command, skillID string) (map[string]interface{}, error) {
+	return h.launchTaskExternalTerminal(context.Background(), ImplicitUser, taskID, command, skillID)
 }
 
-func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID, customTermCmd string) (map[string]interface{}, error) {
+func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID, command, skillID string) (map[string]interface{}, error) {
 	task, err := h.db.GetTaskByID(taskID)
 	if err != nil || task == nil {
 		return nil, fmt.Errorf("task not found: %s", taskID)
 	}
 
-	// The workstation commands are personal (ADR 0015): the terminal that
-	// opens is the one of whoever owns this execution, not the deployment's.
-	// The project's own override still comes first, the deployment default last.
-	settings, _ := h.db.UserSettings(userID)
-	var proj *models.Project
-	if task.ProjectID != "" {
-		proj, _ = h.db.GetProjectByID(task.ProjectID)
-	}
-
-	// Precedence: what the call asked for, then the project's own terminal,
-	// then the owner's. The resolved value is what travels to the agent, so a
-	// personal terminal command is honoured on a launch, not only in the
-	// profile screen.
-	customTermCmd = strings.TrimSpace(customTermCmd)
-	if customTermCmd == "" && proj != nil && proj.ExternalTerminalCommand != "" {
-		customTermCmd = proj.ExternalTerminalCommand
-	}
-	if customTermCmd == "" && settings != nil && settings.ExternalTerminalCommand != "" {
-		customTermCmd = settings.ExternalTerminalCommand
-	}
-	terminalOverride := customTermCmd
-
+	// The terminal is the workstation's own setting (#305): the agent resolves
+	// it, and the server sends none.
 	projectID := "default"
 	if task.ProjectID != "" {
 		projectID = task.ProjectID
@@ -3883,7 +3852,7 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID
 		defer cancel()
 		err := h.agentDispatcher.DispatchAndWait(launchCtx, userID, projectID, task.ID, agentconfig.Dispatch{
 			SchemaVersion: agentconfig.Version, TaskKey: task.Key, TaskID: task.ID, ProjectID: projectID,
-			SkillID: skillID, Action: "open_terminal", Command: command, Prompt: command, TerminalOverride: terminalOverride,
+			SkillID: skillID, Action: "open_terminal", Command: command, Prompt: command,
 		})
 		if err != nil {
 			return nil, err

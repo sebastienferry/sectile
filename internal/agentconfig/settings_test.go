@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"tasks/internal/testhome"
 	"testing"
 )
@@ -14,17 +15,19 @@ func TestUserSettingsPreserveConnectionAndMigrate(t *testing.T) {
 	os.MkdirAll(filepath.Join(root, ".taskflow"), 0700)
 	os.WriteFile(filepath.Join(root, ".taskflow", "agent.json"), []byte("{\"projects\":{\"p\":\"/repo\"},\"parallelism\":{\"p\":3}}"), 0600)
 	settings, err := ReadSettings(root)
-	if err != nil || settings.Projects["p"] != "/repo" {
+	if err != nil || settings.ProjectPath("p") != "/repo" {
 		t.Fatal(settings, err)
 	}
 	path, _ := SettingsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)
 	os.WriteFile(path, []byte("{\"server\":\"https://example.test\",\"secret\":\"encrypted\"}"), 0600)
 	settings, err = ReadSettings(root)
-	if err != nil || settings.Parallelism["p"] != 3 {
+	if err != nil || settings.Project("p").Parallelism != 3 {
 		t.Fatal(settings, err)
 	}
-	settings.Parallelism = nil
+	p := settings.Project("p")
+	p.Parallelism = 0
+	settings.SetProject("p", p)
 	if err := WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +38,7 @@ func TestUserSettingsPreserveConnectionAndMigrate(t *testing.T) {
 		t.Fatal("connection secret lost")
 	}
 	settings, err = ReadSettings(root)
-	if err != nil || len(settings.Parallelism) != 0 {
+	if err != nil || settings.Project("p").Parallelism != 0 {
 		t.Fatal("cleared override restored", err)
 	}
 	info, _ := os.Stat(path)
@@ -50,20 +53,19 @@ func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
 	os.MkdirAll(filepath.Join(root, ".taskflow"), 0700)
 	os.WriteFile(filepath.Join(root, ".taskflow", "agent.json"), []byte(`{"projects":{"p":"/legacy"},"worktrees":{"p":true},"disconnectedProjects":{"other":true}}`), 0600)
 	settings, err := ReadSettings(root)
-	if err != nil || settings.Projects["p"] != "/legacy" || len(settings.DisconnectedProjects) != 0 {
+	if err != nil || settings.ProjectPath("p") != "/legacy" || len(settings.DisconnectedProjects) != 0 {
 		t.Fatal(settings, err)
 	}
 	path, _ := SettingsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)
 	os.WriteFile(path, []byte(`{"server":"https://example.test","secret":"preserved","custom":42}`), 0600)
-	settings.Projects = nil
-	settings.Worktrees = nil
+	settings.ProjectSettings = nil
 	settings.DisconnectedProjects = map[string]bool{"p": true}
 	if err := WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
 	settings, err = ReadSettings(root)
-	if err != nil || !settings.DisconnectedProjects["p"] || len(settings.Projects) != 0 || len(settings.Worktrees) != 0 {
+	if err != nil || !settings.DisconnectedProjects["p"] || len(settings.ProjectSettings) != 0 {
 		t.Fatal(settings, err)
 	}
 	raw, _ := os.ReadFile(path)
@@ -82,127 +84,123 @@ func TestDisconnectionIsWorkstationOnlyAndSurvivesLegacyFallback(t *testing.T) {
 	}
 }
 
-func TestSettingsAIProvidersAndModelsRoundTrip(t *testing.T) {
+// Every legacy key lands in its new place, with the same meaning, and the next
+// save rewrites the file in the current layout.
+func TestLegacyLayoutIsFoldedAndRewritten(t *testing.T) {
 	testhome.Temp(t)
-	root := t.TempDir()
 	path, _ := SettingsPath()
 	os.MkdirAll(filepath.Dir(path), 0700)
-	os.WriteFile(path, []byte(`{"server":"https://example.test","secret":"saved"}`), 0600)
-
-	settings := Overrides{
-		Projects:    map[string]string{"p1": "/path/to/p1"},
-		AIProviders: map[string]string{"p1": "claude"},
-		AIModels:    map[string]string{"p1": "claude-opus-5"},
-	}
-	if err := WriteSettings(settings); err != nil {
-		t.Fatal(err)
-	}
-
-	loaded, err := ReadSettings(root)
+	legacy := `{
+		"server": "https://example.test", "apiKey": "k", "custom": 42,
+		"aiProvider": "claude", "aiCommandTemplate": "claude --x {prompt}", "aiCommandTemplateAutonomous": "claude -p {prompt}",
+		"aiModel": "claude-opus-5", "aiSkillModels": {"implement": "claude-sonnet-5"}, "terminal": "ghostty",
+		"projects": {"p": "/repo"}, "specRepos": {"p": "/specs"}, "worktrees": {"p": false}, "parallelism": {"p": 3},
+		"terminals": {"p": "iterm"}, "aiProviders": {"p": "codex"}, "aiModels": {"p": "gpt-5"},
+		"commands": {"p": "codex {prompt}"}, "commandsAutonomous": {"p": "codex exec {prompt}"},
+		"repositories": {"github.com/o/r": "/other"}, "disconnectedProjects": {"gone": true},
+		"skills": {"implement": "local"}, "mcpConnections": {"claude": {"transport": "http", "target": "local"}}
+	}`
+	os.WriteFile(path, []byte(legacy), 0600)
+	got, err := ReadSettings(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.AIProviders["p1"] != "claude" {
-		t.Fatalf("expected AIProviders[p1] to be 'claude', got %q", loaded.AIProviders["p1"])
+	want := Settings{
+		Defaults: Defaults{Execution: Execution{
+			AIProvider: "claude", AICommandTemplate: "claude --x {prompt}", AICommandTemplateAutonomous: "claude -p {prompt}",
+			AIModel: "claude-opus-5", AISkillModels: map[string]string{"implement": "claude-sonnet-5"}, Terminal: "ghostty",
+		}},
+		ProjectSettings: map[string]ProjectSettings{"p": {
+			Path: "/repo", SpecPath: "/specs",
+			Execution: Execution{
+				AIProvider: "codex", AICommandTemplate: "codex {prompt}", AICommandTemplateAutonomous: "codex exec {prompt}",
+				AIModel: "gpt-5", Terminal: "iterm", UseWorktrees: boolPtr(false), Parallelism: 3,
+			},
+		}},
+		Repositories:         map[string]string{"github.com/o/r": "/other"},
+		DisconnectedProjects: map[string]bool{"gone": true},
+		MCPConnections:       map[string]MCPConnection{"claude": {Transport: "http", Target: "local"}},
+		Skills:               map[string]string{"implement": "local"},
 	}
-	if loaded.AIModels["p1"] != "claude-opus-5" {
-		t.Fatalf("expected AIModels[p1] to be 'claude-opus-5', got %q", loaded.AIModels["p1"])
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("fold:\n got  %+v\n want %+v", got, want)
 	}
-
-	// Verify connection fields preserved
+	if err := WriteSettings(got); err != nil {
+		t.Fatal(err)
+	}
 	raw, _ := os.ReadFile(path)
-	var fields map[string]any
+	var fields map[string]json.RawMessage
 	json.Unmarshal(raw, &fields)
-	if fields["secret"] != "saved" {
-		t.Fatal("connection secret was lost")
+	for _, key := range legacyKeys {
+		if _, ok := fields[key]; ok {
+			t.Errorf("legacy key %q survived the rewrite", key)
+		}
 	}
-
-	// Now delete the overrides (reset to server default)
-	delete(loaded.AIProviders, "p1")
-	delete(loaded.AIModels, "p1")
-	if err := WriteSettings(loaded); err != nil {
-		t.Fatal(err)
+	for _, key := range []string{"server", "apiKey", "custom"} {
+		if _, ok := fields[key]; !ok {
+			t.Errorf("connection key %q lost", key)
+		}
 	}
-
-	reloaded, err := ReadSettings(root)
-	if err != nil {
-		t.Fatal(err)
+	if string(fields["layout"]) != "2" {
+		t.Fatalf("layout: %s", fields["layout"])
 	}
-	if len(reloaded.AIProviders) != 0 {
-		t.Fatalf("expected AIProviders to be empty, got %v", reloaded.AIProviders)
+	again, err := ReadSettings(t.TempDir())
+	again.Layout = 0
+	if err != nil || !reflect.DeepEqual(again, want) {
+		t.Fatalf("the rewrite changed the meaning:\n got  %+v\n want %+v", again, want)
 	}
-	if len(reloaded.AIModels) != 0 {
-		t.Fatalf("expected AIModels to be empty, got %v", reloaded.AIModels)
+	// Both levels resolve as they did from the legacy file.
+	resolved := Resolve(Config{ProjectID: "p"}, again)
+	if resolved.AIProvider != "codex" || resolved.AICommandTemplate != "codex {prompt}" || resolved.AIModel != "gpt-5" ||
+		ResolveModel(resolved, "implement") != "claude-sonnet-5" || resolved.UseWorktrees || resolved.ExternalTerminalCommand != "iterm" {
+		t.Fatalf("resolution after the rewrite: %+v", resolved)
 	}
 }
 
-func TestSettingsTerminalAndTerminalsRoundTrip(t *testing.T) {
+// An emptied map disappears from the file instead of keeping its content.
+func TestWriteSettingsRemovesEmptiedMaps(t *testing.T) {
 	testhome.Temp(t)
-	root := t.TempDir()
-	path, _ := SettingsPath()
-	os.MkdirAll(filepath.Dir(path), 0700)
-	os.WriteFile(path, []byte(`{"server":"https://example.test","secret":"saved"}`), 0600)
-
-	settings := Overrides{
-		Terminal:  "ghostty",
-		Terminals: map[string]string{"p1": "iterm", "p2": "terminal"},
+	s := Settings{
+		Defaults:        Defaults{Execution: Execution{AISkillModels: map[string]string{"implement": "m"}}, AIProviderModels: map[string][]string{"claude": {"m"}}},
+		ProjectSettings: map[string]ProjectSettings{"p": {SpecPath: "/specs", SkillCommands: map[string]string{"implement": "x"}}},
+		Repositories:    map[string]string{"r": "/r"},
 	}
-	if err := WriteSettings(settings); err != nil {
+	if err := WriteSettings(s); err != nil {
 		t.Fatal(err)
 	}
-
-	loaded, err := ReadSettings(root)
-	if err != nil {
+	if got, err := ReadSettings(t.TempDir()); err != nil || got.SpecPath("p") != "/specs" || got.Repositories["r"] != "/r" {
+		t.Fatalf("not stored: %+v %v", got, err)
+	}
+	if err := WriteSettings(Settings{ProjectSettings: map[string]ProjectSettings{}, Repositories: map[string]string{}}); err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Terminal != "ghostty" {
-		t.Fatalf("expected Terminal 'ghostty', got %q", loaded.Terminal)
-	}
-	if loaded.Terminals["p1"] != "iterm" || loaded.Terminals["p2"] != "terminal" {
-		t.Fatalf("expected Terminals round-trip, got %v", loaded.Terminals)
-	}
-
-	// Verify connection fields preserved
-	raw, _ := os.ReadFile(path)
-	var fields map[string]any
-	json.Unmarshal(raw, &fields)
-	if fields["secret"] != "saved" {
-		t.Fatal("connection secret was lost")
-	}
-
-	// Now delete project overrides
-	delete(loaded.Terminals, "p1")
-	delete(loaded.Terminals, "p2")
-	if err := WriteSettings(loaded); err != nil {
-		t.Fatal(err)
-	}
-
-	reloaded, err := ReadSettings(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(reloaded.Terminals) != 0 {
-		t.Fatalf("expected Terminals to be empty, got %v", reloaded.Terminals)
-	}
-	if reloaded.Terminal != "ghostty" {
-		t.Fatalf("expected Terminal 'ghostty', got %q", reloaded.Terminal)
+	got, err := ReadSettings(t.TempDir())
+	if err != nil || len(got.ProjectSettings) != 0 || len(got.Repositories) != 0 || len(got.Defaults.AISkillModels) != 0 || got.Defaults.AIProviderModels != nil {
+		t.Fatalf("an emptied value survived: %+v %v", got, err)
 	}
 }
 
-// Removing the last specifications folder must reach the file: an emptied map
-// is omitted from the JSON, and the file's copy used to survive the write.
-func TestSettingsSpecReposClearTheLastEntry(t *testing.T) {
+// An empty setup provider list is the decision "none" and must survive a save.
+func TestEmptySetupProvidersSurviveARoundTrip(t *testing.T) {
 	testhome.Temp(t)
-	if err := WriteSettings(Overrides{SpecRepos: map[string]string{"p": "/specs"}}); err != nil {
+	if err := WriteSettings(Settings{ProjectSettings: map[string]ProjectSettings{"p": {Path: "/r", Execution: Execution{SetupProviders: []string{}}}}}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := ReadSettings(t.TempDir()); err != nil || got.SpecRepos["p"] != "/specs" {
-		t.Fatalf("the folder must be stored: %v %v", got.SpecRepos, err)
+	got, err := ReadSettings(t.TempDir())
+	if err != nil || got.Project("p").SetupProviders == nil || got.Defaults.SetupProviders != nil {
+		t.Fatalf("none became inherit, or inherit became none: %+v %v", got, err)
 	}
-	if err := WriteSettings(Overrides{SpecRepos: map[string]string{}}); err != nil {
+}
+
+// The seed markers survive a round trip.
+func TestSeededMarkersRoundTrip(t *testing.T) {
+	testhome.Temp(t)
+	s := Settings{Seeded: Seeded{Defaults: "https://example.test", Projects: map[string]string{"p": "2026-09-25T00:00:00Z"}}}
+	if err := WriteSettings(s); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := ReadSettings(t.TempDir()); err != nil || len(got.SpecRepos) != 0 {
-		t.Fatalf("the folder must be removed: %v %v", got.SpecRepos, err)
+	got, err := ReadSettings(t.TempDir())
+	if err != nil || !got.Seeded.hasSeededDefaults() || got.Seeded.Projects["p"] == "" {
+		t.Fatalf("markers lost: %+v %v", got.Seeded, err)
 	}
 }

@@ -84,6 +84,8 @@ type agentDaemon struct {
 	done             chan struct{}
 	contract         contractState
 	launchTerminalFn func(terminalApp, sessionID string) error
+	// capabilities serializes the engine reports sent to the server (#305).
+	capabilities capabilityReporter
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents
@@ -480,6 +482,8 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	if err := d.checkIdentity(ctx); err != nil {
 		return err
 	}
+	// The workstation defaults take over the server's values once (#305).
+	d.seedSettings(ctx, agentconfig.Config{})
 	if d.link.projectID == "all" {
 		projects, err := d.discoverProjects(ctx)
 		if err != nil {
@@ -532,6 +536,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopClose()
 	d.resendAnswers(conn)
+	d.reportCapabilitiesLater()
 	log.Printf("[Agent] Connected to remote server")
 	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.link.serverURL)
 	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.link.projectID, d.link.deviceID)
@@ -1259,22 +1264,6 @@ func (d *agentDaemon) sendStatus(conn *websocket.Conn, msgID, taskID, status, su
 	}
 
 	_ = d.link.write(conn, msg)
-}
-
-func (d *agentDaemon) dispatchTerminal(config agentconfig.Config, override string) string {
-	if d.terminal.explicit {
-		return d.terminal.app
-	}
-	if override != "" {
-		return override
-	}
-	if config.ExternalTerminalCommand != "" {
-		return config.ExternalTerminalCommand
-	}
-	if d.terminal.app != "" {
-		return d.terminal.app
-	}
-	return detectDefaultTerminal()
 }
 
 // derivedBranchToRecord returns the branch to write onto the task, or "" when
