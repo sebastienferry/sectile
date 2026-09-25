@@ -259,6 +259,16 @@ var migrations = []migration{
 			AND skill_id IN ('remote_run', 'clarify', 'specify', 'implement', 'adjust', 'handoff', 'create_pr', 'pickup', 'rewrite_story', 'refine_macro', 'pickup_issues', 'review', 'pick', 'realign_macro');`,
 		},
 	},
+	{
+		// The specifications folder became a workstation setting (#443): the
+		// server column named a directory on the server, which nothing reads
+		// any more. Its values are discarded, not carried to any workstation.
+		version: 14,
+		name:    "projects.drop_spec_repo_path",
+		statements: []string{
+			"ALTER TABLE projects DROP COLUMN spec_repo_path;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

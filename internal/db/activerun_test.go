@@ -139,7 +139,6 @@ func TestMigrationNineKeepsSurplusRunsAsConcurrent(t *testing.T) {
 		"DROP INDEX idx_activities_one_active_run",
 		"ALTER TABLE task_activities DROP COLUMN concurrent",
 		// Nor anything the migrations after 9 add, which reopening replays.
-		"ALTER TABLE projects DROP COLUMN spec_repo_path",
 		"DROP INDEX idx_task_activities_macro_running",
 		"DROP INDEX idx_task_activities_macro",
 		"ALTER TABLE task_activities DROP COLUMN macro_key",

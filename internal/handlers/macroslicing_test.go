@@ -59,3 +59,21 @@ func TestSlicingImportExplainsAgentFailures(t *testing.T) {
 		t.Errorf("the stories source must not depend on the desktop app: %d %s", status, body)
 	}
 }
+
+// An older client still sends the server specifications path: it is ignored,
+// the update succeeds, and nothing echoes it back.
+func TestProjectUpdateIgnoresTheRetiredSpecificationsPath(t *testing.T) {
+	database, _, server, project := macroRunFixture(t)
+	req, _ := http.NewRequest(http.MethodPut, server.URL+"/api/projects/"+project.ID, strings.NewReader(`{"name":"Renamed","specRepoPath":"/server/wiki"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(defaultSession(t, database))
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(raw), "Renamed") || strings.Contains(string(raw), "specRepoPath") {
+		t.Fatalf("expected the update to succeed without the path, got %d %s", resp.StatusCode, raw)
+	}
+}

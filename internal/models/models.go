@@ -117,12 +117,6 @@ type Project struct {
 	// It is fed automatically: whenever a ticket pins a new CWD, that path is
 	// registered here so the next ticket can pick it instead of retyping it.
 	RepoPaths []string `json:"repoPaths,omitempty"`
-	// SpecRepoPath is the checkout carrying the project's specifications, when
-	// a team keeps them apart from its code. Empty means the code repository
-	// (RepoPath) carries them. It is read for the macro workflow only: the
-	// slicing import, the macro worktree and the realignment. The agents keep
-	// running in RepoPath.
-	SpecRepoPath string `json:"specRepoPath,omitempty"`
 	// RoadmapProjects are other Jira project keys whose story keys the slicing
 	// attaches to a line. They are read, never written.
 	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
@@ -396,8 +390,6 @@ type CreateProjectRequest struct {
 	EnabledViews []string `json:"enabledViews,omitempty"`
 	// EpicColors paints each card with the colour of its epic. Off when absent.
 	EpicColors bool `json:"epicColors,omitempty"`
-	// SpecRepoPath is the specifications checkout. Empty means RepoPath.
-	SpecRepoPath string `json:"specRepoPath,omitempty"`
 	// RoadmapProjects are the Jira project keys the slicing also reads.
 	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
@@ -448,7 +440,6 @@ type UpdateProjectRequest struct {
 	Color                       *string              `json:"color,omitempty"`
 	RepoPath                    *string              `json:"repoPath,omitempty"`
 	RepoPaths                   *[]string            `json:"repoPaths,omitempty"`
-	SpecRepoPath                *string              `json:"specRepoPath,omitempty"`
 	RoadmapProjects             *[]string            `json:"roadmapProjects,omitempty"`
 	PRCreationStage             *string              `json:"prCreationStage,omitempty"`
 	DefaultSkillMode            *string              `json:"defaultSkillMode,omitempty"`
