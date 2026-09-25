@@ -21,6 +21,8 @@ test fixtures or internal plumbing.
 
 - **A run waiting for your answer says so again.** Before a skill asks you a question it cannot continue without, it marks its run as waiting: the board shows the amber *waiting* badge with how long it has been waiting, and the desktop app raises its "waiting for you" notification for runs it launched. The mark clears by itself as soon as the session does anything else, and headless runs are never marked. Permission prompts of the agent's own tools are not detected. (#318)
 
+- **The desktop skill badge shows a skill waiting for your answer.** While a skill run is marked as waiting, the skill badge in the run header and beside the task reads *? Waiting for your answer* in amber, next to the process state, instead of staying blank until the skill ends. (#454)
+
 - **Realign a macro's specification with its slicing.** *Réaligner la spec*, in the macro panel, runs the new `realign-macro` skill on your local agent, in the desktop app's Run (or type `/realign-macro <KEY>` in an agent session), and can be stopped from the same panel. It brings the specification back in line with a slicing edited by hand: lines typed by hand become stub entries, renamed lines rename their entry, and entries no line points to any more are marked *to be removed*. It never rewrites the body of an entry and never deletes one, for Spec Kit and OpenSpec alike, and it commits and pushes the macro branch only when it wrote something. (#426)
 
 - **Each macro gets its own worktree.** A macro's specification is written in `.tasks/worktrees/<KEY>` of the specifications folder, when it is a Git repository, on the macro's branch, started from the up-to-date default branch, so two macros specified at the same time no longer share untracked files. An existing worktree is reused with its uncommitted work; projects with worktrees off keep using the checkout. (#426)
@@ -57,6 +59,8 @@ test fixtures or internal plumbing.
 ### Changed
 
 - **A run lost with its server can still be reported on.** When the server holding an agent session restarts, or one of several servers stops, the runs that session had started are canceled as before, but their owner can now report how they really ended through `finish_run`, as after any other disconnection. (#408)
+
+- **The web quick add is roomier, files the ticket under a macro, and can hand it to an agent.** The dialog is wider, with the title and a taller Markdown description on the left and the ticket's settings on the right (stacked on a narrow window). A new *Macro* field lists the project's open macros and starts on the macro the board is filtered on; the ticket is attached on the tracker too, and if the tracker refuses, the ticket is kept and a warning says so. The *Destination* choice is gone: the ticket always goes to the project's tracker. *Après la création* lets you pick, before saving, either to rewrite the ticket as a user story (its detail modal opens with the proposal to review) or to clarify it in the background; nothing is launched unless you choose to. (#445)
 
 - **A story created under a Jira epic now gets the epic as its parent on Jira**, not only on the Sectile board. If Jira refuses the parent, the story is kept and a warning says so. (#426)
 
