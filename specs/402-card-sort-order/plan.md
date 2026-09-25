@@ -158,8 +158,12 @@ deleting it.
   `HeaderSortField` being today's union (`key | title | status | priority |
   dueDate | createdAt`; `createdAt` has no header and can go, D13).
 - Split the list in two:
-  - `selectorSortedTasks = sortTasks(listed, boardSort)`: the grouped view
-    (lines 874 and 945) and `batchRows` in grouped mode (lines 206-208) read it;
+  - the grouped view (lines 874 and 945) and `batchRows` in grouped mode
+    (lines 206-208) sort each group on its own, `sortTasks(group, boardSort)`,
+    as a Board column is. *Changed while implementing:* sorting the whole list
+    once and filtering it per group, as first planned, keeps an epic
+    contiguous but orders the epics of a group by priorities found in other
+    groups, which breaks US2.2 inside a Backlog group;
   - `tableTasks = headerSort ? headerSorted(listed, headerSort) :
     selectorSortedTasks`: `visibleTasks` for the flat table reads it.
   `headerSorted` is today's comparator body, unchanged, with the same
@@ -169,11 +173,13 @@ deleting it.
   'key' ? boardSort.field : null)`. Same column: flip (starting from
   `headerSort?.asc ?? boardSort.asc`). Other column: `{ field, asc: field !==
   'priority' }`, as today (US5.3).
-- Clear the override when the selector changes: a `useEffect` on
-  `[boardSort.field, boardSort.asc]` that calls `setHeaderSort(null)`. The
-  selector is the only writer of `boardSort`, and a change made from the Board
-  cannot happen while the Backlog is mounted, so an effect is enough and keeps
-  `BoardSortSelect` free of a Backlog-specific callback.
+- Clear the override when the selector changes. *Changed while
+  implementing:* instead of a `useEffect` resetting it (which the linter flags
+  as `set-state-in-effect`), the override records the `boardSort` value it was
+  made against and only applies while `boardSort` is still that value. The
+  selector is the only writer of `boardSort` and writes a new object on every
+  change, so any change retires the override, and `BoardSortSelect` stays free
+  of a Backlog-specific callback.
 - The override is component state: it is lost on reload and when the Backlog
   unmounts (US5.6), and the grouped view never reads it (US5.7). It survives a
   switch from the flat table to the grouped view and back within the page.
