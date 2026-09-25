@@ -41,9 +41,9 @@ test('declare code as reviewed transitions task from ticket row, handles capabil
   const page=await app.firstWindow();page.setDefaultTimeout(7000)
 
   // Open tickets pane for Project A
-  const openTasksBtn=page.getByRole('button',{name:'Open tasks in Project A',exact:true})
-  await openTasksBtn.waitFor()
-  await openTasksBtn.click()
+  const actions=page.getByRole('button',{name:'Actions for Project A',exact:true})
+  await actions.waitFor()
+  await actions.click();await page.getByRole('menuitem',{name:'Open tasks',exact:true}).click()
   await page.waitForSelector('.ticket-row')
 
   const row1=page.locator('.ticket-row[data-task-id="task-1"]')
