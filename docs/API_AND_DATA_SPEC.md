@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS projects (
     icon TEXT DEFAULT 'folder',
     color TEXT DEFAULT 'indigo',
     repo_path TEXT NOT NULL DEFAULT '.',
-    repo_paths TEXT NOT NULL DEFAULT '[]',  -- known working directories, auto-fed when a ticket pins a new CWD
+    repo_paths TEXT NOT NULL DEFAULT '[]',  -- legacy working directories, converted to repositories once per project (#456)
+    repositories TEXT NOT NULL DEFAULT '[]',  -- remotes the project's tickets work in, besides the code remote (migration 17)
+    repositories_migration TEXT NOT NULL DEFAULT '',  -- JSON report of the legacy path conversion, empty until done (migration 18)
     git_remote_url TEXT DEFAULT '',
     github_repo TEXT DEFAULT '',
     -- Per-project connection overrides. Empty falls back to the settings row,
@@ -66,7 +68,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     branch_name TEXT,
     pr_url TEXT,                          -- the task's current pull request: always the last entry of pr_links
     pr_links TEXT NOT NULL DEFAULT '[]',  -- ordered set of [{url, branch}], oldest first; one ticket routinely produces several PRs
-    repo_path TEXT NOT NULL DEFAULT '',  -- per-ticket CWD override; empty means inherit the project, then the global setting
+    repo_path TEXT NOT NULL DEFAULT '',  -- legacy per-ticket CWD, ignored by the agent and converted once per project (#456)
+    repository TEXT NOT NULL DEFAULT '',  -- identity of the repository the ticket is pinned to, one of its project's (migration 19)
+    changed_repositories TEXT NOT NULL DEFAULT '[]',  -- secondary repositories the ticket has a worktree in (migration 20)
     worktree_path TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,

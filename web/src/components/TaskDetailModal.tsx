@@ -152,7 +152,7 @@ export const TaskDetailModal: React.FC = () => {
   // lien : le serveur le recalcule, la fiche n'édite que l'ensemble.
   const [prLinks, setPrLinks] = useState<PullRequestLink[]>([])
   const [newPrUrl, setNewPrUrl] = useState('')
-  const [repoPath, setRepoPath] = useState('')
+  const [repository, setRepository] = useState('')
   const [trackerStatus, setTrackerStatus] = useState('')
   const [sprint, setSprint] = useState('')
   const [labels, setLabels] = useState<string[]>([])
@@ -194,12 +194,18 @@ export const TaskDetailModal: React.FC = () => {
 
   const detailMode: DetailMode = settings.detailMode || 'panel'
 
-  // Répertoires proposés : celui du projet, puis ceux enregistrés sur le projet
-  // (alimentés automatiquement dès qu'un ticket en épingle un nouveau).
   // Statuts du projet, groupés par colonne, et étape du workflow associée. Les
   // deux sélecteurs de la fiche sont deux vues du même mapping : changer l'un
   // met l'autre à jour, et le serveur refait la même dérivation de son côté.
   const projectColumns = taskProject?.trackerColumns || []
+  // Pinning a repository only means something when the ticket has a choice:
+  // a mono-repo or a single repository leaves the agent nothing to decide.
+  const projectRepositories = taskProject?.repositories || []
+  const canPinRepository = taskProject?.monoRepo === false && projectRepositories.length > 1
+  // The pin is sent only when it changed: an unchanged stale pin, one the
+  // project no longer lists, would make the server refuse the whole save.
+  const repositoryUpdate = () =>
+    repository !== (selectedTask?.repository || '') ? { repository } : {}
   const projectStageColumns = taskProject?.stageColumns || {}
   const hasProjectStatuses = projectColumns.some(c => c.statuses.length > 0)
 
@@ -260,7 +266,7 @@ export const TaskDetailModal: React.FC = () => {
       setBranchName(selectedTask.branchName || '')
       setPrLinks(taskPullRequestLinks(selectedTask))
       setNewPrUrl('')
-      setRepoPath(selectedTask.repoPath || '')
+      setRepository(selectedTask.repository || '')
       setTrackerStatus(selectedTask.trackerStatus || '')
       setSprint(selectedTask.sprint || '')
       setLabels(selectedTask.labels || [])
@@ -384,7 +390,7 @@ export const TaskDetailModal: React.FC = () => {
         taskProjectId !== (selectedTask.projectId || '') ||
         branchName.trim() !== (selectedTask.branchName || '').trim() ||
         JSON.stringify(prLinks) !== JSON.stringify(taskPullRequestLinks(selectedTask)) ||
-        repoPath.trim() !== (selectedTask.repoPath || '').trim() ||
+        repository !== (selectedTask.repository || '') ||
         trackerStatus.trim() !== (selectedTask.trackerStatus || '').trim() ||
         sprint.trim() !== (selectedTask.sprint || '').trim() ||
         assignee.trim() !== (selectedTask.assignee || '').trim() ||
@@ -405,7 +411,7 @@ export const TaskDetailModal: React.FC = () => {
           dueDate: dueDate || null,
           branchName: branchName.trim() || undefined,
           prLinks,
-          repoPath: repoPath.trim(),
+          ...repositoryUpdate(),
           trackerStatus: trackerStatus.trim(),
         })
       }
@@ -428,7 +434,7 @@ export const TaskDetailModal: React.FC = () => {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedTask, isTtyExpanded, isExpandedSpec, title, description, status, priority, taskProjectId, branchName, prLinks, repoPath, assignee, dueDate, labels])
+  }, [selectedTask, isTtyExpanded, isExpandedSpec, title, description, status, priority, taskProjectId, branchName, prLinks, repository, assignee, dueDate, labels])
 
   // Le clic à côté ferme comme la croix : handleClose pour la fiche, qui
   // enregistre en sortant, et le seul lecteur de spécification pour sa propre
@@ -566,7 +572,7 @@ export const TaskDetailModal: React.FC = () => {
       dueDate: dueDate || null,
       branchName: branchName.trim() || undefined,
       prLinks,
-      repoPath: repoPath.trim(),
+      ...repositoryUpdate(),
       trackerStatus: trackerStatus.trim(),
     })
     setIsSaving(false)
@@ -1051,6 +1057,29 @@ export const TaskDetailModal: React.FC = () => {
                 })()}
               </select>
             </div>
+
+            {/* Repository the ticket works in, among the project's repositories */}
+            {canPinRepository && (
+              <div>
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                  Dépôt
+                </label>
+                <select
+                  value={repository}
+                  onChange={e => setRepository(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)] font-mono"
+                  title="Dépôt dans lequel l'agent travaille ce ticket, les autres servant de contexte"
+                >
+                  <option value="">— non épinglé —</option>
+                  {projectRepositories.map(repo => (
+                    <option key={repo.identity} value={repo.identity}>{repo.identity}</option>
+                  ))}
+                  {repository && !projectRepositories.some(repo => repo.identity === repository) && (
+                    <option value={repository}>{repository} (hors du projet)</option>
+                  )}
+                </select>
+              </div>
+            )}
 
           </div>
 

@@ -45,6 +45,10 @@ type Config struct {
 	// server that predates it) reads as mono-repo, the server's own default,
 	// so a newer agent never starts refusing what used to work.
 	MonoRepo *bool `json:"monoRepo,omitempty"`
+	// Repositories are the remotes the project's tickets work in, the code
+	// remote first (#456). Remotes only: the workstation maps them to folders.
+	// Absent (an older server) means the code remote alone, as before.
+	Repositories []string `json:"repositories,omitempty"`
 }
 
 // IsMonoRepo reads MonoRepo with its default.

@@ -165,7 +165,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	} else if d.link.projectID != c.ProjectID {
 		remote, err := gitLocal(ctx, root, "remote", "get-url", "origin")
 		if err != nil || c.GitRemoteURL == "" || models.RepositoryIdentity(remote) != models.RepositoryIdentity(c.GitRemoteURL) {
-			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/taskflow/settings.json projects", c.ProjectID)
+			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/sectile/settings.json projects", c.ProjectID)
 		}
 	}
 	root, err = filepath.Abs(root)
@@ -256,6 +256,14 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	}
 	for id, folder := range overrides.SpecRepos {
 		local.SpecRepos[id] = folder
+	}
+	// So are the repository folders (#456), which every multi-repo launch
+	// resolves through the value returned here.
+	if local.Repositories == nil {
+		local.Repositories = map[string]string{}
+	}
+	for identity, folder := range overrides.Repositories {
+		local.Repositories[identity] = folder
 	}
 	return root, local, nil
 }
@@ -383,6 +391,15 @@ func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWo
 	config, root, workDir, branch, task, err := d.prepareWorkspace(ctx, taskKey, useWorktrees...)
 	if err == nil {
 		provisionWorktree(ctx, root, workDir)
+		// A multi-repo ticket may work in another checkout than the one it
+		// was admitted against: the queue compares checkouts through this.
+		d.queue.mu.Lock()
+		for _, run := range d.queue.runs {
+			if run.taskID == taskKey && run.desktop.Status == "preparing" {
+				run.root = root
+			}
+		}
+		d.queue.mu.Unlock()
 	}
 	return config, workDir, branch, task, err
 }
@@ -421,6 +438,20 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 	if err := config.Validate(); err != nil {
 		return config, "", "", "", task, err
 	}
+	// The worktree lives in the ticket's own repository, which on a multi-repo
+	// project is not necessarily the project root (#456).
+	primary, _, pin, err := primaryRoot(ctx, config, overrides, root, task)
+	if err != nil {
+		return config, "", "", "", task, err
+	}
+	if pin != "" {
+		// The only repository mapped here: later stages must stay in it.
+		if patchErr := d.patchTask(ctx, taskKey, map[string]string{"repository": pin}); patchErr != nil {
+			log.Printf("[Agent] Could not pin task %s to %s: %v", taskKey, pin, patchErr)
+		}
+		task.Repository = pin
+	}
+	root = primary
 	workDir, branch, err := ensureLocalWorktree(ctx, root, task, config.UseWorktrees)
 	if err != nil {
 		return config, "", "", "", task, err
@@ -520,15 +551,16 @@ func agentCommandLine(provider, template, model, prompt string, contexts ...agen
 // report the run and move the stage, so the run ends having only printed why it
 // could not work and the board never moves. Only an attested flag is passed, for
 // the same reason the provider list itself is attested.
-func headlessCommandLine(provider, model, prompt string) (string, error) {
+func headlessCommandLine(provider, model, prompt string, addDirs ...string) (string, error) {
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
+	dirFlags := addDirArgs(provider, addDirs)
 	reasoning := ""
 	if engineStreamsReasoning(provider) {
 		reasoning = strings.Join(reasoningOptions, " ")
 	}
 	switch provider {
 	case "claude":
-		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt)), nil
+		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
 	case "codex":
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
@@ -539,6 +571,38 @@ func headlessCommandLine(provider, model, prompt string) (string, error) {
 	default:
 		return "", fmt.Errorf("provider %q has no headless mode: run this skill interactively, or configure an AI command template carrying a {mode:AUTONOMOUS|INTERACTIVE} placeholder", provider)
 	}
+}
+
+// addDirArgs passes the task's other folders to a provider whose option for it
+// is attested: Claude Code's --add-dir. Every other provider gets nothing,
+// which is what headlessCommandLine does for any unattested flag; the folder
+// map in the prompt still names the folders.
+//
+// --add-dir takes several values: written "--add-dir <path>", it goes on
+// swallowing every argument that follows, the prompt included. The
+// "--add-dir=<path>" form takes exactly one, wherever a template places it,
+// and the built-in lines also put the options after the prompt.
+func addDirArgs(provider string, dirs []string) string {
+	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
+		return ""
+	}
+	var args []string
+	for _, dir := range dirs {
+		if dir = strings.TrimSpace(dir); dir != "" {
+			args = append(args, "--add-dir="+quoteShell(dir))
+		}
+	}
+	return strings.Join(args, " ")
+}
+
+// templateProvider is the CLI a command template starts: its first word,
+// without a directory.
+func templateProvider(template string) string {
+	fields := strings.Fields(template)
+	if len(fields) == 0 {
+		return ""
+	}
+	return filepath.Base(fields[0])
 }
 
 // reasoningOptions make an engine print what it is doing as it does it: one
@@ -596,14 +660,20 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 		}
 		return expandConfiguredTemplate(template, model, prompt, autonomous, contexts...)
 	}
+	var addDirs []string
+	if len(contexts) > 0 {
+		addDirs = contexts[0].AddDirs
+	}
 	if autonomous {
-		return headlessCommandLine(provider, model, prompt)
+		return headlessCommandLine(provider, model, prompt, addDirs...)
 	}
 	modelFlag := strings.Join(agentconfig.ModelArgs(provider, model), " ")
 	switch provider {
 	case "agy":
 		return words("agy", "-i", quoteShell(prompt)), nil
-	case "claude", "codex", "gemini":
+	case "claude":
+		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
+	case "codex", "gemini":
 		return words(provider, modelFlag, quoteShell(prompt)), nil
 	case "vibe":
 		return words("vibe", "-p", quoteShell(prompt)), nil
@@ -624,6 +694,11 @@ func expandConfiguredTemplate(template, model, prompt string, autonomous bool, c
 	}
 	values := launch.values(prompt)
 	resolved := resolveTemplateMode(template, autonomous)
+	// {addDirs} is several options, already quoted, rather than one value: it
+	// is spliced in before the quoting pass, and is empty for a provider whose
+	// flag is not attested. It needs the provider the template runs, which is
+	// the first word of the command it starts.
+	resolved = strings.ReplaceAll(resolved, "{addDirs}", addDirArgs(templateProvider(resolved), launch.AddDirs))
 	if configured := strings.TrimSpace(model); configured != "" {
 		values["model"] = configured
 	} else {

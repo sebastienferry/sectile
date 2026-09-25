@@ -58,10 +58,13 @@ func (c *Client) jiraConfigured() error {
 	switch {
 	case c == nil || c.JiraURL == "":
 		return fmt.Errorf("configure the Jira site URL")
+	case c.JiraToken == "":
+		return c.missingCredential("Jira")
+	case c.JiraEmail == "" && c.actingUser == "":
+		// The server credential is a pair: half of it is none at all.
+		return c.missingCredential("Jira")
 	case c.JiraEmail == "":
 		return fmt.Errorf("configure the Jira account e-mail")
-	case c.JiraToken == "":
-		return fmt.Errorf("%s", missingCredential("Jira"))
 	}
 	return nil
 }

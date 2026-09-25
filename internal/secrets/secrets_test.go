@@ -199,3 +199,45 @@ func TestSurroundingSpacesDoNotChangeThePassphrase(t *testing.T) {
 		t.Error("removing an inner space must change the key")
 	}
 }
+
+// A server credential belongs to its tracker and to the server, never to a
+// person: it opens under its own binding only.
+func TestAServerRecordOpensAsItsTrackerServerCredentialOnly(t *testing.T) {
+	key := testKey(t)
+	record, err := Seal(key, ServerBinding("github"), "ghp-server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token, err := Open(key, ServerBinding("GitHub"), record); err != nil || token != "ghp-server" {
+		t.Fatalf("round trip: %q %v", token, err)
+	}
+	for _, theft := range []Binding{
+		ServerBinding("jira"),
+		{UserID: "", Tracker: "github"},
+		{UserID: "admin", Tracker: "github"},
+	} {
+		if _, err := Open(key, theft, record); !errors.Is(err, ErrWrongKey) {
+			t.Errorf("%+v opened the server record: %v", theft, err)
+		}
+	}
+
+	personal, err := Seal(key, Binding{UserID: "admin", Tracker: "github"}, "ghp-personal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(key, ServerBinding("github"), personal); !errors.Is(err, ErrWrongKey) {
+		t.Errorf("a personal record opened as the server credential: %v", err)
+	}
+}
+
+// The personal serialisation is what every stored record was sealed with: it
+// must not move, or those records stop opening.
+func TestThePersonalBindingSerialisationIsUnchanged(t *testing.T) {
+	got := string(Binding{UserID: "u1", Tracker: "Jira"}.bytes())
+	if want := "sectile:v1:user:2:u1:tracker:4:jira"; got != want {
+		t.Fatalf("personal binding = %q, want %q", got, want)
+	}
+	if _, err := Seal(testKey(t), Binding{Server: true}, "x"); err == nil {
+		t.Fatal("a server credential without a tracker must be refused")
+	}
+}

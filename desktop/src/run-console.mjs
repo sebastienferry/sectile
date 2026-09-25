@@ -18,7 +18,7 @@ function tracedRun(run){
 
 // needsConsoleNotice says whether the pane shows a message instead of attaching.
 export function needsConsoleNotice(run){
- if(run.status==='queued'||run.status==='preparing')return true
+ if(run.status==='queued'||run.status==='preparing'||run.status==='waiting')return true
  if(run.headless===true)return !tracedRun(run)
  return !run.sessionId
 }
@@ -33,6 +33,7 @@ export function readOnlyConsole(run){
 export function consoleNotice(run){
  if(run.status==='queued')return 'Execution queued. Waiting for a console.'
  if(run.status==='preparing')return 'Preparing execution. Waiting for a console.'
+ if(run.status==='waiting')return 'Waiting for the repository of this task: choose it above to start. Nothing has started yet.'
  if(run.headless===true)return 'Autonomous execution: no terminal to answer. Its output is recorded on the task activity.'
  if(run.status==='canceled')return 'Execution canceled before a console was created.'
  return 'No console is available for this execution. Check the task activity and local agent.log for launch errors.'

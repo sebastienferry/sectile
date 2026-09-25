@@ -219,7 +219,10 @@ contains identity, effective skills and defaults, without server filesystem path
 or tracker credentials. Local repositories are mapped by project primary key in
 `~/.config/sectile/settings.json`, with repository overrides supported under
 `.taskflow/agent.json`. Git remote identity can match the current repository.
-Repositories are never cloned implicitly.
+Repositories are never cloned implicitly. On a multi-repo project, each
+repository the project declares is mapped by its remote identity instead
+(`repositories`), and a task runs in a worktree of the repository it is pinned
+to; a launch that cannot tell which waits for the pin (ADR 0028).
 
 Task preparation reuses the assigned branch's existing checkout where possible.
 Otherwise it creates `.tasks/worktrees/<taskKey>` locally. Existing mismatched
