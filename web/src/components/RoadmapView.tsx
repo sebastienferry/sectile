@@ -110,6 +110,8 @@ export const RoadmapView: React.FC = () => {
     setTasksSprint,
     assigneeFilter,
     setAssigneeFilter,
+    myTasksOnly,
+    setMyTasksOnly,
     sprintFilter,
     setSprintFilter,
     teamFilter,
@@ -128,6 +130,7 @@ export const RoadmapView: React.FC = () => {
     pushPendingHorizons,
     importMacroHorizons,
     createBatchTasks,
+    t,
   } = useApp()
   // Les macros sont celles du projet affiché : c'est son réglage qui compte.
   const epicColorsOn = useEpicColors()()
@@ -259,6 +262,7 @@ export const RoadmapView: React.FC = () => {
         clear: () => setAssigneeFilter(null),
       })
     }
+    if (myTasksOnly) chips.push({ label: t.nav.myTasks, clear: () => setMyTasksOnly(false) })
     if (sprintFilter) chips.push({ label: sprintFilter, clear: () => setSprintFilter(null) })
     if (teamFilter) chips.push({ label: teamFilter, clear: () => setTeamFilter(null) })
     if (labelFilter) chips.push({ label: `#${labelFilter.replace(/^#+/, '')}`, clear: () => setLabelFilter(null) })
@@ -267,17 +271,20 @@ export const RoadmapView: React.FC = () => {
     return chips
   }, [
     assigneeFilter,
+    myTasksOnly,
     sprintFilter,
     teamFilter,
     labelFilter,
     pinnedOnly,
     searchQuery,
     setAssigneeFilter,
+    setMyTasksOnly,
     setSprintFilter,
     setTeamFilter,
     setLabelFilter,
     setPinnedOnly,
     setSearchQuery,
+    t,
   ])
 
   const PANEL_MIN = 420

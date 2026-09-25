@@ -28,6 +28,10 @@ const (
 	jiraErrorMessageLimit = 400
 )
 
+// JiraSite is the site a Jira address names, the way the client reaches it:
+// two spellings of one site answer the same.
+func JiraSite(raw string) string { return jiraBaseURL(raw) }
+
 // jiraBaseURL accepts what a user realistically types, a bare site, a full
 // URL or a deep link, and reduces it to the scheme plus host the APIs live on.
 func jiraBaseURL(raw string) string {

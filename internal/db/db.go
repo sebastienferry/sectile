@@ -1226,6 +1226,9 @@ type TaskScope struct {
 	UserID    string
 	ProjectID string
 	ViewID    string
+	// Mine keeps the tickets assigned to me, as MyTasks says who that is on
+	// each tracker. Nil means no My Tasks filter.
+	Mine *MyTasks
 }
 
 // taskScopeUnsafe returns the scope as two SQL conditions over tasks: the
@@ -1791,6 +1794,12 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 			conditions = append(conditions, "assignee = ?")
 			args = append(args, assignee)
 		}
+	}
+
+	if scope.Mine != nil {
+		cond, mineArgs := d.myTasksCondition(*scope.Mine)
+		conditions = append(conditions, cond)
+		args = append(args, mineArgs...)
 	}
 
 	sqlQuery := "SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"

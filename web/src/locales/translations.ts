@@ -39,6 +39,9 @@ export interface TranslationSchema {
     sync: string
     filters: string
     myTasks: string
+    /** Names the trackers on which My Tasks uses the account's name and e-mail, with `{trackers}`. */
+    myTasksFallback: string
+    myTasksSignedOut: string
     urgentHigh: string
     labels: string
     sources: string
@@ -833,6 +836,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       sync: 'Synchro',
       filters: 'Filtres rapides',
       myTasks: 'Mes tâches',
+      myTasksFallback: 'Sur {trackers}, votre nom et votre e-mail sont utilisés : enregistrez ou vérifiez un accès personnel dans votre profil.',
+      myTasksSignedOut: "Hors connexion : le nom et l'e-mail du profil local sont utilisés.",
       urgentHigh: 'Priorité Haute',
       labels: 'Étiquettes',
       sources: 'Sources',
@@ -1622,6 +1627,8 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       sync: 'Sync',
       filters: 'Quick Filters',
       myTasks: 'My Tasks',
+      myTasksFallback: 'On {trackers}, your name and e-mail are used: save or verify a personal credential in your profile.',
+      myTasksSignedOut: 'Signed out: the name and e-mail of the local profile are used.',
       urgentHigh: 'High Priority',
       labels: 'Labels',
       sources: 'Sources',
