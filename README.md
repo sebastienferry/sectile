@@ -477,6 +477,38 @@ max by (status) (sectile_active_runs)
 
 See [ADR 0027](docs/adrs/0027-prometheus-metrics-and-active-users.md).
 
+### Grafana dashboard
+
+[`deploy/grafana/sectile.json`](deploy/grafana/sectile.json) is a Grafana
+dashboard for these metrics, in three rows: an overview (running version,
+replicas, active users, active runs by status), the HTTP controllers (requests,
+server and client errors, latency percentiles, busiest controllers; the scrapes
+of `/metrics` are left out) and the runtime of each replica (goroutines, memory,
+CPU, garbage collection, file descriptors).
+
+Import it from *Dashboards › New › Import*, or through the API:
+
+```bash
+jq '{dashboard: ., overwrite: true}' deploy/grafana/sectile.json \
+  | curl -sf -H "Authorization: Bearer $GRAFANA_TOKEN" -H 'Content-Type: application/json' \
+      -d @- "$GRAFANA_URL/api/dashboards/db"
+```
+
+The file names no datasource and no deployment, so it imports into any Grafana
+as is. Three selectors at the top pick them: *Datasource* (any
+Prometheus-compatible one holding the series), *Deployment* (every Kubernetes
+`namespace` that reports `sectile_build_info`) and *Replica* (the `pod`s of that
+deployment, all by default). The series are therefore expected to carry the
+`namespace` and `pod` labels, which a Kubernetes scrape adds. To make a
+deployment the default, select it and save the dashboard with *Update default
+variable values*. Importing again replaces the dashboard rather than copying
+it, since its `uid` is fixed; the defaults saved this way are lost and have to
+be saved again.
+
+`go test ./internal/metrics/` fails when a panel queries a `sectile_*` series
+the server does not register, adds up a board series across replicas, or names
+a datasource or a namespace of its own.
+
 ## Versioning and changelog
 
 A release of Sectile is a Git tag `vX.Y.Z` following

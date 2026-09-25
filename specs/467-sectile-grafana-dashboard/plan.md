@@ -46,7 +46,7 @@ no new CI job.
 | --- | --- | --- | --- |
 | `datasource` | datasource | `query: prometheus` | Every panel and variable uses `{"type":"prometheus","uid":"${datasource}"}`. |
 | `namespace` | query | `label_values(sectile_build_info, namespace)` | Single value, refresh on time range change, sorted alphabetically. `current` left empty in the file. |
-| `pod` | query | `label_values(sectile_build_info{namespace="$namespace"}, pod)` | Multi-value, `includeAll`, `allValue: ".*"`. |
+| `pod` | query | `label_values(sectile_build_info{namespace="$namespace"}, pod)` | Multi-value, `includeAll`, no `allValue`: "All" expands to the Sectile pods only, so a sidecar exposing `go_*` series in the same namespace stays out. |
 
 Selector used below: `S = namespace="$namespace", pod=~"$pod"`.
 
@@ -96,7 +96,7 @@ Per pod, legend `{{pod}}`, selector `S`.
 | Resident memory | `process_resident_memory_bytes{S}` |
 | CPU (cores) | `rate(process_cpu_seconds_total{S}[$__rate_interval])` |
 | GC pause time per second | `rate(go_gc_duration_seconds_sum{S}[$__rate_interval])` |
-| Open file descriptors | `process_open_fds{S}` and `process_max_fds{S}` (dashed) |
+| File descriptors used | `process_open_fds{S} / process_max_fds{S}`, percent. The limit is about a million where the open count is in the tens, so the two on one axis would flatten the latter. |
 
 `go_*` and `process_*` come from the collectors `metrics.New` registers.
 

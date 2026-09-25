@@ -85,7 +85,6 @@
         "current": {},
         "hide": 0,
         "includeAll": true,
-        "allValue": ".*",
         "multi": true,
         "options": [],
         "refresh": 2,
@@ -985,8 +984,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Open file descriptors",
-      "description": "Open file descriptors per replica, against the process limit (dashed).",
+      "title": "File descriptors used",
+      "description": "Open file descriptors over the process limit, per replica.",
       "id": 20,
       "datasource": {
         "type": "prometheus",
@@ -1004,23 +1003,14 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "process_open_fds{namespace=\"$namespace\", pod=~\"$pod\"}",
-          "legendFormat": "{{pod}} open",
+          "expr": "process_open_fds{namespace=\"$namespace\", pod=~\"$pod\"} / process_max_fds{namespace=\"$namespace\", pod=~\"$pod\"}",
+          "legendFormat": "{{pod}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "process_max_fds{namespace=\"$namespace\", pod=~\"$pod\"}",
-          "legendFormat": "{{pod}} limit",
-          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "percentunit",
           "custom": {
             "drawStyle": "line",
             "lineWidth": 1,
@@ -1034,30 +1024,7 @@
           },
           "min": 0
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byFrameRefID",
-              "options": "B"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "fill": "dash",
-                  "dash": [
-                    10,
-                    10
-                  ]
-                }
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "options": {
         "legend": {

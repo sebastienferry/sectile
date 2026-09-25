@@ -21,6 +21,8 @@ test fixtures or internal plumbing.
 
 - **Prometheus metrics.** The server exposes `/metrics` next to the interface: requests, latency and errors per controller, active users, active runs by status, and the build version.
 
+- **A Grafana dashboard for those metrics.** `deploy/grafana/sectile.json` charts the running version, active users and runs, the traffic, errors and latency of each controller, and the memory and CPU of each replica. It imports into any Grafana, where you pick the datasource, the deployment and the replicas at the top of the page. (#467)
+
 - **Runs whose client has gone quiet are shown, and closed in time.** A run whose agent session has made no call for four hours shows as *silent* on the board and in the activities view instead of *running*. After eight hours of silence, Sectile takes the client for dead and cancels the run, so it no longer holds the board or its chain; its owner can still report how it really ended. The second delay is set with `SECTILE_MCP_SESSION_ABANDON_AFTER`. (#319)
 
 - **Close a client's run from the board.** A run started by an agent session rather than by your local agent shows *Close* on its badge, for its owner and for admins. Closing records it as disconnected, and its owner can still report the real outcome. The activities view's cancel now asks the same question: only the owner or an admin may cancel such a run. (#319)
