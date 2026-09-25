@@ -418,6 +418,13 @@ export const ProjectModal: React.FC = () => {
 
     setIsSubmitting(true)
     try {
+      // A remote typed but not added yet is part of what is being saved.
+      const pending = newRepository.trim()
+      if (pending && duplicateRepository(gitRemoteUrl, [...repositories, pending])) {
+        setRepositoryError(`This repository is already listed (${repositoryIdentity(pending)}).`)
+        return
+      }
+      const savedRepositories = pending ? [...repositories, pending] : repositories
       const computedGithubRepo = githubRepo.trim() || extractGithubRepoFromGitUrl(gitRemoteUrl)
       const payload = {
         name: name.trim(),
@@ -434,7 +441,7 @@ export const ProjectModal: React.FC = () => {
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
         monoRepo,
-        repositories,
+        repositories: savedRepositories,
         ...projectAgentSettings(useCustomAgent, aiProvider, aiModel),
         aiSkillModels,
         setupProviders: [],

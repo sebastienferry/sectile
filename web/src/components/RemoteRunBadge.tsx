@@ -21,7 +21,7 @@ const LABELS: Record<RunIndicatorState, string> = {
 }
 
 /** A launch parked until its ticket is pinned asks for a repository, not an answer. */
-const REPOSITORY_WAIT_LABEL = 'En attente du dépôt de la tâche'
+const REPOSITORY_WAIT_LABEL = 'Remote execution waiting for the repository of its ticket'
 
 /** The state glyph, at badge size, pulsing while the state lasts. */
 function StateGlyph({ state, pulse }: { state: RunIndicatorState; pulse: boolean }) {

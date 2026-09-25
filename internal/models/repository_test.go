@@ -11,6 +11,11 @@ func TestRepositoryIdentity(t *testing.T) {
 		"git@gitlab.com:smartadserver/private/arch/argocd-arch.git":      "gitlab.com/smartadserver/private/arch/argocd-arch",
 		"deploy@gitlab.example.org:group/app.git":                        "gitlab.example.org/group/app",
 		"https://user:secret@gitlab.example.org/group/app.git":           "gitlab.example.org/group/app",
+		// The cases web/tests/repositories.test.mjs pins for the browser too.
+		"https://github.com/o/r.git?x=1": "github.com/o/r.git",
+		"https://github.com/o/r#frag":    "github.com/o/r",
+		"https://github.com/o/my%20repo": "github.com/o/my repo",
+		"ssh://git@[::1]:22/o/r":         "::1/o/r",
 	} {
 		if got := RepositoryIdentity(remote); got != want {
 			t.Errorf("RepositoryIdentity(%q) = %q, want %q", remote, got, want)

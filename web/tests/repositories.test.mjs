@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  codeRepositoryIdentity,
   declaredRepositories,
   droppedRepositoryPaths,
   duplicateRepository,
@@ -17,6 +18,11 @@ test('identity matches the server for every remote spelling', () => {
     'deploy@gitlab.example.org:group/app.git': 'gitlab.example.org/group/app',
     'https://user:secret@gitlab.example.org/group/app.git': 'gitlab.example.org/group/app',
     '  github.com/o/a  ': 'github.com/o/a',
+    // The cases internal/models/repository_test.go pins for the server too.
+    'https://github.com/o/r.git?x=1': 'github.com/o/r.git',
+    'https://github.com/o/r#frag': 'github.com/o/r',
+    'https://github.com/o/my%20repo': 'github.com/o/my repo',
+    'ssh://git@[::1]:22/o/r': '::1/o/r',
   }
   for (const [remote, want] of Object.entries(cases)) {
     assert.equal(repositoryIdentity(remote), want, remote)
@@ -52,4 +58,14 @@ test('dropped paths are read off the migration report', () => {
   assert.deepEqual(droppedRepositoryPaths(''), [])
   assert.deepEqual(droppedRepositoryPaths('{not json'), [])
   assert.deepEqual(droppedRepositoryPaths(JSON.stringify({ converted: [] })), [])
+})
+
+test('the code remote of a project known by its GitHub repository is not declared', () => {
+  const project = { gitRemoteUrl: '', githubRepo: 'o/a', repositories: [
+    { url: 'https://github.com/o/a', identity: 'github.com/o/a' },
+    { url: 'git@github.com:o/b.git', identity: 'github.com/o/b' },
+  ] }
+  assert.equal(codeRepositoryIdentity(project), 'github.com/o/a')
+  assert.deepEqual(declaredRepositories(project), ['git@github.com:o/b.git'])
+  assert.equal(codeRepositoryIdentity({ gitRemoteUrl: '', githubRepo: '' }), '')
 })

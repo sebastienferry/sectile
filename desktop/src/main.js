@@ -282,7 +282,7 @@ function renderQueue(project,group){
  const stopping=runsForProject.filter(run=>activeRun(run)&&run.cancelRequested)
  const waiting=orderedQueueRuns(runsForProject)
  const parked=runsForProject.filter(run=>run.status==='waiting'&&!run.cancelRequested)
- const text=active.length+' active · '+waiting.length+' waiting'+(stopping.length?' · '+stopping.length+' stopping':'')
+ const text=active.length+' active · '+waiting.length+' waiting'+(parked.length?' · '+parked.length+' waiting for a repository':'')+(stopping.length?' · '+stopping.length+' stopping':'')
  if(summary.textContent!==text)summary.textContent=text
  if(!active.length&&!waiting.length&&!stopping.length&&!parked.length){
   const empty=document.createElement('p');empty.textContent='No active or queued executions';list.append(empty);return
@@ -596,7 +596,7 @@ async function updateDisconnected(ids,force=false,deferrable=false){
  if(hiddenProject(selectedProject))selectedProject=null
  const current=runs.find(run=>run.id===selected)
  if(current&&hiddenProject(current.projectId)){
-  selected=null;terminal.reset()
+  selected=null;hideRepositoryChoice();terminal.reset()
   document.querySelector('#title').textContent='Select an execution'
   showDirectory('')
   await api.detach().catch(error)
@@ -707,7 +707,7 @@ async function restartLocalAgent(){
  const button=document.querySelector('#restart');button.disabled=true;restarting=true
  try{
   if(await api.restart()){
-   selected=null;runs=[];last='';terminal.reset();render()
+   selected=null;runs=[];last='';hideRepositoryChoice();terminal.reset();render()
    renderHeader()
    showDirectory('')
    document.querySelector('#error').textContent=''
@@ -727,7 +727,7 @@ async function stopLocalAgent(){
  const button=document.querySelector('#shutdown');button.disabled=true;restarting=true
  try{
   if(await api.shutdown()){
-   selected=null;runs=[];last='';terminal.reset();render()
+   selected=null;runs=[];last='';hideRepositoryChoice();terminal.reset();render()
    document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true
    document.querySelector('#restart').hidden=true;button.hidden=true
    document.querySelector('#start button').disabled=false
@@ -748,7 +748,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   runs=runs.filter(run=>!removed.includes(run.id))
   for(const id of removed)skillResults.delete(id)
   if(removed.includes(selected)){
-   selected=null;terminal.reset()
+   selected=null;hideRepositoryChoice();terminal.reset()
    renderHeader()
    showDirectory('')
   }
@@ -1614,15 +1614,17 @@ async function openProject(id){
     const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
     await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
     // Each repository folder is checked against its origin by the agent, so
-    // a wrong folder is refused by name rather than saved.
+    // a wrong folder is refused by name rather than saved. The settings above
+    // are saved by then, which the notice says rather than hiding it.
+    const refused=[]
     for(const entry of repositoryInputs){
      const value=entry.input.value.trim()
      if(value===(entry.repository.path||''))continue
-     await api.mapRepository({projectId:id,repository:entry.repository.identity,path:value})
-     entry.repository.path=value
+     try{await api.mapRepository({projectId:id,repository:entry.repository.identity,path:value});entry.repository.path=value}
+     catch(err){refused.push(entry.repository.identity+': '+err.message)}
     }
     projectStateVersion++;disconnectedProjects.delete(id)
-    notice.textContent='Local configuration saved'
+    notice.textContent=refused.length?'Local configuration saved, except the folder of '+refused.join('; '):'Local configuration saved'
     // The agent normalised the folder and detected its kind: show what it
     // stored, not what was typed.
     try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh)}catch(err){error(err)}
@@ -2141,7 +2143,7 @@ async function archiveTask(run){
  saveLocalTasks()
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
-  selected=null;terminal.reset();await api.detach()
+  selected=null;hideRepositoryChoice();terminal.reset();await api.detach()
   renderHeader();showDirectory('')
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()

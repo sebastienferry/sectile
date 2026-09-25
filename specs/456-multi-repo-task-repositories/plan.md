@@ -63,7 +63,7 @@ WebSocket agent operations (`agentprotocol.Operation`), shared pure helpers
 | `web/src/components/TaskDetailModal.tsx` | `repoPath` text field replaced by a repository select among the project's repositories. |
 | `web/src/types/index.ts`, `web/src/locales/translations.ts` | New fields and French strings. |
 | `internal/skills/fragments/**` | Implement / adjust / handoff fragments: read the folder map, request a worktree before changing a context folder, one PR per changed repository. |
-| `docs/adrs/0027-repositories-are-keyed-by-remote.md` | New ADR. |
+| `docs/adrs/0028-repositories-are-keyed-by-remote.md` | New ADR. |
 | `CHANGELOG.md` | `Added` entry under `[Unreleased]`. |
 
 ## Data contracts

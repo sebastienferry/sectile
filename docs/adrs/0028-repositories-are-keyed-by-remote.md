@@ -1,4 +1,4 @@
-# ADR 0027: A project's repositories are keyed by remote, and each workstation maps them
+# ADR 0028: A project's repositories are keyed by remote, and each workstation maps them
 
 Status: Accepted
 

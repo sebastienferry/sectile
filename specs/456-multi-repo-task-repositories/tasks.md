@@ -48,7 +48,7 @@ References: [`spec.md`](spec.md), [`plan.md`](plan.md).
 ## 6. Skills, docs and verification
 
 - [x] T6.1 Skill fragments (implement, adjust, handoff): read `SECTILE_REPOSITORIES`, call `prepare_repository_worktree` before changing a context folder, one PR per changed repository passed as `prUrls`.
-- [x] T6.2 ADR `docs/adrs/0027-repositories-are-keyed-by-remote.md`: remote-keyed repositories, workstation mappings, agent-side conversion, on-demand secondary worktrees, the waiting exception for autonomous runs.
+- [x] T6.2 ADR `docs/adrs/0028-repositories-are-keyed-by-remote.md`: remote-keyed repositories, workstation mappings, agent-side conversion, on-demand secondary worktrees, the waiting exception for autonomous runs.
 - [x] T6.3 `README.md` / `docs/` where local settings and project configuration are described.
 - [x] T6.4 `CHANGELOG.md`: `Added` line under `[Unreleased]`.
 - [x] T6.5 `go test ./...` (rerun the handlers keepalive test alone if it flakes), `go vet`, web `tsc` and `oxlint`, desktop and web browser tests.
