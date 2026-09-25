@@ -160,7 +160,9 @@ type DB struct {
 	cancelMap         map[string]context.CancelFunc
 	cancelMu          sync.Mutex
 	postBackListeners []PostBackListener
-	postBackMu        sync.RWMutex
+	// waitListeners hear the changes of a run's waiting mark, and only those.
+	waitListeners []WaitListener
+	postBackMu    sync.RWMutex
 	// relayed receives the events other server instances published. See
 	// internal/db/bus.go.
 	relayed   []func(BusMessage)
@@ -5648,7 +5650,7 @@ func (d *DB) CancelActivity(activityID string) error {
 	d.mu.Lock()
 	_, err := d.conn.Exec(`
 		UPDATE task_activities
-		SET status = 'canceled', summary = 'Annulée par l''utilisateur', completed_at = CURRENT_TIMESTAMP, waiting_since = NULL
+		SET status = 'canceled', summary = 'Annulée par l''utilisateur', completed_at = CURRENT_TIMESTAMP, waiting_since = NULL, waiting_session = ''
 		WHERE id = ? AND status IN ('queued', 'pending', 'running')
 	`, activityID)
 	d.mu.Unlock()

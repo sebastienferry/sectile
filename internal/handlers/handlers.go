@@ -68,10 +68,6 @@ type Handler struct {
 	// at construction; tests shorten them to observe a drop quickly.
 	agentPingInterval time.Duration
 	agentReadTimeout  time.Duration
-	// pushedWaits names the runs whose wait this instance sent to an agent, so
-	// that clearing one is sent too while every other change of a live run is
-	// not: those would reach the agent ahead of the messages it waits for.
-	pushedWaits sync.Map
 }
 
 func (h *Handler) SetPullOnConnect(enable bool) {
@@ -98,8 +94,8 @@ func NewHandler(database *db.DB) *Handler {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
 		h.mcpSessions.SetWaiter(database)
 		h.mcpSessions.SetInstance(database.InstanceID())
+		database.RegisterWaitListener(h.pushRunWaiting)
 		database.RegisterPostBackListener(func(task *models.Task, activity *models.TaskActivity, err error) {
-			h.pushRunWaiting(task, activity)
 			errStr := ""
 			if err != nil {
 				errStr = err.Error()
@@ -117,14 +113,14 @@ func NewHandler(database *db.DB) *Handler {
 }
 
 // pushRunWaiting tells the owner's agent that a live run started or stopped
-// waiting, since the desktop banner reads the agent's run list and a wait is now
-// declared on the server, over MCP. Only a run an agent dispatched can be on an
-// agent's list. The listener cannot tell what changed, so a mark is sent every
-// time it is seen and a clear only for a run whose mark was sent from here. A
-// finished run is not sent, because the agent sees the exit itself. An agent
-// that is not connected simply misses it.
+// waiting, since the desktop banner reads the agent's run list and a wait is
+// declared on the server, over MCP. It hears the changes of the mark alone, so
+// every one is sent, whichever instance or process set the mark it clears
+// (#475). A finished run is not sent, because the agent sees the exit itself.
+// An agent that is not connected misses it, and is sent the run's state when it
+// reconnects (resendRunWaits).
 func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivity) {
-	if task == nil || activity == nil || activity.SkillID != "remote_run" || activity.Action != db.RunActionAgent || activity.UserID == "" {
+	if task == nil || activity == nil {
 		return
 	}
 	// Listeners run concurrently, so a mark and the clear that follows it may be
@@ -133,19 +129,49 @@ func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivit
 	if current, err := h.db.GetActivityByID(activity.ID); err == nil && current != nil {
 		activity = current
 	}
-	if activity.Status != "running" {
-		h.pushedWaits.Delete(activity.ID)
+	h.sendRunWaiting(task, activity)
+}
+
+// sendRunWaiting sends a live agent run's waiting state, set or clear, to its
+// owner's agent. Only a run an agent dispatched can be on an agent's list.
+func (h *Handler) sendRunWaiting(task *models.Task, activity *models.TaskActivity) {
+	if activity.SkillID != "remote_run" || activity.Action != db.RunActionAgent || activity.UserID == "" || activity.Status != "running" {
 		return
-	}
-	if activity.WaitingSince == nil {
-		if _, pushed := h.pushedWaits.LoadAndDelete(activity.ID); !pushed {
-			return
-		}
-	} else {
-		h.pushedWaits.Store(activity.ID, true)
 	}
 	_ = h.agentDispatcher.Dispatch(activity.UserID, task.ProjectID, agentprotocol.RunWaitingType, task.ID,
 		agentprotocol.RunWaiting{RunID: activity.ID, WaitingSince: activity.WaitingSince})
+}
+
+// resendRunWaits sends a reconnected agent the waiting state of every live run
+// it reported, so a mark set or cleared while it was away reaches the desktop.
+func (h *Handler) resendRunWaits(ownerID string, tasks []agentprotocol.RunningTask) {
+	for _, t := range tasks {
+		if t.Status != "running" {
+			continue
+		}
+		activity, err := h.db.GetActivityByID(t.ID)
+		if err != nil || activity == nil || activity.UserID != ownerID {
+			continue
+		}
+		task, err := h.db.GetTaskByID(activity.TaskID)
+		if err != nil || task == nil {
+			continue
+		}
+		h.sendRunWaiting(task, activity)
+	}
+}
+
+// answerRunWait ends the wait an agent reports its owner answered in the run's
+// console. The connection's user is the only one it may answer for.
+func (h *Handler) answerRunWait(ac *AgentConn, msg AgentMessage) {
+	var payload agentprotocol.RunAnswered
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		log.Printf("[AgentConnect] Invalid run_answered payload from %s: %v", ac.DeviceID, err)
+		return
+	}
+	if _, err := h.db.AnswerRemoteRunWait(ac.UserID, payload.RunID, payload.WaitingSince); err != nil {
+		log.Printf("[AgentConnect] Cannot end the answered wait of run %s: %v", payload.RunID, err)
+	}
 }
 
 func (h *Handler) SubscribeEvents() chan Event {
@@ -3501,6 +3527,11 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 			})
 		case "running_tasks":
 			h.agentDispatcher.ReportRunningTasks(ac, msg)
+		case agentprotocol.RunAnsweredType:
+			// Handled in the read loop, in order: an answer sent on reconnection
+			// lands before the pull's reply, so the state resent after the pull
+			// already has it.
+			h.answerRunWait(ac, msg)
 		default:
 			log.Printf("[AgentConnect] Unknown message type from agent: %s", msg.Type)
 		}
@@ -3587,6 +3618,7 @@ func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
 	}
 	log.Printf("[AgentConnect] Pulled %d running/queued tasks from agent %s", len(tasks), ac.DeviceID)
 	h.ApplyAgentRunningTasksFor(ac.UserID, tasks)
+	h.resendRunWaits(ac.UserID, tasks)
 }
 
 func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
@@ -3598,6 +3630,7 @@ func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
 		return
 	}
 	h.ApplyAgentRunningTasksFor(location.UserID, tasks)
+	h.resendRunWaits(location.UserID, tasks)
 }
 
 // EnableAgentCluster makes this instance record its agents in the shared

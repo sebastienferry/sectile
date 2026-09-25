@@ -118,7 +118,7 @@ func (d *DB) recoverInterruptedRuns() {
 	// destroyed along with every other, so nothing is left that could ever close
 	// it. Canceled rather than failed: the work did not fail here, its outcome
 	// merely became unknowable.
-	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
+	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL, waiting_session = '' WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
 		interruptedClientRun, time.Now(), RunActionAgent)
 	_, _ = d.conn.Exec("DELETE FROM server_instances;")
 	_, _ = d.conn.Exec("DELETE FROM agent_presence;")
@@ -147,7 +147,7 @@ func (d *DB) reclaimDeadInstances(now time.Time) (int64, error) {
 	}
 	// Agent-dispatched runs are left alone, as a restart leaves them: their
 	// supervisor reports the real outcome whichever instance it reconnects to.
-	runs, err := d.conn.Exec(`UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL
+	runs, err := d.conn.Exec(`UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL, waiting_session = ''
 		WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?`+orphaned,
 		interruptedClientRun, now, RunActionAgent, cutoff)
 	if err != nil {
