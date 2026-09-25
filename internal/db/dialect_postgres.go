@@ -73,6 +73,14 @@ func (postgresDialect) Rebind(query string) string { return rebindNumbered(query
 // exactly what SQLite's LOWER does, so both engines mean the same thing.
 func (postgresDialect) LowerASCII(expr string) string { return `LOWER(` + expr + ` COLLATE "C")` }
 
+// FoldSearch strips diacritics with unaccent, which migration 14 installs, then
+// lowers ASCII under the C collation for the reason LowerASCII gives. unaccent
+// maps `É` to `E` and `œ` to `oe`; a letter it leaves outside ASCII keeps its
+// case.
+func (postgresDialect) FoldSearch(expr string) string {
+	return `LOWER(unaccent(` + expr + `) COLLATE "C")`
+}
+
 func (postgresDialect) ColumnsQuery() string {
 	return "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position"
 }

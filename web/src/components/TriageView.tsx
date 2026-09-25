@@ -18,6 +18,7 @@ import {
 import { useApp } from '../context/AppContext'
 import { LookupField, type LookupOption } from './LookupField'
 import { macroLookup, sprintLookup } from '../lib/lookups'
+import { matchesSearch } from '../lib/searchFold'
 import type { MacroMeta, Task } from '../types'
 
 type Dimension = 'sprint' | 'macro' | 'team' | 'assignee'
@@ -138,15 +139,8 @@ export const TriageView: React.FC = () => {
 
     // Search query
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim()
-      list = list.filter(
-        t =>
-          t.key.toLowerCase().includes(q) ||
-          t.title.toLowerCase().includes(q) ||
-          (t.sprint && t.sprint.toLowerCase().includes(q)) ||
-          (t.parentKey && t.parentKey.toLowerCase().includes(q)) ||
-          (t.parentTitle && t.parentTitle.toLowerCase().includes(q)) ||
-          (t.assignee && t.assignee.toLowerCase().includes(q))
+      list = list.filter(t =>
+        matchesSearch(searchQuery, t.key, t.title, t.sprint, t.parentKey, t.parentTitle, t.assignee)
       )
     }
 
