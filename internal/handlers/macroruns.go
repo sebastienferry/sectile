@@ -70,7 +70,7 @@ func (h *Handler) handleMacroRunSkill(w http.ResponseWriter, r *http.Request, pr
 		writeError(w, http.StatusFailedDependency, "Connectez l'agent local pour lancer cette compétence.")
 		return
 	}
-	provider, model := h.db.ResolveTaskEngine(project.ID, skillID, req.Model)
+	provider, model := h.db.ResolveTaskEngine(project.ID, userID, ac.DeviceID, skillID, req.Model)
 	run, err := h.db.StartMacroRun(project.ID, macroKey, skillID, db.RunLaunch{Mode: models.SkillModeInteractive, Provider: provider, Model: model, UserID: userID})
 	if errors.Is(err, db.ErrMacroRunBusy) {
 		writeError(w, http.StatusConflict, err.Error())

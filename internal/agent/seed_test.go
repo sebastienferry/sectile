@@ -21,7 +21,7 @@ type seedServer struct {
 	status  int
 	seed    agentconfig.Seed
 	fetches int
-	reports []CapabilityReport
+	reports []agentconfig.CapabilityReport
 }
 
 func (s *seedServer) handler(t *testing.T, config agentconfig.Config) http.Handler {
@@ -37,7 +37,7 @@ func (s *seedServer) handler(t *testing.T, config agentconfig.Config) http.Handl
 			}
 			_ = json.NewEncoder(w).Encode(s.seed)
 		case "/api/v1/agent/capabilities":
-			var report CapabilityReport
+			var report agentconfig.CapabilityReport
 			_ = json.NewDecoder(r.Body).Decode(&report)
 			s.reports = append(s.reports, report)
 			w.WriteHeader(http.StatusNoContent)
@@ -172,7 +172,7 @@ func TestCapabilitiesAreReportedAfterADesktopSave(t *testing.T) {
 	for {
 		srv.mu.Lock()
 		n := len(srv.reports)
-		var last CapabilityReport
+		var last agentconfig.CapabilityReport
 		if n > 0 {
 			last = srv.reports[n-1]
 		}

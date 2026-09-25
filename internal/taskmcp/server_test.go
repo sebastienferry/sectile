@@ -190,6 +190,12 @@ func TestProjectContextOmitsSkillBodies(t *testing.T) {
 			t.Fatalf("%s missing from the session context: %v", key, result)
 		}
 	}
+	// The workstation owns these (#305): the server cannot say what a session runs with.
+	for _, key := range []string{"useWorktrees", "aiProvider", "aiModel"} {
+		if _, present := result[key]; present {
+			t.Fatalf("%s must not be served any more: %v", key, result)
+		}
+	}
 	raw := mustJSON(t, result)
 	for _, forbidden := range []string{"\"content\"", "\"commandContent\"", "## Goal"} {
 		if strings.Contains(string(raw), forbidden) {

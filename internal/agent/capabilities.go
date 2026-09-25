@@ -14,30 +14,12 @@ import (
 	"tasks/internal/models"
 )
 
-// Capability is what this workstation will run for one project: the engine a
-// web launch announces before the run, and the models it may pick (US5).
-type Capability struct {
-	ProjectID   string            `json:"projectId"`
-	Provider    string            `json:"provider"`
-	Model       string            `json:"model"`
-	SkillModels map[string]string `json:"skillModels"`
-	Models      []string          `json:"models"`
-	ModelSlot   bool              `json:"modelSlot"`
-	Headless    bool              `json:"headless"`
-}
-
-// CapabilityReport is the body of PUT /api/v1/agent/capabilities.
-type CapabilityReport struct {
-	SchemaVersion int          `json:"schemaVersion"`
-	Projects      []Capability `json:"projects"`
-}
-
 // capabilityOf describes a resolved configuration. A model is only reported
 // when it reaches the command line: a template without a {model} slot, or a
 // provider without a model flag, runs the CLI's own default.
-func capabilityOf(c agentconfig.Config, defaults agentconfig.Defaults) Capability {
+func capabilityOf(c agentconfig.Config, defaults agentconfig.Defaults) agentconfig.Capability {
 	template := c.AICommandTemplate
-	capability := Capability{
+	capability := agentconfig.Capability{
 		ProjectID:   c.ProjectID,
 		Provider:    c.AIProvider,
 		Model:       agentconfig.EffectiveModel(c.AIProvider, template, c.AIModel),
@@ -109,7 +91,7 @@ func (d *agentDaemon) reportCapabilities(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	report := CapabilityReport{SchemaVersion: agentconfig.Version, Projects: []Capability{}}
+	report := agentconfig.CapabilityReport{SchemaVersion: agentconfig.Version, DeviceID: d.link.deviceID, Projects: []agentconfig.Capability{}}
 	for _, p := range projects.Projects {
 		stub := agentconfig.Config{ProjectID: p.ID, GitRemoteURL: p.GitRemoteURL}
 		_, settings, err := d.localProjectRoot(ctx, stub)

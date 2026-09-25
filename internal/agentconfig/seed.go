@@ -264,3 +264,24 @@ func setEntry(m map[string]string, key, value string) map[string]string {
 	m[key] = value
 	return m
 }
+
+// Capability is what a workstation will run for one project: the engine a
+// web launch announces before the run, and the models it may pick (#305).
+type Capability struct {
+	ProjectID   string            `json:"projectId"`
+	Provider    string            `json:"provider"`
+	Model       string            `json:"model"`
+	SkillModels map[string]string `json:"skillModels"`
+	Models      []string          `json:"models"`
+	ModelSlot   bool              `json:"modelSlot"`
+	Headless    bool              `json:"headless"`
+}
+
+// CapabilityReport is the body of PUT /api/v1/agent/capabilities. DeviceID is
+// the one the agent presents on its WebSocket, which is how the server finds
+// the report of the workstation a launch goes to.
+type CapabilityReport struct {
+	SchemaVersion int          `json:"schemaVersion"`
+	DeviceID      string       `json:"deviceId"`
+	Projects      []Capability `json:"projects"`
+}

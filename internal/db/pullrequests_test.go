@@ -120,8 +120,7 @@ func TestExistingPullRequestURLIsMigratedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Migrate", RepoPath: "/not-mounted-on-server", IssueTracker: "local", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Migrate", IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,8 +167,7 @@ func taskWithMergedPullRequest(t *testing.T) (*DB, *models.Task) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = d.Close() })
-	no := false
-	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Follow-up", RepoPath: "/not-mounted-on-server", IssueTracker: "local", UseWorktrees: &no})
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Follow-up", IssueTracker: "local"})
 	if err != nil {
 		t.Fatal(err)
 	}
