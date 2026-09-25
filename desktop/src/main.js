@@ -432,15 +432,18 @@ function render(options){
     const stateLabel=renderRunState(state,run)
     // data-status stays the status the server reported: the UI tests select on it.
     button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
-    button.append(state,title,status);button.onclick=()=>select(run)
+    // The glyph leads the row, ahead of the key button it cannot nest inside, and still selects the run.
+    button.append(title,status);button.onclick=state.onclick=()=>select(run)
+    // The slot keeps the key column's width even for a free console, which has no key.
+    const keySlot=document.createElement('span');keySlot.className='task-key-slot'
+    if(!freeConsole(run))keySlot.append(context)
     const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.title=menu.getAttribute('aria-label');menu.onclick=()=>taskMenu(run)
     const archive=document.createElement('button');archive.className='task-archive'
     const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
     archive.title=archiveLabel;archive.setAttribute('aria-label',archiveLabel)
     archive.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M4 8h16v12H4zM3 4h18v4H3zM9 12h6"/></svg>'
     archive.onclick=()=>requestArchive(run)
-    if(!freeConsole(run))row.append(context)
-    row.append(button)
+    row.append(state,keySlot,button)
     const link=pullRequests.get(run.taskId)
     if(link){
      const pr=document.createElement('button');pr.className='pr-indicator'
