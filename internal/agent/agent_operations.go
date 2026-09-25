@@ -106,7 +106,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		return d.macroSpecFileFor(ctx, op.ProjectID, op.MacroKey, op.Framework, op.SpecFile)
 	}
 	switch op.Action {
-	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "repository_worktree", "workspace_info", "git_diff", "git_evidence", "pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
+	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "repository_worktree", "workspace_info", "git_diff", "git_evidence", "pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git", "spec_artifacts":
 	default:
 		return nil, fmt.Errorf("unknown local operation %q", op.Action)
 	}
@@ -125,6 +125,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	if op.Action == "spec_artifacts" && op.TaskID == "" {
+		return specArtifactsMode(config, ""), nil
+	}
 	var task models.Task
 	target := root
 	if op.TaskID != "" {
@@ -133,6 +136,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		if task.ID != op.TaskID || task.ProjectID != op.ProjectID {
 			return nil, fmt.Errorf("task identity mismatch")
+		}
+		if op.Action == "spec_artifacts" {
+			return specArtifactsMode(config, task.Key), nil
 		}
 		if op.Action == "repository_worktree" {
 			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository)

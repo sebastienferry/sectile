@@ -1,11 +1,16 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/trackerapi"
 )
 
 // A project keeps its specification artefacts unless it says otherwise, drops
@@ -127,5 +132,94 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 	}
 	if project.SpecArtifacts != models.SpecArtifactsKeep {
 		t.Fatalf("an upgraded project must keep its artefacts, got %q", project.SpecArtifacts)
+	}
+}
+
+// specifyOwnedTask is a task at clarified in a project that opens its pull
+// request at specification, with an agent answering spec_artifacts with
+// answer and a forge that finds nothing.
+func specifyOwnedTask(t *testing.T, answer func() (json.RawMessage, error)) (*DB, *models.Task, *[]string) {
+	t.Helper()
+	d := testDB(t)
+	no := false
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Early", RepoPath: "/not-mounted-on-server", IssueTracker: "local", UseWorktrees: &no, PRCreationStage: "specified"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "early", Labels: []string{"#clarified"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.conn.Exec("UPDATE tasks SET branch_name='ticket' WHERE id=?", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	var asked []string
+	d.SetAgentOperations(func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		asked = append(asked, op.Action)
+		switch op.Action {
+		case "spec_artifacts":
+			return answer()
+		case "git_evidence":
+			return json.RawMessage(`{"sha":"agent-commit","branch":"ticket","clean":true}`), nil
+		}
+		return nil, fmt.Errorf("unknown local operation %q", op.Action)
+	})
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) {
+		return trackerapi.PullRequest{}, fmt.Errorf("no pull request for this branch")
+	}
+	return d, task, &asked
+}
+
+// A workstation that drops the artefacts has nothing to open a pull request
+// on at specification: the specified transition goes without one, and says
+// the pull request moves to the implemented stage (#487).
+func TestSpecifiedWithoutPullRequestWhenTheWorkstationDrops(t *testing.T) {
+	d, task, _ := specifyOwnedTask(t, func() (json.RawMessage, error) { return json.RawMessage(`{"mode":"drop"}`), nil })
+	got, _, err := d.TransitionTaskStage(task.ID, "specified", "spec written", "", "ticket")
+	if err != nil || d.StageOfTask(got) != "specified" {
+		t.Fatalf("a drop workstation must pass without a PR: %+v %v", got, err)
+	}
+	if got.PrURL != nil && *got.PrURL != "" {
+		t.Fatalf("no PR must be recorded: %q", *got.PrURL)
+	}
+	// The notice is appended to the transition note posted on the ticket.
+	set, err := d.validateStagePRs(task, "", "specify", "", "ticket", []string{""})
+	if err != nil || set.notice != prDeferredNotice || len(set.urls) != 0 {
+		t.Fatalf("the report must say the PR is deferred: %+v %v", set, err)
+	}
+}
+
+// Keep, an agent that does not know the question, or no answer at all: the
+// specified transition still needs its pull request.
+func TestSpecifiedStillNeedsItsPullRequestOtherwise(t *testing.T) {
+	for name, answer := range map[string]func() (json.RawMessage, error){
+		"keep":    func() (json.RawMessage, error) { return json.RawMessage(`{"mode":"keep"}`), nil },
+		"old":     func() (json.RawMessage, error) { return nil, fmt.Errorf(`unknown local operation "spec_artifacts"`) },
+		"offline": func() (json.RawMessage, error) { return nil, fmt.Errorf("local operation requires a connected agent") },
+		"garbled": func() (json.RawMessage, error) { return json.RawMessage(`{"mode":"maybe"}`), nil },
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, task, _ := specifyOwnedTask(t, answer)
+			if _, _, err := d.TransitionTaskStage(task.ID, "specified", "spec written", "", "ticket"); err == nil {
+				t.Fatal("the specified transition must still need its PR")
+			}
+		})
+	}
+}
+
+// A pull request the stage names is checked as before, drop or not, and the
+// implemented stage keeps requiring its own.
+func TestDroppedArtefactsLeaveTheOtherPullRequestChecksAlone(t *testing.T) {
+	d, task, asked := specifyOwnedTask(t, func() (json.RawMessage, error) { return json.RawMessage(`{"mode":"drop"}`), nil })
+	if _, _, err := d.TransitionTaskStage(task.ID, "specified", "spec written", "https://forge/pull/9", "ticket"); err == nil {
+		t.Fatal("a named PR the forge cannot confirm must still be refused")
+	}
+	for _, action := range *asked {
+		if action == "spec_artifacts" {
+			t.Fatal("a named PR must not ask the agent about the artefacts")
+		}
+	}
+	if _, _, err := d.TransitionTaskStage(task.ID, "implemented", "code written", "", "ticket"); err == nil {
+		t.Fatal("the implemented stage must still require its PR")
 	}
 }

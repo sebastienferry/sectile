@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 	"tasks/internal/testhome"
 )
@@ -297,5 +298,40 @@ func TestSpecArtifactsNotice(t *testing.T) {
 	}
 	if got := specArtifactsNotice(agentconfig.Config{SpecArtifacts: "keep"}, "specify"); got != "" {
 		t.Errorf("keep must add nothing: %q", got)
+	}
+}
+
+// The server asks the actor's agent whether this workstation drops a task's
+// artefacts; the answer is the effective value, keep for a key without rules.
+func TestSpecArtifactsOperationAnswersTheEffectiveValue(t *testing.T) {
+	ctx := context.Background()
+	testhome.Temp(t)
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	task := models.Task{ID: "task", Key: "#54", ProjectID: "p"}
+	config := agentconfig.Config{SchemaVersion: 1, ProjectID: "p", GitRemoteURL: "git@github.com:o/a.git", UseWorktrees: true, AIProvider: "claude", SpecArtifacts: "drop"}
+	srv := specDispatchServer(t, &config, task)
+	d := &agentDaemon{repoRoot: root, link: serverLink{serverURL: srv.URL, token: "token", projectID: "p"}}
+	mode := func(taskID string) string {
+		t.Helper()
+		value, err := d.executeOperation(ctx, agentprotocol.Operation{ProjectID: "p", TaskID: taskID, Action: "spec_artifacts"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value.(map[string]string)["mode"]
+	}
+	if got := mode(task.ID); got != "drop" {
+		t.Fatalf("drop: %q", got)
+	}
+	if got := mode(""); got != "drop" {
+		t.Fatalf("drop without a task: %q", got)
+	}
+	if err := agentconfig.WriteSettings(agentconfig.Overrides{SpecArtifacts: map[string]string{"p": "keep"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := mode(task.ID); got != "keep" {
+		t.Fatalf("the workstation override must win: %q", got)
+	}
+	if got := specArtifactsMode(agentconfig.Config{SpecArtifacts: "drop"}, "a b")["mode"]; got != "keep" {
+		t.Fatalf("a key without rules keeps: %q", got)
 	}
 }

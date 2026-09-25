@@ -271,3 +271,13 @@ func specArtifactsNotice(config agentconfig.Config, skillID string) string {
 	}
 	return ""
 }
+
+// specArtifactsMode answers the server's spec_artifacts question (#487): the
+// effective value on this workstation for the task, keep for a key that gets
+// no rule, as its launches do. Without a task, the project's effective value.
+func specArtifactsMode(config agentconfig.Config, key string) map[string]string {
+	if config.DropsSpecArtifacts() && (key == "" || artefactPatterns(key) != nil) {
+		return map[string]string{"mode": models.SpecArtifactsDrop}
+	}
+	return map[string]string{"mode": models.SpecArtifactsKeep}
+}
