@@ -1,10 +1,10 @@
 // Run with PLAYWRIGHT_MODULE pointing to playwright/index.mjs; Chrome is required.
 // Real profile/account components, with an isolated context and mocked account HTTP.
 import assert from 'node:assert/strict'
-import { fileURLToPath } from 'node:url'
+import { browserRoot } from './browserRoot.mjs'
 import { createServer } from 'vite'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
-const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
+const { root, preserveSymlinks } = browserRoot(import.meta.url)
 const fixture = `
 import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -26,7 +26,7 @@ function Fixture() {
 }
 createRoot(document.getElementById('root')).render(<React.StrictMode><Fixture /></React.StrictMode>);
 `
-const server = await createServer({root, configFile:root+'/vite.config.ts', server:{host:'127.0.0.1',port:0}, plugins:[{
+const server = await createServer({root, resolve: { preserveSymlinks }, configFile:root+'/vite.config.ts', server:{host:'127.0.0.1',port:0}, plugins:[{
   name:'profile-drafts-fixture', enforce:'pre',
   transform(_code,id) {
     if (id.endsWith('/context/AppContext.tsx')) return `import React from 'react'; export const useApp = () => React.useContext(window.profileContext); export const useOptionalApp = useApp; export const UI_SCALE_OPTIONS = [90,100,112,125];`

@@ -3,12 +3,10 @@
 // Run with Playwright available: node tests/outside-click.browser.mjs
 // PLAYWRIGHT_MODULE can point to an existing installation; Chrome is used with a fresh profile.
 import { createServer } from 'vite';
-import { fileURLToPath } from 'node:url';
+import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 import assert from 'node:assert/strict';
-// Normalised to forward slashes: Vite reports plugin ids that way, including
-// on Windows, and the fixture below is matched on that id.
-const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\\/g, '/').replace(/\/$/, '');
+const { root, preserveSymlinks } = browserRoot(import.meta.url);
 
 // The inner dialog is rendered inside the outer one, the way the expanded
 // specification reader lives inside TaskDetailModal: one click must still close
@@ -29,6 +27,7 @@ window.render();`;
 
 const server = await createServer({
   root,
+  resolve: { preserveSymlinks },
   configFile: root + '/vite.config.ts',
   server: { port: 0, host: '127.0.0.1' },
   plugins: [{

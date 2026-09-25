@@ -1,7 +1,7 @@
 // Browser regression for saved board views (#387): the real App and AppContext,
 // with only the network replaced by an in-page fake of the API.
 // Run with Playwright available:
-//   PLAYWRIGHT_MODULE=../desktop/node_modules/playwright/index.mjs node tests/board-views.browser.mjs
+//   PLAYWRIGHT_MODULE=/absolute/path/to/desktop/node_modules/playwright/index.mjs node tests/board-views.browser.mjs
 //
 // What it guards: creating a view from the sidebar opens it and names it in the
 // address; the task list is asked with viewId and cards name their project;
@@ -10,10 +10,10 @@
 // deleting leaves it; a ticket created from a view picks its project among the
 // view's and starts with the label of a single-label view.
 import { createServer } from 'vite';
-import { fileURLToPath } from 'node:url';
+import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 import assert from 'node:assert/strict';
-const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
+const { root, preserveSymlinks } = browserRoot(import.meta.url);
 
 // The fake API keeps its state in the page, so a reload starts it over; the
 // tests that need a view to exist before the first request seed it through
@@ -90,7 +90,7 @@ createRoot(document.getElementById('root')).render(React.createElement(App));
 `;
 
 const server = await createServer({
-  root, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
+  root, resolve: { preserveSymlinks }, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
   plugins: [{
     name: 'fixture', enforce: 'pre',
     transform(code, id) {
