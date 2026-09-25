@@ -324,6 +324,30 @@ func TestJiraCreateRefusalStaysAsIsWhenTheScreenCannotBeRead(t *testing.T) {
 	}
 }
 
+func TestJiraCreateRefusalDoesNotListFieldsTheBodyCarried(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"errorMessages":[],"errors":{"parent":"Issue 'PE-999' does not exist."}}`)
+	})
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes", `{"total":1,"issueTypes":[{"id":"10002","name":"Task"}]}`)
+	// A screen that makes the description and the labels mandatory: the
+	// adapter sends both from the request, outside its custom fields.
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10002", `{"total":3,"fields":[
+		{"fieldId":"description","name":"Description","required":true},
+		{"fieldId":"labels","name":"Labels","required":true},
+		{"fieldId":"customfield_10050","name":"Cost centre","required":true}
+	]}`)
+
+	_, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Description: "Body", Labels: []string{"ops"}, ParentKey: "PE-999"})
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("Jira's refusal must be quoted: %v", err)
+	}
+	if !strings.Contains(err.Error(), "for Task: Cost centre (customfield_10050)") || strings.Contains(err.Error(), "Description (") || strings.Contains(err.Error(), "Labels (") {
+		t.Fatalf("only the fields the body left out are listed: %v", err)
+	}
+}
+
 func TestJiraCreateThatSucceedsReadsNoCreationScreen(t *testing.T) {
 	site := newJiraSite(t)
 	site.reply("POST", "/rest/api/3/issue", `{"id":"1","key":"PE-42"}`)
