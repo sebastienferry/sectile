@@ -54,12 +54,15 @@ type RunNoter interface {
 	NoteRemoteRun(runID, note string) error
 }
 
-// RunWaiter clears the mark a session put on a run it declared blocked on the
-// user. The registry only ever clears: declaring a wait is the tool's business,
-// under the caller's identity, while ending one is an observation the registry
-// makes on its own, that the session spoke again or went away.
+// RunWaiter clears the marks a session put on the runs it declared blocked on
+// the user. The registry only ever clears: declaring a wait is the tool's
+// business, under the caller's identity, while ending one is an observation the
+// registry makes on its own, that the session spoke again or went away. The
+// marks are found by session in the store rather than in this registry's
+// memory, so a session this instance never saw, or saw before a restart, has
+// its wait ended all the same (#475).
 type RunWaiter interface {
-	SetRemoteRunWaiting(runID string, waiting bool) error
+	ResumeWaits(sessionID string) ([]string, error)
 }
 
 // adoptedRun remembers what a session would leave behind. The task key is kept
@@ -77,10 +80,6 @@ type liveSession struct {
 	version     string
 	connectedAt time.Time
 	runs        map[string]adoptedRun
-	// waiting names the runs this session declared blocked on the user. It is
-	// kept apart from runs because a session may report on a run it did not
-	// adopt, such as one a launcher created and handed over.
-	waiting map[string]bool
 	// lastSeen is the last client-to-server message, whatever it invoked.
 	lastSeen time.Time
 	// silentSince marks the stretch of silence already remarked upon, and is
@@ -182,7 +181,7 @@ func NewSessionRegistryBounded(runs RunCloser, notes RunNoter, bound, abandon ti
 }
 
 // SetWaiter gives the registry the sink that clears waiting marks. Without one
-// the registry still tracks the marks, and a wait lasts until the run ends.
+// a wait lasts until the run ends.
 func (r *SessionRegistry) SetWaiter(waits RunWaiter) {
 	if r == nil {
 		return
@@ -338,7 +337,7 @@ func (r *SessionRegistry) Watch(session *mcp.ServerSession) {
 
 func (r *SessionRegistry) open(id string, info *mcp.Implementation) {
 	entry := &liveSession{id: id, client: "unknown", connectedAt: r.now(), lastSeen: r.now(),
-		runs: make(map[string]adoptedRun), waiting: make(map[string]bool)}
+		runs: make(map[string]adoptedRun)}
 	if info != nil {
 		if info.Name != "" {
 			entry.client = info.Name
@@ -375,71 +374,32 @@ func (r *SessionRegistry) Release(sessionID, runID string) {
 	}
 }
 
-// MarkWaiting records that a session declared one of its runs blocked on the
-// user, so that the session's next call can end the wait.
-func (r *SessionRegistry) MarkWaiting(sessionID, runID string) {
-	if r == nil || sessionID == "" || runID == "" {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if entry := r.live[sessionID]; entry != nil {
-		entry.waiting[runID] = true
-	}
-}
-
-// ForgetWaiting drops a wait the session cleared itself.
-func (r *SessionRegistry) ForgetWaiting(sessionID, runID string) {
-	if r == nil || sessionID == "" || runID == "" {
-		return
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if entry := r.live[sessionID]; entry != nil {
-		delete(entry.waiting, runID)
-	}
-}
-
 // Resume ends every wait a session declared. A session that makes a call is no
 // longer blocked on its owner, whatever it forgot to report, so a wait never
 // depends on the model remembering to clear it. It reports how many waits it
-// cleared.
+// cleared. The session need not be one this registry holds: the store knows
+// which session declared each wait.
 func (r *SessionRegistry) Resume(sessionID string) int {
 	if r == nil || sessionID == "" {
 		return 0
 	}
 	r.mu.Lock()
-	entry := r.live[sessionID]
-	if entry == nil || len(entry.waiting) == 0 {
-		r.mu.Unlock()
-		return 0
-	}
-	runIDs := make([]string, 0, len(entry.waiting))
-	for runID := range entry.waiting {
-		runIDs = append(runIDs, runID)
-	}
-	entry.waiting = make(map[string]bool)
 	waits := r.waits
 	r.mu.Unlock()
-	return clearWaits(waits, sessionID, runIDs)
+	return clearWaits(waits, sessionID)
 }
 
 // clearWaits clears the marks outside the registry lock, as Close does for the
-// runs it finishes. A run that already ended has no mark left to clear, which is
-// an ordinary race rather than a failure.
-func clearWaits(waits RunWaiter, sessionID string, runIDs []string) int {
+// runs it finishes.
+func clearWaits(waits RunWaiter, sessionID string) int {
 	if waits == nil {
 		return 0
 	}
-	cleared := 0
-	for _, runID := range runIDs {
-		if err := waits.SetRemoteRunWaiting(runID, false); err != nil {
-			log.Printf("[MCP] session %s: cannot clear the wait on run %s: %v", sessionID, runID, err)
-			continue
-		}
-		cleared++
+	cleared, err := waits.ResumeWaits(sessionID)
+	if err != nil {
+		log.Printf("[MCP] session %s: cannot clear its waits: %v", sessionID, err)
 	}
-	return cleared
+	return len(cleared)
 }
 
 // ReleaseRun forgets a run in whichever session holds it, for a run closed from
@@ -453,7 +413,6 @@ func (r *SessionRegistry) ReleaseRun(runID string) {
 	defer r.mu.Unlock()
 	for _, entry := range r.live {
 		delete(entry.runs, runID)
-		delete(entry.waiting, runID)
 	}
 }
 
@@ -474,15 +433,9 @@ func (r *SessionRegistry) Close(sessionID string) int {
 		return 0
 	}
 	// A run this session waited on but does not own survives the session, and
-	// nobody is left to be waiting for. A run it owns is closed below, and its
-	// terminal status clears the mark.
-	var orphanedWaits []string
-	for runID := range entry.waiting {
-		if _, owned := entry.runs[runID]; !owned {
-			orphanedWaits = append(orphanedWaits, runID)
-		}
-	}
-	clearWaits(waits, sessionID, orphanedWaits)
+	// nobody is left to be waiting for. A run it owns is closed below, which
+	// would clear its mark anyway.
+	clearWaits(waits, sessionID)
 	// The database call happens outside the lock: closing runs must not block
 	// sessions that are still being served.
 	closed := 0

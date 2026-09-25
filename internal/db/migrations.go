@@ -363,6 +363,17 @@ var migrations = []migration{
 			"ALTER TABLE projects DROP COLUMN gitlab_token;",
 		},
 	},
+	{
+		// The MCP session that declared a run's wait (#475), so that session's
+		// next call ends it from any instance, and after a restart, rather than
+		// only from the memory of the instance that served the declaration.
+		// Empty on a wait set by hand or by a launch parked on a repository.
+		version: 23,
+		name:    "task_activities.waiting_session",
+		statements: []string{
+			"ALTER TABLE task_activities ADD COLUMN waiting_session TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

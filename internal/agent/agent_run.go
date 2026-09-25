@@ -98,6 +98,13 @@ type controlledRun struct {
 	// reasoning stream, which is every interactive run and every engine whose
 	// stream format is not attested.
 	trace *runTrace
+	// answeredAt is the wait the owner answered in the console, until the
+	// server confirms it ended: it is re-sent on reconnection, and a push that
+	// still carries it is an echo that must not raise the glyph again (#475).
+	answeredAt time.Time
+	// answerWatched says the console's input is already observed, since a run
+	// may be given its console more than once.
+	answerWatched bool
 }
 
 func (d *agentDaemon) wrapRun(taskID, runID, command string) (string, error) {
