@@ -143,7 +143,20 @@ time of writing) and renumber if main landed one.
 
 ## Implementation notes
 
-Three deviations from the plan, acceptance criteria unchanged:
+Deviations from the plan, acceptance criteria unchanged:
+
+- T4.1: no `trackerapi.EnvCredential`. The environment pair stays on the
+  client's fields, which `db.environmentServerCredential` reads; one reader
+  was not worth a second entry point.
+- T5.5: the per-provider isolation is tested at the environment layer
+  (`TestNewClientReadsOnlyEachProvidersOwnVariable`) and at the store layer
+  (`TestAStoredJiraCredentialIsNeverMixedWithTheEnvironment`), not with a
+  second fake tracker. Personal writes are unchanged code and keep their
+  existing tests (`TestStagePRLookupUsesTheCallersOwnToken`, the Jira refusal
+  tests); no new test was added for them.
+- T6.3: the SQLite → PostgreSQL copy (`migrate.go`) is not exercised by a new
+  test: the existing suite has no end-to-end test of `Migrate` to extend. The
+  table is in `migrationTables` and the key check mirrors the personal one.
 
 - T5.1: no `SkillJob.RequestedBy`. The activity row already records who asked
   (`task_activities.user_id`), so `EnqueueSyncWith` keeps writing it there and
