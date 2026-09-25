@@ -44,27 +44,9 @@ func githubTask(repo string, item GithubIssueItem) (*models.Task, error) {
 		labels = append(labels, l.Name)
 	}
 
-	var status models.Status = models.StatusToClarify
-	if strings.EqualFold(item.State, "closed") {
-		status = models.StatusFinished
-	} else {
-		for _, l := range labels {
-			clean := strings.ToLower(strings.TrimPrefix(l, "#"))
-			switch clean {
-			case "new", "untouched":
-				status = models.StatusToClarify
-			case "clarified":
-				status = models.StatusClarified
-			case "specified":
-				status = models.StatusToImplement
-			case "implemented":
-				status = models.StatusToTest
-			case "reviewed":
-				status = models.StatusToClose
-			case "finished", "closed", "done":
-				status = models.StatusFinished
-			}
-		}
+	status := models.StatusFinished
+	if !strings.EqualFold(item.State, "closed") {
+		status = statusFromStageLabels(labels)
 	}
 
 	assignee := ""
@@ -133,6 +115,30 @@ func githubTask(repo string, item GithubIssueItem) (*models.Task, error) {
 	}
 
 	return task, nil
+}
+
+// statusFromStageLabels reads the stage of an open work item from its
+// `#<stage>` labels, the convention GitHub and GitLab share. With several stage
+// labels the last one wins; with none the work item is new.
+func statusFromStageLabels(labels []string) models.Status {
+	status := models.StatusToClarify
+	for _, l := range labels {
+		switch strings.ToLower(strings.TrimPrefix(l, "#")) {
+		case "new", "untouched":
+			status = models.StatusToClarify
+		case "clarified":
+			status = models.StatusClarified
+		case "specified":
+			status = models.StatusToImplement
+		case "implemented":
+			status = models.StatusToTest
+		case "reviewed":
+			status = models.StatusToClose
+		case "finished", "closed", "done":
+			status = models.StatusFinished
+		}
+	}
+	return status
 }
 
 func cleanGithubIssueNum(keyOrNumber string) (int, error) {
