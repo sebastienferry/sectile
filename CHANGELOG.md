@@ -62,7 +62,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
-- **One *Skills & IA* tab on a ticket.** The web ticket view merges *Skills & Copilot* and *Cadrage & Specs* into a single tab. It opens with the prompts to copy for the next step and for the autonomous pickup, as in the card menu, and ends with the generated specification. The recommended next step now opens the *Details* tab, with its description and launch button. The tab no longer shows the Copilot banner, the macro and batch skills, the mode and model selectors, the additional instruction field (put extra context in the ticket's comments), or the *Passer direct au Code* shortcut, which launched the implementation without a specification.
+- **One *Skills & IA* tab on a ticket.** The web ticket view merges *Skills & Copilot* and *Cadrage & Specs* into a single tab. It opens with the prompts to copy for the next step and for the autonomous pickup, as in the card menu, and ends with the generated specification. The recommended next step now opens the *Details* tab, with its description and launch button. The tab no longer shows the Copilot banner, the macro and batch skills, the mode and model selectors, the additional instruction field (put extra context in the ticket's comments), or the *Passer direct au Code* shortcut, which launched the implementation without a specification. (#461)
 
 - **A quieter status bar.** The MCP clients indicator and the active executions counter are gone from the status bar. Who is using the board and how many runs are in flight are now on the Administration page, and the activities view still lists every execution. `GET /api/mcp/sessions` still lists the live sessions.
 
