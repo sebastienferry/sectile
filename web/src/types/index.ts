@@ -13,7 +13,7 @@ export type Status =
   | 'to_validate'
   | 'done'
 
-export type TaskSource = 'github' | 'jira' | 'local'
+export type TaskSource = 'github' | 'gitlab' | 'jira' | 'local'
 
 export type TerminalDockPosition = 'bottom' | 'left' | 'right'
 
@@ -601,7 +601,7 @@ export type DetailMode = 'modal' | 'panel'
 
 export type AIProvider = 'agy' | 'vibe' | 'claude' | 'gemini' | 'codex' | 'cursor' | 'custom'
 
-export type IssueTracker = 'github' | 'jira' | 'local'
+export type IssueTracker = 'github' | 'gitlab' | 'jira' | 'local'
 
 /**
  * Spec-Driven Design frameworks Sectile can scaffold into a project.
