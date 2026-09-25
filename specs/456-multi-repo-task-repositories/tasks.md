@@ -19,7 +19,7 @@ References: [`spec.md`](spec.md), [`plan.md`](plan.md).
 ## 3. Server API and MCP (FR5, FR7, FR10, FR11)
 
 - [x] T3.1 `GET /api/projects/{id}/legacy-repo-paths`, `POST /api/projects/{id}/repositories/convert`.
-- [x] T3.2 `POST /api/activities/{id}/awaiting-repository`, owner or admin.
+- [x] T3.2 `POST /api/activities/{id}/awaiting-repository`, authenticated like the engine report; an identified caller must own the run or be an admin.
 - [x] T3.3 `prepare_repository_worktree` MCP tool and `DB.PrepareRepositoryWorktree`: refusals of the plan, relay `repository_worktree` through `callAgentContext`, echo check, `AddChangedRepository`.
 - [x] T3.4 `transition_stage` and post-back accept `prUrls`; `validateStagePRs` per the plan; `adjustmentPrerequisite` iterates over changed repositories.
 - [x] T3.5 `RemoveTaskWorktree` sends the task's repositories.

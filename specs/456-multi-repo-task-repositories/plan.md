@@ -48,7 +48,7 @@ WebSocket agent operations (`agentprotocol.Operation`), shared pure helpers
 | `internal/db/adjustment.go` | `validateStagePRs` over the changed repositories; `adjustmentPrerequisite` iterates. |
 | `internal/db/stage.go`, `internal/db/postback.go` | Accept `prURLs`; call `validateStagePRs`. |
 | `internal/db/db.go` (`RemoveTaskWorktree`) | Sends the task's repositories in the `remove_workspace` operation. |
-| `internal/handlers/handlers.go` | `POST /api/projects/{id}/repositories/convert`; `GET /api/projects/{id}/legacy-repo-paths`; `POST /api/activities/{id}/awaiting-repository` (the run's owner or an admin); task `repository` in PUT/PATCH. |
+| `internal/handlers/handlers.go` | `POST /api/projects/{id}/repositories/convert`; `GET /api/projects/{id}/legacy-repo-paths`; `POST /api/activities/{id}/awaiting-repository` (sent with the agent's credential, like the engine report; an identified caller must own the run or be an admin); task `repository` in PUT/PATCH. |
 | `internal/taskmcp/server.go` | `prepare_repository_worktree` tool; `transition_stage` gains `prUrls`. |
 | `internal/agentprotocol/operations.go` | `Repositories []string` on `Operation`; action `repository_worktree`. |
 | `internal/agentconfig/local.go`, `settings.go` | `Overrides.Repositories map[string]string` (`json:"repositories,omitempty"`); `WriteSettings` deletes an emptied `repositories` (and `specRepos`, same defect). |

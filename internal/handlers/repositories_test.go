@@ -46,3 +46,40 @@ func TestProjectRepositoriesOverHTTP(t *testing.T) {
 		t.Errorf("second conversion: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// The local agent marks a parked launch with its own credential, as it
+// reports the engine: the route answers it, and says when the run is gone.
+func TestRunAwaitingRepositoryOverHTTP(t *testing.T) {
+	database, err := db.NewDB(filepath.Join(t.TempDir(), "tasks.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Multi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "parked"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := database.StartRemoteRun(task.ID, "implement", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewHandler(database)
+	post := func(id, body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.HandleActivityDetail(rec, httptest.NewRequest(http.MethodPost, "/api/activities/"+id+"/awaiting-repository", strings.NewReader(body)))
+		return rec
+	}
+	if rec := post(run.ID, `{"waiting":true}`); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"waitingReason":"repository"`) {
+		t.Errorf("mark: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(run.ID, `{}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("no waiting field: %d", rec.Code)
+	}
+	if rec := post("missing", `{"waiting":true}`); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown run: %d", rec.Code)
+	}
+}

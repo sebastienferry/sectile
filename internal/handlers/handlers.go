@@ -3208,7 +3208,9 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/activities/{id}/awaiting-repository
 	// The local agent parks a launch until its ticket is pinned to a
 	// repository (#456), autonomous runs included: the answer is a pin on the
-	// ticket, not a reply in the session. Only the run's owner or an admin.
+	// ticket, not a reply in the session. Like the engine report below, it is
+	// sent by the local agent with its own credential, which the middleware
+	// has authenticated; an identified caller must own the run or be an admin.
 	if len(parts) >= 2 && parts[1] == "awaiting-repository" && r.Method == http.MethodPost {
 		var body struct {
 			Waiting *bool `json:"waiting"`
@@ -3217,16 +3219,8 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "Body must be {\"waiting\": true|false}")
 			return
 		}
-		act, err := h.db.GetActivityByID(id)
-		if err != nil || act == nil {
-			writeError(w, http.StatusNotFound, "activity not found")
-			return
-		}
-		caller, ok := h.requireOwnerOrAdmin(w, r, act.UserID)
-		if !ok {
-			return
-		}
-		activity, err := h.db.MarkRunAwaitingRepository(caller.Actor(), caller.IsAdmin(), id, *body.Waiting)
+		caller := h.webPrincipal(r)
+		activity, err := h.db.MarkRunAwaitingRepository(caller.Actor(), caller.IsAdmin() || caller.Anonymous(), id, *body.Waiting)
 		if errors.Is(err, db.ErrRunNotYours) {
 			writeError(w, http.StatusForbidden, err.Error())
 			return
