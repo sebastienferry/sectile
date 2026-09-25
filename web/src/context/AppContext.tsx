@@ -262,8 +262,6 @@ interface AppContextType {
   setIsCommandPaletteOpen: (open: boolean) => void
   isProfileOpen: boolean
   setIsProfileOpen: (open: boolean) => void
-  isAdminOpen: boolean
-  setIsAdminOpen: (open: boolean) => void
   settings: UserSettings
   /**
    * `silent` évite le toast de confirmation : un basculement de thème ou
@@ -397,7 +395,7 @@ interface AppContextType {
  * Vues connues. Ce qui sort du stockage local n'est pas fiable : une vue retirée
  * d'une version à l'autre laisserait un écran vide au démarrage.
  */
-const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'skills', 'team']
+const VIEW_MODES: ViewMode[] = ['board', 'list', 'triage', 'roadmap', 'timeline', 'activities', 'sync', 'skills', 'team', 'admin']
 
 const defaultSettings: UserSettings = {
   id: 1,
@@ -645,7 +643,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
-  const [isAdminOpen, setIsAdminOpen] = useState(false)
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
@@ -3690,8 +3687,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           setSelectedTask(null)
         } else if (selectedActivity) {
           setSelectedActivity(null)
-        } else if (isAdminOpen) {
-          setIsAdminOpen(false)
         } else if (isProfileOpen) {
           setIsProfileOpen(false)
         } else if (searchQuery) {
@@ -3702,7 +3697,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isCommandPaletteOpen, isQuickAddOpen, selectedTask, selectedActivity, isProfileOpen, isAdminOpen, searchQuery, setActiveView])
+  }, [isCommandPaletteOpen, isQuickAddOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, setActiveView])
 
   return (
     <AppContext.Provider
@@ -3825,8 +3820,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         setIsCommandPaletteOpen,
         isProfileOpen,
         setIsProfileOpen,
-        isAdminOpen,
-        setIsAdminOpen,
         settings,
         updateSettings,
         reloadSettings: fetchSettings,

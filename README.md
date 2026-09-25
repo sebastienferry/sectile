@@ -444,6 +444,44 @@ mirror for the mirrored branch and labelled `testenv` gets its own board at
 own database, following the head of the branch until the merge request closes.
 The GitHub pull request alone spawns nothing: the generator only reads GitLab.
 
+### Prometheus metrics
+
+The server exposes Prometheus metrics at `/metrics` on a listener of its own,
+never on the interface's port. Like the internal port, declare it on the
+container and do not route it through the ingress: the metrics carry no secret,
+but they describe who uses the board.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SECTILE_METRICS_ADDR` | `:8093` | Address of the metrics listener (`host:port`, or a bare port). `off` disables it. A port already taken is logged and the server starts without metrics. |
+
+| Metric | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `sectile_http_requests_total` | counter | `handler`, `method`, `code` | Requests served by each controller. `handler` is the route pattern (`/api/tasks/`), never the raw path. |
+| `sectile_http_request_duration_seconds` | histogram | `handler`, `method` | Controller latency. Event streams and WebSockets are counted but not timed. |
+| `sectile_http_errors_total` | counter | `handler`, `method`, `class` | Requests answered with an error: `client` for 4xx, `server` for 5xx. |
+| `sectile_active_users` | gauge | | Accounts whose browser session reached the server within the last five minutes. |
+| `sectile_active_runs` | gauge | `status` | Runs not over, by `running`, `queued` and `pending`. |
+| `sectile_build_info` | gauge | `version`, `commit` | Always 1; identifies the running build. |
+
+The Go runtime (`go_*`) and process (`process_*`) metrics come with them. The
+HTTP series are counted by each server; the board series are read from the
+shared database at scrape time, so every replica reports the same value. Sum
+the former across replicas, take `max()` of the latter:
+
+```promql
+# Error rate, per controller
+sum by (handler) (rate(sectile_http_errors_total{class="server"}[5m]))
+  / sum by (handler) (rate(sectile_http_requests_total[5m]))
+# 95th percentile latency, per controller
+histogram_quantile(0.95, sum by (handler, le) (rate(sectile_http_request_duration_seconds_bucket[5m])))
+# Active users and runs
+max(sectile_active_users)
+max by (status) (sectile_active_runs)
+```
+
+See [ADR 0027](docs/adrs/0027-prometheus-metrics-on-their-own-listener.md).
+
 ## Versioning and changelog
 
 A release of Sectile is a Git tag `vX.Y.Z` following
@@ -545,9 +583,8 @@ a launcher keeps its dispatching agent as owner, since that agent already watche
 the real process.
 
 `GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
-and the runs it owns. The board's status bar shows that count and opens a panel
-naming each connected client, how long it has been attached, and the runs that
-would close with it. `SECTILE_MCP_CLIENT` names a bridge in that list. A run a
+and the runs it owns, and how long each client has been attached.
+`SECTILE_MCP_CLIENT` names a bridge in that list. A run a
 client created can also be closed by hand, by its owner or an admin: *Close* on
 the board badge closes it as disconnected, and the activities view's cancel ends
 it for good. A server
@@ -682,8 +719,12 @@ values, so an upgrade changes nothing on screen.
 
 Executions record who started them. A stop is delivered to the owner's agent,
 which is what keeps a colleague's run from being closed while its process is
-still running. The profile's **Users** section, visible to admins, lists the
-accounts and changes roles; the last admin cannot be demoted.
+still running. The **Administration** page, in the sidebar and the command
+palette for admins, shows how many people are using the board right now (a
+browser session seen within the last five minutes), how many runs are running,
+queued or pending, and the roster: each account with its role, whether it is
+online or when it was last seen, and the block and delete actions. The last
+admin cannot be demoted.
 
 Then start the workstation agent in an existing clone, with its key:
 

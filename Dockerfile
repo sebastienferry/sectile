@@ -73,7 +73,9 @@ ENV PORT=8090 \
     XDG_CONFIG_HOME=/data/config
 WORKDIR /data
 COPY --from=build /out/sectile-server /usr/local/bin/sectile-server
-EXPOSE 8090
+# 8093 serves the Prometheus metrics (SECTILE_METRICS_ADDR); never route it
+# through the ingress.
+EXPOSE 8090 8093
 VOLUME ["/data"]
 USER nonroot:nonroot
 ENTRYPOINT ["/usr/local/bin/sectile-server"]

@@ -145,7 +145,6 @@ export const Sidebar: React.FC = () => {
     sidebarCollapsed,
     setSidebarCollapsed,
     setIsProfileOpen,
-    setIsAdminOpen,
     isSyncing,
     settings,
     teams,
@@ -1003,8 +1002,11 @@ export const Sidebar: React.FC = () => {
         {currentUser?.role === 'admin' && (
           <button
             type="button"
-            onClick={() => setIsAdminOpen(true)}
-            className="w-full flex items-center gap-2.5 p-2 rounded-xl hover:bg-[var(--bg-tertiary)] text-[var(--text-primary)] transition-colors group text-left cursor-pointer"
+            onClick={() => setActiveView('admin')}
+            aria-current={activeView === 'admin' ? 'page' : undefined}
+            className={`w-full flex items-center gap-2.5 p-2 rounded-xl text-[var(--text-primary)] transition-colors group text-left cursor-pointer ${
+              activeView === 'admin' ? 'bg-[var(--accent-light)]' : 'hover:bg-[var(--bg-tertiary)]'
+            }`}
             title="Administration"
           >
             <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs bg-amber-500/20 text-amber-500 shadow-xs shrink-0">

@@ -275,6 +275,17 @@ var migrations = []migration{
 		postgres: []string{"CREATE EXTENSION IF NOT EXISTS unaccent;"},
 		hint:     `the PostgreSQL extension "unaccent" could not be created (the server's role needs CREATE on the database, and the server the contrib package)`,
 	},
+	{
+		// When a browser session last reached the server, which is what tells
+		// an active user from one who merely holds an unexpired cookie. The
+		// admin page and the sectile_active_users metric read it. NULL on the
+		// sessions opened before it existed: they count once they are used.
+		version: 15,
+		name:    "web_sessions.last_seen_at",
+		statements: []string{
+			"ALTER TABLE web_sessions ADD COLUMN last_seen_at DATETIME;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

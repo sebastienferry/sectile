@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useApp } from '../context/AppContext'
-import { McpSessions } from './McpSessions'
 import { ChangelogModal } from './ChangelogModal'
 import { useVersion } from '../hooks/useVersion'
 import { DisplayScaleMenu } from './DisplayScaleMenu'
@@ -25,7 +24,6 @@ export function StatusBar() {
     <footer className="flex items-center justify-between border-t border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 py-2 text-xs text-[var(--text-muted)]">
       <span>{currentProject?.name || 'All projects'}</span>
       <div className="flex items-center gap-4">
-        <McpSessions />
         {/* Le zoom et la densité, à portée du regard qui trouve l'écran trop
             petit plutôt qu'à quatre clics dans les réglages. */}
         <DisplayScaleMenu />

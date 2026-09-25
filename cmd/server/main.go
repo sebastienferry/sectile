@@ -18,6 +18,7 @@ import (
 	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/metrics"
 	"tasks/internal/version"
 	"tasks/internal/webui"
 )
@@ -305,6 +306,7 @@ func main() {
 	// The admin's users view: list accounts and change roles.
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)
+	mux.HandleFunc(handlers.AdminStatsPath, h.HandleAdminStats)
 
 	mux.Handle("/mcp", h.MCPHandler())
 	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)
@@ -396,7 +398,13 @@ func main() {
 		})
 	}
 
-	handlerWithCORS := h.EnableCORS(h.RequireSession(mux))
+	// Prometheus metrics, on their own listener. The instrumentation wraps the
+	// whole chain, so a request the session guard refuses is counted as the
+	// 401 or 403 it received.
+	build := version.Current()
+	serverMetrics := metrics.New(database, db.ActiveUserWindow, metrics.Build{Version: build.Version, Commit: build.Commit})
+
+	handlerWithCORS := serverMetrics.Instrument(h.EnableCORS(h.RequireSession(mux)), routeOf(mux))
 
 	addr := ":" + port
 	url := fmt.Sprintf("http://localhost%s", addr)
@@ -412,6 +420,7 @@ func main() {
 
 	log.Printf("🚀 Sectile Server listening on %s", url)
 	log.Printf("   base : %s — %s (%s)", database.EngineName(), dbTarget, dbOrigin)
+	startMetricsListener(serverMetrics, metricsAddrFromEnv(osGetenv))
 
 	if err := http.Serve(listener, handlerWithCORS); err != nil {
 		log.Fatalf("Server failed: %v", err)

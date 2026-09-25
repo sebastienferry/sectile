@@ -41,7 +41,6 @@ export const CommandPalette: React.FC = () => {
     setActiveView,
     setIsQuickAddOpen,
     setIsProfileOpen,
-    setIsAdminOpen,
     setSelectedTask,
     settings,
     updateSettings,
@@ -254,7 +253,7 @@ export const CommandPalette: React.FC = () => {
       keywords: ['admin', 'administration', 'utilisateurs', 'roles', 'users'],
       action: () => {
         setIsCommandPaletteOpen(false)
-        setIsAdminOpen(true)
+        setActiveView('admin')
       },
     }] : []),
     {
@@ -380,7 +379,7 @@ export const CommandPalette: React.FC = () => {
             keywords: ['admin', 'administration', 'users', 'utilisateurs', 'roles', 'membres', 'comptes'],
             action: () => {
               setIsCommandPaletteOpen(false)
-              setIsAdminOpen(true)
+              setActiveView('admin')
             },
           },
         ]
