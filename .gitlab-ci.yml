@@ -137,9 +137,12 @@ test:go:
   variables:
     # The race detector needs cgo; the build jobs keep CGO_ENABLED=0.
     CGO_ENABLED: "1"
+  # -timeout is per package binary. Under -race with coverage, internal/db takes
+  # about 490s of go test's default 600s on a healthy runner, and a slower K8S
+  # pod pushed it past the limit (job 16736343583) with no test hung.
   script:
     - go install gotest.tools/gotestsum@v1.13.0
-    - $GOPATH/bin/gotestsum --junitfile ${TEST_RESULT_PATH_XML} --jsonfile ${TEST_RESULT_PATH} --format testname -- -race -covermode=atomic -coverprofile="${COVERAGE_RESULT_PATH}" ${GOLANG_TEST_PATH}
+    - $GOPATH/bin/gotestsum --junitfile ${TEST_RESULT_PATH_XML} --jsonfile ${TEST_RESULT_PATH} --format testname -- -race -timeout 30m -covermode=atomic -coverprofile="${COVERAGE_RESULT_PATH}" ${GOLANG_TEST_PATH}
 
 test:postgres:
   stage: test
