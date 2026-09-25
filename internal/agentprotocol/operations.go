@@ -24,11 +24,15 @@ type Operation struct {
 	// Repository names a repository other than the project checkout's, as its
 	// host/path identity, for evidence of a pull request that lives there.
 	// Empty keeps the operation on the project checkout.
-	Repository   string `json:"repository,omitempty"`
-	Create       bool   `json:"create,omitempty"`
-	DeleteRemote bool   `json:"deleteRemote,omitempty"`
-	Editor       string `json:"editor,omitempty"`
-	Prompt       string `json:"prompt,omitempty"`
+	Repository string `json:"repository,omitempty"`
+	// Repositories names, as identities, every repository a task has a
+	// worktree in, for a remove_workspace operation that must clean them all.
+	// Empty keeps the operation on the project checkout.
+	Repositories []string `json:"repositories,omitempty"`
+	Create       bool     `json:"create,omitempty"`
+	DeleteRemote bool     `json:"deleteRemote,omitempty"`
+	Editor       string   `json:"editor,omitempty"`
+	Prompt       string   `json:"prompt,omitempty"`
 	// Mode is the execution mode the server resolved for this launch:
 	// "interactive" or "autonomous". Empty is read as interactive by the agent,
 	// which keeps an older server working.

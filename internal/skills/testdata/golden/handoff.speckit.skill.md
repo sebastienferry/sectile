@@ -39,6 +39,8 @@ and a local workspace with nothing stale in it.
 6. Clean up locally only after checking for uncommitted or unpushed work and other
    tickets sharing this worktree. Preserve a shared batch worktree until every ticket
    is handed off. Remove only an unused, clean worktree and its confirmed merged branch.
+   A task that changed several repositories has a worktree and a pull request in each:
+   confirm each is merged, and clean each repository the same way.
 
 ## Do not
 - Do not delete anything remote: no remote branch, no tag, no release.

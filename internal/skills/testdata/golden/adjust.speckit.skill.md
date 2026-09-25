@@ -30,6 +30,7 @@ found and fixed, the risky parts pointed out, the test plan written down.
 
 ## Steps
 1. Verify a matching PR exists for the task repository and branch before changing files: open, or already merged by the human. Record its URL. If missing, stop and recover through the configured creation owner (specify or implement). Never create a PR during adjustment, and never push onto a merged PR — review the merged state and report it. Read available PR feedback; retrieval failure is a blocker, not absence of feedback.
+   A task that changed several repositories (`$SECTILE_REPOSITORIES` role `changed`) has one PR per repository: verify, review, push and update each of them in its own worktree, the same way.
    Fetch the remote (`git fetch origin`) and compare the work branch with the
    remote default branch (normally `origin/main`; use the repository's configured default when different).
    Integrate missing base commits before the final review: prefer rebase when the branch is private, or merge when

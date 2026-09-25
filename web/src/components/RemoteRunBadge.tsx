@@ -20,6 +20,9 @@ const LABELS: Record<RunIndicatorState, string> = {
   canceled: 'Remote execution canceled',
 }
 
+/** A launch parked until its ticket is pinned asks for a repository, not an answer. */
+const REPOSITORY_WAIT_LABEL = 'Remote execution waiting for the repository of its ticket'
+
 /** The state glyph, at badge size, pulsing while the state lasts. */
 function StateGlyph({ state, pulse }: { state: RunIndicatorState; pulse: boolean }) {
   return (
@@ -55,7 +58,7 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   const indicator = deriveRunIndicator(activities, taskId, undefined, viewer ?? undefined)
   if (!indicator) return null
 
-  const { state, runs, cancelableRunIds, closableRunIds, count, waitingSince } = indicator
+  const { state, runs, cancelableRunIds, closableRunIds, count, waitingSince, waitingReason } = indicator
   // Le moteur accompagne la compétence : c'est ce qui distingue deux runs de la
   // même compétence lancés contre des modèles différents.
   const skills = runs
@@ -69,7 +72,8 @@ export function RemoteRunBadge({ taskId }: { taskId: string }) {
   // what tells the difference between a button that will work and one that
   // answers that the execution is not yours.
   const owners = [...new Set(runs.map(run => run.userName).filter(Boolean))].join(', ')
-  const stateLabel = LABELS[state] + (waited ? ` for ${waited}` : '')
+  const baseLabel = state === 'waiting' && waitingReason === 'repository' ? REPOSITORY_WAIT_LABEL : LABELS[state]
+  const stateLabel = baseLabel + (waited ? ` for ${waited}` : '')
     + (count > 1 ? ` (${count})` : '') + (skills ? ` (${skills})` : '')
     + (owners ? ` started by ${owners}` : '')
 
