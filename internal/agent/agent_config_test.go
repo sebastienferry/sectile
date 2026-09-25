@@ -228,7 +228,11 @@ func TestMCPStdioBridge(t *testing.T) {
 	connect := func() *mcp.ClientSession {
 		t.Helper()
 		command := exec.Command(os.Args[0], "-test.run=^TestMCPStdioHelper$")
-		command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+d.loopback.url, "SECTILE_AGENT_TOKEN="+d.link.token)
+		// Under -race every process sleeps a second before exiting
+		// (atexit_sleep_ms), and Close waits for the child. With one child
+		// per legacy name that alone nearly spends the budget, so CI timed out.
+		command.Env = append(os.Environ(), "SECTILE_MCP_HELPER=1", "SECTILE_AGENT_URL="+d.loopback.url, "SECTILE_AGENT_TOKEN="+d.link.token,
+			"GORACE="+strings.TrimSpace(os.Getenv("GORACE")+" atexit_sleep_ms=0"))
 		session, err := mcp.NewClient(&mcp.Implementation{Name: "stdio-test", Version: "1"}, nil).Connect(ctx, &mcp.CommandTransport{Command: command}, nil)
 		if err != nil {
 			t.Fatal(err)
