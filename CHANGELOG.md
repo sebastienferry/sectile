@@ -56,6 +56,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **A run lost with its server can still be reported on.** When the server holding an agent session restarts, or one of several servers stops, the runs that session had started are canceled as before, but their owner can now report how they really ended through `finish_run`, as after any other disconnection. (#408)
+
 - **A story created under a Jira epic now gets the epic as its parent on Jira**, not only on the Sectile board. If Jira refuses the parent, the story is kept and a warning says so. (#426)
 
 - **Ending a discussion in the desktop app no longer reads as a cancellation.** Stopping a discussion, or stopping it after its console closed, now reports it *Finished* with the green check, here and in the task's activity history, and a discussion no longer shows a skill badge since it runs no skill. Stopping a skill run still cancels it, and a discussion whose CLI exits in error still fails. The run indicators also read better: the state now comes before the title in the sidebar and the header, its tooltip starts with *Process:* while the skill badge's starts with *Skill:*, and *Running* is a pulsing blue dot instead of a spinner (still under reduced motion), on the desktop notification and the web badges too. (#438)
@@ -200,6 +202,7 @@ test fixtures or internal plumbing.
 ### Fixed
 
 - **Search ignores case and accents.** The search bar finds `Équipe` whether you type `equipe`, `Equipe` or `ÉQUIPE`, on the board, the roadmap, triage, the activities view and the filter pickers, and `%` or `_` typed in a search now match those characters only. On a PostgreSQL server this needs the `unaccent` extension, which Sectile creates at start; a server whose database role cannot create it refuses to start and says so. (#447)
+- **An agent session keeps working whichever server receives its requests.** With several servers behind one load balancer, a request for an MCP session reaches the server that holds it, so tool calls, runs and the event stream no longer fail with "session not found" halfway through. A session whose server stopped is refused as not found, and the client starts a new one. The sessions view lists the sessions of every server. (#408)
 
 - **A run canceled after a long silence can be reported again.** A run that had gone silent and was then canceled as disconnected refused its owner's report of how it really ended; it now accepts it, like any other disconnected run. (#319)
 
