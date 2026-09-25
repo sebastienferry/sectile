@@ -102,6 +102,6 @@ export const boardViewFormError = (
 export const isViewRepository = (value: string): boolean => {
   const repository = value.trim()
   if (!repository) return true
-  if (/\s/.test(repository)) return false
-  return /^[a-z][a-z0-9+.-]*:\/\/[^/]+\/[^/].*$/i.test(repository) || /^[^@/:]+@[^:/]+:[^/].*$/.test(repository)
+  if (repository.length > 500 || /\s/.test(repository)) return false
+  return /^[a-z][a-z0-9+.-]*:\/\/[^/]+\/[^/].*$/i.test(repository) || /^([^@/:]+@)?[^:/]+:[^/].*$/.test(repository)
 }

@@ -80,7 +80,7 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 
 	primary := evidencePrimary(project, task)
 	required := taskChangedRepositories(project, task)
-	if primary != "" {
+	if primary != "" && !slices.Contains(required, primary) {
 		required = append(required, primary)
 	}
 	own := projectRepositoryIdentities(project)

@@ -74,10 +74,6 @@ func TestViewLaunchRecordsTheRepository(t *testing.T) {
 	if err := d.RecordTaskViewRepository(task.ID, identity, user); err != nil {
 		t.Fatal(err)
 	}
-	// A view without a repository says nothing, and leaves the record alone.
-	if err := d.RecordTaskViewRepository(task.ID, "", "somebody-else"); err != nil {
-		t.Fatal(err)
-	}
 	stored, err := d.GetTaskByID(task.ID)
 	if err != nil || stored.ViewRepository != archRepository || d.taskViewRepositoryUser(task.ID) != user {
 		t.Fatalf("recorded %q by %q (%v)", stored.ViewRepository, d.taskViewRepositoryUser(task.ID), err)
@@ -85,6 +81,14 @@ func TestViewLaunchRecordsTheRepository(t *testing.T) {
 	listed, err := d.GetTasks("", "", "", "", task.ProjectID, "", "", "", "", nil, nil, false)
 	if err != nil || len(listed) != 1 || listed[0].ViewRepository != archRepository {
 		t.Fatalf("the list does not carry the view repository: %+v (%v)", listed, err)
+	}
+	// A launch from a view that runs in no folder of it clears the record:
+	// the work is back in the project's own repository.
+	if err := d.RecordTaskViewRepository(task.ID, "", "somebody-else"); err != nil {
+		t.Fatal(err)
+	}
+	if stored, _ = d.GetTaskByID(task.ID); stored.ViewRepository != "" || d.taskViewRepositoryUser(task.ID) != "" {
+		t.Fatalf("cleared record = %q by %q", stored.ViewRepository, d.taskViewRepositoryUser(task.ID))
 	}
 }
 
@@ -205,5 +209,69 @@ func TestDiscoveryReportsAFailedViewRepositoryLookup(t *testing.T) {
 	stored, _ := d.GetTaskByID(task.ID)
 	if stored.PrURL != nil || len(stored.PrLinks) != 0 {
 		t.Fatalf("a failed lookup attached %v", stored.PrLinks)
+	}
+}
+
+// A ticket whose view repository is also a secondary it changed needs that one
+// pull request once, not twice.
+func TestViewRepositoryIsNotRequiredTwice(t *testing.T) {
+	d, task, _ := twoRepoTask(t)
+	if err := d.RecordTaskViewRepository(task.ID, "gitlab.com/g/b", ImplicitUserID); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = d.GetTaskByID(task.ID)
+	got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrB}, "feat/12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.PrLinks) != 1 || got.PrLinks[0].URL != mrB {
+		t.Fatalf("links = %+v, want the view repository's pull request once", got.PrLinks)
+	}
+}
+
+// A pull request already recorded in the project's own repository stays the
+// one adjust reads: the view repository only stands in for a missing one.
+func TestAdjustmentKeepsARecordedProjectPullRequest(t *testing.T) {
+	d, task, _ := twoRepoTask(t)
+	if _, err := d.conn.Exec(`UPDATE tasks SET pr_url=?, pr_links=? WHERE id=?`, mrA, `[{"url":"`+mrA+`","branch":"feat/12"}]`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.RecordTaskViewRepository(task.ID, "gitlab.com/g/elsewhere", ImplicitUserID); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = d.GetTaskByID(task.ID)
+	pr, err := d.adjustmentPrerequisite(task, "", false)
+	if err != nil || pr.URL != mrA {
+		t.Fatalf("adjust read %q (%v), want the recorded %s", pr.URL, err, mrA)
+	}
+}
+
+// Nothing on the branch in the view repository is no warning, and a refused
+// credential stops the pass like the tracker's own discovery.
+func TestDiscoveryOfNothingInTheViewRepositoryIsSilent(t *testing.T) {
+	d, proj, task := discoveryTestDB(t, "#implemented")
+	branch := "feat/42"
+	if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{BranchName: &branch}); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.RecordTaskViewRepository(task.ID, "github.com/acme/platform", "launcher"); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = d.GetTaskByID(task.ID)
+	local := tracker.NewLocalAdapter()
+	for _, answer := range []error{
+		fmt.Errorf("expected one matching open or merged pull request, got 0 open and 0 merged"),
+		pullRequestRefusal("GitLab: no merge request on feat/42"),
+	} {
+		d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) { return trackerapi.PullRequest{}, answer }
+		if steps, halt := d.rediscoverPullRequests(context.Background(), proj, local, task, false); len(steps) != 0 || halt {
+			t.Errorf("%v: steps %v, halt %v", answer, steps, halt)
+		}
+	}
+	d.prEvidenceLookup = func(string, string, string) (trackerapi.PullRequest, error) {
+		return trackerapi.PullRequest{}, fmt.Errorf("GitHub API 401 unauthorized")
+	}
+	if _, halt := d.rediscoverPullRequests(context.Background(), proj, local, task, false); !halt {
+		t.Error("a refused credential did not stop the pass")
 	}
 }

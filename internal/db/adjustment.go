@@ -44,7 +44,13 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 		// A ticket pinned elsewhere reads its pull request in its own
 		// repository, and every secondary repository it changed must have a
 		// ready pull request on a clean checkout before it is adjusted (#456).
-		if primary := evidencePrimary(project, task); !target.foreign && !slices.Contains(projectRepositoryIdentities(project), primary) {
+		// The view repository only stands in for a pull request not recorded
+		// yet: a recorded one in the project's repository keeps its place.
+		primary := TaskPrimaryRepository(project, task)
+		if models.CurrentPullRequest(task.PrLinks) == "" {
+			primary = evidencePrimary(project, task)
+		}
+		if !target.foreign && !slices.Contains(projectRepositoryIdentities(project), primary) {
 			target = repositoryTarget(primary)
 		}
 		if err := d.checkSecondaryPRs(project, task, actorID, branch); err != nil {
@@ -193,6 +199,13 @@ func (d *DB) validateStagePRAt(task *models.Task, actorID, skillID, repoPath, br
 
 	return url, "", nil
 }
+
+// pullRequestRefusal is the forge's answer that nothing on the branch is
+// usable, as opposed to a lookup that failed: neither is evidence, but only a
+// refusal may be read as "nothing to attach".
+type pullRequestRefusal string
+
+func (r pullRequestRefusal) Error() string { return string(r) }
 
 // errAgentTooOld is a failed lookup: an agent that ignores the repository of a
 // question would answer for the project checkout instead.
@@ -385,9 +398,9 @@ func (d *DB) agentBranchPullRequest(task *models.Task, userID, branch, forge, re
 	}
 	if answer.Refusal != "" {
 		if answer.Forge == "gitlab" {
-			return trackerapi.PullRequest{}, fmt.Errorf("GitLab: %s", answer.Refusal)
+			return trackerapi.PullRequest{}, pullRequestRefusal("GitLab: " + answer.Refusal)
 		}
-		return trackerapi.PullRequest{}, fmt.Errorf("%s", answer.Refusal)
+		return trackerapi.PullRequest{}, pullRequestRefusal(answer.Refusal)
 	}
 	return trackerapi.PullRequest{URL: answer.URL, Branch: answer.Branch, SHA: answer.SHA, Open: answer.Open, Draft: answer.Draft, Merged: answer.Merged, Forge: answer.Forge}, nil
 }

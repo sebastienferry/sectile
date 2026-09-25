@@ -38,7 +38,9 @@ any repository.
 `BoardViewRequest` gains `Repository *string`. `models.Task` gains
 `ViewRepository string json:"viewRepository,omitempty"`; the launching user is
 never serialized and is read only by discovery. `models.RunSkillRequest` gains
-`ViewID string json:"viewId,omitempty"`.
+`ViewID string json:"viewId,omitempty"` and `ViewFolder bool
+json:"viewFolder,omitempty"`, set by the agent when the launch runs in a folder
+of the view: only then is the repository recorded, otherwise it is cleared.
 
 ### Server
 

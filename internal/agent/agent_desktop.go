@@ -980,7 +980,9 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	launch := map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force}
 	if input.ViewID != "" {
-		launch["viewId"] = input.ViewID
+		// The server records the view's repository only when the launch runs
+		// in a folder the view chose; without one, it clears the record.
+		launch["viewId"], launch["viewFolder"] = input.ViewID, viewRoot != ""
 	}
 	body := mustJSON(launch)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
@@ -1262,6 +1264,9 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		TaskID    string `json:"taskId"`
 		SkillID   string `json:"skillId"`
 		Terminal  string `json:"terminal"`
+		// ViewID is the saved view the discussion is opened from (#429): it
+		// opens in the view's folder, as a launch from the view would run.
+		ViewID string `json:"viewId"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input); err != nil || strings.TrimSpace(input.ProjectID) == "" || strings.TrimSpace(input.TaskID) == "" {
 		http.Error(w, "Project and task required", http.StatusBadRequest)
@@ -1291,8 +1296,17 @@ func (d *agentDaemon) desktopTasksTerminalExternal(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// The discussion opens where the ticket's work is: the folder of the view
+	// it is opened from, else the one its last launch from a view recorded.
+	viewRoot := d.viewRoots.get(task.ID)
+	if viewID := strings.TrimSpace(input.ViewID); viewID != "" {
+		if viewRoot, err = d.viewLaunchRoot(r.Context(), viewID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	d.prepareMu.Lock()
-	root, overrides, err := d.localProjectRoot(r.Context(), config)
+	root, overrides, err := d.localProjectRootIn(r.Context(), config, viewRoot, false)
 	d.prepareMu.Unlock()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusConflict)

@@ -217,7 +217,7 @@ ipcMain.handle('views',async()=>{
 })
 ipcMain.handle('view-tasks',(_,viewId,q,launchable)=>api('/desktop/tasks?viewId='+encodeURIComponent(viewId)+'&q='+encodeURIComponent(q||'')+'&launchable='+Boolean(launchable)))
 ipcMain.handle('set-view-directory',(_,viewId,path)=>api('/desktop/views','POST',{viewId,path:path||''}))
-ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
+ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal,viewId}={})=>api('/desktop/tasks/terminal-external','POST',Object.assign({projectId,taskId,skillId:'discuss',terminal},viewId?{viewId}:null)))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
 ipcMain.handle('open-board',async()=>{
  const status=await api('/desktop/status')

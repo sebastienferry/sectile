@@ -175,7 +175,7 @@ func TestDesktopLaunchFromAView(t *testing.T) {
 		t.Fatalf("recorded root = %q, want the view's folder", got)
 	}
 	server.mu.Lock()
-	if len(server.launches) != 2 || server.launches[1]["viewId"] != "v1" {
+	if len(server.launches) != 2 || server.launches[1]["viewId"] != "v1" || server.launches[1]["viewFolder"] != true {
 		t.Fatalf("launches = %v", server.launches)
 	}
 	server.mu.Unlock()
@@ -241,5 +241,11 @@ func TestDesktopLaunchFromAView(t *testing.T) {
 	}
 	if got := d.viewRoots.get("t1"); got != "" {
 		t.Fatalf("a view without a folder kept %q", got)
+	}
+	// The server is told, so that it clears the view repository it recorded.
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	if last := server.launches[len(server.launches)-1]; last["viewId"] != "v1" || last["viewFolder"] != false {
+		t.Fatalf("launch without a folder = %v", last)
 	}
 }

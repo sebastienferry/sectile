@@ -1069,9 +1069,13 @@ type RunSkillRequest struct {
 	// run or to an admin, and it never closes the run it steps over.
 	Force bool `json:"force,omitempty"`
 	// ViewID names the saved view of the launching user the launch was made
-	// from (#429). The view must select the task's project; its repository, if
-	// any, is recorded on the task.
+	// from (#429). The view must select the task's project.
 	ViewID string `json:"viewId,omitempty"`
+	// ViewFolder says the agent runs the launch in a folder the view chose:
+	// only then is the view's repository recorded on the task as where its work
+	// lives. A launch from the view without one clears the record, since the
+	// work goes back to the project's own repository.
+	ViewFolder bool `json:"viewFolder,omitempty"`
 }
 
 type RunSkillResponse struct {

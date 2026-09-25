@@ -2078,7 +2078,7 @@ async function submitNativeDiscussion(view,entry){
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
  view.status.textContent='Launching native terminal for '+key+'…'
  try{
-  await api.launchNativeDiscussion(rowProjectID(view,entry.task),entry.task.id)
+  await api.launchNativeDiscussion(rowProjectID(view,entry.task),entry.task.id,undefined,view.boardView?.id)
   view.status.textContent='Native terminal launched for '+key
   await refresh()
  }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+err.message;throw err}
@@ -2110,9 +2110,12 @@ document.querySelector('#rerun').onclick=async()=>{
   promptLabel.append(prompt)
   const modeLabel=document.createElement('label');modeLabel.textContent='Execution mode'
   const mode=modeSelect(document,'Relaunch execution mode');modeLabel.append(mode)
-  const submit=document.createElement('button');submit.textContent='Launch new execution';submit.disabled=!info.configured
+  // A run launched from a saved view relaunches in that view's folder, which
+  // the agent checks: the project need not be mapped here (#429).
+  const configured=info.configured||viewLaunches.has(run.taskId)
+  const submit=document.createElement('button');submit.textContent='Launch new execution';submit.disabled=!configured
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  if(!info.configured)notice.textContent='Configure a local repository before relaunching.'
+  if(!configured)notice.textContent='Configure a local repository before relaunching.'
   form.append(skillLabel,promptLabel,modeLabel,submit,notice);dialogBody.append(form)
   form.onsubmit=async event=>{
    event.preventDefault()

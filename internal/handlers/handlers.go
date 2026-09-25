@@ -2193,8 +2193,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 		// A launch from a saved view (#429) is checked before anything is
 		// recorded: the view must be the launching user's and show the ticket.
-		viewRepository := ""
-		if viewID := strings.TrimSpace(req.ViewID); viewID != "" {
+		viewID, viewRepository := strings.TrimSpace(req.ViewID), ""
+		if viewID != "" {
 			viewRepository, err = h.db.ViewLaunchRepository(h.webSessionUser(r), viewID, task.ProjectID)
 			switch {
 			case errors.Is(err, db.ErrBoardViewNotFound):
@@ -2263,9 +2263,13 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			// The view's repository is recorded once the launch is admitted, so a
-			// refused one leaves no trace; a failure to record it only weakens
-			// evidence and discovery, never the launch.
-			if runErr == nil {
+			// refused one leaves no trace, and only when the agent runs it in the
+			// view's folder; a failure to record it only weakens evidence and
+			// discovery, never the launch.
+			if runErr == nil && viewID != "" {
+				if !req.ViewFolder {
+					viewRepository = ""
+				}
 				if err := h.db.RecordTaskViewRepository(task.ID, viewRepository, userID); err != nil {
 					log.Printf("[Dispatch] cannot record the view repository of task %s: %v", task.Key, err)
 				}

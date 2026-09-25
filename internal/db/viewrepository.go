@@ -36,12 +36,13 @@ func (d *DB) ViewLaunchRepository(userID, viewID, projectID string) (string, err
 }
 
 // RecordTaskViewRepository records the view repository a ticket was launched
-// with and who launched it. An empty identity records nothing: a view without a
-// repository says nothing about where the ticket's work lives.
+// with and who launched it. An empty identity clears the record: the launch
+// runs in no repository of a view, so the ticket's work is back in its
+// project's own.
 func (d *DB) RecordTaskViewRepository(taskID, identity, userID string) error {
 	identity = strings.TrimSpace(identity)
 	if identity == "" {
-		return nil
+		userID = ""
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()

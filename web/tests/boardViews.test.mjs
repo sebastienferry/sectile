@@ -62,10 +62,10 @@ test('the form says what prevents saving', () => {
 })
 
 test('a view repository is empty or a Git remote with a host and a path', () => {
-  for (const ok of ['', '  ', 'git@github.com:acme/platform.git', 'https://gitlab.example.com/group/sub/app', 'ssh://git@host:2222/group/app.git']) {
+  for (const ok of ['', '  ', 'git@github.com:acme/platform.git', 'https://gitlab.example.com/group/sub/app', 'ssh://git@host:2222/group/app.git', 'github.com:acme/app']) {
     assert.equal(isViewRepository(ok), true, ok)
   }
-  for (const bad of ['platform', 'github.com/acme/app', 'https://github.com', 'https://github.com/', 'git@github.com:', 'https://github.com/a b']) {
+  for (const bad of ['platform', 'github.com/acme/app', 'https://github.com', 'https://github.com/', 'git@github.com:', 'https://github.com/a b', 'https://github.com/' + 'a'.repeat(500)]) {
     assert.equal(isViewRepository(bad), false, bad)
   }
 })

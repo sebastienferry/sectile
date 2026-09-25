@@ -134,11 +134,20 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if task.ID != op.TaskID || task.ProjectID != op.ProjectID {
 			return nil, fmt.Errorf("task identity mismatch")
 		}
-		if op.Action == "repository_worktree" {
-			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository)
-		}
-		if op.Action == "remove_workspace" && len(op.Repositories) > 0 {
-			return removeRepositoryWorktrees(ctx, config, overrides, root, task, op.Repositories), nil
+		if op.Action == "repository_worktree" || (op.Action == "remove_workspace" && len(op.Repositories) > 0) {
+			// The project's repositories are resolved from the project's own
+			// checkout: a view's folder (#429) would stand for the code
+			// repository and be mistaken for it.
+			projectRoot := root
+			if d.viewRoots.get(task.ID) != "" {
+				if projectRoot, _, err = d.localProjectRoot(ctx, config); err != nil {
+					return nil, err
+				}
+			}
+			if op.Action == "repository_worktree" {
+				return repositoryWorktree(ctx, config, overrides, projectRoot, task, op.Repository)
+			}
+			return removeRepositoryWorktrees(ctx, config, overrides, projectRoot, task, op.Repositories), nil
 		}
 		// A ticket pinned to another repository has its worktree there.
 		taskRoot := root

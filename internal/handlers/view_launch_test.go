@@ -110,7 +110,7 @@ func TestRunSkillFromAViewRecordsItsRepository(t *testing.T) {
 	}
 	defer conn.Close()
 
-	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/tasks/"+task.ID+"/run-skill", strings.NewReader(`{"skillId":"clarify","viewId":"`+view.ID+`"}`))
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"/api/tasks/"+task.ID+"/run-skill", strings.NewReader(`{"skillId":"clarify","viewId":"`+view.ID+`","viewFolder":true}`))
 	req.AddCookie(defaultSession(t, database))
 	responses := make(chan *http.Response, 1)
 	go func() {

@@ -98,9 +98,14 @@ that runs launched from it are verified and discovered there.
 **Acceptance**
 
 - **Given** a view with a repository, **when** one of its tasks is launched from
-  it, **then** the task records that repository and the user who launched it.
-- **Given** a view without a repository, **then** the task's recorded view
-  repository is left as it was.
+  it and the launch runs in a folder the view chose (its directory, or the
+  workstation's checkout of its repository), **then** the task records that
+  repository and the user who launched it.
+- **Given** a launch from a view without a repository, or from a view none of
+  whose folders is on this workstation, **then** the task's recorded view
+  repository is cleared: its work is back in its project's repository.
+- **Given** a launch that is not from a view, **then** the record is left as it
+  was.
 - **Given** a launch that names a view the user does not own, or a view that does
   not select the task's project, **then** the launch is refused and nothing is
   recorded.
@@ -154,9 +159,10 @@ the task's pull request, so that work done there can pass its stages.
   a Git checkout, never uploaded. An `origin` mismatch warns and is accepted (US2).
 - **FR3** The launch root order of US2 applies to every launch from a view, and to
   every later dispatch of the same task on the same agent (US2).
-- **FR4** A launch from a view carries the view ID to the server, which checks
-  that the view belongs to the launching user and selects the task's project, and
-  records the view repository identity and the user on the task (US4).
+- **FR4** A launch from a view carries the view ID to the server, and whether
+  the agent runs it in a folder of the view. The server checks that the view
+  belongs to the launching user and selects the task's project, then records
+  the view repository identity and the user on the task, or clears them (US4).
 - **FR5** The recorded view repository is accepted as a foreign repository for
   pull request evidence on any project, and is where a task without a named pull
   request is looked up (US5).

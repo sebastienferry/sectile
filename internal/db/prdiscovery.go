@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -115,7 +116,11 @@ func (d *DB) discoverTaskPullRequests(ctx context.Context, proj *models.Project,
 		// repository: one opened in the view's repository is found by branch.
 		pr, err := d.discoverViewRepositoryPullRequest(task, view)
 		if err != nil {
-			return nil, false, err
+			if isRateLimited(err) {
+				d.enterAutoSyncBackoff()
+				return nil, true, err
+			}
+			return nil, isUnauthorized(err), err
 		}
 		if pr != nil {
 			found = append(found, *pr)
@@ -137,6 +142,12 @@ func (d *DB) discoverViewRepositoryPullRequest(task *models.Task, view string) (
 		return nil, nil
 	}
 	pr, err := d.lookupStagePR(task, d.taskViewRepositoryUser(task.ID), "", branch, repositoryTarget(view))
+	var refusal pullRequestRefusal
+	if errors.As(err, &refusal) || (err != nil && strings.Contains(err.Error(), "got 0 open and 0 merged")) {
+		// The forge answered: nothing on that branch to attach, which is
+		// most tickets most of the time and no reason for a warning.
+		return nil, nil
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s : %w", view, err)
 	}
