@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Target,
+  Layers,
+  Goal,
   CalendarRange,
   Route,
   Compass,
@@ -19,6 +21,7 @@ import {
   Scissors,
   Search,
   Loader2,
+  FileCode,
   Pencil,
   ArrowRightLeft,
   Sparkles,
@@ -40,7 +43,9 @@ import { useEscapeKey } from '../hooks/useEscapeKey'
 import { LookupField } from './LookupField'
 import { MarkdownEditor } from './Markdown'
 import { EpicBar, useEpicColors } from './EpicMarker'
-import { sprintLookup, isProjectCompatible } from '../lib/lookups'
+import { MacroLabelGroups } from './MacroLabelGroups'
+import { MacroTaskRow } from './MacroTaskRow'
+import { sprintLookup, isProjectCompatible, targetProjectOptions } from '../lib/lookups'
 import {
   buildMacroRows,
   placementIssues,
@@ -65,7 +70,8 @@ import {
   toggleRoadmapRowDisplayMode,
   type RoadmapRowDisplayMode,
 } from '../lib/roadmapDisplayMode'
-import type { MacroHorizon, MacroMeta, MacroTodo } from '../types'
+import type { MacroHorizon, MacroMeta, MacroTodo, MacroTodoSource } from '../types'
+import { MacroRealignButton } from './MacroRealignButton'
 
 /**
  * Roadmap des macros, d'après le design « Roadmap Epics.dc.html ».
@@ -89,10 +95,12 @@ export const RoadmapView: React.FC = () => {
     tasks,
     projects,
     currentProject,
+    settings,
     setSelectedTask,
     fetchProjectMacros,
     saveMacroMeta,
     createStoryFromMacroTodo,
+    produceMacroSlicing,
     setTaskMacro,
     createStoryUnderMacro,
     createMacro,
@@ -125,7 +133,7 @@ export const RoadmapView: React.FC = () => {
   const epicColorsOn = useEpicColors()()
 
   const [tab, setTab] = useState<HorizonTab>('now')
-  const [displayMode, setDisplayMode] = useState<'framing' | 'execution'>('execution')
+  const [displayMode, setDisplayMode] = useState<'framing' | 'execution' | 'phases' | 'goals'>('execution')
   const [macroMeta, setMacroMeta] = useState<MacroMeta[]>([])
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [onlyIssues, setOnlyIssues] = useState(false)
@@ -205,6 +213,10 @@ export const RoadmapView: React.FC = () => {
   const [draftFramingDirty, setDraftFramingDirty] = useState(false)
   const [newTodo, setNewTodo] = useState('')
   const [creatingTodoId, setCreatingTodoId] = useState<string | null>(null)
+  // La source en cours de lecture, pour que le bouton cliqué soit celui qui
+  // tourne : deux sources côte à côte, un seul témoin, et on ne sait plus
+  // laquelle on a demandée.
+  const [slicingSource, setSlicingSource] = useState<MacroTodoSource | null>(null)
   // Prototypage de la macro : créer une story a la volée, ou y pousser un ticket existant
   const [newStory, setNewStory] = useState('')
   const [attachQuery, setAttachQuery] = useState('')
@@ -910,6 +922,35 @@ export const RoadmapView: React.FC = () => {
               <Target size={12} />
               <span>Execution</span>
             </button>
+            {/* Les deux axes de découpe. Ils sont des modes du panneau et non
+                une vue à part : on répartit les tickets d'une macro en la
+                lisant, pas en quittant son panneau. */}
+            <button
+              type="button"
+              onClick={() => setDisplayMode('phases')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                displayMode === 'phases'
+                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Phases : l'ordre du travail, porté par des labels « phase:… »"
+            >
+              <Layers size={12} />
+              <span>Phases</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setDisplayMode('goals')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                displayMode === 'goals'
+                  ? 'bg-[var(--accent-color)] text-white shadow-xs'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title="Objectifs : ce qu'on cherche à obtenir, porté par des labels « goal:… »"
+            >
+              <Goal size={12} />
+              <span>Objectifs</span>
+            </button>
           </div>
 
           <button
@@ -1230,7 +1271,17 @@ export const RoadmapView: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-4 pt-3.5 pb-7 flex flex-col gap-4">
-              {displayMode === 'execution' ? (
+              {/* La clé porte l'axe, et ce n'est pas cosmétique : les deux vues
+                  montent le même composant au même endroit de l'arbre, donc
+                  React le réutiliserait en ne changeant que la prop. Son état
+                  interne survivrait au passage d'une vue à l'autre, si bien
+                  qu'un groupe nommé en Phases apparaîtrait dans les Objectifs,
+                  avec la recherche et les groupes dépliés de l'autre axe. */}
+              {displayMode === 'phases' ? (
+                <MacroLabelGroups key="phase" axis="phase" tasks={selected.tasks} />
+              ) : displayMode === 'goals' ? (
+                <MacroLabelGroups key="goal" axis="goal" tasks={selected.tasks} />
+              ) : displayMode === 'execution' ? (
                 <>
                   {/* Prototypage : ajouter une story a la volée, ou pousser un
                       ticket existant dans la macro. */}
@@ -1647,6 +1698,14 @@ export const RoadmapView: React.FC = () => {
                             {isRefining ? <Loader2 size={10} className="animate-spin text-orange-400" /> : <Sparkles size={10} className="text-orange-400" />}
                             <span>Raffiner AI</span>
                           </button>
+                          {currentProject?.id && (
+                            <MacroRealignButton
+                              projectId={currentProject.id}
+                              macroKey={selected.key}
+                              onError={message => addToast({ type: 'error', title: 'Réalignement impossible', description: message })}
+                              onLaunched={message => addToast({ type: 'success', title: 'Réalignement lancé', description: message })}
+                            />
+                          )}
                           {draftDirty && (
                             <button
                               type="button"
@@ -1758,7 +1817,44 @@ export const RoadmapView: React.FC = () => {
                             }}>
                             {todo.text}
                           </span>
+                          {currentProject && (() => {
+                            // Where the line's story lands: the macro's project by
+                            // default, or another project of the same tracker
+                            // instance, where the epic can still be its parent.
+                            const options = targetProjectOptions(currentProject, projects, { jiraUrl: settings.jiraUrl, githubApiUrl: settings.githubApiUrl })
+                            const saved = todo.targetProjectId && todo.targetProjectId !== currentProject.id ? todo.targetProjectId : ''
+                            const savedName = projects.find(p => p.id === saved)?.name || saved
+                            const invalid = saved !== '' && !options.some(p => p.id === saved)
+                            if (todo.storyKey) {
+                              // Where the story was created, read-only; worth saying only
+                              // where another project could have received it.
+                              return saved || options.length > 0 ? (
+                                <span className="text-[9.5px] px-1.5 py-0.5 rounded shrink-0 text-[var(--text-muted)] border border-[var(--border-color)]" title="Projet où la story a été créée">
+                                  {saved ? savedName : currentProject.name}
+                                </span>
+                              ) : null
+                            }
+                            if (options.length === 0 && !saved) return null
+                            return (
+                              <select
+                                aria-label={`Projet cible de « ${todo.text} »`}
+                                value={saved}
+                                onChange={e =>
+                                  persist(selected.key, {
+                                    todos: todosOf(selected).map(t => (t.id === todo.id ? { ...t, targetProjectId: e.target.value || undefined } : t)),
+                                  })
+                                }
+                                className={`text-[9.5px] max-w-[120px] px-1 py-0.5 rounded shrink-0 bg-[var(--bg-secondary)] border cursor-pointer ${invalid ? 'border-rose-500 text-rose-300' : 'border-[var(--border-color)] text-[var(--text-secondary)]'}`}
+                                title={invalid ? 'Ce projet ne partage plus le tracker de la macro : la création de la story sera refusée.' : 'Projet où créer la story'}
+                              >
+                                <option value="">{currentProject.name}</option>
+                                {options.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                {invalid && <option value={saved}>{savedName} (incompatible)</option>}
+                              </select>
+                            )
+                          })()}
                           {todo.storyKey ? (
+                            <>
                             <button
                               type="button"
                               onClick={() => {
@@ -1775,6 +1871,24 @@ export const RoadmapView: React.FC = () => {
                             >
                               {todo.storyKey}
                             </button>
+                            {/* Le lien vers le tracker, distinct de l'ouverture
+                                dans Sectile : consulter la fiche et aller
+                                commenter le ticket ne sont pas le même geste. */}
+                            {(() => {
+                              const created = tasks.find(t => t.key === todo.storyKey)
+                              return created?.externalUrl ? (
+                                <a
+                                  href={created.externalUrl}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="shrink-0 text-[var(--text-muted)] hover:text-[var(--accent-color)] transition-colors"
+                                  title={`Ouvrir ${todo.storyKey} sur le tracker`}
+                                >
+                                  <ExternalLink size={10} />
+                                </a>
+                              ) : null
+                            })()}
+                            </>
                           ) : (
                             <button
                               type="button"
@@ -1834,6 +1948,47 @@ export const RoadmapView: React.FC = () => {
                         <Plus size={12} /> Ajouter
                       </button>
                     </div>
+
+                    {/* Produire la découpe depuis les artefacts SDD du dépôt.
+                        Le bouton est offert dès que le projet déclare un dépôt,
+                        et non selon la présence du fichier : une action qui
+                        disparaît exactement quand elle aurait servi n'explique
+                        rien, là où un refus nomme sa cause. */}
+                    <div className="flex items-center gap-2 mt-2 pt-2 border-t border-[var(--border-color)]">
+                      <span className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] shrink-0">
+                        Importer
+                      </span>
+                      {([
+                        { source: 'tasks' as const, label: 'tasks.md', hint: "Un groupe de tasks.md par ligne : c'est le grain d'une story." },
+                        { source: 'spec' as const, label: 'spec.md', hint: 'Une exigence ou une user story priorisée par ligne.' },
+                        // L'inverse de « Créer story » : celui-ci descend d'une
+                        // ligne vers un ticket, celui-là remonte d'un ticket
+                        // vers sa ligne. Une macro dont les stories ont été
+                        // créées ailleurs avait une découpe vide alors que le
+                        // travail était déjà découpé.
+                        { source: 'stories' as const, label: 'Reprendre les stories', hint: "Une ligne par ticket déjà créé sous la macro, chacune arrivant rattachée au sien." },
+                      ]).map(option => (
+                        <button
+                          key={option.source}
+                          type="button"
+                          disabled={slicingSource !== null}
+                          title={option.hint}
+                          onClick={async () => {
+                            setSlicingSource(option.source)
+                            const macro = await produceMacroSlicing(currentProject!.id, selected.key, option.source)
+                            setSlicingSource(null)
+                            if (macro) {
+                              setMacroMeta(prev => [...prev.filter(m => m.key !== macro.key), macro])
+                              setSelectedKey(macro.key)
+                            }
+                          }}
+                          className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-40 cursor-pointer"
+                        >
+                          {slicingSource === option.source ? <Loader2 size={12} className="animate-spin" /> : <FileCode size={12} />}
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {selected.tasks.length > 0 && (
@@ -1841,18 +1996,12 @@ export const RoadmapView: React.FC = () => {
                       <div className="text-[10px] font-bold uppercase tracking-[.08em] text-[var(--text-muted)] mb-1.5">
                         Tickets créés sous cette macro ({selected.tasks.length})
                       </div>
-                      <div className="flex flex-wrap gap-1.5">
+                      {/* Une seule colonne, la même ligne que les groupes par
+                          objectif : une pastille qui ne porte que la clé oblige
+                          à survoler chaque ticket pour savoir de quoi il parle. */}
+                      <div className="flex flex-col gap-1">
                         {selected.tasks.map(task => (
-                          <button
-                            key={task.id}
-                            type="button"
-                            onClick={() => setSelectedTask(task)}
-                            className="text-[10.5px] font-mono px-2 py-1 rounded-lg bg-[var(--bg-primary)] border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--accent-color)]/40 cursor-pointer flex items-center gap-1.5 transition-colors"
-                            title={task.title}
-                          >
-                            <span style={{ color: 'var(--status-info)' }}>{task.key}</span>
-                            <span className="truncate max-w-[200px]">{task.title}</span>
-                          </button>
+                          <MacroTaskRow key={task.id} task={task} onOpen={setSelectedTask} />
                         ))}
                       </div>
                     </div>

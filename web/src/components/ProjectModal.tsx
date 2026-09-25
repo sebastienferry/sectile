@@ -52,6 +52,7 @@ import { isValidModel, providerModels } from '../lib/aiModels'
 import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 import { Antigravity, Claude, OpenAI } from './icons'
 import { hasProjectAgentOverride, projectAgentSettings } from '../lib/projectAgentSettings'
+import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
 
 type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
 
@@ -170,6 +171,7 @@ export const ProjectModal: React.FC = () => {
 
   // Section 4: Compétences IA & Framework SDD
   const [specFramework, setSpecFramework] = useState<SpecFramework>('speckit')
+  const [specRepoPath, setSpecRepoPath] = useState('')
   const [skillOverrides, setSkillOverrides] = useState<Record<string, string>>({})
   const [skillsStatus, setSkillsStatus] = useState<ProjectSkillsStatus | null>(null)
 
@@ -198,6 +200,7 @@ export const ProjectModal: React.FC = () => {
   const [githubApiUrl, setGithubApiUrl] = useState('')
   const [githubToken, setGithubToken] = useState('')
   const [jiraProject, setJiraProject] = useState('')
+  const [roadmapProjects, setRoadmapProjects] = useState('')
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
   // porte un projet qui n'a jamais eu besoin d'y toucher.
   const [issueTypes, setIssueTypes] = useState<string[]>([])
@@ -256,6 +259,7 @@ export const ProjectModal: React.FC = () => {
       setAiModel(editingProject.aiModel || '')
       setAiSkillModels(editingProject.aiSkillModels || {})
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
+      setSpecRepoPath(editingProject.specRepoPath || '')
       setUseWorktrees(editingProject.useWorktrees !== false)
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
@@ -268,6 +272,7 @@ export const ProjectModal: React.FC = () => {
       // conserve celui qui est enregistré.
       setGithubToken('')
       setJiraProject(editingProject.jiraProject || '')
+      setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
       setIssueTypes(editingProject.issueTypes || [])
       setEnabledViews(enabledOptionalViews(editingProject))
       setEpicColors(editingProject.epicColors === true)
@@ -302,6 +307,7 @@ export const ProjectModal: React.FC = () => {
       setAiModel('')
       setAiSkillModels({})
       setSpecFramework(settings.specFramework || 'speckit')
+      setSpecRepoPath('')
       setUseWorktrees(true)
       setEpicColors(false)
       setAutoSyncEnabled(false)
@@ -311,6 +317,7 @@ export const ProjectModal: React.FC = () => {
       setTrackerUrl('')
       setGithubRepo('')
       setJiraProject('')
+      setRoadmapProjects('')
       setSkillOverrides({})
       setSkillsStatus(null)
       setSddStatuses([])
@@ -401,6 +408,7 @@ export const ProjectModal: React.FC = () => {
         aiSkillModels,
         setupProviders: [],
         specFramework,
+        specRepoPath: specRepoPath.trim(),
         useWorktrees,
         autoSyncEnabled,
         autoSyncIntervalMin,
@@ -410,6 +418,7 @@ export const ProjectModal: React.FC = () => {
         githubApiUrl: githubApiUrl.trim(),
         githubToken: githubToken.trim(),
         jiraProject: jiraProject.trim().toUpperCase(),
+        roadmapProjects: issueTracker === 'jira' ? parseProjectKeyList(roadmapProjects, jiraProject) : [],
         issueTypes,
         enabledViews,
         epicColors,
@@ -1211,6 +1220,25 @@ export const ProjectModal: React.FC = () => {
                 )}
 
                 {issueTracker === 'jira' && (
+                  <div>
+                    <label htmlFor="project-roadmap-projects" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
+                      Projets de roadmap
+                    </label>
+                    <input
+                      id="project-roadmap-projects"
+                      type="text"
+                      value={roadmapProjects}
+                      onChange={e => setRoadmapProjects(e.target.value.toUpperCase())}
+                      placeholder="Ex: DATA, OPS"
+                      className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono uppercase focus:outline-none focus:border-[var(--accent-color)]"
+                    />
+                    <span className="text-[9px] text-[var(--text-muted)] mt-1 block">
+                      Autres projets Jira dont les stories se rattachent aux lignes de découpe à l'import. Lus seulement : Sectile n'y écrit jamais.
+                    </span>
+                  </div>
+                )}
+
+                {issueTracker === 'jira' && (
                   <div className="col-span-2">
                     <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                       Types de tickets importés
@@ -1425,6 +1453,24 @@ export const ProjectModal: React.FC = () => {
                     </div>
                   </button>
                 </div>
+              </div>
+
+              {/* Where the macro workflow reads and writes specifications. */}
+              <div>
+                <label htmlFor="project-spec-repo-path" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Dépôt des spécifications
+                </label>
+                <input
+                  id="project-spec-repo-path"
+                  type="text"
+                  value={specRepoPath}
+                  onChange={e => setSpecRepoPath(e.target.value)}
+                  placeholder="/Users/moi/Sources/mon-wiki"
+                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                />
+                <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
+                  Checkout du serveur qui porte les spécifications des macros, quand l'équipe les tient à part du code : l'import de la découpe le lit. Vide : le dépôt du projet. Le worktree de macro et le réalignement tournent sur votre poste : leur dépôt des spécifications se déclare dans l'app desktop (Specifications repository). Le dépôt de code reste le répertoire de travail des agents.
+                </p>
               </div>
 
               {/* SDD toolchain installer: installs the real CLI and initializes it */}

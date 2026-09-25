@@ -186,6 +186,15 @@ The established database lookup order remains unchanged. `DB` uses an RWMutex;
 helpers suffixed `Unsafe` assume the caller already holds the appropriate lock.
 Avoid calling public locking methods while holding that lock.
 
+That mutex stops at the process boundary, so no invariant depends on it: several
+server processes may share one PostgreSQL database. A read-decide-write either
+runs as one statement, as a conditional update, or in a transaction that locks
+its row with `SELECT ... FOR UPDATE` (a no-op on SQLite, whose single writer
+already serialises). One ordinary active run per task is a partial unique index,
+and one server-side job per project a PostgreSQL advisory lock. Every section the
+mutex protects, and what makes it hold across processes, is listed in
+[the concurrency audit](db-concurrency-audit.md).
+
 Tracker jobs run on the server even when no agent is connected. GitHub repository
 identity is explicit configuration. Native HTTP clients
 paginate lists and follow redirects within the same origin while preserving the
@@ -249,9 +258,10 @@ restores eligibility for local execution.
 
 ## MCP and authentication
 
-The server's Streamable HTTP `/mcp` service exposes ten typed tools:
+The server's Streamable HTTP `/mcp` service exposes eleven typed tools:
 `list_projects`, `get_task`, `list_tasks`, `get_project_context`, `create_task`,
-`update_task`, `add_comment`, `transition_stage`, `start_run` and `finish_run`. The MCP server identity is
+`update_task`, `add_comment`, `transition_stage`, `start_run`, `finish_run` and
+`prepare_macro_worktree`. The MCP server identity is
 `sectile`. Native clients use `sectile-agent mcp --url <loopback-address>` as a
 stdio bridge. It never opens SQLite and uses the agent's upstream credential.
 

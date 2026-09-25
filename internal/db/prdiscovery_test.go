@@ -159,7 +159,7 @@ func TestDiscoveryAppendsAFollowUpAndRefusesASubstitution(t *testing.T) {
 // US3: a discovery failure is a warning, never a write and never a sync error.
 func TestDiscoveryFailureLeavesTheTaskUntouched(t *testing.T) {
 	d, proj, task := discoveryTestDB(t, "#implemented")
-	d.auto = &autoSync{lastFullSync: map[string]time.Time{}, lastPassAt: map[string]time.Time{}}
+	d.auto = &autoSync{}
 	d.prDiscoveryLookup = func(string, string) ([]models.TaskPullRequest, error) {
 		return nil, fmt.Errorf("API rate limit exceeded (429)")
 	}

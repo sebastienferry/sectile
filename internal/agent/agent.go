@@ -715,9 +715,36 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 	case "pull_tasks":
 		d.handlePullTasks(ctx, conn, msg)
 
+	case agentprotocol.RunWaitingType:
+		d.handleRunWaiting(msg)
+
 	default:
 		log.Printf("[Agent] Unknown message type: %s", msg.Type)
 	}
+}
+
+// handleRunWaiting records on a run this agent holds whether its session is
+// blocked on the user, which is what the desktop banner is raised from. A run
+// the agent does not hold is someone else's business and is ignored, and a
+// headless run has nobody to wait for: a mark there would raise a false
+// "waiting for you" banner in the poll before the exit is observed.
+func (d *agentDaemon) handleRunWaiting(msg agentprotocol.Message) {
+	var payload agentprotocol.RunWaiting
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		log.Printf("[Agent] Invalid run_waiting payload: %v", err)
+		return
+	}
+	d.queue.mu.Lock()
+	defer d.queue.mu.Unlock()
+	run := d.queue.runs[payload.RunID]
+	if run == nil {
+		return
+	}
+	if payload.WaitingSince == nil || run.desktop.Headless {
+		run.desktop.WaitingSince = time.Time{}
+		return
+	}
+	run.desktop.WaitingSince = payload.WaitingSince.UTC()
 }
 
 // handlePullTasks returns all currently queued or running executions.
@@ -829,6 +856,10 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 
 	if payload.Action == "cancel_run" {
 		d.cancelRun(ctx, conn, msg, payload)
+		return
+	}
+	if strings.TrimSpace(payload.MacroKey) != "" {
+		d.handleMacroDispatch(ctx, conn, msg, payload)
 		return
 	}
 	log.Printf("🚀 [Agent] Received job dispatch for task %s (id=%s): action=%s skill=%s", payload.TaskKey, msg.TaskID, payload.Action, payload.SkillID)

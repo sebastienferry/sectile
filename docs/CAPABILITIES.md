@@ -390,14 +390,21 @@ registrations Sectile wrote are dropped from the settings file. Third-party
 hooks and every other key are left as they are, a file Sectile never touched
 is not rewritten, and an unparseable file is left alone and reported.
 
-**The waiting state is kept as a model, without a reporter.** A run still
-carries `waitingSince`, the server still accepts
-`POST /api/activities/{id}/waiting` to set or clear it, and the board badge,
-the activities filter and the desktop row still render a waiting run ahead of a
-running one. Nothing calls that route today, so a blocked session shows as
-running until something reports otherwise. The model is additive and costs
-nothing to keep; a future reporter that is not a per-tool-call hook can feed it
-without touching the UI.
+**The agent declares the wait itself, over MCP (#318).** Right before asking its
+user a question it cannot continue without, a skill calls `report_waiting`, and
+every skill Sectile ships says so. The run keeps `running` and gains
+`waitingSince`; the board badge, the activities filter and the desktop row render
+it ahead of a running one. The wait ends by itself on the session's next Sectile
+call, so a model that forgets to clear it cannot leave its run waiting; it also
+ends with `waiting: false`, with any terminal status, and when the session goes
+away. A headless run is never marked: nobody could answer it. Tool permission
+prompts are not detected, since the model does not ask them; such a session still
+shows as running. `POST /api/activities/{id}/waiting` still sets or clears the
+mark by hand.
+
+For a run its agent launched, the server sends the wait to the owner's agent, so
+the run appears as waiting in the desktop list and raises the banner below. A run
+someone started by hand in a free terminal is shown as waiting on the board only.
 
 **The desktop raises the banner on a run transition.** The notification comes
 from the desktop application, through Electron's notification API — a thin

@@ -23,6 +23,7 @@ import type {
   BoardCardDisplayMode,
   WorkflowStage,
   ToastMessage,
+  ToastLink,
   Skill,
   TaskActivity,
   ActivityStats,
@@ -35,6 +36,7 @@ import type {
   MacroMeta,
   MacroHorizon,
   MacroTodo,
+  MacroTodoSource,
   TrackerTeam,
   TeamMember,
   TeamWorkload,
@@ -51,6 +53,16 @@ import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trac
 import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
+import {
+  coreFailures,
+  failureDetail,
+  formatReadFailure,
+  readJson,
+  withOutcome,
+  type ReadFailure,
+  type ReadOutcome,
+  type ReadResource,
+} from '../lib/apiRead'
 import { filterScopeKey, readViewParam, withViewParam } from '../lib/boardViews'
 import {
   INTERNAL_STATUS_BY_STAGE,
@@ -98,6 +110,11 @@ interface AppContextType {
   isSyncing: boolean
   runningSkillId: string | null
   error: string | null
+  // Les lectures qui n'aboutissent pas, pour que l'interface dise « le serveur
+  // n'a pas répondu » au lieu de laisser croire qu'il n'y a rien à montrer.
+  readFailures: ReadFailure[]
+  coreReadFailures: ReadFailure[]
+  retryFailedReads: () => void
   activeView: ViewMode
   setActiveView: (view: ViewMode) => void
   boardGrouping: BoardGroupingMode
@@ -207,7 +224,7 @@ interface AppContextType {
   availableParents: { key: string; title: string; type: string; count: number }[]
   /**
    * Resolves the display name of a workflow skill, honouring the project's
-   * `skillOverrides`. Pass `projectId` to resolve against a specific project —
+   * `skillOverrides`. Pass `projectId` to resolve against a specific project -
    * a task's project is not necessarily the one selected in the sidebar.
    */
   skillLabel: (skillId: string, fallback?: string, projectId?: string) => string
@@ -292,6 +309,8 @@ interface AppContextType {
   saveMacroMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   saveEpicMeta: (projectId: string, key: string, patch: { title?: string; horizon?: MacroHorizon | ''; description?: string; framingComment?: string; todos?: MacroTodo[]; closed?: boolean }) => Promise<MacroMeta | null>
   createStoryFromMacroTodo: (projectId: string, macroKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
+  /** Produit la découpe d'une macro depuis les artefacts SDD du dépôt. */
+  produceMacroSlicing: (projectId: string, macroKey: string, source: MacroTodoSource) => Promise<MacroMeta | null>
   createStoryFromEpicTodo: (projectId: string, epicKey: string, todoId: string) => Promise<{ macro: MacroMeta | null; epic: MacroMeta | null; storyKey: string } | null>
   pendingHorizonPushes: (projectId: string) => Promise<MacroMeta[]>
   /** Met la poussée des labels d'horizon en file d'activités. Retourne true si la file a accepté. */
@@ -418,12 +437,14 @@ const AppContext = createContext<AppContextType | undefined>(undefined)
 const API_BASE = '/api'
 
 /**
- * Les quatre niveaux de zoom de l'interface, dans l'ordre du commutateur de la
- * barre d'état. Quatre crans est ce qu'un réglage rapide peut porter : un nombre
- * libre demanderait un écran de réglages, ce qui n'est pas ce que demande « c'est
- * trop petit, tout de suite ». La même liste borne la valeur côté serveur.
+ * Les crans de zoom de l'interface, réexportés depuis leur module.
+ *
+ * Ils y vivent avec le pas et le bornage, testables sans monter un rendu. La
+ * réexportation garde valides les imports déjà écrits sur ce contexte.
  */
-export const UI_SCALE_OPTIONS = [90, 100, 112, 125]
+export { UI_SCALE_OPTIONS } from '../lib/uiScale'
+import { normalizeUIScale } from '../lib/uiScale'
+import { toastDuration } from '../lib/toastTimer'
 
 // Le filtre « non assigné » a besoin d'une valeur : une chaîne vide voudrait dire
 // « aucun filtre ». La même sentinelle est reconnue côté serveur.
@@ -441,6 +462,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [isSyncing, setIsSyncing] = useState(false)
   const [runningSkillId, setRunningSkillId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Les lectures en échec, et le souvenir de celles déjà signalées : les
+  // fetchers sont sondés en boucle, un toast par tour noierait l'information
+  // qu'il porte. Le bandeau, lui, reste tant que la lecture ne revient pas.
+  const [readFailures, setReadFailures] = useState<ReadFailure[]>([])
+  const reportedReadsRef = useRef<Set<ReadResource>>(new Set())
   /**
    * L'écran affiché survit au rechargement.
    *
@@ -898,7 +924,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const addToast = useCallback((toast: Omit<ToastMessage, 'id'>) => {
     const id = Math.random().toString(36).substring(2, 9)
-    const newToast: ToastMessage = { ...toast, id, duration: toast.duration || 3500 }
+    const newToast: ToastMessage = { ...toast, id, duration: toastDuration(toast) }
     setToasts(prev => [...prev, newToast])
   }, [])
 
@@ -907,6 +933,43 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [])
 
   const t = useMemo(() => translations[settings.language] || translations.fr, [settings.language])
+
+  // The link a creation toast offers: the new ticket in the detail view, and
+  // its tracker page when it has one.
+  const createdTaskLink = useCallback((task: Task): ToastLink => ({
+    label: `${t.toasts.openCreated} ${task.key}`,
+    onOpen: () => setSelectedTask(task),
+    externalUrl: task.externalUrl || undefined,
+  }), [t])
+
+  /**
+   * Le seul endroit où une lecture ratée devient visible. Un 401 se tait : la
+   * redirection vers la connexion s'en charge déjà. Tout le reste nomme la
+   * ressource et ce que le serveur a répondu, une fois par passage à l'échec,
+   * et laisse la trace que le bandeau lit.
+   */
+  const trackRead = useCallback(<T,>(resource: ReadResource, outcome: ReadOutcome<T>) => {
+    if (outcome.kind === 'silent') return
+    setReadFailures(previous => withOutcome(previous, resource, outcome))
+    if (outcome.kind === 'ok') {
+      reportedReadsRef.current.delete(resource)
+      return
+    }
+    if (reportedReadsRef.current.has(resource)) return
+    reportedReadsRef.current.add(resource)
+    addToast({
+      type: 'error',
+      title: t.reads.failedTitle,
+      description: formatReadFailure(
+        t.reads.failedDescription,
+        t.reads.resources[resource],
+        failureDetail(outcome),
+      ),
+      duration: 8000,
+    })
+  }, [addToast, t])
+
+  const coreReadFailures = useMemo(() => coreFailures(readFailures), [readFailures])
 
   useEffect(() => {
     const root = document.documentElement
@@ -940,7 +1003,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // tailles de cette interface sont en pixels et qu'une taille de police
     // racine ne les touche pas. Le zoom est appliqué au document entier, donc
     // les panneaux, la barre latérale et les modales suivent ensemble.
-    const scale = UI_SCALE_OPTIONS.includes(settings.uiScale || 100) ? settings.uiScale || 100 : 100
+    const scale = normalizeUIScale(settings.uiScale)
     root.style.zoom = scale === 100 ? '' : String(scale / 100)
     // --ui-zoom accompagne le zoom : les hauteurs d'écran s'en servent pour rester
     // dans la fenêtre, sinon la barre d'état passe sous le bord bas.
@@ -957,25 +1020,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [settings.theme, settings.density, settings.uiScale, currentProject?.color])
 
   const fetchSettings = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/settings`)
-      if (res.ok) {
-        const data: UserSettings = await res.json()
-        setSettings(data)
-        // Premier lancement : aucune vue mémorisée, la vue par défaut des
-        // réglages s'applique ici et nulle part ailleurs. C'est le seul moment
-        // où l'on tient la valeur du serveur plutôt que celle de repli.
-        if (defaultViewPending.current) {
-          defaultViewPending.current = false
-          if (data.defaultView && VIEW_MODES.includes(data.defaultView)) {
-            setActiveView(data.defaultView)
-          }
-        }
+    const outcome = await readJson<UserSettings>(`${API_BASE}/settings`)
+    trackRead('settings', outcome)
+    if (outcome.kind !== 'ok') return
+    const data = outcome.data
+    setSettings(data)
+    // Premier lancement : aucune vue mémorisée, la vue par défaut des
+    // réglages s'applique ici et nulle part ailleurs. C'est le seul moment
+    // où l'on tient la valeur du serveur plutôt que celle de repli.
+    if (defaultViewPending.current) {
+      defaultViewPending.current = false
+      if (data.defaultView && VIEW_MODES.includes(data.defaultView)) {
+        setActiveView(data.defaultView)
       }
-    } catch (err) {
-      console.warn('Failed to load settings from server', err)
     }
-  }, [setActiveView])
+  }, [setActiveView, trackRead])
 
   const fetchSkills = useCallback(async () => {
     try {
@@ -1002,51 +1061,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [])
 
   const fetchProjects = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/projects`)
-      if (res.ok) {
-        const data: Project[] = await res.json()
-        const projectList = data || []
-        setProjects(projectList)
+    const outcome = await readJson<Project[]>(`${API_BASE}/projects`)
+    trackRead('projects', outcome)
+    if (outcome.kind !== 'ok') return
+    const projectList = outcome.data || []
+    setProjects(projectList)
 
-        // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
-        setSelectedProjectIdState(prev => {
-          if (prev === 'all') {
-            return 'all'
-          }
-          if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
-            return prev
-          }
-          try {
-            const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
-            if (stored === 'all') return 'all'
-            if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
-              return stored
-            }
-          } catch {}
-
-          // Prioritize bookmarked project with tasks, or any bookmarked project, or 'all'
-          const bookmarkedWithTasks = projectList.find(p => p.bookmarked && (p.taskCount || 0) > 0)
-          if (bookmarkedWithTasks) {
-            try {
-              localStorage.setItem('sectile_selected_project_id', bookmarkedWithTasks.id)
-            } catch {}
-            return bookmarkedWithTasks.id
-          }
-          const anyBookmarked = projectList.find(p => p.bookmarked)
-          if (anyBookmarked) {
-            try {
-              localStorage.setItem('sectile_selected_project_id', anyBookmarked.id)
-            } catch {}
-            return anyBookmarked.id
-          }
-          return 'all'
-        })
+    // Ensure a valid project is actively selected, preserving 'all' or active bookmarked project
+    setSelectedProjectIdState(prev => {
+      if (prev === 'all') {
+        return 'all'
       }
-    } catch (err) {
-      console.warn('Failed to load projects', err)
-    }
-  }, [])
+      if (prev && projectList.some(p => (p.id === prev || p.slug === prev) && p.bookmarked)) {
+        return prev
+      }
+      try {
+        const stored = localStorage.getItem('sectile_selected_project_id') || localStorage.getItem('taskacao_selected_project_id')
+        if (stored === 'all') return 'all'
+        if (stored && projectList.some(p => (p.id === stored || p.slug === stored) && p.bookmarked)) {
+          return stored
+        }
+      } catch {}
+
+      // Prioritize bookmarked project with tasks, or any bookmarked project, or 'all'
+      const bookmarkedWithTasks = projectList.find(p => p.bookmarked && (p.taskCount || 0) > 0)
+      if (bookmarkedWithTasks) {
+        try {
+          localStorage.setItem('sectile_selected_project_id', bookmarkedWithTasks.id)
+        } catch {}
+        return bookmarkedWithTasks.id
+      }
+      const anyBookmarked = projectList.find(p => p.bookmarked)
+      if (anyBookmarked) {
+        try {
+          localStorage.setItem('sectile_selected_project_id', anyBookmarked.id)
+        } catch {}
+        return anyBookmarked.id
+      }
+      return 'all'
+    })
+  }, [trackRead])
 
   const fetchActivities = useCallback(async () => {
     try {
@@ -1136,24 +1190,27 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const fetchTasks = useCallback(async () => {
     try {
       setIsLoading(true)
-      const res = await fetch(`${API_BASE}/tasks?${buildTaskQuery()}`)
+      const outcome = await readJson<Task[]>(`${API_BASE}/tasks?${buildTaskQuery()}`)
       // A view that is gone, or someone else's, answers 404: the board falls
-      // back to what it would show without it, and says why.
-      if (res.status === 404 && selectedViewId) {
+      // back to what it would show without it, and says why. It is not a
+      // degraded read, so it never reaches the banner.
+      if (outcome.kind === 'failed' && outcome.status === 404 && selectedViewId) {
         leaveUnavailableView()
         addToast({ type: 'error', title: t.boardViews.unavailable, description: t.boardViews.unavailableDescription })
         return
       }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data: Task[] = await res.json()
-      setTasks(data)
+      trackRead('tasks', outcome)
+      if (outcome.kind === 'silent') return
+      if (outcome.kind === 'failed') {
+        setError(failureDetail(outcome))
+        return
+      }
+      setTasks(outcome.data)
       setError(null)
-    } catch (err: any) {
-      setError(err.message || 'Failed to fetch tasks')
     } finally {
       setIsLoading(false)
     }
-  }, [buildTaskQuery, selectedViewId, leaveUnavailableView, addToast, t])
+  }, [buildTaskQuery, selectedViewId, leaveUnavailableView, addToast, trackRead, t])
 
   // Restauration à l'ouverture et à chaque changement de projet. Les setters
   // bruts sont utilisés ici : réécrire ce qu'on vient de lire serait inutile.
@@ -1535,16 +1592,30 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [taskFacets, sprintFilter, teamFilter, assigneeFilter, setSprintFilter, setTeamFilter, setAssigneeFilter])
 
   const fetchBoardViews = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/me/board-views`)
-      if (res.ok) {
-        const data: BoardView[] = await res.json()
-        setBoardViews(data || [])
-      }
-    } catch (err) {
-      console.warn('Failed to load board views', err)
+    const outcome = await readJson<BoardView[]>(`${API_BASE}/me/board-views`)
+    trackRead('boardViews', outcome)
+    if (outcome.kind !== 'ok') return
+    setBoardViews(outcome.data || [])
+  }, [trackRead])
+
+  /**
+   * Relance les lectures en échec, et elles seules : le bandeau propose le
+   * geste sans recharger la page. La marque « déjà signalé » est levée avant,
+   * pour qu'un échec qui persiste réponde quelque chose à une demande
+   * explicite plutôt que de rester muet.
+   */
+  const retryFailedReads = useCallback(() => {
+    const retries: Record<ReadResource, () => Promise<void>> = {
+      projects: fetchProjects,
+      tasks: fetchTasks,
+      settings: fetchSettings,
+      boardViews: fetchBoardViews,
     }
-  }, [])
+    for (const failure of readFailures) {
+      reportedReadsRef.current.delete(failure.resource)
+      void retries[failure.resource]()
+    }
+  }, [readFailures, fetchProjects, fetchTasks, fetchSettings, fetchBoardViews])
 
   // The server answers with the message the interface shows as it is.
   const boardViewRequest = useCallback(async (path: string, method: string, payload?: BoardViewPayload): Promise<Response> => {
@@ -1810,7 +1881,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation globale lancée',
-        description: activeProj ? `Projet ${activeProj.name} — Suivi dans Activités.` : 'La tâche a été ajoutée à la file d\'attente.',
+        description: activeProj ? `Projet ${activeProj.name} - Suivi dans Activités.` : 'La tâche a été ajoutée à la file d\'attente.',
       })
     } catch (err: any) {
       addToast({
@@ -1845,7 +1916,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation GitHub lancée',
-        description: targetRepo ? `Dépôt ${targetRepo} (${activeProj?.name || ''}) — Suivi dans Activités.` : 'Synchronisation GitHub en cours...',
+        description: targetRepo ? `Dépôt ${targetRepo} (${activeProj?.name || ''}) - Suivi dans Activités.` : 'Synchronisation GitHub en cours...',
       })
     } catch (err: any) {
       addToast({
@@ -1880,7 +1951,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       addToast({
         type: 'info',
         title: 'Synchronisation Jira lancée',
-        description: targetKey ? `Projet Jira ${targetKey} (${activeProj?.name || ''}) — Suivi dans Activités.` : 'Synchronisation Jira en cours...',
+        description: targetKey ? `Projet Jira ${targetKey} (${activeProj?.name || ''}) - Suivi dans Activités.` : 'Synchronisation Jira en cours...',
       })
     } catch (err: any) {
       addToast({
@@ -2035,6 +2106,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: t.toasts.taskCreated,
         description: `${created.key}: ${created.title} (${(created.source || 'local').toUpperCase()})`,
+        link: createdTaskLink(created),
       })
       return created
     } catch (err: any) {
@@ -2418,7 +2490,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         type: 'success',
         title: 'Story créée',
         description: `${data.storyKey} rattachée à ${macroKey}`,
+        link: data.task ? createdTaskLink(data.task) : undefined,
       })
+      // The story exists; what the tracker refused is said, not hidden.
+      if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       const m = data.macro || data.epic || null
       return { macro: m, epic: m, storyKey: data.storyKey || '' }
@@ -2428,6 +2503,45 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   }
   const createStoryFromEpicTodo = createStoryFromMacroTodo
+
+  // Produire la découpe depuis les artefacts SDD du dépôt.
+  //
+  // Un geste, jamais un effet de bord de la synchro : produire à chaque passe
+  // se battrait contre les lignes modifiées à la main, et une ligne supprimée
+  // exprès reviendrait. Rien n'est écrit dans le dépôt ni sur le tracker.
+  //
+  // L'origine lue est remontée telle quelle dans le message : la découpe peut
+  // venir de l'arbre de travail ou de la branche de la macro, et ne pas dire
+  // lequel laisse deviner pourquoi elle ne correspond pas à ce qu'on a sous les
+  // yeux.
+  const produceMacroSlicing = async (
+    projectId: string,
+    macroKey: string,
+    source: MacroTodoSource
+  ): Promise<MacroMeta | null> => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/projects/${encodeURIComponent(projectId)}/macros/${encodeURIComponent(macroKey)}/slicing`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source }),
+        }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Découpe refusée')
+      const macro: MacroMeta | null = data.macro || data.epic || null
+      addToast({
+        type: 'success',
+        title: `Découpe produite pour ${macroKey}`,
+        description: data.origin || '',
+      })
+      return macro
+    } catch (err: any) {
+      addToast({ type: 'error', title: 'Découpe non produite', description: err.message })
+      return null
+    }
+  }
 
   // Rattrapage : les épics classés avant que le miroir en label existe, et ceux
   // dont la poussée a échoué, restent invisibles dans Jira jusqu'à ce qu'on les
@@ -2590,7 +2704,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(data.error || 'Création refusée')
-      addToast({ type: 'success', title: 'Story créée', description: `${data.storyKey} sous ${macroKey}` })
+      addToast({
+        type: 'success',
+        title: 'Story créée',
+        description: `${data.storyKey} sous ${macroKey}`,
+        link: data.task ? createdTaskLink(data.task) : undefined,
+      })
+      if (data.notice) addToast({ type: 'warning', title: 'Parent non écrit sur le tracker', description: data.notice })
       fetchTasks()
       return data.storyKey || ''
     } catch (err: any) {
@@ -3236,7 +3356,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const cancelActivity = async (id: string) => {
     try {
       const res = await fetch(`${API_BASE}/activities/${id}/cancel`, { method: 'POST' })
-      if (!res.ok) throw new Error('Cancel failed')
+      // A refusal says why: somebody else's run is theirs to cancel.
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || 'Cancel failed')
       addToast({
         type: 'warning',
         title: t.toasts.activityCanceled,
@@ -3593,6 +3714,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         isSyncing,
         runningSkillId,
         error,
+        readFailures,
+        coreReadFailures,
+        retryFailedReads,
         activeView,
         setActiveView,
         boardGrouping,
@@ -3701,6 +3825,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         saveMacroMeta,
         saveEpicMeta,
         createStoryFromMacroTodo,
+        produceMacroSlicing,
         createStoryFromEpicTodo,
         pendingHorizonPushes,
         pushPendingHorizons,

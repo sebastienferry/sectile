@@ -39,6 +39,37 @@ func disconnectFixture(t *testing.T) (*agentDaemon, agentconfig.Config) {
 	return &agentDaemon{repoRoot: root, loopback: loopbackServer{desktopToken: "private"}, link: serverLink{projectID: "p"}}, agentconfig.Config{SchemaVersion: 1, ProjectID: "p", GitRemoteURL: "https://example.test/project.git"}
 }
 
+// withUnwritableSettings makes the settings store unusable for the duration of
+// fn, then restores it byte for byte. Chmodding the directory to 0500 is not
+// enough: CI runs the suite as root, root ignores the permission bits, the
+// write succeeds and the test asserts a 500 that never happens. Standing a
+// regular file where the directory has to be fails for every user, because
+// ENOTDIR is not a permission.
+func withUnwritableSettings(t *testing.T, fn func()) {
+	t.Helper()
+	path, err := agentconfig.SettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(path)
+	aside := dir + ".aside"
+	if err := os.Rename(dir, aside); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Remove(dir); err != nil {
+			t.Error(err)
+		}
+		if err := os.Rename(aside, dir); err != nil {
+			t.Error(err)
+		}
+	}()
+	if err := os.WriteFile(dir, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	fn()
+}
+
 func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 	d, config := disconnectFixture(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -97,12 +128,9 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 		t.Fatal("failed re-add reconnected")
 	}
 	body, _ := json.Marshal(map[string]string{"projectId": "p", "path": d.repoRoot})
-	settingsPath, _ := agentconfig.SettingsPath()
-	if err := os.Chmod(filepath.Dir(settingsPath), 0500); err != nil {
-		t.Fatal(err)
-	}
-	w = disconnectRequest(d, "POST", "/desktop/projects", string(body))
-	os.Chmod(filepath.Dir(settingsPath), 0700)
+	withUnwritableSettings(t, func() {
+		w = disconnectRequest(d, "POST", "/desktop/projects", string(body))
+	})
 	if w.Code != 500 {
 		t.Fatal("re-add persistence failure", w.Code)
 	}
@@ -212,12 +240,13 @@ func TestProjectDisconnectionErrorsPreserveSettings(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 	path, _ := agentconfig.SettingsPath()
-	before, _ := os.ReadFile(path)
-	if err := os.Chmod(filepath.Dir(path), 0500); err != nil {
+	before, err := os.ReadFile(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Chmod(filepath.Dir(path), 0700)
-	w = disconnectRequest(d, "DELETE", "/desktop/projects?id=p", "")
+	withUnwritableSettings(t, func() {
+		w = disconnectRequest(d, "DELETE", "/desktop/projects?id=p", "")
+	})
 	if w.Code != 500 {
 		t.Fatal(w.Code, w.Body.String())
 	}

@@ -61,15 +61,62 @@ type updateTaskInput struct {
 }
 
 type startRunInput struct {
-	TaskKey string `json:"taskKey"`
+	TaskKey string `json:"taskKey,omitempty" jsonschema:"task key or ID; omit for a macro run"`
 	Skill   string `json:"skill"`
 	RunID   string `json:"runId,omitempty"`
+	// ProjectID and MacroKey name a macro skill run instead of a task run.
+	ProjectID string `json:"projectId,omitempty" jsonschema:"project primary key of a macro run"`
+	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
 }
 type finishRunInput struct {
-	TaskKey string `json:"taskKey"`
-	RunID   string `json:"runId"`
-	Status  string `json:"status" jsonschema:"completed, failed or canceled"`
-	Note    string `json:"note"`
+	TaskKey   string `json:"taskKey,omitempty" jsonschema:"task key or ID; omit for a macro run"`
+	RunID     string `json:"runId"`
+	Status    string `json:"status" jsonschema:"completed, failed or canceled"`
+	Note      string `json:"note"`
+	ProjectID string `json:"projectId,omitempty" jsonschema:"project primary key of a macro run"`
+	MacroKey  string `json:"macroKey,omitempty" jsonschema:"macro key of a macro run, with projectId instead of taskKey"`
+}
+type reportWaitingInput struct {
+	TaskKey string `json:"taskKey" jsonschema:"task key or ID of the run"`
+	RunID   string `json:"runId" jsonschema:"the runId start_run returned"`
+	Waiting bool   `json:"waiting" jsonschema:"true before asking the user a blocking question, false once answered"`
+}
+
+// reportWaitingTool is the one call that must not end a wait: reporting the same
+// wait twice, or clearing it, is not a sign that the session moved on.
+const reportWaitingTool = "report_waiting"
+
+// resumesWaits says whether a message proves its session is no longer blocked on
+// the user. Only a tool call does: a keepalive ping arrives every minute from
+// the stdio bridge whatever the model is doing.
+func resumesWaits(method string, req mcp.Request) bool {
+	if method != "tools/call" {
+		return false
+	}
+	call, ok := req.(*mcp.CallToolRequest)
+	return ok && call.Params != nil && call.Params.Name != reportWaitingTool
+}
+
+type macroWorktreeInput struct {
+	ProjectID string `json:"projectId" jsonschema:"project primary key"`
+	MacroKey  string `json:"macroKey" jsonschema:"macro key, for example M-7"`
+}
+
+// runTarget says whether a run input names a task or a macro, and refuses one
+// that names both or neither: a macro key alone can match another project's
+// macro, and a task key with a macro key is ambiguous.
+func runTarget(taskKey, projectID, macroKey string) (macro bool, err error) {
+	task := strings.TrimSpace(taskKey) != ""
+	hasMacro := strings.TrimSpace(macroKey) != ""
+	switch {
+	case task && hasMacro:
+		return false, fmt.Errorf("name either taskKey or projectId with macroKey, not both")
+	case hasMacro && strings.TrimSpace(projectID) == "":
+		return false, fmt.Errorf("a macro run needs projectId as well as macroKey")
+	case !task && !hasMacro:
+		return false, fmt.Errorf("taskKey, or projectId with macroKey, is required")
+	}
+	return hasMacro, nil
 }
 
 // skillReference names a skill without carrying its body. A launched session
@@ -150,6 +197,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 			if session := req.GetSession(); session != nil {
 				sessions.Touch(session.ID())
+				if resumesWaits(method, req) {
+					sessions.Resume(session.ID())
+				}
 			}
 			return next(ctx, method, req)
 		}
@@ -224,7 +274,16 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "start_run", Description: "Report the start of a remote skill execution so the task displays an active indicator. Save the returned activity ID as runId. Supply SECTILE_RUN_ID when provided by a launcher to reuse its run. Reads and transitions do not implicitly start or finish runs. A run this session creates is owned by it: if this client disconnects without finishing it, the server closes the run as canceled. A long silence does not: a quiet run stays open and is only remarked upon. A run reused from a launcher keeps the ownership of that launcher."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in startRunInput) (*mcp.CallToolResult, any, error) {
-			activity, err := database.StartRemoteRunBy(callerOf(resolve, req).UserID, in.TaskKey, in.Skill, in.RunID)
+			macro, err := runTarget(in.TaskKey, in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			var activity *models.TaskActivity
+			if macro {
+				activity, err = database.StartMacroRunBy(callerOf(resolve, req).UserID, in.ProjectID, in.MacroKey, in.Skill, in.RunID)
+			} else {
+				activity, err = database.StartRemoteRunBy(callerOf(resolve, req).UserID, in.TaskKey, in.Skill, in.RunID)
+			}
 			if err != nil {
 				return nil, nil, err
 			}
@@ -240,13 +299,48 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 	mcp.AddTool(s, &mcp.Tool{Name: "finish_run", Description: "Finish the specified remote execution with completed, failed or canceled status. Call when the entire invoked skill ends, including when stopping for user input. This is how a run reports its own outcome; a run left open when the session ends is closed as canceled instead, and such a run may still be reported here afterwards by its owner. Does not transition the task."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in finishRunInput) (*mcp.CallToolResult, any, error) {
 			caller := callerOf(resolve, req)
-			activity, err := database.FinishRemoteRunAs(db.Actor{ID: caller.UserID, Name: caller.Name},
-				caller.Role == db.RoleAdmin, in.TaskKey, in.RunID, in.Status, in.Note)
+			macro, err := runTarget(in.TaskKey, in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			actor := db.Actor{ID: caller.UserID, Name: caller.Name}
+			var activity *models.TaskActivity
+			if macro {
+				activity, err = database.FinishMacroRunAs(actor, caller.Role == db.RoleAdmin, in.ProjectID, in.MacroKey, in.RunID, in.Status, in.Note)
+			} else {
+				activity, err = database.FinishRemoteRunAs(actor, caller.Role == db.RoleAdmin, in.TaskKey, in.RunID, in.Status, in.Note)
+			}
 			if err != nil {
 				return nil, nil, err
 			}
 			sessions.Release(sessionID(req.Session), in.RunID)
 			return nil, activity, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: reportWaitingTool, Description: "Declare that a run is blocked on its user, so the board and the owner's desktop show it as waiting. Call it with waiting true right before asking the user a question you cannot continue without. The wait ends by itself on this session's next Sectile call, when the run finishes, or with waiting false. A headless run has nobody to answer and is left unmarked. Tool permission prompts are not reported this way."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in reportWaitingInput) (*mcp.CallToolResult, any, error) {
+			caller := callerOf(resolve, req)
+			activity, applied, err := database.ReportRemoteRunWaitingAs(db.Actor{ID: caller.UserID, Name: caller.Name}, caller.Role == db.RoleAdmin, in.TaskKey, in.RunID, in.Waiting)
+			if err != nil {
+				return nil, nil, err
+			}
+			result := map[string]any{"activity": activity, "applied": applied}
+			switch {
+			case !applied:
+				result["reason"] = "headless run: nobody can answer it, so it is not shown as waiting"
+			case in.Waiting:
+				sessions.MarkWaiting(sessionID(req.Session), in.RunID)
+			default:
+				sessions.ForgetWaiting(sessionID(req.Session), in.RunID)
+			}
+			return nil, result, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "prepare_macro_worktree", Description: "Prepare the checkout a macro's specification is written in, on the caller's local agent: the macro's own worktree in the project's specifications repository, on the macro branch, created from the up-to-date default branch or reused as is. Returns path, branch, whether it is a dedicated worktree, any warning, and the macro's slicing lines (todos) to align on. Call it before a macro skill reads or writes; it reuses the worktree a launch already prepared."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in macroWorktreeInput) (*mcp.CallToolResult, any, error) {
+			workspace, err := database.PrepareMacroWorktree(ctx, callerOf(resolve, req).UserID, in.ProjectID, in.MacroKey)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, workspace, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "create_task", Description: "Create a task on an explicitly named project and return it with its key and external URL. Creation is remote whenever the project's tracker supports it, and fails rather than leaving a ticket that exists only on the local board. The new task enters the workflow at its first stage; it cannot be created at a later one.", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"projectId", "title"},

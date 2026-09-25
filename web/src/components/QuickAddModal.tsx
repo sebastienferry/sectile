@@ -8,6 +8,7 @@ import {
 import { useApp } from '../context/AppContext'
 import type { Status, Priority, TaskSource, TrackerSprint } from '../types'
 import { LookupField } from './LookupField'
+import { PrioritySelect } from './PrioritySelect'
 import { sprintLookup } from '../lib/lookups'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
 import { initialLabelsForView } from '../lib/boardViews'
@@ -349,16 +350,11 @@ export const QuickAddModal: React.FC = () => {
               <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
                 {t.quickAdd.priority}
               </label>
-              <select
+              <PrioritySelect
                 value={priority}
-                onChange={e => setPriority(e.target.value as Priority)}
+                onChange={setPriority}
                 className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-color)]"
-              >
-                <option value="urgent">{t.priority.urgent}</option>
-                <option value="high">{t.priority.high}</option>
-                <option value="medium">{t.priority.medium}</option>
-                <option value="low">{t.priority.low}</option>
-              </select>
+              />
             </div>
           </div>
 

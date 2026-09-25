@@ -25,17 +25,27 @@ import {
   Plus,
   CopyPlus,
   X,
+  Rows2,
+  Rows3,
 } from "lucide-react"
 import { useApp } from "../context/AppContext"
 import { useClickOutside } from "../hooks/useClickOutside"
 import { TaskFilters } from "./TaskFilters"
 import { BoardGroupingToggle } from "./BoardGroupingToggle"
 import { issueTypeStyle } from "../lib/issueTypes"
+import { PRIORITY_COLORS, PRIORITY_LEVELS } from "../lib/priority"
 import { Avatar } from "./Avatar"
 import { EpicBar, useEpicColors } from "./EpicMarker"
 import { shortElapsed, isElapsedStale } from "../lib/elapsed"
 import { resolveTaskStage } from "../lib/workflow"
 import { isSelectableStage } from "../lib/boardSelection"
+import {
+  isBacklogRowCondensed,
+  loadBacklogRowDisplayMode,
+  saveBacklogRowDisplayMode,
+  toggleBacklogRowDisplayMode,
+  type BacklogRowDisplayMode,
+} from "../lib/backlogDisplayMode"
 import type { Task, Status, Priority, WorkflowStage } from "../types"
 
 export const ListView: React.FC = () => {
@@ -69,6 +79,20 @@ export const ListView: React.FC = () => {
   const [sortField, setSortField] = useState<"key" | "title" | "status" | "priority" | "dueDate" | "createdAt">("priority")
   const [sortAsc, setSortAsc] = useState(false)
   const [groupByStatus, setGroupByStatus] = useState(true)
+
+  // La densité des lignes survit au rechargement : c'est une préférence de
+  // lecture, pas un état de navigation, et la redemander à chaque visite la
+  // rendrait inutile pour qui travaille dans le backlog.
+  const [rowMode, setRowMode] = useState<BacklogRowDisplayMode>(() => loadBacklogRowDisplayMode())
+  const condensedRows = isBacklogRowCondensed(rowMode)
+  const toggleRowMode = () => {
+    const next = toggleBacklogRowDisplayMode(rowMode)
+    setRowMode(next)
+    saveBacklogRowDisplayMode(next)
+  }
+  // Les cellules d'une ligne partagent leur hauteur : la densité se règle sur
+  // toutes, sinon la plus haute impose la sienne et le mode ne gagne rien.
+  const cellPad = condensedRows ? "py-1 px-3" : "py-2.5 px-3"
 
   // -------------------------------------------------------------
   // Bulk Multi-Selection State
@@ -165,12 +189,9 @@ export const ListView: React.FC = () => {
   ]
 
   // Pastilles flat (sans emoji ni bordure 3D)
-  const PRIORITY_OPTIONS: { id: Priority; label: string; color: string }[] = [
-    { id: "urgent", label: t.priority.urgent, color: "var(--status-danger)" },
-    { id: "high", label: t.priority.high, color: "var(--status-warn)" },
-    { id: "medium", label: t.priority.medium, color: "var(--status-info)" },
-    { id: "low", label: t.priority.low, color: "var(--text-muted)" },
-  ]
+  const PRIORITY_OPTIONS: { id: Priority; label: string; color: string }[] = PRIORITY_LEVELS.map(id => (
+    { id, label: t.priority[id], color: PRIORITY_COLORS[id] }
+  ))
 
   // -------------------------------------------------------------
   // Bulk Actions Selection Utilities
@@ -429,7 +450,7 @@ export const ListView: React.FC = () => {
         }`}
       >
         {/* Selection Checkbox */}
-        <td className="relative py-2.5 px-3 w-10 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+        <td className={`relative ${cellPad} w-10 text-center whitespace-nowrap`} onClick={e => e.stopPropagation()}>
           {showsEpicBar && <EpicBar parentKey={task.parentKey} />}
           <input
             type="checkbox"
@@ -440,7 +461,7 @@ export const ListView: React.FC = () => {
         </td>
 
         {/* Source & Key */}
-        <td className="py-2.5 px-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+        <td className={`${cellPad} whitespace-nowrap`} onClick={e => e.stopPropagation()}>
           <div className="flex items-center gap-1.5 font-mono text-xs font-bold">
             {task.externalUrl ? (
               <a
@@ -482,7 +503,7 @@ export const ListView: React.FC = () => {
         </td>
 
         {/* Title & Activity */}
-        <td className="py-2.5 px-3 max-w-[560px]">
+        <td className={`${cellPad} max-w-[560px]`}>
           <div className="flex items-center gap-1.5">
             {task.issueType && (
               <span
@@ -500,13 +521,26 @@ export const ListView: React.FC = () => {
             <span className="text-xs font-semibold text-[var(--text-primary)] truncate group-hover:text-[var(--accent-color)] transition-colors">
               {task.title}
             </span>
+
+            {/* Condensé : la macro remonte sur la ligne du titre, réduite à sa
+                clé. C'est elle qu'on balaye pour situer un ticket ; son titre
+                est déjà connu de qui l'a ouverte, et coûte la ligne entière. */}
+            {condensedRows && task.parentKey && (
+              <span
+                className="shrink-0 inline-flex items-center gap-1 px-1.5 rounded text-[10px] text-violet-300 bg-violet-500/10 border border-violet-500/25"
+                title={`${task.parentType || "Parent"} ${task.parentKey}${task.parentTitle ? ` - ${task.parentTitle}` : ""}`}
+              >
+                <Layers size={9} className="shrink-0 opacity-80" />
+                <span className="font-mono font-bold">{task.parentKey}</span>
+              </span>
+            )}
           </div>
 
           {/* Parent (Macro ou Story) */}
-          {task.parentKey && (
+          {!condensedRows && task.parentKey && (
             <div
               className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[10px] mt-1 mr-1 text-violet-300 bg-violet-500/10 border border-violet-500/25 max-w-[220px]"
-              title={`${task.parentType || "Parent"} ${task.parentKey}${task.parentTitle ? ` — ${task.parentTitle}` : ""}`}
+              title={`${task.parentType || "Parent"} ${task.parentKey}${task.parentTitle ? ` - ${task.parentTitle}` : ""}`}
             >
               <Layers size={9} className="shrink-0 opacity-80" />
               <span className="font-mono font-bold shrink-0">{task.parentKey}</span>
@@ -518,7 +552,7 @@ export const ListView: React.FC = () => {
           {/* Activity badge if exists */}
 
 
-          {task.description && !latestActivity && (
+          {!condensedRows && task.description && !latestActivity && (
             <div className="text-[11px] text-[var(--text-muted)] line-clamp-1 mt-0.5">
               {task.description}
             </div>
@@ -526,7 +560,7 @@ export const ListView: React.FC = () => {
         </td>
 
         {/* Dynamic Column: Status vs Agentic Workflow Stage */}
-        <td className="py-2.5 px-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+        <td className={`${cellPad} whitespace-nowrap`} onClick={e => e.stopPropagation()}>
           {boardGrouping === "workflow" ? (
             /* Agentic Workflow Stage Select */
             <select
@@ -537,7 +571,7 @@ export const ListView: React.FC = () => {
             >
               {WORKFLOW_STAGES.map(s => (
                 <option key={s.id} value={s.id}>
-                  {s.stageLabel} — {s.label}
+                  {s.stageLabel} - {s.label}
                 </option>
               ))}
             </select>
@@ -571,7 +605,9 @@ export const ListView: React.FC = () => {
             </select>
           )}
 
-          {task.statusChangedAt && shortElapsed(task.statusChangedAt) && (
+          {/* L'ancienneté dans l'état est une seconde ligne sous le sélecteur :
+              elle repasse par le mode détaillé, où on la lit vraiment. */}
+          {!condensedRows && task.statusChangedAt && shortElapsed(task.statusChangedAt) && (
             <div
               className="flex items-center gap-0.5 mt-1 text-[9.5px] font-medium"
               style={{ color: isElapsedStale(task.statusChangedAt) ? "var(--status-warn)" : "var(--text-muted)" }}
@@ -584,7 +620,7 @@ export const ListView: React.FC = () => {
         </td>
 
         {/* Priority (Flat colored dot, sans contour) */}
-        <td className="py-2.5 px-3 w-8 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+        <td className={`${cellPad} w-8 text-center whitespace-nowrap`} onClick={e => e.stopPropagation()}>
           <div className="relative inline-flex items-center justify-center group/prio">
             <select
               value={task.priority}
@@ -607,7 +643,7 @@ export const ListView: React.FC = () => {
         </td>
 
         {/* Labels */}
-        <td className="py-2.5 px-3">
+        <td className={`${cellPad}`}>
           <div className="flex flex-wrap gap-1 max-w-[180px]">
             {task.labels && task.labels.map(lbl => {
               const clean = lbl.replace(/^#+/, "")
@@ -633,7 +669,7 @@ export const ListView: React.FC = () => {
         </td>
 
         {/* Assignee & Creator */}
-        <td className="py-2.5 px-3 whitespace-nowrap text-xs text-[var(--text-secondary)]">
+        <td className={`${cellPad} whitespace-nowrap text-xs text-[var(--text-secondary)]`}>
           <div className="flex flex-col gap-0.5">
             {task.assignee ? (
               <div className="flex items-center gap-1.5" title={`Assigné : ${task.assignee}`}>
@@ -643,7 +679,10 @@ export const ListView: React.FC = () => {
             ) : (
               <span className="text-[var(--text-muted)] text-[11px]">-</span>
             )}
-            {task.creator && (
+            {/* Le créateur passe sous l'assigné : deux lignes dans une cellule
+                imposent leur hauteur à toute la ligne. L'assigné reste, c'est
+                lui qu'on cherche en balayant le backlog. */}
+            {!condensedRows && task.creator && (
               <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]" title={`Créé par : ${task.creator}`}>
                 <span className="opacity-70">par</span>
                 <Avatar name={task.creator} url={task.creatorAvatar} size={14} />
@@ -654,7 +693,7 @@ export const ListView: React.FC = () => {
         </td>
 
         {/* Due Date & Git / PR / MR */}
-        <td className="py-2.5 px-3 whitespace-nowrap text-xs text-[var(--text-muted)]">
+        <td className={`${cellPad} whitespace-nowrap text-xs text-[var(--text-muted)]`}>
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
               {task.dueDate ? (
@@ -693,7 +732,7 @@ export const ListView: React.FC = () => {
         </td>
 
         {/* Actions */}
-        <td className="py-2.5 px-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+        <td className={`${cellPad} text-right whitespace-nowrap`} onClick={e => e.stopPropagation()}>
           <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
               onClick={() => togglePin(task.id)}
@@ -768,6 +807,25 @@ export const ListView: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={toggleRowMode}
+              aria-pressed={condensedRows}
+              aria-label={condensedRows ? "Afficher les lignes détaillées" : "Afficher les lignes condensées"}
+              title={
+                condensedRows
+                  ? "Afficher les lignes détaillées (description et titre de la macro)"
+                  : "Condenser les lignes (sans description, macro réduite à sa clé)"
+              }
+              className={`flex items-center justify-center p-1.5 rounded-lg border transition-colors cursor-pointer ${
+                condensedRows
+                  ? "bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/40 shadow-2xs"
+                  : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]"
+              }`}
+            >
+              {condensedRows ? <Rows3 size={14} /> : <Rows2 size={14} />}
+            </button>
+
             <TaskFilters />
             <button
               type="button"

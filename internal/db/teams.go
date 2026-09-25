@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"sort"
@@ -92,34 +93,43 @@ func (d *DB) storeTeamMembers(teamID string, members []models.TeamMember) error 
 	defer d.mu.Unlock()
 	d.ensureTeamsTables()
 
+	// The roster is replaced in one transaction on the locked team row: two
+	// refreshes of the same team on two server instances take turns, and the
+	// roster is always one of them, never a mix of both.
 	now := time.Now()
-	if _, err := d.conn.Exec("DELETE FROM team_members WHERE team_id = ?", teamID); err != nil {
-		return err
-	}
-	for _, m := range members {
-		accountID := strings.TrimSpace(m.AccountID)
-		if accountID == "" {
-			continue
-		}
-		activeVal := 0
-		if m.Active {
-			activeVal = 1
-		}
-		if _, err := d.conn.Exec(`
-			INSERT INTO team_members (team_id, account_id, display_name, email, avatar_url, active, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(team_id, account_id) DO UPDATE SET
-				display_name = excluded.display_name,
-				email = excluded.email,
-				avatar_url = excluded.avatar_url,
-				active = excluded.active,
-				updated_at = excluded.updated_at
-		`, teamID, accountID, strings.TrimSpace(m.DisplayName), strings.TrimSpace(m.Email), m.AvatarURL, activeVal, now); err != nil {
+	return d.conn.WithTx(func(tx *sqlTx) error {
+		var lockedID string
+		if err := tx.QueryRow("SELECT id FROM teams WHERE id = ?"+d.forUpdate(), teamID).Scan(&lockedID); err != nil && err != sql.ErrNoRows {
 			return err
 		}
-	}
-	_, _ = d.conn.Exec("UPDATE teams SET members_synced_at = ? WHERE id = ?", now, teamID)
-	return nil
+		if _, err := tx.Exec("DELETE FROM team_members WHERE team_id = ?", teamID); err != nil {
+			return err
+		}
+		for _, m := range members {
+			accountID := strings.TrimSpace(m.AccountID)
+			if accountID == "" {
+				continue
+			}
+			activeVal := 0
+			if m.Active {
+				activeVal = 1
+			}
+			if _, err := tx.Exec(`
+				INSERT INTO team_members (team_id, account_id, display_name, email, avatar_url, active, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?)
+				ON CONFLICT(team_id, account_id) DO UPDATE SET
+					display_name = excluded.display_name,
+					email = excluded.email,
+					avatar_url = excluded.avatar_url,
+					active = excluded.active,
+					updated_at = excluded.updated_at
+			`, teamID, accountID, strings.TrimSpace(m.DisplayName), strings.TrimSpace(m.Email), m.AvatarURL, activeVal, now); err != nil {
+				return err
+			}
+		}
+		_, _ = tx.Exec("UPDATE teams SET members_synced_at = ? WHERE id = ?", now, teamID)
+		return nil
+	})
 }
 
 // RefreshProjectTeamMembers reads the people of every team met on the project's

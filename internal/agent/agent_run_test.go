@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync/atomic"
 	"tasks/internal/agentexec"
 	"testing"
@@ -83,6 +84,51 @@ func TestSupervisedRunCancellation(t *testing.T) {
 	case <-d.queue.runs["run"].exited:
 	default:
 		t.Fatal("exit not confirmed")
+	}
+}
+
+// A stop overrides the exit a supervised command reports, except that a
+// discussion the user ends completes, and a discussion that fails on its own
+// still fails.
+func TestSupervisedRunExitStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name, skill, reported string
+		canceled              bool
+		want                  string
+	}{
+		{"stopped skill run", "implement", "failed", true, "canceled"},
+		{"stopped discussion", "discuss", "failed", true, "completed"},
+		{"discussion exiting non-zero", "discuss", "failed", false, "failed"},
+		{"discussion exiting zero", "discuss", "completed", false, "completed"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &agentDaemon{}
+			if _, err := d.wrapRun("", "run", ""); err != nil {
+				t.Fatal(err)
+			}
+			run := d.queue.runs["run"]
+			run.desktop.Skill = tc.skill
+			run.canceled = tc.canceled
+			req := httptest.NewRequest(http.MethodPost, "/control/runs/run", strings.NewReader(`{"status":"`+tc.reported+`"}`))
+			req.Header.Set("Authorization", "Bearer "+run.token)
+			rec := httptest.NewRecorder()
+			d.handleRunControl(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("control returned %d: %s", rec.Code, rec.Body.String())
+			}
+			if run.desktop.Status != tc.want {
+				t.Fatalf("status = %q, want %q", run.desktop.Status, tc.want)
+			}
+		})
+	}
+}
+
+func TestStoppedNote(t *testing.T) {
+	if got := stoppedNote("discuss", true); got != "Discussion ended after its local terminal closed" {
+		t.Fatalf("discussion note = %q", got)
+	}
+	if got := stoppedNote("clarify", false); got != "Execution canceled" {
+		t.Fatalf("skill note = %q", got)
 	}
 }
 

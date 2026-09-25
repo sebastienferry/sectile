@@ -29,16 +29,27 @@ board**, and nothing more. It stores a name, a fixed list of projects and a list
 of labels, in one table, `board_views`, owned by the account that created it.
 
 - **Selection.** A ticket belongs to a view when it sits in one of its projects
-  and carries at least one of its labels, compared whole and regardless of case.
-  No label selects every ticket of the projects. There is no ALL-of matching,
-  exclusion or nested expression.
+  and carries at least one of its labels, compared whole and regardless of ASCII
+  case. No label selects every ticket of the projects. There is no ALL-of
+  matching, exclusion or nested expression.
+- **The case fold is ASCII, and the same on both engines.** A-Z is folded, every
+  other character has to match its own spelling. The fold cannot be the engine's
+  own: SQLite's `LOWER` leaves accents alone, and PostgreSQL's follows the
+  *cluster's* collation, so `É` folds to `é` on a server created with an ICU
+  or builtin `C.UTF-8` locale and not on one created with `initdb --locale=C`.
+  The same view would then select differently on two deployments of the same
+  release. The column is lowered under an explicit collation
+  (`dialect.LowerASCII`, which is `LOWER(labels COLLATE "C")` under PostgreSQL)
+  and the view's label with `asciiLower` in Go, so both sides fold the same
+  characters everywhere. `NormalizeViewLabels` deduplicates on that same fold.
 - **Resolved by the server.** The task list and its facets take `viewId`, which
   replaces the project scope; every other filter narrows the view further. The
   interface never sends the view's projects or labels itself, so a direct link
   (`?view=<id>`) works from a cold load and ownership is enforced in one place.
 - **The label predicate is SQL.** `tasks.labels` is a JSON array written by
   `json.Marshal`, so a whole label is exactly its quoted JSON token:
-  `LOWER(labels) LIKE '%"backend"%'`, with LIKE wildcards escaped. The facets
+  `LOWER(labels) LIKE '%"backend"%'`, lowered as above and with LIKE wildcards
+  escaped. The facets
   run a dozen queries over one scope condition; expressing the view as that
   condition keeps their counts consistent with the list without rewriting them.
   An SQL JSON function (`json_each`, `jsonb_array_elements_text`) was rejected
@@ -63,11 +74,12 @@ A view never owns data: deleting one changes no ticket, label or project, and
 deleting a project removes it from the views that selected it, which remain and
 select nothing until edited.
 
-A label always matches its own spelling. Case is ignored for every letter
-under PostgreSQL, and for ASCII letters only under SQLite, whose `LOWER` leaves
-the others alone: the view label is lowered the same way as the column on each
-engine (`labelFold`), so `Équipe` finds `Équipe` everywhere, and `équipe` finds
-it under PostgreSQL only.
+A label always matches its own spelling, on either engine and whatever the
+server's collation: `Équipe` finds `Équipe` everywhere. Case is ignored for ASCII
+letters only, so `EQUIPE` finds `equipe` but `équipe` never finds `Équipe` —
+the price of a selection that does not change when the same database is served
+by another engine, or restored onto a cluster built with a different locale.
+Someone who wants `équipe` and `Équipe` in one view adds both labels to it.
 
 A remote story synchronised by two projects of a view shows twice. That is the
 honest picture of the board; a fix belongs to how projects share a tracker

@@ -96,24 +96,15 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 		trackerStatusTarget = TrackerStatusForStage(proj, cleanStage)
 	}
 
-	// Replace existing workflow stage label with #<stage>
+	// The workflow stage label becomes #<stage>. The labels, the branch and the
+	// tracker status are derived inside the transaction, from the locked row.
 	targetLabel := "#" + cleanStage
-	newLabels := SetWorkflowLabel(task.Labels, targetLabel)
-	labelsJSON, _ := json.Marshal(newLabels)
+	var newLabels []string
+	var branchName *string
+	var trackerStatus string
 
 	// Merge Request / PR URL
 	mrURL := strings.TrimSpace(prURL)
-
-	branchName := task.BranchName
-	if strings.TrimSpace(branch) != "" {
-		b := strings.TrimSpace(branch)
-		branchName = &b
-	}
-
-	trackerStatus := task.TrackerStatus
-	if trackerStatusTarget != "" {
-		trackerStatus = trackerStatusTarget
-	}
 
 	nowT := time.Now()
 	now := nowT.Format("2006-01-02 15:04:05")
@@ -128,50 +119,68 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 	}
 	// Commit state and its tracker activity together. A failed activity insert
 	// must not leave the task advanced without a report or synchronization job.
+	//
+	// The task row is locked and read again inside the transaction: a
+	// transition running at the same time on another server instance waits,
+	// then derives its labels, links and branch from what this one committed,
+	// so neither loses the other's pull request. The running-stage rule is
+	// checked on the same locked state.
 	err = func() error {
 		d.mu.Lock()
 		defer d.mu.Unlock()
-		running, err := d.managedStageRunningUnsafe(task.ID)
-		if err != nil {
-			return err
-		}
-		if running {
-			return fmt.Errorf("a managed Sectile stage is still running")
-		}
-		tx, err := d.conn.Begin()
-		if err != nil {
-			return err
-		}
-		defer tx.Rollback()
-		// The set is the authority and pr_url is its last link, so both are
-		// written by the same statement: a follow-up PR on the task branch is
-		// appended rather than replacing the PR the task already carries.
-		links := task.PrLinks
-		if mrURL != "" {
-			linkBranch := branchForPR
-			if branchName != nil {
-				linkBranch = *branchName
+		return d.conn.WithTx(func(tx *sqlTx) error {
+			locked, err := d.lockTaskUnsafe(tx, task.ID)
+			if err != nil {
+				return err
 			}
-			links = models.AppendPullRequestLink(links, mrURL, linkBranch)
-		}
-		// A stage that records a link undoes a past detachment: the workflow
-		// attached a pull request again, so rediscovery may speak once more. A
-		// stage that records none leaves the flag alone — most transitions
-		// carry no pull request, and raising it there would silence discovery
-		// on every task.
-		attached := 0
-		if len(links) > 0 {
-			attached = 1
-		}
-		if _, err := tx.Exec(`UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, pr_links = ?, pr_links_detached = CASE WHEN ? = 1 THEN 0 ELSE pr_links_detached END, branch_name = ?, updated_at = ? WHERE id = ?`,
-			string(newStatus), string(labelsJSON), trackerStatus, pullRequestURLValue(links), encodePullRequestLinks(links), attached, branchName, now, task.ID); err != nil {
-			return err
-		}
-		task.PrLinks = links
-		if err := insertTaskActivity(tx, *activity); err != nil {
-			return err
-		}
-		return tx.Commit()
+			if locked == nil {
+				return fmt.Errorf("tâche %q non trouvée", taskIDOrKey)
+			}
+			running, err := managedStageRunningOn(tx, task.ID)
+			if err != nil {
+				return err
+			}
+			if running {
+				return fmt.Errorf("a managed Sectile stage is still running")
+			}
+			newLabels = SetWorkflowLabel(locked.Labels, targetLabel)
+			labelsJSON, _ := json.Marshal(newLabels)
+			branchName = locked.BranchName
+			if strings.TrimSpace(branch) != "" {
+				b := strings.TrimSpace(branch)
+				branchName = &b
+			}
+			trackerStatus = locked.TrackerStatus
+			if trackerStatusTarget != "" {
+				trackerStatus = trackerStatusTarget
+			}
+			// The set is the authority and pr_url is its last link, so both are
+			// written by the same statement: a follow-up PR on the task branch is
+			// appended rather than replacing the PR the task already carries.
+			links := locked.PrLinks
+			if mrURL != "" {
+				linkBranch := strings.TrimSpace(branch)
+				if linkBranch == "" && branchName != nil {
+					linkBranch = *branchName
+				}
+				links = models.AppendPullRequestLink(links, mrURL, linkBranch)
+			}
+			// A stage that records a link undoes a past detachment: the workflow
+			// attached a pull request again, so rediscovery may speak once more. A
+			// stage that records none leaves the flag alone — most transitions
+			// carry no pull request, and raising it there would silence discovery
+			// on every task.
+			attached := 0
+			if len(links) > 0 {
+				attached = 1
+			}
+			if _, err := tx.Exec(`UPDATE tasks SET status = ?, labels = ?, tracker_status = ?, pr_url = ?, pr_links = ?, pr_links_detached = CASE WHEN ? = 1 THEN 0 ELSE pr_links_detached END, branch_name = ?, updated_at = ? WHERE id = ?`,
+				string(newStatus), string(labelsJSON), trackerStatus, pullRequestURLValue(links), encodePullRequestLinks(links), attached, branchName, now, task.ID); err != nil {
+				return err
+			}
+			task.PrLinks = links
+			return insertTaskActivity(tx, d.instanceID, *activity)
+		})
 	}()
 	if err != nil {
 		return nil, nil, err

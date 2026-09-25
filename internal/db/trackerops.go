@@ -826,19 +826,20 @@ func (d *DB) finishTrackerOp(activityID string, steps []string, output string, o
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	// Les étapes déjà écrites à la mise en file sont conservées : elles disent
-	// ce qui était demandé, ce que la trace d'exécution complète.
-	existing := []string{}
-	var raw string
-	if err := d.conn.QueryRow("SELECT steps FROM task_activities WHERE id = ?", activityID).Scan(&raw); err == nil && strings.TrimSpace(raw) != "" {
-		_ = json.Unmarshal([]byte(raw), &existing)
-	}
-	existing = append(existing, steps...)
-	stepsJSON, _ := json.Marshal(existing)
-
-	_, _ = d.conn.Exec(`
-		UPDATE task_activities
-		SET status = ?, summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
-		WHERE id = ?
-	`, status, summary, output, string(stepsJSON), errText, time.Now(), activityID)
+	// The steps written at enqueue time are kept: they say what was asked,
+	// which the execution trace completes. They are read on the locked row, so
+	// a step another instance appended meanwhile survives.
+	_ = d.conn.WithTx(func(tx *sqlTx) error {
+		existing, err := d.lockActivityStepsUnsafe(tx, activityID)
+		if err != nil {
+			return err
+		}
+		stepsJSON, _ := json.Marshal(append(existing, steps...))
+		_, err = tx.Exec(`
+			UPDATE task_activities
+			SET status = ?, summary = ?, output = ?, steps = ?, error = ?, completed_at = ?
+			WHERE id = ? AND status != 'canceled'
+		`, status, summary, output, string(stepsJSON), errText, time.Now(), activityID)
+		return err
+	})
 }

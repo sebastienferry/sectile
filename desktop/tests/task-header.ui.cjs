@@ -49,22 +49,22 @@ test('TTY header follows metadata and selection without disturbing the console',
   const beforeStatus=[attachments,disconnections]
   reported={activity:{id:'other',taskId:'full-task-id',skillId:'specify',status:'completed'},task:{labels:['specified']}}
   await expect(otherBadge).toHaveText('✓')
-  await expect(otherBadge).toHaveAttribute('title','specify · Skill completed')
+  await expect(otherBadge).toHaveAttribute('title','Skill: Skill completed')
   await expect(page.locator('.task-skill-status[data-run-id="current"]')).not.toHaveText('✓')
   await expect(header()).toHaveText('#82 · implement')
   await expect(page.locator('#save-log')).toBeFocused()
   assert.deepEqual([attachments,disconnections],beforeStatus)
   // An exited process alone never confirms the skill; the server must report the launched skill.
   const currentBadge=page.locator('.task-skill-status[data-run-id="current"]')
-  await expect(currentBadge).toHaveAttribute('title','implement · Execution ended · skill completion unconfirmed')
+  await expect(currentBadge).toHaveAttribute('title','Skill: Execution ended · skill completion unconfirmed')
   const settled=async()=>{const before=resultRequests;await expect.poll(()=>resultRequests).toBeGreaterThanOrEqual(before+3)}
   // The activity record kind is not the launched skill and must not be accepted as a match.
   reported={activity:{id:'current',taskId:'a',skillId:'remote_run',status:'completed'},task:{labels:['implemented']}}
   await settled()
-  await expect(currentBadge).toHaveAttribute('title','implement · Execution ended · skill completion unconfirmed')
+  await expect(currentBadge).toHaveAttribute('title','Skill: Execution ended · skill completion unconfirmed')
   reported={activity:{id:'current',taskId:'a',skillId:'implement',status:'completed'},task:{labels:['implemented']}}
   await expect(currentBadge).toHaveText('✓')
-  await expect(currentBadge).toHaveAttribute('title','implement · Skill completed')
+  await expect(currentBadge).toHaveAttribute('title','Skill: Skill completed')
   // A withdrawn verdict leaves a still-running execution with nothing to report.
   reported=null
   await expect(otherBadge).toHaveText('')

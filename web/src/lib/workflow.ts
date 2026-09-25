@@ -269,3 +269,11 @@ export const getNextStepInfo = (task: Task, project?: Project | null): NextStepI
 
 export const prRecoverySkill = (project?: Project | null): 'specify' | 'implement' =>
   project?.prCreationStage === 'specified' ? 'specify' : 'implement'
+
+/**
+ * Le ticket est-il dans un état terminal ?
+ *
+ * Les deux statuts cohabitent : « finished » est celui du workflow agentique,
+ * « done » celui que portent les trackers et les bases antérieures.
+ */
+export const isTaskDone = (task: Task): boolean => task.status === 'finished' || task.status === 'done'

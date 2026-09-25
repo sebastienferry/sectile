@@ -33,6 +33,10 @@ type Operation struct {
 	// "interactive" or "autonomous". Empty is read as interactive by the agent,
 	// which keeps an older server working.
 	Mode string `json:"mode,omitempty"`
+	// MacroKey and MacroTitle name the macro of a macro_worktree operation,
+	// which prepares that macro's specification checkout.
+	MacroKey   string `json:"macroKey,omitempty"`
+	MacroTitle string `json:"macroTitle,omitempty"`
 }
 type Result struct {
 	Value json.RawMessage `json:"value,omitempty"`

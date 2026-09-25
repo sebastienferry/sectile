@@ -70,6 +70,12 @@ type dialect interface {
 	Open(cfg Config) (*sql.DB, error)
 	// Rebind turns the shared "?" placeholders into whatever the engine wants.
 	Rebind(query string) string
+	// LowerASCII wraps a TEXT expression in a case fold that lowers ASCII
+	// letters and leaves every other character alone. Plain LOWER will not do:
+	// under PostgreSQL it follows the database's collation, so the same query
+	// folds `É` to `é` on one cluster and not on the next, and a comparison
+	// against a value folded in Go then matches on one server only.
+	LowerASCII(expr string) string
 	// ColumnsQuery returns a one-argument query listing a table's column names,
 	// in declaration order. The catalogue is the one thing every engine spells
 	// entirely differently.
@@ -108,6 +114,23 @@ type dialect interface {
 	// created by older versions apply. They only ever applied to SQLite files
 	// that predate a schema change; a database created today starts complete.
 	RunsLegacyMigrations() bool
+	// ServesOneProcess reports whether the engine can only be shared by one
+	// server process. When it is true, whatever an earlier process left running
+	// died with it, so a start may reclaim all unfinished work at once; when it
+	// is false, other live instances may own some of it. See docs/adrs/0016 and
+	// internal/db/instances.go.
+	ServesOneProcess() bool
+	// ForUpdate is the clause that locks the rows a SELECT returns until the
+	// transaction ends, or nothing on an engine whose writers are already
+	// serialised. It is what lets a read-decide-write sequence hold across
+	// server processes, where DB.mu stops at the process boundary. See
+	// docs/db-concurrency-audit.md.
+	ForUpdate() string
+	// AcquireProjectWorker waits until no other server process runs a
+	// server-side job for the project, and returns the release. It never holds a
+	// database connection while waiting. An engine serving one process has
+	// nothing to take: the in-process ProjectLimiter already decides.
+	AcquireProjectWorker(conn *sqlConn, projectID string) (func(), error)
 	// Name is what the startup log calls this engine.
 	Name() string
 }

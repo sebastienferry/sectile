@@ -500,7 +500,7 @@ A comprehensive documentation suite for developers and LLMs is available in the 
 
 ## Remote execution and MCP
 
-Sectile exposes ten typed tools at the Streamable HTTP endpoint `/mcp`:
+Sectile exposes twelve typed tools at the Streamable HTTP endpoint `/mcp`:
 
 - `list_projects`: discover project primary keys, names and Git remotes.
 - `get_task`: read task details and comments.
@@ -510,8 +510,10 @@ Sectile exposes ten typed tools at the Streamable HTTP endpoint `/mcp`:
 - `get_project_context`: read project execution settings and effective instructions.
 - `create_task`: file a new ticket on an explicitly named project, remotely whenever its tracker supports it.
 - `update_task`: update mutable descriptive fields of an existing task (title, description, priority, issueType, labels).
-- `start_run`: start or reuse the invocation's remote run.
+- `start_run`: start or reuse the invocation's remote run, on a task (`taskKey`) or on a macro (`projectId` and `macroKey`).
 - `finish_run`: finish that run without advancing the task stage.
+- `report_waiting`: mark a task run as waiting for its user before a blocking question, so the board and the owner's desktop show it; the session's next call ends the wait.
+- `prepare_macro_worktree`: prepare a macro's specification checkout on the caller's local agent, and return its path and branch.
 
 HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
 authentication and workflow validation retain their existing contracts.
@@ -521,9 +523,12 @@ clients sharing the same credential stay distinct and a client that goes away is
 noticed. A run started with `start_run` belongs to the session that started it.
 When that session ends — the client quits, its process is killed, or its
 connection breaks — the server closes the runs it still owns as canceled, with a
-note saying the client disconnected. Silence alone ends nothing: a client that
+note saying the client disconnected. A short silence ends nothing: a client that
 says nothing past `SECTILE_MCP_SESSION_TIMEOUT` (four hours by default) gets one
-sentence appended to its runs, which keep running. `finish_run` remains how a run
+sentence appended to its runs, which keep running and show as *silent* on the
+board. A client silent past `SECTILE_MCP_SESSION_ABANDON_AFTER` (eight hours by
+default, never less than the first bound) is taken for dead: its session is
+closed and its runs are canceled as disconnected. `finish_run` remains how a run
 reports its own outcome and always wins over that fallback, and a run a
 disconnection canceled can still be reported by its owner afterwards. A run reused from
 a launcher keeps its dispatching agent as owner, since that agent already watches
@@ -532,11 +537,46 @@ the real process.
 `GET /api/mcp/sessions` lists the live sessions, what each client calls itself,
 and the runs it owns. The board's status bar shows that count and opens a panel
 naming each connected client, how long it has been attached, and the runs that
-would close with it. `SECTILE_MCP_SESSION_TIMEOUT` (default `15m`) bounds a
-silent session, and `SECTILE_MCP_CLIENT` names a bridge in that list. A server
+would close with it. `SECTILE_MCP_CLIENT` names a bridge in that list. A run a
+client created can also be closed by hand, by its owner or an admin: *Close* on
+the board badge closes it as disconnected, and the activities view's cancel ends
+it for good. A server
 restart destroys every session at once, so startup closes the runs they owned as
 canceled; runs dispatched to an agent are preserved, because that agent
 reconnects and reports the real process exit.
+
+Each server process registers itself in the database and refreshes that record
+every ten seconds; every job it runs and every client run it holds records it as
+owner. On SQLite, which one process uses at a time, a start reclaims all
+unfinished work as described above. On PostgreSQL, where another server may be
+serving from the same database, a start and every live server only reclaim the
+work of servers not heard from for 45 seconds, so a rolling deploy no longer
+interrupts the server it replaces.
+
+Servers sharing a PostgreSQL database also relay to each other, through
+PostgreSQL `LISTEN/NOTIFY` on the `sectile_events` channel, the live updates
+they send to browsers and the cancellations they receive: a board open on one
+server shows a change made through another, and canceling a job stops it on
+whichever server runs it. A canceled job keeps its `canceled` status when its
+execution ends. Nothing extra has to be configured; SQLite needs none of it.
+
+A local agent keeps one connection to whichever server the load balancer gives
+it, and any other server reaches it through that one. Each server records in the
+database which agents it holds and forwards agent work, stage checks, launches,
+workspace operations, to the server holding the agent, on a dedicated internal
+port. That port must be declared on the container and must not be routed by the
+ingress:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SECTILE_INTERNAL_PORT` | `8092` | Port of the internal endpoints the servers call each other on. |
+| `SECTILE_INTERNAL_URL` | first non-loopback IPv4 and the internal port | Address this server advertises to the others. |
+
+The servers authenticate each other with a token derived from
+`SECTILE_SECRET_KEY`, which they already share; without it, agents connected to
+a server keep working through that server, and forwarding refuses with the
+reason. An operation forwarded to a server that stops before answering fails
+with an explicit error and is not replayed.
 
 ### Signing in and pairing a workstation
 
@@ -887,8 +927,8 @@ command. Commands use the task primary key and project identity with MCP
 instructions. Run them in a local repository where the project skills and
 Sectile MCP are already configured.
 
-Remote work is shown on task cards and list rows with a single run icon: spinning
-while running, a clock while queued, and a crossed circle for a few seconds after a
+Remote work is shown on task cards and list rows with a single run icon: a pulsing
+blue dot while running, a clock while queued, and a crossed circle for a few seconds after a
 cancellation. Hovering or focusing an icon for a run owned by your own agent turns it
 into a stop control that cancels the run in place.
 The MCP tools `start_run` and `finish_run` track the invocation

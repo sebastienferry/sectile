@@ -58,6 +58,10 @@ type Handler struct {
 	// at construction; tests shorten them to observe a drop quickly.
 	agentPingInterval time.Duration
 	agentReadTimeout  time.Duration
+	// pushedWaits names the runs whose wait this instance sent to an agent, so
+	// that clearing one is sent too while every other change of a live run is
+	// not: those would reach the agent ahead of the messages it waits for.
+	pushedWaits sync.Map
 }
 
 func (h *Handler) SetPullOnConnect(enable bool) {
@@ -76,13 +80,15 @@ func NewHandler(database *db.DB) *Handler {
 		db:                database,
 		subscribers:       make(map[chan Event]bool),
 		agentDispatcher:   NewAgentDispatcher(),
-		mcpSessions:       taskmcp.NewSessionRegistryWith(runs, notes, mcpSilenceNotice()),
+		mcpSessions:       taskmcp.NewSessionRegistryBounded(runs, notes, mcpSilenceNotice(), mcpAbandonAfter(mcpSilenceNotice())),
 		agentPingInterval: defaultAgentPingInterval,
 		agentReadTimeout:  defaultAgentReadTimeout,
 	}
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
+		h.mcpSessions.SetWaiter(database)
 		database.RegisterPostBackListener(func(task *models.Task, activity *models.TaskActivity, err error) {
+			h.pushRunWaiting(task, activity)
 			errStr := ""
 			if err != nil {
 				errStr = err.Error()
@@ -94,8 +100,41 @@ func NewHandler(database *db.DB) *Handler {
 				Error:    errStr,
 			})
 		})
+		database.OnRelayedEvent(h.deliverRelayedEvent)
 	}
 	return h
+}
+
+// pushRunWaiting tells the owner's agent that a live run started or stopped
+// waiting, since the desktop banner reads the agent's run list and a wait is now
+// declared on the server, over MCP. Only a run an agent dispatched can be on an
+// agent's list. The listener cannot tell what changed, so a mark is sent every
+// time it is seen and a clear only for a run whose mark was sent from here. A
+// finished run is not sent, because the agent sees the exit itself. An agent
+// that is not connected simply misses it.
+func (h *Handler) pushRunWaiting(task *models.Task, activity *models.TaskActivity) {
+	if task == nil || activity == nil || activity.SkillID != "remote_run" || activity.Action != db.RunActionAgent || activity.UserID == "" {
+		return
+	}
+	// Listeners run concurrently, so a mark and the clear that follows it may be
+	// delivered out of order. Sending the run as it is now, rather than as it was
+	// when this notification was raised, makes the last message the true one.
+	if current, err := h.db.GetActivityByID(activity.ID); err == nil && current != nil {
+		activity = current
+	}
+	if activity.Status != "running" {
+		h.pushedWaits.Delete(activity.ID)
+		return
+	}
+	if activity.WaitingSince == nil {
+		if _, pushed := h.pushedWaits.LoadAndDelete(activity.ID); !pushed {
+			return
+		}
+	} else {
+		h.pushedWaits.Store(activity.ID, true)
+	}
+	_ = h.agentDispatcher.Dispatch(activity.UserID, task.ProjectID, agentprotocol.RunWaitingType, task.ID,
+		agentprotocol.RunWaiting{RunID: activity.ID, WaitingSince: activity.WaitingSince})
 }
 
 func (h *Handler) SubscribeEvents() chan Event {
@@ -115,7 +154,28 @@ func (h *Handler) UnsubscribeEvents(ch chan Event) {
 	}
 }
 
+// localOnlyEvents are delivered to this instance's browsers and never relayed:
+// terminal output is emitted per chunk, and nothing in another instance reads it.
+var localOnlyEvents = map[string]bool{"agent_pty_output": true}
+
+// BroadcastEvent delivers an event to this instance's browsers, then relays it
+// to the other instances sharing the database, which deliver it to theirs.
 func (h *Handler) BroadcastEvent(event Event) {
+	h.broadcastLocal(event)
+	if h.db == nil || localOnlyEvents[event.Type] {
+		return
+	}
+	taskID, activityID := "", ""
+	if event.Task != nil {
+		taskID = event.Task.ID
+	}
+	if event.Activity != nil {
+		activityID = event.Activity.ID
+	}
+	h.db.PublishEvent(event.Type, taskID, activityID, event.Error)
+}
+
+func (h *Handler) broadcastLocal(event Event) {
 	h.subMu.RLock()
 	defer h.subMu.RUnlock()
 	for ch := range h.subscribers {
@@ -124,6 +184,24 @@ func (h *Handler) BroadcastEvent(event Event) {
 		default:
 		}
 	}
+}
+
+// deliverRelayedEvent turns what another instance published back into the
+// event its browsers received, with the task and activity as they now stand,
+// and delivers it here only: relaying it again would echo it between instances.
+func (h *Handler) deliverRelayedEvent(msg db.BusMessage) {
+	event := Event{Type: msg.Type, Error: msg.Error}
+	if msg.TaskID != "" {
+		if task, err := h.db.GetTaskByID(msg.TaskID); err == nil {
+			event.Task = task
+		}
+	}
+	if msg.ActivityID != "" {
+		if activity, err := h.db.GetActivityByID(msg.ActivityID); err == nil {
+			event.Activity = activity
+		}
+	}
+	h.broadcastLocal(event)
 }
 
 // SetDataDir tells the handler where the application's own files live.
@@ -163,6 +241,10 @@ func describeActiveRun(a *models.TaskActivity) string {
 	if strings.TrimSpace(name) == "" {
 		name = a.SkillID
 	}
+	// A queued run has not started, so it has no time to name.
+	if a.Status == string(models.ActivityStatusQueued) || a.Status == string(models.ActivityStatusPending) {
+		return fmt.Sprintf("A run of %s is queued on this task.", name)
+	}
 	started := "an unknown time"
 	if a.StartedAt != nil {
 		started = a.StartedAt.Format(time.RFC3339)
@@ -171,6 +253,22 @@ func describeActiveRun(a *models.TaskActivity) string {
 		return fmt.Sprintf("A run of %s started at %s is still active on this task, waiting for user input.", name, started)
 	}
 	return fmt.Sprintf("A run of %s started at %s is still active on this task.", name, started)
+}
+
+// writeTaskBusy answers a launch the database refused because the task already
+// carries an active run, with the body the busy check answers, and reports
+// whether it did. Any other error is left to the caller.
+func writeTaskBusy(w http.ResponseWriter, err error) bool {
+	var busy *db.TaskBusyError
+	if !errors.As(err, &busy) {
+		return false
+	}
+	body := map[string]string{"error": "Another run is active on this task."}
+	if busy.Active != nil {
+		body = map[string]string{"error": describeActiveRun(busy.Active), "activeRunId": busy.Active.ID}
+	}
+	writeJSON(w, http.StatusConflict, body)
+	return true
 }
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
@@ -791,6 +889,13 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Sub-action: /api/projects/{id}/sprints[/{sprintId}]: manage the tracker's
+	// sprints (create a batch, rename, re-date, close, delete).
+	if len(parts) >= 2 && parts[1] == "sprints" {
+		h.handleProjectSprints(w, r, id, parts)
+		return
+	}
+
 	// Sub-action: /api/projects/{id}/sprint-move: send a batch of work items to a
 	// sprint, which is what planning from the roadmap does.
 	if len(parts) >= 2 && parts[1] == "sprint-move" && r.Method == http.MethodPost {
@@ -905,20 +1010,20 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if strings.TrimSpace(req.TodoID) == "" {
-			task, err := h.db.CreateStoryUnderMacro(id, macroKey, req.Title)
+			task, notice, err := h.db.CreateStoryUnderMacro(id, macroKey, req.Title)
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]interface{}{"task": task, "storyKey": task.Key})
+			writeJSON(w, http.StatusOK, map[string]interface{}{"task": task, "storyKey": task.Key, "notice": notice})
 			return
 		}
-		meta, key, err := h.db.CreateStoryFromMacroTodo(id, macroKey, req.TodoID)
+		meta, task, notice, err := h.db.CreateStoryFromMacroTodo(id, macroKey, req.TodoID)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": key})
+		writeJSON(w, http.StatusOK, map[string]interface{}{"macro": meta, "epic": meta, "storyKey": task.Key, "task": task, "notice": notice})
 		return
 	}
 
@@ -945,6 +1050,26 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Macro skill runs: /api/projects/{id}/macros/{key}/run-skill launches a
+		// macro-scoped skill on the local agent; .../runs lists the recent ones.
+		if len(parts) >= 4 && (parts[3] == "run-skill" || parts[3] == "runs" || parts[3] == "cancel-run") {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			switch {
+			case parts[3] == "run-skill" && r.Method == http.MethodPost:
+				h.handleMacroRunSkill(w, r, id, key)
+			case parts[3] == "runs" && r.Method == http.MethodGet:
+				h.handleMacroRuns(w, id, key)
+			case parts[3] == "cancel-run" && r.Method == http.MethodPost:
+				h.handleMacroCancelRun(w, r, id, key)
+			default:
+				writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+			}
+			return
+		}
+
 		// Refinement: /api/projects/{id}/macros/{key}/refine
 		if len(parts) >= 4 && parts[3] == "refine" && r.Method == http.MethodPost {
 			key := parts[2]
@@ -961,6 +1086,45 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 				"todos":         todos,
 				"proposedTasks": proposed,
 				"specFramework": framework,
+			})
+			return
+		}
+
+		// Slicing: /api/projects/{id}/macros/{key}/slicing produces the macro's
+		// todo lines from the SDD artefacts of the project's repository.
+		//
+		// Rien n'est écrit dans le dépôt ni sur le tracker, et aucune story
+		// n'est créée : c'est une lecture, et la découpe reste modifiable.
+		if len(parts) >= 4 && parts[3] == "slicing" && r.Method == http.MethodPost {
+			key := parts[2]
+			if decoded, err := url.PathUnescape(parts[2]); err == nil {
+				key = decoded
+			}
+			var req struct {
+				Source string `json:"source"`
+			}
+			// Un corps absent vaut la source par défaut : le geste courant ne
+			// doit pas exiger une charge utile pour être appelable.
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			// Les stories déjà créées ne sont pas une source de fichier : elles
+			// sont routées avant la normalisation, qui ne connaît que le dépôt
+			// et ferait retomber « stories » sur tasks.md en silence.
+			var meta *models.MacroMeta
+			var origin string
+			var err error
+			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
+				meta, origin, err = h.db.TodosFromMacroStories(id, key)
+			} else {
+				meta, origin, err = h.db.TodosFromSDD(id, key, db.NormalizeSlicingSource(req.Source))
+			}
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]interface{}{
+				"macro":  meta,
+				"epic":   meta,
+				"origin": origin,
 			})
 			return
 		}
@@ -1983,11 +2147,29 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			projectID = task.ProjectID
 		}
 		userID := h.webSessionUser(r)
-		ac := h.agentDispatcher.Lookup(userID, projectID)
+		ac := h.agentDispatcher.Route(userID, projectID)
 
 		// 1. If a local agent daemon is connected, delegate the execution directly to it!
 		if ac != nil {
 			log.Printf("🚀 [Dispatch] Delegating skill %s on task %s (%s) to connected local agent (device=%s)", req.SkillID, task.Key, task.ID, ac.DeviceID)
+
+			// The mode is resolved before the run is recorded: it is what tells,
+			// once the run is over, whether anything was supposed to come back
+			// from it without a user closing a session.
+			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
+			// The engine the server resolves is what the run shows until the
+			// agent reports the one it really built its command line with.
+			provider, model := h.db.ResolveTaskEngine(projectID, req.SkillID, req.Model)
+			// The run is recorded before the launch record, and its insert is the
+			// busy check that holds across server instances: a launch that lost
+			// the race to another one is refused here and leaves no trace.
+			// "Launch anyway" records a concurrent run, which the database lets
+			// sit next to the active one; with nothing active it is an ordinary
+			// launch.
+			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force && active != nil})
+			if writeTaskBusy(w, runErr) {
+				return
+			}
 
 			activityID := uuid.New().String()
 			now := time.Now()
@@ -2011,14 +2193,6 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = h.db.AddTaskActivity(act)
 
-			// The mode is resolved before the run is recorded: it is what tells,
-			// once the run is over, whether anything was supposed to come back
-			// from it without a user closing a session.
-			mode := h.db.ResolveTaskSkillMode(projectID, req.SkillID, req.Mode)
-			// The engine the server resolves is what the run shows until the
-			// agent reports the one it really built its command line with.
-			provider, model := h.db.ResolveTaskEngine(projectID, req.SkillID, req.Model)
-			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID})
 			if runErr != nil {
 				act.Status = "failed"
 				act.Error = runErr.Error()
@@ -2206,7 +2380,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		if task, err := h.db.GetTaskByID(id); err == nil && task != nil {
 			userID := h.webSessionUser(r)
-			if ac := h.agentDispatcher.Lookup(userID, task.ProjectID); ac != nil {
+			if ac := h.agentDispatcher.Route(userID, task.ProjectID); ac != nil {
 				err := h.agentDispatcher.Dispatch(userID, task.ProjectID, "dispatch_step", task.ID, map[string]string{
 					"taskKey": task.Key, "taskId": task.ID, "projectId": task.ProjectID, "skillId": req.SkillID, "action": req.SkillID,
 				})
@@ -2393,6 +2567,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 		if req.Auto {
 			_, act, err := h.db.EnqueueFullChainRun(task.ID)
+			if writeTaskBusy(w, err) {
+				return
+			}
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -2408,6 +2585,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, act, err := h.db.EnqueueSkillOnTaskWithOverrides(task.ID, step.SkillID, "", req.Mode, req.Model)
+		if writeTaskBusy(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -2914,6 +3094,9 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 	// Sub-action: /api/activities/{id}/retry
 	if len(parts) >= 2 && parts[1] == "retry" && r.Method == http.MethodPost {
 		act, err := h.db.RetryActivity(id)
+		if writeTaskBusy(w, err) {
+			return
+		}
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2924,6 +3107,29 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Sub-action: /api/activities/{id}/cancel
 	if len(parts) >= 2 && parts[1] == "cancel" && r.Method == http.MethodPost {
+		// A run a client created is closed like a reported end (#319): only its
+		// owner or an admin may, the workflow is handed back, and its MCP
+		// session forgets it. Cancelling it as a plain activity skipped all
+		// three.
+		if act, err := h.db.GetActivityByID(id); err == nil && act != nil && act.SkillID == "remote_run" &&
+			act.Action == db.RunActionClient && act.TaskID != "" && act.Status == "running" {
+			caller, ok := h.requireOwnerOrAdmin(w, r, act.UserID)
+			if !ok {
+				return
+			}
+			_, err := h.db.FinishRemoteRunAs(caller.Actor(), caller.IsAdmin(), act.TaskID, id, "canceled", "Execution canceled from the activities view")
+			if errors.Is(err, db.ErrRunNotYours) {
+				writeError(w, http.StatusForbidden, msgNotOwner)
+				return
+			}
+			if err != nil {
+				writeError(w, http.StatusConflict, err.Error())
+				return
+			}
+			h.mcpSessions.ReleaseRun(id)
+			writeJSON(w, http.StatusOK, map[string]string{"message": "Activité annulée avec succès"})
+			return
+		}
 		if err := h.db.CancelActivity(id); err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -2933,8 +3139,8 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Sub-action: /api/activities/{id}/waiting
-	// Reported by a Claude Code hook through the local agent loopback when the
-	// session blocks on the user, and again when it resumes.
+	// Sets or clears the mark by hand. A session declares its own wait through
+	// the report_waiting MCP tool, which ends by itself on its next call.
 	if len(parts) >= 2 && parts[1] == "waiting" && r.Method == http.MethodPost {
 		var body struct {
 			Waiting *bool `json:"waiting"`
@@ -3222,7 +3428,7 @@ func (h *Handler) HandleAgentDispatch(w http.ResponseWriter, r *http.Request) {
 		req.ProjectID = "default"
 	}
 
-	ac := h.agentDispatcher.Lookup(req.UserID, req.ProjectID)
+	ac := h.agentDispatcher.Route(req.UserID, req.ProjectID)
 	if ac == nil {
 		writeError(w, http.StatusPreconditionRequired, "No local agent connected. Start 'sectile-agent' on your workstation.")
 		return
@@ -3246,6 +3452,33 @@ func (h *Handler) pullAndApplyAgentTasks(ac *AgentConn) {
 	}
 	log.Printf("[AgentConnect] Pulled %d running/queued tasks from agent %s", len(tasks), ac.DeviceID)
 	h.ApplyAgentRunningTasksFor(ac.UserID, tasks)
+}
+
+func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	tasks, err := h.agentDispatcher.PullRemoteTasks(ctx, location)
+	if err != nil {
+		log.Printf("[AgentConnect] Could not pull running tasks from %s on instance %s: %v", location.DeviceID, location.InstanceID, err)
+		return
+	}
+	h.ApplyAgentRunningTasksFor(location.UserID, tasks)
+}
+
+// EnableAgentCluster makes this instance record its agents in the shared
+// store and forward work for agents other instances hold. Without a server
+// key the instances cannot authenticate each other: agents connected here
+// keep working, and forwarding refuses with the reason.
+func (h *Handler) EnableAgentCluster() error {
+	token, err := h.db.InternalToken()
+	h.agentDispatcher.SetCluster(h.db, token, err)
+	return err
+}
+
+// InternalHandler serves the endpoints other instances forward agent work to.
+// It belongs on the internal listener, never on the public one.
+func (h *Handler) InternalHandler() http.Handler {
+	return h.agentDispatcher.InternalHandler()
 }
 
 // ApplyAgentRunningTasks syncs a set of agent tasks to the database and broadcasts updates.
@@ -3345,10 +3578,16 @@ func (h *Handler) HandleAgentPull(w http.ResponseWriter, r *http.Request) {
 	for _, ac := range activeConns {
 		go h.pullAndApplyAgentTasks(ac)
 	}
+	// Agents connected to other instances sharing the database report through
+	// the instance holding them.
+	remote := h.agentDispatcher.RemoteAgents()
+	for _, location := range remote {
+		go h.pullAndApplyRemoteAgentTasks(location)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":          "ok",
-		"connectedAgents": len(activeConns),
+		"connectedAgents": len(activeConns) + len(remote),
 	})
 }
 
@@ -3458,7 +3697,7 @@ func (h *Handler) launchTaskExternalTerminal(ctx context.Context, userID, taskID
 	if userID == "" {
 		userID = ImplicitUser
 	}
-	if ac := h.agentDispatcher.Lookup(userID, projectID); ac != nil {
+	if ac := h.agentDispatcher.Route(userID, projectID); ac != nil {
 		log.Printf("🚀 [LaunchTaskExternalTerminal] Delegating external terminal launch to connected agent (%s)", ac.DeviceID)
 		launchCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 		defer cancel()

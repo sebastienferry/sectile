@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { runStateOf, runStateLabel, runState, RUN_STATES } from '../../shared/runStates.ts'
+import { runStateOf, runStateLabel, runState, runStateSvg, RUN_STATES } from '../../shared/runStates.ts'
 
 test('a running activity that reported itself blocked is waiting', () => {
   // This is the state the activities view filters on and had no badge for.
@@ -31,4 +31,28 @@ test('an unknown or absent status still resolves to a defined state', () => {
 test('every defined state carries a label, and an unknown id reports itself', () => {
   for (const id of Object.keys(RUN_STATES)) assert.equal(runStateLabel(id), RUN_STATES[id].label)
   assert.equal(runStateLabel('seventh'), 'seventh')
+})
+
+test('running is a filled dot whose fill resolves to the state colour on its own', () => {
+  // The notification icon is standalone markup: nothing around it sets the
+  // colour a `currentColor` fill would otherwise inherit.
+  const svg = runStateSvg('running', 14)
+  assert.match(svg, /<circle [^>]*fill="currentColor"/)
+  assert.match(svg, new RegExp('<svg [^>]*color="' + RUN_STATES.running.color + '"'))
+  assert.equal(RUN_STATES.running.pulses, true)
+})
+
+const SILENCE = 'Execution reported by a local agent or native client - No MCP call for 4h0m0s: the client may be busy or waiting for input, and this run stays open'
+
+test('a running run whose summary records a silence is silent (#319)', () => {
+  assert.equal(runStateOf({ status: 'running', summary: SILENCE }), 'silent')
+  assert.equal(runStateOf({ status: 'running', summary: 'Execution running on local agent' }), 'running')
+})
+
+test('a declared wait and an ended run both outrank a silence', () => {
+  assert.equal(runStateOf({ status: 'running', summary: SILENCE, waitingSince: '2026-09-17T10:00:00Z' }), 'waiting')
+  for (const status of ['completed', 'failed', 'canceled']) {
+    assert.equal(runStateOf({ status, summary: SILENCE }), status)
+  }
+  assert.equal(runStateOf({ status: 'queued', summary: SILENCE }), 'queued')
 })

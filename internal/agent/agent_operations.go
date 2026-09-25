@@ -91,6 +91,14 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if op.ProjectID == "" {
 		return nil, fmt.Errorf("project primary key is required")
 	}
+	// The macro worktree has no task and resolves its own checkouts, so it
+	// answers before the task-shaped preparation below.
+	if op.Action == "macro_worktree" {
+		if strings.TrimSpace(op.MacroKey) == "" {
+			return nil, fmt.Errorf("macro key is required")
+		}
+		return d.macroWorkspaceFor(ctx, op.ProjectID, op.MacroKey, op.MacroTitle)
+	}
 	switch op.Action {
 	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
 	default:

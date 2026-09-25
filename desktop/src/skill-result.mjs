@@ -14,8 +14,10 @@ const stopping=(run,label)=>run.cancelRequested&&!ended(run)?{kind:'pending',ico
 // all rather than as a second glyph saying the same thing.
 export function skillResult(run,result){
  if(!run)return null
- // A free console runs no skill, so it has no skill result to report.
+ // A free console and a discussion run no skill, so they have no skill result
+ // to report.
  if(run.kind==='console')return stopping(run,'Stopping console')
+ if(run.skill==='discuss')return stopping(run,'Stopping discussion')
  const activity=result?.activity
  const matched=activity?.id===run.id&&activity.taskId===run.taskId&&activity.skillId===run.skill
  const state=matched?activity.status:null

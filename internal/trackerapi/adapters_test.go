@@ -2,6 +2,7 @@ package trackerapi
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -164,5 +165,113 @@ func TestGithubWritesUseTheActingPersonsToken(t *testing.T) {
 	}
 	if len(seen) == 0 || !strings.Contains(seen[0], "server-token") {
 		t.Fatalf("unattended work keeps the server token, got %v", seen)
+	}
+}
+
+// A sealed GitHub token nobody unlocked fell back on the server token: a
+// background pass read as the service account while its activity named the
+// owner, and a person's write went out under an account they did not choose.
+// A locked credential refuses every call, before anything reaches GitHub.
+func TestGithubRefusesALockedPersonalToken(t *testing.T) {
+	requests := 0
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[]`)
+	}))
+	defer site.Close()
+
+	locked := errors.New("credential sealed and locked")
+	client := NewClient()
+	client.HTTP = site.Client()
+	client.GithubURL = site.URL
+	client.GithubToken = "server-token"
+	client.ResolveUser = func(userID, trackerName string) (string, string, string, error) {
+		return "", "", "", locked
+	}
+	adapter := NewGithubAdapter(client)
+	project := &models.Project{ID: "p1", GithubRepo: "acme/app"}
+	ctx := tracker.WithProject(tracker.WithActingUser(context.Background(), "u-ada"), project.ID)
+
+	calls := map[string]func() error{
+		"IssuePullRequests": func() error {
+			_, err := adapter.IssuePullRequests(ctx, tracker.IssuePullRequestsRequest{Project: project, Key: "#7"})
+			return err
+		},
+		"CreateIssue": func() error {
+			_, err := adapter.CreateIssue(ctx, tracker.CreateIssueRequest{Project: project, Title: "T"})
+			return err
+		},
+		"GetIssue": func() error {
+			_, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Project: project, Key: "#7"})
+			return err
+		},
+		"UpdateIssue": func() error {
+			return adapter.UpdateIssue(ctx, tracker.UpdateIssueRequest{Project: project, Key: "#7"})
+		},
+		"DeleteIssue": func() error {
+			return adapter.DeleteIssue(ctx, tracker.DeleteIssueRequest{Project: project, Key: "#7"})
+		},
+		"SyncIssues": func() error {
+			_, err := adapter.SyncIssues(ctx, tracker.SyncRequest{Project: project})
+			return err
+		},
+		"AddComment": func() error {
+			return adapter.AddComment(ctx, tracker.AddCommentRequest{Project: project, Key: "#7", Body: "b"})
+		},
+		"GetComments": func() error {
+			_, err := adapter.GetComments(ctx, tracker.GetCommentsRequest{Project: project, Key: "#7"})
+			return err
+		},
+		"UpdateLabels": func() error {
+			return adapter.UpdateLabels(ctx, "#7", []string{"a"}, nil)
+		},
+	}
+	for name, call := range calls {
+		if err := call(); !errors.Is(err, locked) {
+			t.Errorf("%s must refuse a locked credential, got %v", name, err)
+		}
+	}
+	if requests != 0 {
+		t.Fatalf("a refused call must reach nothing, GitHub received %d request(s)", requests)
+	}
+}
+
+// Somebody who stored no GitHub token of their own keeps the project's token,
+// or the server's when the project has none: that fallback is decided (ADR
+// 0018), because a shared token is how GitHub deployments run.
+func TestGithubWithoutAPersonalTokenKeepsTheProjectToken(t *testing.T) {
+	var seen []string
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"number":7,"title":"T","state":"open","labels":[],"html_url":"https://github.com/acme/app/issues/7"}`)
+	}))
+	defer site.Close()
+
+	client := NewClient()
+	client.HTTP = site.Client()
+	client.GithubURL = site.URL
+	client.GithubToken = "server-token"
+	client.Resolve = func(projectID string) Credentials {
+		if projectID == "p-own" {
+			return Credentials{GithubToken: "project-token"}
+		}
+		return Credentials{}
+	}
+	client.ResolveUser = func(userID, trackerName string) (string, string, string, error) {
+		return "", "", "", nil
+	}
+	adapter := NewGithubAdapter(client)
+	ctx := tracker.WithActingUser(context.Background(), "u-grace")
+
+	for project, want := range map[string]string{"p-own": "project-token", "p-shared": "server-token"} {
+		seen = nil
+		if _, err := adapter.GetIssue(ctx, tracker.GetIssueRequest{Project: &models.Project{ID: project, GithubRepo: "acme/app"}, Key: "#7"}); err != nil {
+			t.Fatalf("%s: %v", project, err)
+		}
+		if len(seen) == 0 || !strings.Contains(seen[0], want) {
+			t.Fatalf("%s: a person without a GitHub token keeps %s, got %v", project, want, seen)
+		}
 	}
 }

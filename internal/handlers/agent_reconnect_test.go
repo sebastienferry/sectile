@@ -169,6 +169,13 @@ func TestKeepaliveTimeoutSendsTheReasonToTheAgent(t *testing.T) {
 	h := newAgentHandler(t, 20*time.Millisecond, 100*time.Millisecond)
 	conn, cleanup := connectAgent(t, h)
 	defer cleanup()
+	// gorilla answers a ping from inside ReadMessage. By the time this test
+	// reads, the server has hung up, so that pong fails to write and
+	// ReadMessage surfaces the write error instead of the close frame already
+	// sitting in the receive buffer — which is the whole point of the read.
+	// The client of this test answers no ping anyway; saying so explicitly is
+	// what makes the close frame reachable.
+	conn.SetPingHandler(func(string) error { return nil })
 
 	if !waitForAgent(t, h, true) {
 		t.Fatal("agent never registered")

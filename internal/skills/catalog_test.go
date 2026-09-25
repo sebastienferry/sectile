@@ -380,3 +380,47 @@ func TestSkillFragmentsIntegrity(t *testing.T) {
 		}
 	}
 }
+
+// realign-macro is surgical: its body must say every rule that keeps it so,
+// in both frameworks, and must not offer a source the slicing no longer has.
+func TestRealignMacroSkillTemplate(t *testing.T) {
+	for _, alias := range []string{"realign_macro", "realign-macro", "realign"} {
+		skill, ok := skills.StageSkillByID(alias)
+		if !ok || skill.ID != "realign_macro" || skill.Scope != "macro" || skill.Mode != models.SkillModeInteractive || skill.Command != "/realign-macro" {
+			t.Fatalf("StageSkillByID(%q) = %+v, %v", alias, skill, ok)
+		}
+	}
+	if dir := models.SkillDirNames["realign_macro"]; dir != "realign-macro" {
+		t.Fatalf("SkillDirNames[realign_macro] = %q", dir)
+	}
+	skill, _ := skills.StageSkillByID("realign_macro")
+	common := []string{
+		"(to be removed: no longer in the slicing)",
+		"leave its body untouched",
+		"Do not delete an entry",
+		"do not write on the default branch",
+		"prepare_macro_worktree",
+		"Never `git add -A`",
+		"matches no entry any more",
+		"`macroKey`",
+		"Push nothing when you wrote nothing",
+	}
+	byFramework := map[string][]string{
+		"speckit":  {"# Realign Macro (Spec Kit SDD)", "specs/<MACRO-KEY>-<slug>/", "next free number", "Never renumber"},
+		"openspec": {"# Realign Macro (OpenSpec SDD)", "openspec/changes/<MACRO-KEY>-<slug>/", "openspec validate <change-id> --strict", "### Requirement:"},
+	}
+	for framework, specific := range byFramework {
+		content := skills.RenderSkillContent(skill, framework)
+		for _, want := range append(common, specific...) {
+			if !strings.Contains(content, want) {
+				t.Errorf("%s: the body must say %q", framework, want)
+			}
+		}
+		if strings.Contains(content, "`scenarios`") {
+			t.Errorf("%s: the body must not mention the removed scenarios source", framework)
+		}
+		if strings.Contains(content, "transition_stage") {
+			t.Errorf("%s: a macro skill moves no stage", framework)
+		}
+	}
+}

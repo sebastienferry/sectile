@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { LookupField, type LookupOption } from './LookupField'
 import { valueLookup } from '../lib/lookups'
-import type { Priority } from '../types'
+import { PRIORITY_COLORS, PRIORITY_LEVELS } from '../lib/priority'
 
 /**
  * Les filtres de tri transversaux, posés dans la barre d'outils de chaque vue
@@ -51,15 +51,6 @@ export const TaskFilters: React.FC = () => {
     activeTasks,
     t,
   } = useApp()
-
-  // Même palette que les cartes et la vue liste, du plus urgent au moins urgent.
-  const PRIORITY_ORDER: Priority[] = ['urgent', 'high', 'medium', 'low']
-  const PRIORITY_DOTS: Record<Priority, { color: string; label: string }> = {
-    urgent: { color: 'var(--status-danger)', label: t.priority.urgent },
-    high: { color: 'var(--status-warn)', label: t.priority.high },
-    medium: { color: 'var(--status-info)', label: t.priority.medium },
-    low: { color: 'var(--text-muted)', label: t.priority.low },
-  }
 
   const [isStatusMenuOpen, setIsStatusMenuOpen] = React.useState(false)
   const statusMenuRef = React.useRef<HTMLDivElement>(null)
@@ -209,14 +200,14 @@ export const TaskFilters: React.FC = () => {
       <div className="flex items-center gap-1">
         <Flame size={12} className={priorityFilter ? 'text-rose-400' : 'text-[var(--text-muted)]'} />
         <div className="flex items-center gap-1 px-1 py-0.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-color)]">
-          {PRIORITY_ORDER.map(level => {
+          {PRIORITY_LEVELS.map(level => {
             const isActive = priorityFilter === level
             return (
               <button
                 key={level}
                 type="button"
                 onClick={() => setPriorityFilter(isActive ? null : level)}
-                title={isActive ? `Retirer le filtre ${PRIORITY_DOTS[level].label}` : `Filtrer : ${PRIORITY_DOTS[level].label}`}
+                title={isActive ? `Retirer le filtre ${t.priority[level]}` : `Filtrer : ${t.priority[level]}`}
                 aria-pressed={isActive}
                 className={`w-4 h-4 rounded-full flex items-center justify-center transition-all cursor-pointer ${
                   isActive
@@ -228,7 +219,7 @@ export const TaskFilters: React.FC = () => {
               >
                 <span
                   className="w-2.5 h-2.5 rounded-full ring-1 ring-black/10"
-                  style={{ backgroundColor: PRIORITY_DOTS[level].color }}
+                  style={{ backgroundColor: PRIORITY_COLORS[level] }}
                 />
               </button>
             )

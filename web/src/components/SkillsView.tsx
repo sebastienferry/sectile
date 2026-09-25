@@ -142,7 +142,7 @@ export const SkillsView: React.FC = () => {
                   </div>
                   <div className="mt-1 flex items-center gap-1 text-[9px] font-mono text-[var(--text-muted)]">
                     {entry.scope === 'macro' ? (
-                      <span className="text-orange-400 font-bold">Raffinage Macro</span>
+                      <span className="text-orange-400 font-bold">{entry.id === 'realign_macro' ? 'Réalignement Macro' : 'Raffinage Macro'}</span>
                     ) : entry.fromStage && entry.toStage ? (
                       <>
                         <span>#{entry.fromStage}</span>

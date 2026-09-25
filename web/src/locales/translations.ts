@@ -590,6 +590,7 @@ export interface TranslationSchema {
       total: string
       running: string
       waiting: string
+      silent: string
       queued: string
       completed: string
       failed: string
@@ -711,8 +712,23 @@ export interface TranslationSchema {
     projectForNewTicket: string
     chooseProject: string
   }
+  reads: {
+    failedTitle: string
+    failedDescription: string
+    bannerTitle: string
+    bannerDescription: string
+    retry: string
+    resources: {
+      projects: string
+      tasks: string
+      settings: string
+      boardViews: string
+    }
+  }
   toasts: {
     taskCreated: string
+    openCreated: string
+    openInTracker: string
     taskUpdated: string
     taskMoved: string
     taskDeleted: string
@@ -1322,6 +1338,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         total: 'Total exécutions',
         running: 'En cours',
         waiting: 'En attente de vous',
+        silent: 'Silencieuses',
         queued: 'En attente',
         completed: 'Terminées',
         failed: 'Échouées',
@@ -1443,8 +1460,23 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       projectForNewTicket: 'Projet du ticket',
       chooseProject: 'Choisir un projet…',
     },
+    reads: {
+      failedTitle: 'Lecture impossible',
+      failedDescription: '{resource} : le serveur a répondu {detail}. Ce que vous voyez est incomplet.',
+      bannerTitle: 'Interface dégradée',
+      bannerDescription: 'Ces lectures échouent : {detail}. Rien n\'est vide, rien n\'a été supprimé — le serveur ne répond pas.',
+      retry: 'Réessayer',
+      resources: {
+        projects: 'Projets',
+        tasks: 'Tickets',
+        settings: 'Paramètres',
+        boardViews: 'Vues du board',
+      },
+    },
     toasts: {
       taskCreated: 'Tâche créée avec succès !',
+      openCreated: 'Ouvrir',
+      openInTracker: 'Ouvrir dans le tracker',
       taskUpdated: 'Tâche mise à jour !',
       taskMoved: 'Statut de la tâche mis à jour',
       taskDeleted: 'Tâche supprimée',
@@ -2052,6 +2084,7 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         total: 'Total Runs',
         running: 'Running',
         waiting: 'Waiting for you',
+        silent: 'Silent',
         queued: 'Queued',
         completed: 'Completed',
         failed: 'Failed',
@@ -2173,8 +2206,23 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       projectForNewTicket: 'Ticket project',
       chooseProject: 'Choose a project…',
     },
+    reads: {
+      failedTitle: 'Read failed',
+      failedDescription: '{resource}: the server answered {detail}. What you see is incomplete.',
+      bannerTitle: 'Degraded interface',
+      bannerDescription: 'These reads are failing: {detail}. Nothing is empty and nothing was deleted — the server is not answering.',
+      retry: 'Retry',
+      resources: {
+        projects: 'Projects',
+        tasks: 'Issues',
+        settings: 'Settings',
+        boardViews: 'Board views',
+      },
+    },
     toasts: {
       taskCreated: 'Task created successfully!',
+      openCreated: 'Open',
+      openInTracker: 'Open in the tracker',
       taskUpdated: 'Task updated successfully!',
       taskMoved: 'Task status updated',
       taskDeleted: 'Task deleted',

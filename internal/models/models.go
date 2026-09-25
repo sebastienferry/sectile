@@ -76,6 +76,12 @@ type TaskActivity struct {
 	// own, and because the UI wants to say how long the wait has lasted. Any
 	// terminal status clears it.
 	WaitingSince *time.Time `json:"waitingSince,omitempty"`
+	// Concurrent marks a run allowed next to another active run on the same
+	// task: one started with "Launch anyway", one a client declared without a
+	// launcher, one an agent reported that the server did not create. Every
+	// other run is ordinary, and the database allows one ordinary active run per
+	// task.
+	Concurrent bool `json:"concurrent,omitempty"`
 	// UserID is the user who created the activity: the signed-in person for a
 	// launch from the interface, the key holder for a run reported over MCP, the
 	// agent's user for a run the agent owns. Empty on rows written before
@@ -84,6 +90,10 @@ type TaskActivity struct {
 	// UserName is the owner's display name or e-mail, resolved when the row is
 	// read. It is never stored: a rename must show everywhere at once.
 	UserName string `json:"userName,omitempty"`
+	// MacroKey names the macro a macro skill run belongs to. Such a run is a
+	// project activity with no task; the field is read by the macro run
+	// queries only and is empty everywhere else.
+	MacroKey string `json:"macroKey,omitempty"`
 }
 
 type ActivityStats struct {
@@ -107,6 +117,15 @@ type Project struct {
 	// It is fed automatically: whenever a ticket pins a new CWD, that path is
 	// registered here so the next ticket can pick it instead of retyping it.
 	RepoPaths []string `json:"repoPaths,omitempty"`
+	// SpecRepoPath is the checkout carrying the project's specifications, when
+	// a team keeps them apart from its code. Empty means the code repository
+	// (RepoPath) carries them. It is read for the macro workflow only: the
+	// slicing import, the macro worktree and the realignment. The agents keep
+	// running in RepoPath.
+	SpecRepoPath string `json:"specRepoPath,omitempty"`
+	// RoadmapProjects are other Jira project keys whose story keys the slicing
+	// attaches to a line. They are read, never written.
+	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// UseWorktrees decides whether each task gets its own isolated Git worktree
 	// under .tasks/worktrees, or whether the agent simply runs in the clone. A
 	// solo project rarely needs that isolation and pays the setup cost for
@@ -231,6 +250,18 @@ type TrackerSprint struct {
 	EndDate   string `json:"endDate,omitempty"`
 }
 
+// SprintPatch changes a tracker sprint. A nil field is left as it is. Dates
+// are YYYY-MM-DD or RFC3339; State is "active", "future" or "closed".
+// MoveOpenTo only goes with closing: "next" moves the sprint's unfinished work
+// items to the following sprint first, "backlog" to the backlog.
+type SprintPatch struct {
+	Name       *string `json:"name,omitempty"`
+	Start      *string `json:"start,omitempty"`
+	End        *string `json:"end,omitempty"`
+	State      *string `json:"state,omitempty"`
+	MoveOpenTo *string `json:"moveOpenTo,omitempty"`
+}
+
 // MacroMeta is the macro-level data Sectile owns. Macros are containers referenced by their children
 // so their horizon, their framing notes and their todo list have nowhere else to live.
 type MacroMeta struct {
@@ -249,12 +280,49 @@ type MacroMeta struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// Origine d'une ligne de découpe : l'artefact d'où elle a été importée.
+//
+// La chaîne vide vaut « saisie à la main », ce qui est la bonne réponse pour
+// toutes les lignes enregistrées avant ces champs, et la plus intéressante de
+// la liste : une ligne sans origine est un ajout que personne n'a spécifié.
+const (
+	// MacroTodoFromTasks : un groupe de tasks.md. Un groupe vaut une story ; les
+	// lignes « - [ ] N.N » qu'il contient sont le détail d'exécution et ne
+	// deviennent jamais des lignes de découpe.
+	MacroTodoFromTasks = "tasks"
+	// MacroTodoFromSpec : une exigence de spec.md, ou une user story priorisée
+	// sous Spec Kit. Plus proche du sens métier, mais pas toujours livrable seule.
+	MacroTodoFromSpec = "spec"
+	// MacroTodoFromStories : une story déjà créée sous la macro, reprise dans la
+	// découpe. La ligne arrive rattachée à son ticket, ce qui la distingue d'une
+	// ligne à faire et fait qu'une création en lot la passe.
+	MacroTodoFromStories = "stories"
+)
+
 // MacroTodo is one shaping item on a macro, before it becomes a story.
 type MacroTodo struct {
 	ID       string `json:"id"`
 	Text     string `json:"text"`
 	Done     bool   `json:"done"`
 	StoryKey string `json:"storyKey,omitempty"`
+	// TargetProjectID is the project this line's story is created in. Empty
+	// means the macro's own project, which keeps lines saved before the field
+	// valid. Story creation refuses a target that is not on the macro's tracker
+	// instance, where the macro could not be the story's parent.
+	TargetProjectID string `json:"targetProjectId,omitempty"`
+	// SourceKind dit de quel artefact la ligne a été importée, parmi les
+	// MacroTodoFrom* ci-dessus. Vide vaut « saisie à la main ».
+	//
+	// Sans lui la découpe ne voyage que dans un sens : une ligne renommée,
+	// ajoutée ou supprimée à la main laisse la spécification dire ce que
+	// l'équipe ne croit plus, et rien ne sait quelle entrée d'un fichier
+	// correspond à quelle ligne.
+	SourceKind string `json:"sourceKind,omitempty"`
+	// SourceEntry est le titre de l'entrée tel que l'artefact l'écrit, avant
+	// nettoyage. C'est lui qui permet de retrouver l'entrée dans le fichier :
+	// Text a perdu le préfixe de groupe, la clé et le renvoi final, et ne suffit
+	// donc plus à la désigner.
+	SourceEntry string `json:"sourceEntry,omitempty"`
 }
 
 // Backwards compatibility aliases
@@ -328,6 +396,10 @@ type CreateProjectRequest struct {
 	EnabledViews []string `json:"enabledViews,omitempty"`
 	// EpicColors paints each card with the colour of its epic. Off when absent.
 	EpicColors bool `json:"epicColors,omitempty"`
+	// SpecRepoPath is the specifications checkout. Empty means RepoPath.
+	SpecRepoPath string `json:"specRepoPath,omitempty"`
+	// RoadmapProjects are the Jira project keys the slicing also reads.
+	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
 	// MonoRepo defaults to true when absent: a single repository is the common
 	// case, and it is what the tool did before the setting existed.
 	MonoRepo                    *bool             `json:"monoRepo,omitempty"`
@@ -376,6 +448,8 @@ type UpdateProjectRequest struct {
 	Color                       *string              `json:"color,omitempty"`
 	RepoPath                    *string              `json:"repoPath,omitempty"`
 	RepoPaths                   *[]string            `json:"repoPaths,omitempty"`
+	SpecRepoPath                *string              `json:"specRepoPath,omitempty"`
+	RoadmapProjects             *[]string            `json:"roadmapProjects,omitempty"`
 	PRCreationStage             *string              `json:"prCreationStage,omitempty"`
 	DefaultSkillMode            *string              `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage          *string              `json:"fullChainStopStage,omitempty"`
@@ -549,6 +623,9 @@ var SkillDirNames = map[string]string{
 	"rewrite_story": "rewrite-story",
 	"rewrite-story": "rewrite-story",
 	"rewrite":       "rewrite-story",
+	"realign_macro": "realign-macro",
+	"realign-macro": "realign-macro",
+	"realign":       "realign-macro",
 	"refine_macro":  "refine-macro",
 	"refine-macro":  "refine-macro",
 	"refine":        "refine-macro",
@@ -771,7 +848,8 @@ type Settings struct {
 	AutoSyncEnabled bool `json:"autoSyncEnabled"`
 	// AutoSyncIntervalSec is that loop's period, in seconds. Floored at 30.
 	AutoSyncIntervalSec int `json:"autoSyncIntervalSec"`
-	// UIScale is the interface zoom in percent (90, 100, 110, 125). Density only
+	// UIScale is the interface zoom in percent, on one of db.UIScaleOptions.
+	// Density only
 	// moves the root font size, which leaves every fixed pixel size untouched;
 	// the scale zooms the whole interface, which is what a large or a small
 	// screen actually needs.

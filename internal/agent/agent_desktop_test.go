@@ -116,6 +116,32 @@ func TestStopRecoversRunWhosePTYAlreadyClosed(t *testing.T) {
 	}
 }
 
+// A discussion whose console already closed is ended, not canceled, when the
+// user stops it.
+func TestStopRecoversDiscussionWhosePTYAlreadyClosedAsCompleted(t *testing.T) {
+	run := &controlledRun{
+		desktop: desktopRun{ID: "orphan", Skill: "discuss", SessionID: "missing", Status: "running"},
+		exited:  make(chan struct{}),
+	}
+	d := &agentDaemon{
+		terminal: terminalChoice{manager: terminal.NewManager()},
+		loopback: loopbackServer{desktopToken: "private"},
+		queue:    runQueue{runs: map[string]*controlledRun{"orphan": run}},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/desktop/stop?id=orphan", nil)
+	req.Header.Set("Authorization", "Bearer private")
+	rec := httptest.NewRecorder()
+	d.desktopHandler(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("stop returned %d: %s", rec.Code, rec.Body.String())
+	}
+	if run.desktop.Status != "completed" {
+		t.Fatalf("status = %q, want completed", run.desktop.Status)
+	}
+}
+
 func TestStopDoesNotRecoverHeadlessRunWithoutTerminal(t *testing.T) {
 	run := &controlledRun{
 		desktop: desktopRun{ID: "headless", Status: "running", Headless: true},

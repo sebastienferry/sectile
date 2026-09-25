@@ -34,7 +34,7 @@ document.querySelector('#app').innerHTML=`
 <header><div><button id="toggle-sidebar" aria-expanded="true"></button><strong id="app-title">Sectile Desktop</strong><small>Execution consoles</small></div><button id="command-palette" title="Commands (⌘K / Ctrl+K)">⌘K</button></header>
 <section id="setup" hidden><div class="setup-toolbar"><button id="setup-logs" type="button" title="View local-agent diagnostics">Agent logs</button></div><div id="agent-offline" role="status" hidden><strong>Local agent is stopped</strong><p>Start the agent to run tasks and access your local consoles.</p></div><h1>Connect to Sectile</h1><p>In the Sectile web interface, under your profile, choose <strong>Pair a workstation</strong> and paste the code here. A code is single use and expires within ten minutes; this machine keeps the credential it receives, so the code is never needed again.</p>
 <form id="start"><label>Sectile server<input name="server" type="url" value="http://localhost:8090" required></label><label>Pairing code<input name="code" type="text" autocomplete="off" spellcheck="false" placeholder="Paste the code from the web interface"></label><button>Connect</button></form></section>
-<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><strong id="title">Select an execution</strong><span id="run-state" class="run-state header-state" hidden></span><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
+<main id="workspace" hidden><aside><div class="sidebar-scroll"><div class="section">PROJECTS <button id="add-project" title="Add a remote project">+</button></div><div id="runs"></div><button id="clear-history" class="icon-button" type="button" aria-label="Clear finished consoles" title="Clear finished consoles" disabled></button></div><footer class="sidebar-footer"><span id="connection" data-state="off">Connecting…</span><nav aria-label="Local agent controls"><button id="shutdown" class="icon-button" aria-label="Stop agent" title="Stop agent" hidden></button><button id="restart" class="icon-button" aria-label="Restart agent" title="Restart agent" hidden></button></nav><button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings"></button></footer></aside><div id="sidebar-resizer" role="separator" aria-label="Resize sidebar" aria-orientation="vertical" tabindex="0"></div><article><div id="toolbar"><div class="toolbar-identity"><div class="terminal-title-line"><span id="run-state" class="run-state header-state" hidden></span><strong id="title">Select an execution</strong><span id="skill-result" role="status" hidden></span><span id="native-terminal-badge" class="native-terminal-badge" hidden></span></div><div class="worktree-line"><button id="worktree" class="worktree" type="button" title="Copy this path" hidden><svg class="worktree-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z"/></svg><span id="directory"></span></button><span id="worktree-copied" class="worktree-copied" role="status"></span></div></div><div class="toolbar-actions"><select id="execution-history" aria-label="Execution history" hidden></select><div class="execution-views" role="group" aria-label="Execution view"><button id="view-console" class="icon-button" type="button" aria-label="Console" title="Console" aria-pressed="true" disabled></button><button id="view-changes" class="icon-button" type="button" aria-label="Changes" title="Changes" aria-pressed="false" disabled></button></div><button id="selected-pr" class="icon-button" type="button" hidden></button><button id="detach-terminal" class="icon-button" type="button" aria-label="Detach to native terminal" title="Detach to native terminal" hidden></button><button id="rerun" class="icon-button" type="button" aria-label="Relaunch" title="Relaunch" hidden></button><button id="save-log" class="icon-button" type="button" aria-label="Export log" title="Export log"></button><button id="stop" class="icon-button" type="button" aria-label="Stop execution" title="Stop execution" disabled></button><button id="next-step" type="button" hidden disabled></button><button id="mark-reviewed" type="button" class="secondary" hidden>Mark reviewed</button><button id="retry-next-step" type="button" title="Retry reading the task workflow" hidden>Retry</button><button id="force-next-step" type="button" class="secondary" title="Launch although a run is already active on this task" hidden>Launch anyway</button></div></div><section id="changes" aria-label="Worktree changes" hidden></section><div id="terminal"></div><footer id="task-status"><span id="next-step-status" role="status" aria-live="polite">Select a task to see its next step</span></footer></article><section id="tickets-pane" aria-label="Tickets" hidden></section></main>
 <dialog id="project-dialog"><button id="close-dialog" class="icon-button" type="button" aria-label="Close" title="Close"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button><div id="dialog-body"></div><div class="dialog-footer" hidden></div></dialog><div id="error" role="alert"></div>`
 installTooltips()
 // The console shows a prompt the user configured elsewhere - oh-my-posh, starship, powerlevel10k -
@@ -75,7 +75,9 @@ const freeConsole=run=>run?.kind==='console'
 // compétence peuvent tourner contre des modèles différents. Une console libre
 // garde son libellé, son moteur est déjà dans son nom.
 const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+' console':(runEngine(run)?run.skill+' · '+runEngine(run):run.skill)
-const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:run.taskId])
+// A macro skill run has no task: its executions group under the macro.
+const macroRun=run=>!!run?.macroKey
+const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
 const activeRun=run=>['running','queued','preparing'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
 function formatTerminalName(term){
@@ -221,11 +223,12 @@ function select(run,background=false,options){
 // The state the user reads, drawn from the shared definition so the row, the
 // execution queue and the banner the desktop raises cannot say three things.
 // The glyph is decorative: the label carries the state for anyone who cannot
-// resolve an amber hand, and the row tooltip repeats it.
+// resolve an amber hand, and the row tooltip repeats it. "Process:" tells it
+// apart from the skill badge beside it, which answers another question.
 function renderRunState(element,run){
  const state=runStateOf(run),label=runStateLabel(state)
  if(element.dataset.runState!==state){element.dataset.runState=state;element.innerHTML=runStateSvg(state,14)}
- element.title=label;element.setAttribute('aria-label',label)
+ element.title='Process: '+label;element.setAttribute('aria-label',element.title)
  return label
 }
 function renderQueue(project,group){
@@ -264,7 +267,7 @@ function renderQueue(project,group){
 }
 async function refreshSkillResult(id=selected){
  const run=runs.find(item=>item.id===id)
- if(!run||freeConsole(run)||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
+ if(!run||freeConsole(run)||macroRun(run)||run.skill==='discuss'||loadingSkillResults.has(run.id)||loadingSkillResults.size>=4)return
  loadingSkillResults.add(run.id)
  try{
   const result=await api.runResult(run.id)
@@ -309,7 +312,7 @@ function renderTaskSkillStatuses(){
   if(!result){badge.className='status task-skill-status';badge.textContent='';badge.removeAttribute('title');badge.removeAttribute('aria-label');continue}
   badge.className='status task-skill-status '+result.kind
   if(badge.textContent!==result.icon)badge.textContent=result.icon
-  badge.title=runLabel(run)+' · '+result.label
+  badge.title='Skill: '+result.label
   badge.setAttribute('aria-label',badge.title)
  }
 }
@@ -341,7 +344,7 @@ document.querySelector('#worktree').onclick=async()=>{
   copiedNotice=setTimeout(clearCopiedNotice,2000)
  }catch(err){clearCopiedNotice();error(err)}
 }
-// The state beside the title is the one the sidebar row and the notification
+// The state before the title is the one the sidebar row and the notification
 // already show, drawn from the shared definition, with its label spelled out:
 // the header has the room the row does not.
 function renderHeaderState(run){
@@ -355,7 +358,7 @@ function renderHeaderState(run){
  }
  const text=element.querySelector('.run-state-label')
  if(text.textContent!==label)text.textContent=label
- element.title=label
+ element.title='Process: '+label
 }
 function renderHeader(){
  const run=runs.find(item=>item.id===selected)
@@ -370,7 +373,7 @@ function renderHeader(){
  renderHeaderState(run)
  const badge=document.querySelector('#skill-result'),result=skillResult(run,skillResults.get(run?.id))
  badge.hidden=!result
- if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title=result.label;badge.setAttribute('aria-label',result.label)}
+ if(result){badge.className='skill-result '+result.kind;if(badge.textContent!==result.icon+' '+result.label)badge.textContent=result.icon+' '+result.label;badge.title='Skill: '+result.label;badge.setAttribute('aria-label',badge.title)}
 }
 function render(options){
  if(options?.deferrable&&sidebarBusy()){pendingRender=true;renderHeader();renderTaskRowStates();renderTicketRows();return}
@@ -423,13 +426,13 @@ function render(options){
     const row=document.createElement('div');row.className='local-task '+(isSelected?'selected':'')
     const button=document.createElement('button');button.className='run '+(isSelected?'selected':'')
     const title=document.createElement('strong');title.textContent=taskState(run).name||taskTitles.get(run.taskId)||runLabel(run)
-    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.onclick=()=>api.openTask(run.taskId).catch(error)
+    const context=document.createElement('button');context.textContent=run.taskKey||run.taskId;context.className='task-number';context.title='Open task in Sectile';context.setAttribute('aria-label','Open '+(run.taskKey||run.taskId)+' in Sectile');context.disabled=macroRun(run);context.onclick=()=>api.openTask(run.taskId).catch(error)
     const status=document.createElement('span');status.className='status task-skill-status';status.dataset.runId=run.id
     const state=document.createElement('span');state.className='run-state';state.dataset.runId=run.id
     const stateLabel=renderRunState(state,run)
     // data-status stays the status the server reported: the UI tests select on it.
     button.title=title.textContent+' · '+runLabel(run)+' · '+stateLabel+' · '+executions.length+' execution(s)';button.dataset.status=run.status;button.dataset.runId=run.id
-    button.append(title,state,status);button.onclick=()=>select(run)
+    button.append(state,title,status);button.onclick=()=>select(run)
     const menu=document.createElement('button');menu.textContent='…';menu.className='task-menu';menu.setAttribute('aria-label','Actions for '+(taskState(run).name||run.taskKey||run.taskId||runLabel(run)));menu.title=menu.getAttribute('aria-label');menu.onclick=()=>taskMenu(run)
     const archive=document.createElement('button');archive.className='task-archive'
     const archiveLabel=(executions.some(activeRun)?'Stop and archive ':'Archive ')+(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
@@ -465,7 +468,8 @@ function render(options){
   const text=document.createElement('span');text.className='pr-label';text.textContent=label;selectedPR.append(text)
   selectedPR.onclick=()=>api.openPR(link.url).catch(error)
  }
- document.querySelector('#rerun').hidden=!current||!['completed','failed','canceled'].includes(current.status)
+ // A macro run is relaunched from the macro panel: it has no task to relaunch here.
+ document.querySelector('#rerun').hidden=!current||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
  document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
@@ -1212,6 +1216,13 @@ async function openProject(id){
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
   const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
   const repository=settingRow('Local repository',{stacked:true},picker)
+  // Macro skills write specifications here; empty means the local repository.
+  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.placeholder='Same as the local repository';specPath.setAttribute('aria-label','Specifications repository')
+  const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
+  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)specPath.value=selected}catch(err){error(err)}}
+  const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
+  const specRepository=settingRow('Specifications repository',{stacked:true},specPicker)
+  specRepository.hint.textContent='Optional · Where macro skills prepare their worktree when the specifications live apart from the code.'
   let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
   let parallelism=info.parallelism||1
   const controls={}
@@ -1415,7 +1426,7 @@ async function openProject(id){
   updateTerminal()
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section)
+  panels.General.append(repository.section,specRepository.section)
   panels.Execution.append(controls.worktrees.section,controls.parallel.section,terminalRow.section)
   panels.Agent.append(providerRow.section,modelRow.section,commandRow.section,autonomousRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
@@ -1436,7 +1447,7 @@ async function openProject(id){
    save.disabled=true
    try{
     const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
-    await api.mapProject({projectId:id,path:path.value,useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
+    await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
     projectStateVersion++;disconnectedProjects.delete(id)
     notice.textContent='Local configuration saved';await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
@@ -1912,7 +1923,7 @@ async function refreshPRs(executions){
 function taskMenu(run){
  showDialog(taskState(run).name||run.taskKey||run.taskId||runLabel(run))
  const related=()=>runs.filter(item=>taskKey(item)===taskKey(run))
- const relaunch=document.createElement('button');relaunch.textContent='Relaunch';relaunch.disabled=related().some(activeRun)
+ const relaunch=document.createElement('button');relaunch.textContent='Relaunch';relaunch.disabled=macroRun(run)||related().some(activeRun)
  relaunch.onclick=()=>{select(run);document.querySelector('#rerun').click()}
  const rename=document.createElement('form'),name=document.createElement('input'),save=document.createElement('button')
  name.setAttribute('aria-label','Local task name');name.value=taskState(run).name||run.taskKey||run.taskId||runLabel(run);name.maxLength=120;name.required=true
@@ -2094,7 +2105,7 @@ async function refreshNextStep(){
  if(run&&submittingSteps.has(taskKey(run)))return
  const generation=++nextStepGeneration
  nextStepUpdated=Date.now()
- if(!run||freeConsole(run)){nextStepData=null;renderNextStep();return}
+ if(!run||freeConsole(run)||macroRun(run)){nextStepData=null;renderNextStep();return}
  if(nextStepData?.key!==taskKey(run))nextStepData=null
  renderNextStep()
  try{

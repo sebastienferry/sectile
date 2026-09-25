@@ -11,11 +11,12 @@ import (
 	"github.com/google/uuid"
 
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 // Les macros ne sont pas des cartes simples : le tracker les traite comme des
 // conteneurs (ex : GitHub milestones) et la synchro n'importe que Task et Story.
-// Leur horizon — NOW, NEXT, LATER — est une décision produit, et le travail
+// Leur horizon - NOW, NEXT, LATER - est une décision produit, et le travail
 // de cadrage (framing, description, checklist TODOs) vit dans Sectile.
 
 const (
@@ -250,12 +251,26 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 	d.mu.Lock()
 	d.ensureMacrosTable()
 
+	// The row is created if missing, then locked and read: an edit of another
+	// field racing on another server instance waits, and this merge starts from
+	// what it committed. A row that did not exist reads as the defaults, as
+	// before.
+	tx, err := d.conn.Begin()
+	if err != nil {
+		d.mu.Unlock()
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec("INSERT INTO macros (project_id, key) VALUES (?, ?) ON CONFLICT (project_id, key) DO NOTHING", projectID, key); err != nil {
+		d.mu.Unlock()
+		return nil, err
+	}
 	current := models.MacroMeta{ProjectID: projectID, Key: key, Todos: []models.MacroTodo{}}
 	var todosJSON string
 	var closedInt int
-	err := d.conn.QueryRow(`
-		SELECT horizon, description, framing_comment, todos, title, status, closed FROM macros WHERE project_id = ? AND key = ?
-	`, projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt)
+	err = tx.QueryRow(`
+		SELECT horizon, description, framing_comment, todos, title, status, closed FROM macros WHERE project_id = ? AND key = ?`+d.forUpdate(),
+		projectID, key).Scan(&current.Horizon, &current.Description, &current.FramingComment, &todosJSON, &current.Title, &current.Status, &closedInt)
 	if err == nil {
 		current.Todos = parseMacroTodos(todosJSON)
 		current.Closed = closedInt == 1
@@ -291,6 +306,14 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 				todo.ID = uuid.New().String()
 			}
 			todo.Text = text
+			// L'origine est nettoyée comme le texte : une source composée de
+			// blancs est une absence d'origine, pas une origine qui s'appelle
+			// « espace ». Un SourceKind inconnu est gardé tel quel plutôt que
+			// rejeté : une version ultérieure qui en ajoute un ne doit pas voir
+			// une version antérieure effacer ses lignes en les relisant.
+			todo.TargetProjectID = strings.TrimSpace(todo.TargetProjectID)
+			todo.SourceKind = strings.TrimSpace(todo.SourceKind)
+			todo.SourceEntry = strings.TrimSpace(todo.SourceEntry)
 			cleaned = append(cleaned, todo)
 		}
 		current.Todos = cleaned
@@ -302,7 +325,7 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 	if current.Closed {
 		closedValue = 1
 	}
-	_, execErr := d.conn.Exec(`
+	_, execErr := tx.Exec(`
 		INSERT INTO macros (project_id, key, horizon, description, framing_comment, todos, title, status, closed, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(project_id, key) DO UPDATE SET
@@ -315,6 +338,9 @@ func (d *DB) saveMacroMetaFull(projectID string, key string, horizon *string, de
 			closed = excluded.closed,
 			updated_at = excluded.updated_at
 	`, projectID, key, current.Horizon, current.Description, current.FramingComment, string(payload), current.Title, current.Status, closedValue, current.UpdatedAt)
+	if execErr == nil {
+		execErr = tx.Commit()
+	}
 	d.mu.Unlock()
 	if execErr != nil {
 		return nil, execErr
@@ -327,22 +353,24 @@ func (d *DB) saveEpicMetaFull(projectID string, key string, horizon *string, des
 	return d.saveMacroMetaFull(projectID, key, horizon, description, nil, todos, title, status, closed)
 }
 
-// CreateStoryFromMacroTodo turns a line of macro shaping into a real story in the tracker.
-func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID string) (*models.MacroMeta, string, error) {
+// CreateStoryFromMacroTodo turns a line of macro shaping into a real story in the tracker
+// and returns the macro metadata with the story it created, and a notice saying
+// what the tracker refused (the Jira parent) when the story exists anyway.
+func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID string) (*models.MacroMeta, *models.Task, string, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	todoID = strings.TrimSpace(todoID)
 	if projectID == "" || macroKey == "" || todoID == "" {
-		return nil, "", fmt.Errorf("projet, macro et ligne de TODO obligatoires")
+		return nil, nil, "", fmt.Errorf("projet, macro et ligne de TODO obligatoires")
 	}
 
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
-		return nil, "", fmt.Errorf("projet non trouvé")
+		return nil, nil, "", fmt.Errorf("projet non trouvé")
 	}
 	metas, err := d.GetProjectMacros(projectID)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, "", err
 	}
 	var meta *models.MacroMeta
 	for i := range metas {
@@ -352,7 +380,7 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 		}
 	}
 	if meta == nil {
-		return nil, "", fmt.Errorf("macro %s sans cadrage enregistré", macroKey)
+		return nil, nil, "", fmt.Errorf("macro %s sans cadrage enregistré", macroKey)
 	}
 
 	var todo *models.MacroTodo
@@ -363,26 +391,46 @@ func (d *DB) CreateStoryFromMacroTodo(projectID string, macroKey string, todoID 
 		}
 	}
 	if todo == nil {
-		return nil, "", fmt.Errorf("ligne de TODO introuvable")
+		return nil, nil, "", fmt.Errorf("ligne de TODO introuvable")
+	}
+	if isRoadmapProjectKey(proj, todo.StoryKey) {
+		return nil, nil, "", fmt.Errorf("cette ligne est rattachée à %s, d'un projet de roadmap que Sectile lit sans jamais y écrire", todo.StoryKey)
 	}
 	if strings.TrimSpace(todo.StoryKey) != "" {
-		return nil, "", fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
+		return nil, nil, "", fmt.Errorf("cette ligne a déjà produit %s", todo.StoryKey)
 	}
 
-	task, err := d.CreateStoryUnderMacro(projectID, macroKey, todo.Text)
+	// The line's target project is where its story lands; empty is the
+	// macro's own project. It is refused before anything is written when the
+	// macro could not be the story's parent there.
+	target := proj
+	if targetID := strings.TrimSpace(todo.TargetProjectID); targetID != "" && targetID != proj.ID {
+		target, err = d.GetProjectByID(targetID)
+		if err != nil {
+			return nil, nil, "", err
+		}
+		if target == nil {
+			return nil, nil, "", fmt.Errorf("le projet cible %s n'existe plus : choisissez-en un autre pour cette ligne", targetID)
+		}
+		if same, reason := d.sameTrackerInstance(proj, target); !same {
+			return nil, nil, "", fmt.Errorf("%s", reason)
+		}
+	}
+
+	task, notice, err := d.createStoryUnder(proj, target, macroKey, todo.Text)
 	if err != nil {
-		return nil, "", fmt.Errorf("erreur création de story: %w", err)
+		return nil, nil, "", fmt.Errorf("erreur création de story: %w", err)
 	}
 
 	todo.StoryKey = task.Key
 	saved, err := d.SaveMacroMeta(projectID, macroKey, nil, nil, nil, &meta.Todos)
 	if err != nil {
-		return meta, task.Key, nil
+		return meta, task, notice, nil
 	}
-	return saved, task.Key, nil
+	return saved, task, notice, nil
 }
 
-func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID string) (*models.EpicMeta, string, error) {
+func (d *DB) CreateStoryFromEpicTodo(projectID string, epicKey string, todoID string) (*models.EpicMeta, *models.Task, string, error) {
 	return d.CreateStoryFromMacroTodo(projectID, epicKey, todoID)
 }
 
@@ -468,39 +516,49 @@ func (d *DB) applyTaskEpic(taskIDOrKey string, epicKey string, steps *[]string) 
 func (d *DB) writeTaskParentLocally(task *models.Task, macroKey string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	parentTitle := ""
-	if macroKey != "" {
-		_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", task.ProjectID, macroKey).Scan(&parentTitle)
-		if parentTitle == "" {
-			parentTitle = macroKey
-		}
+	// The title is copied by the statement itself, so a rename of the macro
+	// committed on another instance a moment before is the title written.
+	if macroKey == "" {
+		_, err := d.conn.Exec("UPDATE tasks SET parent_key = '', parent_title = '', parent_type = 'macro', updated_at = ? WHERE id = ?", time.Now(), task.ID)
+		return err
 	}
-	_, err := d.conn.Exec("UPDATE tasks SET parent_key = ?, parent_title = ?, parent_type = 'macro', updated_at = ? WHERE id = ?", macroKey, parentTitle, time.Now(), task.ID)
+	_, err := d.conn.Exec(`UPDATE tasks SET parent_key = ?, parent_type = 'macro', updated_at = ?,
+		parent_title = COALESCE(NULLIF((SELECT title FROM macros WHERE project_id = ? AND key = ?), ''), ?)
+		WHERE id = ?`, macroKey, time.Now(), task.ProjectID, macroKey, macroKey, task.ID)
 	return err
 }
 
-// CreateStoryUnderMacro creates a story task attached under a macro.
-func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title string) (*models.Task, error) {
+// CreateStoryUnderMacro creates a story in the macro's own project, attached
+// under the macro. The notice says what could not be written on the tracker.
+func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title string) (*models.Task, string, error) {
 	proj, err := d.GetProjectByID(projectID)
 	if err != nil || proj == nil {
-		return nil, fmt.Errorf("projet non trouvé")
+		return nil, "", fmt.Errorf("projet non trouvé")
 	}
+	return d.createStoryUnder(proj, proj, macroKey, title)
+}
 
+// createStoryUnder creates a story in target, attached under a macro of
+// macroProject, the caller having checked that the two share a tracker
+// instance. The parent is written on the tracker where the tracker has one: a
+// GitHub milestone, a Jira epic. A parent the tracker refuses does not undo the
+// story, which exists by then: the notice says it was kept locally only.
+func (d *DB) createStoryUnder(macroProject, target *models.Project, macroKey string, title string) (*models.Task, string, error) {
 	parentTitle := ""
 	d.mu.RLock()
-	_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", projectID, macroKey).Scan(&parentTitle)
+	_ = d.conn.QueryRow("SELECT title FROM macros WHERE project_id = ? AND key = ?", macroProject.ID, macroKey).Scan(&parentTitle)
 	d.mu.RUnlock()
 	if parentTitle == "" {
 		parentTitle = macroKey
 	}
 
 	task, err := d.CreateTask(models.CreateTaskRequest{
-		ProjectID: projectID,
+		ProjectID: target.ID,
 		Title:     title,
 		Priority:  models.PriorityMedium,
 	})
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	_ = d.writeTaskParentLocally(task, macroKey)
@@ -508,17 +566,26 @@ func (d *DB) CreateStoryUnderMacro(projectID string, macroKey string, title stri
 	task.ParentTitle = parentTitle
 	task.ParentType = "macro"
 
-	if proj.IssueTracker == "github" || task.Source == "github" {
+	notice := ""
+	switch {
+	case target.IssueTracker == "github" || task.Source == "github":
 		var issueNum int
 		_, _ = fmt.Sscanf(strings.TrimPrefix(task.Key, "#"), "%d", &issueNum)
 		if issueNum > 0 {
-			_ = d.tracker(proj.ID).SetGithubIssueMilestone(proj.GithubRepo, proj.RepoPath, issueNum, parentTitle)
+			_ = d.tracker(target.ID).SetGithubIssueMilestone(target.GithubRepo, target.RepoPath, issueNum, parentTitle)
+		}
+	case task.Source == "jira":
+		// The epic parents the story on Jira itself, not only on the board.
+		if ts, tsErr := d.TrackerForProject(target); tsErr != nil {
+			notice = fmt.Sprintf("épic %s non posé comme parent sur Jira : %v ; rattachement gardé en local", macroKey, tsErr)
+		} else if setErr := ts.SetParent(tracker.WithProject(context.Background(), target.ID), task.Key, macroKey); setErr != nil {
+			notice = fmt.Sprintf("épic %s non posé comme parent sur Jira : %v ; rattachement gardé en local", macroKey, setErr)
 		}
 	}
-	return task, nil
+	return task, notice, nil
 }
 
-func (d *DB) CreateStoryUnderEpic(projectID string, epicKey string, title string) (*models.Task, error) {
+func (d *DB) CreateStoryUnderEpic(projectID string, epicKey string, title string) (*models.Task, string, error) {
 	return d.CreateStoryUnderMacro(projectID, epicKey, title)
 }
 
@@ -638,21 +705,34 @@ func (d *DB) appendActivityStep(activityID string, step string) {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	_ = d.conn.WithTx(func(tx *sqlTx) error {
+		steps, err := d.lockActivityStepsUnsafe(tx, activityID)
+		if err != nil {
+			return err
+		}
+		payload, err := json.Marshal(append(steps, step))
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec("UPDATE task_activities SET steps = ? WHERE id = ?", string(payload), activityID)
+		return err
+	})
+}
 
+// lockActivityStepsUnsafe reads an activity's steps on its locked row, so a step
+// appended at the same time by another server instance is kept rather than
+// overwritten by a list read before it. A list that does not parse reads as
+// empty, as it always has.
+func (d *DB) lockActivityStepsUnsafe(tx *sqlTx, activityID string) ([]string, error) {
 	var raw string
-	if err := d.conn.QueryRow("SELECT steps FROM task_activities WHERE id = ?", activityID).Scan(&raw); err != nil {
-		return
+	if err := tx.QueryRow("SELECT steps FROM task_activities WHERE id = ?"+d.forUpdate(), activityID).Scan(&raw); err != nil {
+		return nil, err
 	}
 	steps := []string{}
 	if strings.TrimSpace(raw) != "" {
 		_ = json.Unmarshal([]byte(raw), &steps)
 	}
-	steps = append(steps, step)
-	payload, err := json.Marshal(steps)
-	if err != nil {
-		return
-	}
-	_, _ = d.conn.Exec("UPDATE task_activities SET steps = ? WHERE id = ?", string(payload), activityID)
+	return steps, nil
 }
 
 // IsProjectCompatible checks whether two projects can share tasks and macros.
@@ -751,23 +831,41 @@ func (d *DB) MigrateMacro(sourceProjectID string, macroKey string, targetProject
 		}
 	}
 
-	// 3. Insert or update macro in target project
+	// 3. Insert or update macro in target project, then delete it from the
+	// source, in one transaction. The source row is locked and read again
+	// first: the milestone calls above can take seconds, and an edit committed
+	// meanwhile, on this instance or another, is what gets copied.
 	d.mu.Lock()
-	_, err = d.conn.Exec(`
-		INSERT INTO macros (project_id, key, horizon, description, todos, title, status, closed, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(project_id, key) DO UPDATE SET
-			horizon = excluded.horizon,
-			description = excluded.description,
-			todos = excluded.todos,
-			title = excluded.title,
-			status = excluded.status,
-			closed = excluded.closed,
-			updated_at = CURRENT_TIMESTAMP
-	`, targetProjectID, targetMacroKey, horizon, description, todosJSON, title, status, closed)
-
-	// Delete from source project
-	_, _ = d.conn.Exec("DELETE FROM macros WHERE project_id = ? AND key = ?", sourceProjectID, macroKey)
+	err = d.conn.WithTx(func(tx *sqlTx) error {
+		var freshTitle string
+		readErr := tx.QueryRow(`
+			SELECT horizon, description, todos, title, status, closed
+			FROM macros
+			WHERE project_id = ? AND key = ?`+d.forUpdate(), sourceProjectID, macroKey).Scan(&horizon, &description, &todosJSON, &freshTitle, &status, &closed)
+		if readErr != nil && readErr != sql.ErrNoRows {
+			return readErr
+		}
+		if readErr == nil && freshTitle != "" {
+			title = freshTitle
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO macros (project_id, key, horizon, description, todos, title, status, closed, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			ON CONFLICT(project_id, key) DO UPDATE SET
+				horizon = excluded.horizon,
+				description = excluded.description,
+				todos = excluded.todos,
+				title = excluded.title,
+				status = excluded.status,
+				closed = excluded.closed,
+				updated_at = CURRENT_TIMESTAMP
+		`, targetProjectID, targetMacroKey, horizon, description, todosJSON, title, status, closed); err != nil {
+			return err
+		}
+		// Delete from source project
+		_, err := tx.Exec("DELETE FROM macros WHERE project_id = ? AND key = ?", sourceProjectID, macroKey)
+		return err
+	})
 	d.mu.Unlock()
 
 	if err != nil {

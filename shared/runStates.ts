@@ -23,8 +23,8 @@ export interface RunState {
   announcement: string
   /** The state's colour, as a literal so a notification icon can carry it. */
   color: string
-  /** Whether the glyph turns while the state lasts. Ignored on a notification. */
-  spins?: boolean
+  /** Whether the glyph pulses while the state lasts. Ignored on a notification. */
+  pulses?: boolean
   icon: IconNode[]
 }
 
@@ -43,13 +43,22 @@ export const RUN_STATES = {
       ['path', { d: 'M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15' }],
     ],
   },
+  silent: {
+    id: 'silent',
+    label: 'Silent',
+    announcement: 'has gone silent',
+    color: '#a78bfa',
+    icon: [CIRCLE, ['line', { x1: 10, x2: 10, y1: 15, y2: 9 }], ['line', { x1: 14, x2: 14, y1: 15, y2: 9 }]],
+  },
   running: {
     id: 'running',
     label: 'Running',
     announcement: 'is running',
     color: '#60a5fa',
-    spins: true,
-    icon: [['path', { d: 'M21 12a9 9 0 1 1-6.219-8.56' }]],
+    pulses: true,
+    // A solid dot rather than a spinning arc: an arc reads as a check mark at a
+    // glance, and a dot says "live" without having to move.
+    icon: [['circle', { cx: 12, cy: 12, r: 6, fill: 'currentColor' }]],
   },
   queued: {
     id: 'queued',
@@ -106,8 +115,10 @@ export function runStateSvg(id: string, size = 64): string {
       return `<${tag} ${pairs.join(' ')}/>`
     })
     .join('')
+  // `color` resolves the `currentColor` a filled glyph uses, which standalone
+  // markup has no container to inherit from.
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24"`
-    + ` fill="none" stroke="${state.color}" stroke-width="2" stroke-linecap="round"`
+    + ` color="${state.color}" fill="none" stroke="${state.color}" stroke-width="2" stroke-linecap="round"`
     + ` stroke-linejoin="round">${elements}</svg>`
 }
 
@@ -125,12 +136,27 @@ export function runStateIconDataUrl(id: string, size = 64): string {
 
 /**
  * What a surface knows about a run before resolving its state: the status the
- * server stores, and the mark a blocked session leaves behind. A desktop run
- * and a web activity both satisfy this.
+ * server stores, the mark a blocked session leaves behind, and the summary a
+ * silence is written into. A desktop run and a web activity both satisfy this;
+ * a desktop run carries no summary, so it never reads as silent.
  */
 export interface RunStateInput {
   status?: string
   waitingSince?: string | null
+  summary?: string
+}
+
+/**
+ * Opens the sentence the server appends to a run whose MCP session stopped
+ * speaking. It mirrors `models.RunSilencePrefix`, which a Go test pins to this
+ * line. The sentence stays in the summary, so a run that fell silent reads as
+ * silent until it ends, even if its client speaks again (#319).
+ */
+export const RUN_SILENCE_PREFIX = 'No MCP call for '
+
+/** Whether a run's summary carries the silence sentence. */
+export function isSilentSummary(summary?: string | null): boolean {
+  return !!summary && summary.includes(RUN_SILENCE_PREFIX)
 }
 
 /** Statuses that end a run, and therefore report an outcome rather than progress. */
@@ -148,7 +174,9 @@ export function runStateOf(run: RunStateInput): RunStateId {
   const status = run.status ?? ''
   if (TERMINAL.has(status)) return status as RunStateId
   if (run.waitingSince) return 'waiting'
-  return status === 'queued' || status === 'preparing' || status === 'pending' ? 'queued' : 'running'
+  if (status === 'queued' || status === 'preparing' || status === 'pending') return 'queued'
+  // A declared wait says more than a silence: it names who is expected.
+  return isSilentSummary(run.summary) ? 'silent' : 'running'
 }
 
 /**

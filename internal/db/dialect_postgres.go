@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"hash/fnv"
 	"log"
+	"math/rand"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -22,7 +25,21 @@ type postgresDialect struct{}
 
 func (postgresDialect) Name() string { return "PostgreSQL" }
 
-func (postgresDialect) Open(cfg Config) (*sql.DB, error) {
+func (p postgresDialect) Open(cfg Config) (*sql.DB, error) {
+	connConfig, err := p.connConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	conn := stdlib.OpenDB(*connConfig)
+	conn.SetMaxOpenConns(25)
+	conn.SetMaxIdleConns(10)
+	return conn, nil
+}
+
+// connConfig is the connection every PostgreSQL connection of this process is
+// made from: the pool's, and the one the event bus listens on, so both reach
+// the same server as the same user.
+func (postgresDialect) connConfig(cfg Config) (*pgx.ConnConfig, error) {
 	// An empty string is not a missing value here: pgx reads the standard libpq
 	// variables for every field a DSN does not set, which is how a deployment
 	// receives a username and a password as two separate secrets. Config.Validate
@@ -40,14 +57,21 @@ func (postgresDialect) Open(cfg Config) (*sql.DB, error) {
 		connConfig.RuntimeParams = map[string]string{}
 	}
 	connConfig.RuntimeParams["timezone"] = "UTC"
-
-	conn := stdlib.OpenDB(*connConfig)
-	conn.SetMaxOpenConns(25)
-	conn.SetMaxIdleConns(10)
-	return conn, nil
+	return connConfig, nil
 }
 
 func (postgresDialect) Rebind(query string) string { return rebindNumbered(query) }
+
+// LowerASCII lowers under the C collation rather than the database's own.
+//
+// LOWER follows the collation of its argument, and that collation is a property
+// of the cluster, not of PostgreSQL: one created with `initdb --locale=C` leaves
+// `É` alone, one using an ICU or builtin C.UTF-8 locale folds it to `é`. A
+// predicate comparing the column against a value folded in Go therefore matched
+// on one server and not on the next. `COLLATE "C"` is built in, exists in every
+// database whatever its encoding, and folds ASCII letters only — which is
+// exactly what SQLite's LOWER does, so both engines mean the same thing.
+func (postgresDialect) LowerASCII(expr string) string { return `LOWER(` + expr + ` COLLATE "C")` }
 
 func (postgresDialect) ColumnsQuery() string {
 	return "SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position"
@@ -98,6 +122,81 @@ func (postgresDialect) LockForMigration(conn *sqlConn) (func(), error) {
 }
 
 func (postgresDialect) RunsLegacyMigrations() bool { return false }
+
+// ServesOneProcess is false: several server instances may share one PostgreSQL
+// database, so a start only reclaims the work of instances that are gone.
+func (postgresDialect) ServesOneProcess() bool { return false }
+
+// ForUpdate locks the selected rows until the transaction ends. Under the
+// default READ COMMITTED isolation, a second transaction selecting the same row
+// FOR UPDATE waits, then reads the version the first one committed.
+func (postgresDialect) ForUpdate() string { return " FOR UPDATE" }
+
+// projectWorkerLockClass is the first half of the two-key advisory lock that
+// stands for "a server-side job of this project is running". PostgreSQL keeps
+// the two-int4 key space apart from the single-bigint one migrationLockKey
+// lives in, so the two can never collide.
+const projectWorkerLockClass int32 = 0x5EC7
+
+// projectWorkerRetry is how long a job waits before asking again for its
+// project's advisory lock. A variable so the tests can shorten it.
+var projectWorkerRetry = 500 * time.Millisecond
+
+// projectWorkerSlots caps the connections this process reserves for project
+// worker locks. Each running job holds one for its whole duration, and its own
+// queries need others from the same pool of 25: left uncapped, 25 projects
+// served at once would hold the whole pool and wait on it forever.
+var projectWorkerSlots = make(chan struct{}, 8)
+
+// projectWorkerKey hashes a project id onto the second half of the lock key.
+// Two projects sharing a hash only run their jobs one after the other, which
+// is harmless.
+func projectWorkerKey(projectID string) int32 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(projectID))
+	return int32(h.Sum32())
+}
+
+// AcquireProjectWorker takes the project's session advisory lock on a
+// connection reserved for it, as LockForMigration does and for the same reason:
+// the lock belongs to the connection that took it.
+//
+// It asks with pg_try_advisory_lock and gives the connection back between two
+// attempts, so a job waiting for its turn never pins one of the pool's
+// connections. If the held connection dies mid-job PostgreSQL releases the lock
+// on its own; the release then only logs.
+func (postgresDialect) AcquireProjectWorker(conn *sqlConn, projectID string) (func(), error) {
+	ctx := context.Background()
+	key := projectWorkerKey(projectID)
+	projectWorkerSlots <- struct{}{}
+	for {
+		held, err := conn.db.Conn(ctx)
+		if err != nil {
+			<-projectWorkerSlots
+			return func() {}, err
+		}
+		var acquired bool
+		if err := held.QueryRowContext(ctx, "SELECT pg_try_advisory_lock($1, $2)", projectWorkerLockClass, key).Scan(&acquired); err != nil {
+			held.Close()
+			<-projectWorkerSlots
+			return func() {}, err
+		}
+		if acquired {
+			return func() {
+				if _, err := held.ExecContext(ctx, "SELECT pg_advisory_unlock($1, $2)", projectWorkerLockClass, key); err != nil {
+					log.Printf("[skill] releasing the worker lock of project %s: %v", projectID, err)
+				}
+				held.Close()
+				<-projectWorkerSlots
+			}, nil
+		}
+		held.Close()
+		// Up to a fifth either way, so replicas waiting on one project do not
+		// ask in step.
+		jitter := time.Duration(rand.Int63n(int64(projectWorkerRetry)/5*2+1)) - projectWorkerRetry/5
+		time.Sleep(projectWorkerRetry + jitter)
+	}
+}
 
 // MigrateActivityAttachment walks an existing table to the current schema with
 // ALTER TABLE, cleaning the data in the middle: PostgreSQL validates a foreign

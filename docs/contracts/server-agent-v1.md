@@ -115,6 +115,32 @@ agent ignores obsolete configuration/path fields and fetches current settings.
 Versionless legacy dispatches are accepted; other nonzero versions are rejected.
 Upgrade server and agent together for the initial v1 rollout.
 
+A macro-scoped skill (`realign_macro`, #426) is dispatched with the same
+message and no task: `taskId`, `taskKey` and the envelope's `taskId` are empty,
+`projectId` is set, and the payload names the macro:
+
+```json
+{
+  "schemaVersion": 1,
+  "taskId": "",
+  "taskKey": "",
+  "projectId": "actual-project-id",
+  "macroKey": "M-7",
+  "macroTitle": "Ux improvements and fixes",
+  "skillId": "realign_macro",
+  "action": "realign_macro",
+  "mode": "interactive",
+  "runId": "remote-run-id"
+}
+```
+
+The agent runs it interactively in the project's mapped checkout, after
+preparing the macro worktree (below), with `SECTILE_MACRO_KEY`,
+`SECTILE_MACRO_PROJECT_ID`, `SECTILE_SPEC_REPO`, `SECTILE_SPEC_BRANCH` and
+`SECTILE_SPEC_WORKTREE` in its environment and every `SECTILE_TASK_*` empty. It
+reads no task and records no branch. An agent that predates `macroKey` refuses
+the dispatch as a task dispatch without a task.
+
 `step_status` correlates with `msgId` and reports `running`, `completed` or
 `failed`, with a summary. `completed` acknowledges launch only, not completion of
 the requested workflow stage. Web launch requests wait up to 45 seconds. The
@@ -183,6 +209,25 @@ itself failed and never that the request is absent:
 
 Without `origin` in the task checkout, the lookup fails with
 `project checkout has no origin remote; ...` rather than a Git exit status.
+
+`macro_worktree` (`payload.macroKey`, `payload.macroTitle`, no task) prepares a
+macro's specification checkout on the workstation and answers
+`{"path", "branch", "worktree", "warning"}`. The specifications repository is the
+workstation's own mapping for the project (`specRepos` in the local settings,
+edited in the desktop project dialog), else the project's mapped checkout; the
+server's specifications path is never used there. The worktree is
+`.tasks/worktrees/<KEY>` in that repository, on the existing branch named after
+the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
+is reused as is. With worktrees off, the checkout itself is returned with
+`worktree: false` and nothing is created. The server adds `projectId`,
+`macroKey` and the macro's `todos` when it relays the answer through the
+`prepare_macro_worktree` MCP tool, so a skill invoked by hand, which holds no API
+token, reads its input from the same call.
+
+A macro run is stopped with `POST /api/projects/{id}/macros/{key}/cancel-run`
+`{runId, force}`, which dispatches `cancel_run` with no task to the owner's agent,
+under the same rules as a task run: an agent that no longer has the run closes it
+as orphaned, and an unreachable agent needs `force`.
 
 A pull request can live in a repository other than the project's (#392): a
 project without a code remote, or not mono-repo, may name one through `prUrl`.
@@ -333,6 +378,10 @@ Standalone skills call `start_run(taskKey, skill, runId?)`, retaining
 the returned activity ID. A supplied launcher run ID reuses the existing run.
 The invocation owner calls `finish_run(taskKey, runId, status, note)`
 with completed, failed or canceled when it ends, including a stop for user input.
+A macro skill run names `projectId` and `macroKey` instead of `taskKey`, in both
+calls; naming both forms, or a macro key without its project, is refused. Such a
+run is a project activity with no task, and its end hands nothing back to a
+workflow chain.
 Nested skills reuse their owner's run; intermediate transitions do not close it.
 These activities never acquire the managed-stage transition guard.
 
@@ -344,6 +393,28 @@ client termination closes it as canceled instead of leaving the task active; the
 note records that the client disconnected. Agent-dispatched runs keep their own
 reporting path. This indicator reports declared execution state, not process
 liveness.
+
+### Declaring a wait for the user
+
+A standalone skill calls `report_waiting(taskKey, runId, waiting)` with
+`waiting: true` right before it asks its user a question it cannot continue
+without. Ownership follows `finish_run`: the run's owner, an administrator, or
+anyone on a run with no recorded owner. The run keeps `running` and gains
+`waitingSince`; a repeated mark keeps the first instant. A headless run is left
+unmarked and the result says so (`applied: false`). The wait ends on the
+declaring session's next tool call other than `report_waiting` (a ping does not
+count), on `waiting: false`, on any terminal status, and when the declaring
+session ends. Tool permission prompts are not reported: only a question the model
+asks deliberately is.
+
+When a run an agent dispatched starts or stops waiting, the server sends the
+owner's agent a `run_waiting` message, `{"runId": "...", "waitingSince":
+"<RFC3339>"|null}`, locally or through another instance. An agent holding that
+run records `waitingSince` on its `/desktop/runs` entry, except for a headless
+run, and ignores a run it does not hold; the desktop raises its banner from that
+list. The message is additive: an agent that predates it logs the unknown type
+and carries on. A message sent while no agent is connected is lost, and the
+agent's list catches up on the next change.
 
 ## MCP session ownership
 
@@ -376,6 +447,23 @@ message rearms the observation. A run canceled by a real disconnection stays
 recoverable: its owner, or an administrator, may still report its outcome through
 `finish_run`, which replays the hand-back on the corrected status. `SECTILE_MCP_CLIENT` names the
 bridge in the session list, defaulting to host and process id.
+
+`SECTILE_MCP_SESSION_ABANDON_AFTER` bounds how long a silence lasts before the
+session is taken for a client that died without closing its connection,
+defaulting to eight hours; a value below the silence bound is raised to it, and
+an unusable value keeps the default. Crossing it closes the session, the
+transport's included, and cancels the runs it owns with the disconnect note,
+after the silence sentence; their owner may still report the real outcome. The
+rewrite matches the disconnect note anywhere in the summary, so a run silenced
+and then closed stays recoverable.
+
+A run a client created has no agent to stop. `POST /api/tasks/{id}/cancel-run`
+closes it instead, for its owner or an administrator only (an ownerless run is an
+administrator's), through the same path as `finish_run`: status `canceled`, the
+disconnect note, the hand-back, and the run released from its session. The
+activities view's `POST /api/activities/{id}/cancel` closes it the same way,
+with a note of its own that makes the cancellation final. Agent-dispatched runs
+are unchanged.
 
 A restart destroys every session at once, so startup closes the runs those
 sessions owned, with status `canceled` and a note naming the restart. A run's
@@ -682,7 +770,7 @@ Messages explain recovery without returning subprocess output or source contents
 HTTP and stdio initialize with server name `sectile`; managed native registrations
 use the same name. The catalog is exactly `get_task`, `transition_stage`,
 `add_comment`, `list_tasks`, `get_project_context`, `list_projects`, `start_run`,
-`finish_run`, `create_task` and `update_task`. The former `sectile_` names are unsupported on both
+`finish_run`, `create_task`, `update_task`, `report_waiting` and `prepare_macro_worktree`. The former `sectile_` names are unsupported on both
 transports.
 Tool schemas, return values, run ownership and managed-run validation are unchanged.
 
