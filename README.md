@@ -557,6 +557,7 @@ Sectile exposes twelve typed tools at the Streamable HTTP endpoint `/mcp`:
 - `finish_run`: finish that run without advancing the task stage.
 - `report_waiting`: mark a task run as waiting for its user before a blocking question, so the board and the owner's desktop show it; the session's next call ends the wait.
 - `prepare_macro_worktree`: prepare a macro's specification checkout on the caller's local agent, in the desktop *Specifications folder*, and return its path and branch (empty for a folder that is not a Git repository).
+- `prepare_repository_worktree`: on a multi-repo project, prepare the task's worktree in another of the project's repositories, on the caller's local agent and on the task branch, before a skill changes it; that repository then needs its own pull request, given to `transition_stage` in `prUrls`.
 
 HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
 authentication and workflow validation retain their existing contracts.
@@ -1128,9 +1129,17 @@ Workstation settings are saved in `~/.config/sectile/settings.json` as project-I
 {
   "projects": {"project-id": "/path/to/repository"},
   "worktrees": {"project-id": true},
-  "parallelism": {"project-id": 2}
+  "parallelism": {"project-id": 2},
+  "repositories": {"github.com/owner/other": "/path/to/other"}
 }
 ```
+
+`repositories` maps each repository of a multi-repo project, by its
+`host/path` identity, to the folder holding its checkout on this workstation
+(#456). It is keyed by repository rather than by project, so one checkout
+serves every project that works in it; the desktop project settings write it,
+and refuse a folder whose `origin` is another repository. The project's own
+repository keeps its folder in `projects`.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their

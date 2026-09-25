@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Multi-repo projects run each task in its own repository.** A project that is not mono-repo lists the repositories its tickets work in, by remote, in its web settings; each workstation gives each repository its folder in the desktop project settings, and a folder is accepted only if its checkout is that repository. A ticket is pinned to one of them from its detail, and every stage then runs in a worktree of that repository. When a launch cannot tell which repository a ticket belongs to, it waits for you to choose one, from the console pane of the desktop app or from the ticket, even when it runs autonomously, and nothing is guessed. The agent is told where every folder of the project is: the others are handed to Claude as read-only context, and a skill that must change one asks for a worktree there on the same branch. Each changed repository then needs its own pull request, and the transitions check every one of them. Working directories typed on tickets before are converted to repositories once, by the first workstation that sees the project; the ones it cannot resolve are dropped and listed in the project settings. (#456)
+
 - **An Administration page.** Admins now open a full page from the sidebar or the command palette instead of a dialog. It shows how many people are using the board right now, how many runs are running, queued or pending, and the account totals, and refreshes on its own. The users list says who is online and when each account was last seen, next to the role and the block and delete actions.
 
 - **Prometheus metrics.** The server exposes `/metrics` next to the interface: requests, latency and errors per controller, active users, active runs by status, and the build version.

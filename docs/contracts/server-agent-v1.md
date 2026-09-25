@@ -244,6 +244,34 @@ French, and shown as they are. An agent that predates the action answers
 request to update the desktop app; no agent connected for the requesting user
 is likewise reported as the desktop app to connect.
 
+`repository_worktree` (`payload.taskId`, `payload.repository`, `payload.branch`)
+prepares a task's worktree in a secondary repository of a multi-repo project
+(#456), with the logic of the primary worktree: the worktree that already has
+the task branch checked out is reused, else `.tasks/worktrees/<KEY>` is created
+in that repository's mapped folder. It answers `{"repository", "path", "branch"}`,
+`repository` echoing the request; the server reads a missing echo as an agent
+too old to answer. A repository outside the project, not mapped on the
+workstation, or on a mono-repo project is refused. `remove_workspace` with
+`payload.repositories` removes the task worktree in each of those repositories
+and answers `{"removed": [...], "failed": [{"repository", "error"}]}`.
+
+Each dispatch resolves the task's primary repository before anything starts:
+its pin (`task.repository`), else the project's only repository, else the code
+remote of a mono-repo project, else the only repository mapped on the
+workstation, which the agent then pins. When several are mapped and none is
+pinned, the agent parks the dispatch, marks the run through
+`POST /api/activities/{id}/awaiting-repository` `{"waiting": true}` (autonomous
+runs included), releases its run slot, and reads the task back every five
+seconds until it is pinned; it then clears the mark and resumes the same run.
+The launch receives the task's folder map as `SECTILE_REPOSITORIES`, a JSON
+array of `{"remote", "identity", "role", "path", "worktree"}` where `role` is
+`primary`, `changed`, `context` or `spec` and `path` is empty when the
+repository is not mapped here. The first agent to see a project whose
+`repositoriesMigration` is empty reads `GET /api/projects/{id}/legacy-repo-paths`,
+resolves each path's `origin` locally and posts the result to
+`POST /api/projects/{id}/repositories/convert`; the server applies the first
+report and answers 409 to the others.
+
 A macro run is stopped with `POST /api/projects/{id}/macros/{key}/cancel-run`
 `{runId, force}`, which dispatches `cancel_run` with no task to the owner's agent,
 under the same rules as a task run: an agent that no longer has the run closes it
@@ -256,6 +284,7 @@ repository. `pr_evidence` looks the branch up there (GitLab only: the server
 reads GitHub itself), using the task checkout, or the project root when there is
 none, only as a working directory. `git_evidence` answers for a verified
 checkout of that repository instead of the task checkout: the first of the
+workstation's mapping of that repository (#456), the
 task's `repoPath`, the project's `repoPath` and `repoPaths` whose own `origin`
 names the repository and which has the branch checked out. Server paths are
 hints; the local `origin` decides. Both answers echo `repository`; the server
@@ -591,9 +620,17 @@ Workstation settings are saved in `~/.config/sectile/settings.json` as project-I
 {
   "projects": {"project-id": "/path/to/repository"},
   "worktrees": {"project-id": true},
-  "parallelism": {"project-id": 2}
+  "parallelism": {"project-id": 2},
+  "repositories": {"github.com/owner/other": "/path/to/other"}
 }
 ```
+
+`repositories` maps each repository of a multi-repo project, by its
+`host/path` identity, to the folder holding its checkout on this workstation
+(#456). It is keyed by repository rather than by project, so one checkout
+serves every project that works in it; the desktop project settings write it,
+and refuse a folder whose `origin` is another repository. The project's own
+repository keeps its folder in `projects`.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
