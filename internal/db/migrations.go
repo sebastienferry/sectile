@@ -384,6 +384,16 @@ var migrations = []migration{
 			"ALTER TABLE user_tracker_credentials ADD COLUMN account TEXT NOT NULL DEFAULT '';",
 		},
 	},
+	{
+		// Whether the project's tasks commit their clarification and
+		// specification files ("keep") or leave them ignored in the worktree
+		// ("drop", #487). Every existing project keeps them.
+		version: 25,
+		name:    "projects.spec_artifacts",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN spec_artifacts TEXT NOT NULL DEFAULT 'keep';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
