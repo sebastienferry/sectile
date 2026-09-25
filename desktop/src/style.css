@@ -241,3 +241,4 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .spec-kind{overflow-wrap:anywhere}
 
 .project-more{position:relative;flex-shrink:0}
+.setting-row p.setting-warning{color:#ffb86b}

@@ -174,6 +174,7 @@ export const ProjectModal: React.FC = () => {
   const [aiSkillModels, setAiSkillModels] = useState<Record<string, string>>({})
   const [useCustomAgent, setUseCustomAgent] = useState(false)
   const [useWorktrees, setUseWorktrees] = useState(true)
+  const [dropSpecArtifacts, setDropSpecArtifacts] = useState(false)
   const [autoSyncEnabled, setAutoSyncEnabled] = useState(false)
   const [autoSyncIntervalMin, setAutoSyncIntervalMin] = useState(5)
 
@@ -270,6 +271,7 @@ export const ProjectModal: React.FC = () => {
       setAiSkillModels(editingProject.aiSkillModels || {})
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
       setUseWorktrees(editingProject.useWorktrees !== false)
+      setDropSpecArtifacts(editingProject.specArtifacts === 'drop')
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
 
@@ -320,6 +322,7 @@ export const ProjectModal: React.FC = () => {
       setAiSkillModels({})
       setSpecFramework(settings.specFramework || 'speckit')
       setUseWorktrees(true)
+      setDropSpecArtifacts(false)
       setEpicColors(false)
       setAutoSyncEnabled(false)
       setAutoSyncIntervalMin(5)
@@ -445,6 +448,7 @@ export const ProjectModal: React.FC = () => {
         setupProviders: [],
         specFramework,
         useWorktrees,
+        specArtifacts: dropSpecArtifacts ? 'drop' as const : 'keep' as const,
         autoSyncEnabled,
         autoSyncIntervalMin,
         issueTracker,
@@ -1024,6 +1028,20 @@ export const ProjectModal: React.FC = () => {
                     className="rounded border-[var(--border-color)] accent-[var(--accent-color)]"
                   />
                   <span>Use a worktree for each task</span>
+                </label>
+                <label className="flex items-start gap-2 mt-2.5 text-xs text-[var(--text-secondary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={dropSpecArtifacts}
+                    onChange={e => setDropSpecArtifacts(e.target.checked)}
+                    className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                  />
+                  <span>
+                    Keep specifications out of the repository
+                    <span className="block text-[11px] text-[var(--text-muted)]">
+                      Clarifications and specifications stay in the task worktree and are never committed. Those already committed stay in the history.
+                    </span>
+                  </span>
                 </label>
               </div>
 
