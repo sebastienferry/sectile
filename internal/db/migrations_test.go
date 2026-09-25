@@ -47,14 +47,15 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	dropRepositoryColumns(d)
 }
 
-// dropRepositoryColumns removes what migrations 17 to 21 add, for the tests
-// that put a database back before them and reopen it.
+// dropRepositoryColumns removes what migrations 17 to 21 and 23 add, for the
+// tests that put a database back before them and reopen it.
 func dropRepositoryColumns(d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN repositories")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN repositories_migration")
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN repository")
 	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN changed_repositories")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_reason")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_session")
 }
 
 // undoServerCredentialsMigration puts back the schema migration 22 changed, for the

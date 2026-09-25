@@ -9,6 +9,7 @@ import { orderedQueueRuns } from './queue.mjs'
 import { orderedTaskGroups } from './task-order.mjs'
 import { transitions, announce } from './notifications.mjs'
 import { runStateOf, runStateLabel, runStateSvg } from '../../shared/runStates.ts'
+import { isMacPlatform, sidebarShortcutAction, sidebarShortcutAria, sidebarShortcutLabel } from '../../shared/sidebarShortcut.mjs'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -1139,17 +1140,19 @@ async function loadProjects(){
 // A control that looks the same either way says nothing: the chevron points where the next click
 // sends the panel, and the label names that click rather than the state it leaves behind.
 function renderSidebarToggle(hidden){
- const button=document.querySelector('#toggle-sidebar')
+ const button=document.querySelector('#toggle-sidebar'),mac=isMacPlatform(navigator)
  const chevron=hidden?'m13 9 3 3-3 3':'m16 9-3 3 3 3'
  button.setAttribute('aria-expanded',String(!hidden))
  button.setAttribute('aria-label',hidden?'Show projects':'Hide projects')
- button.title=hidden?'Show projects':'Hide projects'
+ button.setAttribute('aria-keyshortcuts',sidebarShortcutAria(mac))
+ button.title=(hidden?'Show projects':'Hide projects')+' ('+sidebarShortcutLabel(mac)+')'
  button.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="'+chevron+'"/></svg>'
 }
-document.querySelector('#toggle-sidebar').onclick=()=>{
+function toggleSidebar(){
  const hidden=document.querySelector('#workspace').classList.toggle('sidebar-hidden')
  renderSidebarToggle(hidden);localStorage.setItem('sidebarCollapsed',String(hidden));resize()
 }
+document.querySelector('#toggle-sidebar').onclick=toggleSidebar
 // The Changelog pane: what is installed, and what changed. Both versions are
 // shown because the app and the agent are distributed separately, and a
 // workstation that upgraded one and not the other is exactly the case this
@@ -2212,6 +2215,13 @@ function openCommandPalette(){
 document.querySelector('#command-palette').onclick=openCommandPalette
 window.addEventListener('keydown',event=>{
  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();event.stopPropagation();openCommandPalette()}
+},true)
+// Cmd+B / Ctrl+B toggles the projects sidebar (#474). In the capture phase, so
+// that on macOS Cmd+B never reaches the terminal; an ignored key is left
+// untouched, which is how Ctrl+B still reaches a focused terminal elsewhere.
+window.addEventListener('keydown',event=>{
+ const action=sidebarShortcutAction({key:event.key,metaKey:event.metaKey,ctrlKey:event.ctrlKey,shiftKey:event.shiftKey,altKey:event.altKey,repeat:event.repeat,defaultPrevented:event.defaultPrevented,mac:isMacPlatform(navigator),inTerminal:!!document.activeElement?.closest?.('.xterm'),modalOpen:dialog.open})
+ if(action==='toggle'){event.preventDefault();event.stopPropagation();toggleSidebar()}
 },true)
 async function quickAdd(projectID=selectedProject){
  showDialog('Quick add task')
