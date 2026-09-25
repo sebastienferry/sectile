@@ -184,7 +184,7 @@ func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targ
 				for _, other := range otherPRs {
 					links = models.AppendPullRequestLink(links, other, linkBranch)
 				}
-				links = models.AppendPullRequestLink(links, mrURL, linkBranch)
+				links = pullRequestLinkLast(models.AppendPullRequestLink(links, mrURL, linkBranch), mrURL)
 			}
 			// A stage that records a link undoes a past detachment: the workflow
 			// attached a pull request again, so rediscovery may speak once more. A

@@ -182,6 +182,9 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 			existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, other, branch)
 		}
 		existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, *payload.PrURL, branch)
+		if len(payload.PrURLs) > 0 {
+			existing.PrLinks = pullRequestLinkLast(existing.PrLinks, *payload.PrURL)
+		}
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 	if payload.Labels != nil {

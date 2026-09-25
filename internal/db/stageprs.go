@@ -29,10 +29,10 @@ func (s stagePRSet) primary() string {
 // repository other than its project's own. Every other ticket keeps the single
 // pull request of #392, unchanged.
 func multiRepoTask(project *models.Project, task *models.Task) bool {
-	if len(task.ChangedRepositories) > 0 {
+	if len(taskChangedRepositories(project, task)) > 0 {
 		return true
 	}
-	pinned := strings.TrimSpace(task.Repository)
+	pinned := taskPin(project, task)
 	return pinned != "" && !slices.Contains(projectRepositoryIdentities(project), pinned)
 }
 
@@ -44,6 +44,11 @@ func multiRepoTask(project *models.Project, task *models.Task) bool {
 // tried before that. A link naming a repository the ticket did not change is
 // refused, as is a changed repository without a pull request.
 func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, branch string, given []string) (stagePRSet, error) {
+	// prUrl, the first link, names the primary repository's pull request:
+	// it goes last so that it stays the ticket's current one.
+	if len(given) > 1 {
+		given = append(slices.Clone(given[1:]), given[0])
+	}
 	given = cleanURLs(given)
 	project, err := d.GetProjectByID(task.ProjectID)
 	if err != nil {
@@ -72,12 +77,11 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 	}
 
 	primary := TaskPrimaryRepository(project, task)
-	required := []string{}
-	for _, identity := range append(slices.Clone(task.ChangedRepositories), primary) {
-		if identity != "" && !slices.Contains(required, identity) {
-			required = append(required, identity)
-		}
+	required := taskChangedRepositories(project, task)
+	if primary != "" {
+		required = append(required, primary)
 	}
+	own := projectRepositoryIdentities(project)
 	chosen, fromGiven := map[string]string{}, map[string]bool{}
 	for _, url := range given {
 		link, ok := models.ParsePullRequestLink(url, "")
@@ -103,12 +107,20 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 	var notices []string
 	for _, identity := range required {
 		url := chosen[identity]
-		target, err := d.resolveStagePRTarget(project, url)
-		if err != nil {
-			return stagePRSet{}, err
-		}
-		if url == "" && !slices.Contains(projectRepositoryIdentities(project), identity) {
-			target = repositoryTarget(identity)
+		// Only the primary repository, when it is the project's own, is read
+		// the way a single-repository ticket is: through the task checkout.
+		// Every other repository is named to the agent, which answers from
+		// that repository's own checkout, never from the primary worktree.
+		target := repositoryTarget(identity)
+		if identity == primary && slices.Contains(own, identity) {
+			resolved, err := d.resolveStagePRTarget(project, url)
+			if err != nil {
+				return stagePRSet{}, err
+			}
+			target = resolved
+		} else if url != "" {
+			link, _ := models.ParsePullRequestLink(url, "")
+			target = stagePRTarget{link: link, url: url, foreign: true}
 		}
 		verified, notice, err := d.validateStagePRAt(task, actorID, skillID, repoPath, branch, url, target)
 		if err != nil {
@@ -148,10 +160,13 @@ func cleanURLs(urls []string) []string {
 // checkSecondaryPRs checks the pull request of every secondary repository a
 // ticket changed as an adjustment requires: ready, on the ticket branch, on a
 // clean checkout whose head it contains.
-func (d *DB) checkSecondaryPRs(task *models.Task, actorID, branch string) error {
-	for _, identity := range task.ChangedRepositories {
+func (d *DB) checkSecondaryPRs(project *models.Project, task *models.Task, actorID, branch string) error {
+	for _, identity := range taskChangedRepositories(project, task) {
 		url := ""
 		for _, recorded := range task.PrLinks {
+			if recorded.Branch != "" && recorded.Branch != branch {
+				continue
+			}
 			if link, ok := models.ParsePullRequestLink(recorded.URL, ""); ok && link.Identity() == identity {
 				url = recorded.URL
 			}
@@ -166,4 +181,18 @@ func (d *DB) checkSecondaryPRs(task *models.Task, actorID, branch string) error 
 		}
 	}
 	return nil
+}
+
+// pullRequestLinkLast moves the link to url to the end of the set, which makes
+// it the ticket's current pull request. Appending a link already recorded
+// leaves it where it was, so on a ticket that changed several repositories
+// the primary repository's could otherwise end up before another's.
+func pullRequestLinkLast(links []models.TaskPullRequest, url string) []models.TaskPullRequest {
+	for i, link := range links {
+		if link.URL == url && i != len(links)-1 {
+			moved := append(slices.Clone(links[:i]), links[i+1:]...)
+			return append(moved, link)
+		}
+	}
+	return links
 }

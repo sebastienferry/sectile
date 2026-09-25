@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -2192,7 +2193,11 @@ func (d *DB) RemoveTaskWorktree(mainRepoPath, taskID string) error {
 	}
 	// A ticket that changed several repositories has a worktree in each, all
 	// removed in one operation, and a repository left behind is named (#456).
-	repositories := append([]string{TaskPrimaryRepository(project, task)}, task.ChangedRepositories...)
+	var repositories []string
+	if primary := TaskPrimaryRepository(project, task); primary != "" {
+		repositories = append(repositories, primary)
+	}
+	repositories = append(repositories, taskChangedRepositories(project, task)...)
 	var removal models.WorktreeRemoval
 	if err := d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "remove_workspace", Repositories: repositories}, &removal); err != nil {
 		return err
@@ -2973,6 +2978,18 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 			existing.RepoPath = nil
 		} else {
 			existing.RepoPath = &trimmed
+		}
+	}
+	// A ticket moved to another project keeps its pin only if that project
+	// declares the same repository.
+	if req.ProjectID != nil && req.Repository == nil && existing.Repository != "" {
+		pinned := existing.Repository
+		req.Repository = &pinned
+		if project, err := d.getProjectByIDUnsafe(existing.ProjectID); err != nil {
+			return nil, err
+		} else if project == nil || !slices.ContainsFunc(project.Repositories, func(r models.ProjectRepository) bool { return r.Identity == pinned }) {
+			empty := ""
+			req.Repository = &empty
 		}
 	}
 	if req.Repository != nil {
@@ -6538,6 +6555,9 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	if strings.TrimSpace(p.OwnerUserID) == "" {
 		p.OwnerUserID = strings.TrimSpace(actingUserID)
 	}
+	// The declared repositories, read before the code remote may change: the
+	// old code remote is not one of them, and must not become one.
+	repositoryURLs := declaredRepositoryURLs(p)
 
 	if req.Name != nil && strings.TrimSpace(*req.Name) != "" {
 		p.Name = strings.TrimSpace(*req.Name)
@@ -6589,10 +6609,6 @@ func (d *DB) UpdateProjectAs(actingUserID string, id string, req models.UpdatePr
 	}
 	if req.RepoPaths != nil {
 		p.RepoPaths = normalizeRepoPaths(*req.RepoPaths)
-	}
-	repositoryURLs := make([]string, 0, len(p.Repositories))
-	for _, repository := range p.Repositories {
-		repositoryURLs = append(repositoryURLs, repository.URL)
 	}
 	if req.Repositories != nil {
 		if err := checkRepositories(projectCodeRemote(p), *req.Repositories); err != nil {

@@ -47,7 +47,7 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 		if primary := TaskPrimaryRepository(project, task); !target.foreign && !slices.Contains(projectRepositoryIdentities(project), primary) {
 			target = repositoryTarget(primary)
 		}
-		if err := d.checkSecondaryPRs(task, actorID, branch); err != nil {
+		if err := d.checkSecondaryPRs(project, task, actorID, branch); err != nil {
 			return trackerapi.PullRequest{}, fmt.Errorf("adjustment prerequisite: %w", err)
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -70,11 +71,68 @@ var ErrDuplicateRepository = errors.New("repository already declared")
 // project does not declare.
 var ErrRepositoryNotInProject = errors.New("repository is not one of the project's repositories")
 
+// checkRepositories refuses a repository declared twice. The code remote is
+// always listed first and derived from the project, so a client that sends it
+// back with the others (the project as it read it) is not declaring it twice:
+// it is left out, as encodeRepositoryURLs leaves it out of the column.
 func checkRepositories(codeRemote string, urls []string) error {
-	if duplicate := models.DuplicateRepository(codeRemote, urls); duplicate != "" {
+	code := models.RepositoryIdentity(codeRemote)
+	declared := make([]string, 0, len(urls))
+	for _, url := range urls {
+		if strings.TrimSpace(codeRemote) == "" || models.RepositoryIdentity(url) != code {
+			declared = append(declared, url)
+		}
+	}
+	if duplicate := models.DuplicateRepository("", declared); duplicate != "" {
 		return fmt.Errorf("%w: %s", ErrDuplicateRepository, duplicate)
 	}
 	return nil
+}
+
+// declaredRepositoryURLs are the remotes a project declares besides its code
+// remote, as they are stored.
+func declaredRepositoryURLs(p *models.Project) []string {
+	code := models.RepositoryIdentity(projectCodeRemote(p))
+	urls := []string{}
+	for _, repository := range p.Repositories {
+		if repository.Identity != code {
+			urls = append(urls, repository.URL)
+		}
+	}
+	return urls
+}
+
+// taskPin is the repository a ticket is pinned to, as far as its project is
+// concerned: nothing on a mono-repo project, whose tickets live in one
+// repository, and nothing for a pin to a repository the project no longer
+// declares. The agent reads a pin the same way (models.ResolvePrimaryRepository).
+func taskPin(project *models.Project, task *models.Task) string {
+	if project == nil || task == nil || project.MonoRepo {
+		return ""
+	}
+	if repository, ok := models.FindProjectRepository(project.Repositories, task.Repository); ok {
+		return repository.Identity
+	}
+	return ""
+}
+
+// taskChangedRepositories are the secondary repositories a ticket changed that
+// its project still declares, the primary one left out.
+func taskChangedRepositories(project *models.Project, task *models.Task) []string {
+	if project == nil || task == nil || project.MonoRepo {
+		return nil
+	}
+	primary := TaskPrimaryRepository(project, task)
+	var changed []string
+	for _, identity := range task.ChangedRepositories {
+		if identity == primary || slices.Contains(changed, identity) {
+			continue
+		}
+		if _, ok := models.FindProjectRepository(project.Repositories, identity); ok {
+			changed = append(changed, identity)
+		}
+	}
+	return changed
 }
 
 // ErrRepositoriesConverted refuses a second conversion of a project's legacy
@@ -250,8 +308,8 @@ func (d *DB) MarkRunAwaitingRepository(caller Actor, admin bool, runID string, w
 // TaskPrimaryRepository is the identity of the repository a ticket runs in:
 // its pin, else its project's code remote. Empty when neither exists.
 func TaskPrimaryRepository(project *models.Project, task *models.Task) string {
-	if task != nil && strings.TrimSpace(task.Repository) != "" {
-		return task.Repository
+	if pin := taskPin(project, task); pin != "" {
+		return pin
 	}
 	if remote := projectCodeRemote(project); remote != "" {
 		return models.RepositoryIdentity(remote)

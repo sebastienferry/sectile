@@ -58,9 +58,11 @@ func testProjectRepositories(t *testing.T, d *DB) {
 	if _, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{Repositories: &respelled}); !errors.Is(err, ErrDuplicateRepository) {
 		t.Errorf("SSH and HTTPS of one remote: err = %v, want ErrDuplicateRepository", err)
 	}
-	codeAgain := []string{"https://github.com/o/a"}
-	if _, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{Repositories: &codeAgain}); !errors.Is(err, ErrDuplicateRepository) {
-		t.Errorf("code remote respelled: err = %v, want ErrDuplicateRepository", err)
+	// The project as the client read it lists the code remote first: sending
+	// it back is not declaring it twice.
+	asRead := []string{"https://github.com/o/a", "https://github.com/o/b"}
+	if updated, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{Repositories: &asRead}); err != nil || len(updated.Repositories) != 2 {
+		t.Errorf("code remote sent back: %+v, %v", updated, err)
 	}
 	three := []string{"https://github.com/o/b", "git@gitlab.com:g/c.git"}
 	updated, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{Repositories: &three})
@@ -253,5 +255,76 @@ func TestPrepareRepositoryWorktree(t *testing.T) {
 	}
 	if _, err := d.PrepareRepositoryWorktree(context.Background(), "", task.Key, "github.com/o/b"); err == nil || !strings.Contains(err.Error(), "mono-repo") {
 		t.Errorf("mono-repo: err = %v", err)
+	}
+}
+
+func TestAProjectKnownByItsGitHubRepositorySavesItsOwnList(t *testing.T) {
+	d := testDB(t)
+	no := false
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "GitHub only", IssueTracker: "local", MonoRepo: &no, GithubRepo: "o/a", Repositories: []string{"git@github.com:o/b.git"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Repositories) != 2 || p.Repositories[0].Identity != "github.com/o/a" {
+		t.Fatalf("repositories = %+v", p.Repositories)
+	}
+	asRead := []string{p.Repositories[0].URL, p.Repositories[1].URL}
+	if _, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{Repositories: &asRead}); err != nil {
+		t.Errorf("saving the list as read: %v", err)
+	}
+}
+
+func TestChangingTheCodeRemoteDoesNotDeclareTheOldOne(t *testing.T) {
+	d := testDB(t)
+	p, _ := multiRepoProject(t, d)
+	remote := "git@github.com:o/z.git"
+	updated, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{GitRemoteUrl: &remote})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var identities []string
+	for _, repository := range updated.Repositories {
+		identities = append(identities, repository.Identity)
+	}
+	if strings.Join(identities, " ") != "github.com/o/z github.com/o/b" {
+		t.Errorf("repositories = %v, the old code remote must not stay declared", identities)
+	}
+}
+
+func TestAMovedTicketKeepsOnlyAPinItsNewProjectDeclares(t *testing.T) {
+	d := testDB(t)
+	_, task := multiRepoProject(t, d)
+	pin := "github.com/o/b"
+	if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &pin}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := d.CreateProject(models.CreateProjectRequest{Name: "Other", IssueTracker: "local", GitRemoteUrl: "git@github.com:o/x.git"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	moved, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{ProjectID: &other.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.Repository != "" {
+		t.Errorf("pin after the move = %q, want none", moved.Repository)
+	}
+}
+
+func TestAPinTheProjectNoLongerDeclaresIsNoPin(t *testing.T) {
+	d := testDB(t)
+	p, task := multiRepoProject(t, d)
+	pin := "github.com/o/b"
+	if _, err := d.UpdateTask(task.ID, models.UpdateTaskRequest{Repository: &pin}); err != nil {
+		t.Fatal(err)
+	}
+	none := []string{}
+	if _, err := d.UpdateProjectAs("", p.ID, models.UpdateProjectRequest{Repositories: &none}); err != nil {
+		t.Fatal(err)
+	}
+	project, _ := d.GetProjectByID(p.ID)
+	reread, _ := d.GetTaskByID(task.ID)
+	if multiRepoTask(project, reread) || TaskPrimaryRepository(project, reread) != "github.com/o/a" {
+		t.Errorf("a removed repository still decides: multi=%v primary=%q", multiRepoTask(project, reread), TaskPrimaryRepository(project, reread))
 	}
 }

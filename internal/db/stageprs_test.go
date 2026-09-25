@@ -24,6 +24,7 @@ type fakeRepoAgent struct {
 	heads     map[string]string // repository → checkout head
 	removed   []string
 	failRemov string
+	evidence  []string // repositories git_evidence was asked about ("" for the task checkout)
 }
 
 func (f *fakeRepoAgent) operate(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
@@ -35,6 +36,7 @@ func (f *fakeRepoAgent) operate(_ context.Context, op agentprotocol.Operation) (
 		}
 		return json.RawMessage(fmt.Sprintf(`{"repository":%q,"forge":"gitlab","url":%q,"branch":%q,"sha":"head-%s","open":true}`, op.Repository, url, op.Branch, url[len(url)-1:])), nil
 	case "git_evidence":
+		f.evidence = append(f.evidence, op.Repository)
 		key := op.Repository
 		head, ok := f.heads[key]
 		if !ok {
@@ -171,5 +173,44 @@ func TestAdjustmentChecksEverySecondaryRepository(t *testing.T) {
 	delete(agent.prs, "gitlab.com/g/b")
 	if _, err := d.adjustmentPrerequisite(task, "", false); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") {
 		t.Fatalf("err = %v, want the secondary repository named", err)
+	}
+}
+
+func TestThePrimaryPullRequestStaysCurrentWhenAlreadyRecorded(t *testing.T) {
+	d, task, _ := twoRepoTask(t)
+	if _, err := d.conn.Exec(`UPDATE tasks SET changed_repositories='[]' WHERE id=?`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA}, "feat/12"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddChangedRepository(task.ID, "gitlab.com/g/b"); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "again", []string{mrA, mrB}, "feat/12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PrURL == nil || *got.PrURL != mrA {
+		t.Errorf("current pull request = %v, want the primary repository's", got.PrURL)
+	}
+}
+
+func TestTheCodeRepositoryChangedFromAPinnedTicketIsReadInItsOwnCheckout(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	// Pinned to g/b, the ticket also changed the project's own g/a.
+	if _, err := d.conn.Exec(`UPDATE tasks SET repository='gitlab.com/g/b', changed_repositories='["gitlab.com/g/a"]' WHERE id=?`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	agent.heads["gitlab.com/g/a"] = "head-1"
+	got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrB, mrA}, "feat/12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(agent.evidence, " ") != "gitlab.com/g/a gitlab.com/g/b" {
+		t.Errorf("heads asked in %q, want each repository named", agent.evidence)
+	}
+	if got.PrURL == nil || *got.PrURL != mrB {
+		t.Errorf("current pull request = %v, want the pinned repository's", got.PrURL)
 	}
 }
