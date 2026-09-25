@@ -1142,6 +1142,23 @@ func (d *DB) computeExternalURLUnsafe(t *models.Task) *string {
 			u := fmt.Sprintf("%s/browse/%s", strings.TrimSuffix(base, "/"), t.Key)
 			return &u
 		}
+	case "gitlab":
+		// The adapter records the issue's web_url; this only answers for a task
+		// imported without one.
+		apiURL, projectPath := "", ""
+		if proj != nil {
+			apiURL, projectPath = proj.GitlabUrl, proj.GitlabProject
+		}
+		if s, _ := d.getSettingsUnsafe(); s != nil {
+			apiURL, projectPath = firstNonEmpty(apiURL, s.GitlabUrl), firstNonEmpty(projectPath, s.GitlabProject)
+		}
+		apiURL = firstNonEmpty(apiURL, trackerapi.DefaultGitlabURL)
+		cleanNum := strings.TrimPrefix(t.Key, "#")
+		if projectPath = strings.Trim(strings.TrimSpace(projectPath), "/"); projectPath != "" && cleanNum != "" {
+			web := strings.TrimSuffix(strings.TrimRight(apiURL, "/"), "/api/v4")
+			u := fmt.Sprintf("%s/%s/-/issues/%s", web, projectPath, cleanNum)
+			return &u
+		}
 	}
 	return nil
 }
@@ -3130,10 +3147,10 @@ func (d *DB) updateTaskBy(actor Actor, id string, req models.UpdateTaskRequest) 
 		}
 	}
 
-	// L'assignation ne voyage pas avec la synchro des champs : Jira n'assigne
-	// que par identifiant de compte, jamais par nom affiché. Elle part donc
-	// comme écriture dédiée, dans la même file d'activités.
-	if newAssignee := strings.TrimSpace(existing.Assignee); newAssignee != oldAssignee && existing.Source == "jira" {
+	// The assignment does not travel with the field sync: Jira and GitLab
+	// assign by account id, never by display name. It leaves as a dedicated
+	// write, in the same activity queue.
+	if newAssignee := strings.TrimSpace(existing.Assignee); newAssignee != oldAssignee && (existing.Source == "jira" || existing.Source == "gitlab") {
 		accountID := ""
 		if req.AssigneeAccountID != nil {
 			accountID = strings.TrimSpace(*req.AssigneeAccountID)
@@ -4569,14 +4586,17 @@ func (d *DB) processSyncJob(ctx context.Context, job SkillJob, settings *models.
 			repoPath = settings.RepoPath
 		}
 
-		trackerTitle := ts.Name()
-		if strings.EqualFold(trackerTitle, "github") {
-			trackerTitle = "GitHub"
-		} else if len(trackerTitle) > 0 {
-			trackerTitle = strings.ToUpper(trackerTitle[:1]) + trackerTitle[1:]
-		}
+		trackerTitle := trackerDisplayName(ts.Name())
 
 		targetDesc := repo
+		if ts.Name() == "gitlab" {
+			// A GitLab project is named by its path, never by a repository.
+			project := proj
+			if project == nil {
+				project = &models.Project{}
+			}
+			targetDesc = d.gitlabProjectOf(project)
+		}
 		if targetDesc != "" {
 			steps = append(steps, fmt.Sprintf("1. Connecting to %s API (%s)...", trackerTitle, targetDesc))
 			outputLines = append(outputLines, fmt.Sprintf("### %s Synchronization (%s)\n", trackerTitle, targetDesc))
@@ -5082,7 +5102,7 @@ func (d *DB) EnqueueSyncWith(userID string, syncType string, param string, proje
 		if name := strings.TrimPrefix(strings.TrimSpace(syncType), "sync_"); name != "" && name != "all" {
 			if ts, ok := d.TrackerRegistry().Get(name); ok && ts != nil {
 				syncType = "sync_" + name
-				skillName = "Sync " + strings.ToUpper(name[:1]) + name[1:]
+				skillName = "Sync " + trackerDisplayName(name)
 				summary = fmt.Sprintf("Synchronisation %s en file d'attente", skillName[5:])
 				steps = []string{
 					fmt.Sprintf("Cible : %s", skillName[5:]),
