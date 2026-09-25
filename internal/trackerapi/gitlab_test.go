@@ -444,6 +444,35 @@ func TestGitlabUpdateIssueMergesLabelsAndSwapsTheStage(t *testing.T) {
 	}
 }
 
+func TestGitlabStageWriteMovesTheColumnOverTheTaskLabels(t *testing.T) {
+	site := newGitlabSite(t)
+	site.json("GET", "/projects/acme%2Fapp/boards", gitlabTwoBoards)
+	site.on("PUT", "/projects/acme%2Fapp/issues/3", func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, `{}`) })
+	g := site.adapter()
+	status := models.StatusToTest
+	err := g.UpdateIssue(unattended(), tracker.UpdateIssueRequest{Key: "#3", Status: &status, TargetStatus: "Doing", Labels: []string{"bug", "To Do", "#implemented"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := decodeBody(t, site.recorded("PUT", "/projects/acme%2Fapp/issues/3")[0])
+	adds := strings.Split(body["add_labels"].(string), ",")
+	removes := strings.Split(body["remove_labels"].(string), ",")
+	if containsString(adds, "To Do") || !containsString(adds, "Doing") || !containsString(adds, "#implemented") {
+		t.Fatalf("the target list replaces the task's stale list label: %v", adds)
+	}
+	if !containsString(removes, "To Do") || containsString(removes, "Doing") || body["state_event"] != "reopen" {
+		t.Fatalf("removes: %v %v", removes, body)
+	}
+
+	err = g.UpdateIssue(unattended(), tracker.UpdateIssueRequest{Key: "#3", Status: &status, TargetStatus: "Gone", Labels: []string{"#implemented"}})
+	if err == nil || !strings.Contains(err.Error(), "colonne GitLab inconnue") {
+		t.Fatalf("an unknown column is reported: %v", err)
+	}
+	if body := decodeBody(t, site.recorded("PUT", "/projects/acme%2Fapp/issues/3")[1]); body["add_labels"] != "#implemented" {
+		t.Fatalf("but the stage label is still written: %v", body)
+	}
+}
+
 func TestGitlabDeleteFallsBackToClose(t *testing.T) {
 	site := newGitlabSite(t)
 	site.on("DELETE", "/projects/acme%2Fapp/issues/3", func(w http.ResponseWriter, r *http.Request) {

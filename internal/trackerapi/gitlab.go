@@ -341,17 +341,21 @@ func (g *GitlabAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssue
 	}
 	adds, removes := labelDelta(req.Labels, req.RemovedLabels)
 	// The column first: a named target decides the state and swaps the list
-	// labels. The finished rule comes after and wins, since finishing a work
-	// item closes its issue whatever column the stage maps to (D10).
+	// labels, over whatever list label the task's own labels still carry. The
+	// finished rule comes after and wins, since finishing a work item closes
+	// its issue whatever column the stage maps to (D10). A column GitLab no
+	// longer has does not cost the rest of the update: it is reported after.
 	stateEvent := ""
+	var moveErr error
 	if target := strings.TrimSpace(req.TargetStatus); target != "" {
 		move, err := g.columnMove(ctx, c, projectPath, target)
 		if err != nil {
-			return err
+			moveErr = err
+		} else {
+			adds = append(withoutLabels(adds, move.remove), move.add...)
+			removes = append(withoutLabels(removes, move.add), move.remove...)
+			stateEvent = move.stateEvent
 		}
-		adds = append(adds, move.add...)
-		removes = append(removes, move.remove...)
-		stateEvent = move.stateEvent
 	}
 	if closed, explicit := isFinishedStatus(req.Status, req.Labels); explicit {
 		switch {
@@ -377,10 +381,32 @@ func (g *GitlabAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssue
 		}
 		payload["assignee_ids"] = ids
 	}
-	if len(payload) == 0 {
-		return nil
+	if len(payload) > 0 {
+		if err := c.gitlab(ctx, http.MethodPut, gitlabIssuePath(projectPath, iid), nil, payload, nil); err != nil {
+			return err
+		}
 	}
-	return c.gitlab(ctx, http.MethodPut, gitlabIssuePath(projectPath, iid), nil, payload, nil)
+	return moveErr
+}
+
+// withoutLabels drops from labels those in drop, case-insensitively.
+func withoutLabels(labels, drop []string) []string {
+	out := []string{}
+	for _, l := range labels {
+		if !containsFold(drop, l) {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func containsFold(list []string, s string) bool {
+	for _, item := range list {
+		if strings.EqualFold(item, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // DeleteIssue closes the issue, or deletes it when the caller asks for a
