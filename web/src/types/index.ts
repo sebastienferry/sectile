@@ -734,12 +734,8 @@ export interface TaskFacetValue {
  * projet et jeton pour GitLab.
  */
 export interface TrackerCredentials {
-  /**
-   * GitLab n'est pas dans `IssueTracker` : ses paramètres se configurent, mais
-   * aucun adaptateur GitLab n'est enregistré, donc un projet ne peut pas encore
-   * le choisir comme tracker. Jira et GitHub, eux, en ont un.
-   */
-  tracker: IssueTracker | 'gitlab'
+  /** A tracker a credential can be stored for: every remote one. */
+  tracker: Exclude<IssueTracker, 'local'>
   siteUrl: string
   /** Dépôt GitHub (`owner/repo`) ou projet GitLab (`groupe/projet`). */
   project?: string

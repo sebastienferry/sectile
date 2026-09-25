@@ -183,7 +183,7 @@ type Project struct {
 	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
 	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
 	GitlabProject               string            `json:"gitlabProject,omitempty"`
-	IssueTracker                string            `json:"issueTracker"` // "github", "jira", "local"
+	IssueTracker                string            `json:"issueTracker"` // "github", "gitlab", "jira", "local"
 	TrackerUrl                  string            `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
 	IsDefault                   bool              `json:"isDefault"`
 	Bookmarked                  bool              `json:"bookmarked"`
@@ -224,7 +224,7 @@ type TaskComment struct {
 	UserID    string     `json:"userId,omitempty"`
 	Body      string     `json:"body"`
 	CreatedAt *time.Time `json:"createdAt,omitempty"`
-	Source    string     `json:"source"` // "jira", "github", "local"
+	Source    string     `json:"source"` // "jira", "github", "gitlab", "local"
 }
 
 type TrackerColumn struct {
@@ -806,7 +806,7 @@ type Task struct {
 	// used to read a team's members: the members endpoint is keyed by id, and
 	// two teams may carry the same name.
 	TeamID      string  `json:"teamId,omitempty"`
-	Source      string  `json:"source"` // "github", "jira", "local"
+	Source      string  `json:"source"` // "github", "gitlab", "jira", "local"
 	ExternalURL *string `json:"externalUrl,omitempty"`
 	// IssueType is the tracker's own work item type. Only "Task" and "Story"
 	// are imported; epics and other types stay out of the board.
@@ -877,7 +877,7 @@ type Settings struct {
 	// the list Sectile ships for it.
 	AIProviderModels map[string][]string `json:"aiProviderModels,omitempty"`
 	RepoPath         string              `json:"repoPath"`     // e.g. '/path/to/project'
-	IssueTracker     string              `json:"issueTracker"` // "github", "jira", "local"
+	IssueTracker     string              `json:"issueTracker"` // "github", "gitlab", "jira", "local"
 	GithubRepo       string              `json:"githubRepo"`   // e.g. "owner/repo"
 	JiraProject      string              `json:"jiraProject"`  // e.g. "PE"
 	JiraUrl          string              `json:"jiraUrl"`

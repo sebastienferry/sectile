@@ -336,9 +336,21 @@ fallbacks are `SECTILE_JIRA_URL`, and the pair `SECTILE_JIRA_EMAIL` +
 through its `trackerUrl`; the server credential stays global, one Atlassian
 token being valid on every site of the account.
 
-GitLab parameters and a GitLab server credential can be stored, but no GitLab
-ticketing adapter is registered yet: a project whose tracker is GitLab still fails with the tracker registry's
-unconfigured-tracker error. That adapter is a separate piece of work.
+GitLab works on gitlab.com and on a self-managed instance, named by its REST
+API URL (`https://gitlab.example.org/api/v4`, `https://gitlab.com/api/v4` when
+empty). A GitLab project names its GitLab project by path (`group/sub/project`,
+or a numeric id), else the default of the settings. Every token, the server
+credential as the personal ones, is a personal access token with the `api`
+scope; a personal token makes the issues, notes and label changes someone asks
+for appear under their own GitLab account. The mapping follows GitHub's where
+the two share a notion ([ADR 0030](./docs/adrs/0030-gitlab-tracker-mapping.md)):
+the stage is a `#<stage>` label and a closed issue is finished; a macro is a
+pair of `macro:<title>` / `parent:<key>` labels; the team is a `team::<name>`
+scoped label; a board column is a list of the GitLab board, plus Open and
+Closed; a sprint is a project milestone or, on Premium, a group iteration. What
+a Free instance lacks, iterations, is simply absent from the sprint list, and
+moving a ticket into an iteration there is refused. Group epics and issue
+weights are not read.
 
 The environment variables below stay supported, as the fallback for headless and
 CI deployments where no one opens the interface. **Stored configuration wins**:
