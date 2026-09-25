@@ -40,3 +40,22 @@ README: a short "Browser tests" section with the command, the absolute
 All ten browser tests from the batch worktree (no `#`) and from a
 `git archive` copy under a `#` directory; `npm test` and `npm run lint` in
 `web/`.
+
+## Follow-up (2026-09-25): relaunch through the link
+
+Returning `<link>/web` as the root was not enough in a worktree with its own
+`web/node_modules`: Vite serves its client (`/@vite/client`) from its own
+installation, which Node had resolved to the real, `#`-holding path, and the
+request answered 404. See `docs/clarifications/417.md`, round 3.
+
+- From a path holding `#`, `browserRoot` creates the same link, then runs the
+  same test file through it (`spawnSync(process.execPath, [...execArgv,
+  '--preserve-symlinks', '--preserve-symlinks-main', <link>/web/tests/<file>,
+  ...argv])`) with `SECTILE_BROWSER_TEST_RELAUNCHED=1`, and exits with the
+  child's status. It does not return in that process.
+- In the relaunched process the path holds no `#`; the marker makes the helper
+  return `preserveSymlinks: true`. A relaunched process that still sees `#` is
+  refused rather than relaunching again.
+- The link and its directory are still removed when the parent exits.
+- `relaunch` and `env` are injectable so the unit test drives both processes
+  without spawning.
