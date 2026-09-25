@@ -73,23 +73,22 @@ func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.Issue
 	return links, nil
 }
 
-// forProject is the client to run one request with: the same one when nothing is
-// stored, one carrying the project's own connection parameters otherwise, and
-// the acting person's own token where they stored one: a GitHub comment is
-// attributed to the account behind the token just as a Jira one is. A request
-// nobody made, the synchronisation, carries no acting person and so always gets
-// the server credential (#464).
+// forProject is the client of one read: the same one when nothing is stored,
+// one carrying the project's own connection parameters otherwise, and the
+// acting person's own token where they stored one. A read nobody asked for, the
+// synchronisation, carries no acting person and gets the server credential
+// (#464).
 //
-// A personal token that cannot be resolved refuses the call, as on Jira: a
-// sealed token nobody unlocked is not an absence, and reading or writing under
-// the server token then would put on the work, and on its activity, the name of
-// somebody whose credential was never used (ADR 0018).
+// A personal token that cannot be resolved refuses the call: a sealed token
+// nobody unlocked is not an absence, and reading under the server token then
+// would put on the activity the name of somebody whose credential was never
+// used (ADR 0018).
 //
-// Unlike Jira, a person who stored no GitHub token at all keeps the server
-// token rather than being refused: a shared GitHub token is how
-// deployments run today, and taking that away would stop work that has nothing
-// to do with attribution. The project, too, is read from the context when the
-// request carries none, for the writes that take a key and nothing else.
+// A person who stored no GitHub token at all keeps the server token for reads
+// only: a read attributes nothing, and refusing it would blank their screens.
+// Writes go through forWrite, which has no such fallback (#482, ADR 0029). The
+// project, too, is read from the context when the request carries none, for the
+// calls that take a key and nothing else.
 func (g *GithubAdapter) forProject(ctx context.Context, p *models.Project) (*Client, error) {
 	projectID := ""
 	if p != nil {
@@ -103,6 +102,21 @@ func (g *GithubAdapter) forProject(ctx context.Context, p *models.Project) (*Cli
 		return nil, err
 	}
 	return client, nil
+}
+
+// forWrite is the client of one write: the acting person's own token, the
+// server's for unattended work, and a refusal otherwise (ForWrite). GitHub
+// attributes an issue, a comment or a label change to the account behind the
+// token, so a person without a token of their own writes nothing.
+func (g *GithubAdapter) forWrite(ctx context.Context, p *models.Project) (*Client, error) {
+	projectID := ""
+	if p != nil {
+		projectID = p.ID
+	}
+	if projectID == "" {
+		projectID = tracker.Project(ctx)
+	}
+	return g.client.ForWrite(ctx, "github", projectID)
 }
 
 func resolveGithubRepo(p *models.Project) string {
@@ -125,7 +139,7 @@ func (g *GithubAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssue
 		return nil, fmt.Errorf("configure an explicit GitHub owner/repository")
 	}
 	repoPath := resolveRepoPath(req.Project)
-	client, err := g.forProject(ctx, req.Project)
+	client, err := g.forWrite(ctx, req.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +173,7 @@ func (g *GithubAdapter) UpdateIssue(ctx context.Context, req tracker.UpdateIssue
 	if key == "" {
 		return fmt.Errorf("issue key is required")
 	}
-	client, err := g.forProject(ctx, req.Project)
+	client, err := g.forWrite(ctx, req.Project)
 	if err != nil {
 		return err
 	}
@@ -172,7 +186,7 @@ func (g *GithubAdapter) DeleteIssue(ctx context.Context, req tracker.DeleteIssue
 	if req.Key == "" {
 		return fmt.Errorf("issue key is required")
 	}
-	client, err := g.forProject(ctx, req.Project)
+	client, err := g.forWrite(ctx, req.Project)
 	if err != nil {
 		return err
 	}
@@ -198,7 +212,7 @@ func (g *GithubAdapter) SyncIssues(ctx context.Context, req tracker.SyncRequest)
 func (g *GithubAdapter) AddComment(ctx context.Context, req tracker.AddCommentRequest) error {
 	repo := resolveGithubRepo(req.Project)
 	repoPath := resolveRepoPath(req.Project)
-	client, err := g.forProject(ctx, req.Project)
+	client, err := g.forWrite(ctx, req.Project)
 	if err != nil {
 		return err
 	}
@@ -216,7 +230,7 @@ func (g *GithubAdapter) GetComments(ctx context.Context, req tracker.GetComments
 }
 
 func (g *GithubAdapter) UpdateLabels(ctx context.Context, key string, add []string, remove []string) error {
-	client, err := g.forProject(ctx, nil)
+	client, err := g.forWrite(ctx, nil)
 	if err != nil {
 		return err
 	}
