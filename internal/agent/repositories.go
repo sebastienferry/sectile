@@ -197,7 +197,7 @@ func folderMapPrompt(entries []models.FolderMapEntry) string {
 // meanwhile; the ticket is read back over REST, since an MCP call from the
 // session would clear a wait. It returns once the ticket is pinned, or with
 // the context's error when the run is canceled.
-func (d *agentDaemon) awaitRepository(ctx context.Context, run *controlledRun, taskRef, runID string) error {
+func (d *agentDaemon) awaitRepository(ctx context.Context, config agentconfig.Config, run *controlledRun, taskRef, runID string) error {
 	d.queue.mu.Lock()
 	run.desktop.Status = "waiting"
 	d.queue.mu.Unlock()
@@ -218,10 +218,15 @@ func (d *agentDaemon) awaitRepository(ctx context.Context, run *controlledRun, t
 		if canceled {
 			return fmt.Errorf("execution canceled")
 		}
+		// A pin that names no repository of the project, one removed since,
+		// reads as no pin at all: resuming on it would park the launch again
+		// at once, in a loop.
 		var task models.Task
-		if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); err == nil && strings.TrimSpace(task.Repository) != "" {
-			release()
-			return d.awaitRunSlot(ctx, run)
+		if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskRef), &task); err == nil {
+			if _, pinned := models.FindProjectRepository(projectRepositories(config), task.Repository); pinned {
+				release()
+				return d.awaitRunSlot(ctx, run)
+			}
 		}
 		select {
 		case <-ctx.Done():
@@ -279,7 +284,8 @@ func (e *apiStatusError) Error() string {
 // checkout's origin, so the first agent that sees the project resolves every
 // path it can and drops the others, and the server keeps the first report it
 // receives. A failure is logged, never a reason to refuse a launch.
-func (d *agentDaemon) convertLegacyRepoPaths(ctx context.Context, projectID string) {
+func (d *agentDaemon) convertLegacyRepoPaths(ctx context.Context, config agentconfig.Config) {
+	projectID := config.ProjectID
 	var legacy models.LegacyRepoPaths
 	if err := d.readAPI(ctx, "/api/projects/"+url.PathEscape(projectID)+"/legacy-repo-paths", &legacy); err != nil || legacy.Migrated {
 		return
@@ -294,6 +300,10 @@ func (d *agentDaemon) convertLegacyRepoPaths(ctx context.Context, projectID stri
 		log.Printf("[Agent] Could not convert the legacy paths of project %s: %v", projectID, err)
 		return
 	}
+	// The tickets are now pinned to these repositories: this workstation has
+	// just read where each one lives, so it keeps the folder, or their next
+	// launch would ask for it.
+	d.rememberConvertedFolders(ctx, config, report.Converted)
 	for _, dropped := range report.Dropped {
 		log.Printf("[Agent] Project %s: dropped legacy path %s (%s), pinned by %d task(s)", projectID, dropped.Path, dropped.Reason, len(dropped.TaskIDs))
 	}
@@ -402,4 +412,39 @@ func (d *agentDaemon) taskFolderMap(ctx context.Context, config agentconfig.Conf
 		return nil
 	}
 	return buildFolderMap(ctx, config, overrides, root, primary, workDir, task)
+}
+
+// rememberConvertedFolders maps each converted repository to the checkout the
+// conversion read, unless this workstation already maps it. The project's own
+// repository keeps its folder in the project mapping.
+func (d *agentDaemon) rememberConvertedFolders(ctx context.Context, config agentconfig.Config, converted []models.ConvertedRepoPath) {
+	code := codeIdentity(config)
+	d.prepareMu.Lock()
+	defer d.prepareMu.Unlock()
+	overrides, err := agentconfig.ReadSettings(d.localSettingsRoot())
+	if err != nil {
+		log.Printf("[Agent] Could not read the settings to keep converted folders: %v", err)
+		return
+	}
+	changed := false
+	for _, entry := range converted {
+		identity := models.RepositoryIdentity(entry.URL)
+		if identity == "" || identity == code || strings.TrimSpace(overrides.Repositories[identity]) != "" {
+			continue
+		}
+		top, err := gitLocal(ctx, entry.Path, "rev-parse", "--show-toplevel")
+		if err != nil {
+			continue
+		}
+		if overrides.Repositories == nil {
+			overrides.Repositories = map[string]string{}
+		}
+		overrides.Repositories[identity] = filepath.Clean(top)
+		changed = true
+	}
+	if changed {
+		if err := agentconfig.WriteSettings(overrides); err != nil {
+			log.Printf("[Agent] Could not keep converted folders: %v", err)
+		}
+	}
 }

@@ -169,12 +169,17 @@ const (
 // ResolvePrimaryRepository decides which repository a task runs in, before
 // anything is launched. pinned is the task's repository identity, "" when not
 // pinned; mapped tells whether a repository has a folder on this workstation.
-// The order is: the pin, the only repository, the code remote of a mono-repo
-// project, the only mapped repository (which the caller should pin), else
-// unmapped when nothing is mapped and ambiguous otherwise. The returned
+// The order is: a mono-repo project's code remote whatever the pin (its tickets
+// live in one repository, and a pin left from a legacy path must not send them
+// elsewhere), the pin, the only repository, the only mapped repository (which
+// the caller should pin), else unmapped when nothing is mapped and ambiguous
+// otherwise. The returned
 // repository is set for PrimaryResolved and PrimaryUnmapped; pin is true when
 // the choice came from the workstation and should be recorded on the task.
 func ResolvePrimaryRepository(pinned string, repositories []ProjectRepository, monoRepo bool, mapped func(identity string) bool) (repository ProjectRepository, outcome PrimaryResolution, pin bool) {
+	if monoRepo {
+		return ProjectRepository{}, PrimaryDefault, false
+	}
 	if pinned = strings.TrimSpace(pinned); pinned != "" {
 		if found, ok := FindProjectRepository(repositories, pinned); ok {
 			if mapped(found.Identity) {
@@ -185,7 +190,7 @@ func ResolvePrimaryRepository(pinned string, repositories []ProjectRepository, m
 		// A pin outside the list cannot be stored (the server refuses it); an
 		// old one is treated as absent rather than trusted.
 	}
-	if len(repositories) <= 1 || monoRepo {
+	if len(repositories) <= 1 {
 		return ProjectRepository{}, PrimaryDefault, false
 	}
 	var candidates []ProjectRepository

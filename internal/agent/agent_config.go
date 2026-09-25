@@ -391,6 +391,15 @@ func (d *agentDaemon) prepareDispatch(ctx context.Context, taskKey string, useWo
 	config, root, workDir, branch, task, err := d.prepareWorkspace(ctx, taskKey, useWorktrees...)
 	if err == nil {
 		provisionWorktree(ctx, root, workDir)
+		// A multi-repo ticket may work in another checkout than the one it
+		// was admitted against: the queue compares checkouts through this.
+		d.queue.mu.Lock()
+		for _, run := range d.queue.runs {
+			if run.taskID == taskKey && run.desktop.Status == "preparing" {
+				run.root = root
+			}
+		}
+		d.queue.mu.Unlock()
 	}
 	return config, workDir, branch, task, err
 }
@@ -551,7 +560,7 @@ func headlessCommandLine(provider, model, prompt string, addDirs ...string) (str
 	}
 	switch provider {
 	case "claude":
-		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, dirFlags, quoteShell(prompt)), nil
+		return words("claude", "-p", "--permission-mode", "bypassPermissions", reasoning, modelFlag, quoteShell(prompt), dirFlags), nil
 	case "codex":
 		// codex exec is non-interactive, but its approval bypass flag is not
 		// attested here: it is left to a custom template until it is verified.
@@ -568,6 +577,11 @@ func headlessCommandLine(provider, model, prompt string, addDirs ...string) (str
 // is attested: Claude Code's --add-dir. Every other provider gets nothing,
 // which is what headlessCommandLine does for any unattested flag; the folder
 // map in the prompt still names the folders.
+//
+// --add-dir takes several values: written "--add-dir <path>", it goes on
+// swallowing every argument that follows, the prompt included. The
+// "--add-dir=<path>" form takes exactly one, wherever a template places it,
+// and the built-in lines also put the options after the prompt.
 func addDirArgs(provider string, dirs []string) string {
 	if !strings.EqualFold(strings.TrimSpace(provider), "claude") {
 		return ""
@@ -575,7 +589,7 @@ func addDirArgs(provider string, dirs []string) string {
 	var args []string
 	for _, dir := range dirs {
 		if dir = strings.TrimSpace(dir); dir != "" {
-			args = append(args, "--add-dir", quoteShell(dir))
+			args = append(args, "--add-dir="+quoteShell(dir))
 		}
 	}
 	return strings.Join(args, " ")
@@ -658,7 +672,7 @@ func modeCommandLine(provider, template, model, prompt, mode string, contexts ..
 	case "agy":
 		return words("agy", "-i", quoteShell(prompt)), nil
 	case "claude":
-		return words(provider, modelFlag, addDirArgs(provider, addDirs), quoteShell(prompt)), nil
+		return words(provider, modelFlag, quoteShell(prompt), addDirArgs(provider, addDirs)), nil
 	case "codex", "gemini":
 		return words(provider, modelFlag, quoteShell(prompt)), nil
 	case "vibe":

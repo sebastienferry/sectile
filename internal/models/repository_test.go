@@ -118,6 +118,7 @@ func TestResolvePrimaryRepository(t *testing.T) {
 		{"pinned, not mapped", "github.com/o/c", repositories, false, mappedSet("github.com/o/a"), "github.com/o/c", PrimaryUnmapped, false},
 		{"single repository", "", repositories[:1], false, mappedSet(), "", PrimaryDefault, false},
 		{"mono-repo", "", repositories, true, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryDefault, false},
+		{"mono-repo ignores a pin", "github.com/o/c", repositories, true, mappedSet(), "", PrimaryDefault, false},
 		{"one mapped", "", repositories, false, mappedSet("github.com/o/c"), "github.com/o/c", PrimaryResolved, true},
 		{"none mapped", "", repositories, false, mappedSet(), "", PrimaryUnmapped, false},
 		{"ambiguous", "", repositories, false, mappedSet("github.com/o/a", "github.com/o/b"), "", PrimaryAmbiguous, false},

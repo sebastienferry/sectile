@@ -15,6 +15,7 @@ import (
 
 	"tasks/internal/agentconfig"
 	"tasks/internal/models"
+	"tasks/internal/testhome"
 )
 
 // A multi-repo project: o/a is the code remote, o/b and o/c are declared.
@@ -109,12 +110,20 @@ func TestFolderMapDescribesEveryFolder(t *testing.T) {
 func TestContextFoldersReachOnlyClaude(t *testing.T) {
 	launch := agentCommandContext{AddDirs: []string{"/src/b", "/src/it's"}}
 	headless, err := modeCommandLine("claude", "", "", "go", models.SkillModeAutonomous, launch)
-	if err != nil || !strings.Contains(headless, `--add-dir '/src/b' --add-dir '/src/it'\''s'`) {
+	// --add-dir takes several values: the prompt must come before it, and
+	// each folder is bound to its own option, or the prompt is swallowed.
+	if err != nil || !strings.HasSuffix(headless, `'go' --add-dir='/src/b' --add-dir='/src/it'\''s'`) {
 		t.Errorf("claude headless = %q, %v", headless, err)
 	}
 	interactive, _ := modeCommandLine("claude", "", "", "go", models.SkillModeInteractive, launch)
-	if !strings.Contains(interactive, "--add-dir '/src/b'") {
+	if interactive != `claude 'go' --add-dir='/src/b' --add-dir='/src/it'\''s'` {
 		t.Errorf("claude interactive = %q", interactive)
+	}
+	// The words the CLI receives, read through printf rather than by
+	// starting the CLI: shellArguments runs the line it is given.
+	echoed := "printf '%s\\0'" + strings.TrimPrefix(interactive, "claude")
+	if argv := shellArguments(t, "sh", echoed); len(argv) != 3 || argv[0] != "go" || argv[1] != "--add-dir=/src/b" || argv[2] != "--add-dir=/src/it's" {
+		t.Errorf("claude receives %q", argv)
 	}
 	for _, provider := range []string{"codex", "vibe", "gemini"} {
 		for _, mode := range []string{models.SkillModeInteractive, models.SkillModeAutonomous} {
@@ -123,7 +132,7 @@ func TestContextFoldersReachOnlyClaude(t *testing.T) {
 			}
 		}
 	}
-	if line, _ := modeCommandLine("claude", "claude {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); !strings.HasPrefix(line, "claude --add-dir '/src/b'") {
+	if line, _ := modeCommandLine("claude", "claude {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); !strings.HasPrefix(line, "claude --add-dir='/src/b'") {
 		t.Errorf("template {addDirs} = %q", line)
 	}
 	if line, _ := modeCommandLine("codex", "codex {addDirs} '{prompt}'", "", "go", models.SkillModeInteractive, launch); strings.Contains(line, "add-dir") {
@@ -228,13 +237,24 @@ func TestAParkedLaunchResumesOnceTheTicketIsPinned(t *testing.T) {
 	run := &controlledRun{limit: 1, exited: make(chan struct{}), desktop: desktopRun{ID: "run-1", ProjectID: "p", Status: "preparing"}}
 
 	done := make(chan error, 1)
-	go func() { done <- d.awaitRepository(context.Background(), run, "t1", "run-1") }()
+	go func() { done <- d.awaitRepository(context.Background(), multiRepoConfig(), run, "t1", "run-1") }()
 	time.Sleep(50 * time.Millisecond)
 	d.queue.mu.Lock()
 	status := run.desktop.Status
 	d.queue.mu.Unlock()
 	if status != "waiting" {
 		t.Errorf("status while parked = %q, want waiting", status)
+	}
+	// A pin to a repository the project does not declare is no pin: the
+	// launch keeps waiting instead of parking again in a loop.
+	server.mu.Lock()
+	server.pinned = "github.com/o/gone"
+	server.mu.Unlock()
+	time.Sleep(60 * time.Millisecond)
+	select {
+	case <-done:
+		t.Fatal("a pin outside the project resumed the launch")
+	default:
 	}
 	server.mu.Lock()
 	server.pinned = "github.com/o/b"
@@ -266,7 +286,7 @@ func TestAParkedLaunchEndsWhenCanceled(t *testing.T) {
 	d := &agentDaemon{link: serverLink{serverURL: srv.URL, token: "token"}}
 	run := &controlledRun{limit: 1, exited: make(chan struct{})}
 	done := make(chan error, 1)
-	go func() { done <- d.awaitRepository(context.Background(), run, "t1", "run-1") }()
+	go func() { done <- d.awaitRepository(context.Background(), multiRepoConfig(), run, "t1", "run-1") }()
 	time.Sleep(30 * time.Millisecond)
 	d.queue.mu.Lock()
 	run.canceled = true
@@ -290,5 +310,22 @@ func TestAWaitingRunHoldsNoSlot(t *testing.T) {
 	defer cancel()
 	if err := d.awaitRunSlot(ctx, next); err != nil {
 		t.Fatalf("a run queued behind a waiting one did not start: %v", err)
+	}
+}
+
+func TestConvertedFoldersAreKeptOnThisWorkstation(t *testing.T) {
+	testhome.Temp(t)
+	root := checkoutOf(t, "git@github.com:o/a.git")
+	b := checkoutOf(t, "git@github.com:o/b.git")
+	if err := agentconfig.WriteSettings(agentconfig.Overrides{Projects: map[string]string{"p": root}}); err != nil {
+		t.Fatal(err)
+	}
+	d := &agentDaemon{repoRoot: root}
+	d.rememberConvertedFolders(context.Background(), multiRepoConfig(), []models.ConvertedRepoPath{
+		{Path: root, URL: "git@github.com:o/a.git"}, {Path: filepath.Join(b, "."), URL: "git@github.com:o/b.git"},
+	})
+	settings, _ := agentconfig.ReadSettings(root)
+	if len(settings.Repositories) != 1 || !samePath(t, settings.Repositories["github.com/o/b"], b) {
+		t.Errorf("mappings = %v, want o/b only (o/a is the project's own)", settings.Repositories)
 	}
 }

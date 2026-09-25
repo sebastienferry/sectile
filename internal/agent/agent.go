@@ -926,12 +926,12 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if err := d.awaitRunSlot(ctx, run); err != nil {
 		return
 	}
-	d.convertLegacyRepoPaths(ctx, queueConfig.ProjectID)
+	d.convertLegacyRepoPaths(ctx, queueConfig)
 	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
 	// A ticket whose repository cannot be chosen here waits to be pinned, on
 	// the same run, instead of starting in a guessed repository (#456).
 	for errors.Is(err, errRepositoryAmbiguous) {
-		if waitErr := d.awaitRepository(ctx, run, taskRef, payload.RunID); waitErr != nil {
+		if waitErr := d.awaitRepository(ctx, queueConfig, run, taskRef, payload.RunID); waitErr != nil {
 			err = waitErr
 			break
 		}

@@ -220,7 +220,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 			entry := run.desktop
 			entry.ID = key
 			entry.QueueSequence = run.sequence
-			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running")
+			entry.CancelRequested = run.canceled && (entry.Status == "queued" || entry.Status == "preparing" || entry.Status == "running" || entry.Status == "waiting")
 			if entry.Status != "" {
 				runs = append(runs, entry)
 			}

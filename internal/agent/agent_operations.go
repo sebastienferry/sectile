@@ -143,7 +143,13 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		// A ticket pinned to another repository has its worktree there.
 		taskRoot := root
 		if strings.TrimSpace(task.Repository) != "" {
-			if pinned, _, _, err := primaryRoot(ctx, config, overrides, root, task); err == nil {
+			pinned, _, _, err := primaryRoot(ctx, config, overrides, root, task)
+			if err != nil && !errors.Is(err, errRepositoryAmbiguous) {
+				// Reporting on the project root would describe another
+				// repository's checkout as this ticket's.
+				return nil, err
+			}
+			if err == nil {
 				taskRoot = pinned
 			}
 		}
