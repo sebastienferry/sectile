@@ -22,14 +22,16 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `gitRemoteUrl` | Repository identity for automatic local matching, not a path to clone automatically. |
 | `githubRepo`, `issueTracker`, `trackerUrl`, `jiraProject` | Optional effective project-over-global repository and tracker metadata for local command placeholders. Missing fields use local directory basename and task source (then `github`) fallbacks. No credentials or server paths. |
 | `specFramework` | Specification framework used by the project skills. |
-| `useWorktrees` | Create/reuse task worktrees when true; validate the existing checkout when false. |
-| `aiProvider` | `codex`, `claude`, `agy`, `gemini`, `cursor`, `vibe`, or `custom`; empty uses the legacy `agy` default. |
-| `aiCommandTemplate` | Optional shell template containing `{prompt}`. Required for `custom`; argument placeholders are shell-safe: `{prompt}`, `{issueKey}`, `{issueTitle}`, `{issueDesc}`, `{branchName}`, `{repoPath}`, `{tracker}`, `{repo}`. Task values are fetched for each launch; branch/path identify local execution. See [desktop usage](../../desktop/README.md). Custom providers still require supported native MCP bootstrap. A template without `{prompt}` on a named provider is legacy data: the server serves it as empty and the provider default runs. |
-| `aiModel` | Optional model the engine runs against. Passed as `--model <value>` to `claude`, `codex`, `gemini` and `cursor`; ignored by `agy` and `vibe`. Empty keeps the CLI default. A command template supersedes it: no flag is injected, and the value reaches the template only through its optional `{model}` placeholder, and an unresolved placeholder is removed together with the option that introduces it. Validated on shape (`^[A-Za-z0-9][A-Za-z0-9._:@/-]*$`), never against a list of known models. |
-| `aiSkillModels` | Optional `skillId -> model` map for the skills that depart from `aiModel`. An absent or empty entry inherits; it never means "no model". Entries naming no configured skill are ignored. |
-| `externalTerminalCommand` | Terminal application/launcher selection. No silent fallback to a hidden PTY after launch failure. |
-| `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. |
+| `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. `command` is the stage's standard command; a workstation replaces it with its own command name (see *Execution defaults and local overrides*). |
 | `monoRepo` | Optional repository layout. `true` lets the code checkout carry the macro specifications when no specifications folder is set on the workstation; `false` requires that folder for every macro operation. Absent (an older server) reads as `true`. |
+
+**No longer sent since #305** (ADR 0030): `useWorktrees`, `aiProvider`,
+`aiCommandTemplate`, `aiCommandTemplateAutonomous`, `aiModel`, `aiSkillModels`,
+`externalTerminalCommand` and `setupProviders`. They are workstation settings.
+An agent that still receives them from an older server discards them before
+resolving its own; an agent that predates #305 reads none of them from a new
+server and runs its local values over the provider defaults, which is why
+ADR 0006 asks to upgrade both together.
 
 An explicit project connection downloads, validates and installs configuration
 before registering its WebSocket. Every dispatch downloads it again, even when
@@ -44,27 +46,38 @@ Already running coding clients are not restarted or modified by a later download
 
 ## Precedence
 
-Server settings resolve project overrides over global defaults. On the workstation,
-`.taskflow/agent.json` supports repository mappings (`projects`), `aiProvider`,
-`aiCommandTemplate`, `aiModel`, `aiSkillModels`, `terminal` and skill content
-overrides (`skills`).
-These values are never uploaded. Changing the provider locally without a local
-command template clears the inherited provider's command template.
+The server resolves the method only: project metadata over the deployment's.
+Every execution setting is resolved by the agent from
+`~/.config/sectile/settings.json` (ADR 0030): the project section, then the
+workstation defaults, then the provider defaults (provider `agy`, the
+provider's own command, no model flag, the shipped model list, the detected
+terminal, editor `code`, worktrees on, one execution at a time, no extra setup
+provider, the stage's standard command). These values are never uploaded,
+except as the capability report below. A project section that names a
+provider different from the defaults' without a command of its own drops the
+inherited command, each template independently: a command written for one CLI
+never serves another.
 
-Model selection resolves level by level, most specific first: workstation, then
-project, then global. The most specific statement wins: naming a skill outranks a
-bare model, whatever level that bare model sits on, so a bare model governs only
-the skills no level singles out. Every level empty reproduces the command lines
-that predate model selection.
+Model selection resolves level by level, most specific first: the launch's
+one-off model, then the project section, then the workstation defaults. The
+most specific statement wins: naming a skill outranks a bare model, whatever
+level that bare model sits on, so a bare model governs only the skills no level
+singles out.
 
-Execution parallelism has no server-side counterpart: the configuration payload
-carries no `parallelism` field, and the workstation value in
-`~/.config/sectile/settings.json` is the only source. An agent predating this
-removal reads no value and falls back to a single execution per project.
+Parallelism is 1 to 10, from the project section, else the defaults, else 1,
+and 1 whenever worktrees are off. Extra setup providers from the project
+section replace the defaults' list rather than adding to it; an empty list is
+the decision "none".
 
-Terminal application selection is: explicit `--terminal`, explicit request
-`terminalOverride`, local overrides, project configuration, global configuration,
-then environment/platform detection. Selecting `pty` or `none` uses a local PTY;
+The checkout's legacy `.taskflow/agent.json` is still read as a fallback for
+the keys the workstation settings leave unset, and never written.
+
+Terminal application selection is: the terminal picked for the action itself,
+explicit `--terminal`, the project section, the workstation defaults, the
+agent's default terminal, then environment/platform detection. The server sends
+no terminal since #305 (`terminalOverride` is gone from the dispatch). The
+editor that `open_editor` runs is the workstation default `editorCommand`, else
+the `editor` an older server still sends, else `code`. Selecting `pty` or `none` uses a local PTY;
 the explicit `open_terminal` action requires an external window. Legacy
 `.taskflow/config.json` is not a second terminal-settings source.
 
@@ -609,28 +622,57 @@ default file and its legacy private connection file.
 
 ### Execution defaults and local overrides
 
-The server project supplies the `useWorktrees` default, which **Inherit worktrees
-from server** restores in the desktop project settings. Parallel executions
-(1 to 5) are workstation-owned: the server neither stores nor supplies a value,
-the desktop app is the only surface that sets one, and a project without a local
-value runs a single execution at a time.
-Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
+The workstation settings file is written in layout 2:
 
 ```json
 {
-  "projects": {"project-id": "/path/to/repository"},
-  "worktrees": {"project-id": true},
-  "parallelism": {"project-id": 2},
-  "repositories": {"github.com/owner/other": "/path/to/other"}
+  "server": "https://sectile.example", "deviceId": "laptop", "apiKey": "...",
+  "layout": 2,
+  "defaults": {
+    "aiProvider": "claude", "aiCommandTemplate": "", "aiCommandTemplateAutonomous": "",
+    "aiModel": "claude-opus-5", "aiSkillModels": {"implement": "claude-sonnet-5"},
+    "aiProviderModels": {"claude": ["claude-opus-5", "claude-sonnet-5"]},
+    "terminal": "ghostty", "editorCommand": "cursor",
+    "useWorktrees": true, "parallelism": 2, "setupProviders": ["codex"]
+  },
+  "projectSettings": {
+    "project-id": {
+      "path": "/path/to/repository", "specPath": "/path/to/specs",
+      "aiProvider": "codex", "aiModel": "gpt-5", "terminal": "iterm",
+      "useWorktrees": false, "parallelism": 1, "setupProviders": null,
+      "skillCommands": {"implement": "code-issue"}
+    }
+  },
+  "repositories": {"github.com/owner/other": "/path/to/other"},
+  "seeded": {"defaults": "https://sectile.example", "projects": {"project-id": "2026-09-25T00:00:00Z"}}
 }
 ```
+
+Every field is optional and an empty one inherits; `useWorktrees` absent,
+`parallelism` 0 and `setupProviders` null inherit. A present
+`aiProviderModels` key is a choice, even with an empty list; an absent one
+offers the shipped list. `skillCommands` replaces the slash command a stage
+runs, a single word with an optional leading `/`.
+
+A file written before #305 (flat `aiProvider`, `aiModel`, `terminal`... and the
+per-project maps `projects`, `specRepos`, `worktrees`, `parallelism`,
+`terminals`, `aiProviders`, `aiModels`, `commands`, `commandsAutonomous`) is
+read with the same meaning and rewritten in layout 2 on the next save. An
+emptied map or list leaves the file rather than keeping its previous content.
+
+The desktop edits both levels through the agent: `GET`/`PUT /desktop/workstation`
+for the defaults, `POST /desktop/projects` for a project section (each field
+with an `inherit…` flag), and `GET /desktop/project` answers, per execution
+field, `{value, inherited, source}` with `source` one of `project`,
+`workstation` or `default`. An invalid value is refused with its reason and the
+file is left unchanged. The Electron companion writes connection keys only.
 
 `repositories` maps each repository of a multi-repo project, by its
 `host/path` identity, to the folder holding its checkout on this workstation
 (#456). It is keyed by repository rather than by project, so one checkout
 serves every project that works in it; the desktop project settings write it,
 and refuse a folder whose `origin` is another repository. The project's own
-repository keeps its folder in `projects`.
+repository keeps its folder in its project section's `path`.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their
@@ -647,7 +689,69 @@ console history are held in memory for the agent lifetime.
 Agent settings and project mappings live in
 `~/.config/sectile/settings.json`, shared by the CLI agent and companion.
 Writes preserve connection fields, use atomic replacement and mode 0600.
-Legacy repository mappings remain readable and are migrated on the next save.
+Legacy repository mappings and the pre-#305 layout remain readable and are
+migrated on the next save.
+
+### Execution seed
+
+`GET /api/v1/agent/execution-seed[?projectId=<ID>]`, agent bearer, serves the
+execution values a server stored before #305, read-only, for one release
+(#492 drops them):
+
+```json
+{
+  "schemaVersion": 1,
+  "defaults": {"aiProvider": "claude", "aiCommandTemplate": "...", "aiModel": "...",
+               "aiSkillModels": {}, "aiProviderModels": {}, "terminal": "...", "editorCommand": "..."},
+  "project": {"projectId": "...", "aiProvider": "...", "aiCommandTemplate": "...", "aiModel": "...",
+              "aiSkillModels": {}, "terminal": "...", "useWorktrees": true,
+              "setupProviders": [], "skillCommands": {}}
+}
+```
+
+`defaults` is the deployment row, with the caller's own terminal and editor
+(which fall back to the deployment's); the column default editor `code` is not
+sent. `project` is what the configuration composed for the project before
+#305, project row over deployment, its terminal being the project row's own.
+Empty values are omitted.
+
+The agent seeds its defaults after the first identity check of a connection,
+and a project the first time it resolves it, once each (`seeded`). It writes
+only the keys the file does not set, and only where they change the outcome of
+the local resolution, computed with the pre-#305 precedence so a launch
+resolves what it resolved before the upgrade. A fetch failure writes and marks
+nothing; the next connection or resolution retries. A disconnected project is
+not seeded, and pairing to another server does not seed the defaults again.
+
+### Capability report
+
+`PUT /api/v1/agent/capabilities`, agent bearer, answers `204`:
+
+```json
+{
+  "schemaVersion": 1,
+  "deviceId": "laptop",
+  "projects": [{"projectId": "...", "provider": "claude", "model": "claude-opus-5",
+                "skillModels": {"implement": "claude-sonnet-5"},
+                "models": ["claude-opus-5", "claude-sonnet-5"],
+                "modelSlot": true, "headless": true}]
+}
+```
+
+The agent sends it, for every project it serves, after registering its
+WebSocket and after each local save. A model is reported only when it reaches
+the command line; `modelSlot` says whether a launch model can; `headless`
+whether an autonomous run is possible. The report belongs to the credential's
+user and to `deviceId`, the device the agent presents on its WebSocket; the
+server keeps the latest per user, device and project.
+
+`GET /api/projects/{id}/engine` (web session) returns the caller's own report
+for the workstation connected for that project,
+`{"state": "reported", ...the fields above..., "reportedAt": "..."}`, or
+`{"state": "unknown"}` when none of their agents is connected for it. A launch
+records its provider and model from that report; without one they stay empty
+until the agent posts the engine it actually launched
+(`POST /api/activities/{id}/engine`).
 
 | Command | Action |
 | --- | --- |

@@ -914,21 +914,24 @@ launch-time setup and refresh after agent restart, including a changed local por
 The preview uses a key placeholder; the desktop update writes the real paired key
 only for remote connections. Reload the AI engine after applying a change.
 
-Optional workstation overrides belong in `~/.config/sectile/settings.json`:
+Execution settings (provider, models, command templates, terminal, editor,
+worktrees, parallelism, setup providers, skill command names) belong to the
+workstation and live in `~/.config/sectile/settings.json` (ADR 0030); set them
+in the desktop app rather than by hand. See *Execution defaults and local
+overrides* below for the layout. Skill content overrides stay in the same file:
 
 ```json
 {
-  "projects": {"project-id": "/path/to/clone"},
-  "terminal": "ghostty",
-  "aiProvider": "claude",
-  "aiCommandTemplate": "claude {prompt}",
+  "layout": 2,
+  "defaults": {"aiProvider": "claude", "terminal": "ghostty"},
+  "projectSettings": {"project-id": {"path": "/path/to/clone"}},
   "skills": {"implement": "Project-specific local skill instructions"}
 }
 ```
 
-Overrides remain local. The explicit `--terminal` flag takes precedence, followed
-by an explicit terminal choice on the launch request, local overrides, remote
-project/global settings, and environment/auto-detection. The legacy project
+These values remain local. The terminal picked for an action takes precedence,
+followed by the explicit `--terminal` flag, the project section, the workstation
+defaults, and environment/auto-detection. The legacy project
 `.taskflow/config.json` is not used as a terminal override. Wildcard agents (`--project all`) require a local
 project mapping or a matching Git origin. A registered concrete project can use
 `--repo` directly. Existing worktrees must match the assigned branch; Sectile
@@ -1113,7 +1116,7 @@ for the desktop development assets. On Apple Silicon the app is produced at
 
 The optional companion groups local executions under projects in a collapsible
 sidebar. Add projects by discovering the server catalog and mapping a local Git
-directory. Local worktree preferences are stored per project in
+directory. Execution settings are stored per workstation and per project in
 `~/.config/sectile/settings.json`. Repository layout, remote URL, SDD selection and skill
 content remain server-owned and read-only. Explicit deployment buttons install
 the server skills or initialize its SDD framework in the mapped directory.
@@ -1165,28 +1168,50 @@ it closes having advanced the stage, until the stop stage. Merging stays manual.
 
 ### Execution defaults and local overrides
 
-The server project supplies the `useWorktrees` default, which **Inherit worktrees
-from server** restores in the desktop project settings. Parallel executions
-(1 to 10, set with a slider) are workstation-owned: the server neither stores nor
-supplies a value, the desktop app is the only surface that sets one, and a
-project without a local value runs a single execution at a time.
-Workstation settings are saved in `~/.config/sectile/settings.json` as project-ID maps:
+Every execution setting is the workstation's (ADR 0030): the web interface
+offers none, and the server neither stores nor serves a value it uses. The
+desktop app edits them at two levels, **Execution defaults** for the
+workstation and the project settings for one project, where each field says
+whether it is set for the project or inherited and can be reset. They are
+saved in `~/.config/sectile/settings.json`, which the agent alone writes:
 
 ```json
 {
-  "projects": {"project-id": "/path/to/repository"},
-  "worktrees": {"project-id": true},
-  "parallelism": {"project-id": 2},
+  "layout": 2,
+  "defaults": {
+    "aiProvider": "claude", "aiModel": "claude-opus-5",
+    "aiProviderModels": {"claude": ["claude-opus-5", "claude-sonnet-5"]},
+    "terminal": "ghostty", "editorCommand": "cursor",
+    "useWorktrees": true, "parallelism": 2, "setupProviders": ["codex"]
+  },
+  "projectSettings": {
+    "project-id": {
+      "path": "/path/to/repository", "aiProvider": "codex",
+      "parallelism": 1, "skillCommands": {"implement": "code-issue"}
+    }
+  },
   "repositories": {"github.com/owner/other": "/path/to/other"}
 }
 ```
+
+The project section speaks over the workstation defaults, which speak over the
+provider defaults (provider `agy`, worktrees on, one execution at a time, editor
+`code`). Parallelism is 1 to 10, and 1 without worktrees. A file written by an
+earlier release is read with the same meaning and rewritten on the next save.
+
+On the first connection after the upgrade, the agent copies the values the
+server used to hold into this file, once for the defaults and once per project
+the first time it runs it, so an existing setup keeps running what it ran. The
+agent then reports to the server what it will run for each project; the web
+model picker and the engine badge of a card show that report, and show the
+engine as unknown when none of your agents is connected for the project.
 
 `repositories` maps each repository of a multi-repo project, by its
 `host/path` identity, to the folder holding its checkout on this workstation
 (#456). It is keyed by repository rather than by project, so one checkout
 serves every project that works in it; the desktop project settings write it,
 and refuse a folder whose `origin` is another repository. The project's own
-repository keeps its folder in `projects`.
+repository keeps its folder in its project section's `path`.
 
 Without effective worktrees, the agent enforces one execution and the UI
 disables parallelism selection. Requests are acknowledged when queued; their

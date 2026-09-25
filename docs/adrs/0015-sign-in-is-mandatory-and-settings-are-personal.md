@@ -76,6 +76,10 @@ the one place a name is changed. Both keys stay in `memberSettingsKeys`: a membe
 posting the whole row is answered `200` and the two fields are dropped from the
 payload, rather than the post being refused as an admin-only change.
 
+> Superseded by [ADR 0030](0030-the-workstation-owns-the-invocation.md): the
+> terminal, the editor and the AI configuration are workstation settings, read
+> by the local agent from its own file, and no longer server settings.
+
 **The workstation commands follow the execution's owner.** The external terminal
 and the editor read the owner's `externalTerminalCommand` / `editorCommand`,
 with the project's own override still first and the deployment value last. The
