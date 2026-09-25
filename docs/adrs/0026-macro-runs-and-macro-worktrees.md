@@ -36,6 +36,9 @@ branch, from the fetched default branch, and passes it to the session as
 same preparation through the `prepare_macro_worktree` MCP tool, which the
 server relays to the caller's agent as the `macro_worktree` operation.
 
+> Superseded in part by [ADR 0027](0027-specifications-folder-is-a-workstation-setting.md):
+> the server no longer holds a specifications path.
+
 **The specifications repository has two declarations.** The project's
 `specRepoPath` is read by the server only, for the slicing import it runs on
 its own filesystem. The agent never receives it: `AgentConfig` carries no

@@ -493,7 +493,7 @@ Sectile exposes twelve typed tools at the Streamable HTTP endpoint `/mcp`:
 - `start_run`: start or reuse the invocation's remote run, on a task (`taskKey`) or on a macro (`projectId` and `macroKey`).
 - `finish_run`: finish that run without advancing the task stage.
 - `report_waiting`: mark a task run as waiting for its user before a blocking question, so the board and the owner's desktop show it; the session's next call ends the wait.
-- `prepare_macro_worktree`: prepare a macro's specification checkout on the caller's local agent, and return its path and branch.
+- `prepare_macro_worktree`: prepare a macro's specification checkout on the caller's local agent, in the desktop *Specifications folder*, and return its path and branch (empty for a folder that is not a Git repository).
 
 HTTP and stdio both identify the server as `sectile`. Tool arguments, results,
 authentication and workflow validation retain their existing contracts.

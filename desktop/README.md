@@ -326,6 +326,24 @@ same task worktree, cannot execute concurrently. Settings are resolved at
 admission into the queue; changes apply to subsequent submissions. Queue and
 console history are held in memory for the agent lifetime.
 
+### Specifications folder
+
+**General → Specifications folder** is where macro operations read and write a
+project's specifications: the slicing imported from the web, the macro worktree
+and `realign-macro`. It is set on the workstation only; the server stores no
+such path. Only a folder you choose is saved, under `specRepos` in the
+workstation settings. Without one, a mono-repo project inherits its local
+repository, shown as the placeholder, and keeps following it; a multi-repo
+project has none, the field is flagged, and macro operations refuse to run until
+it is set. Clearing the field removes the override.
+
+The folder must be an absolute path to an existing directory. A folder inside a
+Git repository is saved as that repository's top level; any other folder is
+saved as typed. Next to the field, the settings show what the folder in effect
+is: *Git repository*, *Folder (not a Git repository)*, or *Not found* when it
+was deleted since. In a plain folder, macro skills write in place, with no
+worktree, branch, commit or push.
+
 ### User configuration and commands
 
 Agent settings and project mappings live in
