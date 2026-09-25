@@ -35,7 +35,11 @@ type Overrides struct {
 	// Repositories maps a repository, by identity, to the local folder that
 	// holds its checkout (#456). Keyed by repository rather than by project,
 	// one checkout serves every project that works in it.
-	Repositories                map[string]string `json:"repositories,omitempty"`
+	Repositories map[string]string `json:"repositories,omitempty"`
+	// ViewDirectories maps a saved board view, by ID, to the local folder the
+	// launches made from it run in (#429). It wins over the project mapping
+	// for those launches only.
+	ViewDirectories             map[string]string `json:"viewDirectories,omitempty"`
 	AIProviders                 map[string]string `json:"aiProviders,omitempty"`
 	AIModels                    map[string]string `json:"aiModels,omitempty"`
 	AIProvider                  string            `json:"aiProvider"`

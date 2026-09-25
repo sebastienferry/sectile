@@ -83,6 +83,9 @@ type agentDaemon struct {
 	done             chan struct{}
 	contract         contractState
 	launchTerminalFn func(terminalApp, sessionID string) error
+	// viewRoots remembers, per ticket, the folder of the saved view it was
+	// last launched from on this workstation (#429).
+	viewRoots viewRootMap
 }
 
 // serverLink is the agent's attachment to the server: the identity it presents

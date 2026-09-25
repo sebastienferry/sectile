@@ -228,7 +228,7 @@ func (d *agentDaemon) cancelRun(ctx context.Context, conn *websocket.Conn, msg a
 func (d *agentDaemon) admitProjectRun(ctx context.Context, taskID string, payload agentconfig.Dispatch, config agentconfig.Config) (*controlledRun, error) {
 	d.prepareMu.Lock()
 	defer d.prepareMu.Unlock()
-	root, overrides, err := d.localProjectRoot(ctx, config)
+	root, overrides, err := d.taskProjectRoot(ctx, config, taskID, false)
 	if err != nil {
 		return nil, err
 	}

@@ -145,6 +145,20 @@ func gitLocal(ctx context.Context, root string, args ...string) (string, error) 
 // localProjectRoot resolves workstation mappings. Remote filesystem paths are
 // deliberately absent from the contract and never used as local working dirs.
 func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config, allowUninitialized ...bool) (string, agentconfig.Overrides, error) {
+	return d.localProjectRootIn(ctx, c, "", len(allowUninitialized) > 0 && allowUninitialized[0])
+}
+
+// taskProjectRoot is localProjectRoot for one ticket: the folder of the view it
+// was launched from on this agent, when there is one (#429), else the
+// project's own resolution.
+func (d *agentDaemon) taskProjectRoot(ctx context.Context, c agentconfig.Config, taskID string, allowUninitialized bool) (string, agentconfig.Overrides, error) {
+	return d.localProjectRootIn(ctx, c, d.viewRoots.get(taskID), allowUninitialized)
+}
+
+// localProjectRootIn resolves the project root, or takes forced, a folder a
+// launch from a view chose, in place of the project mapping. Every other
+// setting still comes from the project's overrides.
+func (d *agentDaemon) localProjectRootIn(ctx context.Context, c agentconfig.Config, forced string, allowUninitialized bool) (string, agentconfig.Overrides, error) {
 	root := d.repoRoot
 	if root == "" {
 		root, _ = os.Getwd()
@@ -157,7 +171,9 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if overrides.DisconnectedProjects[c.ProjectID] {
 		return "", overrides, fmt.Errorf("project %s is disconnected; add it again in the desktop before launching", c.ProjectID)
 	}
-	if mapped := overrides.Projects[c.ProjectID]; mapped != "" {
+	if forced != "" {
+		root = forced
+	} else if mapped := overrides.Projects[c.ProjectID]; mapped != "" {
 		if !filepath.IsAbs(mapped) {
 			mapped = filepath.Join(root, mapped)
 		}
@@ -172,7 +188,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	if err != nil {
 		return "", overrides, err
 	}
-	if _, err := gitLocal(ctx, root, "rev-parse", "--show-toplevel"); err != nil && !(len(allowUninitialized) > 0 && allowUninitialized[0]) {
+	if _, err := gitLocal(ctx, root, "rev-parse", "--show-toplevel"); err != nil && !allowUninitialized {
 		return "", overrides, err
 	}
 	local, err := agentconfig.ReadOverrides(root)
@@ -264,6 +280,12 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	}
 	for identity, folder := range overrides.Repositories {
 		local.Repositories[identity] = folder
+	}
+	if local.ViewDirectories == nil {
+		local.ViewDirectories = map[string]string{}
+	}
+	for viewID, folder := range overrides.ViewDirectories {
+		local.ViewDirectories[viewID] = folder
 	}
 	return root, local, nil
 }
@@ -421,15 +443,16 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 	if err != nil {
 		return config, "", "", "", task, err
 	}
-	root, overrides, err := d.localProjectRoot(ctx, config)
-	if err != nil {
-		return config, "", "", "", task, err
-	}
 	if err := d.readAPI(ctx, "/api/tasks/"+url.PathEscape(taskKey), &task); err != nil {
 		return config, "", "", "", task, err
 	}
 	if task.ProjectID != config.ProjectID {
 		return config, "", "", "", task, fmt.Errorf("task project changed during configuration sync")
+	}
+	viewRoot := d.viewRoots.get(task.ID)
+	root, overrides, err := d.localProjectRootIn(ctx, config, viewRoot, false)
+	if err != nil {
+		return config, "", "", "", task, err
 	}
 	config = agentconfig.ApplyOverrides(config, overrides)
 	if len(useWorktrees) > 0 {
@@ -439,10 +462,14 @@ func (d *agentDaemon) prepareDispatchLocked(ctx context.Context, taskKey string,
 		return config, "", "", "", task, err
 	}
 	// The worktree lives in the ticket's own repository, which on a multi-repo
-	// project is not necessarily the project root (#456).
-	primary, _, pin, err := primaryRoot(ctx, config, overrides, root, task)
-	if err != nil {
-		return config, "", "", "", task, err
+	// project is not necessarily the project root (#456). A launch from a view
+	// with a folder chose that folder instead, whatever the project declares.
+	primary, pin := root, ""
+	if viewRoot == "" {
+		primary, _, pin, err = primaryRoot(ctx, config, overrides, root, task)
+		if err != nil {
+			return config, "", "", "", task, err
+		}
 	}
 	if pin != "" {
 		// The only repository mapped here: later stages must stay in it.

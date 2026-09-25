@@ -116,7 +116,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories", "board-views"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -187,6 +187,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/repositories" {
 		d.desktopRepositories(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/views" {
+		d.desktopViews(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/history" && r.Method == http.MethodDelete {
@@ -879,6 +883,10 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 // desktopTasks browses server tasks and reuses the web dispatch path.
 func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 	projectID := r.URL.Query().Get("projectId")
+	if viewID := strings.TrimSpace(r.URL.Query().Get("viewId")); viewID != "" && projectID == "" && r.Method == http.MethodGet {
+		d.desktopViewTasks(w, r, viewID)
+		return
+	}
 	if projectID == "" {
 		http.Error(w, "Project required", 400)
 		return
@@ -926,6 +934,10 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		// Force asks the server to skip its duplicate-launch refusal. As with
 		// Mode, the agent does not interpret it, it passes it on.
 		Force bool
+		// ViewID is the saved view the launch was made from (#429): its
+		// folder here wins over the project mapping, and the server records
+		// its repository on the task.
+		ViewID string
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.TaskID == "" {
 		http.Error(w, "Task and skill required", 400)
@@ -948,7 +960,14 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown project skill", 400)
 		return
 	}
-	if _, _, err := d.localProjectRoot(r.Context(), config); err != nil {
+	viewRoot := ""
+	if input.ViewID = strings.TrimSpace(input.ViewID); input.ViewID != "" {
+		if viewRoot, err = d.viewLaunchRoot(r.Context(), input.ViewID); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+	}
+	if _, _, err := d.localProjectRootIn(r.Context(), config, viewRoot, false); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -956,19 +975,30 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown execution mode", 400)
 		return
 	}
-	body := mustJSON(map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force})
+	launch := map[string]any{"skillId": input.SkillID, "prompt": input.Prompt, "mode": input.Mode, "force": input.Force}
+	if input.ViewID != "" {
+		launch["viewId"] = input.ViewID
+	}
+	body := mustJSON(launch)
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, d.link.serverURL+"/api/tasks/"+url.PathEscape(task.ID)+"/run-skill", strings.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// The server dispatches back to this agent before it answers, so the folder
+	// is in place first; a launch it refuses puts the previous one back.
+	previousRoot := d.viewRoots.set(task.ID, viewRoot)
 	response, err := agenthttp.Client(d.link.token).Do(req)
 	if err != nil {
+		d.viewRoots.set(task.ID, previousRoot)
 		http.Error(w, err.Error(), 502)
 		return
 	}
 	defer response.Body.Close()
+	if response.StatusCode >= 300 {
+		d.viewRoots.set(task.ID, previousRoot)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(response.Body, 1<<20))

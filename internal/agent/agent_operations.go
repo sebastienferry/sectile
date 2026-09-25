@@ -117,7 +117,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if config.ProjectID != op.ProjectID {
 		return nil, fmt.Errorf("project mismatch")
 	}
-	root, overrides, err := d.localProjectRoot(ctx, config, op.Action == "init_git")
+	root, overrides, err := d.taskProjectRoot(ctx, config, op.TaskID, op.Action == "init_git")
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +142,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		// A ticket pinned to another repository has its worktree there.
 		taskRoot := root
-		if strings.TrimSpace(task.Repository) != "" {
+		if strings.TrimSpace(task.Repository) != "" && d.viewRoots.get(task.ID) == "" {
 			pinned, _, _, err := primaryRoot(ctx, config, overrides, root, task)
 			if err != nil && !errors.Is(err, errRepositoryAmbiguous) {
 				// Reporting on the project root would describe another
@@ -331,6 +331,11 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			// place to look (#456); the legacy paths stay hints behind it.
 			if mapped, ok := repositoryRoot(overrides, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
 				candidates = append([]string{mapped}, candidates...)
+			}
+			// So are the folders of the saved views (#429): the check below
+			// keeps only the one whose origin is that repository.
+			for _, folder := range overrides.ViewDirectories {
+				candidates = append(candidates, folder)
 			}
 			checkout, found, err := verifiedCheckout(ctx, repository, strings.TrimSpace(op.Branch), candidates)
 			if err != nil {
