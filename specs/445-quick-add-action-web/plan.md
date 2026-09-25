@@ -52,8 +52,12 @@ also covers `__no_macro__` and `none`.
 
 The modal loads `fetchProjectMacros(taskProjectId)` in an effect keyed on the
 project and the open state; a request counter drops a stale response. The
-pre-selection is applied when the list arrives for the project the dialog opened
-with; a project change resets the selection to `''` before the new list loads.
+pre-selection is tied to a project id (`preselectMacroFor`): the project the
+dialog opens on, or, from a saved view where no project is preselected, the
+first one the user picks. It is applied only when that project's list arrives,
+because on reopening the previous project's list can resolve before the new
+request is even sent (found by the browser regression). Any other project
+change resets the selection to `''` before the new list loads.
 
 ### Follow-up
 

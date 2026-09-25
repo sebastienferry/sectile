@@ -4,39 +4,41 @@ References: [`spec.md`](./spec.md), [`plan.md`](./plan.md).
 
 ## 1. Rules (US2, FR3, FR4)
 
-- [ ] T1.1 Add `web/src/lib/quickAdd.ts`: `QuickAddFollowUp`,
+- [x] T1.1 Add `web/src/lib/quickAdd.ts`: `QuickAddFollowUp`,
       `quickAddMacroOptions`, `initialQuickAddMacro`.
-- [ ] T1.2 Add `web/tests/quickAdd.test.mjs`: closed macros dropped, natural
+- [x] T1.2 Add `web/tests/quickAdd.test.mjs`: closed macros dropped, natural
       key order, pre-selection by key and by title, `''` for no filter,
       `__no_macro__`, `none` and a macro absent from the options.
 
 ## 2. Creation and attachment (US2, US3, FR5, FR6)
 
-- [ ] T2.1 `createTask` in `AppContext.tsx` accepts `macroKey`; after creation it
+- [x] T2.1 `createTask` in `AppContext.tsx` accepts `macroKey`; after creation it
       posts `/tasks/{id}/macro`, replaces the task on success, warns on failure,
       and returns the created task either way.
 
 ## 3. Dialog (US1-US5, FR1-FR4, FR7, FR8)
 
-- [ ] T3.1 Strings: `quickAdd.macro`, `noMacro`, `macroLoading`, `followUp`,
-      `followUpNone`, `followUpRewrite`, `followUpClarify`, `attachFailed`,
-      `projectLabel`, `issueType`, `sprint`, `creating`; drop `quickAdd.tracker`.
-- [ ] T3.2 Rework `QuickAddModal.tsx`: two columns, `MarkdownEditor`, dialog
+- [x] T3.1 Strings: `quickAdd.macro`, `noMacro`, `macroLoading`, `followUp`,
+      `followUpNone`, `followUpRewrite`, `followUpClarify`, `attachFailed`;
+      drop `quickAdd.tracker`. The labels already hard-coded in French
+      ("Projet *", "Type de ticket", "Sprint"...) are left as they are: moving
+      them is a translation change of its own (AGENTS.md).
+- [x] T3.2 Rework `QuickAddModal.tsx`: two columns, `MarkdownEditor`, dialog
       role, destination removed, macro select with reload/reset/pre-selection,
       follow-up radio group reset on opening, follow-up acted upon after
       creation.
 
 ## 4. Changelog (FR9)
 
-- [ ] T4.1 One `### Changed` line under `[Unreleased]` in `CHANGELOG.md`.
+- [x] T4.1 One `### Changed` line under `[Unreleased]` in `CHANGELOG.md`.
 
 ## 5. Verification
 
-- [ ] T5.1 Add `web/tests/quick-add.browser.mjs` covering US1.1, US1.2, US2.1-2.6,
+- [x] T5.1 Add `web/tests/quick-add.browser.mjs` covering US1.1, US1.2, US2.1-2.6,
       US3.1-3.2, US4.1-4.4, US4.7 and US5.3.
-- [ ] T5.2 `npm run build`, `npm run lint`, `npm test` in `web/`.
-- [ ] T5.3 Run `quick-add.browser.mjs` and `board-views.browser.mjs`.
-- [ ] T5.4 Re-read the diff.
+- [x] T5.2 `npm run build`, `npm run lint`, `npm test` in `web/`.
+- [x] T5.3 Run `quick-add.browser.mjs` and `board-views.browser.mjs`.
+- [x] T5.4 Re-read the diff.
 
 ## Test plan
 

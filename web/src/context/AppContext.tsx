@@ -279,7 +279,7 @@ interface AppContextType {
   toasts: ToastMessage[]
   addToast: (toast: Omit<ToastMessage, 'id'>) => void
   removeToast: (id: string) => void
-  createTask: (task: { title: string; description?: string; status?: Status; priority?: Priority; labels?: string[]; assignee?: string; dueDate?: string | null; sprint?: string; source?: TaskSource; externalUrl?: string; projectId?: string; issueType?: string }) => Promise<Task | null>
+  createTask: (task: { title: string; description?: string; status?: Status; priority?: Priority; labels?: string[]; assignee?: string; dueDate?: string | null; sprint?: string; source?: TaskSource; externalUrl?: string; projectId?: string; issueType?: string; macroKey?: string }) => Promise<Task | null>
   cloneTask: (taskId: string, req?: CloneTaskRequest, openAfterClone?: boolean) => Promise<Task | null>
   isCloneModalOpen: boolean
   setIsCloneModalOpen: (open: boolean) => void
@@ -2084,19 +2084,41 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     externalUrl?: string
     projectId?: string
     issueType?: string
+    /** Macro to attach the new ticket to, on the tracker as well (#445). */
+    macroKey?: string
   }): Promise<Task | null> => {
     try {
-      const defaultProj = taskData.projectId || (selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || 'default'))
+      const { macroKey, ...fields } = taskData
+      const defaultProj = fields.projectId || (selectedProjectId !== 'all' ? selectedProjectId : (projects[0]?.id || 'default'))
       const res = await fetch(`${API_BASE}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...taskData,
+          ...fields,
           projectId: defaultProj,
         }),
       })
       if (!res.ok) throw new Error('Creation failed')
-      const created: Task = await res.json()
+      let created: Task = await res.json()
+      // A parentKey on the creation would only be stored locally: the tracker
+      // receives the parent through the attachment, as from the detail modal.
+      // A refused attachment leaves the ticket created and says so.
+      let attachError = ''
+      if (macroKey) {
+        try {
+          const attach = await fetch(`${API_BASE}/tasks/${encodeURIComponent(created.id)}/macro`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ macroKey }),
+          })
+          const data = await attach.json().catch(() => ({}))
+          if (!attach.ok) throw new Error(data.error || attach.statusText)
+          if (data.task) created = data.task
+          fetchActivities()
+        } catch (err: any) {
+          attachError = err.message || 'error'
+        }
+      }
       // Inside a saved view the new ticket belongs on the board only if it
       // matches the view, which the server decides: reload rather than guess.
       if (selectedViewId) fetchTasks()
@@ -2108,6 +2130,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         description: `${created.key}: ${created.title} (${(created.source || 'local').toUpperCase()})`,
         link: createdTaskLink(created),
       })
+      if (macroKey && attachError) {
+        addToast({
+          type: 'warning',
+          title: t.quickAdd.attachFailed.replace('{macro}', macroKey),
+          description: attachError,
+        })
+      }
       return created
     } catch (err: any) {
       addToast({
