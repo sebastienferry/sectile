@@ -28,6 +28,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type Event struct {
@@ -50,6 +51,15 @@ type Handler struct {
 	// mcpSessions owns the lifecycle of MCP client sessions and of the runs
 	// they start, so a client that disappears cannot leave a task active.
 	mcpSessions *taskmcp.SessionRegistry
+	// The MCP server and its transport are built once, by
+	// mcpStreamableHandler: the transport holds the sessions, which the public
+	// and internal routes share.
+	mcpOnce       sync.Once
+	mcpServer     *mcp.Server
+	mcpStreamable http.Handler
+	// mcpCluster forwards MCP requests to the instance holding their session.
+	// Nil when this instance shares its store with nobody.
+	mcpCluster *mcpCluster
 	// identityProvider is nil when no OpenID Connect provider is configured,
 	// which leaves the interface on its single implicit user.
 	identityProvider *auth.Provider
@@ -87,6 +97,7 @@ func NewHandler(database *db.DB) *Handler {
 	if database != nil {
 		database.SetAgentOperations(h.agentDispatcher.CallOperation)
 		h.mcpSessions.SetWaiter(database)
+		h.mcpSessions.SetInstance(database.InstanceID())
 		database.RegisterPostBackListener(func(task *models.Task, activity *models.TaskActivity, err error) {
 			h.pushRunWaiting(task, activity)
 			errStr := ""
@@ -3466,12 +3477,14 @@ func (h *Handler) pullAndApplyRemoteAgentTasks(location db.AgentLocation) {
 }
 
 // EnableAgentCluster makes this instance record its agents in the shared
-// store and forward work for agents other instances hold. Without a server
-// key the instances cannot authenticate each other: agents connected here
-// keep working, and forwarding refuses with the reason.
+// store and forward work for agents other instances hold, and MCP requests for
+// sessions other instances hold. Without a server key the instances cannot
+// authenticate each other: agents and MCP sessions held here keep working,
+// agent forwarding refuses with the reason, and MCP requests are served here.
 func (h *Handler) EnableAgentCluster() error {
 	token, err := h.db.InternalToken()
 	h.agentDispatcher.SetCluster(h.db, token, err)
+	h.setMCPCluster(h.db, token, err)
 	return err
 }
 

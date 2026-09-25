@@ -3,6 +3,7 @@ package taskmcp
 import (
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -92,11 +93,25 @@ type liveSession struct {
 	session *mcp.ServerSession
 }
 
+// SessionOwner returns the server instance a session id names, or "" when it
+// names none: an id from a version that did not record its instance, or one a
+// client made up. A session lives in the memory of the instance that created
+// it, so its id is the only way another instance can find it (#408).
+func SessionOwner(sessionID string) string {
+	owner, _, found := strings.Cut(sessionID, ".")
+	if !found {
+		return ""
+	}
+	return owner
+}
+
 // SessionView projects a live session for the status API. It carries the
 // client's own description of itself, which is declarative and therefore
 // advisory: sessions are told apart by their identifier, not by their name.
+// Instance is the server instance holding the session.
 type SessionView struct {
 	ID          string    `json:"id"`
+	Instance    string    `json:"instance"`
 	Client      string    `json:"client"`
 	Title       string    `json:"title,omitempty"`
 	Version     string    `json:"version,omitempty"`
@@ -126,6 +141,9 @@ type SessionRegistry struct {
 	abandon time.Duration
 	now     func() time.Time
 	stop    chan struct{}
+	// instance names the server instance this registry belongs to, for the
+	// sessions view of a deployment several instances serve.
+	instance string
 	// stopOnce keeps Stop idempotent: a server shut down twice, as tests do,
 	// must not panic on a closed channel.
 	stopOnce sync.Once
@@ -171,6 +189,16 @@ func (r *SessionRegistry) SetWaiter(waits RunWaiter) {
 	}
 	r.mu.Lock()
 	r.waits = waits
+	r.mu.Unlock()
+}
+
+// SetInstance names the server instance the sessions live on.
+func (r *SessionRegistry) SetInstance(id string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.instance = id
 	r.mu.Unlock()
 }
 
@@ -485,17 +513,23 @@ func (r *SessionRegistry) Snapshot() []SessionView {
 			runs = append(runs, runID)
 		}
 		sort.Strings(runs)
-		views = append(views, SessionView{ID: entry.id, Client: entry.client, Title: entry.title,
+		views = append(views, SessionView{ID: entry.id, Instance: r.instance, Client: entry.client, Title: entry.title,
 			Version: entry.version, ConnectedAt: entry.connectedAt, Runs: runs})
 	}
 	r.mu.Unlock()
+	SortSessions(views)
+	return views
+}
+
+// SortSessions orders sessions most recently connected first, then by id, so a
+// view merged from several instances reads as one instance's would.
+func SortSessions(views []SessionView) {
 	sort.Slice(views, func(i, j int) bool {
 		if views[i].ConnectedAt.Equal(views[j].ConnectedAt) {
 			return views[i].ID < views[j].ID
 		}
 		return views[i].ConnectedAt.After(views[j].ConnectedAt)
 	})
-	return views
 }
 
 // sessionID names the session a tool call belongs to, or an empty string when

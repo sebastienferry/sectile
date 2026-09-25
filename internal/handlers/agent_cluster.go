@@ -305,11 +305,18 @@ func (d *AgentDispatcher) InternalHandler() http.Handler {
 }
 
 func (c *agentCluster) authorized(r *http.Request) bool {
-	if c == nil || c.tokenErr != nil || c.token == "" {
+	return c != nil && c.tokenErr == nil && internalBearerMatches(r, "Authorization", c.token)
+}
+
+// internalBearerMatches compares, in constant time, the bearer a header
+// carries with the deployment's internal credential. No credential matches
+// nothing.
+func internalBearerMatches(r *http.Request, header, token string) bool {
+	if token == "" {
 		return false
 	}
-	presented := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	return subtle.ConstantTimeCompare([]byte(presented), []byte(c.token)) == 1
+	presented := strings.TrimPrefix(r.Header.Get(header), "Bearer ")
+	return subtle.ConstantTimeCompare([]byte(presented), []byte(token)) == 1
 }
 
 func (d *AgentDispatcher) serveInternal(ctx context.Context, verb string, req internalRequest) (json.RawMessage, error) {

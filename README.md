@@ -580,6 +580,16 @@ a server keep working through that server, and forwarding refuses with the
 reason. An operation forwarded to a server that stops before answering fails
 with an explicit error and is not replayed.
 
+The same port carries MCP sessions. A session lives on the server that created
+it, and its id names that server: a request that reaches another one is relayed
+to it on the internal port, event stream included, and answered as if it had
+gone there directly. A session whose server stopped is answered `404`, and the
+client starts a new one on a server that is up; one whose server is listed as up
+but does not answer gets `503` with its name. The load balancer must not buffer
+the event stream of `GET /mcp`. The sessions view (`GET /api/mcp/sessions`)
+lists the sessions of every live server, each with the `instance` holding it,
+and names under `unreachable` those that did not answer within two seconds.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect
