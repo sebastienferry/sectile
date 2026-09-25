@@ -19,3 +19,13 @@
   `PARSE_ERROR` on the fixture). No `sectile-browser-*` directory left behind.
 - `npm test` in `web/`: 192 passed, 0 failed. `npm run lint`: exit 0, no
   finding under `tests/`. `tsc -b --noEmit`: clean.
+
+## Follow-up (2026-09-25)
+
+- [x] Reproduce from the real `.tasks/worktrees/#417` worktree (own
+      `web/node_modules`): 0/11, `/@vite/client` 404.
+- [x] Relaunch the test through the link with `--preserve-symlinks
+      --preserve-symlinks-main`; update `browserRoot.test.mjs`.
+- [x] Update the README "Browser tests" section.
+- [x] Run every browser test from the `#417` worktree; `npm test`, `npm run
+      lint`, `tsc -b` in `web/`.
