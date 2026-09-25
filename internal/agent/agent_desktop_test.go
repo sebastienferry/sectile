@@ -327,7 +327,11 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 		t.Fatalf("timestamps changed through completion/reuse: %+v", runs[0])
 	}
 
+	// handleRunControl's finishDesktopRun goroutine may still be reading the
+	// queue, so the map is only touched under its lock from here on.
+	d.queue.mu.Lock()
 	d.queue.runs["failed"] = &controlledRun{desktop: desktopRun{CreatedAt: created, Status: "preparing"}}
+	d.queue.mu.Unlock()
 	invalidDir := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(invalidDir, []byte("not a directory"), 0600); err != nil {
 		t.Fatal(err)
@@ -335,7 +339,10 @@ func TestDesktopRunStartTimestampLifecycle(t *testing.T) {
 	if err := d.runInPty("failed", invalidDir, nil, "true"); err == nil {
 		t.Fatal("launch with a file as working directory succeeded")
 	}
-	if !d.queue.runs["failed"].desktop.StartedAt.IsZero() {
+	d.queue.mu.Lock()
+	failedStart := d.queue.runs["failed"].desktop.StartedAt
+	d.queue.mu.Unlock()
+	if !failedStart.IsZero() {
 		t.Fatal("failed launch recorded a start")
 	}
 }
