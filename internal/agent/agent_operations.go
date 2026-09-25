@@ -106,7 +106,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		return d.macroSpecFileFor(ctx, op.ProjectID, op.MacroKey, op.Framework, op.SpecFile)
 	}
 	switch op.Action {
-	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "workspace_info", "git_diff", "git_evidence", "pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
+	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "repository_worktree", "workspace_info", "git_diff", "git_evidence", "pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
 	default:
 		return nil, fmt.Errorf("unknown local operation %q", op.Action)
 	}
@@ -134,11 +134,24 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if task.ID != op.TaskID || task.ProjectID != op.ProjectID {
 			return nil, fmt.Errorf("task identity mismatch")
 		}
+		if op.Action == "repository_worktree" {
+			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository)
+		}
+		if op.Action == "remove_workspace" && len(op.Repositories) > 0 {
+			return removeRepositoryWorktrees(ctx, config, overrides, root, task, op.Repositories), nil
+		}
+		// A ticket pinned to another repository has its worktree there.
+		taskRoot := root
+		if strings.TrimSpace(task.Repository) != "" {
+			if pinned, _, _, err := primaryRoot(ctx, config, overrides, root, task); err == nil {
+				taskRoot = pinned
+			}
+		}
 		if config.UseWorktrees {
 			if !filepath.IsLocal(task.Key) || strings.ContainsAny(task.Key, "/\\") {
 				return nil, fmt.Errorf("invalid task key")
 			}
-			target, err = localTaskPath(ctx, root, task)
+			target, err = localTaskPath(ctx, taskRoot, task)
 			if op.Repository != "" {
 				target, err = foreignWorkDir(target, root, err), nil
 			}
@@ -307,6 +320,11 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			candidates, err := d.checkoutCandidates(ctx, task, op.ProjectID)
 			if err != nil {
 				return nil, err
+			}
+			// This workstation's own mapping of that repository is the first
+			// place to look (#456); the legacy paths stay hints behind it.
+			if mapped, ok := repositoryRoot(overrides, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
+				candidates = append([]string{mapped}, candidates...)
 			}
 			checkout, found, err := verifiedCheckout(ctx, repository, strings.TrimSpace(op.Branch), candidates)
 			if err != nil {

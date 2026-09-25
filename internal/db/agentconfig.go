@@ -45,6 +45,9 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, AICommandTemplateAutonomous: p.AICommandTemplateAutonomous, ExternalTerminalCommand: p.ExternalTerminalCommand,
 		SetupProviders: models.NormalizeSetupProviders(p.SetupProviders), MonoRepo: &p.MonoRepo,
 	}
+	for _, repository := range p.Repositories {
+		c.Repositories = append(c.Repositories, repository.URL)
+	}
 	if c.GithubRepo == "" {
 		c.GithubRepo = s.GithubRepo
 	}

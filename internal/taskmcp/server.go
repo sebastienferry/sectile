@@ -363,7 +363,7 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			return nil, workspace, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "On a multi-repo project, prepare the task's worktree in another of the project's repositories, on the caller's local agent, on the task's branch: created from the up-to-date default branch, or reused when the branch already exists there. The repository must be mapped to a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. The repository then needs its own pull request, given in transition_stage prUrls. Returns repository, path and branch."},
+	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "On a multi-repo project, prepare the task's worktree in another of the project's repositories, on the caller's local agent, on the task's branch: reused wherever that branch is already checked out, else created from the remote branch when it exists, else from the checkout's current HEAD. The repository must be mapped to a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. The repository then needs its own pull request, given in transition_stage prUrls. Returns repository, path and branch."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in repositoryWorktreeInput) (*mcp.CallToolResult, any, error) {
 			worktree, err := database.PrepareRepositoryWorktree(ctx, callerOf(resolve, req).UserID, in.TaskKey, in.Repository)
 			if err != nil {
