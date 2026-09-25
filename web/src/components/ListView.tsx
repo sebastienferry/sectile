@@ -32,6 +32,8 @@ import { useApp } from "../context/AppContext"
 import { useClickOutside } from "../hooks/useClickOutside"
 import { TaskFilters } from "./TaskFilters"
 import { BoardGroupingToggle } from "./BoardGroupingToggle"
+import { BoardSortSelect } from "./BoardSortSelect"
+import { compareSortTail, sortTasks, type BoardSort } from "../lib/boardSort"
 import { issueTypeStyle } from "../lib/issueTypes"
 import { PRIORITY_COLORS, PRIORITY_LEVELS } from "../lib/priority"
 import { Avatar } from "./Avatar"
@@ -47,6 +49,30 @@ import {
   type BacklogRowDisplayMode,
 } from "../lib/backlogDisplayMode"
 import type { Task, Status, Priority, WorkflowStage } from "../types"
+
+/** The flat table columns a header click sorts by. */
+type HeaderSortField = "key" | "title" | "status" | "priority" | "dueDate"
+
+const HEADER_PRIORITY_RANK: Record<Priority, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
+
+/** The flat table order after a header click; ties end with the shared, never reversed, tail. */
+function sortByHeader(tasks: readonly Task[], sort: { field: HeaderSortField; asc: boolean }): Task[] {
+  return [...tasks].sort((a, b) => {
+    let result = 0
+    if (sort.field === "key") {
+      result = a.key.localeCompare(b.key, undefined, { numeric: true })
+    } else if (sort.field === "title") {
+      result = a.title.localeCompare(b.title)
+    } else if (sort.field === "status") {
+      result = a.status.localeCompare(b.status)
+    } else if (sort.field === "priority") {
+      result = (HEADER_PRIORITY_RANK[a.priority] || 0) - (HEADER_PRIORITY_RANK[b.priority] || 0)
+    } else {
+      result = (a.dueDate || "").localeCompare(b.dueDate || "")
+    }
+    return (sort.asc ? result : -result) || compareSortTail(a, b)
+  })
+}
 
 export const ListView: React.FC = () => {
   const {
@@ -64,6 +90,7 @@ export const ListView: React.FC = () => {
     hideDone,
     toggleHideDone,
     boardGrouping,
+    boardSort,
     moveTaskWorkflowStage,
     moveTaskToTrackerStatus,
     moveTask,
@@ -75,9 +102,12 @@ export const ListView: React.FC = () => {
   const showsEpicColors = useEpicColors()
 
 
-  // Par défaut, le plus urgent en premier.
-  const [sortField, setSortField] = useState<"key" | "title" | "status" | "priority" | "dueDate" | "createdAt">("priority")
-  const [sortAsc, setSortAsc] = useState(false)
+  // The lists follow the sort shared with the Board (#402). A click on a flat
+  // table header overrides it for that table only: never remembered, and
+  // dropped as soon as the selector changes: the override records the selector
+  // value it was made against, and the selector writes a new one on every change.
+  const [headerOverride, setHeaderOverride] = useState<{ field: HeaderSortField; asc: boolean; base: BoardSort } | null>(null)
+  const headerSort = headerOverride?.base === boardSort ? headerOverride : null
   const [groupByStatus, setGroupByStatus] = useState(true)
 
   // La densité des lignes survit au rechargement : c'est une préférence de
@@ -107,47 +137,42 @@ export const ListView: React.FC = () => {
   const closeBulkDropdown = useCallback(() => setActiveBulkDropdown(null), [])
   useClickOutside(bulkDropdownRef, closeBulkDropdown, activeBulkDropdown !== null)
 
-  const handleSort = (field: typeof sortField) => {
-    if (sortField === field) {
-      setSortAsc(prev => !prev)
+  const handleSort = (field: HeaderSortField) => {
+    // Without a header click, the table is sorted by the key or priority
+    // column when the selector is: a click on it flips that order.
+    const currentField = headerSort?.field
+      ?? (boardSort.field === "priority" || boardSort.field === "key" ? boardSort.field : null)
+    if (currentField === field) {
+      setHeaderOverride({ field, asc: !(headerSort?.asc ?? boardSort.asc), base: boardSort })
     } else {
-      setSortField(field)
-      setSortAsc(field !== "priority")
+      setHeaderOverride({ field, asc: field !== "priority", base: boardSort })
     }
   }
 
   // Le filtre « en cours » se pose ici, sur la liste triée, et non sur les
   // `tasks` du contexte : ceux-ci servent aussi à résoudre un ticket par son id
   // (sélection, modale), et les amputer casserait ces résolutions en silence.
-  const sortedTasks = useMemo(() => {
-    const listed = activeOnly ? tasks.filter(t => activeTasks.has(t.id)) : tasks
-    return [...listed].sort((a, b) => {
-      let result = 0
-      if (sortField === "key") {
-        result = a.key.localeCompare(b.key, undefined, { numeric: true })
-      } else if (sortField === "title") {
-        result = a.title.localeCompare(b.title)
-      } else if (sortField === "status") {
-        result = a.status.localeCompare(b.status)
-      } else if (sortField === "priority") {
-        const priorityOrder: Record<Priority, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
-        result = (priorityOrder[a.priority] || 0) - (priorityOrder[b.priority] || 0)
-      } else if (sortField === "dueDate") {
-        result = (a.dueDate || "").localeCompare(b.dueDate || "")
-      } else {
-        result = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      }
-      return sortAsc ? result : -result
-    })
-  }, [tasks, activeOnly, activeTasks, sortField, sortAsc])
+  const listedTasks = useMemo(
+    () => (activeOnly ? tasks.filter(t => activeTasks.has(t.id)) : tasks),
+    [tasks, activeOnly, activeTasks],
+  )
+
+  // Each group is sorted on its own, as a Board column is: in Epic mode the
+  // group order depends on the priorities present in that group only.
+  const groupRows = (belongs: (task: Task) => boolean) => sortTasks(listedTasks.filter(belongs), boardSort)
+
+  const tableTasks = useMemo(
+    () => (headerSort ? sortByHeader(listedTasks, headerSort) : sortTasks(listedTasks, boardSort)),
+    [listedTasks, headerSort, boardSort],
+  )
 
   const doneTasksCount = tasks.filter(t => t.status === "finished" || t.status === "done").length
 
   const visibleTasks = useMemo(() => {
     return hideDone
-      ? sortedTasks.filter(t => t.status !== "finished" && t.status !== "done")
-      : sortedTasks
-  }, [sortedTasks, hideDone])
+      ? tableTasks.filter(t => t.status !== "finished" && t.status !== "done")
+      : tableTasks
+  }, [tableTasks, hideDone])
 
   // -------------------------------------------------------------
   // Workflow Stages & Statuses
@@ -203,9 +228,9 @@ export const ListView: React.FC = () => {
   // Use the same group and row order as the rendered tables.
   const batchRows = !groupByStatus ? visibleTasks : boardGrouping === "workflow"
     ? WORKFLOW_STAGES.filter(stage => !(hideDone && stage.id === "finished"))
-        .flatMap(stage => sortedTasks.filter(task => resolveTaskStage(task, currentProject) === stage.id))
+        .flatMap(stage => groupRows(task => resolveTaskStage(task, currentProject) === stage.id))
     : statusList.filter(status => !(hideDone && (status.id === "finished" || status.id === "done")))
-        .flatMap(status => sortedTasks.filter(task => task.status === status.id))
+        .flatMap(status => groupRows(task => task.status === status.id))
   const batchTasks = batchRows.filter(task => selectedTaskIds.has(task.id))
   const batchUnavailableReason = batchTasks.length !== selectedTaskIds.size || batchTasks.length === 0
     ? "Sélectionnez uniquement des tâches visibles dans le backlog."
@@ -827,20 +852,7 @@ export const ListView: React.FC = () => {
             </button>
 
             <TaskFilters />
-            <button
-              type="button"
-              onClick={() => handleSort("priority")}
-              title="Trier par priorité"
-              className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold border transition-colors cursor-pointer ${
-                sortField === "priority"
-                  ? "bg-[var(--accent-light)] accent-text border-[var(--accent-color)]/40"
-                  : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              <ArrowUpDown size={11} />
-              <span>Priorité</span>
-              {sortField === "priority" && <span className="font-mono">{sortAsc ? "↑" : "↓"}</span>}
-            </button>
+            <BoardSortSelect size="sm" />
           </div>
         </div>
 
@@ -871,7 +883,7 @@ export const ListView: React.FC = () => {
             {/* Mode 1: Grouped by Agentic Workflow Stages */}
             {boardGrouping === "workflow" ? (
               WORKFLOW_STAGES.map(stage => {
-                const groupTasks = sortedTasks.filter(t => resolveTaskStage(t, currentProject) === stage.id)
+                const groupTasks = groupRows(t => resolveTaskStage(t, currentProject) === stage.id)
                 if (groupTasks.length === 0) return null
                 if (stage.id === "finished" && hideDone) return null
 
@@ -942,7 +954,7 @@ export const ListView: React.FC = () => {
               /* Mode 2: Grouped by Status */
               statusList.map(st => {
                 if ((st.id === "finished" || st.id === "done") && hideDone) return null
-                const groupTasks = sortedTasks.filter(t => t.status === st.id)
+                const groupTasks = groupRows(t => t.status === st.id)
                 if (groupTasks.length === 0) return null
 
                 const isGroupAllSelected = groupTasks.length > 0 && groupTasks.every(t => selectedTaskIds.has(t.id))

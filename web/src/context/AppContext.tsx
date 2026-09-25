@@ -7,6 +7,7 @@ import {
   saveBoardCardDisplayMode,
   toggleBoardCardDisplayMode as toggleDisplayModeValue,
 } from '../lib/boardDisplayMode'
+import { loadBoardSort, saveBoardSort, type BoardSort } from '../lib/boardSort'
 import type {
   BoardView,
   BoardViewPayload,
@@ -124,6 +125,9 @@ interface AppContextType {
   boardCardDisplayMode: BoardCardDisplayMode
   setBoardCardDisplayMode: (mode: BoardCardDisplayMode) => void
   toggleBoardCardDisplayMode: () => void
+  /** The card order shared by the Board and the Backlog (#402). */
+  boardSort: BoardSort
+  setBoardSort: (sort: BoardSort) => void
   searchQuery: string
   setSearchQuery: (query: string) => void
   statusFilter: Status | null
@@ -550,6 +554,13 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       saveBoardCardDisplayMode(next)
       return next
     })
+  }, [])
+
+  const [boardSort, setBoardSortState] = useState<BoardSort>(loadBoardSort)
+
+  const setBoardSort = useCallback((sort: BoardSort) => {
+    setBoardSortState(sort)
+    saveBoardSort(sort)
   }, [])
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilterState] = useState<Status | null>(null)
@@ -3819,6 +3830,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         boardCardDisplayMode,
         setBoardCardDisplayMode,
         toggleBoardCardDisplayMode,
+        boardSort,
+        setBoardSort,
         moveTaskWorkflowStage,
         searchQuery,
         setSearchQuery,

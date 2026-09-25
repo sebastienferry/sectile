@@ -115,6 +115,12 @@ export interface TranslationSchema {
       status: string
       statusTooltip: string
     }
+    sort: {
+      label: string
+      ascending: string
+      descending: string
+      fields: { priority: string; epic: string; key: string; updated: string }
+    }
   }
   list: {
     columns: {
@@ -910,6 +916,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         status: 'Statuts',
         statusTooltip: 'Vue classique par statuts, de gauche à droite',
       },
+      sort: {
+        label: 'Trier par',
+        ascending: 'Croissant',
+        descending: 'Décroissant',
+        fields: { priority: 'Priorité', epic: 'Epic', key: 'Clé', updated: 'Dernière mise à jour' },
+      },
     },
     list: {
       columns: {
@@ -1700,6 +1712,12 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
         workflowTooltip: 'Agentic workflow (stages: new ➔ clarified ➔ specified ➔ implemented ➔ reviewed ➔ finished)',
         status: 'Statuses',
         statusTooltip: 'Classic status based view, from left to right',
+      },
+      sort: {
+        label: 'Sort by',
+        ascending: 'Ascending',
+        descending: 'Descending',
+        fields: { priority: 'Priority', epic: 'Epic', key: 'Key', updated: 'Last updated' },
       },
     },
     list: {
