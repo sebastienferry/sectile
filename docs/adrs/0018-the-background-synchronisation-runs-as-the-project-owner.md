@@ -1,6 +1,8 @@
 # ADR 0018: The background synchronisation runs as the project's owner
 
-Status: Accepted
+Status: Superseded by
+[ADR 0028](0028-tracker-sync-uses-a-server-credential-per-provider.md): the
+synchronisation no longer borrows the owner's token.
 
 ## Context
 
