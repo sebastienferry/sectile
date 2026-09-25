@@ -45,20 +45,11 @@ test('the launch request carries the model, and an untouched choice sends none',
   assert.match(context, /\{mode:auto \? 'autonomous' : mode, model\}/)
 })
 
-test('the detail launcher offers a list, never a free-text model', () => {
-  assert.match(modal, /const \[launchModel, setLaunchModel\] = useState\(''\)/)
-  assert.match(modal, /const launchModels = providerModels\(settings, activeProvider\)/)
-  // A select, beside the existing mode select; no text input for the model.
-  assert.match(modal, /value=\{effectiveLaunchModel\}[\s\S]{0,200}onChange=\{e => setLaunchModel\(e\.target\.value\)\}/)
-  assert.match(modal, /<option value="">\s*\{configuredLaunchModel \? `Modèle configuré/)
-  // Every launch control of the view carries it.
-  assert.match(modal, /runSkill\(selectedTask\.id, skillId, promptToUse, \{ mode: modeOverride \?\? launchMode, model: effectiveLaunchModel \}\)/)
-  // Nothing is offered when the provider has no configured model.
-  assert.match(modal, /\{launchModels\.length > 0 && \(/)
-  // A choice left over from another task, whose project may run another
-  // provider, cannot be launched: the value sent is derived from the list.
-  assert.match(modal, /const effectiveLaunchModel = launchModels\.includes\(launchModel\) \? launchModel : ''/)
-  assert.match(modal, /model: effectiveLaunchModel/)
+test('the detail view offers no model selector', () => {
+  // The model is chosen from the card submenu or the settings; the detail view
+  // launches with whatever the precedence resolves.
+  assert.doesNotMatch(modal, /launchModel/)
+  assert.doesNotMatch(modal, /providerModels/)
 })
 
 test('the card submenu selects a model and launches nothing', () => {
