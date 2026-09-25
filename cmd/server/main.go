@@ -308,11 +308,11 @@ func main() {
 	mux.HandleFunc("/api/users/", h.HandleUsers)
 	mux.HandleFunc(handlers.AdminStatsPath, h.HandleAdminStats)
 
-	// Prometheus metrics. Outside /api/, so the session guard leaves them to
-	// SECTILE_METRICS_TOKEN; registered before the interface's catch-all.
+	// Prometheus metrics. Outside /api/, so the session guard leaves them
+	// public; registered before the interface's catch-all.
 	build := version.Current()
 	serverMetrics := metrics.New(database, db.ActiveUserWindow, metrics.Build{Version: build.Version, Commit: build.Commit})
-	mux.Handle(metrics.Path, metricsHandler(serverMetrics.Handler(), os.Getenv("SECTILE_METRICS_TOKEN")))
+	mux.Handle(metrics.Path, serverMetrics.Handler())
 
 	mux.Handle("/mcp", h.MCPHandler())
 	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)

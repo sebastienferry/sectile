@@ -26,12 +26,11 @@ it is not part of the REST API: it speaks Prometheus's exposition format, and
 `/metrics` is where every scraper looks by default.
 
 Being outside `/api/`, the path is outside the session guard, which a scraper
-could not pass anyway. `SECTILE_METRICS_TOKEN`, when set, makes it require that
-bearer token, compared in constant time. When it is unset the route is open:
-the metrics grant nothing and name nobody, but they do describe how the board
-is used, so a deployment reachable from outside either sets the token or keeps
-the path off its public ingress. This is not the open mode ADR 0019 removed:
-that one handed out an identity, this one hands out counts.
+could not pass anyway, and it is public, with no token. The metrics grant
+nothing and name nobody: they are counts, and the owner accepted that anyone
+reaching the server may read them (2026-09-25). A deployment that wants them
+private keeps the path off its public ingress. This is not the open mode ADR
+0019 removed: that one handed out an identity, this one hands out counts.
 
 **An active user is an account with a valid browser session seen within the
 last five minutes.** `web_sessions` gains `last_seen_at` (migration 15), written
@@ -63,7 +62,7 @@ exposition format stays its problem rather than ours.
 ## Consequences
 
 - A deployment that wants the metrics adds a scrape target on the server's
-  port (a `ServiceMonitor` or a pod annotation), with the token when one is set.
+  port (a `ServiceMonitor` or a pod annotation).
   No new port is declared.
 - The scrapes themselves appear under `handler="/metrics"` in the HTTP series.
 - Every request that resolves a session may write once a minute per session.

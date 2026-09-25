@@ -447,14 +447,8 @@ The GitHub pull request alone spawns nothing: the generator only reads GitLab.
 ### Prometheus metrics
 
 The server exposes Prometheus metrics at `/metrics`, on its own port next to
-the interface. The path sits outside `/api/`, so it needs no browser session.
-The metrics carry no secret, but they describe who uses the board: set
-`SECTILE_METRICS_TOKEN` on a deployment reachable from outside, or keep the
-path off the public ingress.
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `SECTILE_METRICS_TOKEN` | (empty: open) | Bearer token `/metrics` requires, sent by Prometheus through `authorization: {credentials: ...}`. Any other request gets `401`. |
+the interface. The path sits outside `/api/`, so it needs no browser session
+and is public: the metrics carry no secret and name nobody, only counts.
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
