@@ -69,13 +69,14 @@ var dev PGSSLMODE   value:require
 # names a disposable database of its own. It stays commented.
 #var dev SECTILE_TEST_POSTGRES_DSN compose:postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?sslmode=${PGSSLMODE}
 
-# Under PostgreSQL this key is the only source of the one encrypting personal
+# Under PostgreSQL this key is the only source of the one encrypting the stored
 # tracker tokens: a key invented at each restart would orphan every stored
 # token. Fill in the secret that holds it.
 #var dev SECTILE_SECRET_KEY secret:CHANGEME-dev-secret-key
 
-# Server-level Jira fallback, used when a user has no personal credential of
-# their own. The site authenticates the e-mail and the token as a pair.
+# Jira server credential: what every synchronisation authenticates with, when
+# an admin stored none from Administration. The site authenticates the e-mail
+# and the token as a pair.
 var dev SECTILE_JIRA_URL   value:CHANGEME.atlassian.net
 var dev SECTILE_JIRA_EMAIL value:CHANGEME@example.com
 #var dev SECTILE_JIRA_TOKEN secret:CHANGEME-dev-jira-token

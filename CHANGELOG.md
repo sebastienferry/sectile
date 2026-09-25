@@ -66,6 +66,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **Every synchronisation uses the server credential of its tracker, set by an admin.** The automatic sync and a *Sync* started by hand now both read with one credential per provider (GitHub, Jira, GitLab), instead of the project owner's or your own token, so a sync keeps working when its owner leaves or locks their token. Admins set, check and clear these credentials from a new *Server tracker credentials* section of the Administration page, which shows the account each one authenticates as; they are encrypted in the database with the server key, and members can no longer change them. Tokens already saved in the server settings are encrypted and kept on upgrade; a server that has one to encrypt and no usable `SECTILE_SECRET_KEY` refuses to start rather than lose it. A Jira project that only synced through its owner's personal token now needs a Jira server credential. Your own writes (transitions, comments) still go with your own credential. (#464)
+
 - **One *Skills & IA* tab on a ticket.** The web ticket view merges *Skills & Copilot* and *Cadrage & Specs* into a single tab. It opens with the prompts to copy for the next step and for the autonomous pickup, as in the card menu, and ends with the generated specification. The recommended next step now opens the *Details* tab, with its description and launch button. The tab no longer shows the Copilot banner, the macro and batch skills, the mode and model selectors, the additional instruction field (put extra context in the ticket's comments), or the *Passer direct au Code* shortcut, which launched the implementation without a specification. (#461)
 
 - **A context menu on each desktop project.** A project row in the desktop sidebar now shows only its name and a *…* button. Right-click the row, or click *…*, to open tasks, switch to the execution queue, create a task, open the agent console, reach the project settings or remove the project from the desktop. The count of waiting executions moves to the *…* button.
@@ -222,6 +224,10 @@ test fixtures or internal plumbing.
   rather than urgent; `Blocker` stays urgent and `Minor` and `Trivial` stay low.
   Boards importing from such a project will see their ordinary work items move
   off the high level on the next synchronisation.
+
+### Removed
+
+- **The old tracker credential variables and the per-project tokens.** `SECTILE_TRACKER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `JIRA_API_TOKEN` and `GITLAB_TOKEN` are no longer read as tracker credentials: set `SECTILE_GITHUB_TOKEN`, `SECTILE_JIRA_EMAIL` with `SECTILE_JIRA_TOKEN`, or `SECTILE_GITLAB_TOKEN` instead, or store the credential from the Administration page. The server still starts with one of them set, and logs a warning naming its replacement. The GitHub and GitLab tokens a project could carry are gone, and discarded on upgrade: one server credential serves every project of its provider. (#464)
 
 ### Fixed
 

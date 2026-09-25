@@ -226,15 +226,11 @@ func (d *DB) runAutoSyncPass(settings *models.Settings) {
 			window = autoSyncWindowFrom(pacing, now)
 		}
 
-		// The pass runs under the project's owner. It is nobody's request, so
-		// there is no acting user to carry, and a tracker whose credential is
-		// personal has none of its own to fall back on: the owner is the person
-		// who turned this loop on, and it is their token it reads with. An
-		// ownerless project keeps the historical behaviour, the server
-		// credential, which is what SECTILE_JIRA_TOKEN is for.
-		owner := strings.TrimSpace(proj.OwnerUserID)
-
-		if _, syncErr := d.EnqueueSyncWith(owner, ts.Name(), "", proj.ID, SyncOptions{WindowMin: window, Background: true}); syncErr != nil {
+		// Nobody asked for this pass, and it reads with the server credential
+		// of the project's provider, as every synchronisation does (#464). It
+		// used to borrow the owner's personal token, which failed the day that
+		// token was locked, missing, or its owner gone.
+		if _, syncErr := d.EnqueueSyncWith("", ts.Name(), "", proj.ID, SyncOptions{WindowMin: window, Background: true}); syncErr != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", proj.Name, syncErr))
 			continue
 		}

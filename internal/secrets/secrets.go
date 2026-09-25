@@ -150,9 +150,19 @@ func DeriveKey(passphrase string, salt []byte) Key {
 // Binding is what a record belongs to. It travels as additional authenticated
 // data rather than as plaintext: it is not hidden, it is pinned. A ciphertext
 // copied into another user's row no longer opens.
+//
+// Server marks the credential Sectile itself uses for a tracker, which belongs
+// to no user. It serialises under a prefix of its own, so a server record never
+// opens as somebody's personal one, nor the other way round.
 type Binding struct {
 	UserID  string
 	Tracker string
+	Server  bool
+}
+
+// ServerBinding is the binding of the server credential of one tracker.
+func ServerBinding(tracker string) Binding {
+	return Binding{Tracker: tracker, Server: true}
 }
 
 // The parts are length-prefixed rather than merely joined: concatenation alone
@@ -163,13 +173,16 @@ type Binding struct {
 func (b Binding) bytes() []byte {
 	user := strings.TrimSpace(b.UserID)
 	name := strings.ToLower(strings.TrimSpace(b.Tracker))
+	if b.Server {
+		return fmt.Appendf(nil, "sectile:v1:server:tracker:%d:%s", len(name), name)
+	}
 	return fmt.Appendf(nil, "sectile:v1:user:%d:%s:tracker:%d:%s", len(user), user, len(name), name)
 }
 
 // Seal encrypts a credential for one owner. The nonce is random and prepended,
 // so two identical tokens never produce the same record.
 func Seal(key Key, binding Binding, plaintext string) ([]byte, error) {
-	if binding.UserID == "" || binding.Tracker == "" {
+	if (binding.UserID == "" && !binding.Server) || binding.Tracker == "" {
 		return nil, fmt.Errorf("a credential must name its owner and its tracker")
 	}
 	aead, err := newAEAD(key)

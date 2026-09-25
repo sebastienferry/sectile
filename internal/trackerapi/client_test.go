@@ -268,63 +268,71 @@ func TestBranchPullRequestPrefersOpenThenMerged(t *testing.T) {
 	}
 }
 
-func TestNewClientResolvesTrackerCredentials(t *testing.T) {
+// Each provider reads its own variable and nothing else (#464): the generic
+// name and the providers' conventions used to hand one provider's credential to
+// another on a server driving several trackers.
+func TestNewClientReadsOnlyEachProvidersOwnVariable(t *testing.T) {
+	all := []string{"SECTILE_TRACKER_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "JIRA_API_TOKEN", "GITLAB_TOKEN",
+		GithubTokenVar, GitlabTokenVar, JiraEmailVar, JiraTokenVar}
 	cases := []struct {
-		name       string
-		env        map[string]string
-		wantGithub string
+		name                             string
+		env                              map[string]string
+		wantGithub, wantGitlab, wantJira string
 	}{
 		{
-			name:       "generic name alone serves every provider",
-			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic"},
-			wantGithub: "generic",
+			name: "removed variables serve no provider",
+			env: map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "GH_TOKEN": "gh-cli", "GITHUB_TOKEN": "ci",
+				"JIRA_API_TOKEN": "jira-conv", "GITLAB_TOKEN": "gl-conv"},
 		},
 		{
-			name:       "provider-specific names keep working on their own",
-			env:        map[string]string{"SECTILE_GITHUB_TOKEN": "gh"},
+			name:       "each provider reads its own variable",
+			env:        map[string]string{GithubTokenVar: "gh", GitlabTokenVar: "gl", JiraTokenVar: "jira"},
+			wantGithub: "gh", wantGitlab: "gl", wantJira: "jira",
+		},
+		{
+			name:       "one provider's variable reaches no other",
+			env:        map[string]string{GithubTokenVar: "gh", "SECTILE_TRACKER_TOKEN": "generic"},
 			wantGithub: "gh",
-		},
-		{
-			name:       "provider-specific name overrides the generic one",
-			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "SECTILE_GITHUB_TOKEN": "gh"},
-			wantGithub: "gh",
-		},
-		{
-			name:       "generic name outranks the environment conventions",
-			env:        map[string]string{"SECTILE_TRACKER_TOKEN": "generic", "GH_TOKEN": "gh-cli"},
-			wantGithub: "generic",
-		},
-		{
-			name:       "environment conventions remain the last resort",
-			env:        map[string]string{"GITHUB_TOKEN": "ci"},
-			wantGithub: "ci",
 		},
 		{name: "no credential at all"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
-			for _, name := range []string{"SECTILE_TRACKER_TOKEN", "SECTILE_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"} {
+			for _, name := range all {
 				t.Setenv(name, "")
 			}
 			for name, value := range testCase.env {
 				t.Setenv(name, value)
 			}
 			c := NewClient()
-			if c.GithubToken != testCase.wantGithub {
-				t.Errorf("got github %q, want %q", c.GithubToken, testCase.wantGithub)
+			if c.GithubToken != testCase.wantGithub || c.GitlabToken != testCase.wantGitlab || c.JiraToken != testCase.wantJira {
+				t.Errorf("got github %q gitlab %q jira %q, want %q %q %q",
+					c.GithubToken, c.GitlabToken, c.JiraToken, testCase.wantGithub, testCase.wantGitlab, testCase.wantJira)
 			}
 		})
 	}
 }
 
-// Every call that needs a credential and has none must say the same thing, and
-// it must point at the credential the person can actually set. It used to name
-// SECTILE_TRACKER_TOKEN, which sends them to a deployment they usually cannot
-// reach to fix something they can: this product attributes a tracker write to
-// whoever made it, so each person stores their own token (ADR 0014). The
-// server-wide variable survives for work nobody asked for, and is deliberately
-// not advertised here.
-func TestMissingCredentialErrorPointsAtThePersonalToken(t *testing.T) {
+func TestRemovedTokenVariablesAreWarnedAboutOnlyWhenSet(t *testing.T) {
+	env := map[string]string{"SECTILE_TRACKER_TOKEN": "x", "JIRA_API_TOKEN": "y", "GH_TOKEN": "  "}
+	warnings := RemovedTokenVariableWarnings(func(name string) string { return env[name] })
+	if len(warnings) != 2 {
+		t.Fatalf("want one warning per set variable, got %q", warnings)
+	}
+	if !strings.HasPrefix(warnings[0], "SECTILE_TRACKER_TOKEN ") || !strings.Contains(warnings[0], GithubTokenVar) {
+		t.Errorf("the generic variable's warning must name its replacements: %q", warnings[0])
+	}
+	if !strings.HasPrefix(warnings[1], "JIRA_API_TOKEN ") || !strings.Contains(warnings[1], JiraTokenVar) {
+		t.Errorf("JIRA_API_TOKEN's warning must name %s: %q", JiraTokenVar, warnings[1])
+	}
+	if got := RemovedTokenVariableWarnings(func(string) string { return "" }); len(got) != 0 {
+		t.Fatalf("nothing set, nothing to warn about: %q", got)
+	}
+}
+
+// A call made for nobody, the synchronisation, only ever uses the server
+// credential, so a missing one names the variable and the Administration page.
+func TestMissingServerCredentialNamesTheVariableAndTheAdministrationPage(t *testing.T) {
 	c := &Client{HTTP: http.DefaultClient}
 	for _, call := range []struct {
 		name string
@@ -339,26 +347,63 @@ func TestMissingCredentialErrorPointsAtThePersonalToken(t *testing.T) {
 			t.Errorf("%s: a call with no credential must fail", call.name)
 			continue
 		}
-		if got, want := err.Error(), missingCredential("GitHub"); got != want {
-			t.Errorf("%s: got %q, want %q", call.name, got, want)
+		if !strings.Contains(err.Error(), GithubTokenVar) || !strings.Contains(err.Error(), "Administration") {
+			t.Errorf("%s: %q must name %s and Administration", call.name, err, GithubTokenVar)
 		}
-		if strings.Contains(err.Error(), genericTokenVar) {
-			t.Errorf("%s: the error still names the server variable: %v", call.name, err)
+		if strings.Contains(err.Error(), "Profile") {
+			t.Errorf("%s: a synchronisation has nobody's profile to point at: %q", call.name, err)
 		}
+	}
+	jira := &Client{JiraURL: "https://acme.atlassian.net", JiraToken: "t"}
+	if err := jira.jiraConfigured(); err == nil || !strings.Contains(err.Error(), JiraEmailVar) {
+		t.Errorf("half of the Jira server pair is none at all: %v", err)
 	}
 }
 
-// The message a person sees when nothing could be resolved must point at the
-// credential they can actually set. Sending them to a server environment
-// variable asks them to change a deployment they usually cannot reach, to fix
-// something they can.
-func TestMissingCredentialPointsAtThePersonalToken(t *testing.T) {
-	msg := missingCredential("GitHub")
-	if strings.Contains(msg, genericTokenVar) || strings.Contains(strings.ToLower(msg), "server") {
-		t.Fatalf("the message sends the user to the server credential: %q", msg)
+// A call made for somebody still points at the credential they can set: their
+// own (ADR 0014).
+func TestMissingCredentialForAPersonPointsAtTheirProfile(t *testing.T) {
+	c := &Client{HTTP: http.DefaultClient, actingUser: "u1"}
+	err := c.github(context.Background(), http.MethodGet, "/rate_limit", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "Profile") || strings.Contains(err.Error(), GithubTokenVar) {
+		t.Fatalf("a person's missing credential must point at their profile: %v", err)
 	}
-	if !strings.Contains(msg, "GitHub") {
-		t.Fatalf("the message does not name the tracker: %q", msg)
+	jira := &Client{JiraURL: "https://acme.atlassian.net", JiraToken: "t", actingUser: "u1"}
+	if err := jira.jiraConfigured(); err == nil || err.Error() != "configure the Jira account e-mail" {
+		t.Fatalf("a personal Jira token without its e-mail keeps its own message: %v", err)
+	}
+}
+
+// A stored server credential the key does not open fails the call, even with
+// an environment token at hand: the admin believes the stored one is in use.
+func TestAnUnreadableServerCredentialIsNotReplacedByTheEnvironment(t *testing.T) {
+	c := &Client{HTTP: http.DefaultClient, GithubToken: "env-token", JiraURL: "https://acme.atlassian.net", JiraEmail: "env@acme", JiraToken: "env-jira"}
+	c.Resolve = func(string) Credentials { return Credentials{GithubUnreadable: true, JiraUnreadable: true} }
+	resolved := c.For("p1")
+	if resolved.GithubToken != "" || resolved.JiraToken != "" || resolved.JiraEmail != "" {
+		t.Fatalf("the environment credential survived an unreadable stored one: %+v", resolved)
+	}
+	err := resolved.github(context.Background(), http.MethodGet, "/rate_limit", nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "cannot be decrypted") {
+		t.Fatalf("github: %v", err)
+	}
+	if err := resolved.jiraConfigured(); err == nil || !strings.Contains(err.Error(), "cannot be decrypted") {
+		t.Fatalf("jira: %v", err)
+	}
+}
+
+// ForActingUser must never mark the shared client: the next request, made for
+// nobody, would report its missing credential as somebody's.
+func TestForActingUserDoesNotMarkTheSharedClient(t *testing.T) {
+	c := &Client{HTTP: http.DefaultClient}
+	c.ResolveUser = func(string, string) (string, string, string, error) { return "", "", "", nil }
+	c.Resolve = func(string) Credentials { return Credentials{} }
+	resolved, personal, err := c.ForActingUser("u1", "github", "p1")
+	if err != nil || personal {
+		t.Fatalf("%v %v", personal, err)
+	}
+	if resolved == c || c.actingUser != "" || resolved.actingUser != "u1" {
+		t.Fatalf("the shared client was marked: shared %q resolved %q", c.actingUser, resolved.actingUser)
 	}
 }
 

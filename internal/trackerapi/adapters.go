@@ -75,16 +75,18 @@ func (g *GithubAdapter) IssuePullRequests(ctx context.Context, req tracker.Issue
 
 // forProject is the client to run one request with: the same one when nothing is
 // stored, one carrying the project's own connection parameters otherwise, and
-// the acting person's own token where they stored one — a GitHub comment is
-// attributed to the account behind the token just as a Jira one is.
+// the acting person's own token where they stored one: a GitHub comment is
+// attributed to the account behind the token just as a Jira one is. A request
+// nobody made, the synchronisation, carries no acting person and so always gets
+// the server credential (#464).
 //
 // A personal token that cannot be resolved refuses the call, as on Jira: a
 // sealed token nobody unlocked is not an absence, and reading or writing under
 // the server token then would put on the work, and on its activity, the name of
 // somebody whose credential was never used (ADR 0018).
 //
-// Unlike Jira, a person who stored no GitHub token at all keeps the project or
-// server token rather than being refused: a shared GitHub token is how
+// Unlike Jira, a person who stored no GitHub token at all keeps the server
+// token rather than being refused: a shared GitHub token is how
 // deployments run today, and taking that away would stop work that has nothing
 // to do with attribution. The project, too, is read from the context when the
 // request carries none, for the writes that take a key and nothing else.

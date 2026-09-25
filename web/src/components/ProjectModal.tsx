@@ -201,11 +201,10 @@ export const ProjectModal: React.FC = () => {
     void refreshUserCredentials()
   }, [refreshUserCredentials])
   const [githubRepo, setGithubRepo] = useState('')
-  // Paramètres de connexion propres au projet. Vides, ce sont ceux de la
-  // configuration utilisateur qui s'appliquent : un projet n'en a besoin que
-  // pour joindre une autre instance, ou une même instance avec un autre compte.
+  // The project's own instance URL. Empty, the user configuration applies. A
+  // project carries no token: the server credential of its provider serves
+  // every project (#464).
   const [githubApiUrl, setGithubApiUrl] = useState('')
-  const [githubToken, setGithubToken] = useState('')
   const [jiraProject, setJiraProject] = useState('')
   const [roadmapProjects, setRoadmapProjects] = useState('')
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
@@ -280,7 +279,6 @@ export const ProjectModal: React.FC = () => {
       setGithubApiUrl(editingProject.githubApiUrl || '')
       // Le jeton n'est jamais renvoyé : le champ reste vide et le laisser vide
       // conserve celui qui est enregistré.
-      setGithubToken('')
       setJiraProject(editingProject.jiraProject || '')
       setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
       setIssueTypes(editingProject.issueTypes || [])
@@ -453,7 +451,6 @@ export const ProjectModal: React.FC = () => {
         trackerUrl: trackerUrl.trim(),
         githubRepo: computedGithubRepo,
         githubApiUrl: githubApiUrl.trim(),
-        githubToken: githubToken.trim(),
         jiraProject: jiraProject.trim().toUpperCase(),
         roadmapProjects: issueTracker === 'jira' ? parseProjectKeyList(roadmapProjects, jiraProject) : [],
         issueTypes,
@@ -1287,28 +1284,6 @@ export const ProjectModal: React.FC = () => {
                         value={githubApiUrl}
                         onChange={e => setGithubApiUrl(e.target.value)}
                         placeholder="Celle de la configuration utilisateur"
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
-                  </div>
-                )}
-
-                {issueTracker === 'github' && (
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Jeton GitHub (optionnel)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="password"
-                        value={githubToken}
-                        onChange={e => setGithubToken(e.target.value)}
-                        placeholder={
-                          editingProject?.githubTokenSet
-                            ? 'Déjà configuré, laissez vide pour le garder'
-                            : 'Celui de la configuration utilisateur'
-                        }
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
