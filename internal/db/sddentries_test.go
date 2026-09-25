@@ -152,20 +152,3 @@ func TestDescribeAttachedCountsOnlyAttached(t *testing.T) {
 		t.Fatalf("mention au pluriel attendue")
 	}
 }
-
-// The specifications repository is the declared one, else the code
-// repository; blanks are an absence, not a path.
-func TestMacroSpecRepoPathPrefersTheSpecificationsRepository(t *testing.T) {
-	if got := macroSpecRepoPath(&models.Project{RepoPath: " /code "}); got != "/code" {
-		t.Fatalf("expected /code, got %q", got)
-	}
-	if got := macroSpecRepoPath(&models.Project{RepoPath: "/code", SpecRepoPath: " /wiki "}); got != "/wiki" {
-		t.Fatalf("expected /wiki, got %q", got)
-	}
-	if got := macroSpecRepoPath(&models.Project{RepoPath: "/code", SpecRepoPath: "  "}); got != "/code" {
-		t.Fatalf("a blank specifications path must fall back to the code repository, got %q", got)
-	}
-	if got := macroSpecRepoPath(nil); got != "" {
-		t.Fatalf("expected an empty path for a missing project, got %q", got)
-	}
-}

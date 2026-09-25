@@ -1,14 +1,18 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/sddfiles"
 )
 
 // Un tasks.md tel qu'une spécification l'écrit : des groupes numérotés, et sous
@@ -119,87 +123,6 @@ func TestNormalisationDeLaSource(t *testing.T) {
 	}
 }
 
-// Le dossier est cherché par le préfixe de la clé, la casse étant ignorée : un
-// changement OpenSpec porte la clé en minuscules là où la branche la porte en
-// majuscules.
-func TestRechercheDuDossierParPrefixe(t *testing.T) {
-	repo := t.TempDir()
-	dir := filepath.Join(repo, "openspec", "changes", "pe-69-slicing-from-sdd")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("préparation : %v", err)
-	}
-
-	got, err := FindMacroSpecDir(repo, "openspec", "PE-69")
-	if err != nil {
-		t.Fatalf("dossier non trouvé : %v", err)
-	}
-	if got != dir {
-		t.Fatalf("attendu %q, obtenu %q", dir, got)
-	}
-}
-
-// Sous Spec Kit la racine est « specs » et non « openspec/changes » : le cadre
-// du projet décide où chercher.
-func TestRacineSelonLeCadreSDD(t *testing.T) {
-	repo := t.TempDir()
-	dir := filepath.Join(repo, "specs", "pe-70-speckit")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("préparation : %v", err)
-	}
-
-	if _, err := FindMacroSpecDir(repo, "speckit", "PE-70"); err != nil {
-		t.Fatalf("dossier non trouvé sous specs : %v", err)
-	}
-	if _, err := FindMacroSpecDir(repo, "openspec", "PE-70"); err == nil {
-		t.Fatal("un projet OpenSpec ne doit pas lire la racine de Spec Kit")
-	}
-}
-
-func TestDossierAbsentNommeLaCause(t *testing.T) {
-	repo := t.TempDir()
-	_, err := FindMacroSpecDir(repo, "openspec", "PE-69")
-	if err == nil {
-		t.Fatal("un dossier absent doit être dit")
-	}
-	if !strings.Contains(err.Error(), "PE-69") || !strings.Contains(err.Error(), "branche") {
-		t.Fatalf("le refus doit nommer la macro et suggérer la branche : %v", err)
-	}
-}
-
-func TestSansDepotConfigure(t *testing.T) {
-	_, err := FindMacroSpecDir("", "openspec", "PE-69")
-	if err == nil {
-		t.Fatal("un projet sans dépôt doit être dit")
-	}
-	if !strings.Contains(err.Error(), "dépôt") {
-		t.Fatalf("le refus doit nommer le dépôt manquant : %v", err)
-	}
-}
-
-// Deux dossiers pour la même clé : le plus récemment modifié gagne.
-func TestDeuxDossiersLePlusRecentGagne(t *testing.T) {
-	repo := t.TempDir()
-	root := filepath.Join(repo, "openspec", "changes")
-	ancien := filepath.Join(root, "pe-69-abandonne")
-	recent := filepath.Join(root, "pe-69-repris")
-	for _, dir := range []string{ancien, recent} {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatalf("préparation : %v", err)
-		}
-	}
-	if err := os.Chtimes(ancien, sddTime0(), sddTime0()); err != nil {
-		t.Fatalf("préparation : %v", err)
-	}
-
-	got, err := FindMacroSpecDir(repo, "openspec", "pe-69")
-	if err != nil {
-		t.Fatalf("dossier non trouvé : %v", err)
-	}
-	if got != recent {
-		t.Fatalf("le dossier repris était attendu, obtenu %q", got)
-	}
-}
-
 func sddProject(t *testing.T, framework string) (*DB, *models.Project, string) {
 	t.Helper()
 	database, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
@@ -223,7 +146,24 @@ func sddProject(t *testing.T, framework string) (*DB, *models.Project, string) {
 	if err != nil || updated == nil {
 		t.Fatalf("cadre SDD : %v", err)
 	}
+	database.SetAgentOperations(localSpecReader(repo))
 	return database, updated, repo
+}
+
+// localSpecReader stands for the local agent: it answers macro_spec_file from
+// a folder of the test, the way the agent answers from the workstation's
+// specifications folder.
+func localSpecReader(folder string) AgentOperations {
+	return func(ctx context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		if op.Action != "macro_spec_file" {
+			return nil, fmt.Errorf("unexpected operation %q", op.Action)
+		}
+		content, origin, err := sddfiles.Read(ctx, folder, op.Framework, op.MacroKey, op.SpecFile)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(agentprotocol.MacroSpecFile{Content: content, Origin: origin})
+	}
 }
 
 // seedMacro fait connaître la macro au projet, comme la synchro le fait : le
@@ -255,7 +195,7 @@ func TestDecoupeDepuisLesGroupesDeTaches(t *testing.T) {
 	writeSpecDir(t, repo, "openspec/changes", "pe-440-cloudprober", map[string]string{"tasks.md": tasksFile})
 	seedMacro(t, database, proj.ID, "PE-440")
 
-	meta, origin, err := database.TodosFromSDD(proj.ID, "PE-440", SlicingFromTasks)
+	meta, origin, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-440", SlicingFromTasks)
 	if err != nil {
 		t.Fatalf("production : %v", err)
 	}
@@ -287,7 +227,7 @@ func TestDecoupeDepuisLesExigences(t *testing.T) {
 	writeSpecDir(t, repo, "openspec/changes", "pe-441-roadmap", map[string]string{"spec.md": specFile})
 	seedMacro(t, database, proj.ID, "PE-441")
 
-	meta, _, err := database.TodosFromSDD(proj.ID, "PE-441", SlicingFromSpec)
+	meta, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-441", SlicingFromSpec)
 	if err != nil {
 		t.Fatalf("production : %v", err)
 	}
@@ -305,7 +245,7 @@ func TestSourceAbsenteDuDossier(t *testing.T) {
 	database, proj, repo := sddProject(t, "openspec")
 	writeSpecDir(t, repo, "openspec/changes", "pe-442-sans-taches", map[string]string{"spec.md": specFile})
 
-	_, _, err := database.TodosFromSDD(proj.ID, "PE-442", SlicingFromTasks)
+	_, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-442", SlicingFromTasks)
 	if err == nil {
 		t.Fatal("l'absence du fichier de la source doit être dite")
 	}
@@ -318,7 +258,7 @@ func TestFichierSansRienDeReconnaissable(t *testing.T) {
 	database, proj, repo := sddProject(t, "openspec")
 	writeSpecDir(t, repo, "openspec/changes", "pe-443-vide", map[string]string{"tasks.md": "Du texte sans aucun titre de groupe.\n"})
 
-	_, _, err := database.TodosFromSDD(proj.ID, "PE-443", SlicingFromTasks)
+	_, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-443", SlicingFromTasks)
 	if err == nil {
 		t.Fatal("un fichier sans section doit être dit")
 	}
@@ -334,7 +274,7 @@ func TestLignesValideesConserveesEtLigneManuelleGardee(t *testing.T) {
 	writeSpecDir(t, repo, "openspec/changes", "pe-444-merge", map[string]string{"tasks.md": tasksFile})
 	seedMacro(t, database, proj.ID, "PE-444")
 
-	first, _, err := database.TodosFromSDD(proj.ID, "PE-444", SlicingFromTasks)
+	first, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-444", SlicingFromTasks)
 	if err != nil {
 		t.Fatalf("première production : %v", err)
 	}
@@ -348,7 +288,7 @@ func TestLignesValideesConserveesEtLigneManuelleGardee(t *testing.T) {
 		t.Fatalf("validation : %v", err)
 	}
 
-	second, _, err := database.TodosFromSDD(proj.ID, "PE-444", SlicingFromTasks)
+	second, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-444", SlicingFromTasks)
 	if err != nil {
 		t.Fatalf("seconde production : %v", err)
 	}
@@ -377,7 +317,7 @@ func TestInsertionEnTeteNeDecalePasLesStories(t *testing.T) {
 	writeSpecDir(t, repo, "openspec/changes", "pe-447-ordre", map[string]string{"tasks.md": tasksFile})
 	seedMacro(t, database, proj.ID, "PE-447")
 
-	first, _, err := database.TodosFromSDD(proj.ID, "PE-447", SlicingFromTasks)
+	first, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-447", SlicingFromTasks)
 	if err != nil {
 		t.Fatalf("première production : %v", err)
 	}
@@ -395,7 +335,7 @@ func TestInsertionEnTeteNeDecalePasLesStories(t *testing.T) {
 			"## 1. ", "## 2. ", 1), "## 2. ", "## 3. ", 1), "## 3. ", "## 4. ", 1)
 	writeSpecDir(t, repo, "openspec/changes", "pe-447-ordre", map[string]string{"tasks.md": renumbered})
 
-	second, _, err := database.TodosFromSDD(proj.ID, "PE-447", SlicingFromTasks)
+	second, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-447", SlicingFromTasks)
 	if err != nil {
 		t.Fatalf("seconde production : %v", err)
 	}
@@ -421,71 +361,16 @@ func TestLesDeuxSourcesSeCumulent(t *testing.T) {
 	})
 	seedMacro(t, database, proj.ID, "PE-445")
 
-	if _, _, err := database.TodosFromSDD(proj.ID, "PE-445", SlicingFromTasks); err != nil {
+	if _, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-445", SlicingFromTasks); err != nil {
 		t.Fatalf("production depuis les tâches : %v", err)
 	}
-	meta, _, err := database.TodosFromSDD(proj.ID, "PE-445", SlicingFromSpec)
+	meta, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-445", SlicingFromSpec)
 	if err != nil {
 		t.Fatalf("production depuis les exigences : %v", err)
 	}
 	if len(meta.Todos) != 5 {
 		t.Fatalf("trois groupes plus deux exigences attendus, obtenu %d : %v", len(meta.Todos), meta.Todos)
 	}
-}
-
-// Le repli sur la branche : la spécification n'est pas dans l'arbre de travail,
-// mais elle existe sur la branche de la macro. Produire depuis main doit marcher,
-// sans quoi le geste ne servirait qu'après la fusion, trop tard pour découper.
-func TestRepliSurLaBrancheDeLaMacro(t *testing.T) {
-	database, proj, repo := sddProject(t, "openspec")
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git absent")
-	}
-
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = repo
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v : %v (%s)", args, err, out)
-		}
-	}
-	run("init", "-q", "-b", "main")
-	run("config", "user.email", "test@example.com")
-	run("config", "user.name", "Test")
-	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("essai\n"), 0o644); err != nil {
-		t.Fatalf("préparation : %v", err)
-	}
-	run("add", "README.md")
-	run("commit", "-qm", "premier")
-
-	run("checkout", "-q", "-b", "PE-446-sur-la-branche")
-	writeSpecDir(t, repo, "openspec/changes", "pe-446-sur-la-branche", map[string]string{"tasks.md": tasksFile})
-	seedMacro(t, database, proj.ID, "PE-446")
-	run("add", ".")
-	run("commit", "-qm", "spec")
-	run("checkout", "-q", "main")
-
-	// L'arbre de travail est revenu sur main : le dossier n'y est plus.
-	if _, err := os.Stat(filepath.Join(repo, "openspec", "changes", "pe-446-sur-la-branche")); !os.IsNotExist(err) {
-		t.Fatalf("le dossier ne devait plus être dans l'arbre de travail : %v", err)
-	}
-
-	meta, origin, err := database.TodosFromSDD(proj.ID, "PE-446", SlicingFromTasks)
-	if err != nil {
-		t.Fatalf("le repli sur la branche devait marcher : %v", err)
-	}
-	if len(meta.Todos) != 3 {
-		t.Fatalf("trois lignes attendues, obtenu %d", len(meta.Todos))
-	}
-	if !strings.Contains(origin, "PE-446-sur-la-branche") {
-		t.Fatalf("l'origine doit nommer la branche lue, obtenu %q", origin)
-	}
-}
-
-// sddTime0 rend une date ancienne, pour vieillir un dossier dans un test.
-func sddTime0() time.Time {
-	return time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 }
 
 // seedStory attache un ticket à une macro, comme la synchro le fait.
@@ -603,44 +488,46 @@ func TestRepriseSansTicketLeDit(t *testing.T) {
 	}
 }
 
-// A declared specifications repository is where the slicing is read, and the
-// code repository is not looked at, even when it carries a folder of its own.
-func TestSlicingReadsTheSpecificationsRepository(t *testing.T) {
-	database, proj, code := sddProject(t, "openspec")
-	writeSpecDir(t, code, "openspec/changes", "pe-450-in-code", map[string]string{"tasks.md": "## 1. From the code repository\n"})
-	wiki := t.TempDir()
-	writeSpecDir(t, wiki, "openspec/changes", "pe-450-in-wiki", map[string]string{"tasks.md": tasksFile})
-	seedMacro(t, database, proj.ID, "PE-450")
+// The import asks the requesting user's agent for the file of the chosen
+// source, with the project's framework, and only the read moves there.
+func TestSlicingAsksTheRequestingUsersAgent(t *testing.T) {
+	database, proj, _ := sddProject(t, "speckit")
+	seedMacro(t, database, proj.ID, "PE-451")
+	var asked agentprotocol.Operation
+	database.SetAgentOperations(func(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+		asked = op
+		return json.Marshal(agentprotocol.MacroSpecFile{Content: specFile, Origin: "/home/me/specs/PE-451-x/spec.md"})
+	})
 
-	if _, err := database.UpdateProject(proj.ID, models.UpdateProjectRequest{SpecRepoPath: &wiki}); err != nil {
-		t.Fatalf("declaring the specifications repository: %v", err)
-	}
-	meta, origin, err := database.TodosFromSDD(proj.ID, "PE-450", SlicingFromTasks)
+	meta, origin, err := database.TodosFromSDD(context.Background(), "user-1", proj.ID, "PE-451", SlicingFromSpec)
 	if err != nil {
 		t.Fatalf("slicing: %v", err)
 	}
-	if len(meta.Todos) != 3 {
-		t.Fatalf("expected the three groups of the wiki, got %v", meta.Todos)
+	if asked.Action != "macro_spec_file" || asked.UserID != "user-1" || asked.ProjectID != proj.ID || asked.MacroKey != "PE-451" ||
+		asked.Framework != "speckit" || asked.SpecFile != "spec.md" {
+		t.Fatalf("unexpected operation %+v", asked)
 	}
-	if !strings.Contains(origin, "pe-450-in-wiki") {
-		t.Fatalf("the origin must name the wiki folder, got %q", origin)
-	}
-
-	// Clearing the setting restores the code repository.
-	empty := ""
-	updated, err := database.UpdateProject(proj.ID, models.UpdateProjectRequest{SpecRepoPath: &empty})
-	if err != nil || updated.SpecRepoPath != "" {
-		t.Fatalf("clearing the specifications repository: %v, %+v", err, updated)
-	}
-	if updated.RepoPath != code {
-		t.Fatalf("the code repository must be untouched, got %q", updated.RepoPath)
+	if len(meta.Todos) != 2 || !strings.HasPrefix(origin, "/home/me/specs/PE-451-x/spec.md") {
+		t.Fatalf("the agent's content must be parsed and its origin shown: %v %q", meta.Todos, origin)
 	}
 }
 
-// The refusal says where the specifications repository is declared.
-func TestMissingSpecFolderNamesTheSetting(t *testing.T) {
-	_, err := FindMacroSpecDir(t.TempDir(), "speckit", "PE-70")
-	if err == nil || !strings.Contains(err.Error(), "Dépôt des spécifications") {
-		t.Fatalf("the refusal must name the option, got %v", err)
+// The agent's failures reach the caller unchanged, so the handler can tell a
+// missing or outdated agent from a refusal, and nothing is saved.
+func TestSlicingReturnsTheAgentFailure(t *testing.T) {
+	database, proj, _ := sddProject(t, "speckit")
+	seedMacro(t, database, proj.ID, "PE-452")
+	for _, failure := range []error{
+		errors.New(`local agent: unknown local operation "macro_spec_file"`),
+		errors.New("no local agent connected for project p"),
+	} {
+		database.SetAgentOperations(func(context.Context, agentprotocol.Operation) (json.RawMessage, error) { return nil, failure })
+		if _, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-452", SlicingFromTasks); err == nil || err.Error() != failure.Error() {
+			t.Fatalf("expected %v, got %v", failure, err)
+		}
+	}
+	meta, err := database.macroMetaByKey(proj.ID, "PE-452")
+	if err != nil || len(meta.Todos) != 0 {
+		t.Fatalf("nothing must be saved on failure: %v %v", meta, err)
 	}
 }

@@ -4,3 +4,4 @@
 - Do not write the macro's todos. They are your input, and the call that writes them replaces the whole list.
 - Do not create stories, and do not open a pull request.
 - Do not switch a checkout's branch, and do not write on the default branch.
+- On a plain folder (empty `branch`), do not run `git`: no branch check, no commit, no push.

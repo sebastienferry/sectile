@@ -35,7 +35,6 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE server_instances DROP COLUMN address")
 	_, _ = d.conn.Exec("DROP INDEX idx_activities_one_active_run")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN concurrent")
-	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_repo_path")
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro_running")
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
@@ -300,7 +299,6 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	_, _ = d.conn.Exec("DROP TABLE agent_presence")
 	_, _ = d.conn.Exec("DROP INDEX idx_activities_one_active_run")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN concurrent")
-	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN spec_repo_path")
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro_running")
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
@@ -323,5 +321,39 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	}
 	if !slices.ContainsFunc(projects, func(p models.Project) bool { return p.ID == "p1" }) {
 		t.Fatalf("the seeded project did not survive: %d project(s) read, none of them p1", len(projects))
+	}
+}
+
+// A database from before #443 carries a server specifications path. The
+// upgrade drops the column with its values, which named a directory on the
+// server, and the project reads back without it.
+func TestMigrationSixteenDropsTheServerSpecificationsPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "spec.db")
+	d, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("creating the database: %v", err)
+	}
+	for _, stmt := range []string{
+		"ALTER TABLE projects ADD COLUMN spec_repo_path TEXT NOT NULL DEFAULT ''",
+		`INSERT INTO projects (id, name, slug, spec_repo_path) VALUES ('p1', 'Kept', 'kept', '/server/wiki')`,
+		"DELETE FROM schema_migrations WHERE version >= 16",
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
+	d.Close()
+
+	reopened, err := NewDB(path)
+	if err != nil {
+		t.Fatalf("upgrading: %v", err)
+	}
+	defer reopened.Close()
+	if _, err := reopened.conn.Exec("SELECT spec_repo_path FROM projects"); err == nil {
+		t.Fatal("the column must be gone")
+	}
+	project, err := reopened.GetProjectByID("p1")
+	if err != nil || project == nil || project.Name != "Kept" {
+		t.Fatalf("the project must survive the upgrade: %+v %v", project, err)
 	}
 }

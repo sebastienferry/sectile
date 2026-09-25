@@ -188,3 +188,21 @@ func TestSettingsTerminalAndTerminalsRoundTrip(t *testing.T) {
 		t.Fatalf("expected Terminal 'ghostty', got %q", reloaded.Terminal)
 	}
 }
+
+// Removing the last specifications folder must reach the file: an emptied map
+// is omitted from the JSON, and the file's copy used to survive the write.
+func TestSettingsSpecReposClearTheLastEntry(t *testing.T) {
+	testhome.Temp(t)
+	if err := WriteSettings(Overrides{SpecRepos: map[string]string{"p": "/specs"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadSettings(t.TempDir()); err != nil || got.SpecRepos["p"] != "/specs" {
+		t.Fatalf("the folder must be stored: %v %v", got.SpecRepos, err)
+	}
+	if err := WriteSettings(Overrides{SpecRepos: map[string]string{}}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadSettings(t.TempDir()); err != nil || len(got.SpecRepos) != 0 {
+		t.Fatalf("the folder must be removed: %v %v", got.SpecRepos, err)
+	}
+}

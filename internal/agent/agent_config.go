@@ -248,6 +248,15 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	for id, content := range overrides.Skills {
 		local.Skills[id] = content
 	}
+	// The specifications folder is saved in the workstation settings only:
+	// leaving it out here made the desktop setting invisible to every macro
+	// operation.
+	if local.SpecRepos == nil {
+		local.SpecRepos = map[string]string{}
+	}
+	for id, folder := range overrides.SpecRepos {
+		local.SpecRepos[id] = folder
+	}
 	return root, local, nil
 }
 

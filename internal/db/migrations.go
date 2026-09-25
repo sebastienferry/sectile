@@ -286,6 +286,16 @@ var migrations = []migration{
 			"ALTER TABLE web_sessions ADD COLUMN last_seen_at DATETIME;",
 		},
 	},
+	{
+		// The specifications folder became a workstation setting (#443): the
+		// server column named a directory on the server, which nothing reads
+		// any more. Its values are discarded, not carried to any workstation.
+		version: 16,
+		name:    "projects.drop_spec_repo_path",
+		statements: []string{
+			"ALTER TABLE projects DROP COLUMN spec_repo_path;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

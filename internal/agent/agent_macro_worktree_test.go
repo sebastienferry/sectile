@@ -246,8 +246,26 @@ func TestMacroWorktreeOffUsesTheCheckout(t *testing.T) {
 	}
 }
 
-func TestMacroWorktreeRefusesANonGitPath(t *testing.T) {
+// A plain folder is used in place: no branch, no worktree, nothing created,
+// and a warning that nothing will be committed.
+func TestMacroWorktreeUsesAPlainFolderInPlace(t *testing.T) {
 	dir := t.TempDir()
+	for _, useWorktrees := range []bool{true, false} {
+		ws, err := ensureMacroWorktree(context.Background(), dir, "M-7", "Ux", useWorktrees)
+		if err != nil {
+			t.Fatalf("a plain folder must be accepted: %v", err)
+		}
+		if ws.Path != dir || ws.Branch != "" || ws.Worktree || !strings.Contains(ws.Warning, "pas un dépôt Git") {
+			t.Fatalf("unexpected workspace %+v", ws)
+		}
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("nothing must be created in a plain folder, found %v", entries)
+	}
+}
+
+func TestMacroWorktreeRefusesAMissingPath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gone")
 	_, err := ensureMacroWorktree(context.Background(), dir, "M-7", "Ux", true)
 	if err == nil || !strings.Contains(err.Error(), dir) {
 		t.Fatalf("the refusal must name the path, got %v", err)

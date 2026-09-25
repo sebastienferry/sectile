@@ -9,16 +9,16 @@ import (
 
 // TestPostgresMacroWorkflowColumns runs #426's storage on the engine that
 // enforces what SQLite does not: a macro run is a project activity whose
-// task_id is NULL (the column references tasks), and the two new project
-// columns round-trip.
+// task_id is NULL (the column references tasks), and the roadmap projects
+// column round-trips.
 func TestPostgresMacroWorkflowColumns(t *testing.T) {
 	d := openPostgres(t)
-	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Platform", Slug: "platform-pg", IssueTracker: "jira", JiraProject: "PE", SpecRepoPath: " /wiki ", RoadmapProjects: []string{"abc, def"}})
+	project, err := d.CreateProject(models.CreateProjectRequest{Name: "Platform", Slug: "platform-pg", IssueTracker: "jira", JiraProject: "PE", RoadmapProjects: []string{"abc, def"}})
 	if err != nil {
 		t.Fatalf("project: %v", err)
 	}
-	if project.SpecRepoPath != "/wiki" || !reflect.DeepEqual(project.RoadmapProjects, []string{"ABC", "DEF"}) {
-		t.Fatalf("project columns: %q %v", project.SpecRepoPath, project.RoadmapProjects)
+	if !reflect.DeepEqual(project.RoadmapProjects, []string{"ABC", "DEF"}) {
+		t.Fatalf("project columns: %v", project.RoadmapProjects)
 	}
 	if _, err := d.SaveMacroMeta(project.ID, "PE-100", nil, nil, nil, nil); err != nil {
 		t.Fatal(err)

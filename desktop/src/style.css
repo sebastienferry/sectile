@@ -239,3 +239,4 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .mcp-option input[type="radio"] { width: auto; margin: 0; padding: 0; flex: 0 0 auto; accent-color: #62d3be; }
 .mcp-settings .hint { padding: 0; }
 .mcp-option pre { overflow-x: auto; font-size: 11px; padding: 8px; }
+.spec-kind{display:inline-block;margin-top:6px;color:#8494a9;font-size:11.5px}.spec-kind:empty{display:none}.spec-kind[data-kind=git]{color:#80e6ce}.spec-kind[data-kind=missing]{color:#ff9292}.setting-row.required .setting-text p{color:#ffb86b}.setting-row.required .repository-picker input{border-color:#b9793a}

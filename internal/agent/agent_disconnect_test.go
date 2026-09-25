@@ -32,7 +32,7 @@ func disconnectFixture(t *testing.T) (*agentDaemon, agentconfig.Config) {
 			t.Fatal(err)
 		}
 	}
-	settings := agentconfig.Overrides{Projects: map[string]string{"p": root, "other": "/other"}, Commands: map[string]string{"p": "custom {prompt}"}, Worktrees: map[string]bool{"p": true}, Parallelism: map[string]int{"p": 3}}
+	settings := agentconfig.Overrides{Projects: map[string]string{"p": root, "other": "/other"}, Commands: map[string]string{"p": "custom {prompt}"}, Worktrees: map[string]bool{"p": true}, Parallelism: map[string]int{"p": 3}, SpecRepos: map[string]string{"p": root, "other": "/other-specs"}}
 	if err := agentconfig.WriteSettings(settings); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestProjectDisconnectionPersistenceAndReadd(t *testing.T) {
 		}
 	}
 	settings, err := agentconfig.ReadSettings(d.repoRoot)
-	if err != nil || !settings.DisconnectedProjects["p"] || settings.Projects["p"] != "" || settings.Projects["other"] != "/other" || len(settings.Commands) != 0 || len(settings.Worktrees) != 0 || len(settings.Parallelism) != 0 {
+	if err != nil || !settings.DisconnectedProjects["p"] || settings.Projects["p"] != "" || settings.Projects["other"] != "/other" || len(settings.Commands) != 0 || len(settings.Worktrees) != 0 || len(settings.Parallelism) != 0 || settings.SpecRepos["p"] != "" || settings.SpecRepos["other"] != "/other-specs" {
 		t.Fatalf("settings: %+v %v", settings, err)
 	}
 	if len(d.queue.runs) != 1 {

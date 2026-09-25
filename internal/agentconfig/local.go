@@ -27,9 +27,10 @@ type Overrides struct {
 	Parallelism        map[string]int    `json:"parallelism,omitempty"`
 	Worktrees          map[string]bool   `json:"worktrees,omitempty"`
 	Projects           map[string]string `json:"projects"`
-	// SpecRepos maps a project to the local checkout carrying its
-	// specifications, when it is not the project's own repository. Like
-	// Projects it is workstation-owned: the server's path is never used here.
+	// SpecRepos maps a project to its specifications folder on this
+	// workstation, a Git checkout or a plain folder. Only overrides are
+	// stored: without one, a mono-repo project uses its code checkout and a
+	// multi-repo project has none. The server holds no such path.
 	SpecRepos                   map[string]string `json:"specRepos,omitempty"`
 	AIProviders                 map[string]string `json:"aiProviders,omitempty"`
 	AIModels                    map[string]string `json:"aiModels,omitempty"`

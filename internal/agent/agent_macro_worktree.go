@@ -40,18 +40,25 @@ func lockMacroRepository(repo string) func() {
 // "<KEY>-<slug>" started from the remote default branch, fetched first. An
 // existing tree is reused as it is, uncommitted work included: it is never
 // reset. With worktrees off, the checkout itself is returned with the macro
-// branch it should be on, and nothing is created.
+// branch it should be on, and nothing is created. A folder outside any Git
+// checkout is returned as it is, with no branch and a warning saying so.
 func ensureMacroWorktree(ctx context.Context, specRepo, macroKey, title string, useWorktrees bool) (macroWorkspace, error) {
 	specRepo = strings.TrimSpace(specRepo)
 	key := strings.ToUpper(strings.TrimSpace(macroKey))
 	if specRepo == "" {
-		return macroWorkspace{}, fmt.Errorf("aucun dépôt des spécifications configuré pour ce projet")
+		return macroWorkspace{}, fmt.Errorf("aucun dossier des spécifications configuré pour ce projet")
 	}
 	if key == "" || key == "." || key == ".." || strings.ContainsAny(key, "/\\") {
 		return macroWorkspace{}, fmt.Errorf("clé de macro invalide : %q", macroKey)
 	}
+	if info, err := os.Stat(specRepo); err != nil || !info.IsDir() {
+		return macroWorkspace{}, fmt.Errorf("le dossier des spécifications %s est introuvable", specRepo)
+	}
 	if _, err := gitLocal(ctx, specRepo, "rev-parse", "--git-dir"); err != nil {
-		return macroWorkspace{}, fmt.Errorf("le dépôt des spécifications %s n'est pas un checkout Git", specRepo)
+		// A plain folder is written in place: there is no branch to be on and
+		// nothing to commit, and saying so keeps the skill from trying.
+		return macroWorkspace{Path: specRepo, Branch: "", Worktree: false,
+			Warning: specRepo + " n'est pas un dépôt Git : la spécification est écrite directement dans ce dossier, sans branche, sans commit ni push"}, nil
 	}
 	unlock := lockMacroRepository(specRepo)
 	defer unlock()

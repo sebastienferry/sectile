@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,25 +14,35 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/sddfiles"
 )
 
-// localSpecRepo is the local checkout carrying a project's specifications: the
-// workstation's own mapping when there is one, else the project's checkout.
-// The server's specifications path is never read here, for the same reason
-// its repository path is not: it names a directory on another machine.
-func localSpecRepo(overrides agentconfig.Overrides, projectID, root string) (string, error) {
+// localSpecRepo is the folder carrying a project's specifications on this
+// workstation: the workstation's own override when there is one; else, on a
+// mono-repo project, the project's checkout; else none, and the refusal names
+// the setting. The server holds no specifications path: it would name a
+// directory on another machine.
+func localSpecRepo(overrides agentconfig.Overrides, projectID, root string, monoRepo bool) (string, error) {
 	mapped := strings.TrimSpace(overrides.SpecRepos[projectID])
 	if mapped == "" {
+		if !monoRepo {
+			return "", errNoSpecFolder
+		}
 		return root, nil
 	}
 	if !filepath.IsAbs(mapped) {
 		mapped = filepath.Join(root, mapped)
 	}
 	if _, err := os.Stat(mapped); err != nil {
-		return "", fmt.Errorf("le dépôt des spécifications %s déclaré sur ce poste est introuvable", mapped)
+		return "", fmt.Errorf("le dossier des spécifications %s déclaré sur ce poste est introuvable", mapped)
 	}
 	return mapped, nil
 }
+
+// errNoSpecFolder refuses a macro operation on a multi-repo project whose
+// specifications folder is not set: falling back on the code checkout would
+// write the specification in the wrong repository without a word.
+var errNoSpecFolder = errors.New("Aucun dossier des spécifications déclaré sur ce poste pour ce projet multi-dépôt : renseignez « Specifications folder » dans les réglages du projet de l'app desktop.")
 
 // handleMacroDispatch runs a macro-scoped skill. It follows a task dispatch
 // where it can (admission, queue slot, skills, MCP, supervised console) and
@@ -187,7 +198,7 @@ func (d *agentDaemon) prepareMacroSkills(ctx context.Context, config agentconfig
 	if err := d.bootstrapLocalMCP(&config); err != nil {
 		return config, "", "", err
 	}
-	spec, err := localSpecRepo(overrides, config.ProjectID, root)
+	spec, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())
 	return config, root, spec, err
 }
 
@@ -205,11 +216,39 @@ func (d *agentDaemon) macroWorkspaceFor(ctx context.Context, projectID, macroKey
 		return macroWorkspace{}, err
 	}
 	config = agentconfig.ApplyOverrides(config, overrides)
-	spec, err := localSpecRepo(overrides, config.ProjectID, root)
+	spec, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())
 	if err != nil {
 		return macroWorkspace{}, err
 	}
 	return ensureMacroWorktree(ctx, spec, macroKey, title, config.UseWorktrees)
+}
+
+// macroSpecFileFor answers the macro_spec_file operation: the server's
+// slicing import reads the macro's specification in this workstation's
+// specifications folder, since the server's disk holds none.
+func (d *agentDaemon) macroSpecFileFor(ctx context.Context, projectID, macroKey, framework, fileName string) (agentprotocol.MacroSpecFile, error) {
+	config, err := d.fetchConfig(ctx, projectID, "")
+	if err != nil {
+		return agentprotocol.MacroSpecFile{}, err
+	}
+	d.prepareMu.Lock()
+	root, overrides, err := d.localProjectRoot(ctx, config)
+	d.prepareMu.Unlock()
+	if err != nil {
+		return agentprotocol.MacroSpecFile{}, err
+	}
+	folder, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())
+	if err != nil {
+		return agentprotocol.MacroSpecFile{}, err
+	}
+	if strings.TrimSpace(framework) == "" {
+		framework = config.SpecFramework
+	}
+	content, origin, err := sddfiles.Read(ctx, folder, framework, macroKey, fileName)
+	if err != nil {
+		return agentprotocol.MacroSpecFile{}, err
+	}
+	return agentprotocol.MacroSpecFile{Content: content, Origin: origin}, nil
 }
 
 // macroRunIdentity is what reporting a macro run's end needs.

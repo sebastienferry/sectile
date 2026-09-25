@@ -29,6 +29,7 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `aiSkillModels` | Optional `skillId -> model` map for the skills that depart from `aiModel`. An absent or empty entry inherits; it never means "no model". Entries naming no configured skill are ignored. |
 | `externalTerminalCommand` | Terminal application/launcher selection. No silent fallback to a hidden PTY after launch failure. |
 | `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. |
+| `monoRepo` | Optional repository layout. `true` lets the code checkout carry the macro specifications when no specifications folder is set on the workstation; `false` requires that folder for every macro operation. Absent (an older server) reads as `true`. |
 
 An explicit project connection downloads, validates and installs configuration
 before registering its WebSocket. Every dispatch downloads it again, even when
@@ -137,8 +138,10 @@ message and no task: `taskId`, `taskKey` and the envelope's `taskId` are empty,
 The agent runs it interactively in the project's mapped checkout, after
 preparing the macro worktree (below), with `SECTILE_MACRO_KEY`,
 `SECTILE_MACRO_PROJECT_ID`, `SECTILE_SPEC_REPO`, `SECTILE_SPEC_BRANCH` and
-`SECTILE_SPEC_WORKTREE` in its environment and every `SECTILE_TASK_*` empty. It
-reads no task and records no branch. An agent that predates `macroKey` refuses
+`SECTILE_SPEC_WORKTREE` in its environment and every `SECTILE_TASK_*` empty. On
+a specifications folder that is not a Git repository, `SECTILE_SPEC_BRANCH` is
+empty and `SECTILE_SPEC_WORKTREE` is `false`. It reads no task and records no
+branch. An agent that predates `macroKey` refuses
 the dispatch as a task dispatch without a task.
 
 `step_status` correlates with `msgId` and reports `running`, `completed` or
@@ -212,17 +215,34 @@ Without `origin` in the task checkout, the lookup fails with
 
 `macro_worktree` (`payload.macroKey`, `payload.macroTitle`, no task) prepares a
 macro's specification checkout on the workstation and answers
-`{"path", "branch", "worktree", "warning"}`. The specifications repository is the
-workstation's own mapping for the project (`specRepos` in the local settings,
-edited in the desktop project dialog), else the project's mapped checkout; the
-server's specifications path is never used there. The worktree is
+`{"path", "branch", "worktree", "warning"}`. The specifications folder is the
+workstation's own setting for the project (`specRepos` in the local settings,
+edited as "Specifications folder" in the desktop project dialog), else, on a
+mono-repo project, the project's mapped checkout; a multi-repo project without
+one is refused with a message naming the setting. The server holds no
+specifications path (#443). On a Git folder the worktree is
 `.tasks/worktrees/<KEY>` in that repository, on the existing branch named after
 the key or a new `<KEY>-<slug>` from the fetched default branch; an existing tree
 is reused as is. With worktrees off, the checkout itself is returned with
-`worktree: false` and nothing is created. The server adds `projectId`,
-`macroKey` and the macro's `todos` when it relays the answer through the
-`prepare_macro_worktree` MCP tool, so a skill invoked by hand, which holds no API
-token, reads its input from the same call.
+`worktree: false` and nothing is created. On a folder outside any Git checkout,
+nothing is created either: the answer is the folder itself, an empty `branch`,
+`worktree: false` and a `warning` saying nothing will be committed or pushed.
+The server adds `projectId`, `macroKey` and the macro's `todos` when it relays
+the answer through the `prepare_macro_worktree` MCP tool, so a skill invoked by
+hand, which holds no API token, reads its input from the same call.
+
+`macro_spec_file` (`payload.macroKey`, `payload.framework`, `payload.specFile`,
+no task) reads one file of a macro's specification for the server's slicing
+import: `specFile` is `tasks.md` or `spec.md`, looked for under `specs/` (or
+`openspec/changes/` for OpenSpec) in the same specifications folder as
+`macro_worktree`, in a folder named after the key. The working tree is read
+first; on a Git folder only, the macro's branch is read when the working tree
+does not carry the folder. It answers `{"content", "origin"}`, `origin` being
+the path read or `<branch>:<path>`. Refusals are written for the user, in
+French, and shown as they are. An agent that predates the action answers
+`unknown local operation "macro_spec_file"`, which the server turns into a
+request to update the desktop app; no agent connected for the requesting user
+is likewise reported as the desktop app to connect.
 
 A macro run is stopped with `POST /api/projects/{id}/macros/{key}/cancel-run`
 `{runId, force}`, which dispatches `cancel_run` with no task to the owner's agent,

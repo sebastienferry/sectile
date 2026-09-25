@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
@@ -41,7 +42,7 @@ func TestSlicingAttachesDeclaredRoadmapKeys(t *testing.T) {
 	writeSpecDir(t, repo, "specs", "PE-460-roadmap", map[string]string{"tasks.md": "## 1. ABC-12 Do the thing\n\n## 2. XYZ-3 Not declared\n\n## 3. PE-4 Our own\n"})
 	seedMacro(t, database, proj.ID, "PE-460")
 
-	meta, _, err := database.TodosFromSDD(proj.ID, "PE-460", SlicingFromTasks)
+	meta, _, err := database.TodosFromSDD(context.Background(), "", proj.ID, "PE-460", SlicingFromTasks)
 	if err != nil {
 		t.Fatalf("slicing: %v", err)
 	}
