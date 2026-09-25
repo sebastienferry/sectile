@@ -90,9 +90,14 @@ type TrackerOp struct {
 	// SprintID sends the work items back to the backlog.
 	SprintID   string
 	SprintName string
-	// UserID is who asked for the operation, recorded on its activity. Empty
-	// when the caller has no identity, as for a job the server queues itself.
+	// UserID is who asked for the operation, recorded on its activity, and
+	// whose credential the write goes out with.
 	UserID string
+	// Unattended says the operation was queued by work nobody asked for, the
+	// only kind allowed to write with the server credential. It is taken from
+	// the enqueuing context, never guessed from an empty UserID: an operation
+	// that names neither fails instead of being signed by the server (#482).
+	Unattended bool
 }
 
 // EnqueueTrackerOp records the activity and hands the write to the worker. The
@@ -100,6 +105,7 @@ type TrackerOp struct {
 // yet.
 func (d *DB) EnqueueTrackerOp(ctx context.Context, op TrackerOp) (*models.TaskActivity, error) {
 	op.UserID = actingUserFor(ctx, op.UserID)
+	op.Unattended = op.UserID == "" && (op.Unattended || tracker.Unattended(ctx))
 	act, job, err := buildTrackerOpJob(op)
 	if err != nil {
 		return nil, err
@@ -121,6 +127,7 @@ func (d *DB) EnqueueTrackerOp(ctx context.Context, op TrackerOp) (*models.TaskAc
 // write in the same critical section.
 func (d *DB) enqueueTrackerOpUnsafe(ctx context.Context, op TrackerOp) (*models.TaskActivity, error) {
 	op.UserID = actingUserFor(ctx, op.UserID)
+	op.Unattended = op.UserID == "" && (op.Unattended || tracker.Unattended(ctx))
 	act, job, err := buildTrackerOpJob(op)
 	if err != nil {
 		return nil, err
@@ -299,10 +306,13 @@ func (d *DB) processTrackerOpJob(ctx context.Context, job SkillJob) {
 		return
 	}
 	op := *job.Op
-	// The operation carries who asked for it, so a tracker whose credential is
-	// personal can resolve theirs instead of the server's. An operation the
-	// server queued itself names nobody and keeps the server credential.
+	// The operation carries who asked for it, so the write goes out with their
+	// own credential. Only an operation queued by unattended work keeps the
+	// server's; one that names neither is refused by the tracker client.
 	ctx = tracker.WithActingUser(ctx, op.UserID)
+	if op.Unattended {
+		ctx = tracker.WithUnattended(ctx)
+	}
 	// And the project it concerns: a project may override the tracker site, and
 	// a write resolved without it goes to the instance of another project.
 	ctx = tracker.WithProject(ctx, op.ProjectID)
@@ -456,7 +466,7 @@ func (d *DB) runAssignOp(ctx context.Context, op TrackerOp, steps *[]string) (st
 }
 
 func (d *DB) runSetParentOp(ctx context.Context, op TrackerOp, steps *[]string) (string, error) {
-	task, err := d.applyTaskEpic(op.TaskID, op.EpicKey, steps)
+	task, err := d.applyTaskEpic(ctx, op.TaskID, op.EpicKey, steps)
 	if err != nil {
 		return "", err
 	}
@@ -476,7 +486,7 @@ func (d *DB) runMoveToEpicOp(ctx context.Context, op TrackerOp, steps *[]string)
 		if strings.TrimSpace(op.NewEpicTitle) == "" {
 			return "", fmt.Errorf("épic cible ou intitulé du nouvel épic obligatoire")
 		}
-		created, err := d.CreateEpic(op.ProjectID, op.NewEpicTitle, "", op.Fields)
+		created, err := d.CreateEpic(ctx, op.ProjectID, op.NewEpicTitle, "", op.Fields)
 		if err != nil {
 			return "", err
 		}
@@ -487,7 +497,7 @@ func (d *DB) runMoveToEpicOp(ctx context.Context, op TrackerOp, steps *[]string)
 	moved := 0
 	var failures []string
 	for _, id := range op.TaskIDs {
-		if _, err := d.applyTaskEpic(id, targetEpicKey, steps); err != nil {
+		if _, err := d.applyTaskEpic(ctx, id, targetEpicKey, steps); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", id, err))
 			*steps = append(*steps, fmt.Sprintf("❌ %s : %v", id, err))
 			continue
@@ -723,11 +733,19 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 		}
 	}
 
+	// A write refused for want of the acting person's credential fails the
+	// activity: the stage is already recorded locally, and a transition that
+	// reported success would hide that nothing reached the tracker (#482).
+	var refused error
+
 	// 1. Transition if writer supports it and we have a target status
 	if writer != nil && writer.Supports(tracker.CapTransition) && op.TargetStatus != "" {
 		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		if err := writer.Transition(ctx, task.Key, op.TargetStatus); err != nil {
+			if refused == nil && isTrackerWriteRefusal(err) {
+				refused = err
+			}
 			*steps = append(*steps, fmt.Sprintf("⚠️ Transition tracker %s échouée (%v), statut gardé en local", op.TargetStatus, err))
 		} else {
 			*steps = append(*steps, fmt.Sprintf("✅ %s transitionné vers « %s » sur %s", task.Key, op.TargetStatus, writer.Name()))
@@ -752,6 +770,9 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 				Labels:        task.Labels,
 				RemovedLabels: staleLabels,
 			}); err != nil {
+				if refused == nil && isTrackerWriteRefusal(err) {
+					refused = err
+				}
 				*steps = append(*steps, fmt.Sprintf("⚠️ Synchro distante %s échouée pour %s: %v, statut gardé en local", ts.Name(), task.Key, err))
 			} else {
 				*steps = append(*steps, fmt.Sprintf("✅ Ticket %s %s mis à jour avec le label « %s »", ts.Name(), task.Key, targetLabel))
@@ -759,8 +780,9 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 		}
 	}
 
-	// 3. Post comment / report note if provided
-	if strings.TrimSpace(op.Note) != "" {
+	// 3. Post comment / report note if provided, on a board that has a tracker
+	// to post it to.
+	if strings.TrimSpace(op.Note) != "" && tsErr == nil && ts != nil {
 		header := ""
 		switch cleanStage {
 		case "clarified":
@@ -777,8 +799,17 @@ func (d *DB) runStageOp(ctx context.Context, op TrackerOp, steps *[]string) (str
 			header = fmt.Sprintf("### 🤖 [Sectile] Étape : %s\n\n", cleanStage)
 		}
 		commentBody := header + op.Note
-		_ = d.AddTaskComment(task.ID, commentBody)
+		// The report is posted as whoever recorded the stage: the context names
+		// them. Its failure is not dropped, the activity would otherwise claim a
+		// report nobody can find on the ticket.
+		if err := d.AddTaskCommentAs(ctx, task.ID, commentBody); err != nil {
+			*steps = append(*steps, fmt.Sprintf("❌ Rapport d'étape non consigné sur %s : %v", task.Key, err))
+			return "", err
+		}
 		*steps = append(*steps, fmt.Sprintf("💬 Rapport d'étape consigné sur %s", task.Key))
+	}
+	if refused != nil {
+		return "", refused
 	}
 
 	*steps = append(*steps, fmt.Sprintf("✅ %s passé à l'étape « %s » [%s]", task.Key, cleanStage, targetLabel))

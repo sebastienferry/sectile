@@ -47,13 +47,17 @@ type fakeTracker struct {
 	calls      []string
 	// syncedAs and readAs record who the work ran as, which is what decides
 	// whether a personal tracker credential can be resolved at all.
-	syncedAs    string
-	readAs      string
-	commentedAs string
-	updatedAs   string
-	sprintedAs  string
-	sprintedOn  string
-	comments    []models.TaskComment
+	syncedAs string
+	// syncedUnattended records whether the synchronisation ran marked as work
+	// nobody asked for, the only kind allowed to write with the server
+	// credential (#482).
+	syncedUnattended bool
+	readAs           string
+	commentedAs      string
+	updatedAs        string
+	sprintedAs       string
+	sprintedOn       string
+	comments         []models.TaskComment
 }
 
 func newFakeTracker() *fakeTracker {
@@ -90,6 +94,7 @@ func (f *fakeTracker) SyncIssues(ctx context.Context, req tracker.SyncRequest) (
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "sync")
 	f.syncedAs = tracker.ActingUser(ctx)
+	f.syncedUnattended = tracker.Unattended(ctx)
 	f.syncWindow = req.UpdatedWithinMin
 	f.syncs++
 	if f.syncErr != nil {

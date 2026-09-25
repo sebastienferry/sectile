@@ -1,12 +1,9 @@
 package db
 
 import (
-	"context"
 	"fmt"
-	"strings"
 
 	"tasks/internal/models"
-	"tasks/internal/tracker"
 )
 
 // CompleteInteractiveStep closes a workflow step that ran in a TTY session.
@@ -20,7 +17,10 @@ import (
 //
 // note, when not empty, is published as a comment on the ticket: the summary of
 // what the session concluded.
-func (d *DB) CompleteInteractiveStep(taskID, skillID, note string) (*models.Task, *models.TaskActivity, error) {
+//
+// actorID is whoever confirmed: the stage report and labels go out under their
+// credential.
+func (d *DB) CompleteInteractiveStep(actorID, taskID, skillID, note string) (*models.Task, *models.TaskActivity, error) {
 	skillID = models.NormalizeSkillID(skillID)
 	stageLabel := skillStageLabel[skillID]
 	if stageLabel == "" {
@@ -42,41 +42,5 @@ func (d *DB) CompleteInteractiveStep(taskID, skillID, note string) (*models.Task
 		return task, nil, nil
 	}
 
-	return d.TransitionTaskStage(taskID, stageLabel, note, "", "")
-}
-
-func (d *DB) pushStageToTracker(task *models.Task, stageLabel, statusTarget, trackerURL, note string) {
-	if task == nil {
-		return
-	}
-	ts, err := d.TrackerForTask(task)
-	if err != nil || ts == nil || ts.Name() == "local" {
-		return
-	}
-
-	stale := StaleWorkflowLabels(stageLabel)
-	body := ""
-	if strings.TrimSpace(note) != "" {
-		body = "### 💬 [Sectile] Rapport de session interactive\n\n" + note
-	}
-
-	proj, _ := d.GetProjectByID(task.ProjectID)
-	go func(t models.Task, p *models.Project, staleLbls []string, comment string) {
-		ctx := context.Background()
-		_ = ts.UpdateIssue(ctx, tracker.UpdateIssueRequest{
-			Project:       p,
-			Task:          &t,
-			Key:           t.Key,
-			Status:        &t.Status,
-			Labels:        t.Labels,
-			RemovedLabels: staleLbls,
-		})
-		if comment != "" && ts.Supports(tracker.CapComment) {
-			_ = ts.AddComment(ctx, tracker.AddCommentRequest{
-				Project: p,
-				Key:     t.Key,
-				Body:    comment,
-			})
-		}
-	}(*task, proj, stale, body)
+	return d.TransitionTaskStageBy(actorID, taskID, stageLabel, note, "", "")
 }

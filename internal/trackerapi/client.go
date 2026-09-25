@@ -13,6 +13,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"tasks/internal/tracker"
 )
 
 // The server credential of each provider comes from exactly one variable, so a
@@ -144,6 +146,61 @@ func (c *Client) ForActingUser(userID, tracker, projectID string) (*Client, bool
 		return resolved, false, nil
 	}
 	return &personal, true, nil
+}
+
+// MissingPersonalCredentialError refuses a write somebody asked for when they
+// stored no credential of their own for the provider. The write never falls
+// back to the server credential: the tracker would attribute it to the server
+// account, a name nobody chose (#482). It reads the same on every provider.
+type MissingPersonalCredentialError struct {
+	// Tracker is the provider, as the registry names it: "jira", "github" or
+	// "gitlab".
+	Tracker string
+}
+
+func (e *MissingPersonalCredentialError) Error() string {
+	return fmt.Sprintf("no personal %s token for this user: add one in Profile → Tracker credentials, or the work would be attributed to the server account", providerName(e.Tracker))
+}
+
+// ErrNoActingUser refuses a write whose context names nobody and is not marked
+// as unattended work. It is a caller that lost its author on the way, a
+// programming error to surface rather than a write to sign with the server
+// credential.
+var ErrNoActingUser = errors.New("tracker write with no acting user and not marked unattended")
+
+// providerName is how a message spells a provider.
+func providerName(tracker string) string {
+	switch strings.ToLower(strings.TrimSpace(tracker)) {
+	case "jira":
+		return "Jira"
+	case "github":
+		return "GitHub"
+	case "gitlab":
+		return "GitLab"
+	}
+	return tracker
+}
+
+// ForWrite resolves the client for a tracker write. A named user gets their
+// personal credential or an error, never the server's; an unattended context
+// gets the server credential; a context naming neither is refused. Reads keep
+// ForActingUser and its fallback: a read attributes nothing.
+func (c *Client) ForWrite(ctx context.Context, trackerName, projectID string) (*Client, error) {
+	user := tracker.ActingUser(ctx)
+	if user == "" {
+		if tracker.Unattended(ctx) {
+			return c.For(projectID), nil
+		}
+		return nil, ErrNoActingUser
+	}
+	client, personal, err := c.ForActingUser(user, trackerName, projectID)
+	if err != nil {
+		return nil, err
+	}
+	if !personal {
+		return nil, &MissingPersonalCredentialError{Tracker: strings.ToLower(strings.TrimSpace(trackerName))}
+	}
+	return client, nil
 }
 
 func NewClient() *Client {

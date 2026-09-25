@@ -337,6 +337,20 @@ async function requireRepositories(){
 }
 ipcMain.handle('repositories',async(_,projectId)=>{await requireRepositories();return api('/desktop/repositories?projectId='+encodeURIComponent(projectId))})
 ipcMain.handle('map-repository',async(_,mapping)=>{await requireRepositories();return api('/desktop/repositories','POST',mapping)})
+// The Git initialization of a project folder (#481). An agent that predates
+// it reports no state, so the settings offer nothing and behave as before.
+async function hasGitInit(){
+ const status=await api('/desktop/status')
+ return !!status.capabilities?.includes('git-init')
+}
+ipcMain.handle('git-state',async(_,folder)=>{
+ if(!(await hasGitInit()))return {state:'unknown'}
+ return api('/desktop/git-init?path='+encodeURIComponent(folder))
+})
+ipcMain.handle('git-init',async(_,folder)=>{
+ if(!(await hasGitInit()))throw Error('Update and restart the local agent to initialize a Git repository.')
+ return api('/desktop/git-init','POST',{path:folder})
+})
 ipcMain.handle('clear-history',()=>api('/desktop/history','DELETE'))
 ipcMain.handle('git-diff',async(_,id)=>{
  if(typeof id!=='string'||!id||id.length>512)throw Error('Select an execution to inspect changes.')
