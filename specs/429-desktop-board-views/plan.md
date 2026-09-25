@@ -87,7 +87,9 @@ never serialized and is read only by discovery. `models.RunSkillRequest` gains
   - POST accepts `ViewID`. It resolves the view root (FR3 order), validates
     against it instead of the project mapping, forwards `viewId` to run-skill,
     and records the root for the task (`d.viewRoots`, task ID → folder, in
-    memory). A launch without a view forgets it.
+    memory). Only a launch from a view changes it: a launch without one,
+    such as a relaunch after the desktop restarted, keeps the folder that
+    holds the ticket's worktree.
 - `prepareDispatchLocked` and `admitProjectRun` resolve the root through
   `taskProjectRoot`: the recorded view root when there is one, then
   `localProjectRoot`. With a view root, the #456 primary-repository resolution is

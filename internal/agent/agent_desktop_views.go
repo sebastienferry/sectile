@@ -20,9 +20,11 @@ import (
 // made from the view run in, and which never leaves the workstation.
 
 // viewRootMap remembers, per ticket, the folder of the view it was last
-// launched from here, so that a relaunch, a next step or a stage the server
-// chains keeps running where the launch from the view started. It lives as
-// long as the agent: after a restart, the desktop sends the view again.
+// launched from here, so that a relaunch, a next step, a launch from the
+// project or a stage the server chains keeps running where the launch from the
+// view started, next to its worktree. Only another launch from a view changes
+// it. It lives as long as the agent: after a restart, the desktop sends the
+// view again for the runs it launched from one.
 type viewRootMap struct {
 	mu    sync.Mutex
 	roots map[string]string

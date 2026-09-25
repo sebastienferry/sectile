@@ -741,6 +741,10 @@ export interface TranslationSchema {
     labels: string
     labelsHint: string
     labelPlaceholder: string
+    repository: string
+    repositoryPlaceholder: string
+    repositoryHint: string
+    errorRepository: string
     create: string
     save: string
     cancel: string
@@ -1532,6 +1536,10 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       labels: 'Labels',
       labelsHint: 'Un ticket apparaît s\'il porte au moins un de ces labels. Sans label, la vue montre tous les tickets des projets choisis.',
       labelPlaceholder: 'Ajouter un label puis Entrée',
+      repository: 'Dépôt Git',
+      repositoryPlaceholder: 'Ex. git@github.com:acme/plateforme.git',
+      repositoryHint: 'Facultatif. Le dépôt où vit le travail lancé depuis cette vue : ses pull requests sont reconnues et retrouvées pour les tickets lancés depuis la vue.',
+      errorRepository: 'Le dépôt doit être l\'URL d\'un dépôt Git, avec un hôte et un chemin.',
       create: 'Créer la vue',
       save: 'Enregistrer',
       cancel: 'Annuler',
@@ -2321,6 +2329,10 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       labels: 'Labels',
       labelsHint: 'A ticket appears when it carries at least one of these labels. With no label, the view shows every ticket of the chosen projects.',
       labelPlaceholder: 'Add a label, then Enter',
+      repository: 'Git repository',
+      repositoryPlaceholder: 'e.g. git@github.com:acme/platform.git',
+      repositoryHint: 'Optional. The repository where work launched from this view lives: its pull requests are accepted and found for the tickets launched from the view.',
+      errorRepository: 'The repository must be the URL of a Git repository, with a host and a path.',
       create: 'Create view',
       save: 'Save',
       cancel: 'Cancel',

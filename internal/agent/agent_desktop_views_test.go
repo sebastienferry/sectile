@@ -140,7 +140,7 @@ func TestDesktopViewTasks(t *testing.T) {
 
 // US2 and FR3: a launch from a view runs in the view's folder, else in this
 // workstation's checkout of the view's repository, carries the view to the
-// server, and is remembered for the ticket; a launch without a view forgets it.
+// server, and is remembered for the ticket until another launch from a view.
 func TestDesktopLaunchFromAView(t *testing.T) {
 	testhome.Temp(t)
 	// The project is not mapped here: only the view's folder makes it
@@ -212,15 +212,34 @@ func TestDesktopLaunchFromAView(t *testing.T) {
 	server.mu.Lock()
 	server.refuse = false
 	server.mu.Unlock()
+	// A launch without a view, a relaunch after the desktop restarted for one,
+	// keeps the folder that holds the ticket's worktree.
 	if w := do("POST", "/desktop/tasks?projectId=p", map[string]any{"taskID": "t1", "skillID": "discuss"}); w.Code != 200 {
-		t.Fatalf("launch from the project: %d %s", w.Code, w.Body.String())
+		t.Fatalf("launch without a view: %d %s", w.Code, w.Body.String())
 	}
-	if got := d.viewRoots.get("t1"); got != "" {
-		t.Fatalf("a launch from the project kept the view's folder %q", got)
+	if got := d.viewRoots.get("t1"); !samePath(t, got, viewFolder) {
+		t.Fatalf("a launch without a view dropped the view's folder: %q", got)
 	}
 	server.mu.Lock()
-	defer server.mu.Unlock()
 	if _, ok := server.launches[len(server.launches)-1]["viewId"]; ok {
-		t.Fatalf("a launch from the project named a view: %v", server.launches[len(server.launches)-1])
+		t.Fatalf("a launch without a view named one: %v", server.launches[len(server.launches)-1])
+	}
+	server.mu.Unlock()
+
+	// A launch from the view once its folder is cleared goes back to the
+	// project's own resolution.
+	if w := do("POST", "/desktop/views", map[string]any{"viewId": "v1", "path": ""}); w.Code != 200 {
+		t.Fatalf("clear folder: %d", w.Code)
+	}
+	settings, _ = agentconfig.ReadSettings(root)
+	settings.Repositories = nil
+	if err := agentconfig.WriteSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	if w := do("POST", "/desktop/tasks?projectId=p", launch); w.Code != 200 {
+		t.Fatalf("launch from a view without a folder: %d %s", w.Code, w.Body.String())
+	}
+	if got := d.viewRoots.get("t1"); got != "" {
+		t.Fatalf("a view without a folder kept %q", got)
 	}
 }

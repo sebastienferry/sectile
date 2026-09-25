@@ -16,6 +16,7 @@ import './style.css'
 import { taskStage, nextTaskStep } from './workflow.mjs'
 import { launchModeOverride, modeSelect } from './skill-mode.mjs'
 import { orderedTasks, nextSort, DEFAULT_SORT, SORTABLE_FIELDS } from './task-list-order.mjs'
+import { ticketColumns, rowProjectID, rowInfo, viewProjectIDs } from './view-tickets.mjs'
 import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-console.mjs'
 import { previewLines } from './command-preview.mjs'
 import { runEngine } from './run-engine.mjs'
@@ -675,7 +676,7 @@ async function confirmDeclareReviewed(projectId,task){
    dialog.close()
    await refreshNextStep()
    await refresh()
-   if(ticketsOpen&&ticketsView?.projectID===projectId&&ticketsView.load)await ticketsView.load()
+   if(ticketsOpen&&(ticketsView?.projectID===projectId||ticketsView?.boardView)&&ticketsView.load)await ticketsView.load()
   }catch(err){
    notice.textContent=err.message
    confirm.disabled=false
@@ -1744,6 +1745,9 @@ function newProjectTask(projectID){
 // project at a time, its open tasks as a table, and the console back on close.
 const ticketsPane=document.querySelector('#tickets-pane')
 let ticketsView=null
+// The saved view each task was last launched from here (#429), so that a
+// relaunch and the next step run where that launch ran.
+const viewLaunches=new Map()
 function closeTickets(restoreFocus=true){
  if(!ticketsOpen)return
  const projectID=ticketsView?.projectID,opener=ticketsView?.opener
@@ -1760,13 +1764,15 @@ function closeTickets(restoreFocus=true){
  const target=reachable(opener)?opener:document.querySelector('.project-more[data-project-id="'+CSS.escape(projectID||'')+'"]')||document.querySelector('#command-palette')
  if(reachable(target))target.focus()
 }
-async function openTickets(projectID,initialQuery=''){
- selectedProject=projectID
+// A saved board view (#429) opens the same pane over several projects: each
+// row then reads its own project, and launches carry the view.
+async function openTickets(projectID,initialQuery='',boardView=null){
+ if(!boardView)selectedProject=projectID
  if(!agentConnected){showDialog('Tickets');paragraph('Connect to the local agent to browse this project\u2019s tickets.');return}
  const opener=document.activeElement
  if(dialog.open)dialog.close()
  const project=projects.find(item=>item.id===projectID)
- const view={projectID,projectName:project?.name||projectID,sort:{...DEFAULT_SORT},tasks:[],info:null,query:'',rows:new Map(),submitting:new Set(),compose:null,generation:0,opener:opener&&opener!==document.body?opener:null}
+ const view={projectID:boardView?null:projectID,projectName:boardView?boardView.name:project?.name||projectID,boardView,infos:new Map(),ready:false,sort:{...DEFAULT_SORT},tasks:[],info:null,query:'',rows:new Map(),submitting:new Set(),compose:null,generation:0,opener:opener&&opener!==document.body?opener:null}
  ticketsOpen=true;ticketsView=view;ticketsPane.hidden=false;ticketsPane.replaceChildren()
  document.querySelector('#workspace article').hidden=true
  document.querySelector('#workspace').hidden=false;document.querySelector('#setup').hidden=true
@@ -1787,31 +1793,69 @@ async function openTickets(projectID,initialQuery=''){
   const isCurrent=()=>current===view.generation&&ticketsView===view&&ticketsOpen
   list.textContent='Loading open tasks…';list.setAttribute('aria-busy','true');view.rows.clear();view.compose=null;status.textContent=''
   try{
-   const [tasks,info]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID)])
-   if(!isCurrent())return
-   view.tasks=tasks.filter(task=>!isFinishedTask(task));view.info=info;view.query=searchText
+   if(boardView){
+    const tasks=await api.viewTasks(boardView.id,searchText,true)
+    const ids=viewProjectIDs(tasks)
+    // A project this workstation cannot read leaves its rows unlaunchable
+    // rather than failing the whole view.
+    const infos=await Promise.all(ids.map(id=>api.project(id).catch(()=>null)))
+    if(!isCurrent())return
+    view.infos=new Map(ids.flatMap((id,index)=>infos[index]?[[id,infos[index]]]:[]))
+    view.tasks=tasks.filter(task=>!isFinishedTask(task))
+   }else{
+    const [tasks,info]=await Promise.all([api.serverTasks(projectID,searchText,true),api.project(projectID)])
+    if(!isCurrent())return
+    view.tasks=tasks.filter(task=>!isFinishedTask(task));view.info=info
+   }
+   view.query=searchText;view.ready=true
    renderTicketsTable(view)
   }catch(err){if(isCurrent()){const message=document.createElement('p');message.setAttribute('role','alert');message.textContent='Could not load open tasks: '+err.message+'. Use Search to retry.';list.replaceChildren(message)}}
   finally{if(isCurrent())list.setAttribute('aria-busy','false')}
  }
  view.load=load
+ if(boardView)ticketsPane.insertBefore(viewDirectoryBar(view),status)
  search.onsubmit=event=>{event.preventDefault();load()}
  await load()
 }
-const TICKET_COLUMNS=[['state',''],['key','Key'],['title','Title'],['stage','Stage'],['priority','Priority'],['pr','PR'],['actions','Actions']]
+// The folder launches from a view run in, on this workstation only. Without
+// one, each row runs in its own project's repository.
+function viewDirectoryBar(view){
+ const bar=document.createElement('div');bar.className='tickets-directory'
+ const label=document.createElement('span'),choose=document.createElement('button'),clear=document.createElement('button')
+ choose.type='button';choose.textContent='Local directory…';clear.type='button';clear.textContent='Clear directory'
+ const show=()=>{
+  const directory=view.boardView.directory
+  label.textContent=directory?'Launches from this view run in '+directory:'Launches from this view run in each task\u2019s project repository'
+  clear.hidden=!directory
+ }
+ const save=async path=>{
+  try{
+   const saved=await api.setViewDirectory(view.boardView.id,path)
+   view.boardView.directory=saved?.directory||''
+   view.status.textContent=saved?.warning?'Warning: '+saved.warning:path?'Local directory saved':'Local directory cleared'
+   show()
+   if(view.ready)renderTicketsTable(view)
+  }catch(err){view.status.textContent='Could not save the local directory: '+err.message}
+ }
+ choose.onclick=async()=>{try{const path=await api.chooseRepository();if(path)await save(path)}catch(err){error(err)}}
+ clear.onclick=()=>save('')
+ show()
+ bar.append(label,choose,clear)
+ return bar
+}
 function renderTicketsTable(view,focusField=null){
- const {list,tasks,info,sort}=view
+ const {list,tasks,info,sort}=view,columns=ticketColumns(view.boardView)
  view.closeOpenMenu?.()
  // Sorting or searching rebuilds the rows. Instructions being typed are the
  // user's work, not render state, so they survive the rebuild.
  const pending=view.compose?{...view.compose}:null
  list.replaceChildren();view.rows.clear();view.compose=null
- if(!info.configured){const notice=document.createElement('p');notice.textContent='Configure a local repository before launching tasks.';list.append(notice)}
- if(!tasks.length){const empty=document.createElement('p');empty.textContent=view.query?'No matching open tasks':'No open tasks in this project';list.append(empty);return}
+ if(!view.boardView&&!info.configured){const notice=document.createElement('p');notice.textContent='Configure a local repository before launching tasks.';list.append(notice)}
+ if(!tasks.length){const empty=document.createElement('p');empty.textContent=view.query?'No matching open tasks':view.boardView?'No open tasks in this view':'No open tasks in this project';list.append(empty);return}
  const table=document.createElement('table');table.className='tickets-table'
  const caption=document.createElement('caption');caption.className='visually-hidden';caption.textContent='Open tasks in '+view.projectName
  const head=document.createElement('thead'),headRow=document.createElement('tr')
- for(const [field,label] of TICKET_COLUMNS){
+ for(const [field,label] of columns){
   const cell=document.createElement('th');cell.scope='col';cell.dataset.column=field
   if(SORTABLE_FIELDS.includes(field)){
    const active=sort.field===field
@@ -1903,7 +1947,8 @@ function ticketRow(view,task){
   if(event.key==='Escape'&&!menu.hidden){event.preventDefault();event.stopPropagation();closeMenu(true)}
   else if(event.key==='ArrowDown'&&menu.hidden){event.preventDefault();openMenu()}
  }
- const skills=view.info.server?.skills||[]
+ const info=rowInfo(view,task),projectID=rowProjectID(view,task)
+ const skills=info.server?.skills||[]
  const items=[]
  if(skills.some(item=>item.id==='pickup'))items.push({label:'Pickup (full chain)',skillId:'pickup'})
  for(const item of skills)if(item.id!=='pickup')items.push({label:item.command||item.id,skillId:item.id})
@@ -1912,11 +1957,11 @@ function ticketRow(view,task){
  }
  items.push({label:'Discussion (no skill)',skillId:'discuss'},{label:'Discussion in native terminal',nativeTerminal:true},{label:'Custom instructions…',compose:true})
  for(const item of items){
-  const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!view.info.configured
+  const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem');button.textContent=item.label;button.disabled=!info.configured
   if(item.skillId)button.dataset.skillId=item.skillId
   if(item.transition==='reviewed'){
    entry.declareReviewed=button
-   button.onclick=()=>{closeMenu();confirmDeclareReviewed(view.projectID,task)}
+   button.onclick=()=>{closeMenu();confirmDeclareReviewed(projectID,task)}
   }else{
    button.onclick=()=>{closeMenu();if(item.compose)openCompose(view,entry);else if(item.nativeTerminal)submitNativeDiscussion(view,entry).catch(()=>{});else submitTicketLaunch(view,entry,item.skillId,'','').catch(()=>{})}
   }
@@ -1939,7 +1984,12 @@ function ticketRow(view,task){
  keyLink.title='Open task in Sectile';keyLink.setAttribute('aria-label','Open '+key+' in Sectile')
  keyLink.onclick=()=>api.openTask(task.id).catch(error)
  keyCell.append(keyLink)
- row.append(stateCell,keyCell,titleCell,stageCell,priorityCell,prCell,actions)
+ row.append(stateCell,keyCell)
+ if(view.boardView){
+  const name=projects.find(item=>item.id===projectID)?.name||info.server?.projectName||projectID||''
+  row.append(cell('ticket-project',name))
+ }
+ row.append(titleCell,stageCell,priorityCell,prCell,actions)
  view.rows.set(task.id,entry)
  updateTicketRow(view,entry)
  return row
@@ -1948,13 +1998,14 @@ function ticketRow(view,task){
 // itself stays, so a poll cannot move focus or close an open menu.
 function updateTicketRow(view,entry){
  const {task,run,state}=entry,key=task.key||task.id
- const executions=runs.filter(item=>item.taskId===task.id&&item.projectId===view.projectID&&!freeConsole(item)&&!hiddenRun(item))
+ const info=rowInfo(view,task)
+ const executions=runs.filter(item=>item.taskId===task.id&&item.projectId===rowProjectID(view,task)&&!freeConsole(item)&&!hiddenRun(item))
  const representative=executions.find(activeRun)||[...executions].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))[0]
  if(representative)renderRunState(state,representative)
  else{state.innerHTML='';state.title='';state.removeAttribute('aria-label');delete state.dataset.runState}
- const step=nextTaskStep(task,view.info)
+ const step=nextTaskStep(task,info)
  const active=executions.some(activeRun),pending=view.submitting.has(task.id)
- if(entry.declareReviewed)entry.declareReviewed.disabled=!view.info.configured||active||pending
+ if(entry.declareReviewed)entry.declareReviewed.disabled=!info.configured||active||pending
  if(step.skillId){run.textContent='Run: '+step.label;run.dataset.skillId=step.skillId}
  else{run.textContent='Run';delete run.dataset.skillId}
  const hadFocus=document.activeElement===run
@@ -1971,7 +2022,7 @@ function updateTicketRow(view,entry){
 }
 function renderTicketRows(){
  const view=ticketsView
- if(!view||!ticketsOpen||!view.info)return
+ if(!view||!ticketsOpen||!view.ready)return
  for(const entry of view.rows.values())updateTicketRow(view,entry)
 }
 function closeCompose(view){
@@ -1982,10 +2033,10 @@ function openCompose(view,entry,initial=null,focusPrompt=true){
  closeCompose(view)
  const key=entry.task.key||entry.task.id
  const row=document.createElement('tr');row.className='ticket-compose'
- const cell=document.createElement('td');cell.colSpan=TICKET_COLUMNS.length
+ const cell=document.createElement('td');cell.colSpan=ticketColumns(view.boardView).length
  const prompt=document.createElement('textarea');prompt.placeholder='What should the agent do?';prompt.setAttribute('aria-label','Custom instructions')
  const mode=modeSelect(document,'Execution mode for '+key)
- const launch=document.createElement('button');launch.type='button';launch.textContent='Launch';launch.disabled=!view.info.configured
+ const launch=document.createElement('button');launch.type='button';launch.textContent='Launch';launch.disabled=!rowInfo(view,entry.task).configured
  const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel'
  const notice=document.createElement('p');notice.setAttribute('role','status')
  const controls=document.createElement('div');controls.className='ticket-compose-controls';controls.append(mode,launch,cancel)
@@ -2012,7 +2063,11 @@ async function submitTicketLaunch(view,entry,skillId,prompt,mode){
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
  view.status.textContent='Submitting execution for '+key+'…'
  try{
-  await api.launchServerTask(view.projectID,entry.task.id,skillId,prompt,mode)
+  const viewID=view.boardView?.id
+  await api.launchServerTask(rowProjectID(view,entry.task),entry.task.id,skillId,prompt,mode,undefined,viewID)
+  // A relaunch or the next step of this task comes from the same view.
+  if(viewID)viewLaunches.set(entry.task.id,viewID)
+  else viewLaunches.delete(entry.task.id)
   view.status.textContent='Execution submitted for '+key
   await refresh()
  }catch(err){view.status.textContent='Could not launch '+key+': '+err.message;throw err}
@@ -2023,7 +2078,7 @@ async function submitNativeDiscussion(view,entry){
  view.submitting.add(entry.task.id);updateTicketRow(view,entry)
  view.status.textContent='Launching native terminal for '+key+'…'
  try{
-  await api.launchNativeDiscussion(view.projectID,entry.task.id)
+  await api.launchNativeDiscussion(rowProjectID(view,entry.task),entry.task.id)
   view.status.textContent='Native terminal launched for '+key
   await refresh()
  }catch(err){view.status.textContent='Could not launch native terminal for '+key+': '+err.message;throw err}
@@ -2064,7 +2119,7 @@ document.querySelector('#rerun').onclick=async()=>{
    if(skill.value==='custom'&&!prompt.value.trim()){notice.textContent='Enter custom instructions.';prompt.focus();return}
    submit.disabled=true
    try{
-    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value))
+    await api.launchServerTask(run.projectId,run.taskId,skill.value,prompt.value,launchModeOverride(mode.value),undefined,viewLaunches.get(run.taskId))
     dialog.close();await refresh()
    }catch(err){notice.textContent=err.message;submit.disabled=false}
   }
@@ -2170,25 +2225,36 @@ const COMMANDS=[
  {label:'Quick add task',run:()=>quickAdd()},
  {label:'Tasks list',run:()=>openTicketsFromPalette()}
 ]
-// The tickets list needs a project. The selected one answers that, and a single
-// configured project answers it too; otherwise the palette asks rather than
-// guessing which project the user meant.
+// The tickets list needs a project or a saved view. The selected project
+// answers that, and a single configured project answers it too, as long as
+// the user has no saved view to choose instead; otherwise the palette asks
+// rather than guessing what the user meant.
 async function openTicketsFromPalette(){
  if(!projects.length){
   try{await loadProjects()}catch(err){showDialog('Tasks list');paragraph(err.message);return}
  }
+ // Views are a bonus: an older agent or server, the shared token or any
+ // other failure leaves the projects only, as before (#429).
+ const views=await api.views().catch(()=>[])
  const known=projects.filter(project=>!hiddenProject(project.id))
  const chosen=known.find(project=>project.id===selectedProject)||(known.length===1?known[0]:null)
- if(chosen){openTickets(chosen.id);return}
+ if(chosen&&!views?.length){openTickets(chosen.id);return}
  showDialog('Tasks list')
- if(!known.length){paragraph('Add a project before browsing its tasks.');return}
- paragraph('Choose the project whose tasks you want to browse.')
- for(const project of known){
-  const button=document.createElement('button');button.className='discovered-project';button.textContent=project.name
-  button.onclick=()=>openTickets(project.id)
-  dialogBody.append(button)
+ if(!known.length&&!views?.length){paragraph('Add a project before browsing its tasks.');return}
+ paragraph(views?.length?'Choose the project or the saved view whose tasks you want to browse.':'Choose the project whose tasks you want to browse.')
+ const group=(title,items,open)=>{
+  if(!items.length)return
+  if(title){const heading=document.createElement('h3');heading.className='chooser-group';heading.textContent=title;dialogBody.append(heading)}
+  for(const item of items){
+   const button=document.createElement('button');button.className='discovered-project';button.textContent=item.name
+   button.onclick=()=>open(item)
+   dialogBody.append(button)
+  }
  }
- dialogBody.querySelector('.discovered-project')?.focus()
+ group(views?.length?'Projects':'',known,project=>openTickets(project.id))
+ if(views?.length)group('Saved views',views,boardView=>openTickets(null,'',{...boardView}))
+ const initial=chosen&&[...dialogBody.querySelectorAll('.discovered-project')].find(button=>button.textContent===chosen.name)
+ ;(initial||dialogBody.querySelector('.discovered-project'))?.focus()
 }
 function openCommandPalette(){
  showDialog('Commands')
@@ -2308,7 +2374,7 @@ async function launchNextStep(force){
   if(taskKey(currentTaskRun()||{})!==key)return
   nextStepData=fresh
   if(fresh.step.skillId!==displayed.step.skillId||latestRuns.some(item=>taskKey(item)===key&&activeRun(item))){await refresh();return}
-  await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'',undefined,force)
+  await api.launchServerTask(run.projectId,run.taskId,fresh.step.skillId,'',undefined,force,viewLaunches.get(run.taskId))
   submittedSteps.set(key,{skillId:fresh.step.skillId,runIds:latestRuns.filter(item=>taskKey(item)===key).map(item=>item.id)})
   await refresh()
   if(taskKey(currentTaskRun()||{})===key){

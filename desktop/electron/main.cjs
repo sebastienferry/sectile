@@ -207,7 +207,16 @@ ipcMain.handle('server-tasks',(_,id,q,launchable)=>api('/desktop/tasks?projectId
 ipcMain.handle('launch-console',(_,projectId,provider)=>api('/desktop/consoles','POST',{projectId,provider}))
 // An absent mode means "no override": nothing is sent, so a launch with no
 // explicit choice puts exactly the payload on the wire that it always did.
-ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null)))
+ipcMain.handle('launch-server-task',(_,id,taskID,skillID,prompt,mode,force,viewID)=>api('/desktop/tasks?projectId='+encodeURIComponent(id),'POST',Object.assign({taskID,skillID,prompt},mode?{mode}:null,force?{force:true}:null,viewID?{viewID}:null)))
+// Saved board views (#429). An agent that predates them lists none, so the
+// task-list chooser offers projects only, exactly as before.
+ipcMain.handle('views',async()=>{
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('board-views'))return []
+ return api('/desktop/views')
+})
+ipcMain.handle('view-tasks',(_,viewId,q,launchable)=>api('/desktop/tasks?viewId='+encodeURIComponent(viewId)+'&q='+encodeURIComponent(q||'')+'&launchable='+Boolean(launchable)))
+ipcMain.handle('set-view-directory',(_,viewId,path)=>api('/desktop/views','POST',{viewId,path:path||''}))
 ipcMain.handle('launch-native-discussion',async(_,{projectId,taskId,terminal}={})=>api('/desktop/tasks/terminal-external','POST',{projectId,taskId,skillId:'discuss',terminal}))
 ipcMain.handle('detach-to-native-terminal',async(_,{runId,terminal}={})=>api('/desktop/terminal/detach','POST',{runId,terminal}))
 ipcMain.handle('open-board',async()=>{

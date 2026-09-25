@@ -960,7 +960,10 @@ func (d *agentDaemon) desktopTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unknown project skill", 400)
 		return
 	}
-	viewRoot := ""
+	// A launch from a view decides the ticket's folder; any other launch, a
+	// relaunch after the desktop restarted included, keeps the one recorded,
+	// which holds the ticket's worktree.
+	viewRoot := d.viewRoots.get(task.ID)
 	if input.ViewID = strings.TrimSpace(input.ViewID); input.ViewID != "" {
 		if viewRoot, err = d.viewLaunchRoot(r.Context(), input.ViewID); err != nil {
 			http.Error(w, err.Error(), 400)
