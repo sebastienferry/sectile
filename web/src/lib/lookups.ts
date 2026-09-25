@@ -1,5 +1,6 @@
 import type { LookupOption } from '../components/LookupField'
 import type { EpicMeta, TrackerSprint, Project } from '../types'
+import { foldForSearch } from './searchFold.ts'
 
 export const isProjectCompatible = (
   p1: Project | null | undefined,
@@ -84,7 +85,7 @@ export const targetProjectOptions = (macroProject: Project, projects: Project[],
 const DEFAULT_LIMIT = 40
 
 const matches = (haystack: string, query: string): boolean =>
-  haystack.toLowerCase().includes(query.trim().toLowerCase())
+  foldForSearch(haystack).includes(foldForSearch(query.trim()))
 
 /**
  * Macros du projet, cherchées par clé ou par titre. Les macros terminées sont exclues

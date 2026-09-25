@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { LookupField, type LookupOption } from './LookupField'
 import { valueLookup } from '../lib/lookups'
+import { matchesSearch } from '../lib/searchFold'
 import { PRIORITY_COLORS, PRIORITY_LEVELS } from '../lib/priority'
 
 /**
@@ -75,7 +76,7 @@ export const TaskFilters: React.FC = () => {
       // « Non assigné » est une valeur de filtre à part entière, et c'est souvent
       // la plus utile : elle est proposée en tête tant qu'il y a de quoi la
       // remplir.
-      if (taskFacets.unassignedCount > 0 && (!query.trim() || 'non assigné'.includes(query.trim().toLowerCase()))) {
+      if (taskFacets.unassignedCount > 0 && matchesSearch(query, 'Non assigné')) {
         return [
           { id: unassignedFilterValue, label: 'Non assigné', sublabel: `${taskFacets.unassignedCount} ticket(s)` },
           ...people,
@@ -111,11 +112,8 @@ export const TaskFilters: React.FC = () => {
     }
 
     return async (query: string): Promise<LookupOption[]> => {
-      const q = query.trim().toLowerCase()
-      const filtered = macroList.filter(
-        m => !q || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q)
-      )
-      if (taskFacets.noMacroCount > 0 && (!q || 'sans macro'.includes(q) || 'sans milestone'.includes(q))) {
+      const filtered = macroList.filter(m => matchesSearch(query, m.label, m.id))
+      if (taskFacets.noMacroCount > 0 && matchesSearch(query, 'Sans macro', 'Sans milestone')) {
         return [
           { id: '__no_macro__', label: 'Sans macro', sublabel: `${taskFacets.noMacroCount} ticket(s)` },
           ...filtered,

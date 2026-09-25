@@ -1297,6 +1297,15 @@ func (d *DB) lowerASCII(expr string) string {
 	return d.dialect.LowerASCII(expr)
 }
 
+// foldSearch folds a TEXT expression for free-text search: see
+// dialect.FoldSearch.
+func (d *DB) foldSearch(expr string) string {
+	if d == nil || d.dialect == nil {
+		return "LOWER(" + expr + ")"
+	}
+	return d.dialect.FoldSearch(expr)
+}
+
 // asciiLower lowers A-Z, and leaves every other character as it is — an
 // accented letter included. It is the Go half of lowerASCII.
 func asciiLower(s string) string {
@@ -1350,6 +1359,22 @@ func viewLabelScope(labels []string, lowered string) (string, []interface{}) {
 
 func escapeLike(s string) string {
 	return strings.NewReplacer("!", "!!", "%", "!%", "_", "!_").Replace(s)
+}
+
+// searchPredicate matches query anywhere in any of columns, ignoring case and,
+// on PostgreSQL, diacritics. LIKE wildcards typed in the query are literal.
+// Column and pattern go through the same SQL fold, so they can never be folded
+// differently.
+func (d *DB) searchPredicate(query string, columns ...string) (string, []interface{}) {
+	pattern := "%" + escapeLike(query) + "%"
+	folded := d.foldSearch("?")
+	parts := make([]string, 0, len(columns))
+	args := make([]interface{}, 0, len(columns))
+	for _, column := range columns {
+		parts = append(parts, d.foldSearch(column)+" LIKE "+folded+" ESCAPE '!'")
+		args = append(args, pattern)
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
 }
 
 func joinScope(projectCond string, projectArgs []interface{}, labelCond string, labelArgs []interface{}) (string, []interface{}) {
@@ -1656,12 +1681,12 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 	}
 
 	if query != "" {
-		// Le parent compte dans la recherche : chercher une clé d'épic ou son
-		// titre doit ramener ses enfants, c'est la façon naturelle d'isoler un
-		// chantier alors qu'aucun ticket ne porte l'épic dans son propre titre.
-		conditions = append(conditions, "(key LIKE ? OR title LIKE ? OR description LIKE ? OR labels LIKE ? OR assignee LIKE ? OR parent_key LIKE ? OR parent_title LIKE ?)")
-		pattern := "%" + query + "%"
-		args = append(args, pattern, pattern, pattern, pattern, pattern, pattern, pattern)
+		// The parent counts in the search: looking for an epic's key or title
+		// must bring back its children, the natural way to isolate a piece of
+		// work when no ticket carries the epic in its own title.
+		cond, searchArgs := d.searchPredicate(query, "key", "title", "description", "labels", "assignee", "parent_key", "parent_title")
+		conditions = append(conditions, cond)
+		args = append(args, searchArgs...)
 	}
 
 	if status != "" {
@@ -5283,9 +5308,9 @@ func (d *DB) GetActivities(projectID, status, skillID, taskID, search string, li
 		args = append(args, taskID)
 	}
 	if search != "" {
-		conditions = append(conditions, "(a.skill_name LIKE ? OR a.summary LIKE ? OR a.output LIKE ? OR t.key LIKE ? OR t.title LIKE ?)")
-		pattern := "%" + search + "%"
-		args = append(args, pattern, pattern, pattern, pattern, pattern)
+		cond, searchArgs := d.searchPredicate(search, "a.skill_name", "a.summary", "a.output", "t.key", "t.title")
+		conditions = append(conditions, cond)
+		args = append(args, searchArgs...)
 	}
 
 	sqlQuery := `
