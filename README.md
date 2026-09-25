@@ -293,20 +293,24 @@ Tokens are write-only: the API never returns one. The settings report
 is stored, and `...FromEnv` when none is stored and the server environment
 supplies one.
 
-**A Jira write is personal, and only personal.** An Atlassian account belongs
-to a site, so the site, the account e-mail and the token travel together: all
-three are stored from the person's own profile, in *Connect your tracker*. A
-project put on Jira prefills its tracker URL from the instance of whoever
-creates it. An operation somebody asked for either carries their own token or is
-refused, because writing it under the server account would put a name on it
-that nobody chose. The Jira server credential serves the synchronisation only.
+**A tracker write is personal, and only personal.** On every provider, an
+operation somebody asked for (a ticket created or edited, a comment, a stage
+report, a macro milestone) either carries their own token or is refused,
+because writing it under the server account would put a name on it that nobody
+chose. The server credential serves the synchronisation, and the work nobody
+asked for, only (ADR 0029). An agent key tied to no user, such as the shared
+server key, reads but never writes to a tracker. On Jira, an Atlassian account
+belongs to a site, so the site, the account e-mail and the token travel
+together: all three are stored from the person's own profile, in *Connect your
+tracker*. A project put on Jira prefills its tracker URL from the instance of
+whoever creates it.
 
-**A tracker credential can be personal.** On Jira a comment, an assignment and
-a transition are attributed to the account whose token made the call, so a
+**A tracker credential is personal.** A comment, an assignment and a
+transition are attributed to the account whose token made the call, so a
 shared token makes the whole team sign as one integration account. *Profile >
-Tracker Credentials* therefore holds one zone per tracker Sectile can drive. Jira accepts
-only a personal credential; GitHub accepts either, and falls back to the server
-token where nobody stored one. A personal token is encrypted with AES-256-GCM,
+Tracker Credentials* therefore holds one zone per tracker Sectile can drive.
+Writing needs a personal credential on Jira, GitHub and GitLab alike; reads
+still use the server credential when you stored none. A personal token is encrypted with AES-256-GCM,
 bound to its owner and to its tracker, with the key held outside the database
 (`SECTILE_SECRET_KEY`, or a 0600 file beside it — `secret.key`, which belongs
 in no backup the database is in). A row moved from one user to another stops
