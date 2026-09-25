@@ -41,7 +41,7 @@ test('the discussion header carries identity, state, a copyable worktree and ico
   assert.equal(await page.locator('#run-state svg').count(),1,'The state keeps the shared glyph beside its label')
   // The state comes first, in the header as in the sidebar row and the tickets pane.
   assert.ok(await page.evaluate(()=>document.querySelector('#run-state').compareDocumentPosition(document.querySelector('#title'))&Node.DOCUMENT_POSITION_FOLLOWING),'The header state precedes the title')
-  const row=page.locator('.local-task .run').first()
+  const row=page.locator('.local-task').first()
   assert.ok(await row.evaluate(el=>el.querySelector('.run-state').compareDocumentPosition(el.querySelector('strong'))&Node.DOCUMENT_POSITION_FOLLOWING),'The row state precedes the title')
   await expect(row.locator('.run-state')).toHaveAttribute('title',/^Process: /)
 
