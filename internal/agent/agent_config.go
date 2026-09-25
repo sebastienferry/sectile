@@ -165,7 +165,7 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	} else if d.link.projectID != c.ProjectID {
 		remote, err := gitLocal(ctx, root, "remote", "get-url", "origin")
 		if err != nil || c.GitRemoteURL == "" || models.RepositoryIdentity(remote) != models.RepositoryIdentity(c.GitRemoteURL) {
-			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/taskflow/settings.json projects", c.ProjectID)
+			return "", overrides, fmt.Errorf("no local repository mapping for project %s; configure ~/.config/sectile/settings.json projects", c.ProjectID)
 		}
 	}
 	root, err = filepath.Abs(root)
