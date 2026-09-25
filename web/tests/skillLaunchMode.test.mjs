@@ -37,11 +37,11 @@ test('each skill card can be started in either mode', () => {
   assert.match(modal, /aria-label=\{`Lancer \$\{s\.name\} dans le mode configuré`\}/)
 })
 
-test('a card choice overrides the panel selector for that launch only', () => {
+test('a card choice is the only mode override of the detail view', () => {
   assert.match(modal, /const handleTriggerSkill = async \(skillId: string, overridePrompt\?: string, modeOverride\?: SkillMode\)/)
-  assert.match(modal, /\{ mode: modeOverride \?\? launchMode, model: effectiveLaunchModel \}/)
-  // The panel selector's empty value stays "no override", not "interactive".
-  assert.match(modal, /<option value="">Mode configuré<\/option>/)
+  assert.match(modal, /\{ mode: modeOverride \}/)
+  // The panel-wide mode selector was removed: the card buttons carry the choice.
+  assert.doesNotMatch(modal, /launchMode/)
 })
 
 test('the card ... menu offers both modes for a single launch', () => {
