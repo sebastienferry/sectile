@@ -33,6 +33,11 @@ type UserCredential struct {
 	// a site: the person, their instance and their token travel together.
 	SiteURL string `json:"siteUrl,omitempty"`
 	Email   string `json:"email,omitempty"`
+	// Account is who the tracker said the credential belongs to, the last time
+	// it confirmed it: a GitHub login, a Jira display name. Empty until then.
+	// It is a name rather than a secret, so it stays readable while the
+	// credential is sealed and locked.
+	Account string `json:"account,omitempty"`
 	// Sealed says the credential needs its owner's passphrase; Unlocked says
 	// the passphrase was supplied in this server's lifetime.
 	Sealed    bool      `json:"sealed"`
@@ -182,10 +187,15 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 			record = excluded.record,
 			sealed = excluded.sealed,
 			salt = excluded.salt,
+			account = '',
 			updated_at = excluded.updated_at
 	`, userID, tracker, strings.TrimSpace(siteURL), strings.TrimSpace(email), record, sealedValue, salt, now, now); err != nil {
 		return err
 	}
+	// A new token or site is unconfirmed until the tracker is asked about it,
+	// which is why the upsert empties the account: keeping the previous one
+	// would name an account the new token may not belong to.
+	//
 	// Storing it again replaces the key it was sealed with, so any key held
 	// from a previous passphrase must go.
 	d.unlocked.clear(unlockKey(userID, tracker))
@@ -193,6 +203,50 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 		d.unlocked.set(unlockKey(userID, tracker), key)
 	}
 	return nil
+}
+
+// SetUserTrackerCredentialAccount records the account the tracker confirmed a
+// stored credential belongs to. It answers ErrNoUserCredential when there is
+// no credential to attach it to.
+func (d *DB) SetUserTrackerCredentialAccount(userID, tracker, account string) error {
+	userID = strings.TrimSpace(userID)
+	tracker = strings.ToLower(strings.TrimSpace(tracker))
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	result, err := d.conn.Exec(`UPDATE user_tracker_credentials SET account = ? WHERE user_id = ? AND tracker = ?`, strings.TrimSpace(account), userID, tracker)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
+		return ErrNoUserCredential
+	}
+	return nil
+}
+
+// TrackerAccounts maps each tracker to the confirmed account of one person's
+// credential for it, leaving out the credentials never confirmed. Nothing is
+// decrypted, so a sealed and locked credential answers as well.
+func (d *DB) TrackerAccounts(userID string) (map[string]string, error) {
+	accounts := map[string]string{}
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return accounts, nil
+	}
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	rows, err := d.conn.Query(`SELECT tracker, account FROM user_tracker_credentials WHERE user_id = ? AND TRIM(account) <> ''`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var tracker, account string
+		if err := rows.Scan(&tracker, &account); err != nil {
+			return nil, err
+		}
+		accounts[tracker] = account
+	}
+	return accounts, rows.Err()
 }
 
 // ClearUserTrackerCredential deletes one person's token.
@@ -263,7 +317,7 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 		return []UserCredential{}, nil
 	}
 	d.mu.RLock()
-	rows, err := d.conn.Query(`SELECT tracker, site_url, email, sealed, updated_at FROM user_tracker_credentials WHERE user_id = ? ORDER BY tracker`, userID)
+	rows, err := d.conn.Query(`SELECT tracker, site_url, email, account, sealed, updated_at FROM user_tracker_credentials WHERE user_id = ? ORDER BY tracker`, userID)
 	d.mu.RUnlock()
 	if err != nil {
 		return nil, err
@@ -274,7 +328,7 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 	for rows.Next() {
 		var credential UserCredential
 		var sealed int
-		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &sealed, &credential.UpdatedAt); err != nil {
+		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &credential.Account, &sealed, &credential.UpdatedAt); err != nil {
 			// Skipping it silently showed a profile with no credential while
 			// the tracker kept using one.
 			return nil, err

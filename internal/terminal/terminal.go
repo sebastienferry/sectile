@@ -60,6 +60,11 @@ type Session struct {
 	LastActiveAt      time.Time
 	outputListeners   []func([]byte)
 	outputListenersMu sync.Mutex
+	// inputListeners see what a viewer types, from the console WebSocket or
+	// relayed from the web terminal, before it reaches the PTY. The lines the
+	// agent types itself are not viewer input and are not shown to them.
+	inputListeners   []func([]byte)
+	inputListenersMu sync.Mutex
 }
 
 type Manager struct {
@@ -303,6 +308,18 @@ func (m *Manager) SendInput(sessionID string, input string) error {
 	return err
 }
 
+// SendViewerInput writes what a viewer typed in a remote terminal, relayed by
+// the server, and shows it to the session's input listeners first.
+func (m *Manager) SendViewerInput(sessionID string, input string) error {
+	m.mu.RLock()
+	sess, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if ok && sess != nil && !sess.closed {
+		sess.feedInput([]byte(input))
+	}
+	return m.SendInput(sessionID, input)
+}
+
 // normalizeInput ends a typed line the way the host console expects. A Windows console
 // reads Enter as a carriage return: a bare newline leaves the shell on its continuation
 // prompt, so the command is echoed and never runs. Bytes coming straight from a viewer's
@@ -328,6 +345,36 @@ func (m *Manager) AddOutputListener(sessionID string, fn func([]byte)) {
 	m.mu.RUnlock()
 	if ok && sess != nil {
 		sess.AddOutputListener(fn)
+	}
+}
+
+// AddInputListener adds a callback invoked with every chunk a viewer types into
+// this session. It runs on the read path of the viewer's connection, so it must
+// not block.
+func (s *Session) AddInputListener(fn func([]byte)) {
+	s.inputListenersMu.Lock()
+	defer s.inputListenersMu.Unlock()
+	s.inputListeners = append(s.inputListeners, fn)
+}
+
+// AddInputListener registers a callback on the named session to see what its
+// viewers type. It reports whether the session exists.
+func (m *Manager) AddInputListener(sessionID string, fn func([]byte)) bool {
+	m.mu.RLock()
+	sess, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+	if ok && sess != nil {
+		sess.AddInputListener(fn)
+	}
+	return ok && sess != nil
+}
+
+// feedInput shows a viewer's input, as it was received, to the listeners.
+func (s *Session) feedInput(data []byte) {
+	s.inputListenersMu.Lock()
+	defer s.inputListenersMu.Unlock()
+	for _, fn := range s.inputListeners {
+		fn(data)
 	}
 }
 
@@ -429,6 +476,7 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 		sess.LastActiveAt = time.Now()
 
 		if msgType == websocket.BinaryMessage {
+			sess.feedInput(msgData)
 			_, _ = sess.Pty.Write(msgData)
 			continue
 		}
@@ -444,6 +492,7 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 							_ = sess.Pty.Resize(wsMsg.Cols, wsMsg.Rows)
 						}
 					case "input":
+						sess.feedInput([]byte(wsMsg.Data))
 						_, _ = sess.Pty.Write([]byte(wsMsg.Data))
 					case "ping":
 						_ = conn.WriteJSON(WsMessage{Type: "pong"})
@@ -453,6 +502,7 @@ func (m *Manager) HandleWebSocket(w http.ResponseWriter, r *http.Request, sessio
 			}
 
 			// Raw text input
+			sess.feedInput(msgData)
 			_, _ = sess.Pty.Write(msgData)
 		}
 	}

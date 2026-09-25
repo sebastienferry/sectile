@@ -229,7 +229,7 @@ func (d *DB) FinishMacroRunAs(caller Actor, admin bool, projectID, macroKey, run
 		args = append(args, "%"+models.RunDisconnectNote+"%")
 	}
 	d.mu.Lock()
-	result, err := d.conn.Exec(`UPDATE task_activities SET status=?, summary=?, completed_at=?, waiting_since=NULL
+	result, err := d.conn.Exec(`UPDATE task_activities SET status=?, summary=?, completed_at=?, waiting_since=NULL, waiting_session=''
 		WHERE id=? AND project_id=? AND task_id IS NULL AND skill_id='remote_run' AND `+closable, args...)
 	d.mu.Unlock()
 	if err != nil {
