@@ -1,0 +1,175 @@
+package db
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+
+	"tasks/internal/agentprotocol"
+	"tasks/internal/models"
+)
+
+// A GitLab multi-repo project: g/a is the code remote, g/b a second
+// repository. Every lookup goes through the agent, as GitLab evidence does.
+const (
+	mrA = "https://gitlab.com/g/a/-/merge_requests/1"
+	mrB = "https://gitlab.com/g/b/-/merge_requests/2"
+)
+
+type fakeRepoAgent struct {
+	t         *testing.T
+	prs       map[string]string // repository ("" for the code remote) → merge request URL
+	heads     map[string]string // repository → checkout head
+	removed   []string
+	failRemov string
+}
+
+func (f *fakeRepoAgent) operate(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+	switch op.Action {
+	case "pr_evidence":
+		url, ok := f.prs[op.Repository]
+		if !ok {
+			return json.RawMessage(fmt.Sprintf(`{"repository":%q,"forge":"gitlab","refusal":"no merge request from %s"}`, op.Repository, op.Branch)), nil
+		}
+		return json.RawMessage(fmt.Sprintf(`{"repository":%q,"forge":"gitlab","url":%q,"branch":%q,"sha":"head-%s","open":true}`, op.Repository, url, op.Branch, url[len(url)-1:])), nil
+	case "git_evidence":
+		key := op.Repository
+		head, ok := f.heads[key]
+		if !ok {
+			return json.RawMessage(fmt.Sprintf(`{"repository":%q,"found":false}`, key)), nil
+		}
+		// The project checkout is asked without a branch and answers the one
+		// checked out, as the agent does.
+		return json.RawMessage(fmt.Sprintf(`{"repository":%q,"found":true,"path":"/work","sha":%q,"branch":"feat/12","clean":true}`, key, head)), nil
+	case "remove_workspace":
+		result := models.WorktreeRemoval{}
+		for _, repository := range op.Repositories {
+			if repository == f.failRemov {
+				result.Failed = append(result.Failed, models.WorktreeRemovalFailed{Repository: repository, Error: "locked"})
+				continue
+			}
+			result.Removed = append(result.Removed, repository)
+		}
+		f.removed = op.Repositories
+		return json.Marshal(result)
+	}
+	f.t.Fatalf("unexpected operation %#v", op)
+	return nil, nil
+}
+
+func twoRepoTask(t *testing.T) (*DB, *models.Task, *fakeRepoAgent) {
+	t.Helper()
+	d := testDB(t)
+	no := false
+	p, err := d.CreateProject(models.CreateProjectRequest{Name: "Multi", IssueTracker: "local", MonoRepo: &no, UseWorktrees: &no,
+		GitRemoteUrl: "git@gitlab.com:g/a.git", Repositories: []string{"git@gitlab.com:g/b.git"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := d.CreateTask(models.CreateTaskRequest{ProjectID: p.ID, Title: "two repositories", Labels: []string{"#specified"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.conn.Exec(`UPDATE tasks SET branch_name='feat/12', status='to_implement', labels='["#specified"]' WHERE id=?`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AddChangedRepository(task.ID, "gitlab.com/g/b"); err != nil {
+		t.Fatal(err)
+	}
+	if task, err = d.GetTaskByID(task.ID); err != nil {
+		t.Fatal(err)
+	}
+	agent := &fakeRepoAgent{t: t,
+		prs:   map[string]string{"": mrA, "gitlab.com/g/a": mrA, "gitlab.com/g/b": mrB},
+		heads: map[string]string{"": "head-1", "gitlab.com/g/b": "head-2"}}
+	d.SetAgentOperations(agent.operate)
+	return d, task, agent
+}
+
+func TestImplementationNeedsAPullRequestPerChangedRepository(t *testing.T) {
+	d, task, _ := twoRepoTask(t)
+	got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA, mrB}, "feat/12")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.PrURL == nil || *got.PrURL != mrA {
+		t.Errorf("current pull request = %v, want the primary repository's", got.PrURL)
+	}
+	var urls []string
+	for _, link := range got.PrLinks {
+		urls = append(urls, link.URL)
+	}
+	if strings.Join(urls, " ") != mrB+" "+mrA {
+		t.Errorf("recorded = %v", urls)
+	}
+}
+
+func TestAChangedRepositoryIsLookedUpByBranchWhenNoLinkNamesIt(t *testing.T) {
+	d, task, _ := twoRepoTask(t)
+	if _, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA}, "feat/12"); err != nil {
+		t.Fatalf("the second repository's merge request is found by branch: %v", err)
+	}
+}
+
+func TestAChangedRepositoryWithoutPullRequestIsRefused(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	delete(agent.prs, "gitlab.com/g/b")
+	_, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA}, "feat/12")
+	if err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") {
+		t.Fatalf("err = %v, want a refusal naming gitlab.com/g/b", err)
+	}
+}
+
+func TestAPullRequestOutsideTheChangedRepositoriesIsRefused(t *testing.T) {
+	d, task, _ := twoRepoTask(t)
+	_, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA, "https://gitlab.com/g/c/-/merge_requests/3"}, "feat/12")
+	if err == nil || !strings.Contains(err.Error(), "not in a repository") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestAStaleSecondaryHeadIsRefused(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	agent.heads["gitlab.com/g/b"] = "older"
+	_, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA, mrB}, "feat/12")
+	if err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") || !strings.Contains(err.Error(), "does not contain the agent checkout commit") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestASingleRepositoryTaskKeepsOnePullRequest(t *testing.T) {
+	d, task, _ := twoRepoTask(t)
+	if _, err := d.conn.Exec(`UPDATE tasks SET changed_repositories='[]' WHERE id=?`, task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA, mrB}, "feat/12"); err == nil || !strings.Contains(err.Error(), "single repository") {
+		t.Fatalf("two links on a single-repository task: %v", err)
+	}
+	if got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA}, "feat/12"); err != nil || len(got.PrLinks) != 1 {
+		t.Fatalf("single repository: %+v, %v", got, err)
+	}
+}
+
+func TestWorktreeRemovalCoversEveryChangedRepository(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	if err := d.RemoveTaskWorktree("", task.ID); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(agent.removed, " ") != "gitlab.com/g/a gitlab.com/g/b" {
+		t.Errorf("asked to remove %v", agent.removed)
+	}
+	agent.failRemov = "gitlab.com/g/b"
+	if err := d.RemoveTaskWorktree("", task.ID); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b: locked") {
+		t.Errorf("err = %v, want the failed repository named", err)
+	}
+}
+
+func TestAdjustmentChecksEverySecondaryRepository(t *testing.T) {
+	d, task, agent := twoRepoTask(t)
+	delete(agent.prs, "gitlab.com/g/b")
+	if _, err := d.adjustmentPrerequisite(task, "", false); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") {
+		t.Fatalf("err = %v, want the secondary repository named", err)
+	}
+}

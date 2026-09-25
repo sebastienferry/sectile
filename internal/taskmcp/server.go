@@ -23,6 +23,8 @@ type transitionInput struct {
 	Note    string `json:"note"`
 	Branch  string `json:"branch,omitempty"`
 	PRURL   string `json:"prUrl,omitempty"`
+	// PRURLs are the pull requests of the other repositories the task changed.
+	PRURLs []string `json:"prUrls,omitempty"`
 }
 type commentInput struct {
 	TaskKey string `json:"taskKey"`
@@ -96,6 +98,11 @@ func resumesWaits(method string, req mcp.Request) bool {
 	}
 	call, ok := req.(*mcp.CallToolRequest)
 	return ok && call.Params != nil && call.Params.Name != reportWaitingTool
+}
+
+type repositoryWorktreeInput struct {
+	TaskKey    string `json:"taskKey" jsonschema:"task key or ID"`
+	Repository string `json:"repository" jsonschema:"one of the project's repositories, as a remote URL or a host/path identity"`
 }
 
 type macroWorktreeInput struct {
@@ -247,12 +254,13 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			"taskKey": map[string]any{"type": "string", "minLength": 1},
 			"stage":   map[string]any{"type": "string", "enum": []string{"clarified", "specified", "implemented", "reviewed", "finished"}},
 			"note":    map[string]any{"type": "string", "minLength": 1}, "branch": map[string]any{"type": "string"}, "prUrl": map[string]any{"type": "string", "description": "Pull request or merge request URL to persist on the task. Omit to preserve its existing link."},
+			"prUrls": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "On a task that changed several repositories: the pull requests of the other repositories, one per repository. prUrl names the primary repository's."},
 		},
 	}}, func(ctx context.Context, req *mcp.CallToolRequest, in transitionInput) (*mcp.CallToolResult, any, error) {
 		if strings.TrimSpace(in.Note) == "" {
 			return nil, nil, fmt.Errorf("note is required")
 		}
-		task, activity, err := database.TransitionTaskStageBy(callerOf(resolve, req).UserID, in.TaskKey, in.Stage, in.Note, in.PRURL, in.Branch)
+		task, activity, err := database.TransitionTaskStageWithPRs(callerOf(resolve, req).UserID, in.TaskKey, in.Stage, in.Note, append([]string{in.PRURL}, in.PRURLs...), in.Branch)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -354,6 +362,14 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 				return nil, nil, err
 			}
 			return nil, workspace, nil
+		})
+	mcp.AddTool(s, &mcp.Tool{Name: "prepare_repository_worktree", Description: "On a multi-repo project, prepare the task's worktree in another of the project's repositories, on the caller's local agent, on the task's branch: created from the up-to-date default branch, or reused when the branch already exists there. The repository must be mapped to a folder on that workstation. Call it before changing a context folder (SECTILE_REPOSITORIES role \"context\"): context folders are read-only. The repository then needs its own pull request, given in transition_stage prUrls. Returns repository, path and branch."},
+		func(ctx context.Context, req *mcp.CallToolRequest, in repositoryWorktreeInput) (*mcp.CallToolResult, any, error) {
+			worktree, err := database.PrepareRepositoryWorktree(ctx, callerOf(resolve, req).UserID, in.TaskKey, in.Repository)
+			if err != nil {
+				return nil, nil, err
+			}
+			return nil, worktree, nil
 		})
 	mcp.AddTool(s, &mcp.Tool{Name: "create_task", Description: "Create a task on an explicitly named project and return it with its key and external URL. Creation is remote whenever the project's tracker supports it, and fails rather than leaving a ticket that exists only on the local board. The new task enters the workflow at its first stage; it cannot be created at a later one.", InputSchema: map[string]any{
 		"type": "object", "additionalProperties": false, "required": []string{"projectId", "title"},

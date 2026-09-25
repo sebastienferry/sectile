@@ -2186,7 +2186,28 @@ func (d *DB) RemoveTaskWorktree(mainRepoPath, taskID string) error {
 	if err != nil || task == nil {
 		return fmt.Errorf("task not found")
 	}
-	return d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "remove_workspace"}, nil)
+	project, _ := d.GetProjectByID(task.ProjectID)
+	if project == nil || !multiRepoTask(project, task) {
+		return d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "remove_workspace"}, nil)
+	}
+	// A ticket that changed several repositories has a worktree in each, all
+	// removed in one operation, and a repository left behind is named (#456).
+	repositories := append([]string{TaskPrimaryRepository(project, task)}, task.ChangedRepositories...)
+	var removal models.WorktreeRemoval
+	if err := d.callAgent(agentprotocol.Operation{ProjectID: task.ProjectID, TaskID: task.ID, Action: "remove_workspace", Repositories: repositories}, &removal); err != nil {
+		return err
+	}
+	if len(removal.Removed) == 0 && len(removal.Failed) == 0 {
+		return fmt.Errorf("local agent is too old to remove a worktree in another repository; update it")
+	}
+	if len(removal.Failed) > 0 {
+		var failed []string
+		for _, f := range removal.Failed {
+			failed = append(failed, f.Repository+": "+f.Error)
+		}
+		return fmt.Errorf("worktree not removed in %s", strings.Join(failed, "; "))
+	}
+	return nil
 }
 
 func (d *DB) GetTaskWorktreeInfo(taskID string) (*models.WorktreeInfo, error) {

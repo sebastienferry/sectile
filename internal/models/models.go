@@ -1103,17 +1103,20 @@ type ConvertTaskRequest struct {
 
 // TaskPostBackPayload represents an incoming update payload from local actions or background tracker operations.
 type TaskPostBackPayload struct {
-	TaskID           string     `json:"taskId"`
-	TaskKey          string     `json:"taskKey,omitempty"`
-	ProjectID        string     `json:"projectId,omitempty"`
-	Title            *string    `json:"title,omitempty"`
-	Description      *string    `json:"description,omitempty"`
-	Status           *Status    `json:"status,omitempty"`
-	Stage            *string    `json:"stage,omitempty"`
-	Assignee         *string    `json:"assignee,omitempty"`
-	AssigneeAvatar   *string    `json:"assigneeAvatar,omitempty"`
-	BranchName       *string    `json:"branchName,omitempty"`
-	PrURL            *string    `json:"prUrl,omitempty"`
+	TaskID         string  `json:"taskId"`
+	TaskKey        string  `json:"taskKey,omitempty"`
+	ProjectID      string  `json:"projectId,omitempty"`
+	Title          *string `json:"title,omitempty"`
+	Description    *string `json:"description,omitempty"`
+	Status         *Status `json:"status,omitempty"`
+	Stage          *string `json:"stage,omitempty"`
+	Assignee       *string `json:"assignee,omitempty"`
+	AssigneeAvatar *string `json:"assigneeAvatar,omitempty"`
+	BranchName     *string `json:"branchName,omitempty"`
+	PrURL          *string `json:"prUrl,omitempty"`
+	// PrURLs are the pull requests of the other repositories a ticket
+	// changed (#456), next to the primary repository's in PrURL.
+	PrURLs           []string   `json:"prUrls,omitempty"`
 	Labels           *[]string  `json:"labels,omitempty"`
 	TrackerStatus    *string    `json:"trackerStatus,omitempty"`
 	Sprint           *string    `json:"sprint,omitempty"`
