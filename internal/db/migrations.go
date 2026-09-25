@@ -364,10 +364,21 @@ var migrations = []migration{
 		},
 	},
 	{
+		// The MCP session that declared a run's wait (#475), so that session's
+		// next call ends it from any instance, and after a restart, rather than
+		// only from the memory of the instance that served the declaration.
+		// Empty on a wait set by hand or by a launch parked on a repository.
+		version: 23,
+		name:    "task_activities.waiting_session",
+		statements: []string{
+			"ALTER TABLE task_activities ADD COLUMN waiting_session TEXT NOT NULL DEFAULT '';",
+		},
+	},
+	{
 		// The account a personal tracker credential belongs to, as the tracker
 		// reported it when the credential was confirmed (#468). My Tasks matches
 		// tickets on it. Empty until the credential is saved or verified again.
-		version: 23,
+		version: 24,
 		name:    "user_tracker_credentials.account",
 		statements: []string{
 			"ALTER TABLE user_tracker_credentials ADD COLUMN account TEXT NOT NULL DEFAULT '';",

@@ -28,8 +28,9 @@ Behaviour is in `spec.md`. This file says how, and where.
 
 Two refinements made while implementing, neither changing the specification:
 
-- **Migration 23, not 22.** `#469` (#464, server tracker credentials) landed migration 22
-  on `main` before this branch merged it, so the column is added by migration 23.
+- **Migration 24, not 22.** `#469` (#464, server tracker credentials) landed migration 22
+  and #475 (the waiting session) migration 23 on `main` before this branch merged them,
+  so the column is added by migration 24.
 - **Case folding is `lowerASCII` on both sides**, the store's existing pair
   (`d.lowerASCII` in SQL, `asciiLower` in Go), not `LOWER()` against `strings.ToLower`.
   SQLite's `LOWER` folds A-Z only: with `strings.ToLower` on the Go side, an assignee

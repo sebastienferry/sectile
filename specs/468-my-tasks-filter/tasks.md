@@ -20,7 +20,7 @@ Ordered checklist. Each task names what proves it done. Requirement numbers refe
 
 ## 2. Migration and storage (FR 4, 5)
 
-- [x] Migration 23 (22 was taken by #469) `user_tracker_credentials.account`, both engines; the rewind-test
+- [x] Migration 24 (22 and 23 were taken by #469 and #475) `user_tracker_credentials.account`, both engines; the rewind-test
       helpers drop the new column.
 - [x] `UserCredential.Account`, reset in `SetUserTrackerCredential`,
       `SetUserTrackerCredentialAccount`, `TrackerAccounts`.
