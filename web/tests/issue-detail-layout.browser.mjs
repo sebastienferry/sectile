@@ -22,7 +22,8 @@ const server = await createServer({
   root, resolve: { preserveSymlinks }, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
   plugins: [{ name: 'issue-detail-fixture', enforce: 'pre',
     transform(code, id) {
-      if (id.endsWith('/TaskDetailModal.tsx')) return code.replace("import { useApp } from '../context/AppContext'", 'const useApp = () => window.ctx')
+      // Every component the detail renders reads the mocked context, PrioritySelect included.
+      if (id.includes('/src/components/')) return code.replace(/import \{ useApp \} from ['"]\.\.\/context\/AppContext['"]/, 'const useApp = () => window.ctx')
     },
     configureServer(s) {
       s.middlewares.use(async (req, res, next) => {
