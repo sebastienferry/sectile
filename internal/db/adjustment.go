@@ -40,6 +40,17 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 	if err != nil {
 		target = stagePRTarget{}
 	}
+	if project != nil && multiRepoTask(project, task) {
+		// A ticket pinned elsewhere reads its pull request in its own
+		// repository, and every secondary repository it changed must have a
+		// ready pull request on a clean checkout before it is adjusted (#456).
+		if primary := TaskPrimaryRepository(project, task); !target.foreign && !slices.Contains(projectRepositoryIdentities(project), primary) {
+			target = repositoryTarget(primary)
+		}
+		if err := d.checkSecondaryPRs(project, task, actorID, branch); err != nil {
+			return trackerapi.PullRequest{}, fmt.Errorf("adjustment prerequisite: %w", err)
+		}
+	}
 	pr, err := d.lookupStagePR(task, actorID, d.adjustmentCheckout(task), branch, target)
 	if err != nil {
 		return pr, fmt.Errorf("adjustment prerequisite: %w (creation owner: %s)", err, d.prCreationOwner(task))
@@ -113,9 +124,7 @@ func validatePullRequestEvidence(pr trackerapi.PullRequest, branch, url string, 
 // another repository whose head no local checkout could confirm. The notice is
 // part of the stage's report, never a reason to refuse it.
 func (d *DB) validateStagePR(task *models.Task, actorID, skillID, repoPath, branch, url string) (string, string, error) {
-	skillID = models.NormalizeSkillID(skillID)
-	required := skillID == "create_pr" || skillID == "adjust" || skillID == "pickup" || skillID == "implement" || (skillID == "specify" && d.prCreationOwner(task) == "specify")
-	if !required {
+	if !d.stagePRRequired(task, skillID) {
 		return url, "", nil
 	}
 	project, err := d.GetProjectByID(task.ProjectID)
@@ -126,6 +135,19 @@ func (d *DB) validateStagePR(task *models.Task, actorID, skillID, repoPath, bran
 	if err != nil {
 		return "", "", err
 	}
+	return d.validateStagePRAt(task, actorID, skillID, repoPath, branch, url, target)
+}
+
+// stagePRRequired says whether a skill's stage needs pull request evidence.
+func (d *DB) stagePRRequired(task *models.Task, skillID string) bool {
+	skillID = models.NormalizeSkillID(skillID)
+	return skillID == "create_pr" || skillID == "adjust" || skillID == "pickup" || skillID == "implement" || (skillID == "specify" && d.prCreationOwner(task) == "specify")
+}
+
+// validateStagePRAt is validateStagePR once the repository the pull request
+// is read in is known, which a multi-repo ticket decides per repository.
+func (d *DB) validateStagePRAt(task *models.Task, actorID, skillID, repoPath, branch, url string, target stagePRTarget) (string, string, error) {
+	skillID = models.NormalizeSkillID(skillID)
 	pr, err := d.lookupStagePR(task, actorID, repoPath, branch, target)
 	if err != nil {
 		return "", "", err

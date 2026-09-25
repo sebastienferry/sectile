@@ -399,7 +399,7 @@ func (c *Client) IssuePullRequests(repo string, issueNumber int) ([]PullRequest,
 		return nil, fmt.Errorf("issue number is required")
 	}
 	if c.GithubToken == "" {
-		return nil, fmt.Errorf("%s", missingCredential("GitHub"))
+		return nil, c.missingCredential("GitHub")
 	}
 	parts := strings.Split(repo, "/")
 	var res struct {

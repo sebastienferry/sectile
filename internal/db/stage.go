@@ -22,6 +22,18 @@ func (d *DB) TransitionTaskStage(taskIDOrKey string, targetStage string, note st
 // TransitionTaskStageBy is TransitionTaskStage attributed to a user, recorded
 // on the transition's activity.
 func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetStage string, note string, prURL string, branch string) (*models.Task, *models.TaskActivity, error) {
+	return d.TransitionTaskStageWithPRs(actorID, taskIDOrKey, targetStage, note, []string{prURL}, branch)
+}
+
+// TransitionTaskStageWithPRs is TransitionTaskStageBy for a ticket that may
+// carry one pull request per repository it changed (#456). The first link is
+// the one prUrl names; the others follow in any order.
+func (d *DB) TransitionTaskStageWithPRs(actorID string, taskIDOrKey string, targetStage string, note string, prURLs []string, branch string) (*models.Task, *models.TaskActivity, error) {
+	prURL := ""
+	if len(prURLs) > 0 {
+		prURL = prURLs[0]
+	}
+	var otherPRs []string
 	taskIDOrKey = strings.TrimSpace(taskIDOrKey)
 	if taskIDOrKey == "" {
 		return nil, nil, fmt.Errorf("identifiant ou clé de tâche manquant")
@@ -69,11 +81,15 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 	}
 	skillForStage := map[string]string{"specified": "specify", "implemented": "implement", "reviewed": "adjust"}[cleanStage]
 	if skillForStage != "" {
-		verified, notice, err := d.validateStagePR(task, actorID, skillForStage, d.adjustmentCheckout(task), branchForPR, strings.TrimSpace(prURL))
+		set, err := d.validateStagePRs(task, actorID, skillForStage, d.adjustmentCheckout(task), branchForPR, prURLs)
 		if err != nil {
 			return nil, nil, err
 		}
-		prURL = verified
+		prURL = set.primary()
+		notice := set.notice
+		if len(set.urls) > 1 {
+			otherPRs = set.urls[:len(set.urls)-1]
+		}
 		if notice != "" {
 			note = strings.TrimSpace(note + "\n\n" + notice)
 		}
@@ -163,7 +179,12 @@ func (d *DB) TransitionTaskStageBy(actorID string, taskIDOrKey string, targetSta
 				if linkBranch == "" && branchName != nil {
 					linkBranch = *branchName
 				}
-				links = models.AppendPullRequestLink(links, mrURL, linkBranch)
+				// The other repositories' pull requests first, so that the
+				// primary repository's stays the current one.
+				for _, other := range otherPRs {
+					links = models.AppendPullRequestLink(links, other, linkBranch)
+				}
+				links = pullRequestLinkLast(models.AppendPullRequestLink(links, mrURL, linkBranch), mrURL)
 			}
 			// A stage that records a link undoes a past detachment: the workflow
 			// attached a pull request again, so rediscovery may speak once more. A

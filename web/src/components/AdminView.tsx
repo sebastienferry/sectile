@@ -5,6 +5,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useAdminStats } from '../hooks/useAdminStats'
 import { fill, RUN_STATUSES, windowMinutes } from '../lib/adminStats'
 import { UsersPanel } from './UsersPanel'
+import { ServerTrackerCredentialsPanel } from './ServerTrackerCredentialsPanel'
 
 interface StatCardProps {
   icon: React.ReactNode
@@ -27,7 +28,8 @@ function StatCard({ icon, label, value, detail }: StatCardProps) {
 }
 
 /**
- * The admin page: what the board is doing right now, then the roster. It
+ * The admin page: what the board is doing right now, the roster, then the
+ * credentials the server reaches its trackers with. It
  * replaced a modal that only held the roster, because watching the board is
  * something one keeps open, not something one opens and closes.
  *
@@ -111,6 +113,8 @@ export const AdminView: React.FC = () => {
               in shows as online at the same moment the count goes up. */}
           <UsersPanel currentUserId={currentUser.userId} embedded reloadKey={revision} onChange={refresh} />
         </section>
+
+        <ServerTrackerCredentialsPanel />
       </div>
     </div>
   )

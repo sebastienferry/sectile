@@ -31,7 +31,11 @@ type Overrides struct {
 	// workstation, a Git checkout or a plain folder. Only overrides are
 	// stored: without one, a mono-repo project uses its code checkout and a
 	// multi-repo project has none. The server holds no such path.
-	SpecRepos                   map[string]string `json:"specRepos,omitempty"`
+	SpecRepos map[string]string `json:"specRepos,omitempty"`
+	// Repositories maps a repository, by identity, to the local folder that
+	// holds its checkout (#456). Keyed by repository rather than by project,
+	// one checkout serves every project that works in it.
+	Repositories                map[string]string `json:"repositories,omitempty"`
 	AIProviders                 map[string]string `json:"aiProviders,omitempty"`
 	AIModels                    map[string]string `json:"aiModels,omitempty"`
 	AIProvider                  string            `json:"aiProvider"`

@@ -11,25 +11,18 @@ import (
 	"time"
 )
 
-// keptToken applies the write-only rule shared by every tracker credential: the
-// interface never receives a token back, so an empty field means "leave the
-// stored one alone" and only the clear sentinel deletes it.
-func keptToken(incoming, stored string) string {
-	switch incoming {
-	case "":
-		return stored
-	case TrackerTokenClearSentinel:
-		return ""
-	default:
-		return incoming
-	}
-}
-
-// trackerCredentials resolves one project's connection parameters: the project
-// override first, then the user configuration, then nothing — the caller
-// (trackerapi.Client) keeps its environment-derived value for every field left
-// empty here. That order is what makes a token typed in the interface win over
-// a stale one exported in the server's shell.
+// trackerCredentials resolves one project's connection parameters. The URLs and
+// the GitLab project come from the project override first, then the user
+// configuration; the caller (trackerapi.Client) keeps its environment-derived
+// value for every field left empty here.
+//
+// The credentials come from the stored server credential of each provider and
+// from nowhere else (#464): a project has none of its own, and the settings row
+// no longer holds any. A stored credential wins as a whole, the Jira e-mail
+// with its token, so it is never completed with half of the environment's
+// pair. Nothing stored leaves the fields empty and the environment answers. A
+// stored credential the key does not open is flagged, so the call fails
+// instead of reaching the tracker under the environment's account.
 //
 // It reads through the unsafe getters on purpose: it is called from the tracker
 // client, itself called from code paths that already hold d.mu, and a plain
@@ -39,13 +32,24 @@ func (d *DB) trackerCredentials(projectID string) trackerapi.Credentials {
 	if settings, err := d.getSettingsUnsafe(); err == nil && settings != nil {
 		cred = trackerapi.Credentials{
 			GithubURL:     settings.GithubApiUrl,
-			GithubToken:   settings.GithubToken,
 			GitlabURL:     settings.GitlabUrl,
 			GitlabProject: settings.GitlabProject,
-			GitlabToken:   settings.GitlabToken,
 			JiraURL:       settings.JiraUrl,
-			JiraEmail:     settings.JiraEmail,
-			JiraToken:     settings.JiraAPIToken,
+		}
+	}
+	for _, tracker := range ServerCredentialTrackers {
+		email, token, found, err := d.storedServerTrackerCredential(tracker)
+		if !found {
+			continue
+		}
+		unreadable := err != nil
+		switch tracker {
+		case "github":
+			cred.GithubToken, cred.GithubUnreadable = token, unreadable
+		case "gitlab":
+			cred.GitlabToken, cred.GitlabUnreadable = token, unreadable
+		case "jira":
+			cred.JiraEmail, cred.JiraToken, cred.JiraUnreadable = email, token, unreadable
 		}
 	}
 	if strings.TrimSpace(projectID) == "" {
@@ -56,12 +60,10 @@ func (d *DB) trackerCredentials(projectID string) trackerapi.Credentials {
 		return cred
 	}
 	overrideWith(&cred.GithubURL, proj.GithubApiUrl)
-	overrideWith(&cred.GithubToken, proj.GithubToken)
 	overrideWith(&cred.GitlabURL, proj.GitlabUrl)
 	overrideWith(&cred.GitlabProject, proj.GitlabProject)
-	overrideWith(&cred.GitlabToken, proj.GitlabToken)
 	// A project overrides the Jira site only: one Atlassian API token is valid
-	// on every site of the account, so the e-mail and token stay global.
+	// on every site of the account, so the server credential serves them all.
 	if strings.EqualFold(strings.TrimSpace(proj.IssueTracker), "jira") {
 		overrideWith(&cred.JiraURL, proj.TrackerUrl)
 	}
@@ -93,37 +95,35 @@ func (d *DB) trackerAs(userID, trackerName, projectID string) *trackerapi.Client
 	return client
 }
 
-// withoutTrackerTokens strips the credentials from a settings row on its way to
-// a client and reports them through flags instead: whether one is stored, and
-// whether the server environment supplies one in its absence. The interface
-// needs that second flag to say "provided by the environment" rather than
-// showing an empty field on a server that is in fact configured.
+// withoutTrackerTokens strips the credential columns from a settings row on its
+// way to a client and reports the server credentials through flags instead:
+// Set when one is stored, FromEnv when the environment supplies it in the
+// absence of a stored one. That is all a member may know of them; the
+// Administration page reads the rest from ServerTrackerCredentialStates.
 func (d *DB) withoutTrackerTokens(s *models.Settings) *models.Settings {
 	if s == nil {
 		return nil
 	}
-	s.JiraAPITokenSet = s.JiraAPIToken != ""
-	s.GithubTokenSet = s.GithubToken != ""
-	s.GitlabTokenSet = s.GitlabToken != ""
-	if d != nil && d.trackers != nil {
-		s.GithubTokenFromEnv = !s.GithubTokenSet && d.trackers.GithubToken != ""
-		s.GitlabTokenFromEnv = !s.GitlabTokenSet && d.trackers.GitlabToken != ""
-		s.JiraAPITokenFromEnv = !s.JiraAPITokenSet && d.trackers.JiraToken != ""
+	s.JiraAPIToken, s.GithubToken, s.GitlabToken, s.JiraEmail = "", "", "", ""
+	if d == nil {
+		return s
 	}
-	s.JiraAPIToken, s.GithubToken, s.GitlabToken = "", "", ""
+	for _, tracker := range ServerCredentialTrackers {
+		state, err := d.ServerTrackerCredentialState(tracker)
+		if err != nil {
+			continue
+		}
+		set, fromEnv := state.Source == ServerCredentialStored, state.Source == ServerCredentialEnvironment
+		switch tracker {
+		case "github":
+			s.GithubTokenSet, s.GithubTokenFromEnv = set, fromEnv
+		case "gitlab":
+			s.GitlabTokenSet, s.GitlabTokenFromEnv = set, fromEnv
+		case "jira":
+			s.JiraAPITokenSet, s.JiraAPITokenFromEnv = set, fromEnv
+		}
+	}
 	return s
-}
-
-// withoutProjectTokens does the same for a project's overrides. A project has no
-// FromEnv flag: the environment is a property of the server, not of a project.
-func withoutProjectTokens(p *models.Project) *models.Project {
-	if p == nil {
-		return nil
-	}
-	p.GithubTokenSet = p.GithubToken != ""
-	p.GitlabTokenSet = p.GitlabToken != ""
-	p.GithubToken, p.GitlabToken = "", ""
-	return p
 }
 
 // credentialCheckTimeout bounds a credential check. Somebody is waiting in
@@ -191,10 +191,9 @@ func (d *DB) checkTrackerCredentials(ctx context.Context, trackerName, apiURL, e
 }
 
 // SaveTrackerCredentials stores one tracker's connection parameters in the user
-// configuration. The empty-means-unchanged and clear-sentinel rules of
-// UpdateSettings apply, so the caller may leave the token out. For Jira,
-// project is the default project key and email the account e-mail.
-func (d *DB) SaveTrackerCredentials(tracker, apiURL, project, email, token string) (*models.Settings, error) {
+// configuration: its URL and its default project. The credential is not one of
+// them any more; an admin stores it with SaveServerTrackerCredential (#464).
+func (d *DB) SaveTrackerCredentials(tracker, apiURL, project string) (*models.Settings, error) {
 	current, err := d.GetSettings()
 	if err != nil {
 		return nil, err
@@ -203,27 +202,62 @@ func (d *DB) SaveTrackerCredentials(tracker, apiURL, project, email, token strin
 	switch strings.ToLower(strings.TrimSpace(tracker)) {
 	case "jira":
 		update.JiraUrl = strings.TrimSpace(apiURL)
-		update.JiraAPIToken = strings.TrimSpace(token)
-		if strings.TrimSpace(email) != "" {
-			update.JiraEmail = strings.TrimSpace(email)
-		}
 		if strings.TrimSpace(project) != "" {
 			update.JiraProject = strings.ToUpper(strings.TrimSpace(project))
 		}
 	case "github":
 		update.GithubApiUrl = strings.TrimSpace(apiURL)
-		update.GithubToken = strings.TrimSpace(token)
 		if strings.TrimSpace(project) != "" {
 			update.GithubRepo = strings.TrimSpace(project)
 		}
 	case "gitlab":
 		update.GitlabUrl = strings.TrimSpace(apiURL)
-		update.GitlabToken = strings.TrimSpace(token)
 		update.GitlabProject = strings.TrimSpace(project)
 	default:
 		return nil, fmt.Errorf("tracker %q inconnu", tracker)
 	}
 	return d.UpdateSettings(update)
+}
+
+// CheckServerTrackerCredentials authenticates a server credential against the
+// deployment's instance of its provider and answers the account it belongs to.
+// An empty token checks the credential already resolved, stored or from the
+// environment; an empty URL, the deployment's instance. Unlike CheckTrackerCredentials it never falls back to the
+// caller's personal token: an admin checking the server's access must not be
+// told "connected as" themselves.
+func (d *DB) CheckServerTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, credentialCheckTimeout)
+	defer cancel()
+	account, err := d.checkServerTrackerCredentials(ctx, strings.ToLower(strings.TrimSpace(trackerName)), strings.TrimSpace(apiURL), strings.TrimSpace(email), strings.TrimSpace(token))
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "", fmt.Errorf("l'instance n'a pas répondu en %d secondes : vérifiez l'adresse du site", int(credentialCheckTimeout.Seconds()))
+	}
+	return account, err
+}
+
+func (d *DB) checkServerTrackerCredentials(ctx context.Context, trackerName, apiURL, email, token string) (string, error) {
+	if !IsServerCredentialTracker(trackerName) {
+		return "", fmt.Errorf("aucune vérification de connexion pour le tracker %q", trackerName)
+	}
+	if token == "" {
+		if _, _, found, err := d.storedServerTrackerCredential(trackerName); found && err != nil {
+			return "", fmt.Errorf("l'accès serveur %s enregistré ne peut pas être déchiffré avec la clé du serveur : enregistrez-le à nouveau", trackerName)
+		}
+	}
+	client := d.tracker("")
+	switch trackerName {
+	case "github":
+		return client.CheckGithub(ctx, firstNonEmpty(apiURL, client.GithubURL), firstNonEmpty(token, client.GithubToken))
+	case "gitlab":
+		return client.CheckGitlab(ctx, firstNonEmpty(apiURL, client.GitlabURL), firstNonEmpty(token, client.GitlabToken))
+	default:
+		// The pair travels together: a new token is checked with the e-mail
+		// typed next to it, never with the stored one.
+		if token == "" {
+			email, token = client.JiraEmail, client.JiraToken
+		}
+		return client.CheckJira(ctx, firstNonEmpty(apiURL, client.JiraURL), email, token)
+	}
 }
 
 func firstNonEmpty(values ...string) string {

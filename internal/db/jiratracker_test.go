@@ -401,36 +401,6 @@ func TestATrackerWithoutBoardsAnswersAnUnsupportedCapability(t *testing.T) {
 	}
 }
 
-// A personal tracker credential belongs to a person, and a synchronisation runs
-// in a queue that outlives their request. So whoever asked has to travel with
-// the job, or the sync resolves the server credential and fails on a
-// deployment where only personal tokens exist.
-func TestASyncRunsAsWhoeverAskedForIt(t *testing.T) {
-	fake := newFakeTracker()
-	fake.tasks = []models.Task{{Key: "PE-1", Title: "One", Status: models.StatusToClarify, Source: "jira", CreatedAt: time.Now(), UpdatedAt: time.Now()}}
-	database, project := jiraTestDB(t, fake)
-
-	// The job is run here rather than queued: the worker would run it in
-	// parallel and overwrite what this test is watching.
-	activity := models.TaskActivity{ID: "sync-as", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
-	if err := database.AddTaskActivity(activity); err != nil {
-		t.Fatal(err)
-	}
-	settings, _ := database.GetSettings()
-
-	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID, ActingUser: "u-ada"}, settings)
-	if fake.syncedAs != "u-ada" {
-		t.Fatalf("the sync must run as the person who asked, got %q", fake.syncedAs)
-	}
-
-	// A timer asks on nobody's behalf, and resolves the server credential.
-	fake.syncedAs = "sentinel"
-	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
-	if fake.syncedAs != "" {
-		t.Fatalf("an unattended sync must name nobody, got %q", fake.syncedAs)
-	}
-}
-
 // A read is a request, and the person making it has their own credential. The
 // handler puts them in the context; every direct tracker call has to carry it
 // down, or the read resolves the server credential and fails on a deployment

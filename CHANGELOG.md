@@ -15,9 +15,13 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Multi-repo projects run each task in its own repository.** A project that is not mono-repo lists the repositories its tickets work in, by remote, in its web settings; each workstation gives each repository its folder in the desktop project settings, and a folder is accepted only if its checkout is that repository. A ticket is pinned to one of them from its detail, and every stage then runs in a worktree of that repository. When a launch cannot tell which repository a ticket belongs to, it waits for you to choose one, from the console pane of the desktop app or from the ticket, even when it runs autonomously, and nothing is guessed. The agent is told where every folder of the project is: the others are handed to Claude as context it is told not to change (nothing enforces it), and a skill that must change one asks for a worktree there on the same branch. Each changed repository then needs its own pull request, and the transitions check every one of them. Working directories typed on tickets before are converted to repositories once, by the first workstation that sees the project; the ones it cannot resolve are dropped and listed in the project settings. (#456)
+
 - **An Administration page.** Admins now open a full page from the sidebar or the command palette instead of a dialog. It shows how many people are using the board right now, how many runs are running, queued or pending, and the account totals, and refreshes on its own. The users list says who is online and when each account was last seen, next to the role and the block and delete actions.
 
 - **Prometheus metrics.** The server exposes `/metrics` next to the interface: requests, latency and errors per controller, active users, active runs by status, and the build version.
+
+- **A Grafana dashboard for those metrics.** `deploy/grafana/sectile.json` charts the running version, active users and runs, the traffic, errors and latency of each controller, and the memory and CPU of each replica. It imports into any Grafana, where you pick the datasource, the deployment and the replicas at the top of the page. (#467)
 
 - **Runs whose client has gone quiet are shown, and closed in time.** A run whose agent session has made no call for four hours shows as *silent* on the board and in the activities view instead of *running*. After eight hours of silence, Sectile takes the client for dead and cancels the run, so it no longer holds the board or its chain; its owner can still report how it really ended. The second delay is set with `SECTILE_MCP_SESSION_ABANDON_AFTER`. (#319)
 
@@ -61,6 +65,8 @@ test fixtures or internal plumbing.
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed
+
+- **Every synchronisation uses the server credential of its tracker, set by an admin.** The automatic sync and a *Sync* started by hand now both read with one credential per provider (GitHub, Jira, GitLab), instead of the project owner's or your own token, so a sync keeps working when its owner leaves or locks their token. Admins set, check and clear these credentials from a new *Server tracker credentials* section of the Administration page, which shows the account each one authenticates as; they are encrypted in the database with the server key, and members can no longer change them. Tokens already saved in the server settings are encrypted and kept on upgrade; a server that has one to encrypt and no usable `SECTILE_SECRET_KEY` refuses to start rather than lose it. A Jira project that only synced through its owner's personal token now needs a Jira server credential. Your own writes (transitions, comments) still go with your own credential. (#464)
 
 - **One *Skills & IA* tab on a ticket.** The web ticket view merges *Skills & Copilot* and *Cadrage & Specs* into a single tab. It opens with the prompts to copy for the next step and for the autonomous pickup, as in the card menu, and ends with the generated specification. The recommended next step now opens the *Details* tab, with its description and launch button. The tab no longer shows the Copilot banner, the macro and batch skills, the mode and model selectors, the additional instruction field (put extra context in the ticket's comments), or the *Passer direct au Code* shortcut, which launched the implementation without a specification. (#461)
 
@@ -218,6 +224,10 @@ test fixtures or internal plumbing.
   rather than urgent; `Blocker` stays urgent and `Minor` and `Trivial` stay low.
   Boards importing from such a project will see their ordinary work items move
   off the high level on the next synchronisation.
+
+### Removed
+
+- **The old tracker credential variables and the per-project tokens.** `SECTILE_TRACKER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, `JIRA_API_TOKEN` and `GITLAB_TOKEN` are no longer read as tracker credentials: set `SECTILE_GITHUB_TOKEN`, `SECTILE_JIRA_EMAIL` with `SECTILE_JIRA_TOKEN`, or `SECTILE_GITLAB_TOKEN` instead, or store the credential from the Administration page. The server still starts with one of them set, and logs a warning naming its replacement. The GitHub and GitLab tokens a project could carry are gone, and discarded on upgrade: one server credential serves every project of its provider. (#464)
 
 ### Fixed
 

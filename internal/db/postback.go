@@ -60,9 +60,14 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 			}
 			// A post-back names no user: it is the agent reporting, not a
 			// person acting, so the evidence lookup keeps the project credential.
-			verified, notice, err := d.validateStagePR(task, "", skill, d.adjustmentCheckout(task), branch, url)
+			set, err := d.validateStagePRs(task, "", skill, d.adjustmentCheckout(task), branch, append([]string{url}, payload.PrURLs...))
 			if err != nil {
 				return nil, nil, err
+			}
+			verified, notice := set.primary(), set.notice
+			payload.PrURLs = nil
+			if len(set.urls) > 1 {
+				payload.PrURLs = set.urls[:len(set.urls)-1]
 			}
 			// A post-back carries no note: the weaker evidence is reported on the
 			// run it completes.
@@ -173,7 +178,13 @@ func (d *DB) PostBackTask(payload models.TaskPostBackPayload) (*models.Task, *mo
 		if existing.BranchName != nil {
 			branch = *existing.BranchName
 		}
+		for _, other := range payload.PrURLs {
+			existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, other, branch)
+		}
 		existing.PrLinks = models.AppendPullRequestLink(existing.PrLinks, *payload.PrURL, branch)
+		if len(payload.PrURLs) > 0 {
+			existing.PrLinks = pullRequestLinkLast(existing.PrLinks, *payload.PrURL)
+		}
 		existing.PrURL = pullRequestURLValue(existing.PrLinks)
 	}
 	if payload.Labels != nil {

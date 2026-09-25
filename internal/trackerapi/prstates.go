@@ -177,7 +177,7 @@ func (c *Client) githubPullRequestStates(ctx context.Context, refs []pullRequest
 
 func (c *Client) gitlabPullRequestStates(ctx context.Context, refs []pullRequestReference, states map[string]string) error {
 	if strings.TrimSpace(c.GitlabToken) == "" {
-		return fmt.Errorf("GitLab credentials are not configured")
+		return c.missingCredential("GitLab")
 	}
 	query := url.Values{"scope": {"all"}, "state": {"all"}, "per_page": {"100"}}
 	for _, ref := range refs {

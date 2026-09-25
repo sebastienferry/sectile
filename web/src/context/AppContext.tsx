@@ -169,8 +169,6 @@ interface AppContextType {
   clearUserCredential: (tracker: string) => Promise<boolean>
   /** Supprime une ligne orpheline. Réservée aux admins, refusée par le serveur sinon. */
   discardOrphanedCredential: (userId: string, tracker: string) => Promise<boolean>
-  /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
-  saveTrackerCredentials: (params: TrackerCredentials) => Promise<boolean>
   /**
    * Statuts du tracker affichés. Vide veut dire « tous » : c'est le choix
    * explicite de ce qu'on regarde, board comme liste, et il remplace le
@@ -1425,26 +1423,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     []
   )
 
-  const saveTrackerCredentials = useCallback(
-    async (params: TrackerCredentials): Promise<boolean> => {
-      try {
-        const res = await fetch(`${API_BASE}/setup/tracker`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data.error || 'Enregistrement refusé')
-        setSettings(data)
-        return true
-      } catch (err: any) {
-        addToast({ type: 'error', title: 'Accès non enregistrés', description: err.message })
-        return false
-      }
-    },
-    []
-  )
-
   const fetchAutoSyncStatus = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/sync/auto`)
@@ -2189,7 +2167,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       })
-      if (!res.ok) throw new Error('Update failed')
+      if (!res.ok) {
+        // The server's reason, such as a repository the project does not list.
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || 'Update failed')
+      }
       const updated: Task = await res.json()
       setTasks(prev => prev.map(t => (sameTask(t, updated) ? updated : t)))
       if (selectedTask && (sameTask(selectedTask, updated))) {
@@ -3786,7 +3768,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         unlockAllUserCredentials,
         lockAllUserCredentials,
         clearUserCredential,
-        saveTrackerCredentials,
         sourceFilter,
         setSourceFilter,
         parentFilter,
