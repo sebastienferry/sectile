@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/agentconfig"
+	"tasks/internal/db"
 	"tasks/internal/mcptest"
 	"tasks/internal/models"
 )
@@ -30,12 +31,22 @@ func TestMCPToolsEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The tools that write run as a person: a key tied to a user, as the
+	// desktop app's is. The shared server key only reads (#482).
+	userID, err := database.UpsertUser("okta|mcp", "mcp@example.com", "MCP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _, err := database.CreateAPIKey(userID, "laptop", db.DefaultAPIKeyTTL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(h.MCPHandler())
 	defer srv.Close()
 	ctx := context.Background()
 	connect := func() *mcp.ClientSession {
 		t.Helper()
-		session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{"integration-secret"}}}, nil)
+		session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{key}}}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -279,5 +290,61 @@ func TestAgentConfigServesLegacyBareTemplateAsEmpty(t *testing.T) {
 	}
 	if c.AIProvider != "agy" || c.AICommandTemplate != "" {
 		t.Fatalf("provider=%q template=%q", c.AIProvider, c.AICommandTemplate)
+	}
+}
+
+// The shared server key names no person: over MCP it still reads and reports
+// runs, and every write tool is refused before anything is written, rather
+// than signed by the server account (#482).
+func TestMCPSharedKeyReadsButNeverWrites(t *testing.T) {
+	h, database, cleanup := setupTestHandler(t)
+	defer cleanup()
+	t.Setenv("SECTILE_SERVER_TOKEN", "integration-secret")
+	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: "default", Title: "Shared key", Status: models.StatusToClarify})
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h.MCPHandler())
+	defer srv.Close()
+	ctx := context.Background()
+	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL, HTTPClient: &http.Client{Transport: testTokenTransport{"integration-secret"}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+
+	for name, args := range map[string]map[string]any{
+		"create_task":      {"projectId": "default", "title": "Anonymous"},
+		"update_task":      {"taskKey": task.ID, "title": "Anonymous"},
+		"add_comment":      {"taskKey": task.ID, "body": "Anonymous"},
+		"transition_stage": {"taskKey": task.ID, "stage": "clarified", "note": "Anonymous"},
+	} {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(result.Content)
+		if !result.IsError || !strings.Contains(string(raw), "not tied to a user") {
+			t.Fatalf("%s from the shared key must be refused by name, got %s", name, raw)
+		}
+	}
+	unchanged, err := database.GetTaskByID(task.ID)
+	if err != nil || unchanged.Title != "Shared key" || unchanged.Status != models.StatusToClarify {
+		t.Fatalf("a refused write changed the task: %+v %v", unchanged, err)
+	}
+	tasks, err := database.GetTasks("", "", "", "", "default", "", "", "", "", nil, nil, false)
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("a refused creation filed a task: %d %v", len(tasks), err)
+	}
+
+	for name, args := range map[string]map[string]any{
+		"get_task":   {"taskKey": task.ID},
+		"list_tasks": {"projectId": "default"},
+		"start_run":  {"taskKey": task.ID, "skill": "implement"},
+	} {
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil || result.IsError {
+			t.Fatalf("%s must still answer the shared key: %+v %v", name, result, err)
+		}
 	}
 }

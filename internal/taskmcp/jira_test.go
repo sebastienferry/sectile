@@ -13,9 +13,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	sectiletracker "tasks/internal/tracker"
 )
 
 // fakeJira is a Jira Cloud site serving one project, PE, that records every
@@ -109,40 +109,15 @@ func jiraDatabase(t *testing.T, site *fakeJira) (*db.DB, *models.Project) {
 	return database, project
 }
 
-// callAs runs one tool over HTTP, for a host that resolves every request to
-// caller.
-func callAs(t *testing.T, database *db.DB, caller Caller, name string, args map[string]any) (map[string]any, error) {
-	t.Helper()
-	ctx := context.Background()
-	srv := httptest.NewServer(mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server {
-			return NewServerWithCallers(database, nil, func(http.Header) (Caller, bool) { return caller, true })
-		},
-		&mcp.StreamableHTTPOptions{JSONResponse: true},
-	))
-	defer srv.Close()
-	session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, &mcp.StreamableClientTransport{Endpoint: srv.URL}, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: name, Arguments: args})
-	if err != nil {
-		return nil, err
-	}
-	if result.IsError {
-		return nil, errorOf(result)
-	}
-	var out map[string]any
-	if err := json.Unmarshal(mustJSON(t, result.StructuredContent), &out); err != nil {
-		t.Fatal(err)
-	}
-	return out, nil
-}
-
 func TestCreateTaskFilesAJiraIssue(t *testing.T) {
 	site := newFakeJira(t)
 	database, project := jiraDatabase(t, site)
+	if err := database.EnsureUser(tester.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserTrackerCredential(tester.UserID, "jira", site.server.URL, "tester@example.com", "tester-token", ""); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := call(t, database, "create_task", map[string]any{
 		"projectId": project.ID, "title": "Follow-up", "description": "# Heading\n\nLeft over from **the handoff**",
@@ -173,9 +148,8 @@ func TestCreateTaskFilesAJiraIssue(t *testing.T) {
 	if description, _ := fields["description"].(map[string]any); description["type"] != "doc" {
 		t.Fatalf("description must be sent as ADF: %#v", fields["description"])
 	}
-	// Nobody is named on this transport, so the server credential files it.
-	if got := site.authenticatedAs(http.MethodPost, "/rest/api/3/issue"); len(got) != 1 || got[0] != basic("server@example.com", "server-secret") {
-		t.Fatalf("creation must use the server credential when nobody is named: %v", got)
+	if got := site.authenticatedAs(http.MethodPost, "/rest/api/3/issue"); len(got) != 1 || got[0] != basic("tester@example.com", "tester-token") {
+		t.Fatalf("creation must use the caller's credential: %v", got)
 	}
 
 	reread, err := database.GetTaskByID(task["id"].(string))
@@ -206,7 +180,7 @@ func TestCreateTaskFilesUnderTheCallersOwnJiraAccount(t *testing.T) {
 
 	// Without a personal token the call fails before reaching Jira: the issue
 	// would otherwise carry the server account's name.
-	_, err := callAs(t, database, caller, "create_task", map[string]any{"projectId": project.ID, "title": "Unattributed"})
+	_, err := callAs(t, database, &caller, "create_task", map[string]any{"projectId": project.ID, "title": "Unattributed"})
 	if err == nil || !strings.Contains(err.Error(), "no personal Jira token for this user") {
 		t.Fatalf("a caller without a personal token must be refused: %v", err)
 	}
@@ -224,7 +198,7 @@ func TestCreateTaskFilesUnderTheCallersOwnJiraAccount(t *testing.T) {
 	if err := database.SetUserTrackerCredential("usr_ada", "jira", site.server.URL, "ada@example.com", "ada-token", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := callAs(t, database, caller, "create_task", map[string]any{"projectId": project.ID, "title": "Follow-up"}); err != nil {
+	if _, err := callAs(t, database, &caller, "create_task", map[string]any{"projectId": project.ID, "title": "Follow-up"}); err != nil {
 		t.Fatalf("creation with a personal token failed: %v", err)
 	}
 	if got := site.authenticatedAs(http.MethodPost, "/rest/api/3/issue"); len(got) != 1 || got[0] != basic("ada@example.com", "ada-token") {
@@ -235,7 +209,8 @@ func TestCreateTaskFilesUnderTheCallersOwnJiraAccount(t *testing.T) {
 func TestGetTaskReadsJiraCommentsAsTheCaller(t *testing.T) {
 	site := newFakeJira(t)
 	database, project := jiraDatabase(t, site)
-	task, err := database.CreateTask(models.CreateTaskRequest{ProjectID: project.ID, Title: "Follow-up", RequireRemoteCreation: true})
+	// The ticket is seeded by unattended work: the test is about reading it.
+	task, err := database.CreateTaskAs(sectiletracker.WithUnattended(context.Background()), models.CreateTaskRequest{ProjectID: project.ID, Title: "Follow-up", RequireRemoteCreation: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +218,7 @@ func TestGetTaskReadsJiraCommentsAsTheCaller(t *testing.T) {
 
 	// A caller with no personal token keeps the ticket and learns why its
 	// discussion is missing; the server credential is not used in their name.
-	result, err := callAs(t, database, caller, "get_task", map[string]any{"taskKey": task.ID})
+	result, err := callAs(t, database, &caller, "get_task", map[string]any{"taskKey": task.ID})
 	if err != nil {
 		t.Fatalf("get_task failed: %v", err)
 	}
@@ -260,7 +235,7 @@ func TestGetTaskReadsJiraCommentsAsTheCaller(t *testing.T) {
 	if err := database.SetUserTrackerCredential("usr_ada", "jira", site.server.URL, "ada@example.com", "ada-token", ""); err != nil {
 		t.Fatal(err)
 	}
-	result, err = callAs(t, database, caller, "get_task", map[string]any{"taskKey": task.ID})
+	result, err = callAs(t, database, &caller, "get_task", map[string]any{"taskKey": task.ID})
 	if err != nil {
 		t.Fatalf("get_task failed: %v", err)
 	}

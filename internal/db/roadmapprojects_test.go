@@ -66,7 +66,7 @@ func TestSlicingAttachesDeclaredRoadmapKeys(t *testing.T) {
 			line = todo.ID
 		}
 	}
-	if _, _, _, err := database.CreateStoryFromMacroTodo(proj.ID, "PE-460", line); err == nil || !strings.Contains(err.Error(), "projet de roadmap") {
+	if _, _, _, err := database.CreateStoryFromMacroTodo(context.Background(), proj.ID, "PE-460", line); err == nil || !strings.Contains(err.Error(), "projet de roadmap") {
 		t.Fatalf("a roadmap project's line must be refused as read-only, got %v", err)
 	}
 }

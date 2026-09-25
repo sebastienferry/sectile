@@ -281,7 +281,7 @@ func TestPostgresConcurrentConversionsCreateOneIssue(t *testing.T) {
 
 	var converted atomic.Int32
 	race(6, a, b, func(i int, d *DB) {
-		if _, err := d.ConvertTaskToRemote("t2", "remote"); err == nil {
+		if _, err := d.ConvertTaskToRemote(context.Background(), "t2", "remote"); err == nil {
 			converted.Add(1)
 		}
 	})

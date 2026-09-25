@@ -1,6 +1,6 @@
 # ADR 0028: Tracker sync uses one server credential per provider
 
-Status: Accepted
+Status: Accepted; amended by [ADR 0029](0029-server-tracker-credential-signs-unattended-work-only.md)
 
 Supersedes: [ADR 0018](0018-the-background-synchronisation-runs-as-the-project-owner.md).
 Supersedes in part: [ADR 0014](0014-personal-tracker-credentials-are-sealed.md),
@@ -37,6 +37,8 @@ activity still records who asked for a manual pass; that user is never put on
 the tracker call. Writes somebody asks for (stage transitions, comments,
 assignments) are unchanged: they use the acting person's personal credential,
 Jira refuses without one, GitHub and GitLab fall back to the server credential.
+*Amended by ADR 0029: GitHub and GitLab now refuse too; the server credential
+signs unattended work only.*
 
 **There is one server credential per provider**, and it is resolved in this
 order, the first source that has one winning as a whole:

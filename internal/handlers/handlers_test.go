@@ -119,8 +119,11 @@ func TestCreateTaskWithCustomTrackerSource(t *testing.T) {
 	if rr2.Code < 400 {
 		t.Fatalf("unconfigured remote creation succeeded: %d %s", rr2.Code, rr2.Body.String())
 	}
-	if !strings.Contains(rr2.Body.String(), "GitHub issue creation failed") {
-		t.Fatalf("remote error missing: %s", rr2.Body.String())
+	// The request carries no session: a remote creation that names nobody is
+	// refused by name before it reaches GitHub, rather than filed locally or
+	// signed by the server account (#482).
+	if rr2.Code != http.StatusForbidden || !strings.Contains(rr2.Body.String(), "not tied to a user") {
+		t.Fatalf("remote error missing: %d %s", rr2.Code, rr2.Body.String())
 	}
 
 }
