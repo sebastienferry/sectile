@@ -223,6 +223,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **The missing repository mapping error points at the right file.** When the agent cannot find a project's local repository, the error now names `~/.config/sectile/settings.json`, the file Sectile actually reads, instead of a `taskflow` path that does not exist.
 - **The desktop app no longer fails to list projects after a long pause.** On a PostgreSQL server, a database connection left idle for a long time could be dropped by the network, and the next request to use it, often the desktop app's project list, answered *Cannot list projects*. Sectile now renews its connections before that happens, and logs the cause of such errors.
 - **Search ignores case and accents.** The search bar finds `Équipe` whether you type `equipe`, `Equipe` or `ÉQUIPE`, on the board, the roadmap, triage, the activities view and the filter pickers, and `%` or `_` typed in a search now match those characters only. On a PostgreSQL server this needs the `unaccent` extension, which Sectile creates at start; a server whose database role cannot create it refuses to start and says so. (#447)
 - **An agent session keeps working whichever server receives its requests.** With several servers behind one load balancer, a request for an MCP session reaches the server that holds it, so tool calls, runs and the event stream no longer fail with "session not found" halfway through. A session whose server stopped is refused as not found, and the client starts a new one. The sessions view lists the sessions of every server. (#408)
