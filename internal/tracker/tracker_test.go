@@ -139,3 +139,25 @@ func TestBaseTicketingSystemFormatTaskID(t *testing.T) {
 		t.Errorf("expected KEY-1, got %s", id)
 	}
 }
+
+// Work nobody asked for says so, and a person named on the same context wins:
+// a write that lost its author must never pass for the synchronisation (#482).
+func TestUnattendedIsExplicitAndLosesToAPerson(t *testing.T) {
+	if Unattended(context.Background()) {
+		t.Fatal("a context that names nobody is not unattended by default")
+	}
+	//nolint:staticcheck // a nil context is what a careless caller passes
+	if Unattended(nil) {
+		t.Fatal("a nil context is not unattended")
+	}
+	marked := WithUnattended(context.Background())
+	if !Unattended(marked) {
+		t.Fatal("the marker must be read back")
+	}
+	if Unattended(WithActingUser(marked, "u-ada")) {
+		t.Fatal("a person named after the marker wins over it")
+	}
+	if Unattended(WithUnattended(WithActingUser(context.Background(), "u-ada"))) {
+		t.Fatal("a person named before the marker wins over it")
+	}
+}

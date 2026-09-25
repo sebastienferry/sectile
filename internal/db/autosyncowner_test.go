@@ -86,6 +86,11 @@ func TestASynchronisationAskedForBySomebodyRecordsThemAndReadsAsNobody(t *testin
 	if fake.syncedAs != "" {
 		t.Fatalf("a synchronisation must read as nobody, got %q", fake.syncedAs)
 	}
+	// And it says so: a write it makes on its own keeps the server credential
+	// rather than being refused as one that lost its author (#482).
+	if !fake.syncedUnattended {
+		t.Fatal("a synchronisation must run marked as unattended work")
+	}
 }
 
 // The timer's pass is nobody's request, and no longer borrows the owner's
