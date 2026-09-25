@@ -54,7 +54,9 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 	if err != nil {
 		return stagePRSet{}, fmt.Errorf("read project for the stage PR lookup: %w", err)
 	}
-	if project == nil || !multiRepoTask(project, task) {
+	// A ticket launched from a view with a repository (#429) and no secondary
+	// worktree changed that one repository, whatever its pin says.
+	if project == nil || !multiRepoTask(project, task) || (taskViewRepository(project, task) != "" && len(taskChangedRepositories(project, task)) == 0) {
 		if len(given) > 1 {
 			return stagePRSet{}, fmt.Errorf("%d pull requests given, but %s changed a single repository", len(given), task.Key)
 		}
@@ -76,7 +78,7 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 		return stagePRSet{urls: given}, nil
 	}
 
-	primary := TaskPrimaryRepository(project, task)
+	primary := evidencePrimary(project, task)
 	required := taskChangedRepositories(project, task)
 	if primary != "" {
 		required = append(required, primary)
@@ -113,7 +115,7 @@ func (d *DB) validateStagePRs(task *models.Task, actorID, skillID, repoPath, bra
 		// that repository's own checkout, never from the primary worktree.
 		target := repositoryTarget(identity)
 		if identity == primary && slices.Contains(own, identity) {
-			resolved, err := d.resolveStagePRTarget(project, url)
+			resolved, err := d.resolveStagePRTarget(project, task, url)
 			if err != nil {
 				return stagePRSet{}, err
 			}

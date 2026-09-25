@@ -363,6 +363,26 @@ var migrations = []migration{
 			"ALTER TABLE projects DROP COLUMN gitlab_token;",
 		},
 	},
+	{
+		// The Git repository a saved view's work lives in (#429), as the remote
+		// the user entered; '' when the view names none.
+		version: 23,
+		name:    "board_views.repository",
+		statements: []string{
+			"ALTER TABLE board_views ADD COLUMN repository TEXT NOT NULL DEFAULT '';",
+		},
+	},
+	{
+		// The repository, by identity, of the view a ticket was last launched
+		// from, and who launched it: stage evidence and pull request discovery
+		// read that repository too, GitLab through that user's agent (#429).
+		version: 24,
+		name:    "tasks.view_repository",
+		statements: []string{
+			"ALTER TABLE tasks ADD COLUMN view_repository TEXT NOT NULL DEFAULT '';",
+			"ALTER TABLE tasks ADD COLUMN view_repository_by TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

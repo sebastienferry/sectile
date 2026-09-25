@@ -2191,6 +2191,24 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// A launch from a saved view (#429) is checked before anything is
+		// recorded: the view must be the launching user's and show the ticket.
+		viewRepository := ""
+		if viewID := strings.TrimSpace(req.ViewID); viewID != "" {
+			viewRepository, err = h.db.ViewLaunchRepository(h.webSessionUser(r), viewID, task.ProjectID)
+			switch {
+			case errors.Is(err, db.ErrBoardViewNotFound):
+				writeError(w, http.StatusNotFound, err.Error())
+				return
+			case errors.Is(err, db.ErrViewDoesNotSelectProject):
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			case err != nil:
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+
 		// A task already carrying an active run is busy: a second launch would
 		// start an agent in parallel on the same work. The check happens before
 		// anything is recorded, so a refused launch leaves no trace at all.
@@ -2243,6 +2261,14 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			remoteRun, runErr := h.db.StartAgentRun(task.ID, req.SkillID, db.RunLaunch{Mode: mode, Provider: provider, Model: model, UserID: userID, Force: req.Force && active != nil})
 			if writeTaskBusy(w, runErr) {
 				return
+			}
+			// The view's repository is recorded once the launch is admitted, so a
+			// refused one leaves no trace; a failure to record it only weakens
+			// evidence and discovery, never the launch.
+			if runErr == nil {
+				if err := h.db.RecordTaskViewRepository(task.ID, viewRepository, userID); err != nil {
+					log.Printf("[Dispatch] cannot record the view repository of task %s: %v", task.Key, err)
+				}
 			}
 
 			activityID := uuid.New().String()

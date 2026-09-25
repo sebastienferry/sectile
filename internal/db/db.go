@@ -1791,7 +1791,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 		}
 	}
 
-	sqlQuery := "SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"
+	sqlQuery := "SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, view_repository, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at FROM tasks"
 	if len(conditions) > 0 {
 		sqlQuery += " WHERE " + strings.Join(conditions, " AND ")
 	}
@@ -1809,7 +1809,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 		var labelsJSON string
 		var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
 		var prLinksJSON sql.NullString
-		var taskRepository, changedRepositoriesJSON sql.NullString
+		var taskRepository, changedRepositoriesJSON, viewRepository sql.NullString
 		var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 		var statusStr, priorityStr string
 
@@ -1834,6 +1834,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 			&repoPath,
 			&taskRepository,
 			&changedRepositoriesJSON,
+			&viewRepository,
 			&sprint,
 			&team,
 			&teamID,
@@ -1871,6 +1872,7 @@ func (d *DB) GetTasksInScope(scope TaskScope, query, status, priority, label, sp
 			t.RepoPath = &p
 		}
 		t.Repository = taskRepository.String
+		t.ViewRepository = viewRepository.String
 		t.ChangedRepositories = parseIdentityList(changedRepositoriesJSON.String)
 		if sprint.Valid {
 			t.Sprint = sprint.String
@@ -1931,12 +1933,12 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	var labelsJSON string
 	var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
 	var prLinksJSON sql.NullString
-	var taskRepository, changedRepositoriesJSON sql.NullString
+	var taskRepository, changedRepositoriesJSON, viewRepository sql.NullString
 	var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 	var statusStr, priorityStr string
 
 	err := d.conn.QueryRow(`
-		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
+		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, view_repository, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
 		FROM tasks WHERE id = ?
 	`, id).Scan(
 		&t.ID,
@@ -1959,6 +1961,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 		&repoPath,
 		&taskRepository,
 		&changedRepositoriesJSON,
+		&viewRepository,
 		&sprint,
 		&team,
 		&teamID,
@@ -1977,7 +1980,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 	)
 	if err == sql.ErrNoRows {
 		err = d.conn.QueryRow(`
-			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
+			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, view_repository, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
 			FROM tasks WHERE key = ? LIMIT 1
 		`, id).Scan(
 			&t.ID,
@@ -2000,6 +2003,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 			&repoPath,
 			&taskRepository,
 			&changedRepositoriesJSON,
+			&viewRepository,
 			&sprint,
 			&team,
 			&teamID,
@@ -2041,6 +2045,7 @@ func (d *DB) GetTaskByID(id string) (*models.Task, error) {
 		t.RepoPath = &p
 	}
 	t.Repository = taskRepository.String
+	t.ViewRepository = viewRepository.String
 	t.ChangedRepositories = parseIdentityList(changedRepositoriesJSON.String)
 	if sprint.Valid {
 		t.Sprint = sprint.String
@@ -3381,12 +3386,12 @@ func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, err
 	var labelsJSON string
 	var dueDate, branchName, prURL, repoPath, sprint, team, teamID, trackerStatus, source, extURL, issueType, parentKey, parentTitle, parentType sql.NullString
 	var prLinksJSON sql.NullString
-	var taskRepository, changedRepositoriesJSON sql.NullString
+	var taskRepository, changedRepositoriesJSON, viewRepository sql.NullString
 	var trackerCreatedAt, trackerUpdatedAt, statusChangedAt sql.NullTime
 	var statusStr, priorityStr string
 
 	err := q.QueryRow(`
-		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
+		SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, view_repository, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
 		FROM tasks WHERE id = ?`+lock, id).Scan(
 		&t.ID,
 		&t.ProjectID,
@@ -3408,6 +3413,7 @@ func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, err
 		&repoPath,
 		&taskRepository,
 		&changedRepositoriesJSON,
+		&viewRepository,
 		&sprint,
 		&team,
 		&teamID,
@@ -3426,7 +3432,7 @@ func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, err
 	)
 	if err == sql.ErrNoRows {
 		err = q.QueryRow(`
-			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
+			SELECT id, project_id, key, title, description, status, priority, labels, assignee, assignee_avatar, creator, creator_avatar, position, due_date, branch_name, pr_url, pr_links, repo_path, repository, changed_repositories, view_repository, sprint, team, team_id, tracker_status, source, external_url, issue_type, parent_key, parent_title, parent_type, tracker_created_at, tracker_updated_at, status_changed_at, created_at, updated_at
 			FROM tasks WHERE key = ? LIMIT 1`+lock, id).Scan(
 			&t.ID,
 			&t.ProjectID,
@@ -3448,6 +3454,7 @@ func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, err
 			&repoPath,
 			&taskRepository,
 			&changedRepositoriesJSON,
+			&viewRepository,
 			&sprint,
 			&team,
 			&teamID,
@@ -3489,6 +3496,7 @@ func (d *DB) taskByIDOn(q rowQuerier, id string, lock string) (*models.Task, err
 		t.RepoPath = &p
 	}
 	t.Repository = taskRepository.String
+	t.ViewRepository = viewRepository.String
 	t.ChangedRepositories = parseIdentityList(changedRepositoriesJSON.String)
 	if sprint.Valid {
 		t.Sprint = sprint.String

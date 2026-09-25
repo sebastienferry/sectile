@@ -794,6 +794,10 @@ type Task struct {
 	// ChangedRepositories are the other repositories, by identity, in which
 	// the ticket has a worktree on its branch. Each needs its pull request.
 	ChangedRepositories []string `json:"changedRepositories,omitempty"`
+	// ViewRepository is the repository, by identity, of the saved view the
+	// ticket was last launched from (#429). It counts as the ticket's
+	// repository for pull request evidence and discovery. Empty means none.
+	ViewRepository string `json:"viewRepository,omitempty"`
 	// TrackerStatus is the status name as the tracker spells it ("Dev Test", "To
 	// Merge"…). The internal Status folds those onto six values, which is too
 	// lossy to place a card in the tracker's own board columns.
@@ -1064,6 +1068,10 @@ type RunSkillRequest struct {
 	// workspace checks still apply. It is reserved to the owner of the active
 	// run or to an admin, and it never closes the run it steps over.
 	Force bool `json:"force,omitempty"`
+	// ViewID names the saved view of the launching user the launch was made
+	// from (#429). The view must select the task's project; its repository, if
+	// any, is recorded on the task.
+	ViewID string `json:"viewId,omitempty"`
 }
 
 type RunSkillResponse struct {
@@ -1181,10 +1189,13 @@ func RunSilenceNote(silence time.Duration) string {
 // current board. The owner is never serialized: a view is only ever returned
 // to the user who created it.
 type BoardView struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`
-	ProjectIDs []string  `json:"projectIds"`
-	Labels     []string  `json:"labels"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	ProjectIDs []string `json:"projectIds"`
+	Labels     []string `json:"labels"`
+	// Repository is the Git remote the view's work lives in (#429), as the
+	// user entered it; empty when the view names none.
+	Repository string    `json:"repository"`
 	CreatedAt  time.Time `json:"createdAt"`
 	UpdatedAt  time.Time `json:"updatedAt"`
 }
@@ -1195,4 +1206,6 @@ type BoardViewRequest struct {
 	Name       *string   `json:"name,omitempty"`
 	ProjectIDs *[]string `json:"projectIds,omitempty"`
 	Labels     *[]string `json:"labels,omitempty"`
+	// Repository sets the view's Git remote; an empty string clears it.
+	Repository *string `json:"repository,omitempty"`
 }

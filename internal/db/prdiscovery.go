@@ -93,21 +93,57 @@ func (d *DB) discoverTaskPullRequests(ctx context.Context, proj *models.Project,
 		return nil, false, nil
 	}
 	discover := d.pullRequestDiscoverer(ts)
-	if discover == nil {
+	view := taskViewRepository(proj, task)
+	if discover == nil && view == "" {
 		return nil, false, nil
 	}
 	if reason := d.pullRequestDiscoveryGate(proj, task, force); reason != discoveryAllowed {
 		return nil, false, nil
 	}
-	found, err = discover(ctx, proj, task.Key)
-	if err != nil {
-		if isRateLimited(err) {
-			d.enterAutoSyncBackoff()
-			return nil, true, err
+	if discover != nil {
+		found, err = discover(ctx, proj, task.Key)
+		if err != nil {
+			if isRateLimited(err) {
+				d.enterAutoSyncBackoff()
+				return nil, true, err
+			}
+			return nil, isUnauthorized(err), err
 		}
-		return nil, isUnauthorized(err), err
+	}
+	if view != "" && len(found) == 0 {
+		// Issue references only name pull requests in the tracker's own
+		// repository: one opened in the view's repository is found by branch.
+		pr, err := d.discoverViewRepositoryPullRequest(task, view)
+		if err != nil {
+			return nil, false, err
+		}
+		if pr != nil {
+			found = append(found, *pr)
+		}
 	}
 	return found, false, nil
+}
+
+// discoverViewRepositoryPullRequest reads the pull request of the ticket's
+// branch in its recorded view repository (#429), as the user who launched it:
+// GitHub on the server, GitLab through that user's agent. No branch, or no
+// open or merged request on it, is nothing to attach.
+func (d *DB) discoverViewRepositoryPullRequest(task *models.Task, view string) (*models.TaskPullRequest, error) {
+	branch := ""
+	if task.BranchName != nil {
+		branch = strings.TrimSpace(*task.BranchName)
+	}
+	if branch == "" {
+		return nil, nil
+	}
+	pr, err := d.lookupStagePR(task, d.taskViewRepositoryUser(task.ID), "", branch, repositoryTarget(view))
+	if err != nil {
+		return nil, fmt.Errorf("%s : %w", view, err)
+	}
+	if strings.TrimSpace(pr.URL) == "" || (!pr.Open && !pr.Merged) || pr.Branch != branch {
+		return nil, nil
+	}
+	return &models.TaskPullRequest{URL: pr.URL, Branch: pr.Branch}, nil
 }
 
 // isUnauthorized reports a credential the tracker refuses, as opposed to a
@@ -229,14 +265,14 @@ func (d *DB) rediscoverPullRequests(ctx context.Context, proj *models.Project, t
 // re-reads tickets one by one, and a discovery call per ticket per minute is
 // exactly the cost the bounding rule exists to avoid.
 func (d *DB) rediscoverProjectPullRequests(ctx context.Context, proj *models.Project, ts tracker.TicketingSystem, imported []models.Task) []string {
-	if d.pullRequestDiscoverer(ts) == nil {
-		return nil
-	}
+	// A tracker that cannot discover still leaves the view repositories of
+	// #429 to search, one lookup per ticket that recorded one.
+	canDiscover := d.pullRequestDiscoverer(ts) != nil
 	var steps []string
 	seen := map[string]bool{}
 	for i := range imported {
 		task, err := d.GetTaskByID(imported[i].ID)
-		if err != nil || task == nil {
+		if err != nil || task == nil || (!canDiscover && taskViewRepository(proj, task) == "") {
 			continue
 		}
 		found, halt := d.rediscoverPullRequests(ctx, proj, ts, task, false)

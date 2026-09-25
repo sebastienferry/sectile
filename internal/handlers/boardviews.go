@@ -105,6 +105,7 @@ func writeBoardViewError(w http.ResponseWriter, err error) {
 	case errors.Is(err, db.ErrBoardViewNameRequired),
 		errors.Is(err, db.ErrBoardViewNoProject),
 		errors.Is(err, db.ErrBoardViewTooLarge),
+		errors.Is(err, db.ErrBoardViewRepositoryInvalid),
 		errors.Is(err, db.ErrBoardViewUnknownProject):
 		writeError(w, http.StatusBadRequest, err.Error())
 	default:
