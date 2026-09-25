@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"tasks/internal/models"
-	"tasks/internal/trackerapi"
 	"tasks/internal/tracker"
+	"tasks/internal/trackerapi"
 )
 
 func viewTestUser(t *testing.T, d *DB) string {
