@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -390,10 +391,29 @@ func TestGitLabStageEvidenceThroughTheAgent(t *testing.T) {
 			t.Fatalf("refusal lost: %v", err)
 		}
 	}
-	// A failed lookup, such as an agent that predates the operation, is never absence.
-	lookupErr = fmt.Errorf(`unknown local operation "pr_evidence"`)
-	if _, _, err = d.TransitionTaskStage(task.ID, "reviewed", "old agent", mrURL, "ticket"); err == nil || !strings.Contains(err.Error(), "GitLab merge request lookup failed on the local agent") || strings.Contains(err.Error(), "no matching") {
-		t.Fatalf("lookup failure reported as absence: %v", err)
+	// A failed lookup, such as an agent that predates the operation, is never
+	// absence, and it names the agent and the fix.
+	for _, build := range []string{"v0.4.0, commit 0123456789ab", ""} {
+		lookupErr = &agentprotocol.UnsupportedOperationError{Device: "laptop", Build: build, Operation: "pr_evidence"}
+		_, _, err = d.TransitionTaskStage(task.ID, "reviewed", "old agent", mrURL, "ticket")
+		if err == nil || !errors.Is(err, agentprotocol.ErrUnsupportedOperation) {
+			t.Fatalf("outdated agent (%q) not reported as such: %v", build, err)
+		}
+		wantBuild := build
+		if wantBuild == "" {
+			wantBuild = "unknown build"
+		}
+		for _, want := range []string{"GitLab merge request lookup failed on the local agent", "laptop", "(" + wantBuild + ")", `"pr_evidence"`, "restart or update the Sectile desktop app"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Fatalf("outdated agent error lacks %q: %v", want, err)
+			}
+		}
+		if strings.Contains(err.Error(), "unknown local operation") || strings.Contains(err.Error(), "no matching") {
+			t.Fatalf("outdated agent misworded: %v", err)
+		}
+		if current, _ := d.GetTaskByID(task.ID); current == nil || d.StageOfTask(current) != "implemented" {
+			t.Fatalf("a refused transition moved the task: %+v", current)
+		}
 	}
 	lookupErr = nil
 	// A ready MR on the checkout completes adjustment.

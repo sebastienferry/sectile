@@ -14,6 +14,13 @@ import (
 
 func operationConnection(t *testing.T, d *AgentDispatcher) (*AgentConn, *websocket.Conn) {
 	t.Helper()
+	return operationConnectionBuild(t, d, AgentBuild{})
+}
+
+// operationConnectionBuild is operationConnection for an agent that announced
+// build when it connected.
+func operationConnectionBuild(t *testing.T, d *AgentDispatcher, build AgentBuild) (*AgentConn, *websocket.Conn) {
+	t.Helper()
 	registered := make(chan *AgentConn, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{}
@@ -21,7 +28,7 @@ func operationConnection(t *testing.T, d *AgentDispatcher) (*AgentConn, *websock
 		if err != nil {
 			return
 		}
-		ac := d.Register("default", "project", "test", conn)
+		ac := d.RegisterBuild("default", "project", "test", build, conn)
 		registered <- ac
 		defer conn.Close()
 		defer d.Unregister(ac.UserID, ac.ProjectID, conn)

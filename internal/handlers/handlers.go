@@ -3451,7 +3451,7 @@ func (h *Handler) HandleAgentConnect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Register the agent, potentially rebinding an existing session.
-	ac := h.agentDispatcher.Register(userID, projectID, deviceID, conn)
+	ac := h.agentDispatcher.RegisterBuild(userID, projectID, deviceID, ParseAgentBuild(r.URL.Query()), conn)
 
 	// Keepalive: without a read deadline a silently dropped connection stays
 	// registered forever, and every operation routed to it stalls for its full

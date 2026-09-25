@@ -88,3 +88,63 @@ test('changelog settings report both versions and the release notes',async()=>{
   await new Promise(resolve=>server.close(resolve))
  }
 })
+
+// An agent that is not the binary this app bundles is offered a restart once,
+// and marked as outdated in the settings until it is replaced. The dialog is
+// answered Cancel: nothing is restarted, and the mark stays.
+test('an agent that is not the bundled binary is marked outdated',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'sectile-settings-outdated-'))
+ const bundled=path.join(root,'sectile-agent')
+ fs.writeFileSync(bundled,'bundled agent build')
+ const bundledSha=require('node:crypto').createHash('sha256').update('bundled agent build').digest('hex')
+ let agentVersion={version:'v9.9.9'},restarts=0
+ const server=http.createServer((req,res)=>{
+  res.setHeader('Content-Type','application/json')
+  if(req.url==='/desktop/status'){res.end(JSON.stringify({connected:true,server:'https://example.test'}));return}
+  if(['/desktop/runs','/desktop/projects'].includes(req.url)){res.end('[]');return}
+  if(req.url==='/desktop/version'){res.end(JSON.stringify(agentVersion));return}
+  if(['/desktop/restart','/desktop/shutdown'].includes(req.url)){restarts++;res.end('{}');return}
+  res.writeHead(404).end('{}')
+ })
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve))
+ fs.writeFileSync(path.join(root,'agent-connection.json'),JSON.stringify({url:'http://127.0.0.1:'+server.address().port,token:'test-secret'}))
+ const env={...process.env,SECTILE_DESKTOP_DATA_DIR:root,SECTILE_DESKTOP_TEST:'1',SECTILE_DESKTOP_TEST_AGENT_BINARY:bundled};delete env.ELECTRON_RUN_AS_NODE
+ let app
+ try{
+  app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
+  // Record the restart offers and answer them Cancel.
+  await app.evaluate(({dialog})=>{
+   globalThis.restartOffers=[]
+   dialog.showMessageBox=async(_,options)=>{globalThis.restartOffers.push(options.detail);return {response:0}}
+  })
+  const page=await app.firstWindow();page.setDefaultTimeout(7000)
+  // A legacy agent cannot say which binary it runs.
+  await page.locator('#settings').click()
+  await page.getByRole('tab',{name:'Changelog',exact:true}).click()
+  const mark=page.locator('.settings-versions .version-outdated')
+  await expect(mark).toHaveText('outdated: restart the local agent')
+  await expect.poll(()=>app.evaluate(()=>globalThis.restartOffers.length)).toBe(1)
+  const [detail]=await app.evaluate(()=>globalThis.restartOffers)
+  assert.match(detail,/^The running agent is not the one bundled with this app\./)
+  assert.equal(restarts,0,'a refused restart restarted the agent')
+
+  // Reconnecting to the same agent does not ask again.
+  await page.locator('#close-dialog').click()
+  await page.evaluate(()=>window.localAgent.connect())
+  await page.waitForTimeout(300)
+  assert.equal(await app.evaluate(()=>globalThis.restartOffers.length),1,'the refused restart was offered again')
+
+  // The bundled binary itself carries no mark and no offer.
+  agentVersion={version:'v9.9.9',binarySha256:bundledSha}
+  await page.evaluate(()=>window.localAgent.connect())
+  await page.locator('#settings').click()
+  await page.getByRole('tab',{name:'Changelog',exact:true}).click()
+  await expect(page.locator('.settings-versions .version-value').nth(1)).toHaveText('v9.9.9')
+  await expect(mark).toHaveCount(0)
+  assert.equal(await app.evaluate(()=>globalThis.restartOffers.length),1)
+ }finally{
+  if(app)await app.close()
+  await new Promise(resolve=>server.close(resolve))
+  fs.rmSync(root,{recursive:true,force:true})
+ }
+})

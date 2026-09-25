@@ -100,13 +100,18 @@ func newCluster(t *testing.T, ids ...string) []*clusterInstance {
 // dispatcher, as /ws/agent-connect does.
 func connectClusterAgent(t *testing.T, d *AgentDispatcher, userID, projectID, deviceID string) *websocket.Conn {
 	t.Helper()
+	return connectClusterAgentBuild(t, d, userID, projectID, deviceID, AgentBuild{})
+}
+
+func connectClusterAgentBuild(t *testing.T, d *AgentDispatcher, userID, projectID, deviceID string, build AgentBuild) *websocket.Conn {
+	t.Helper()
 	registered := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := (&websocket.Upgrader{}).Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
-		ac := d.Register(userID, projectID, deviceID, conn)
+		ac := d.RegisterBuild(userID, projectID, deviceID, build, conn)
 		close(registered)
 		defer conn.Close()
 		defer d.Unregister(ac.UserID, ac.ProjectID, conn)

@@ -147,6 +147,7 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 
 .settings-versions{margin:12px 0 4px}
 .settings-versions .version-value{color:#80e6ce;background:#1e3a34;border-radius:6px;padding:3px 8px;font:12.5px Menlo,monospace}
+.settings-versions .version-outdated{color:#f2c46d;font-size:12px}
 .changelog-heading{margin:18px 0 6px;font-size:13px;font-weight:700}
 .changelog{max-height:clamp(180px,42vh,360px);overflow-y:auto;padding-right:6px;border-top:1px solid #222c3a}
 .changelog-release{padding:10px 0;border-bottom:1px solid #222c3a}
