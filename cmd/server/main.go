@@ -18,6 +18,7 @@ import (
 	"tasks/internal/auth"
 	"tasks/internal/db"
 	"tasks/internal/handlers"
+	"tasks/internal/metrics"
 	"tasks/internal/version"
 	"tasks/internal/webui"
 )
@@ -305,6 +306,13 @@ func main() {
 	// The admin's users view: list accounts and change roles.
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)
+	mux.HandleFunc(handlers.AdminStatsPath, h.HandleAdminStats)
+
+	// Prometheus metrics. Outside /api/, so the session guard leaves them
+	// public; registered before the interface's catch-all.
+	build := version.Current()
+	serverMetrics := metrics.New(database, db.ActiveUserWindow, metrics.Build{Version: build.Version, Commit: build.Commit})
+	mux.Handle(metrics.Path, serverMetrics.Handler())
 
 	mux.Handle("/mcp", h.MCPHandler())
 	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)
@@ -396,7 +404,10 @@ func main() {
 		})
 	}
 
-	handlerWithCORS := h.EnableCORS(h.RequireSession(mux))
+	// The instrumentation wraps the whole chain, so a request the session
+	// guard refuses is counted as the 401 or 403 it received.
+
+	handlerWithCORS := serverMetrics.Instrument(h.EnableCORS(h.RequireSession(mux)), routeOf(mux))
 
 	addr := ":" + port
 	url := fmt.Sprintf("http://localhost%s", addr)

@@ -16,10 +16,8 @@ type Target = RefObject<HTMLElement | null>
  * life of the component, so only `enabled` and `onOutside` decide when the
  * listener is replaced — pass a memoised `onOutside`.
  *
- * Two call sites deliberately keep their own listener: `TaskCard`, whose menu
- * also closes on scroll and on resize and ranks two levels of `Escape`, and
- * `McpSessions`, which installs its `mousedown` and its `keydown` in one
- * effect.
+ * One call site deliberately keeps its own listener: `TaskCard`, whose menu
+ * also closes on scroll and on resize and ranks two levels of `Escape`.
  */
 export function useClickOutside(targets: Target | Target[], onOutside: () => void, enabled = true): void {
   useEffect(() => {

@@ -40,6 +40,7 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
+	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
 }
 
 // appliedVersions is what the database says it has applied, in order.
@@ -271,7 +272,7 @@ func TestRestartRecoveryRunsOnEveryStart(t *testing.T) {
 // reaches a database created from nothing and no other, because the baseline
 // runs only while the database carries no version. Every database stamped
 // beforehand went on without projects.enabled_views, and answered an error to
-// every project read — the whole interface, which lists projects first.
+// every project read, and so broke the whole interface, which lists projects first.
 //
 // The check is the read the interface makes, not the column list: a column the
 // schema has and the query does not name would pass a column check and fail
@@ -304,6 +305,7 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	_, _ = d.conn.Exec("DROP INDEX IF EXISTS idx_task_activities_macro")
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
+	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= ?", 5); err != nil {
 		t.Fatalf("forgetting the migration: %v", err)
 	}

@@ -681,17 +681,27 @@ export interface TranslationSchema {
     branchCopied: string
     viewDiff: string
   }
-  mcp: {
-    panelTitle: string
-    client: string
-    clients: string
-    noClient: string
-    run: string
-    runs: string
-    noRuns: string
-    connected: string
-    unavailable: string
-    ownership: string
+  admin: {
+    title: string
+    subtitle: string
+    refresh: string
+    updatedAt: string
+    activeUsers: string
+    activeUsersHint: string
+    activeRuns: string
+    running: string
+    queued: string
+    pending: string
+    totalUsers: string
+    admins: string
+    blocked: string
+    users: string
+    statsUnavailable: string
+    adminOnly: string
+    activity: string
+    online: string
+    lastActive: string
+    never: string
   }
   boardViews: {
     newView: string
@@ -1436,17 +1446,27 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       branchCopied: 'Nom de la branche copié !',
       viewDiff: 'Voir le Git Diff',
     },
-    mcp: {
-      panelTitle: 'Clients MCP connectés',
-      client: 'client MCP',
-      clients: 'clients MCP',
-      noClient: 'Aucun client MCP',
-      run: 'exécution',
-      runs: 'exécutions',
-      noRuns: 'aucune exécution',
-      connected: 'connecté depuis',
-      unavailable: 'Statut MCP indisponible',
-      ownership: 'Les exécutions listées se ferment si leur client se déconnecte.',
+    admin: {
+      title: 'Administration',
+      subtitle: 'Les comptes, leurs rôles, et ce que fait le board en ce moment',
+      refresh: 'Actualiser',
+      updatedAt: 'Mis à jour à',
+      activeUsers: 'Utilisateurs connectés',
+      activeUsersHint: 'Session utilisée ces {minutes} dernières minutes',
+      activeRuns: 'Exécutions actives',
+      running: 'en cours',
+      queued: 'en file',
+      pending: 'en attente',
+      totalUsers: 'Comptes',
+      admins: 'admin(s)',
+      blocked: 'bloqué(s)',
+      users: 'Utilisateurs',
+      statsUnavailable: 'Statistiques indisponibles',
+      adminOnly: 'Cette page est réservée aux administrateurs.',
+      activity: 'Activité',
+      online: 'En ligne',
+      lastActive: 'Vu',
+      never: 'jamais',
     },
     boardViews: {
       newView: 'Nouvelle vue',
@@ -2189,17 +2209,27 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       branchCopied: 'Branch name copied!',
       viewDiff: 'View Git Diff',
     },
-    mcp: {
-      panelTitle: 'Connected MCP clients',
-      client: 'MCP client',
-      clients: 'MCP clients',
-      noClient: 'No MCP client',
-      run: 'run',
-      runs: 'runs',
-      noRuns: 'no run',
-      connected: 'connected for',
-      unavailable: 'MCP status unavailable',
-      ownership: 'The runs listed here close if their client disconnects.',
+    admin: {
+      title: 'Administration',
+      subtitle: 'Accounts, their roles, and what the board is doing right now',
+      refresh: 'Refresh',
+      updatedAt: 'Updated at',
+      activeUsers: 'Connected users',
+      activeUsersHint: 'Session used within the last {minutes} minutes',
+      activeRuns: 'Active runs',
+      running: 'running',
+      queued: 'queued',
+      pending: 'pending',
+      totalUsers: 'Accounts',
+      admins: 'admin(s)',
+      blocked: 'blocked',
+      users: 'Users',
+      statsUnavailable: 'Statistics unavailable',
+      adminOnly: 'This page is reserved to admins.',
+      activity: 'Activity',
+      online: 'Online',
+      lastActive: 'Seen',
+      never: 'never',
     },
     boardViews: {
       newView: 'New view',

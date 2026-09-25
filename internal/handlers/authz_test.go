@@ -40,6 +40,7 @@ func guardedServer(t *testing.T, h *Handler) *httptest.Server {
 	mux.HandleFunc("/api/settings", h.HandleSettings)
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)
+	mux.HandleFunc(AdminStatsPath, h.HandleAdminStats)
 	mux.HandleFunc("/api/devices", h.HandleDeviceCredentials)
 	mux.HandleFunc("/api/pairing-codes", h.HandlePairingCode)
 	mux.HandleFunc("/api/me", h.HandleCurrentUser)
@@ -106,6 +107,7 @@ func connectAgentAs(t *testing.T, server *httptest.Server, key, projectID string
 func TestAdminOnlyRoutesAreExactlyTheseMutations(t *testing.T) {
 	adminOnly := []struct{ method, path string }{
 		{http.MethodGet, "/api/users"}, {http.MethodPut, "/api/users/u1"}, {http.MethodDelete, "/api/users/u1"},
+		{http.MethodGet, "/api/admin/stats"},
 	}
 	for _, route := range adminOnly {
 		if !adminOnlyRoute(route.method, route.path) {

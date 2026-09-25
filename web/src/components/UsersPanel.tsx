@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Ban, Trash2, Undo2, Users } from 'lucide-react'
 import type { Role } from '../lib/session'
+import { useApp } from '../context/AppContext'
+import { relativeTime } from '../lib/adminStats'
 
 interface UserRow {
   id: string
@@ -12,6 +14,10 @@ interface UserRow {
   lastSignIn?: string
   blocked?: boolean
   blockedAt?: string
+  /** When a browser session of this account last reached the server. */
+  lastActiveAt?: string
+  /** Seen within the server's active window. */
+  active?: boolean
 }
 
 function when(value?: string): string {
@@ -29,10 +35,23 @@ function when(value?: string): string {
  * the identity provider supplies roles, a manual change lasts only until that
  * user's next sign-in, and the panel says that too.
  */
-export function UsersPanel({ currentUserId, embedded = false }: { currentUserId: string; embedded?: boolean }) {
+interface UsersPanelProps {
+  currentUserId: string
+  embedded?: boolean
+  /** A change reloads the list, so it can follow the page it sits on. */
+  reloadKey?: number
+  /** Called after a change to an account, for the figures that count them. */
+  onChange?: () => void
+}
+
+export function UsersPanel({ currentUserId, embedded = false, reloadKey = 0, onChange }: UsersPanelProps) {
+  const { t, settings } = useApp()
   const [users, setUsers] = useState<UserRow[]>([])
   const [rolesFromProvider, setRolesFromProvider] = useState(false)
   const [status, setStatus] = useState('')
+  // The instant the list was read: "seen 3 minutes ago" is measured against it,
+  // so a render never reads the clock.
+  const [loadedAt, setLoadedAt] = useState(0)
 
   const load = useCallback(async () => {
     try {
@@ -40,13 +59,14 @@ export function UsersPanel({ currentUserId, embedded = false }: { currentUserId:
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const body = await res.json()
       setUsers(body.users || [])
+      setLoadedAt(Date.now())
       setRolesFromProvider(!!body.rolesFromProvider)
     } catch {
       setStatus('Could not load the users.')
     }
   }, [])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => { void load() }, [load, reloadKey])
 
   const label = (user: UserRow) => user.displayName || user.email || user.id
 
@@ -62,6 +82,7 @@ export function UsersPanel({ currentUserId, embedded = false }: { currentUserId:
         throw new Error(body.error || `HTTP ${res.status}`)
       }
       await load()
+      onChange?.()
       setStatus(done)
     } catch (err) {
       setStatus(err instanceof Error ? err.message : failed)
@@ -107,6 +128,7 @@ export function UsersPanel({ currentUserId, embedded = false }: { currentUserId:
           <thead className="text-[var(--text-muted)]">
             <tr>
               <th scope="col" className="py-1 pr-3 font-medium">User</th>
+              <th scope="col" className="py-1 pr-3 font-medium">{t.admin.activity}</th>
               <th scope="col" className="py-1 pr-3 font-medium">Last sign-in</th>
               <th scope="col" className="py-1 pr-3 font-medium">Role</th>
               <th scope="col" className="py-1 font-medium">Account</th>
@@ -123,6 +145,18 @@ export function UsersPanel({ currentUserId, embedded = false }: { currentUserId:
                     )}
                   </div>
                   {user.email && user.displayName && user.displayName !== user.email && <div className="text-[var(--text-muted)]">{user.email}</div>}
+                </td>
+                <td className="py-2 pr-3" title={user.lastActiveAt ? when(user.lastActiveAt) : undefined}>
+                  {user.active ? (
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />
+                      {t.admin.online}
+                    </span>
+                  ) : (
+                    <span className="text-[var(--text-muted)]">
+                      {t.admin.lastActive} {relativeTime(user.lastActiveAt, loadedAt, settings.language) ?? t.admin.never}
+                    </span>
+                  )}
                 </td>
                 <td className="py-2 pr-3 text-[var(--text-muted)]">{when(user.lastSignIn)}</td>
                 <td className="py-2 pr-3">

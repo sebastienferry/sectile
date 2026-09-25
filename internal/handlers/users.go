@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"tasks/internal/db"
 )
@@ -28,8 +29,13 @@ func (h *Handler) HandleUsers(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		rows, err := h.usersWithActivity(users)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"users": users,
+			"users": rows,
 			// The provider's claim overrides a manual change at the user's next
 			// sign-in; the view says so rather than letting the change look final.
 			"rolesFromProvider": h.identityProvider != nil && h.identityProvider.SuppliesRoles(),
@@ -110,4 +116,83 @@ func writeUserError(w http.ResponseWriter, err error, lastAdmin string) bool {
 		writeError(w, http.StatusInternalServerError, err.Error())
 	}
 	return false
+}
+
+// AdminStatsPath is the admin page's summary of the board.
+const AdminStatsPath = "/api/admin/stats"
+
+// userRow is an account as the admin's users view lists it: the stored row,
+// plus when it last used a browser session and whether that was recent enough
+// to count as active.
+type userRow struct {
+	db.User
+	LastActiveAt *time.Time `json:"lastActiveAt,omitempty"`
+	Active       bool       `json:"active"`
+}
+
+// usersWithActivity joins each account to its last browser activity. A blocked
+// account is never active: its sessions were revoked with the block.
+func (h *Handler) usersWithActivity(users []db.User) ([]userRow, error) {
+	activity, err := h.db.UserActivity()
+	if err != nil {
+		return nil, err
+	}
+	cutoff := time.Now().UTC().Add(-db.ActiveUserWindow)
+	rows := make([]userRow, 0, len(users))
+	for _, user := range users {
+		row := userRow{User: user}
+		if seen, ok := activity[user.ID]; ok {
+			row.LastActiveAt = &seen
+			row.Active = !user.Blocked && !seen.Before(cutoff)
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// HandleAdminStats answers GET /api/admin/stats: the roster at a glance, how
+// many people are using the board right now, and how many runs are not over.
+// Every figure is read from the database, so each instance sharing it answers
+// the same.
+func (h *Handler) HandleAdminStats(w http.ResponseWriter, r *http.Request) {
+	if _, ok := h.requireAdmin(w, r); !ok {
+		return
+	}
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	users, err := h.db.CountUsers()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	active, err := h.db.ActiveUserCount(db.ActiveUserWindow)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	runs, err := h.db.ActiveRunCounts()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	total := 0
+	for _, count := range runs {
+		total += count
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"users": map[string]any{
+			"total":   users.Total,
+			"admins":  users.Admins,
+			"blocked": users.Blocked,
+			"active":  active,
+		},
+		"runs": map[string]any{
+			"active":   total,
+			"byStatus": runs,
+		},
+		"activeWindowSeconds": int(db.ActiveUserWindow / time.Second),
+		"generatedAt":         time.Now().UTC(),
+	})
 }

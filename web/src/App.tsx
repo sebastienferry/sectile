@@ -19,7 +19,7 @@ import { CloneTaskModal } from './components/CloneTaskModal'
 import { TaskDetailModal } from './components/TaskDetailModal'
 import { CommandPalette } from './components/CommandPalette'
 import { ProfileModal } from './components/ProfileModal'
-import { AdminModal } from './components/AdminModal'
+import { AdminView } from './components/AdminView'
 import { ProjectModal } from './components/ProjectModal'
 import { BoardViewModal } from './components/BoardViewModal'
 import { StatusBar } from './components/StatusBar'
@@ -109,6 +109,8 @@ const MainContent: React.FC = () => {
               <SyncView />
             ) : activeView === 'skills' ? (
               <SkillsView />
+            ) : activeView === 'admin' ? (
+              <AdminView />
             ) : (
               <ActivitiesView />
             )}
@@ -135,7 +137,6 @@ const MainContent: React.FC = () => {
 
       <CommandPalette />
       <ProfileModal />
-      <AdminModal />
       <ToastContainer />
     </div>
 
