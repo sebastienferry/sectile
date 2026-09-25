@@ -31,3 +31,21 @@ test('skill checkmark requires matching execution and workflow progress',async()
  assert.equal(skillResult({...run,cancelRequested:true},null).label,'Stopping execution')
  assert.equal(skillResult(null,result),null)
 })
+test('skill badge reports a declared wait for the user',async()=>{
+ const {skillResult}=await import('../src/skill-result.mjs')
+ const run={id:'new',taskId:'task',skill:'clarify',status:'running',waitingSince:'2026-09-25T10:00:00Z'}
+ const waiting=skillResult(run,null)
+ assert.equal(waiting.kind,'waiting')
+ assert.equal(waiting.label,'Waiting for your answer')
+ // A server verdict outranks a start of wait left behind on the run.
+ const done={activity:{id:'new',taskId:'task',skillId:'clarify',status:'completed'},task:{labels:['clarified']}}
+ assert.equal(skillResult(run,done).kind,'completed')
+ // A pending stop is what the user is about to see happen, not a question.
+ assert.equal(skillResult({...run,cancelRequested:true},null).label,'Stopping execution')
+ // An ended or queued run asks nothing, whatever mark it still carries.
+ assert.equal(skillResult({...run,status:'failed'},null),null)
+ assert.equal(skillResult({...run,status:'queued'},null),null)
+ // A console and a discussion run no skill, so no skill is waiting.
+ assert.equal(skillResult({...run,kind:'console'},null),null)
+ assert.equal(skillResult({...run,skill:'discuss'},null),null)
+})
