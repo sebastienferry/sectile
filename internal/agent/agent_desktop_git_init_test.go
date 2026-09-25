@@ -252,6 +252,11 @@ func TestGitInitWithoutAnIdentityShowsGitsErrorAndLeavesTheFolderUnborn(t *testi
 	if state := gitState(t, do, folder); state.State != gitStateUnborn {
 		t.Errorf("state after the failure = %+v, want unborn for a retry", state)
 	}
+	// The exclusion comes before the commit, so the ready repository a retry
+	// leaves, and never touches again, already hides .tasks/.
+	if raw, _ := os.ReadFile(filepath.Join(folder, ".git", "info", "exclude")); !strings.Contains(string(raw), "/.tasks/") {
+		t.Errorf("exclude after a failed commit = %q", raw)
+	}
 }
 
 func TestDesktopStatusListsGitInit(t *testing.T) {

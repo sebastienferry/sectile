@@ -110,6 +110,14 @@ func (d *agentDaemon) desktopGitInit(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if state != gitStateReady {
+			// .tasks/ is excluded before the commit: a ready repository is never
+			// touched again, so an exclusion that failed after the commit would
+			// never be retried. Before it, the repository stays unborn and a
+			// retry redoes both.
+			if err := excludeTaskWorktrees(r.Context(), top); err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
 			// An empty commit leaves a pre-commit hook nothing to check, and a
 			// commit-message linter must not block the setup. A failure is not
 			// rolled back: the repository stays unborn, and a retry commits.
@@ -118,10 +126,6 @@ func (d *agentDaemon) desktopGitInit(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			committed = true
-			if err := excludeTaskWorktrees(r.Context(), top); err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
 		}
 		top, state = gitFolderState(r.Context(), top)
 		w.Header().Set("Content-Type", "application/json")
