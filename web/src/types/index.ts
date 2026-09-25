@@ -245,6 +245,12 @@ export interface Project {
   prCreationStage?: 'specified' | 'implemented'
   useWorktrees?: boolean
   /**
+   * Whether the tasks' clarification and specification files are committed
+   * with the code ("keep", the default) or left in the task worktree and
+   * ignored by Git ("drop"). A workstation may override it.
+   */
+  specArtifacts?: 'keep' | 'drop'
+  /**
    * Mode d'exécution des skills quand ni le lancement ni la skill n'en fixe un.
    * Vide vaut « interactif », le comportement historique.
    */
