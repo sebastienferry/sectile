@@ -40,6 +40,17 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
 	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
+	dropRepositoryColumns(d)
+}
+
+// dropRepositoryColumns removes what migrations 17 to 21 add, for the tests
+// that put a database back before them and reopen it.
+func dropRepositoryColumns(d *DB) {
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN repositories")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN repositories_migration")
+	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN repository")
+	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN changed_repositories")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_reason")
 }
 
 // appliedVersions is what the database says it has applied, in order.
@@ -304,6 +315,7 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
 	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
+	dropRepositoryColumns(d)
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= ?", 5); err != nil {
 		t.Fatalf("forgetting the migration: %v", err)
 	}
@@ -333,6 +345,7 @@ func TestMigrationSixteenDropsTheServerSpecificationsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating the database: %v", err)
 	}
+	dropRepositoryColumns(d)
 	for _, stmt := range []string{
 		"ALTER TABLE projects ADD COLUMN spec_repo_path TEXT NOT NULL DEFAULT ''",
 		`INSERT INTO projects (id, name, slug, spec_repo_path) VALUES ('p1', 'Kept', 'kept', '/server/wiki')`,

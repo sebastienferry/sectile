@@ -76,6 +76,10 @@ type TaskActivity struct {
 	// own, and because the UI wants to say how long the wait has lasted. Any
 	// terminal status clears it.
 	WaitingSince *time.Time `json:"waitingSince,omitempty"`
+	// WaitingReason says why a run waits when it is not a question asked in
+	// its session: "repository" for a launch parked until its ticket is
+	// pinned to a repository. Empty otherwise.
+	WaitingReason string `json:"waitingReason,omitempty"`
 	// Concurrent marks a run allowed next to another active run on the same
 	// task: one started with "Launch anyway", one a client declared without a
 	// launcher, one an agent reported that the server did not create. Every
@@ -117,6 +121,13 @@ type Project struct {
 	// It is fed automatically: whenever a ticket pins a new CWD, that path is
 	// registered here so the next ticket can pick it instead of retyping it.
 	RepoPaths []string `json:"repoPaths,omitempty"`
+	// Repositories are the repositories the project's tickets work in, the
+	// code remote first. A workstation maps each one to a local folder; the
+	// server keeps remotes only, never paths.
+	Repositories []ProjectRepository `json:"repositories"`
+	// RepositoriesMigration is empty until a local agent converted the legacy
+	// paths above to repositories, then the JSON report of that conversion.
+	RepositoriesMigration string `json:"repositoriesMigration,omitempty"`
 	// RoadmapProjects are other Jira project keys whose story keys the slicing
 	// attaches to a line. They are read, never written.
 	RoadmapProjects []string `json:"roadmapProjects,omitempty"`
@@ -402,6 +413,7 @@ type CreateProjectRequest struct {
 	Color                       string            `json:"color,omitempty"`
 	RepoPath                    string            `json:"repoPath,omitempty"`
 	RepoPaths                   []string          `json:"repoPaths,omitempty"`
+	Repositories                []string          `json:"repositories,omitempty"`
 	PRCreationStage             string            `json:"prCreationStage,omitempty"`
 	DefaultSkillMode            string            `json:"defaultSkillMode,omitempty"`
 	FullChainStopStage          string            `json:"fullChainStopStage,omitempty"`
@@ -440,6 +452,7 @@ type UpdateProjectRequest struct {
 	Color                       *string              `json:"color,omitempty"`
 	RepoPath                    *string              `json:"repoPath,omitempty"`
 	RepoPaths                   *[]string            `json:"repoPaths,omitempty"`
+	Repositories                *[]string            `json:"repositories,omitempty"`
 	RoadmapProjects             *[]string            `json:"roadmapProjects,omitempty"`
 	PRCreationStage             *string              `json:"prCreationStage,omitempty"`
 	DefaultSkillMode            *string              `json:"defaultSkillMode,omitempty"`
@@ -784,6 +797,12 @@ type Task struct {
 	// project's repoPath, for trackers where one epic spans several codebases.
 	// Empty means "inherit the project, then the global setting".
 	RepoPath *string `json:"repoPath,omitempty"`
+	// Repository pins the repository, by identity, this ticket works in on a
+	// multi-repo project. Empty means not pinned.
+	Repository string `json:"repository,omitempty"`
+	// ChangedRepositories are the other repositories, by identity, in which
+	// the ticket has a worktree on its branch. Each needs its pull request.
+	ChangedRepositories []string `json:"changedRepositories,omitempty"`
 	// TrackerStatus is the status name as the tracker spells it ("Dev Test", "To
 	// Merge"…). The internal Status folds those onto six values, which is too
 	// lossy to place a card in the tracker's own board columns.
@@ -1018,6 +1037,7 @@ type UpdateTaskRequest struct {
 	// is how a human corrects a task that recorded the wrong pull request.
 	PrLinks       *[]TaskPullRequest `json:"prLinks,omitempty"`
 	RepoPath      *string            `json:"repoPath,omitempty"`
+	Repository    *string            `json:"repository,omitempty"`
 	TrackerStatus *string            `json:"trackerStatus,omitempty"`
 	Sprint        *string            `json:"sprint,omitempty"`
 	Source        *string            `json:"source,omitempty"`
