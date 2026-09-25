@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"tasks/internal/agentprotocol"
@@ -18,7 +19,12 @@ const (
 	mrB = "https://gitlab.com/g/b/-/merge_requests/2"
 )
 
+// fakeRepoAgent answers the agent operations of a two-repository project. A
+// stage transition also queues a postback that the queue worker runs on its own
+// goroutine and that calls the agent again, so every field is behind mu: the
+// test reads what the agent was asked while the worker may still be asking.
 type fakeRepoAgent struct {
+	mu        sync.Mutex
 	t         *testing.T
 	prs       map[string]string // repository ("" for the code remote) → merge request URL
 	heads     map[string]string // repository → checkout head
@@ -28,6 +34,8 @@ type fakeRepoAgent struct {
 }
 
 func (f *fakeRepoAgent) operate(_ context.Context, op agentprotocol.Operation) (json.RawMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	switch op.Action {
 	case "pr_evidence":
 		url, ok := f.prs[op.Repository]
@@ -57,8 +65,22 @@ func (f *fakeRepoAgent) operate(_ context.Context, op agentprotocol.Operation) (
 		f.removed = op.Repositories
 		return json.Marshal(result)
 	}
-	f.t.Fatalf("unexpected operation %#v", op)
-	return nil, nil
+	f.t.Errorf("unexpected operation %#v", op)
+	return nil, fmt.Errorf("unexpected operation %q", op.Action)
+}
+
+// asked returns the repositories git_evidence was asked about so far.
+func (f *fakeRepoAgent) asked() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.evidence...)
+}
+
+// set changes the fake's answers under its lock.
+func (f *fakeRepoAgent) set(change func(*fakeRepoAgent)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	change(f)
 }
 
 func twoRepoTask(t *testing.T) (*DB, *models.Task, *fakeRepoAgent) {
@@ -117,7 +139,7 @@ func TestAChangedRepositoryIsLookedUpByBranchWhenNoLinkNamesIt(t *testing.T) {
 
 func TestAChangedRepositoryWithoutPullRequestIsRefused(t *testing.T) {
 	d, task, agent := twoRepoTask(t)
-	delete(agent.prs, "gitlab.com/g/b")
+	agent.set(func(f *fakeRepoAgent) { delete(f.prs, "gitlab.com/g/b") })
 	_, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA}, "feat/12")
 	if err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") {
 		t.Fatalf("err = %v, want a refusal naming gitlab.com/g/b", err)
@@ -134,7 +156,7 @@ func TestAPullRequestOutsideTheChangedRepositoriesIsRefused(t *testing.T) {
 
 func TestAStaleSecondaryHeadIsRefused(t *testing.T) {
 	d, task, agent := twoRepoTask(t)
-	agent.heads["gitlab.com/g/b"] = "older"
+	agent.set(func(f *fakeRepoAgent) { f.heads["gitlab.com/g/b"] = "older" })
 	_, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrA, mrB}, "feat/12")
 	if err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") || !strings.Contains(err.Error(), "does not contain the agent checkout commit") {
 		t.Fatalf("err = %v", err)
@@ -159,10 +181,12 @@ func TestWorktreeRemovalCoversEveryChangedRepository(t *testing.T) {
 	if err := d.RemoveTaskWorktree("", task.ID); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(agent.removed, " ") != "gitlab.com/g/a gitlab.com/g/b" {
-		t.Errorf("asked to remove %v", agent.removed)
+	var removed []string
+	agent.set(func(f *fakeRepoAgent) { removed = f.removed })
+	if strings.Join(removed, " ") != "gitlab.com/g/a gitlab.com/g/b" {
+		t.Errorf("asked to remove %v", removed)
 	}
-	agent.failRemov = "gitlab.com/g/b"
+	agent.set(func(f *fakeRepoAgent) { f.failRemov = "gitlab.com/g/b" })
 	if err := d.RemoveTaskWorktree("", task.ID); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b: locked") {
 		t.Errorf("err = %v, want the failed repository named", err)
 	}
@@ -170,7 +194,7 @@ func TestWorktreeRemovalCoversEveryChangedRepository(t *testing.T) {
 
 func TestAdjustmentChecksEverySecondaryRepository(t *testing.T) {
 	d, task, agent := twoRepoTask(t)
-	delete(agent.prs, "gitlab.com/g/b")
+	agent.set(func(f *fakeRepoAgent) { delete(f.prs, "gitlab.com/g/b") })
 	if _, err := d.adjustmentPrerequisite(task, "", false); err == nil || !strings.Contains(err.Error(), "gitlab.com/g/b") {
 		t.Fatalf("err = %v, want the secondary repository named", err)
 	}
@@ -202,13 +226,15 @@ func TestTheCodeRepositoryChangedFromAPinnedTicketIsReadInItsOwnCheckout(t *test
 	if _, err := d.conn.Exec(`UPDATE tasks SET repository='gitlab.com/g/b', changed_repositories='["gitlab.com/g/a"]' WHERE id=?`, task.ID); err != nil {
 		t.Fatal(err)
 	}
-	agent.heads["gitlab.com/g/a"] = "head-1"
+	agent.set(func(f *fakeRepoAgent) { f.heads["gitlab.com/g/a"] = "head-1" })
 	got, _, err := d.TransitionTaskStageWithPRs("", task.ID, "implemented", "done", []string{mrB, mrA}, "feat/12")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(agent.evidence, " ") != "gitlab.com/g/a gitlab.com/g/b" {
-		t.Errorf("heads asked in %q, want each repository named", agent.evidence)
+	// The transition asks first; the postback it queued may already be asking
+	// again on the worker, so only the transition's own questions are checked.
+	if asked := agent.asked(); len(asked) < 2 || strings.Join(asked[:2], " ") != "gitlab.com/g/a gitlab.com/g/b" {
+		t.Errorf("heads asked in %q, want each repository named", asked)
 	}
 	if got.PrURL == nil || *got.PrURL != mrB {
 		t.Errorf("current pull request = %v, want the pinned repository's", got.PrURL)
