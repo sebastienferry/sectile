@@ -281,3 +281,17 @@ func specArtifactsMode(config agentconfig.Config, key string) map[string]string 
 	}
 	return map[string]string{"mode": models.SpecArtifactsKeep}
 }
+
+// trackedSpecArtifacts counts the files the checkout already tracks where
+// specification artefacts live, for the desktop to warn that dropping them
+// leaves those in the history. Zero when the mapping is invalid or Git fails.
+func trackedSpecArtifacts(ctx context.Context, checkout string, mappingErr error) int {
+	if mappingErr != nil || checkout == "" {
+		return 0
+	}
+	out, err := gitLocal(ctx, checkout, "ls-files", "--", "specs", "openspec/changes", "docs/clarifications")
+	if err != nil || out == "" {
+		return 0
+	}
+	return len(strings.Split(out, "\n"))
+}

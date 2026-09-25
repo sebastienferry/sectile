@@ -838,6 +838,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"worktreeOverride":            worktreeOverride,
 			"specArtifacts":               models.NormalizeSpecArtifacts(effective.SpecArtifacts),
 			"specArtifactsOverride":       specArtifactsOverride,
+			"specArtifactsTracked":        trackedSpecArtifacts(r.Context(), root, mappingErr),
 			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
 			"aiProvider":                  effective.AIProvider,
 			"aiModel":                     effective.AIModel,

@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -160,5 +163,31 @@ func TestDesktopProjectSpecArtifactsOverride(t *testing.T) {
 	}
 	if value := s.launchValue("drop"); value != "drop" {
 		t.Fatalf("without an override a launch follows the server, got %q", value)
+	}
+}
+
+// The desktop warns that specifications already committed stay in the
+// history: it counts what the checkout tracks where artefacts live.
+func TestDesktopProjectCountsTrackedSpecifications(t *testing.T) {
+	s := newSpecArtifactsDesktop(t, "drop")
+	if got := s.info()["specArtifactsTracked"]; got != float64(0) {
+		t.Fatalf("an empty checkout tracks nothing: %v", got)
+	}
+	for _, path := range []string{"specs/1-a/spec.md", "docs/clarifications/1.md", "openspec/changes/2-b/proposal.md", "openspec/specs/kept.md", "src/specs.go"} {
+		full := filepath.Join(s.root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gitTest(t, s.root, "add", ".")
+	gitTest(t, s.root, "commit", "-q", "-m", "specs")
+	if got := s.info()["specArtifactsTracked"]; got != float64(3) {
+		t.Fatalf("three tracked specification files expected, got %v", got)
+	}
+	if got := trackedSpecArtifacts(context.Background(), s.root, errors.New("unmapped")); got != 0 {
+		t.Fatalf("an invalid mapping counts nothing: %d", got)
 	}
 }
