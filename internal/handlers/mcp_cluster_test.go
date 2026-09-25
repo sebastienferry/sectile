@@ -38,6 +38,8 @@ const (
 type mcpInstances struct {
 	mu   sync.Mutex
 	live map[string]string
+	// lookupErr, when set, is what every liveness lookup fails with.
+	lookupErr error
 }
 
 func (s *mcpInstances) set(id, address string) {
@@ -60,11 +62,14 @@ type mcpInstanceView struct {
 
 func (v *mcpInstanceView) InstanceID() string { return v.id }
 
-func (v *mcpInstanceView) LiveInstance(id string) (db.InstanceLocation, bool) {
+func (v *mcpInstanceView) LiveInstance(id string) (db.InstanceLocation, bool, error) {
 	v.shared.mu.Lock()
 	defer v.shared.mu.Unlock()
+	if v.shared.lookupErr != nil {
+		return db.InstanceLocation{}, false, v.shared.lookupErr
+	}
 	address, ok := v.shared.live[id]
-	return db.InstanceLocation{ID: id, Address: address}, ok
+	return db.InstanceLocation{ID: id, Address: address}, ok, nil
 }
 
 func (v *mcpInstanceView) LiveInstances() []db.InstanceLocation {
@@ -436,6 +441,7 @@ func TestTheMCPRouterForwardsOnlyToALiveOtherInstance(t *testing.T) {
 		localInternal = r.Header.Get(internalAuthHeader)
 		_, _ = w.Write([]byte("local"))
 	})
+	var lastStatus int
 	serve := func(sessionID string) string {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(rawPing))
 		req.Header.Set("Authorization", "Bearer client")
@@ -445,6 +451,7 @@ func TestTheMCPRouterForwardsOnlyToALiveOtherInstance(t *testing.T) {
 		}
 		rec := httptest.NewRecorder()
 		h.mcpRouter(local).ServeHTTP(rec, req)
+		lastStatus = rec.Code
 		return rec.Body.String()
 	}
 
@@ -470,6 +477,25 @@ func TestTheMCPRouterForwardsOnlyToALiveOtherInstance(t *testing.T) {
 		got.session != "peer.abc" || got.body != rawPing {
 		t.Errorf("the peer received %+v", got)
 	}
+
+	// A liveness lookup that fails says nothing about the owner: the session
+	// may be alive, so the answer is 503 naming it, never the local 404 that
+	// would make the client drop it. Ids naming no other instance need no
+	// lookup and stay local.
+	shared.mu.Lock()
+	shared.lookupErr = errors.New("database unavailable")
+	shared.mu.Unlock()
+	if got := serve("peer.abc"); lastStatus != http.StatusServiceUnavailable || !strings.Contains(got, "peer") {
+		t.Errorf("with a failed lookup, a peer's session was %d %q, want 503 naming the peer", lastStatus, got)
+	}
+	for _, id := range []string{"", "self.abc", "ABCDEF"} {
+		if got := serve(id); got != "local" {
+			t.Errorf("with a failed lookup, session %q was %q, want served here", id, got)
+		}
+	}
+	shared.mu.Lock()
+	shared.lookupErr = nil
+	shared.mu.Unlock()
 
 	// Without a server key nothing is forwarded.
 	h.setMCPCluster(&mcpInstanceView{shared: shared, id: "self"}, "", errors.New("no server key"))

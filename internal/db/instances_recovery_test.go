@@ -22,12 +22,12 @@ func TestLiveInstanceLookupsExcludeTheDead(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if got, ok := d.LiveInstance("live"); !ok || got.ID != "live" || got.Address != "http://10.0.0.1:8092" {
-			t.Errorf("LiveInstance(live) = %+v, %v", got, ok)
+		if got, ok, err := d.LiveInstance("live"); err != nil || !ok || got.ID != "live" || got.Address != "http://10.0.0.1:8092" {
+			t.Errorf("LiveInstance(live) = %+v, %v, %v", got, ok, err)
 		}
 		for _, id := range []string{"stale", "ghost", ""} {
-			if got, ok := d.LiveInstance(id); ok {
-				t.Errorf("LiveInstance(%q) = %+v, want no live instance", id, got)
+			if got, ok, err := d.LiveInstance(id); err != nil || ok {
+				t.Errorf("LiveInstance(%q) = %+v, %v, %v, want no live instance and no error", id, got, ok, err)
 			}
 		}
 		live := d.LiveInstances()

@@ -1,6 +1,8 @@
 package db
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -52,14 +54,20 @@ type InstanceLocation struct {
 }
 
 // LiveInstance returns an instance seen within the liveness bound. An instance
-// that is not, or was never registered, is not somewhere to send anything.
-func (d *DB) LiveInstance(id string) (InstanceLocation, bool) {
+// that is not, or was never registered, is not somewhere to send anything. A
+// failed lookup is an error rather than a dead instance: the caller cannot
+// tell, and must not end a session that may well be alive.
+func (d *DB) LiveInstance(id string) (InstanceLocation, bool, error) {
 	cutoff := time.Now().UTC().Add(-instanceDeadAfter)
 	location := InstanceLocation{ID: id}
-	if err := d.conn.QueryRow(`SELECT address FROM server_instances WHERE id = ? AND last_seen >= ?`, id, cutoff).Scan(&location.Address); err != nil {
-		return InstanceLocation{}, false
+	err := d.conn.QueryRow(`SELECT address FROM server_instances WHERE id = ? AND last_seen >= ?`, id, cutoff).Scan(&location.Address)
+	if errors.Is(err, sql.ErrNoRows) {
+		return InstanceLocation{}, false, nil
 	}
-	return location, true
+	if err != nil {
+		return InstanceLocation{}, false, err
+	}
+	return location, true, nil
 }
 
 // LiveInstances lists the instances seen within the liveness bound, this one

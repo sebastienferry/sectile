@@ -154,7 +154,9 @@ stands, and extended to say where a session lives and what becomes of it.
 - **A session dies with its instance.** It is not moved: a request for the
   session of an instance that is no longer live is answered `404`, and the
   client initializes a new session. An owner still listed as live but that does
-  not answer gets `503` naming it, without a retry.
+  not answer gets `503` naming it, without a retry. So does one whose liveness
+  cannot be read: a `404` there would make the client drop a session that may
+  still be alive.
 - **A run lost with a server is recoverable.** The runs such a session owned are
   canceled by the reclaim of #403, or by the restart of a single-process engine,
   with a summary that carries the disconnect note, so their owner may still

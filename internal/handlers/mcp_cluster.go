@@ -29,7 +29,7 @@ import (
 // MCPDirectory is where an instance finds the others. *db.DB implements it.
 type MCPDirectory interface {
 	InstanceID() string
-	LiveInstance(id string) (db.InstanceLocation, bool)
+	LiveInstance(id string) (db.InstanceLocation, bool, error)
 	LiveInstances() []db.InstanceLocation
 }
 
@@ -88,7 +88,14 @@ func (h *Handler) mcpRouter(local http.Handler) http.Handler {
 		// Only an instance presents the internal credential, and only on the
 		// internal listener: a client that sends it is not believed.
 		r.Header.Del(internalAuthHeader)
-		if owner, ok := h.mcpCluster.ownerOf(r.Header.Get(mcpSessionHeader)); ok {
+		owner, ok, err := h.mcpCluster.ownerOf(r.Header.Get(mcpSessionHeader))
+		if err != nil {
+			log.Printf("[MCP] Instance détentrice de la session introuvable : %v", err)
+			writeError(w, http.StatusServiceUnavailable,
+				fmt.Sprintf("cannot tell whether the server instance holding this MCP session (%s) is live: %v", owner.ID, err))
+			return
+		}
+		if ok {
 			h.mcpCluster.forward(w, r, owner)
 			return
 		}
@@ -99,15 +106,21 @@ func (h *Handler) mcpRouter(local http.Handler) http.Handler {
 // ownerOf returns the live instance, other than this one, that a session id
 // names. An id naming this instance, no instance, or one that is gone is
 // served here, where the transport answers 404 for a session it does not hold.
-func (c *mcpCluster) ownerOf(sessionID string) (db.InstanceLocation, bool) {
+// A failed liveness lookup is returned with the owner's id: answering 404 then
+// would make the client drop a session that may still be alive.
+func (c *mcpCluster) ownerOf(sessionID string) (db.InstanceLocation, bool, error) {
 	if c == nil || c.tokenErr != nil {
-		return db.InstanceLocation{}, false
+		return db.InstanceLocation{}, false, nil
 	}
 	owner := taskmcp.SessionOwner(sessionID)
 	if owner == "" || owner == c.directory.InstanceID() {
-		return db.InstanceLocation{}, false
+		return db.InstanceLocation{}, false, nil
 	}
-	return c.directory.LiveInstance(owner)
+	location, live, err := c.directory.LiveInstance(owner)
+	if err != nil {
+		return db.InstanceLocation{ID: owner}, false, err
+	}
+	return location, live, nil
 }
 
 // forward relays one request to the owner's internal listener and its answer
