@@ -520,3 +520,39 @@ ProviderModelsField}.tsx`, `web/src/lib/{aiModels,projectAgentSettings}.ts`,
 Docs: `docs/adrs/0029-workstation-owns-the-invocation.md` (number checked
 against `origin/main`), `docs/adrs/0015-*.md` (superseded note),
 `docs/contracts/server-agent-v1.md`, `desktop/README.md`, `CHANGELOG.md`.
+
+## Implementation notes (deviations recorded during implementation)
+
+- **Numbers.** `origin/main` had landed migrations 23 and 24 and ADR 0029:
+  the capability table is migration **25**, the `tty_mode` drop migration
+  **26**, and the ADR is **0030**. The rewind helpers undo both
+  (`undoWorkstationMigrations`).
+- **Seed algorithm.** Writing "every server value that differs from the local
+  resolution" would break a workstation whose global override hid a server
+  value (a global `aiProvider` over a project row's). The agent instead
+  computes the pre-#305 outcome with the former `ApplyOverrides` precedence
+  (`legacyApply`) and writes only what makes the new resolution equal to it.
+  To tell a seeded default from one the workstation set itself, the defaults
+  seed records what it wrote in `seeded.defaultValues`. The project seed's
+  terminal is the project row's own; the deployment's travels with the
+  defaults (the caller's terminal, which falls back to it).
+- **Capability report device.** The report carries the `deviceId` the agent
+  presents on its WebSocket, which is the device `AgentDispatcher.Route`
+  returns; the credential's device ID is a different value. Rows are keyed by
+  the credential's user and that device ID. `GET /api/projects/{id}/engine`
+  answers only while an agent of the caller is routed for the project.
+- **Seed trigger.** The project seed runs inside `localProjectRoot`, the
+  choke point every resolution goes through, once the project is mapped. A
+  process-wide lock (`agentconfig.UpdateSettings` / `LockSettings`) serialises
+  every read-modify-write of the file, since a listing may seed while the
+  desktop saves.
+- **Validation.** Templates, terminal and editor are bounded at 4096
+  characters; a skill command name uses the skill-command component rule
+  (`^/?[A-Za-z0-9][A-Za-z0-9_-]*$`), the one `validateSkills` enforces.
+- **Settings upsert.** `getSettingsUnsafe` does not read
+  `external_terminal_command`, so copying "the current value" back would have
+  erased it; the upsert simply leaves the execution columns out of its
+  `ON CONFLICT DO UPDATE` list.
+- **Dead code removed.** `applyProjectSettings`, `applySkillCommandOverride`,
+  `ProjectSkillCommand`, `TaskWorktreesEnabled`, `dispatchTerminal`,
+  `Dispatch.TerminalOverride`.
