@@ -3,6 +3,7 @@ package trackerapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -283,6 +284,15 @@ func (j *JiraAdapter) CreateIssue(ctx context.Context, req tracker.CreateIssueRe
 		Key string `json:"key"`
 	}
 	if err := c.jira(ctx, http.MethodPost, "/rest/api/3/issue", nil, map[string]any{"fields": fields}, &created); err != nil {
+		// Jira names a missing mandatory field by id, and only the first ones
+		// it meets. The creation screen is read after a refusal only, so a
+		// creation that succeeds costs no extra request.
+		var httpErr *HTTPError
+		if errors.As(err, &httpErr) && httpErr.Status == http.StatusBadRequest {
+			if missing := j.missingRequiredFields(ctx, req.Project, issueType, fields); missing != "" {
+				return nil, fmt.Errorf("%w; fields this project requires on creation for %s: %s", err, issueType, missing)
+			}
+		}
 		return nil, err
 	}
 	if strings.TrimSpace(created.Key) == "" {
@@ -1025,6 +1035,27 @@ func (j *JiraAdapter) optionFields(ctx context.Context, project *models.Project,
 		}
 	}
 	return out, nil
+}
+
+// missingRequiredFields lists, as "Name (id)", the fields the creation screen
+// of issueType makes mandatory and the creation body sent did not carry. The
+// body is what counts, not the request's custom fields: a description, labels
+// or a priority the adapter sent are not missing, whatever Jira refused over.
+// It answers an empty string when the screen cannot be read: the refusal it
+// completes is then returned as Jira wrote it.
+func (j *JiraAdapter) missingRequiredFields(ctx context.Context, project *models.Project, issueType string, sent map[string]any) string {
+	required, err := j.RequiredCreateFields(ctx, tracker.CreateMetaRequest{Project: project, IssueType: issueType})
+	if err != nil {
+		return ""
+	}
+	missing := []string{}
+	for _, field := range required {
+		if _, ok := sent[field.ID]; ok {
+			continue
+		}
+		missing = append(missing, fmt.Sprintf("%s (%s)", field.Name, field.ID))
+	}
+	return strings.Join(missing, ", ")
 }
 
 // RequiredCreateFields lists what the site makes mandatory on creation for one
