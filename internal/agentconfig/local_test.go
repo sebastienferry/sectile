@@ -398,3 +398,24 @@ func TestTerminalOverridesPrecedence(t *testing.T) {
 		t.Fatalf("expected 'terminal', got %q", withOtherProject.ExternalTerminalCommand)
 	}
 }
+
+// The workstation override wins over the server value, and a project without
+// one follows the server (#487). A stored value nobody recognises is ignored.
+func TestApplyOverridesSpecArtifacts(t *testing.T) {
+	overrides := Overrides{SpecArtifacts: map[string]string{"a": "drop", "b": "keep", "c": "bogus"}}
+	if got := ApplyOverrides(Config{ProjectID: "a", SpecArtifacts: "keep"}, overrides); !got.DropsSpecArtifacts() {
+		t.Fatalf("the drop override must win: %q", got.SpecArtifacts)
+	}
+	if got := ApplyOverrides(Config{ProjectID: "b", SpecArtifacts: "drop"}, overrides); got.DropsSpecArtifacts() {
+		t.Fatalf("the keep override must win: %q", got.SpecArtifacts)
+	}
+	if got := ApplyOverrides(Config{ProjectID: "c", SpecArtifacts: "drop"}, overrides); !got.DropsSpecArtifacts() {
+		t.Fatalf("an unrecognised override must follow the server: %q", got.SpecArtifacts)
+	}
+	if got := ApplyOverrides(Config{ProjectID: "d", SpecArtifacts: "drop"}, overrides); !got.DropsSpecArtifacts() {
+		t.Fatalf("no override must follow the server: %q", got.SpecArtifacts)
+	}
+	if (Config{}).DropsSpecArtifacts() {
+		t.Fatal("an empty value must read as keep")
+	}
+}

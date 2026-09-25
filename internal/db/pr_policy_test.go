@@ -33,7 +33,7 @@ func TestProjectPRPolicy(t *testing.T) {
 	for _, skill := range config.Skills {
 		if skill.ID == "specify" {
 			found = true
-			if !strings.Contains(skill.Content, "open a draft PR/MR") || !strings.Contains(skill.Content, "specified transition") {
+			if !strings.Contains(skill.Content, "open a draft PR/MR") || !strings.Contains(skill.Content, "specified transition") || !strings.Contains(skill.Content, "When the specification files are ignored by Git (dropped artefacts), open no PR at this stage") {
 				t.Fatal(skill.Content)
 			}
 		}

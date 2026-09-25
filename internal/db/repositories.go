@@ -67,6 +67,10 @@ func parseIdentityList(raw string) []string {
 // already declares, rather than silently keeping one of them.
 var ErrDuplicateRepository = errors.New("repository already declared")
 
+// ErrInvalidSpecArtifacts refuses a specification artefacts setting other than
+// the two a project can hold, naming them so an API client can correct itself.
+var ErrInvalidSpecArtifacts = errors.New("specArtifacts must be keep or drop")
+
 // ErrRepositoryNotInProject refuses to pin a ticket to a repository its
 // project does not declare.
 var ErrRepositoryNotInProject = errors.New("repository is not one of the project's repositories")

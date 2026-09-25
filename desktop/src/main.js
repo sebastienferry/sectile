@@ -1482,6 +1482,20 @@ async function openProject(id){
   })
   controls.worktrees=settingRow('Worktrees',{resetLabel:'Reset worktrees to server default',onReset:()=>{useWorktrees=!!config.useWorktrees;inheritWorktrees=true;update()}},worktreeGroup)
   controls.worktrees.buttons=worktreeButtons
+  // Whether the tasks' clarifications and specifications are committed (#487).
+  // No override follows the server; the reset removes the override.
+  let specArtifacts=info.specArtifacts==='drop'?'drop':'keep',inheritSpecArtifacts=!info.specArtifactsOverride
+  const specArtifactsGroup=document.createElement('div');specArtifactsGroup.className='segmented'
+  specArtifactsGroup.setAttribute('role','group');specArtifactsGroup.setAttribute('aria-label','Specifications')
+  const specArtifactsButtons=['Keep','Drop'].map(value=>{
+   const button=document.createElement('button');button.type='button';button.textContent=value
+   button.onclick=()=>{specArtifacts=value.toLowerCase();inheritSpecArtifacts=false;update()}
+   specArtifactsGroup.append(button);return button
+  })
+  controls.specArtifacts=settingRow('Specifications',{resetLabel:'Reset specifications to server default',onReset:()=>{specArtifacts=config.specArtifacts==='drop'?'drop':'keep';inheritSpecArtifacts=true;update()}},specArtifactsGroup)
+  controls.specArtifacts.buttons=specArtifactsButtons
+  const specArtifactsWarning=document.createElement('p');specArtifactsWarning.className='setting-warning'
+  controls.specArtifacts.hint.after(specArtifactsWarning)
   // A magnitude between 1 and a ceiling, which a segmented control cannot show
   // without overflowing the row once the ceiling grows. The readout states the
   // value, so the slider needs no printed scale beneath it.
@@ -1496,6 +1510,11 @@ async function openProject(id){
   function update(){
    controls.worktrees.buttons.forEach((button,i)=>button.setAttribute('aria-pressed',String(useWorktrees===(i===0))))
    controls.worktrees.hint.textContent=(inheritWorktrees?'Inherited':'Local override')+' · Server default: '+(config.useWorktrees?'Yes':'No')
+   controls.specArtifacts.buttons.forEach(button=>button.setAttribute('aria-pressed',String(specArtifacts===button.textContent.toLowerCase())))
+   controls.specArtifacts.hint.textContent=(inheritSpecArtifacts?'Inherited':'Local override')+' · Server default: '+(config.specArtifacts==='drop'?'Drop':'Keep')
+   const tracked=info.specArtifactsTracked||0
+   specArtifactsWarning.textContent=specArtifacts==='drop'&&tracked>0?'This repository already tracks '+tracked+' specification '+(tracked===1?'file':'files')+'. They stay in its history; only the next tasks\' specifications are dropped.':''
+   specArtifactsWarning.hidden=!specArtifactsWarning.textContent
    const effective=useWorktrees?parallelism:1
    controls.parallel.input.disabled=!useWorktrees
    controls.parallel.input.value=String(effective)
@@ -1674,7 +1693,7 @@ async function openProject(id){
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
   panels.General.append(repository.section,layoutRow.section,specRepository.section,repositoriesRow.section)
-  panels.Execution.append(controls.worktrees.section,controls.parallel.section,terminalRow.section)
+  panels.Execution.append(controls.worktrees.section,controls.specArtifacts.section,controls.parallel.section,terminalRow.section)
   panels.Agent.append(providerRow.section,modelRow.section,commandRow.section,autonomousRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
   remove.onclick=()=>requestRemoveProject(id,config.projectName)
@@ -1694,7 +1713,7 @@ async function openProject(id){
    save.disabled=true
    try{
     const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
-    await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
+    await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),useWorktrees,inheritWorktrees,specArtifacts,inheritSpecArtifacts,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
     // Each repository folder is checked against its origin by the agent, so
     // a wrong folder is refused by name rather than saved. The settings above
     // are saved by then, which the notice says rather than hiding it.
@@ -1767,6 +1786,7 @@ async function openProject(id){
     config=fresh.server
     dialogBody.querySelector('h2').textContent=config.projectName
     if(inheritWorktrees)useWorktrees=!!config.useWorktrees
+    if(inheritSpecArtifacts)specArtifacts=config.specArtifacts==='drop'?'drop':'keep'
     if(inheritCommand){command.value=wsSettings.aiCommandTemplate||config.aiCommandTemplate||'';autonomousCommand.value=wsSettings.aiCommandTemplateAutonomous||config.aiCommandTemplateAutonomous||''}
     if(inheritTerminal){
      selectedTerminal=fresh.terminal||fresh.server?.externalTerminalCommand||''

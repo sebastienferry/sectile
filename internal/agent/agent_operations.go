@@ -125,6 +125,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if err := config.Validate(); err != nil {
 		return nil, err
 	}
+	if op.Action == "spec_artifacts" && op.TaskID == "" {
+		return specArtifactsMode(config, ""), nil
+	}
 	var task models.Task
 	target := root
 	if op.TaskID != "" {
@@ -133,6 +136,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		if task.ID != op.TaskID || task.ProjectID != op.ProjectID {
 			return nil, fmt.Errorf("task identity mismatch")
+		}
+		if op.Action == "spec_artifacts" {
+			return specArtifactsMode(config, task.Key), nil
 		}
 		if op.Action == "repository_worktree" {
 			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository)
