@@ -446,14 +446,15 @@ The GitHub pull request alone spawns nothing: the generator only reads GitLab.
 
 ### Prometheus metrics
 
-The server exposes Prometheus metrics at `/metrics` on a listener of its own,
-never on the interface's port. Like the internal port, declare it on the
-container and do not route it through the ingress: the metrics carry no secret,
-but they describe who uses the board.
+The server exposes Prometheus metrics at `/metrics`, on its own port next to
+the interface. The path sits outside `/api/`, so it needs no browser session.
+The metrics carry no secret, but they describe who uses the board: set
+`SECTILE_METRICS_TOKEN` on a deployment reachable from outside, or keep the
+path off the public ingress.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SECTILE_METRICS_ADDR` | `:8093` | Address of the metrics listener (`host:port`, or a bare port). `off` disables it. A port already taken is logged and the server starts without metrics. |
+| `SECTILE_METRICS_TOKEN` | (empty: open) | Bearer token `/metrics` requires, sent by Prometheus through `authorization: {credentials: ...}`. Any other request gets `401`. |
 
 | Metric | Type | Labels | Meaning |
 | --- | --- | --- | --- |
@@ -480,7 +481,7 @@ max(sectile_active_users)
 max by (status) (sectile_active_runs)
 ```
 
-See [ADR 0027](docs/adrs/0027-prometheus-metrics-on-their-own-listener.md).
+See [ADR 0027](docs/adrs/0027-prometheus-metrics-and-active-users.md).
 
 ## Versioning and changelog
 

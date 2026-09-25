@@ -22,7 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Path is where the metrics are served, on their own listener.
+// Path is where the metrics are served, on the server's own port.
 const Path = "/metrics"
 
 // Board is what the board series are read from. *db.DB satisfies it.

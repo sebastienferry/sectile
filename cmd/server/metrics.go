@@ -1,56 +1,29 @@
 package main
 
 import (
-	"log"
-	"net"
+	"crypto/subtle"
 	"net/http"
 	"strings"
-
-	"tasks/internal/metrics"
 )
 
-// defaultMetricsAddr is where Prometheus scrapes when SECTILE_METRICS_ADDR says
-// nothing. Like the internal port, it must be declared on the container and
-// never routed by the ingress: the metrics carry no secret, but they describe
-// who uses the board and how, which is nobody else's business.
-const defaultMetricsAddr = ":8093"
-
-// metricsAddrFromEnv is the metrics listener's address, or "" when
-// SECTILE_METRICS_ADDR turns it off. A bare port is accepted as ":port".
-func metricsAddrFromEnv(getenv func(string) string) string {
-	addr := strings.TrimSpace(getenv("SECTILE_METRICS_ADDR"))
-	switch strings.ToLower(addr) {
-	case "":
-		return defaultMetricsAddr
-	case "off", "false", "0", "disabled":
-		return ""
+// metricsHandler guards the Prometheus metrics with SECTILE_METRICS_TOKEN when
+// it is set: a scraper then sends it as a bearer token. Without it the route is
+// open, since it sits outside /api/ and the session guard, and keeping it off
+// the public ingress is the deployment's job.
+func metricsHandler(next http.Handler, token string) http.Handler {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return next
 	}
-	if !strings.Contains(addr, ":") {
-		return ":" + addr
-	}
-	return addr
-}
-
-// startMetricsListener serves the metrics on their own address. A port already
-// taken costs the metrics, never the board: the server logs why and carries on.
-func startMetricsListener(m *metrics.Metrics, addr string) {
-	if addr == "" {
-		log.Printf("   métriques : désactivées (SECTILE_METRICS_ADDR)")
-		return
-	}
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		log.Printf("⚠️  Adresse des métriques %s indisponible, métriques Prometheus non exposées : %v", addr, err)
-		return
-	}
-	mux := http.NewServeMux()
-	mux.Handle(metrics.Path, m.Handler())
-	log.Printf("   métriques : %s%s", addr, metrics.Path)
-	go func() {
-		if err := http.Serve(listener, mux); err != nil {
-			log.Printf("⚠️  Serveur de métriques arrêté : %v", err)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || subtle.ConstantTimeCompare([]byte(strings.TrimSpace(sent)), []byte(token)) != 1 {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(w, "metrics token required", http.StatusUnauthorized)
+			return
 		}
-	}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 // routeOf names the controller a request reaches: the mux pattern, which is a

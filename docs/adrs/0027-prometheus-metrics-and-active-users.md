@@ -1,4 +1,4 @@
-# ADR 0027: Prometheus metrics on their own listener, and "active" read from the sessions
+# ADR 0027: Prometheus metrics at /metrics, and "active" read from the sessions
 
 Status: Accepted
 
@@ -18,12 +18,20 @@ attributed to a controller without one series per task id.
 
 ## Decision
 
-**The metrics are served on a listener of their own**, `SECTILE_METRICS_ADDR`
-(`:8093` by default, `off` to disable), at `/metrics`, with no authentication.
-It follows the internal port's rule: declared on the container, never routed by
-the ingress. Serving them on the interface's port would have put them behind
-the session guard, which a scraper cannot pass, or in front of it, which
-publishes who uses the board to anyone who can reach the ingress.
+**The metrics are served at `/metrics` on the server's own port**, next to the
+interface, not on a listener of their own. A second port is one more thing
+every deployment has to declare, route around and keep closed, for a single
+read-only route. The path is `/metrics` rather than `/api/v1/metrics` because
+it is not part of the REST API: it speaks Prometheus's exposition format, and
+`/metrics` is where every scraper looks by default.
+
+Being outside `/api/`, the path is outside the session guard, which a scraper
+could not pass anyway. `SECTILE_METRICS_TOKEN`, when set, makes it require that
+bearer token, compared in constant time. When it is unset the route is open:
+the metrics grant nothing and name nobody, but they do describe how the board
+is used, so a deployment reachable from outside either sets the token or keeps
+the path off its public ingress. This is not the open mode ADR 0019 removed:
+that one handed out an identity, this one hands out counts.
 
 **An active user is an account with a valid browser session seen within the
 last five minutes.** `web_sessions` gains `last_seen_at` (migration 15), written
@@ -54,12 +62,12 @@ exposition format stays its problem rather than ours.
 
 ## Consequences
 
-- A deployment that wants the metrics declares port 8093 on the container and a
-  scrape target (a `ServiceMonitor` or a pod annotation); nothing changes for
-  one that does not.
-- A desktop or local run opens port 8093 as well; `SECTILE_METRICS_ADDR=off`
-  closes it, and a port already taken only costs the metrics.
+- A deployment that wants the metrics adds a scrape target on the server's
+  port (a `ServiceMonitor` or a pod annotation), with the token when one is set.
+  No new port is declared.
+- The scrapes themselves appear under `handler="/metrics"` in the HTTP series.
 - Every request that resolves a session may write once a minute per session.
   On SQLite that is one small write per open tab per minute.
-- The status bar no longer shows the MCP clients; `GET /api/mcp/sessions`
-  remains for whoever needs the list.
+- The status bar no longer shows the MCP clients nor the active executions
+  counter; the Administration page carries both figures, and
+  `GET /api/mcp/sessions` remains for whoever needs the list of clients.

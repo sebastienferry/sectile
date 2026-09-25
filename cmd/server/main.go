@@ -308,6 +308,12 @@ func main() {
 	mux.HandleFunc("/api/users/", h.HandleUsers)
 	mux.HandleFunc(handlers.AdminStatsPath, h.HandleAdminStats)
 
+	// Prometheus metrics. Outside /api/, so the session guard leaves them to
+	// SECTILE_METRICS_TOKEN; registered before the interface's catch-all.
+	build := version.Current()
+	serverMetrics := metrics.New(database, db.ActiveUserWindow, metrics.Build{Version: build.Version, Commit: build.Commit})
+	mux.Handle(metrics.Path, metricsHandler(serverMetrics.Handler(), os.Getenv("SECTILE_METRICS_TOKEN")))
+
 	mux.Handle("/mcp", h.MCPHandler())
 	mux.HandleFunc("/api/mcp/sessions", h.HandleMCPSessions)
 	// Pairing binds one workstation to one user; the code is the only
@@ -398,11 +404,8 @@ func main() {
 		})
 	}
 
-	// Prometheus metrics, on their own listener. The instrumentation wraps the
-	// whole chain, so a request the session guard refuses is counted as the
-	// 401 or 403 it received.
-	build := version.Current()
-	serverMetrics := metrics.New(database, db.ActiveUserWindow, metrics.Build{Version: build.Version, Commit: build.Commit})
+	// The instrumentation wraps the whole chain, so a request the session
+	// guard refuses is counted as the 401 or 403 it received.
 
 	handlerWithCORS := serverMetrics.Instrument(h.EnableCORS(h.RequireSession(mux)), routeOf(mux))
 
@@ -420,7 +423,6 @@ func main() {
 
 	log.Printf("🚀 Sectile Server listening on %s", url)
 	log.Printf("   base : %s — %s (%s)", database.EngineName(), dbTarget, dbOrigin)
-	startMetricsListener(serverMetrics, metricsAddrFromEnv(osGetenv))
 
 	if err := http.Serve(listener, handlerWithCORS); err != nil {
 		log.Fatalf("Server failed: %v", err)

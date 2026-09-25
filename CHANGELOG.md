@@ -17,7 +17,7 @@ test fixtures or internal plumbing.
 
 - **An Administration page.** Admins now open a full page from the sidebar or the command palette instead of a dialog. It shows how many people are using the board right now, how many runs are running, queued or pending, and the account totals, and refreshes on its own. The users list says who is online and when each account was last seen, next to the role and the block and delete actions.
 
-- **Prometheus metrics.** The server exposes `/metrics` on its own port (`:8093`, set with `SECTILE_METRICS_ADDR`, `off` to disable): requests, latency and errors per controller, active users, active runs by status, and the build version.
+- **Prometheus metrics.** The server exposes `/metrics` next to the interface: requests, latency and errors per controller, active users, active runs by status, and the build version. Set `SECTILE_METRICS_TOKEN` to require a bearer token.
 
 - **Runs whose client has gone quiet are shown, and closed in time.** A run whose agent session has made no call for four hours shows as *silent* on the board and in the activities view instead of *running*. After eight hours of silence, Sectile takes the client for dead and cancels the run, so it no longer holds the board or its chain; its owner can still report how it really ended. The second delay is set with `SECTILE_MCP_SESSION_ABANDON_AFTER`. (#319)
 
@@ -62,7 +62,7 @@ test fixtures or internal plumbing.
 
 ### Changed
 
-- **The status bar no longer shows the MCP clients.** The connected-clients indicator and its panel are gone from the status bar; who is using the board is now on the Administration page. `GET /api/mcp/sessions` still lists the live sessions.
+- **A quieter status bar.** The MCP clients indicator and the active executions counter are gone from the status bar. Who is using the board and how many runs are in flight are now on the Administration page, and the activities view still lists every execution. `GET /api/mcp/sessions` still lists the live sessions.
 
 - **The desktop sidebar reads as columns.** Each execution row now starts with its run state, then its task number, so the states of all your runs line up down one column, as in the tickets pane; the task numbers share one width, so the titles line up too, free consoles included. A longer number is still shown in full and only shifts its own title. (#446)
 
