@@ -3343,9 +3343,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const activity: TaskActivity = data.activity
 
       setTasks(prev => prev.map(t => (t.id === taskId ? updatedTask : t)))
-      if (selectedTask && selectedTask.id === taskId) {
-        setSelectedTask(updatedTask)
-      }
+      // Read the current selection, not this render's: the quick add opens the
+      // new ticket right before launching its rewrite (#445).
+      setSelectedTask(curr => (curr && curr.id === taskId ? updatedTask : curr))
       setActivities(prev => [activity, ...prev.filter(a => a.id !== activity.id)])
       await fetchActivityStats()
 
