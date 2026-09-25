@@ -19,6 +19,7 @@ import (
 	"tasks/internal/db"
 	"tasks/internal/handlers"
 	"tasks/internal/metrics"
+	"tasks/internal/trackerapi"
 	"tasks/internal/version"
 	"tasks/internal/webui"
 )
@@ -36,7 +37,7 @@ func isVersionArgument(arg string) bool {
 
 // loadDotEnv reads KEY=VALUE lines from a .env file next to the binary's working
 // directory. A real environment variable always wins, so exporting a value in
-// the shell overrides the file. Secrets such as SECTILE_TRACKER_TOKEN can then
+// the shell overrides the file. Secrets such as SECTILE_GITHUB_TOKEN can then
 // live outside the database and outside git, .env being already gitignored.
 func loadDotEnv(paths ...string) {
 	for _, path := range paths {
@@ -153,6 +154,9 @@ func main() {
 	// répertoire courant qui lui appartienne. La première valeur trouvée gagne,
 	// donc un développeur garde la main depuis son dépôt.
 	loadDotEnv(".env", ".env.local", filepath.Join(appDataDir(), ".env"))
+	for _, warning := range trackerapi.RemovedTokenVariableWarnings(os.Getenv) {
+		log.Printf("⚠️  %s", warning)
+	}
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -307,6 +311,9 @@ func main() {
 	mux.HandleFunc("/api/users", h.HandleUsers)
 	mux.HandleFunc("/api/users/", h.HandleUsers)
 	mux.HandleFunc(handlers.AdminStatsPath, h.HandleAdminStats)
+	// The server credential of each tracker provider, an admin's to set.
+	mux.HandleFunc(handlers.ServerTrackerCredentialsPath, h.HandleServerTrackerCredentials)
+	mux.HandleFunc(handlers.ServerTrackerCredentialsPath+"/", h.HandleServerTrackerCredentials)
 
 	// Prometheus metrics. Outside /api/, so the session guard leaves them
 	// public; registered before the interface's catch-all.

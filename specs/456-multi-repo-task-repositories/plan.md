@@ -21,7 +21,7 @@ WebSocket agent operations (`agentprotocol.Operation`), shared pure helpers
                                      ├─ resolvePrimaryRepository(task, project, mappings)
                                      │     ├─ resolved ─► root of that repository
                                      │     └─ ambiguous / unmapped pin ─► awaitRepository
-                                     │            POST /agent/runs/{id}/awaiting-repository
+                                     │            POST /api/activities/{id}/awaiting-repository
                                      │            poll GET /api/tasks/{key} until pinned or canceled
                                      ├─ ensureLocalWorktree(primary root)          (unchanged logic)
                                      └─ buildFolderMap ─► SECTILE_REPOSITORIES + prompt block
@@ -42,13 +42,13 @@ WebSocket agent operations (`agentprotocol.Operation`), shared pure helpers
 | --- | --- |
 | `internal/models/repository.go` | `ProjectRepository{URL, Identity}`, `NormalizeProjectRepositories(codeRemote, urls)` (code remote first, dedupe by `RepositoryIdentity`), `FolderMapEntry`. |
 | `internal/models/models.go` | `Project.Repositories []string`, `Project.RepositoriesMigration string`; `Task.Repository string`, `Task.ChangedRepositories []string`; request types. `RepoPath` / `RepoPaths` stay, marked legacy. |
-| `internal/db/migrations.go` | Migrations 15 to 19 (below). |
+| `internal/db/migrations.go` | Migrations 17 to 21 (below; `main` landed 15 and 16 first). |
 | `internal/db/db.go` | Read/write of the new columns in `getProjectsUnsafe`, `getProjectByIDUnsafe`, `CreateProjectAs`, `UpdateProjectAs`, `updateTaskBy`; pin validation (FR3); `registerProjectRepoPathUnsafe` no longer called for new writes. |
 | `internal/db/repositories.go` (new) | `ApplyRepositoryConversion` (compare-and-set on `repositories_migration`), `PrepareRepositoryWorktree`, `AddChangedRepository`, `MarkRunAwaitingRepository`, `ClearRunAwaitingRepository`. |
 | `internal/db/adjustment.go` | `validateStagePRs` over the changed repositories; `adjustmentPrerequisite` iterates. |
 | `internal/db/stage.go`, `internal/db/postback.go` | Accept `prURLs`; call `validateStagePRs`. |
 | `internal/db/db.go` (`RemoveTaskWorktree`) | Sends the task's repositories in the `remove_workspace` operation. |
-| `internal/handlers/handlers.go` | `POST /api/projects/{id}/repositories/convert`; `GET /api/projects/{id}/legacy-repo-paths`; `POST /agent/runs/{id}/awaiting-repository` (agent token); task `repository` in PUT/PATCH. |
+| `internal/handlers/handlers.go` | `POST /api/projects/{id}/repositories/convert`; `GET /api/projects/{id}/legacy-repo-paths`; `POST /api/activities/{id}/awaiting-repository` (sent with the agent's credential, like the engine report; an identified caller must own the run or be an admin); task `repository` in PUT/PATCH. |
 | `internal/taskmcp/server.go` | `prepare_repository_worktree` tool; `transition_stage` gains `prUrls`. |
 | `internal/agentprotocol/operations.go` | `Repositories []string` on `Operation`; action `repository_worktree`. |
 | `internal/agentconfig/local.go`, `settings.go` | `Overrides.Repositories map[string]string` (`json:"repositories,omitempty"`); `WriteSettings` deletes an emptied `repositories` (and `specRepos`, same defect). |
@@ -57,13 +57,13 @@ WebSocket agent operations (`agentprotocol.Operation`), shared pure helpers
 | `internal/agent/agent.go` | Env `SECTILE_REPOSITORIES`; folder map prompt block next to the retry notes; a waiting dispatch does not go through `finishDesktopRun(..., "failed")`. |
 | `internal/agent/agent_operations.go` | `repository_worktree`; `remove_workspace` over `op.Repositories`. |
 | `internal/agent/evidence.go` | `checkoutCandidates` puts the workstation mapping of `op.Repository` first; legacy paths stay as hints until converted. |
-| `internal/agent/agent_desktop.go` | `GET/POST /desktop/projects` carry `repositories` mappings; `GET /desktop/tasks/{key}/repositories`, `POST /desktop/tasks/{key}/repository` (pin, optional map). |
+| `internal/agent/agent_desktop_repositories.go` | `GET /desktop/repositories?projectId=` (repositories with their folder here) and `POST /desktop/repositories` `{projectId, repository, path?, taskId?}` (map after the origin check, and pin). One pair serves the project settings and the waiting run's choice. |
 | `desktop/src/main.js`, `desktop/electron/main.cjs`, `preload.cjs` | Project dialog: one folder per project repository; repository picker on a run waiting with reason `repository`. |
 | `web/src/components/ProjectModal.tsx` | Repositories list editor (shown when `monoRepo` is false); conversion report notice. |
 | `web/src/components/TaskDetailModal.tsx` | `repoPath` text field replaced by a repository select among the project's repositories. |
 | `web/src/types/index.ts`, `web/src/locales/translations.ts` | New fields and French strings. |
 | `internal/skills/fragments/**` | Implement / adjust / handoff fragments: read the folder map, request a worktree before changing a context folder, one PR per changed repository. |
-| `docs/adrs/0027-repositories-are-keyed-by-remote.md` | New ADR. |
+| `docs/adrs/0028-repositories-are-keyed-by-remote.md` | New ADR. |
 | `CHANGELOG.md` | `Added` entry under `[Unreleased]`. |
 
 ## Data contracts
@@ -72,11 +72,11 @@ WebSocket agent operations (`agentprotocol.Operation`), shared pure helpers
 
 | Version | Statement |
 | --- | --- |
-| 15 | `ALTER TABLE projects ADD COLUMN repositories TEXT NOT NULL DEFAULT '[]';` |
-| 16 | `ALTER TABLE projects ADD COLUMN repositories_migration TEXT NOT NULL DEFAULT '';` |
-| 17 | `ALTER TABLE tasks ADD COLUMN repository TEXT NOT NULL DEFAULT '';` |
-| 18 | `ALTER TABLE tasks ADD COLUMN changed_repositories TEXT NOT NULL DEFAULT '[]';` |
-| 19 | `ALTER TABLE task_activities ADD COLUMN waiting_reason TEXT NOT NULL DEFAULT '';` |
+| 17 | `ALTER TABLE projects ADD COLUMN repositories TEXT NOT NULL DEFAULT '[]';` |
+| 18 | `ALTER TABLE projects ADD COLUMN repositories_migration TEXT NOT NULL DEFAULT '';` |
+| 19 | `ALTER TABLE tasks ADD COLUMN repository TEXT NOT NULL DEFAULT '';` |
+| 20 | `ALTER TABLE tasks ADD COLUMN changed_repositories TEXT NOT NULL DEFAULT '[]';` |
+| 21 | `ALTER TABLE task_activities ADD COLUMN waiting_reason TEXT NOT NULL DEFAULT '';` |
 
 Never in the baseline `CREATE TABLE`. Renumber if `main` lands a migration first.
 
@@ -135,7 +135,7 @@ report is empty. Other workstations then see `migrated: true` and skip.
 
 ### Waiting for a repository (FR7)
 
-`POST /agent/runs/{id}/awaiting-repository` `{ "waiting": true, "message": "…" }`,
+`POST /api/activities/{id}/awaiting-repository` `{ "waiting": true, "message": "…" }`,
 agent token, the run's owner only. It sets `waiting_since` and
 `waiting_reason='repository'` whatever the run's mode. This is the one exception
 to "a headless run is left unmarked" (`ReportRemoteRunWaitingAs`): here the answer

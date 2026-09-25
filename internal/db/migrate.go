@@ -35,6 +35,7 @@ var migrationTables = []string{
 	"user_project_bookmarks",
 	"board_views",
 	"user_tracker_credentials",
+	"server_tracker_credentials",
 	"device_credentials",
 	"pairing_codes",
 	"login_flows",
@@ -111,6 +112,40 @@ func ensureDestinationEmpty(dst *DB) error {
 // finds out until someone's tracker call fails, weeks later. Checking here
 // turns that into a refusal now.
 func ensureKeyOpensCredentials(src, dst *DB) error {
+	if err := ensureKeyOpensUserCredentials(src, dst); err != nil {
+		return err
+	}
+	return ensureKeyOpensServerCredentials(src, dst)
+}
+
+// ensureKeyOpensServerCredentials is the same check for the server credentials,
+// which are always sealed under the server key.
+func ensureKeyOpensServerCredentials(src, dst *DB) error {
+	var tracker string
+	var record []byte
+	err := src.conn.QueryRow(`SELECT tracker, record FROM server_tracker_credentials LIMIT 1`).Scan(&tracker, &record)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading a server credential to check the encryption key: %w", err)
+	}
+	if dst.serverKeyErr != nil {
+		return fmt.Errorf(
+			"the destination has no encryption key (%w), but the source holds server tracker credentials sealed under one; "+
+				"set %s to the same key the source uses, or those tokens become unreadable",
+			dst.serverKeyErr, secrets.KeyEnvVar)
+	}
+	if _, err := secrets.Open(dst.serverKey, secrets.ServerBinding(tracker), record); err != nil {
+		return fmt.Errorf(
+			"the destination encryption key does not open the source's server tracker credentials (%w); "+
+				"set %s to the key the source uses, or those tokens become unreadable",
+			err, secrets.KeyEnvVar)
+	}
+	return nil
+}
+
+func ensureKeyOpensUserCredentials(src, dst *DB) error {
 	var userID, tracker string
 	var record []byte
 	err := src.conn.QueryRow(

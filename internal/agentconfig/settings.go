@@ -81,7 +81,7 @@ func WriteSettings(settings Overrides) error {
 	}
 	// A map emptied by the caller is omitted from its JSON; writing it as null
 	// is what removes the last entry instead of keeping the file's copy.
-	for _, key := range []string{"projects", "worktrees", "parallelism", "commands", "commandsAutonomous", "aiProviders", "aiModels", "terminals", "specRepos"} {
+	for _, key := range []string{"projects", "worktrees", "parallelism", "commands", "commandsAutonomous", "aiProviders", "aiModels", "terminals", "specRepos", "repositories"} {
 		if _, ok := updates[key]; !ok {
 			updates[key] = json.RawMessage("null")
 		}

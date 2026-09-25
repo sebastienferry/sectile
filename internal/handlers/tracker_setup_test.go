@@ -10,12 +10,10 @@ import (
 
 	"tasks/internal/db"
 	"tasks/internal/handlers"
-	"tasks/internal/models"
 )
 
-// The setup screen saves nothing until the instance has accepted the
-// parameters, which is what keeps a stale token from reaching the
-// configuration and failing later in a background synchronisation.
+// The setup screen checks a credential against the instance, and saves no
+// token without an admin behind it (#464).
 func TestHandleTrackerSetupChecksBeforeSaving(t *testing.T) {
 	instance := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/user" {
@@ -47,29 +45,18 @@ func TestHandleTrackerSetupChecksBeforeSaving(t *testing.T) {
 		t.Fatalf("check: %d %s", rr.Code, rr.Body.String())
 	}
 
-	rr := post("/api/setup/tracker", "wrong-token")
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("a refused credential must not be saved: %d %s", rr.Code, rr.Body.String())
+	// A token in a save is a server credential, an admin's to set: without a
+	// session it is refused before any check, and nothing changes. The admin's
+	// path is covered by TestAnAdminSetsChecksAndClearsTheServerCredential.
+	rr := post("/api/setup/tracker", "good-token")
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("a token saved without a session must be refused: %d %s", rr.Code, rr.Body.String())
 	}
 	settings, err := database.GetSettings()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if settings.GithubTokenSet || settings.GithubApiUrl != "" {
-		t.Fatalf("the configuration changed on a failed check: %+v", settings)
-	}
-
-	if rr = post("/api/setup/tracker", "good-token"); rr.Code != http.StatusOK {
-		t.Fatalf("save: %d %s", rr.Code, rr.Body.String())
-	}
-	var saved models.Settings
-	if err = json.Unmarshal(rr.Body.Bytes(), &saved); err != nil {
-		t.Fatal(err)
-	}
-	if !saved.GithubTokenSet || saved.GithubApiUrl != instance.URL {
-		t.Fatalf("parameters not persisted: %+v", saved)
-	}
-	if strings.Contains(rr.Body.String(), "good-token") {
-		t.Fatalf("the response carried the token back: %s", rr.Body.String())
+		t.Fatalf("the configuration changed on a refused save: %+v", settings)
 	}
 }

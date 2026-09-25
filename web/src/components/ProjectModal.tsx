@@ -53,6 +53,7 @@ import { PROJECT_TRACKERS, needsCredentialsFor } from '../lib/trackers'
 import { Antigravity, Claude, OpenAI } from './icons'
 import { hasProjectAgentOverride, projectAgentSettings } from '../lib/projectAgentSettings'
 import { formatProjectKeyList, parseProjectKeyList } from '../lib/roadmapProjects'
+import { declaredRepositories, droppedRepositoryPaths, duplicateRepository, repositoryIdentity } from '../lib/repositories'
 
 type ProjectTab = 'general' | 'tracker' | 'agent' | 'workflow' | 'skills'
 
@@ -161,6 +162,11 @@ export const ProjectModal: React.FC = () => {
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
 
   const [gitRemoteUrl, setGitRemoteUrl] = useState('')
+  // Remotes declared besides the code remote, which the server always lists
+  // first and derives from gitRemoteUrl.
+  const [repositories, setRepositories] = useState<string[]>([])
+  const [newRepository, setNewRepository] = useState('')
+  const [repositoryError, setRepositoryError] = useState('')
 
   // Section 3: Agent IA & CLI
   const [aiProvider, setAiProvider] = useState<AIProvider | ''>('')
@@ -195,11 +201,10 @@ export const ProjectModal: React.FC = () => {
     void refreshUserCredentials()
   }, [refreshUserCredentials])
   const [githubRepo, setGithubRepo] = useState('')
-  // Paramètres de connexion propres au projet. Vides, ce sont ceux de la
-  // configuration utilisateur qui s'appliquent : un projet n'en a besoin que
-  // pour joindre une autre instance, ou une même instance avec un autre compte.
+  // The project's own instance URL. Empty, the user configuration applies. A
+  // project carries no token: the server credential of its provider serves
+  // every project (#464).
   const [githubApiUrl, setGithubApiUrl] = useState('')
-  const [githubToken, setGithubToken] = useState('')
   const [jiraProject, setJiraProject] = useState('')
   const [roadmapProjects, setRoadmapProjects] = useState('')
   // Types de tickets importés. Vide vaut « les types par défaut » : c'est ce que
@@ -254,6 +259,9 @@ export const ProjectModal: React.FC = () => {
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
       setMonoRepo(editingProject.monoRepo !== false)
+      setRepositories(declaredRepositories(editingProject))
+      setNewRepository('')
+      setRepositoryError('')
 
       const hasCustomAgent = hasProjectAgentOverride(editingProject.aiProvider, editingProject.aiModel)
       setUseCustomAgent(hasCustomAgent)
@@ -271,7 +279,6 @@ export const ProjectModal: React.FC = () => {
       setGithubApiUrl(editingProject.githubApiUrl || '')
       // Le jeton n'est jamais renvoyé : le champ reste vide et le laisser vide
       // conserve celui qui est enregistré.
-      setGithubToken('')
       setJiraProject(editingProject.jiraProject || '')
       setRoadmapProjects(formatProjectKeyList(editingProject.roadmapProjects))
       setIssueTypes(editingProject.issueTypes || [])
@@ -303,6 +310,9 @@ export const ProjectModal: React.FC = () => {
       setRepoPath('')
       setGitRemoteUrl('')
       setMonoRepo(true)
+      setRepositories([])
+      setNewRepository('')
+      setRepositoryError('')
 
       setUseCustomAgent(false)
       setAiProvider('')
@@ -384,12 +394,35 @@ export const ProjectModal: React.FC = () => {
     })
   }
 
+  // The same identity rule as the server: a second spelling of one remote
+  // (SSH or HTTPS, case, ".git") is refused before it reaches the save.
+  const addRepository = () => {
+    const url = newRepository.trim()
+    if (!url) return
+    if (duplicateRepository(gitRemoteUrl, [...repositories, url])) {
+      setRepositoryError(`This repository is already listed (${repositoryIdentity(url)}).`)
+      return
+    }
+    setRepositories(prev => [...prev, url])
+    setNewRepository('')
+    setRepositoryError('')
+  }
+
+  const droppedPaths = droppedRepositoryPaths(editingProject?.repositoriesMigration)
+
   const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!name.trim() || isSubmitting || !modelsAreValid) return
 
     setIsSubmitting(true)
     try {
+      // A remote typed but not added yet is part of what is being saved.
+      const pending = newRepository.trim()
+      if (pending && duplicateRepository(gitRemoteUrl, [...repositories, pending])) {
+        setRepositoryError(`This repository is already listed (${repositoryIdentity(pending)}).`)
+        return
+      }
+      const savedRepositories = pending ? [...repositories, pending] : repositories
       const computedGithubRepo = githubRepo.trim() || extractGithubRepoFromGitUrl(gitRemoteUrl)
       const payload = {
         name: name.trim(),
@@ -406,6 +439,7 @@ export const ProjectModal: React.FC = () => {
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
         monoRepo,
+        repositories: savedRepositories,
         ...projectAgentSettings(useCustomAgent, aiProvider, aiModel),
         aiSkillModels,
         setupProviders: [],
@@ -417,7 +451,6 @@ export const ProjectModal: React.FC = () => {
         trackerUrl: trackerUrl.trim(),
         githubRepo: computedGithubRepo,
         githubApiUrl: githubApiUrl.trim(),
-        githubToken: githubToken.trim(),
         jiraProject: jiraProject.trim().toUpperCase(),
         roadmapProjects: issueTracker === 'jira' ? parseProjectKeyList(roadmapProjects, jiraProject) : [],
         issueTypes,
@@ -426,11 +459,12 @@ export const ProjectModal: React.FC = () => {
         skillOverrides,
       }
 
-      if (editingProject) {
-        await updateProject(editingProject.id, payload)
-      } else {
-        await createProject(payload)
-      }
+      const saved = editingProject
+        ? await updateProject(editingProject.id, payload)
+        : await createProject(payload)
+      // The error toast carries the server's reason, such as a repository
+      // declared twice; the form stays open so the entry can be corrected.
+      if (!saved) return
       setIsProjectModalOpen(false)
       setEditingProject(null)
 
@@ -722,6 +756,76 @@ export const ProjectModal: React.FC = () => {
                     </span>
                   </span>
                 </label>
+                {!monoRepo && (
+                  <div>
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                      Repositories
+                    </span>
+                    <ul className="space-y-1">
+                      {gitRemoteUrl.trim() && (
+                        <li
+                          className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-muted)] font-mono"
+                          title="The code repository, from the remote URL above"
+                        >
+                          <span className="truncate flex-1">{gitRemoteUrl.trim()}</span>
+                          <span className="font-sans text-[10px] shrink-0">code</span>
+                        </li>
+                      )}
+                      {repositories.map(url => (
+                        <li
+                          key={url}
+                          className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono"
+                        >
+                          <span className="truncate flex-1">{url}</span>
+                          <button
+                            type="button"
+                            onClick={() => setRepositories(prev => prev.filter(entry => entry !== url))}
+                            className="shrink-0 text-[var(--text-muted)] hover:text-red-500 cursor-pointer"
+                            title="Remove this repository"
+                            aria-label={`Remove ${url}`}
+                          >
+                            <X size={12} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2 mt-1.5">
+                      <input
+                        type="text"
+                        value={newRepository}
+                        onChange={e => {
+                          setNewRepository(e.target.value)
+                          setRepositoryError('')
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault()
+                            addRepository()
+                          }
+                        }}
+                        placeholder="git@github.com:owner/other-repository.git"
+                        aria-label="Remote URL of another repository"
+                        className="flex-1 min-w-0 px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
+                      />
+                      <button
+                        type="button"
+                        onClick={addRepository}
+                        disabled={!newRepository.trim()}
+                        className="px-3 py-1.5 text-xs rounded-xl border border-[var(--border-color)] text-[var(--text-secondary)] hover:border-[var(--accent-color)] disabled:opacity-50 cursor-pointer"
+                      >
+                        Add
+                      </button>
+                    </div>
+                    {repositoryError && (
+                      <p role="alert" className="mt-1 text-[10px] text-red-500">{repositoryError}</p>
+                    )}
+                  </div>
+                )}
+                {droppedPaths.length > 0 && (
+                  <p className="text-[10px] text-amber-500 leading-relaxed">
+                    Paths not converted to repositories: {droppedPaths.map(entry => `${entry.path} (${entry.reason})`).join(', ')}
+                  </p>
+                )}
                 <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
                   Local repositories and execution consoles are managed in the desktop agent.
                 </p>
@@ -1180,28 +1284,6 @@ export const ProjectModal: React.FC = () => {
                         value={githubApiUrl}
                         onChange={e => setGithubApiUrl(e.target.value)}
                         placeholder="Celle de la configuration utilisateur"
-                        className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                      />
-                      <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />
-                    </div>
-                  </div>
-                )}
-
-                {issueTracker === 'github' && (
-                  <div>
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                      Jeton GitHub (optionnel)
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="password"
-                        value={githubToken}
-                        onChange={e => setGithubToken(e.target.value)}
-                        placeholder={
-                          editingProject?.githubTokenSet
-                            ? 'Déjà configuré, laissez vide pour le garder'
-                            : 'Celui de la configuration utilisateur'
-                        }
                         className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                       />
                       <Globe size={14} className="absolute left-2.5 top-2.5 text-[var(--accent-color)]" />

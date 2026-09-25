@@ -78,7 +78,7 @@ const runLabel=run=>freeConsole(run)?(run.provider==='claude'?'Claude':'Codex')+
 // A macro skill run has no task: its executions group under the macro.
 const macroRun=run=>!!run?.macroKey
 const taskKey=run=>JSON.stringify([run.projectId,freeConsole(run)?run.id:macroRun(run)?'macro:'+run.macroKey:run.taskId])
-const activeRun=run=>['running','queued','preparing'].includes(run.status)
+const activeRun=run=>['running','queued','preparing','waiting'].includes(run.status)
 const taskState=run=>localTasks[taskKey(run)]||{}
 function formatTerminalName(term){
  if(!term)return 'terminal'
@@ -211,16 +211,51 @@ function select(run,background=false,options){
  refreshSkillResult()
  refreshNextStep()
  showDirectory(run.directory)
- document.querySelector('#stop').disabled=!['running','queued','preparing'].includes(run.status)
+ document.querySelector('#stop').disabled=!activeRun(run)
  terminal.reset()
+ hideRepositoryChoice()
  if(needsConsoleNotice(run)){
   api.detach().catch(error)
   terminal.writeln(consoleNotice(run))
+  if(run.status==='waiting')showRepositoryChoice(run)
   render(options);return
  }
  api.attach(run.id).then(()=>{setTimeout(resize,150);if(!changes.active&&!ticketsOpen&&!readOnlyConsole(run))terminal.focus()}).catch(error)
  render(options)
 }
+// A launch the agent parked until its ticket is pinned to a repository (#456)
+// is resumed from here: choosing a repository pins the ticket, and a
+// repository not mapped yet is given its folder first. The agent resumes the
+// same execution once it reads the pin back.
+function showRepositoryChoice(run){
+ hideRepositoryChoice()
+ const bar=document.createElement('div');bar.id='repository-choice';bar.className='repository-choice'
+ bar.setAttribute('role','group');bar.setAttribute('aria-label','Repository of this task')
+ const label=document.createElement('span');label.textContent='Repository of '+(run.taskKey||run.taskId)
+ const choice=document.createElement('select');choice.setAttribute('aria-label','Repository')
+ const start=document.createElement('button');start.type='button';start.textContent='Start in this repository';start.disabled=true
+ const status=document.createElement('span');status.setAttribute('role','status')
+ bar.append(label,choice,start,status)
+ document.querySelector('#terminal').before(bar)
+ api.repositories(run.projectId).then(list=>{
+  for(const repository of list){
+   const option=document.createElement('option');option.value=repository.identity;option.dataset.path=repository.path||''
+   option.textContent=repository.identity+(repository.path?'':' · choose its folder');choice.append(option)
+  }
+  start.disabled=!list.length
+ }).catch(err=>{status.textContent=err.message})
+ start.onclick=async()=>{
+  const option=choice.selectedOptions[0];if(!option)return
+  start.disabled=true
+  try{
+   let path=''
+   if(!option.dataset.path){path=await api.chooseRepository();if(!path){start.disabled=false;return}}
+   await api.mapRepository({projectId:run.projectId,repository:option.value,taskId:run.taskId,...(path?{path}:{})})
+   status.textContent='Repository pinned · the execution starts shortly'
+  }catch(err){status.textContent=err.message;start.disabled=false}
+ }
+}
+function hideRepositoryChoice(){document.querySelector('#repository-choice')?.remove()}
 // The state the user reads, drawn from the shared definition so the row, the
 // execution queue and the banner the desktop raises cannot say three things.
 // The glyph is decorative: the label carries the state for anyone who cannot
@@ -246,12 +281,13 @@ function renderQueue(project,group){
  const active=runsForProject.filter(run=>['running','preparing'].includes(run.status)&&!run.cancelRequested)
  const stopping=runsForProject.filter(run=>activeRun(run)&&run.cancelRequested)
  const waiting=orderedQueueRuns(runsForProject)
- const text=active.length+' active · '+waiting.length+' waiting'+(stopping.length?' · '+stopping.length+' stopping':'')
+ const parked=runsForProject.filter(run=>run.status==='waiting'&&!run.cancelRequested)
+ const text=active.length+' active · '+waiting.length+' waiting'+(parked.length?' · '+parked.length+' waiting for a repository':'')+(stopping.length?' · '+stopping.length+' stopping':'')
  if(summary.textContent!==text)summary.textContent=text
- if(!active.length&&!waiting.length&&!stopping.length){
+ if(!active.length&&!waiting.length&&!stopping.length&&!parked.length){
   const empty=document.createElement('p');empty.textContent='No active or queued executions';list.append(empty);return
  }
- for(const [label,items] of [['Waiting · submission order',waiting],['Stopping / canceling',stopping],['Running / preparing',active]]){
+ for(const [label,items] of [['Waiting for a repository',parked],['Waiting · submission order',waiting],['Stopping / canceling',stopping],['Running / preparing',active]]){
   if(!items.length)continue
   const heading=document.createElement('h3');heading.textContent=label;list.append(heading)
   const entries=document.createElement('ul');list.append(entries)
@@ -470,7 +506,7 @@ function render(options){
   capacity.setAttribute('aria-label',capacity.title)
   heading.replaceChildren(name,capacity)
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
-  const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
+  const waitingCount=runs.filter(run=>run.projectId===project.id&&['queued','waiting'].includes(run.status)&&!run.cancelRequested).length
   const {more,menu,openAt}=projectMenu(project,waitingCount)
   projectRow.oncontextmenu=event=>{event.preventDefault();openAt(event.clientX,event.clientY)}
   projectRow.append(heading,more,menu);group.append(projectRow)
@@ -533,7 +569,7 @@ function render(options){
  }
  // A macro run is relaunched from the macro panel: it has no task to relaunch here.
  document.querySelector('#rerun').hidden=!current||macroRun(current)||!['completed','failed','canceled'].includes(current.status)
- document.querySelector('#stop').disabled=stopping||!current||!['running','queued','preparing'].includes(current.status)
+ document.querySelector('#stop').disabled=stopping||!current||!activeRun(current)
  const detachBtn=document.querySelector('#detach-terminal')
  if(detachBtn){
   const canDetach=current&&current.status==='running'&&!current.externalTerminal
@@ -560,7 +596,7 @@ async function updateDisconnected(ids,force=false,deferrable=false){
  if(hiddenProject(selectedProject))selectedProject=null
  const current=runs.find(run=>run.id===selected)
  if(current&&hiddenProject(current.projectId)){
-  selected=null;terminal.reset()
+  selected=null;hideRepositoryChoice();terminal.reset()
   document.querySelector('#title').textContent='Select an execution'
   showDirectory('')
   await api.detach().catch(error)
@@ -671,7 +707,7 @@ async function restartLocalAgent(){
  const button=document.querySelector('#restart');button.disabled=true;restarting=true
  try{
   if(await api.restart()){
-   selected=null;runs=[];last='';terminal.reset();render()
+   selected=null;runs=[];last='';hideRepositoryChoice();terminal.reset();render()
    renderHeader()
    showDirectory('')
    document.querySelector('#error').textContent=''
@@ -691,7 +727,7 @@ async function stopLocalAgent(){
  const button=document.querySelector('#shutdown');button.disabled=true;restarting=true
  try{
   if(await api.shutdown()){
-   selected=null;runs=[];last='';terminal.reset();render()
+   selected=null;runs=[];last='';hideRepositoryChoice();terminal.reset();render()
    document.querySelector('#setup').hidden=false;document.querySelector('#workspace').hidden=true
    document.querySelector('#restart').hidden=true;button.hidden=true
    document.querySelector('#start button').disabled=false
@@ -712,7 +748,7 @@ document.querySelector('#clear-history').onclick=async()=>{
   runs=runs.filter(run=>!removed.includes(run.id))
   for(const id of removed)skillResults.delete(id)
   if(removed.includes(selected)){
-   selected=null;terminal.reset()
+   selected=null;hideRepositoryChoice();terminal.reset()
    renderHeader()
    showDirectory('')
   }
@@ -900,7 +936,7 @@ function openSettings(initial='Profile'){
  const cliHelp=document.createElement('details');cliHelp.className='placeholder-help'
  const cliSummary=document.createElement('summary');cliSummary.textContent='Placeholders'
  const cliHelpText=document.createElement('p')
- cliHelpText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}.'
+ cliHelpText.textContent='Required in a command: {prompt} (instructions). Also: {issueKey}, {issueTitle}, {issueDesc}, {branchName}, {repoPath} (local directory), {tracker}, {repo}, {model}, {mode:AUTONOMOUS|INTERACTIVE}, {addDirs} (the other folders of the task, as --add-dir options for Claude).'
  cliHelp.append(cliSummary,cliHelpText)
 
  const presetsBar=document.createElement('div');presetsBar.className='cli-presets-bar'
@@ -1329,6 +1365,29 @@ async function openProject(id){
    specKind.dataset.kind=stored?data.specKind||'':''
   }
   renderSpec(info)
+  // The other repositories of a multi-repo project, each in a folder of this
+  // workstation (#456). The project's own repository is the local repository
+  // above; the list itself is a project setting of the web interface.
+  const repositoryList=document.createElement('div');repositoryList.className='repository-list'
+  const repositoriesRow=settingRow('Other repositories',{stacked:true},repositoryList)
+  repositoriesRow.hint.textContent='Tasks pinned to one of these repositories run in a worktree of its folder; the others are given to the agent as read-only context.'
+  repositoriesRow.section.hidden=true
+  const repositoryInputs=[]
+  if(info.monoRepo===false){
+   api.repositories(id).then(list=>{
+    for(const repository of list.filter(item=>!item.code)){
+     const input=document.createElement('input');input.value=repository.path||'';input.placeholder='Folder holding a checkout of '+repository.identity
+     input.setAttribute('aria-label','Folder of '+repository.identity)
+     const choose=document.createElement('button');choose.type='button';choose.textContent='Choose folder…';choose.setAttribute('aria-label','Choose the folder of '+repository.identity+'…')
+     choose.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)input.value=selected}catch(err){error(err)}}
+     const name=document.createElement('span');name.className='repository-name';name.textContent=repository.identity
+     const row=document.createElement('div');row.className='repository-picker';row.append(input,choose)
+     repositoryList.append(name,row)
+     repositoryInputs.push({repository,input})
+    }
+    repositoriesRow.section.hidden=!repositoryInputs.length
+   }).catch(error)
+  }
   let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
   let parallelism=info.parallelism||1
   const controls={}
@@ -1532,7 +1591,7 @@ async function openProject(id){
   updateTerminal()
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section,layoutRow.section,specRepository.section)
+  panels.General.append(repository.section,layoutRow.section,specRepository.section,repositoriesRow.section)
   panels.Execution.append(controls.worktrees.section,controls.parallel.section,terminalRow.section)
   panels.Agent.append(providerRow.section,modelRow.section,commandRow.section,autonomousRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
@@ -1554,8 +1613,18 @@ async function openProject(id){
    try{
     const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
     await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
+    // Each repository folder is checked against its origin by the agent, so
+    // a wrong folder is refused by name rather than saved. The settings above
+    // are saved by then, which the notice says rather than hiding it.
+    const refused=[]
+    for(const entry of repositoryInputs){
+     const value=entry.input.value.trim()
+     if(value===(entry.repository.path||''))continue
+     try{await api.mapRepository({projectId:id,repository:entry.repository.identity,path:value});entry.repository.path=value}
+     catch(err){refused.push(entry.repository.identity+': '+err.message)}
+    }
     projectStateVersion++;disconnectedProjects.delete(id)
-    notice.textContent='Local configuration saved'
+    notice.textContent=refused.length?'Local configuration saved, except the folder of '+refused.join('; '):'Local configuration saved'
     // The agent normalised the folder and detected its kind: show what it
     // stored, not what was typed.
     try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh)}catch(err){error(err)}
@@ -2074,7 +2143,7 @@ async function archiveTask(run){
  saveLocalTasks()
  const current=runs.find(item=>item.id===selected)
  if(current&&taskKey(current)===taskKey(run)){
-  selected=null;terminal.reset();await api.detach()
+  selected=null;hideRepositoryChoice();terminal.reset();await api.detach()
   renderHeader();showDirectory('')
  }
  runs=latest;last=JSON.stringify(latest);dialog.close();render()

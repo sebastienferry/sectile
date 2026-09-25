@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,9 +13,8 @@ import (
 	"tasks/internal/models"
 )
 
-// A project is owned by whoever created it. On a tracker whose credential is
-// personal that is what the background synchronisation reads with: it is
-// nobody's request, so it has no acting user of its own.
+// A project is owned by whoever created it. The background synchronisation no
+// longer reads with the owner's token (#464), but the ownership stays.
 func TestAProjectIsOwnedByItsCreator(t *testing.T) {
 	database := testDB(t)
 
@@ -38,8 +36,8 @@ func TestAProjectIsOwnedByItsCreator(t *testing.T) {
 	}
 }
 
-// Every project created before the column has no owner, and would keep reading
-// under the server credential for good. Whoever saves it adopts it.
+// Every project created before the column has no owner. Whoever saves it
+// adopts it.
 func TestAnOwnerlessProjectAdoptsWhoeverSavesIt(t *testing.T) {
 	database := testDB(t)
 
@@ -60,42 +58,42 @@ func TestAnOwnerlessProjectAdoptsWhoeverSavesIt(t *testing.T) {
 	}
 }
 
-// The queue outlives the pass that filled it, so the account travels on the
-// job. Without it the worker resolved the server credential, and a deployment
-// whose only Jira credential is personal failed every one of these reads with
-// "configure the Jira account e-mail", pass after pass.
-func TestTheBackgroundSynchronisationRunsAsTheJobsUser(t *testing.T) {
+// A synchronisation reads with the server credential, whoever asked for it
+// (#464): somebody clicking Sync is recorded on the activity, never put on the
+// tracker call, where it would substitute their personal token.
+func TestASynchronisationAskedForBySomebodyRecordsThemAndReadsAsNobody(t *testing.T) {
 	fake := newFakeTracker()
 	database, project := jiraTestDB(t, fake)
 
+	queued, err := database.EnqueueSyncAs("u-ada", "jira", "", project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.UserID != "u-ada" {
+		t.Fatalf("the activity must say who asked, got %q", queued.UserID)
+	}
+
+	// Run a job here rather than wait for the worker, which would overwrite
+	// what this test is watching. Even a job that names somebody reads as
+	// nobody: the worker puts no acting user on a synchronisation.
 	activity := models.TaskActivity{ID: "sync-owner", ProjectID: project.ID, SkillID: "sync_jira", Status: "running", CreatedAt: time.Now()}
 	if err := database.AddTaskActivity(activity); err != nil {
 		t.Fatal(err)
 	}
-
-	// Run the job here rather than queue it: the worker would run it in
-	// parallel and overwrite what this test is watching.
 	settings, _ := database.GetSettings()
-	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID, ActingUser: "u-ada"}, settings)
-	if fake.syncedAs != "u-ada" {
-		t.Fatalf("the background read must run as the job's user, got %q", fake.syncedAs)
-	}
-
-	// A job queued for nobody keeps the server credential.
 	fake.syncedAs = "sentinel"
-	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID}, settings)
+	database.processSyncJob(context.Background(), SkillJob{SkillID: "sync_jira", ActivityID: activity.ID, ProjectID: project.ID, ActingUser: "u-ada"}, settings)
 	if fake.syncedAs != "" {
-		t.Fatalf("an unattended read must name nobody, got %q", fake.syncedAs)
+		t.Fatalf("a synchronisation must read as nobody, got %q", fake.syncedAs)
 	}
 }
 
-// And the pass itself queues under the project's owner, which is the whole
-// point: the loop has nobody to ask, so it borrows the account that turned it
-// on. The activity carries it, so a refusal says whose credential was refused.
-func TestTheAutoSyncPassQueuesUnderTheProjectOwner(t *testing.T) {
+// The timer's pass is nobody's request, and no longer borrows the owner's
+// account: its activity names nobody.
+func TestTheAutoSyncPassQueuesUnderNobody(t *testing.T) {
 	fake := newFakeTracker()
 	// A refused read is kept, which is what lets this assert on the activity.
-	fake.syncErr = errors.New("configure the Jira account e-mail")
+	fake.syncErr = errors.New("no Jira server credential")
 	database, project := autoSyncTestDB(t, fake)
 	seedTrackerTask(t, database, project.ID, "PE-1", "Open")
 
@@ -107,8 +105,8 @@ func TestTheAutoSyncPassQueuesUnderTheProjectOwner(t *testing.T) {
 		t.Fatal("the pass queued no synchronisation for the project")
 	}
 	for _, act := range activities {
-		if act.UserID != "u-ada" {
-			t.Fatalf("the pass must queue under the owner, got %q", act.UserID)
+		if act.UserID != "" {
+			t.Fatalf("the pass must queue under nobody, got %q", act.UserID)
 		}
 		if act.Status != string(models.ActivityStatusFailed) {
 			t.Fatalf("a refused read is kept as a failure, got %q", act.Status)
@@ -135,11 +133,10 @@ func TestABackgroundPassThatFoundNothingLeavesNoTrace(t *testing.T) {
 	}
 }
 
-// On GitHub a sealed owner token nobody unlocked used to fall back on the
-// server token: the pass read as the service account while its activity named
-// the owner, whose credential was never touched. The read is refused instead,
-// and the failure still says whose credential it was (ADR 0018).
-func TestABackgroundGithubPassRefusesALockedOwnerToken(t *testing.T) {
+// The owner's personal token, locked here, used to be what the background pass
+// read with, so the pass failed until the owner came back. It now reads with the
+// server credential whatever the owner stored (#464).
+func TestABackgroundGithubPassReadsWithTheServerTokenWhateverTheOwnerStored(t *testing.T) {
 	var mu sync.Mutex
 	var authorizations []string
 	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,35 +176,44 @@ func TestABackgroundGithubPassRefusesALockedOwnerToken(t *testing.T) {
 	settings, _ := database.GetSettings()
 	database.runAutoSyncPass(settings)
 
-	var got *models.TaskActivity
-	for i := 0; i < 100 && got == nil; i++ {
+	// A pass that imported nothing leaves no activity behind, so what shows
+	// it finished is GitHub having been asked and nothing left queued.
+	for i := 0; i < 100; i++ {
+		mu.Lock()
+		asked := len(authorizations) > 0
+		mu.Unlock()
+		pending := false
 		activities, err := database.GetProjectActivities(project.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, act := range activities {
-			if act.SkillID == "sync_github" && act.Status != string(models.ActivityStatusQueued) && act.Status != string(models.ActivityStatusRunning) {
-				got = &act
+			if act.SkillID == "sync_github" && (act.Status == string(models.ActivityStatusQueued) || act.Status == string(models.ActivityStatusRunning)) {
+				pending = true
 			}
 		}
-		if got == nil {
-			time.Sleep(30 * time.Millisecond)
+		if asked && !pending {
+			break
 		}
+		time.Sleep(30 * time.Millisecond)
 	}
 	mu.Lock()
 	defer mu.Unlock()
+	if len(authorizations) == 0 {
+		t.Fatal("the pass never reached GitHub")
+	}
 	for _, auth := range authorizations {
-		if strings.Contains(auth, "server-token") {
-			t.Fatalf("a locked owner token must not fall back on the server token, GitHub saw %v", authorizations)
+		if auth != "Bearer server-token" {
+			t.Fatalf("the pass must read with the server token, GitHub saw %v", authorizations)
 		}
 	}
-	if got == nil {
-		t.Fatal("the pass left no finished GitHub synchronisation behind")
+	activities, err := database.GetProjectActivities(project.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got.Status != string(models.ActivityStatusFailed) {
-		t.Fatalf("a refused read is a failure, got %q", got.Status)
-	}
-	if got.UserID != "u-ada" {
-		t.Fatalf("the failure names the owner whose credential was refused, got %q", got.UserID)
+	for _, act := range activities {
+		if act.SkillID == "sync_github" && act.Status == string(models.ActivityStatusFailed) {
+			t.Fatalf("a locked owner token must not fail the pass: %+v", act)
+		}
 	}
 }
