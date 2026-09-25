@@ -325,7 +325,7 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 // A database from before #443 carries a server specifications path. The
 // upgrade drops the column with its values, which named a directory on the
 // server, and the project reads back without it.
-func TestMigrationFourteenDropsTheServerSpecificationsPath(t *testing.T) {
+func TestMigrationFifteenDropsTheServerSpecificationsPath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "spec.db")
 	d, err := NewDB(path)
 	if err != nil {
@@ -334,7 +334,7 @@ func TestMigrationFourteenDropsTheServerSpecificationsPath(t *testing.T) {
 	for _, stmt := range []string{
 		"ALTER TABLE projects ADD COLUMN spec_repo_path TEXT NOT NULL DEFAULT ''",
 		`INSERT INTO projects (id, name, slug, spec_repo_path) VALUES ('p1', 'Kept', 'kept', '/server/wiki')`,
-		"DELETE FROM schema_migrations WHERE version >= 14",
+		"DELETE FROM schema_migrations WHERE version >= 15",
 	} {
 		if _, err := d.conn.Exec(stmt); err != nil {
 			t.Fatalf("%s: %v", stmt, err)

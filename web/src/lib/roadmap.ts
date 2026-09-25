@@ -1,5 +1,6 @@
 import type { EpicMeta, Priority, Project, Task, TrackerSprint, WorkflowStage } from '../types'
-import { WORKFLOW_ORDER, resolveTaskStage } from './workflow'
+import { foldForSearch } from './searchFold.ts'
+import { WORKFLOW_ORDER, resolveTaskStage } from './workflow.ts'
 
 /**
  * Agrégation des épics pour la vue Roadmap.
@@ -265,16 +266,11 @@ export const buildEpicRows = (
  * qu'ils soient collés.
  */
 export const matchesEpicSearch = (row: EpicRow, query: string): boolean => {
-  const terms = (query || '').toLowerCase().split(/\s+/).filter(Boolean)
+  const terms = foldForSearch(query).split(/\s+/).filter(Boolean)
   if (terms.length === 0) return true
-  const haystack = [
-    row.key,
-    row.title,
-    row.squad,
-    ...row.tasks.map(t => `${t.key} ${t.title}`),
-  ]
-    .join(' ')
-    .toLowerCase()
+  const haystack = foldForSearch(
+    [row.key, row.title, row.squad, ...row.tasks.map(t => `${t.key} ${t.title}`)].join(' ')
+  )
   return terms.every(term => haystack.includes(term))
 }
 

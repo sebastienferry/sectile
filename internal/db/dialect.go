@@ -76,6 +76,10 @@ type dialect interface {
 	// folds `É` to `é` on one cluster and not on the next, and a comparison
 	// against a value folded in Go then matches on one server only.
 	LowerASCII(expr string) string
+	// FoldSearch wraps a TEXT expression in the fold used by free-text search:
+	// case and, where the engine can, diacritics. Both the column and the
+	// pattern go through it, so they fold the same characters.
+	FoldSearch(expr string) string
 	// ColumnsQuery returns a one-argument query listing a table's column names,
 	// in declaration order. The catalogue is the one thing every engine spells
 	// entirely differently.

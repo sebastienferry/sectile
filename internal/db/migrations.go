@@ -30,12 +30,17 @@ const baselineVersion = 1
 //
 // Each entry is one statement. Never a script: pgx refuses a multi-statement
 // Exec under its extended protocol.
+//
+// hint, when set, is added to the error of a failed migration: what the
+// operator has to do about it, for a failure that comes from the server's
+// setup rather than from the schema.
 type migration struct {
 	version    int
 	name       string
 	statements []string
 	sqlite     []string
 	postgres   []string
+	hint       string
 }
 
 // statementsFor picks the form this engine runs.
@@ -260,10 +265,21 @@ var migrations = []migration{
 		},
 	},
 	{
+		// Search ignores case and accents on PostgreSQL (#447), through
+		// FoldSearch. unaccent is a trusted contrib extension: a role holding
+		// CREATE on the database may install it without being superuser. SQLite
+		// has no such extension and runs nothing: its search keeps folding A-Z
+		// only.
+		version:  14,
+		name:     "extension.unaccent",
+		postgres: []string{"CREATE EXTENSION IF NOT EXISTS unaccent;"},
+		hint:     `the PostgreSQL extension "unaccent" could not be created (the server's role needs CREATE on the database, and the server the contrib package)`,
+	},
+	{
 		// The specifications folder became a workstation setting (#443): the
 		// server column named a directory on the server, which nothing reads
 		// any more. Its values are discarded, not carried to any workstation.
-		version: 14,
+		version: 15,
 		name:    "projects.drop_spec_repo_path",
 		statements: []string{
 			"ALTER TABLE projects DROP COLUMN spec_repo_path;",
@@ -382,6 +398,9 @@ func (d *DB) applyMigrations(list []migration, current int) error {
 			continue
 		}
 		if err := d.applyMigration(m); err != nil {
+			if m.hint != "" {
+				return fmt.Errorf("migration %d (%s): %s: %w", m.version, m.name, m.hint, err)
+			}
 			return fmt.Errorf("migration %d (%s): %w", m.version, m.name, err)
 		}
 	}

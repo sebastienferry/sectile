@@ -19,6 +19,10 @@ func (sqliteDialect) Name() string { return "SQLite" }
 // character untouched, on every build of the engine.
 func (sqliteDialect) LowerASCII(expr string) string { return "LOWER(" + expr + ")" }
 
+// FoldSearch is LOWER alone: SQLite has no unaccent, so its search ignores the
+// case of A-Z and nothing else, as it always has.
+func (sqliteDialect) FoldSearch(expr string) string { return "LOWER(" + expr + ")" }
+
 func (sqliteDialect) Open(cfg Config) (*sql.DB, error) {
 	// _time_format=sqlite: without it the driver stores a time.Time as
 	// time.Time.String(), which prints the zone abbreviation last. A date parsed
