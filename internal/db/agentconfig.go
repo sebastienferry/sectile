@@ -43,7 +43,7 @@ func (d *DB) AgentConfig(projectID, taskKey string, framework ...string) (*agent
 		SpecFramework: p.SpecFramework, UseWorktrees: p.UseWorktrees, PRCreationStage: p.PRCreationStage,
 		DefaultSkillMode: models.NormalizeSkillMode(p.DefaultSkillMode), FullChainStopStage: models.NormalizeFullChainStopStage(p.FullChainStopStage),
 		AIProvider: p.AIProvider, AICommandTemplate: p.AICommandTemplate, AICommandTemplateAutonomous: p.AICommandTemplateAutonomous, ExternalTerminalCommand: p.ExternalTerminalCommand,
-		SetupProviders: models.NormalizeSetupProviders(p.SetupProviders),
+		SetupProviders: models.NormalizeSetupProviders(p.SetupProviders), MonoRepo: &p.MonoRepo,
 	}
 	if c.GithubRepo == "" {
 		c.GithubRepo = s.GithubRepo
