@@ -926,7 +926,17 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	if err := d.awaitRunSlot(ctx, run); err != nil {
 		return
 	}
+	d.convertLegacyRepoPaths(ctx, queueConfig)
 	config, workDir, branch, task, err := d.prepareDispatch(ctx, taskRef, run.isolated)
+	// A ticket whose repository cannot be chosen here waits to be pinned, on
+	// the same run, instead of starting in a guessed repository (#456).
+	for errors.Is(err, errRepositoryAmbiguous) {
+		if waitErr := d.awaitRepository(ctx, queueConfig, run, taskRef, payload.RunID); waitErr != nil {
+			err = waitErr
+			break
+		}
+		config, workDir, branch, task, err = d.prepareDispatch(ctx, taskRef, run.isolated)
+	}
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
@@ -1001,7 +1011,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", preflightErr.Error())
 		return
 	}
-	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo})
+	folders := d.taskFolderMap(ctx, config, task, workDir)
+	payload.Prompt += folderMapPrompt(folders)
+	fullLine, err := dispatchCommand(config, taskRef, payload.SkillID, payload.Action, payload.Prompt, payload.Command, payload.Mode, payload.Model, agentCommandContext{Task: task, Branch: branch, Directory: workDir, Tracker: config.IssueTracker, Repo: config.GithubRepo, AddDirs: folderMapDirs(folders)})
 	if err != nil {
 		launchFailure = err
 		d.sendStatus(conn, msg.MsgID, msg.TaskID, "failed", err.Error())
@@ -1047,6 +1059,9 @@ func (d *agentDaemon) handleDispatchStep(ctx context.Context, conn *websocket.Co
 	}
 	if payload.ProjectID != "" {
 		envVars["SECTILE_PROJECT_ID"] = payload.ProjectID
+	}
+	if raw, err := json.Marshal(folders); err == nil && len(folders) > 0 {
+		envVars["SECTILE_REPOSITORIES"] = string(raw)
 	}
 
 	// An autonomous run forks here, before any terminal exists: no PTY session,

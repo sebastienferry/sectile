@@ -174,6 +174,9 @@ export function runStateOf(run: RunStateInput): RunStateId {
   const status = run.status ?? ''
   if (TERMINAL.has(status)) return status as RunStateId
   if (run.waitingSince) return 'waiting'
+  // A launch the local agent parked until its ticket is pinned to a
+  // repository waits for the user too, before any session exists.
+  if (status === 'waiting') return 'waiting'
   if (status === 'queued' || status === 'preparing' || status === 'pending') return 'queued'
   // A declared wait says more than a silence: it names who is expected.
   return isSilentSummary(run.summary) ? 'silent' : 'running'
