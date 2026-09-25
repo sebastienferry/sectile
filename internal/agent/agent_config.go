@@ -257,6 +257,14 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 	for id, folder := range overrides.SpecRepos {
 		local.SpecRepos[id] = folder
 	}
+	// So are the repository folders (#456), which every multi-repo launch
+	// resolves through the value returned here.
+	if local.Repositories == nil {
+		local.Repositories = map[string]string{}
+	}
+	for identity, folder := range overrides.Repositories {
+		local.Repositories[identity] = folder
+	}
 	return root, local, nil
 }
 

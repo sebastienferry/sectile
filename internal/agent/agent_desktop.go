@@ -116,7 +116,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 		// contractError separates a server that is merely unreachable from one
 		// that cannot be talked to at all. Without it the desktop reports both
 		// as a disconnection and the user has no reason to look at the build.
-		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage"}, "disconnectedProjects": disconnected})
+		_ = json.NewEncoder(w).Encode(map[string]any{"connected": connected, "server": d.link.serverURL, "contractError": d.contract.current(), "capabilities": []string{"git-diff", "create-task", "remove-project", "free-console", "transition-stage", "repositories"}, "disconnectedProjects": disconnected})
 		return
 	}
 	if (r.URL.Path == "/desktop/restart" || r.URL.Path == "/desktop/shutdown") && r.Method == http.MethodPost {
@@ -183,6 +183,10 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.URL.Path == "/desktop/projects" {
 		d.desktopProjects(w, r)
+		return
+	}
+	if r.URL.Path == "/desktop/repositories" {
+		d.desktopRepositories(w, r)
 		return
 	}
 	if r.URL.Path == "/desktop/history" && r.Method == http.MethodDelete {
