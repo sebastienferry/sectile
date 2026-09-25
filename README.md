@@ -168,6 +168,28 @@ SECTILE_TEST_POSTGRES_DSN='postgres://localhost/sectile_test?sslmode=disable' \
     go test ./internal/db/ -run Postgres
 ```
 
+### Browser tests
+
+`npm test` in `web/` runs the unit tests only. The `web/tests/*.browser.mjs`
+files drive real components in Chrome through Playwright, one file at a time,
+from `web/`:
+
+```sh
+cd web
+PLAYWRIGHT_MODULE=/absolute/path/to/desktop/node_modules/playwright/index.mjs \
+    node tests/condensed-card.browser.mjs
+```
+
+`PLAYWRIGHT_MODULE` must name Playwright's `index.mjs` by an absolute path: a
+relative one resolves from `tests/`, and a task worktree has no
+`desktop/node_modules` of its own, so point it at the main checkout's. Task
+worktrees are named after the ticket key (`.tasks/worktrees/#387`) and Vite
+cannot serve a path that contains `#`, so a test started from such a checkout
+runs itself again through a temporary symbolic link without `#`, with Node
+keeping the link (`web/tests/browserRoot.mjs`): the same command works there,
+whether the worktree has its own `web/node_modules` or links the main
+checkout's.
+
 ### PostgreSQL instead of SQLite
 
 SQLite is the default and the only engine the desktop application ships with. A

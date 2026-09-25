@@ -2,14 +2,14 @@
 // Run with Playwright available: node tests/priority-select.browser.mjs
 // PLAYWRIGHT_MODULE can point to an existing installation; Chrome is used with a fresh profile.
 import { createServer } from 'vite';
-import { fileURLToPath } from 'node:url';
+import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 import assert from 'node:assert/strict';
-const root=fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
+const {root,preserveSymlinks}=browserRoot(import.meta.url);
 const harness=`import React from 'react'; import {createRoot} from 'react-dom/client'; import {PrioritySelect} from '/src/components/PrioritySelect.tsx'; import {translations} from '/src/locales/translations.ts'; import '/src/index.css';
 window.ctx={t:translations.fr}; window.changes=[]; window.value='high';
 const app=createRoot(document.getElementById('root'));window.render=()=>app.render(<div style={{width:240,margin:20}}><label>Priorité<PrioritySelect value={window.value} onChange={p=>{window.changes.push(p);window.value=p;window.render()}} className="w-full px-2.5 py-1.5 text-xs"/></label></div>);window.render();`;
-const server=await createServer({root,configFile:root+'/vite.config.ts',server:{port:0,host:'127.0.0.1'},plugins:[{name:'fixture',enforce:'pre',transform(code,id){if(id.endsWith('/PrioritySelect.tsx')) return code.replace("import { useApp } from '../context/AppContext'","const useApp = () => window.ctx");},configureServer(s){s.middlewares.use(async(req,res,next)=>{if(req.url==='/fixture'){res.setHeader('Content-Type','text/html');res.end(await s.transformIndexHtml('/fixture','<div id="root"></div><script type="module" src="/fixture.tsx"></script>'))}else next()})},resolveId(id){if(id==='/fixture.tsx')return root+'/fixture.tsx'},load(id){if(id===root+'/fixture.tsx')return harness}}]});
+const server=await createServer({root,resolve:{preserveSymlinks},configFile:root+'/vite.config.ts',server:{port:0,host:'127.0.0.1'},plugins:[{name:'fixture',enforce:'pre',transform(code,id){if(id.endsWith('/PrioritySelect.tsx')) return code.replace("import { useApp } from '../context/AppContext'","const useApp = () => window.ctx");},configureServer(s){s.middlewares.use(async(req,res,next)=>{if(req.url==='/fixture'){res.setHeader('Content-Type','text/html');res.end(await s.transformIndexHtml('/fixture','<div id="root"></div><script type="module" src="/fixture.tsx"></script>'))}else next()})},resolveId(id){if(id==='/fixture.tsx')return root+'/fixture.tsx'},load(id){if(id===root+'/fixture.tsx')return harness}}]});
 await server.listen();
 let browser;
 try {

@@ -1,10 +1,10 @@
 // Run with PLAYWRIGHT_MODULE pointing to an installed Playwright module.
 // Exercises batch configuration and submission without executing a skill.
 import { createServer } from 'vite'
-import { fileURLToPath } from 'node:url'
+import { browserRoot } from './browserRoot.mjs'
 import assert from 'node:assert/strict'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
-const root = fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, '')
+const { root, preserveSymlinks } = browserRoot(import.meta.url)
 const fixtureId = root + '/batch-pickup-fixture.tsx'
 const harness = `
 import React from 'react';
@@ -20,7 +20,7 @@ const app=createRoot(document.getElementById('root'));
 window.render=()=>app.render(<BatchPickupModal tasks={tasks} labels={translations[language].batchDialog} onCancel={()=>cancelled++} onConfirm={async(ids,name)=>{calls.push({ids,name,prompt:buildBatchPickupPrompt(ids,name)});if(pending)return new Promise(resolve=>window.finish=resolve);return accept}}/>);render();`
 
 const server = await createServer({
-  root, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
+  root, resolve: { preserveSymlinks }, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
   plugins: [{
     name: 'batch-pickup-fixture', enforce: 'pre',
     configureServer(s) {
