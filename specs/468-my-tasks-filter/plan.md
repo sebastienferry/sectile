@@ -24,6 +24,28 @@ Behaviour is in `spec.md`. This file says how, and where.
 3. `isMyTasksActive` (`Sidebar.tsx:271`) compares the stored name with the current one,
    so a rename leaves a stale, invisible filter.
 
+## Implementation notes
+
+Two refinements made while implementing, neither changing the specification:
+
+- **Migration 23, not 22.** `#469` (#464, server tracker credentials) landed migration 22
+  on `main` before this branch merged it, so the column is added by migration 23.
+- **Case folding is `lowerASCII` on both sides**, the store's existing pair
+  (`d.lowerASCII` in SQL, `asciiLower` in Go), not `LOWER()` against `strings.ToLower`.
+  SQLite's `LOWER` folds A-Z only: with `strings.ToLower` on the Go side, an assignee
+  `Élodie` stored and typed identically would have stopped matching on SQLite. With the
+  same ASCII fold on both sides the two engines agree, identical text always matches,
+  and only a case difference on an accented capital (`ÉLODIE` against `élodie`) is not
+  folded, on either engine.
+- **Saving probes through `ConfirmUserTrackerCredential`**, which opens the credential
+  just stored and asks its own site with its own token, rather than calling
+  `CheckTrackerCredentials` with the request's fields: that one falls back to the server
+  token for GitLab and would have confirmed the wrong account.
+- **"Its own site" compares the address the check actually used** with the one the
+  stored credential would use (defaults applied, `JiraSite` for Jira), because the
+  profile's *Vérifier* button sends the pre-filled server site when the personal
+  credential names none.
+
 ## Architecture
 
 "Mine" becomes a flag resolved on the server. The client never sends a name for it.

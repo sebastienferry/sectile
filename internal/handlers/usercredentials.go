@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -59,6 +60,12 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 		if err := h.db.SetUserTrackerCredential(userID, req.Tracker, req.SiteURL, req.Email, req.Token, req.Passphrase); err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		// The tracker is asked whom the credential belongs to, which is who
+		// "me" is on it for My Tasks (#468). A failed answer keeps the save:
+		// the form already checked it, and the profile can verify it again.
+		if _, err := h.db.ConfirmUserTrackerCredential(r.Context(), userID, req.Tracker); err != nil {
+			log.Printf("[TrackerCredentials] compte %s non confirmé : %v", req.Tracker, err)
 		}
 		h.listUserCredentials(w, r, userID)
 

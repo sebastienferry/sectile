@@ -363,6 +363,16 @@ var migrations = []migration{
 			"ALTER TABLE projects DROP COLUMN gitlab_token;",
 		},
 	},
+	{
+		// The account a personal tracker credential belongs to, as the tracker
+		// reported it when the credential was confirmed (#468). My Tasks matches
+		// tickets on it. Empty until the credential is saved or verified again.
+		version: 23,
+		name:    "user_tracker_credentials.account",
+		statements: []string{
+			"ALTER TABLE user_tracker_credentials ADD COLUMN account TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

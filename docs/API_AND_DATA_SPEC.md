@@ -154,7 +154,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user
 
 | Method | Path | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/tasks` | Returns array of all tasks. Filters: `projectId`, `q`, `status`, `priority`, `label`, `sprint`, `team`, `assignee` (`__unassigned__` for the work items nobody owns), `pinned=1`, `viewId` (one of the caller's saved views, see 2.3.0.2: it replaces `projectId`, and the other filters narrow it; `404` when the view is not the caller's). |
+| `GET` | `/api/tasks` | Returns array of all tasks. Filters: `projectId`, `q`, `status`, `priority`, `label`, `sprint`, `team`, `assignee` (`__unassigned__` for the work items nobody owns), `mine=1` (My Tasks: the tickets assigned to the caller, resolved on the server per tracker, see 2.3.1; combines with every other filter), `pinned=1`, `viewId` (one of the caller's saved views, see 2.3.0.2: it replaces `projectId`, and the other filters narrow it; `404` when the view is not the caller's). |
 | `GET` | `/api/tasks/facets` | Filter values and counts of the board. Scope: `projectId`, or `viewId` as above. |
 | `POST` | `/api/tasks` | Creates a new task bound strictly to `projectId`. |
 | `GET` | `/api/tasks/{id}` | Fetches task detail with its activities. |
@@ -276,11 +276,21 @@ session, never from the payload, and no answer ever carries a token.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, sealed, unlocked. |
-| `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. An empty `token` keeps the stored one, so the site, the e-mail and the sealing can change on their own; a sealed credential must be unlocked for that. |
+| `GET` | `/api/me/tracker-credentials` | (none) | What this person stored: tracker, site, e-mail, `account`, sealed, unlocked. `account` is who the tracker confirmed the credential belongs to (a GitHub or GitLab login, a Jira display name), absent until it is confirmed. |
+| `PUT` | `/api/me/tracker-credentials` | `{tracker, siteUrl, email, token, passphrase}` | Stores or replaces one. A passphrase seals it. An empty `token` keeps the stored one, so the site, the e-mail and the sealing can change on their own; a sealed credential must be unlocked for that. Saving forgets the confirmed account, then asks the tracker for it again; a failed answer still saves the credential, with no account. |
 | `DELETE` | `/api/me/tracker-credentials?tracker=` | (none) | Forgets one. `404` when there is none to forget. |
 | `POST` | `/api/me/tracker-credentials/unlock` | `{tracker, passphrase}` | Supplies the sealing passphrase for this server's lifetime. `409` when the credential is not sealed. |
 | `POST` | `/api/me/tracker-credentials/lock` | `{tracker}` | Forgets the derived key. |
+| `GET` | `/api/me/assignee-identities?projectId=\|viewId=` | (none) | Who My Tasks takes the caller to be: `{signedIn, fallback, trackers}`. `fallback` is the account's name and e-mail (the local profile's when signed out); `trackers` lists each non-local tracker of the tickets in scope as `{tracker, identity?, known}`. Same scope rules as `/api/tasks`, `404` on a view that is not the caller's. Answers signed-out callers too, and never reaches a tracker. |
+
+**My Tasks (#468).** A ticket is the caller's when its assignee equals, trimmed
+and ignoring the case of A-Z, the confirmed `account` of the caller's personal
+credential for the ticket's tracker. On a tracker with no confirmed account,
+and on local tickets, it is compared with the account's name and e-mail
+instead. The account is learnt when the credential is saved, or when the stored
+one is checked with `POST /api/setup/tracker/check` and no typed token, on its
+own site (GitHub and Jira); it is stored in clear in
+`user_tracker_credentials.account`, so a sealed and locked credential keeps it.
 
 Stored in `user_tracker_credentials`, encrypted with AES-256-GCM and bound to
 `(user_id, tracker)` as additional authenticated data. The key is the server key

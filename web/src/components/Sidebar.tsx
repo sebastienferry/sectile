@@ -42,6 +42,7 @@ import { useClickOutside } from '../hooks/useClickOutside'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentBadgeStyle } from '../lib/accents'
 import { enabledOptionalViews } from '../lib/optionalViews'
+import { myTasksTooltip } from '../lib/myTasks'
 import type { Status, TaskSource } from '../types'
 import { SectileLogo } from './SectileLogo'
 
@@ -140,6 +141,9 @@ export const Sidebar: React.FC = () => {
     setLabelFilter,
     assigneeFilter,
     setAssigneeFilter,
+    myTasksOnly,
+    setMyTasksOnly,
+    myTasksIdentities,
     sourceFilter,
     setSourceFilter,
     sidebarCollapsed,
@@ -268,7 +272,9 @@ export const Sidebar: React.FC = () => {
   // s'activent depuis les réglages du projet.
   const optionalViews = enabledOptionalViews(currentProject)
 
-  const isMyTasksActive = assigneeFilter === settings.userName
+  // My Tasks is a flag of its own, not a name: renaming the account never
+  // leaves a stale, invisible filter behind (#468).
+  const isMyTasksActive = myTasksOnly
 
   /**
    * La barre suit le mode du board : en mode « statuts », les étapes du workflow
@@ -639,13 +645,14 @@ export const Sidebar: React.FC = () => {
           <div className="space-y-0.5">
             {/* 1. Mes tâches */}
             <button
-              onClick={() => setAssigneeFilter(isMyTasksActive ? null : settings.userName)}
+              onClick={() => setMyTasksOnly(!isMyTasksActive)}
+              aria-pressed={isMyTasksActive}
               className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                 isMyTasksActive
                   ? 'bg-[var(--accent-light)] accent-text font-bold shadow-xs'
                   : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
               }`}
-              title={`${t.nav.myTasks} (${settings.userName || 'nom non renseigné dans le profil'})`}
+              title={myTasksTooltip(myTasksIdentities, t.nav)}
             >
               <div className="flex items-center gap-2.5 truncate">
                 <User size={15} className="text-cyan-400 shrink-0" />
@@ -904,13 +911,14 @@ export const Sidebar: React.FC = () => {
           ) : (
           <div className="space-y-0.5">
             {workflowItems.map(item => {
-              const isActive = statusFilter === item.status && !assigneeFilter && !priorityFilter && !labelFilter
+              const isActive = statusFilter === item.status && !assigneeFilter && !myTasksOnly && !priorityFilter && !labelFilter
               return (
                 <button
                   key={item.status || 'all'}
                   onClick={() => {
                     setStatusFilter(item.status)
                     setAssigneeFilter(null)
+                    setMyTasksOnly(false)
                     setPriorityFilter(null)
                     setLabelFilter(null)
                   }}
