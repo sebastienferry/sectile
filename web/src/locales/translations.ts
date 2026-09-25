@@ -201,7 +201,15 @@ export interface TranslationSchema {
     hint: string
     status: string
     priority: string
-    tracker: string
+    macro: string
+    noMacro: string
+    macroLoading: string
+    followUp: string
+    followUpNone: string
+    followUpRewrite: string
+    followUpClarify: string
+    /** Warning title when the new ticket could not be attached; {macro} is the key. */
+    attachFailed: string
   }
   commandPalette: {
     searchPlaceholder: string
@@ -949,7 +957,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       hint: 'Appuyez sur Entrée pour créer immédiatement',
       status: 'Statut initial',
       priority: 'Priorité',
-      tracker: 'Destination / Tracker',
+      macro: 'Macro',
+      noMacro: 'Aucune macro',
+      macroLoading: 'Chargement des macros…',
+      followUp: 'Après la création',
+      followUpNone: 'Rien',
+      followUpRewrite: 'Reformuler en user story',
+      followUpClarify: 'Clarifier',
+      attachFailed: 'Ticket créé, mais non rattaché à {macro}',
     },
     commandPalette: {
       searchPlaceholder: 'Tapez une commande, skill ou tâche...',
@@ -1695,7 +1710,14 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       hint: 'Press Enter to create immediately',
       status: 'Initial status',
       priority: 'Priority',
-      tracker: 'Destination / Tracker',
+      macro: 'Macro',
+      noMacro: 'No macro',
+      macroLoading: 'Loading macros…',
+      followUp: 'After saving',
+      followUpNone: 'Nothing',
+      followUpRewrite: 'Rewrite as a user story',
+      followUpClarify: 'Clarify',
+      attachFailed: 'Ticket created, but not attached to {macro}',
     },
     commandPalette: {
       searchPlaceholder: 'Type a command, skill or task...',
