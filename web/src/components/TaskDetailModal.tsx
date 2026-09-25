@@ -1,7 +1,7 @@
 import { PullRequestStateIcon } from './PullRequestStateIcon'
 import { RemoteRunBadge } from './RemoteRunBadge'
 import { CopyTaskSkillMenu } from './CopyTaskSkillMenu'
-import React, { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   X,
   Trash2,
@@ -54,6 +54,7 @@ import { MarkdownEditor } from './Markdown'
 import { sprintLookup, macroLookup, isProjectCompatible } from '../lib/lookups'
 import { issueTypeStyle } from '../lib/issueTypes'
 import { runEngineLabel } from '../lib/runEngine'
+import { copyText } from '../lib/clipboard'
 
 export const TaskDetailModal: React.FC = () => {
   const {
@@ -169,6 +170,11 @@ export const TaskDetailModal: React.FC = () => {
   const [specFramework, setSpecFramework] = useState<SpecFramework>(settings.specFramework || 'speckit')
   const [isExpandedSpec, setIsExpandedSpec] = useState(false)
   const [copiedSpec, setCopiedSpec] = useState(false)
+  // The key whose copy button shows the check mark, with the ticket it was
+  // copied from so that it never carries over to another one, and the timer
+  // that reverts it.
+  const [copiedKey, setCopiedKey] = useState<{ taskId: string; key: string } | null>(null)
+  const copiedKeyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [withComments, setWithComments] = useState(false)
   const [dismissedRewriteId, setDismissedRewriteId] = useState<string | null>(null)
   const [isMaximized, setIsMaximized] = useState(false)
@@ -443,6 +449,10 @@ export const TaskDetailModal: React.FC = () => {
   const closeExpandedSpec = useCallback(() => setIsExpandedSpec(false), [setIsExpandedSpec])
   const expandedSpecBackdrop = useBackdropDismiss(closeExpandedSpec)
 
+  useEffect(() => () => {
+    if (copiedKeyTimer.current) clearTimeout(copiedKeyTimer.current)
+  }, [])
+
   if (!selectedTask) return null
 
   // A tracker URL for any key of the same tracker as this task: used for the
@@ -473,6 +483,42 @@ export const TaskDetailModal: React.FC = () => {
     selectedTask.source === 'github' ? 'GitHub'
     : selectedTask.source === 'jira' ? 'Jira'
     : 'le tracker'
+
+  const handleCopyKey = async (key: string) => {
+    if (!(await copyText(key))) {
+      addToast({
+        type: 'error',
+        title: 'Copie impossible',
+        description: "Le presse-papiers n'est pas accessible depuis ce navigateur.",
+      })
+      return
+    }
+    setCopiedKey({ taskId: selectedTask.id, key })
+    if (copiedKeyTimer.current) clearTimeout(copiedKeyTimer.current)
+    copiedKeyTimer.current = setTimeout(() => {
+      setCopiedKey(null)
+      copiedKeyTimer.current = null
+    }, 2000)
+    addToast({
+      type: 'success',
+      title: 'Identifiant copié',
+      description: `${key} a été copié dans le presse-papiers.`,
+    })
+  }
+
+  // Sits beside a key, never inside its link, so a click copies without
+  // opening the tracker.
+  const renderCopyKeyButton = (key: string) => (
+    <button
+      type="button"
+      onClick={() => handleCopyKey(key)}
+      title={`Copier ${key}`}
+      aria-label={`Copier ${key}`}
+      className="ml-1 inline-flex items-center self-center rounded p-0.5 opacity-60 hover:opacity-100 hover:bg-[var(--bg-tertiary)] focus-visible:opacity-100"
+    >
+      {copiedKey?.taskId === selectedTask.id && copiedKey.key === key ? <Check size={11} className="text-emerald-400" /> : <Copy size={11} />}
+    </button>
+  )
 
   /**
    * The reference badge: ParentKey / TaskKey, each opening its own tracker
@@ -505,6 +551,7 @@ export const TaskDetailModal: React.FC = () => {
                 {selectedTask.parentKey}
               </span>
             )}
+            {renderCopyKeyButton(selectedTask.parentKey)}
             <span className="mx-1 text-[var(--text-muted)] opacity-50">/</span>
           </>
         )}
@@ -522,6 +569,7 @@ export const TaskDetailModal: React.FC = () => {
         ) : (
           <span>{selectedTask.key}</span>
         )}
+        {renderCopyKeyButton(selectedTask.key)}
       </span>
     </span>
   )
