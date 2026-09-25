@@ -84,10 +84,24 @@ export const boardViewFormError = (
   projectIds: string[],
   others: Pick<BoardView, 'id' | 'name'>[],
   editingId: string | null,
-): 'name' | 'duplicate' | 'projects' | null => {
+  repository = '',
+): 'name' | 'duplicate' | 'projects' | 'repository' | null => {
   const key = name.trim().toLowerCase()
   if (!key) return 'name'
   if (others.some(v => v.id !== editingId && v.name.trim().toLowerCase() === key)) return 'duplicate'
   if (projectIds.length === 0) return 'projects'
+  if (!isViewRepository(repository)) return 'repository'
   return null
+}
+
+/**
+ * A view's repository is optional; when given, it is a Git remote naming a
+ * host and a path, in URL or scp-like form (#429). The server decides; this
+ * only spares a round trip.
+ */
+export const isViewRepository = (value: string): boolean => {
+  const repository = value.trim()
+  if (!repository) return true
+  if (repository.length > 500 || /\s/.test(repository)) return false
+  return /^[a-z][a-z0-9+.-]*:\/\/[^/]+\/[^/].*$/i.test(repository) || /^([^@/:]+@)?[^:/]+:[^/].*$/.test(repository)
 }

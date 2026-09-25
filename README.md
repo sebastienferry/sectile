@@ -27,6 +27,11 @@ Modern, agentic task workflow manager for developers and engineering teams, buil
     synchronised by two projects reads as two cards.
   - The board filters stay available and are remembered per view on the
     browser. See `docs/adrs/0025-saved-board-views-are-personal-overlays.md`.
+  - The desktop's *Tasks list* opens a view as well as a project, each row
+    launching with its own project's skills. A view may name its Git
+    repository on the web, and a local folder on each workstation, where the
+    launches made from it run; the pull requests of that repository then count
+    for those tickets (#429).
 
 - 📐 **Installable Spec-Driven Design Frameworks (Spec Kit & OpenSpec)**:
   - **Real toolchain installation directly from the UI** (project *AI & SDD Skills* tab, or action palette <kbd>Cmd+K</kbd>):

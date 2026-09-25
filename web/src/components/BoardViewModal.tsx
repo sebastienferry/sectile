@@ -33,6 +33,7 @@ const BoardViewForm: React.FC<{ editingBoardView: BoardView | null }> = ({ editi
   const [projectIds, setProjectIds] = useState<string[]>(editingBoardView?.projectIds ?? [])
   const [labels, setLabels] = useState<string[]>(editingBoardView?.labels ?? [])
   const [labelInput, setLabelInput] = useState('')
+  const [repository, setRepository] = useState(editingBoardView?.repository ?? '')
   const [showErrors, setShowErrors] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -63,13 +64,15 @@ const BoardViewForm: React.FC<{ editingBoardView: BoardView | null }> = ({ editi
     setLabelInput('')
   }, [labels, labelInput])
 
-  const formError = boardViewFormError(name, projectIds, boardViews, editingBoardView?.id ?? null)
+  const formError = boardViewFormError(name, projectIds, boardViews, editingBoardView?.id ?? null, repository)
   const errorMessage = formError === 'name'
     ? t.boardViews.errorName
     : formError === 'duplicate'
     ? t.boardViews.errorDuplicate
     : formError === 'projects'
     ? t.boardViews.errorProjects
+    : formError === 'repository'
+    ? t.boardViews.errorRepository
     : null
 
   const toggleProject = (id: string) => {
@@ -88,6 +91,7 @@ const BoardViewForm: React.FC<{ editingBoardView: BoardView | null }> = ({ editi
       name: name.trim(),
       projectIds,
       labels: normalizeViewLabels([...labels, labelInput]),
+      repository: repository.trim(),
     }
     setIsSubmitting(true)
     const saved = editingBoardView
@@ -200,6 +204,20 @@ const BoardViewForm: React.FC<{ editingBoardView: BoardView | null }> = ({ editi
               {labelSuggestions.map(v => <option key={v} value={v} />)}
             </datalist>
             <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-snug">{t.boardViews.labelsHint}</p>
+          </div>
+
+          <div>
+            <label htmlFor="board-view-repository" className={labelClass}>{t.boardViews.repository}</label>
+            <input
+              id="board-view-repository"
+              type="text"
+              value={repository}
+              onChange={e => setRepository(e.target.value)}
+              placeholder={t.boardViews.repositoryPlaceholder}
+              spellCheck={false}
+              className={`${inputClass} font-mono`}
+            />
+            <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-snug">{t.boardViews.repositoryHint}</p>
           </div>
 
           {showErrors && errorMessage && (

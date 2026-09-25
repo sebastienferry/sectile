@@ -140,6 +140,8 @@ CREATE TABLE IF NOT EXISTS board_views (
     name_key TEXT NOT NULL,
     project_ids TEXT NOT NULL DEFAULT '[]',
     labels TEXT NOT NULL DEFAULT '[]',
+    -- migration 23 (#429): the Git remote the view's work lives in, '' for none
+    repository TEXT NOT NULL DEFAULT '',
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL
 );
@@ -161,7 +163,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_board_views_user_name ON board_views (user
 | `PUT` | `/api/tasks/{id}` | Updates task fields (status, title, description, priority, etc.). |
 | `DELETE` | `/api/tasks/{id}` | Deletes task and prunes associated Git worktree. |
 | `POST` | `/api/tasks/{id}/skills/{skillId}` | Enqueues or immediately executes an AI skill on the task. |
-| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?, force?}`. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. A task already carrying an active run answers `409` with `{error, activeRunId}` and records nothing; `force` waives that refusal and only that one, for the active run's owner or an admin, and answers `403` for anyone else. |
+| `POST` | `/api/tasks/{id}/run-skill` | Runs a skill on the task. Body `{skillId, prompt?, withComments?, mode?, force?, viewId?}`. `mode` is the one-off execution mode override, `interactive` or `autonomous`; absent means no override, which is not the same as interactive. Any other value is rejected with `400`. A task already carrying an active run answers `409` with `{error, activeRunId}` and records nothing; `force` waives that refusal and only that one, for the active run's owner or an admin, and answers `403` for anyone else. `viewId` names the caller's saved view the launch is made from: `404` when it is not theirs, `400` when it does not select the task's project, both before anything is recorded; once the run is admitted, the view's repository, if any, is recorded on the task. |
 | `POST` | `/api/tasks/{id}/advance` | Advances one workflow step, or the full chain with `{"auto": true}`. Body also accepts `mode`, the one-off override for the single step; a full chain run ignores it and is always autonomous. |
 | `POST` | `/api/tasks/{id}/advance/confirm` | Closes an interactive step. A step the worker already transitioned is accepted as a no-op. |
 | `POST` | `/api/tasks/{id}/comment` | Publishes a comment to the GitHub issue tracker. |
@@ -260,13 +262,24 @@ its projects. Another account's view answers exactly as a missing one.
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/api/me/board-views` | (none) | The caller's views, in creation order. |
-| `POST` | `/api/me/board-views` | `{name, projectIds, labels}` | Creates a view (`201`). `400` for an empty name, no project, an unknown project, a name over 80 characters or more than 50 labels; `409` when another of the caller's views has the same name, compared trimmed and case-insensitively. Labels are trimmed and deduplicated regardless of case. |
+| `POST` | `/api/me/board-views` | `{name, projectIds, labels, repository?}` | Creates a view (`201`). `400` for an empty name, no project, an unknown project, a name over 80 characters, more than 50 labels, or a `repository` that is not a Git remote naming a host and a path; `409` when another of the caller's views has the same name, compared trimmed and case-insensitively. Labels are trimmed and deduplicated regardless of case. |
 | `GET` | `/api/me/board-views/{id}` | (none) | One view, or `404`. |
-| `PATCH` | `/api/me/board-views/{id}` | any of `{name, projectIds, labels}` | Changes the fields sent; same errors as the creation. |
+| `PATCH` | `/api/me/board-views/{id}` | any of `{name, projectIds, labels, repository}` | Changes the fields sent; same errors as the creation. An empty `repository` clears it. |
 | `DELETE` | `/api/me/board-views/{id}` | (none) | Deletes the view (`204`); no ticket, label or project changes. |
 
 Deleting a project removes it from every view that selected it; a view left
 without project is kept and selects nothing until it is edited.
+
+A view's `repository` (#429) is where the work launched from it lives. A launch
+from the view (`run-skill` with `viewId`) records its identity on the ticket
+(`tasks.view_repository`, with the launching user in `view_repository_by`,
+migration 24; the ticket reads it back as `viewRepository`). A pull request in
+that repository is then accepted as the ticket's stage evidence, with the
+foreign-repository rules of #392, on mono-repo projects too; a stage naming no
+pull request looks it up there by branch; and a full synchronisation searches
+it by branch for a ticket that has none (GitHub on the server, GitLab through
+the launching user's agent). The desktop gives each view a local folder of its
+own, kept on the workstation (`viewDirectories` in `settings.json`).
 
 ### 2.3.1 Personal Tracker Credentials API
 

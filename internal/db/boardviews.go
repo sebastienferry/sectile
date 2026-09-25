@@ -23,6 +23,9 @@ var (
 	ErrBoardViewNoProject      = errors.New("une vue sélectionne au moins un projet")
 	ErrBoardViewUnknownProject = errors.New("projet inconnu")
 	ErrBoardViewTooLarge       = errors.New("une vue porte au plus 80 caractères de nom et 50 labels")
+	// The view's repository is compared by identity, so a value naming no host
+	// and path would never match any pull request or checkout.
+	ErrBoardViewRepositoryInvalid = errors.New("le dépôt de la vue doit être l'URL d'un dépôt Git (hôte et chemin)")
 )
 
 // A view's labels become bound parameters of every board query, so their number
@@ -30,9 +33,10 @@ var (
 const (
 	maxBoardViewNameLength = 80
 	maxBoardViewLabels     = 50
+	maxBoardViewRepository = 500
 )
 
-const boardViewColumns = "id, name, project_ids, labels, created_at, updated_at"
+const boardViewColumns = "id, name, project_ids, labels, repository, created_at, updated_at"
 
 // NormalizeViewLabels trims the labels, drops the empty ones and keeps a single
 // entry for labels that differ only by case, in the spelling first entered.
@@ -147,14 +151,21 @@ func (d *DB) CreateBoardView(userID string, req models.BoardViewRequest) (*model
 	if err := d.fillBoardViewUnsafe(userID, view, name, projectIDs, labels); err != nil {
 		return nil, err
 	}
+	if req.Repository != nil {
+		repository, err := normalizeViewRepository(*req.Repository)
+		if err != nil {
+			return nil, err
+		}
+		view.Repository = repository
+	}
 	now := time.Now().UTC()
 	view.CreatedAt, view.UpdatedAt = now, now
 
 	projectsJSON, _ := json.Marshal(view.ProjectIDs)
 	labelsJSON, _ := json.Marshal(view.Labels)
-	if _, err := d.conn.Exec(`INSERT INTO board_views (id, user_id, name, name_key, project_ids, labels, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		view.ID, userID, view.Name, boardViewNameKey(view.Name), string(projectsJSON), string(labelsJSON), now, now); err != nil {
+	if _, err := d.conn.Exec(`INSERT INTO board_views (id, user_id, name, name_key, project_ids, labels, repository, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		view.ID, userID, view.Name, boardViewNameKey(view.Name), string(projectsJSON), string(labelsJSON), view.Repository, now, now); err != nil {
 		// The name check above reads before this insert; the unique index is
 		// what refuses a name another instance saved in between.
 		if isUniqueViolation(err, "idx_board_views_user_name") {
@@ -200,13 +211,20 @@ func (d *DB) UpdateBoardView(userID, id string, req models.BoardViewRequest) (*m
 	if err := d.fillBoardViewUnsafe(strings.TrimSpace(userID), view, name, projectIDs, labels); err != nil {
 		return nil, err
 	}
+	if req.Repository != nil {
+		repository, err := normalizeViewRepository(*req.Repository)
+		if err != nil {
+			return nil, err
+		}
+		view.Repository = repository
+	}
 	view.UpdatedAt = time.Now().UTC()
 
 	projectsJSON, _ := json.Marshal(view.ProjectIDs)
 	labelsJSON, _ := json.Marshal(view.Labels)
-	if _, err := tx.Exec(`UPDATE board_views SET name = ?, name_key = ?, project_ids = ?, labels = ?, updated_at = ?
+	if _, err := tx.Exec(`UPDATE board_views SET name = ?, name_key = ?, project_ids = ?, labels = ?, repository = ?, updated_at = ?
 		WHERE id = ? AND user_id = ?`,
-		view.Name, boardViewNameKey(view.Name), string(projectsJSON), string(labelsJSON), view.UpdatedAt, view.ID, strings.TrimSpace(userID)); err != nil {
+		view.Name, boardViewNameKey(view.Name), string(projectsJSON), string(labelsJSON), view.Repository, view.UpdatedAt, view.ID, strings.TrimSpace(userID)); err != nil {
 		if isUniqueViolation(err, "idx_board_views_user_name") {
 			return nil, ErrBoardViewNameTaken
 		}
@@ -354,6 +372,25 @@ func keepExistingProjects(ids []string, existing map[string]bool) []string {
 	return kept
 }
 
+// normalizeViewRepository trims a view's repository and checks that it names a
+// host and a path, the two halves of the identity every comparison uses. An
+// empty value is a view without a repository.
+func normalizeViewRepository(raw string) (string, error) {
+	repository := strings.TrimSpace(raw)
+	if repository == "" {
+		return "", nil
+	}
+	if utf8.RuneCountInString(repository) > maxBoardViewRepository || strings.ContainsAny(repository, " \t\r\n") {
+		return "", ErrBoardViewRepositoryInvalid
+	}
+	host := remoteHost(repository)
+	_, path, _ := strings.Cut(models.RepositoryIdentity(repository), "/")
+	if host == "" || strings.Trim(path, "/") == "" {
+		return "", ErrBoardViewRepositoryInvalid
+	}
+	return repository, nil
+}
+
 func boardViewNameKey(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
@@ -365,7 +402,7 @@ type rowScanner interface {
 func scanBoardView(row rowScanner) (*models.BoardView, error) {
 	var view models.BoardView
 	var projectsJSON, labelsJSON string
-	if err := row.Scan(&view.ID, &view.Name, &projectsJSON, &labelsJSON, &view.CreatedAt, &view.UpdatedAt); err != nil {
+	if err := row.Scan(&view.ID, &view.Name, &projectsJSON, &labelsJSON, &view.Repository, &view.CreatedAt, &view.UpdatedAt); err != nil {
 		return nil, err
 	}
 	view.ProjectIDs = []string{}

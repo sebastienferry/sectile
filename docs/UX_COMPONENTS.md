@@ -23,7 +23,7 @@ App.tsx
 │   ├── (Local Git inspection belongs to Desktop; see section 2.6)
 │   ├── ActivityCenter.tsx (Job queue monitor and task output stream)
 │   ├── ProjectModal.tsx (Workspace & repository settings)
-│   ├── BoardViewModal.tsx (Create, edit or delete a saved board view: name, projects, labels)
+│   ├── BoardViewModal.tsx (Create, edit or delete a saved board view: name, projects, labels, Git repository)
 │   └── SettingsModal.tsx (AI provider, themes, language, tracker tokens)
 ```
 

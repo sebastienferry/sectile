@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   boardViewFormError,
+  isViewRepository,
   filterScopeKey,
   foldViewLabel,
   initialLabelsForView,
@@ -56,4 +57,15 @@ test('the form says what prevents saving', () => {
   assert.equal(boardViewFormError('PLATFORM', ['a'], others, 'v1'), null)
   assert.equal(boardViewFormError('Other', [], others, null), 'projects')
   assert.equal(boardViewFormError('Other', ['a'], others, null), null)
+  assert.equal(boardViewFormError('Other', ['a'], others, null, 'platform'), 'repository')
+  assert.equal(boardViewFormError('Other', ['a'], others, null, 'git@github.com:acme/platform.git'), null)
+})
+
+test('a view repository is empty or a Git remote with a host and a path', () => {
+  for (const ok of ['', '  ', 'git@github.com:acme/platform.git', 'https://gitlab.example.com/group/sub/app', 'ssh://git@host:2222/group/app.git', 'github.com:acme/app']) {
+    assert.equal(isViewRepository(ok), true, ok)
+  }
+  for (const bad of ['platform', 'github.com/acme/app', 'https://github.com', 'https://github.com/', 'git@github.com:', 'https://github.com/a b', 'https://github.com/' + 'a'.repeat(500)]) {
+    assert.equal(isViewRepository(bad), false, bad)
+  }
 })

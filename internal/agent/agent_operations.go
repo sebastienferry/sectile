@@ -117,7 +117,7 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 	if config.ProjectID != op.ProjectID {
 		return nil, fmt.Errorf("project mismatch")
 	}
-	root, overrides, err := d.localProjectRoot(ctx, config, op.Action == "init_git")
+	root, overrides, err := d.taskProjectRoot(ctx, config, op.TaskID, op.Action == "init_git")
 	if err != nil {
 		return nil, err
 	}
@@ -134,15 +134,24 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		if task.ID != op.TaskID || task.ProjectID != op.ProjectID {
 			return nil, fmt.Errorf("task identity mismatch")
 		}
-		if op.Action == "repository_worktree" {
-			return repositoryWorktree(ctx, config, overrides, root, task, op.Repository)
-		}
-		if op.Action == "remove_workspace" && len(op.Repositories) > 0 {
-			return removeRepositoryWorktrees(ctx, config, overrides, root, task, op.Repositories), nil
+		if op.Action == "repository_worktree" || (op.Action == "remove_workspace" && len(op.Repositories) > 0) {
+			// The project's repositories are resolved from the project's own
+			// checkout: a view's folder (#429) would stand for the code
+			// repository and be mistaken for it.
+			projectRoot := root
+			if d.viewRoots.get(task.ID) != "" {
+				if projectRoot, _, err = d.localProjectRoot(ctx, config); err != nil {
+					return nil, err
+				}
+			}
+			if op.Action == "repository_worktree" {
+				return repositoryWorktree(ctx, config, overrides, projectRoot, task, op.Repository)
+			}
+			return removeRepositoryWorktrees(ctx, config, overrides, projectRoot, task, op.Repositories), nil
 		}
 		// A ticket pinned to another repository has its worktree there.
 		taskRoot := root
-		if strings.TrimSpace(task.Repository) != "" {
+		if strings.TrimSpace(task.Repository) != "" && d.viewRoots.get(task.ID) == "" {
 			pinned, _, _, err := primaryRoot(ctx, config, overrides, root, task)
 			if err != nil && !errors.Is(err, errRepositoryAmbiguous) {
 				// Reporting on the project root would describe another
@@ -331,6 +340,11 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 			// place to look (#456); the legacy paths stay hints behind it.
 			if mapped, ok := repositoryRoot(overrides, root, codeIdentity(config), models.RepositoryIdentity(repository)); ok {
 				candidates = append([]string{mapped}, candidates...)
+			}
+			// So are the folders of the saved views (#429): the check below
+			// keeps only the one whose origin is that repository.
+			for _, folder := range overrides.ViewDirectories {
+				candidates = append(candidates, folder)
 			}
 			checkout, found, err := verifiedCheckout(ctx, repository, strings.TrimSpace(op.Branch), candidates)
 			if err != nil {

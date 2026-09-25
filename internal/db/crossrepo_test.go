@@ -299,7 +299,7 @@ func TestResolveStagePRTargetKnowsTheProjectRepository(t *testing.T) {
 		{"multi-repository", &models.Project{MonoRepo: no, GitRemoteUrl: "git@github.com:acme/app.git"}, archMR, true, false},
 		{"mono-repository", &models.Project{MonoRepo: true, GitRemoteUrl: "git@github.com:acme/app.git"}, archMR, false, true},
 	} {
-		target, err := (&DB{}).resolveStagePRTarget(tc.p, tc.prURL)
+		target, err := (&DB{}).resolveStagePRTarget(tc.p, nil, tc.prURL)
 		if (err != nil) != tc.refused || target.foreign != tc.foreign {
 			t.Errorf("%s: target=%+v err=%v", tc.name, target, err)
 		}

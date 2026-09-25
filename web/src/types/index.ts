@@ -213,6 +213,8 @@ export interface BoardView {
   name: string
   projectIds: string[]
   labels: string[]
+  /** The Git remote the view's work lives in (#429); empty when none. */
+  repository?: string
   createdAt: string
   updatedAt: string
 }
@@ -221,6 +223,8 @@ export interface BoardViewPayload {
   name?: string
   projectIds?: string[]
   labels?: string[]
+  /** An empty string clears the view's repository. */
+  repository?: string
 }
 
 export interface Project {

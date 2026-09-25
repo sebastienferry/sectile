@@ -36,7 +36,7 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 	// A mono-repo project never reads another repository; its prerequisite finds
 	// the PR by branch, as it always did, even when the recorded link names an
 	// older name of the repository.
-	target, err := d.resolveStagePRTarget(project, models.CurrentPullRequest(task.PrLinks))
+	target, err := d.resolveStagePRTarget(project, task, models.CurrentPullRequest(task.PrLinks))
 	if err != nil {
 		target = stagePRTarget{}
 	}
@@ -44,7 +44,13 @@ func (d *DB) adjustmentPrerequisite(task *models.Task, actorID string, ready boo
 		// A ticket pinned elsewhere reads its pull request in its own
 		// repository, and every secondary repository it changed must have a
 		// ready pull request on a clean checkout before it is adjusted (#456).
-		if primary := TaskPrimaryRepository(project, task); !target.foreign && !slices.Contains(projectRepositoryIdentities(project), primary) {
+		// The view repository only stands in for a pull request not recorded
+		// yet: a recorded one in the project's repository keeps its place.
+		primary := TaskPrimaryRepository(project, task)
+		if models.CurrentPullRequest(task.PrLinks) == "" {
+			primary = evidencePrimary(project, task)
+		}
+		if !target.foreign && !slices.Contains(projectRepositoryIdentities(project), primary) {
 			target = repositoryTarget(primary)
 		}
 		if err := d.checkSecondaryPRs(project, task, actorID, branch); err != nil {
@@ -131,7 +137,7 @@ func (d *DB) validateStagePR(task *models.Task, actorID, skillID, repoPath, bran
 	if err != nil {
 		return "", "", fmt.Errorf("read project for the stage PR lookup: %w", err)
 	}
-	target, err := d.resolveStagePRTarget(project, url)
+	target, err := d.resolveStagePRTarget(project, task, url)
 	if err != nil {
 		return "", "", err
 	}
@@ -194,6 +200,13 @@ func (d *DB) validateStagePRAt(task *models.Task, actorID, skillID, repoPath, br
 	return url, "", nil
 }
 
+// pullRequestRefusal is the forge's answer that nothing on the branch is
+// usable, as opposed to a lookup that failed: neither is evidence, but only a
+// refusal may be read as "nothing to attach".
+type pullRequestRefusal string
+
+func (r pullRequestRefusal) Error() string { return string(r) }
+
 // errAgentTooOld is a failed lookup: an agent that ignores the repository of a
 // question would answer for the project checkout instead.
 var errAgentTooOld = fmt.Errorf("local agent is too old to look up a pull request in another repository; update it")
@@ -212,9 +225,17 @@ type stagePRTarget struct {
 // with a remote keeps the same-repository rule. A link that is not a
 // recognized pull request keeps the project path, as before: the forge answer
 // never matches it, so the evidence check refuses it there.
-func (d *DB) resolveStagePRTarget(project *models.Project, prURL string) (stagePRTarget, error) {
+//
+// The repository of the view the ticket was launched from (#429) is the
+// ticket's own on every project: a link in it is read there, mono-repo or not,
+// and a ticket that names no link is looked up there by branch.
+func (d *DB) resolveStagePRTarget(project *models.Project, task *models.Task, prURL string) (stagePRTarget, error) {
 	prURL = strings.TrimSpace(prURL)
+	view := taskViewRepository(project, task)
 	if prURL == "" {
+		if view != "" {
+			return repositoryTarget(view), nil
+		}
 		return stagePRTarget{}, nil
 	}
 	link, ok := models.ParsePullRequestLink(prURL, "")
@@ -222,7 +243,7 @@ func (d *DB) resolveStagePRTarget(project *models.Project, prURL string) (stageP
 	if !ok || slices.Contains(own, link.Identity()) {
 		return stagePRTarget{}, nil
 	}
-	if len(own) > 0 && project != nil && project.MonoRepo {
+	if len(own) > 0 && project != nil && project.MonoRepo && link.Identity() != view {
 		return stagePRTarget{}, fmt.Errorf("pull request %s is not in the project repository %s; only a project without a code remote, or not mono-repo, may record one from another repository", prURL, own[0])
 	}
 	return stagePRTarget{link: link, url: prURL, foreign: true}, nil
@@ -377,9 +398,9 @@ func (d *DB) agentBranchPullRequest(task *models.Task, userID, branch, forge, re
 	}
 	if answer.Refusal != "" {
 		if answer.Forge == "gitlab" {
-			return trackerapi.PullRequest{}, fmt.Errorf("GitLab: %s", answer.Refusal)
+			return trackerapi.PullRequest{}, pullRequestRefusal("GitLab: " + answer.Refusal)
 		}
-		return trackerapi.PullRequest{}, fmt.Errorf("%s", answer.Refusal)
+		return trackerapi.PullRequest{}, pullRequestRefusal(answer.Refusal)
 	}
 	return trackerapi.PullRequest{URL: answer.URL, Branch: answer.Branch, SHA: answer.SHA, Open: answer.Open, Draft: answer.Draft, Merged: answer.Merged, Forge: answer.Forge}, nil
 }
