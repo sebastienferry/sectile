@@ -972,3 +972,135 @@ func TestAdmitProjectRunValidatesAutonomousPreflight(t *testing.T) {
 		t.Fatal("expected run to be non-nil on admission")
 	}
 }
+
+// The specifications folder may be a Git checkout, normalised to its top
+// level, or a plain folder kept as typed. The project info says which one is
+// in effect, and what a mono-repo project inherits.
+func TestDesktopProjectSpecificationsFolder(t *testing.T) {
+	testhome.Temp(t)
+	root := t.TempDir()
+	for _, args := range [][]string{{"init"}, {"remote", "add", "origin", "https://example.test/project.git"}} {
+		if _, err := gitLocal(context.Background(), root, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := agentconfig.WriteSettings(agentconfig.Overrides{Projects: map[string]string{"p": root}}); err != nil {
+		t.Fatal(err)
+	}
+	monoRepo := true
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/api/v1/agent/config"):
+			json.NewEncoder(w).Encode(agentconfig.Config{SchemaVersion: agentconfig.Version, ProjectID: "p", GitRemoteURL: "https://example.test/project.git", AIProvider: "claude"})
+		case strings.HasPrefix(r.URL.Path, "/api/projects/"):
+			json.NewEncoder(w).Encode(models.Project{ID: "p", Name: "Project P", MonoRepo: monoRepo})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	d := &agentDaemon{repoRoot: root, loopback: loopbackServer{desktopToken: "private"}, link: serverLink{serverURL: srv.URL, projectID: "p"}}
+	do := func(method, path string, body any) *httptest.ResponseRecorder {
+		var reader io.Reader
+		if body != nil {
+			raw, _ := json.Marshal(body)
+			reader = bytes.NewReader(raw)
+		}
+		r := httptest.NewRequest(method, path, reader)
+		r.Header.Set("Authorization", "Bearer private")
+		w := httptest.NewRecorder()
+		d.desktopHandler(w, r)
+		return w
+	}
+	// A saved mapping answers 204 No Content; save reports 200 for it so the
+	// checks below read as success or refusal.
+	save := func(specPath string) *httptest.ResponseRecorder {
+		w := do("POST", "/desktop/projects", map[string]any{"projectId": "p", "path": root, "specPath": specPath})
+		if w.Code == http.StatusNoContent {
+			w.Code = http.StatusOK
+		}
+		return w
+	}
+	info := func() map[string]any {
+		t.Helper()
+		w := do("GET", "/desktop/project?id=p", nil)
+		if w.Code != 200 {
+			t.Fatalf("GET /desktop/project returned %d: %s", w.Code, w.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	stored := func() string {
+		t.Helper()
+		settings, err := agentconfig.ReadSettings(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return settings.SpecRepos["p"]
+	}
+
+	// Mono-repo without an override: the code checkout is inherited, and it is
+	// a Git repository.
+	got := info()
+	if got["specPath"] != "" || !samePath(t, got["specDefault"].(string), root) || got["specKind"] != "git" {
+		t.Fatalf("a mono-repo project inherits its checkout: %v", got)
+	}
+
+	// A plain folder is accepted as typed, and shown as such.
+	plain := t.TempDir()
+	if w := save(plain + string(filepath.Separator)); w.Code != 200 {
+		t.Fatalf("a plain folder must be accepted: %d %s", w.Code, w.Body.String())
+	}
+	if stored() != plain || info()["specKind"] != "folder" {
+		t.Fatalf("the plain folder must be stored cleaned and shown as a folder: %q %v", stored(), info())
+	}
+
+	// A folder inside a Git checkout is stored as that checkout's top level.
+	wiki := t.TempDir()
+	if _, err := gitLocal(context.Background(), wiki, "init"); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(wiki, "specs")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if w := save(inside); w.Code != 200 || !samePath(t, stored(), wiki) || info()["specKind"] != "git" {
+		t.Fatalf("a Git subfolder must be normalised to its top level: %d %q %v", w.Code, stored(), info())
+	}
+
+	// Relative, missing and non-directory paths are refused, saying why.
+	file := filepath.Join(plain, "notes.txt")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for path, why := range map[string]string{"specs": "absolute", filepath.Join(plain, "gone"): "does not exist", file: "not a directory"} {
+		if w := save(path); w.Code != 400 || !strings.Contains(w.Body.String(), why) {
+			t.Fatalf("%s must be refused with %q, got %d %s", path, why, w.Code, w.Body.String())
+		}
+	}
+
+	// A stored folder deleted since reads as missing.
+	gone := t.TempDir()
+	if w := save(gone); w.Code != 200 {
+		t.Fatalf("saving: %d %s", w.Code, w.Body.String())
+	}
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	if info()["specKind"] != "missing" {
+		t.Fatalf("a deleted folder must read as missing: %v", info())
+	}
+
+	// Clearing removes the override; a multi-repo project then has nothing to
+	// inherit, and says so.
+	if w := save(""); w.Code != 200 || stored() != "" {
+		t.Fatalf("clearing must remove the override: %d %q", w.Code, stored())
+	}
+	monoRepo = false
+	if got := info(); got["specDefault"] != "" || got["specKind"] != "unset" {
+		t.Fatalf("a multi-repo project inherits nothing: %v", got)
+	}
+}

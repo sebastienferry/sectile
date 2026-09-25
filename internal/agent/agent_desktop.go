@@ -454,8 +454,9 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		UseWorktrees                *bool   `json:"useWorktrees"`
 		Terminal                    *string `json:"terminal"`
 		InheritTerminal             bool    `json:"inheritTerminal"`
-		// SpecPath is the local specifications checkout; empty clears it, so
-		// the project's own checkout carries the specifications again.
+		// SpecPath is the specifications folder on this workstation; empty
+		// clears the override, so a mono-repo checkout carries the
+		// specifications again.
 		SpecPath *string `json:"specPath"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
@@ -472,20 +473,10 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	specPath := ""
 	if input.SpecPath != nil {
-		specPath = strings.TrimSpace(*input.SpecPath)
-		if specPath != "" {
-			if !filepath.IsAbs(specPath) {
-				http.Error(w, "The specifications repository must be an absolute path", 400)
-				return
-			}
-			top, err := gitLocal(r.Context(), specPath, "rev-parse", "--show-toplevel")
-			if err != nil {
-				http.Error(w, "Select a local Git repository for the specifications", 400)
-				return
-			}
-			// A folder inside a repository names that repository: the macro
-			// worktree is created at its root, where specs/ is looked for.
-			specPath = filepath.Clean(top)
+		var err error
+		if specPath, err = normalizeSpecFolder(r.Context(), *input.SpecPath); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
 		}
 	}
 	d.prepareMu.Lock()
@@ -719,6 +710,49 @@ func localAgentAvailable(file string) bool {
 	return response.StatusCode == http.StatusOK
 }
 
+// normalizeSpecFolder validates a specifications folder typed or chosen in the
+// desktop settings. It must be an absolute path to an existing directory. A
+// folder inside a Git checkout names that checkout: the macro worktree is
+// created at its root, where specs/ is looked for. A folder outside any
+// checkout is kept as it is. Empty clears the override.
+func normalizeSpecFolder(ctx context.Context, raw string) (string, error) {
+	folder := strings.TrimSpace(raw)
+	if folder == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(folder) {
+		return "", fmt.Errorf("The specifications folder must be an absolute path")
+	}
+	info, err := os.Stat(folder)
+	if err != nil {
+		return "", fmt.Errorf("The specifications folder %s does not exist", folder)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("The specifications folder %s is not a directory", folder)
+	}
+	if top, err := gitLocal(ctx, folder, "rev-parse", "--show-toplevel"); err == nil {
+		return filepath.Clean(top), nil
+	}
+	return filepath.Clean(folder), nil
+}
+
+// specFolderKind says what the effective specifications folder is, for the
+// desktop settings to show next to the field: "git" inside a Git checkout,
+// "folder" for a plain directory, "missing" when it no longer exists, and
+// "unset" when a multi-repo project has none.
+func specFolderKind(ctx context.Context, folder string) string {
+	if strings.TrimSpace(folder) == "" {
+		return "unset"
+	}
+	if info, err := os.Stat(folder); err != nil || !info.IsDir() {
+		return "missing"
+	}
+	if _, err := gitLocal(ctx, folder, "rev-parse", "--show-toplevel"); err == nil {
+		return "git"
+	}
+	return "folder"
+}
+
 // desktopProject exposes server metadata without allowing server configuration edits.
 func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodPost {
@@ -746,12 +780,24 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		}
 		effective := agentconfig.ApplyOverrides(config, overrides)
 		_, worktreeOverride := overrides.Worktrees[id]
+		// The inherited folder follows the code checkout: only an override is
+		// stored, so a later change of the local repository carries it along.
+		specDefault := ""
+		if project.MonoRepo && mappingErr == nil {
+			specDefault = root
+		}
+		specEffective := strings.TrimSpace(overrides.SpecRepos[id])
+		if specEffective == "" {
+			specEffective = specDefault
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"server":                      config,
 			"monoRepo":                    project.MonoRepo,
 			"path":                        root,
 			"specPath":                    overrides.SpecRepos[id],
+			"specDefault":                 specDefault,
+			"specKind":                    specFolderKind(r.Context(), specEffective),
 			"useWorktrees":                effective.UseWorktrees,
 			"configured":                  mappingErr == nil,
 			"aiCommandTemplate":           effective.AICommandTemplate,
