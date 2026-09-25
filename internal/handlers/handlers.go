@@ -1738,6 +1738,16 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		// viewId: a saved view replaces the project with its own selection,
 		// and the other filters narrow it further (#387).
 		scope := db.TaskScope{UserID: h.webSessionUser(r), ProjectID: projectID, ViewID: r.URL.Query().Get("viewId")}
+		// mine=1: the tickets assigned to the caller, whoever they are on
+		// each ticket's tracker (#468). Resolved here, never sent by name.
+		if mine := r.URL.Query().Get("mine"); mine == "1" || mine == "true" {
+			identities, err := h.myTasks(r)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			scope.Mine = identities
+		}
 		tasks, err := h.db.GetTasksInScope(scope, q, status, priority, label, sprint, team, assignee, macro, trackerStatuses, issueTypes, pinnedOnly)
 		if errors.Is(err, db.ErrBoardViewNotFound) {
 			writeError(w, http.StatusNotFound, err.Error())
