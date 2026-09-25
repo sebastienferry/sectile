@@ -258,19 +258,30 @@ func TestSilenceToleratesSessionsWithoutRuns(t *testing.T) {
 	nilRegistry.Stop()
 }
 
-// recordingWaiter stands in for the database's waiting mark.
+// recordingWaiter stands in for the database's waiting marks, which name the
+// session that declared them.
 type recordingWaiter struct {
 	mu      sync.Mutex
+	marks   map[string][]string
 	cleared []string
 }
 
-func (w *recordingWaiter) SetRemoteRunWaiting(runID string, waiting bool) error {
+func (w *recordingWaiter) mark(sessionID, runID string) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if !waiting {
-		w.cleared = append(w.cleared, runID)
+	if w.marks == nil {
+		w.marks = make(map[string][]string)
 	}
-	return nil
+	w.marks[sessionID] = append(w.marks[sessionID], runID)
+}
+
+func (w *recordingWaiter) ResumeWaits(sessionID string) ([]string, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	runs := w.marks[sessionID]
+	delete(w.marks, sessionID)
+	w.cleared = append(w.cleared, runs...)
+	return runs, nil
 }
 
 func (w *recordingWaiter) recorded() []string {
@@ -287,8 +298,8 @@ func TestResumeClearsOnlyTheSessionsOwnWaits(t *testing.T) {
 	registry.SetWaiter(waits)
 	registry.open("session-1", nil)
 	registry.open("session-2", nil)
-	registry.MarkWaiting("session-1", "run-1")
-	registry.MarkWaiting("session-2", "run-2")
+	waits.mark("session-1", "run-1")
+	waits.mark("session-2", "run-2")
 
 	if cleared := registry.Resume("session-1"); cleared != 1 {
 		t.Fatalf("cleared = %d, want 1", cleared)
@@ -299,27 +310,34 @@ func TestResumeClearsOnlyTheSessionsOwnWaits(t *testing.T) {
 	if got := waits.recorded(); len(got) != 1 || got[0] != "run-1" {
 		t.Fatalf("cleared = %v, want only run-1", got)
 	}
+}
 
-	registry.ForgetWaiting("session-2", "run-2")
-	if cleared := registry.Resume("session-2"); cleared != 0 {
-		t.Fatalf("a wait the session cleared itself was cleared again: %d", cleared)
+// The registry holds no wait of its own: a session it never watched, such as
+// one declared before a restart or served by another instance, has its wait
+// ended by its call all the same (#475).
+func TestResumeClearsTheWaitOfASessionTheRegistryNeverSaw(t *testing.T) {
+	waits := &recordingWaiter{}
+	registry := silentRegistry(t, &recordingCloser{}, nil, time.Hour)
+	registry.SetWaiter(waits)
+	waits.mark("other-instance.session-9", "run-9")
+
+	if cleared := registry.Resume("other-instance.session-9"); cleared != 1 {
+		t.Fatalf("cleared = %d, want the wait of the unknown session", cleared)
 	}
 }
 
-// Closing a session clears the waits it declared on runs it does not own; the
-// runs it owns are closed, and their terminal status clears their mark.
-func TestCloseClearsWaitsOnRunsTheSessionDoesNotOwn(t *testing.T) {
+// Closing a session clears the waits it declared; the runs it owns are closed.
+func TestCloseClearsTheSessionsWaits(t *testing.T) {
 	waits, closer := &recordingWaiter{}, &recordingCloser{}
 	registry := silentRegistry(t, closer, nil, time.Hour)
 	registry.SetWaiter(waits)
 	registry.open("session-1", nil)
 	registry.Adopt("session-1", "owned", "TASK-1", "clarify")
-	registry.MarkWaiting("session-1", "owned")
-	registry.MarkWaiting("session-1", "launched")
+	waits.mark("session-1", "launched")
 
 	registry.Close("session-1")
 	if got := waits.recorded(); len(got) != 1 || got[0] != "launched" {
-		t.Fatalf("cleared = %v, want only the run the session did not own", got)
+		t.Fatalf("cleared = %v, want the run the session waited on", got)
 	}
 	if got := closer.recorded(); len(got) != 1 || got[0] != "TASK-1/owned/"+disconnectStatus {
 		t.Fatalf("closed = %v, want the owned run", got)
@@ -340,7 +358,6 @@ func TestReleasedRunIsNotClosedByItsSession(t *testing.T) {
 	}
 	var nilRegistry *SessionRegistry
 	nilRegistry.ReleaseRun("run-1")
-	nilRegistry.MarkWaiting("session-1", "run-1")
 	nilRegistry.Resume("session-1")
 }
 

@@ -217,6 +217,8 @@ export interface StoredUserCredential {
   tracker: string
   siteUrl?: string
   email?: string
+  /** The account the tracker confirmed the credential belongs to (#468). */
+  account?: string
   sealed: boolean
   unlocked: boolean
   updatedAt?: string

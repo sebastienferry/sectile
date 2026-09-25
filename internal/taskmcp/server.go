@@ -12,6 +12,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 type taskInput struct {
@@ -238,9 +239,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			// The task is already read. A tracker that cannot be reached costs the
 			// session its comments, not its ticket, so the failure is reported as a
-			// field and never as an empty discussion.
+			// field and never as an empty discussion. Comments are read as the
+			// caller, with their own tracker account, as the web detail view reads
+			// them for its viewer.
 			result := map[string]any{"task": task}
-			comments, err := database.GetTaskComments(task.ID)
+			comments, err := database.GetTaskCommentsAs(tracker.WithActingUser(ctx, callerOf(resolve, req).UserID), task.ID)
 			if err != nil {
 				result["commentsError"] = err.Error()
 			} else {
@@ -337,21 +340,18 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			sessions.Release(sessionID(req.Session), in.RunID)
 			return nil, activity, nil
 		})
-	mcp.AddTool(s, &mcp.Tool{Name: reportWaitingTool, Description: "Declare that a run is blocked on its user, so the board and the owner's desktop show it as waiting. Call it with waiting true right before asking the user a question you cannot continue without. The wait ends by itself on this session's next Sectile call, when the run finishes, or with waiting false. A headless run has nobody to answer and is left unmarked. Tool permission prompts are not reported this way."},
+	mcp.AddTool(s, &mcp.Tool{Name: reportWaitingTool, Description: "Declare that a run is blocked on its user, so the board and the owner's desktop show it as waiting. Call it with waiting true right before asking the user a question you cannot continue without. The wait ends by itself on this session's next Sectile call, when the owner presses Enter in the run's console, when the run finishes, or with waiting false. A headless run has nobody to answer and is left unmarked. Tool permission prompts are not reported this way."},
 		func(ctx context.Context, req *mcp.CallToolRequest, in reportWaitingInput) (*mcp.CallToolResult, any, error) {
 			caller := callerOf(resolve, req)
-			activity, applied, err := database.ReportRemoteRunWaitingAs(db.Actor{ID: caller.UserID, Name: caller.Name}, caller.Role == db.RoleAdmin, in.TaskKey, in.RunID, in.Waiting)
+			// The wait is recorded with the declaring session, whose next call
+			// ends it on whichever instance serves that call.
+			activity, applied, err := database.ReportSessionRunWaitingAs(db.Actor{ID: caller.UserID, Name: caller.Name}, caller.Role == db.RoleAdmin, sessionID(req.Session), in.TaskKey, in.RunID, in.Waiting)
 			if err != nil {
 				return nil, nil, err
 			}
 			result := map[string]any{"activity": activity, "applied": applied}
-			switch {
-			case !applied:
+			if !applied {
 				result["reason"] = "headless run: nobody can answer it, so it is not shown as waiting"
-			case in.Waiting:
-				sessions.MarkWaiting(sessionID(req.Session), in.RunID)
-			default:
-				sessions.ForgetWaiting(sessionID(req.Session), in.RunID)
 			}
 			return nil, result, nil
 		})
@@ -400,7 +400,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if project == nil {
 			return nil, nil, fmt.Errorf("project not found: %s", projectID)
 		}
-		task, err := database.CreateTask(models.CreateTaskRequest{
+		// The ticket is filed under the caller's own tracker account; a call that
+		// names nobody falls back to the server credential.
+		task, err := database.CreateTaskAs(tracker.WithActingUser(ctx, callerOf(resolve, req).UserID), models.CreateTaskRequest{
 			// Remote creation is required, not preferred: a ticket an agent files
 			// has to exist where a human will see it.
 			RequireRemoteCreation: true,

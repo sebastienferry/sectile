@@ -16,7 +16,7 @@ const RunNotOwned = "run-not-owned"
 // server and a connected local agent over the agent WebSocket relay.
 type Message struct {
 	MsgID   string          `json:"msgId"`
-	Type    string          `json:"type"` // dispatch_step, pty_input, pty_resize, step_status, pty_output, heartbeat, pull_tasks, running_tasks, run_waiting, error
+	Type    string          `json:"type"` // dispatch_step, pty_input, pty_resize, step_status, pty_output, heartbeat, pull_tasks, running_tasks, run_waiting, run_answered, error
 	TaskID  string          `json:"taskId,omitempty"`
 	UserID  string          `json:"userId,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
@@ -33,6 +33,20 @@ const RunWaitingType = "run_waiting"
 type RunWaiting struct {
 	RunID        string     `json:"runId"`
 	WaitingSince *time.Time `json:"waitingSince"`
+}
+
+// RunAnsweredType is the message an agent sends when the owner pressed Enter in
+// the console of a run that was waiting on them (#475). A server that predates
+// it logs the unknown type and carries on, and the wait then ends as it did
+// before, on the session's next call.
+const RunAnsweredType = "run_answered"
+
+// RunAnswered is the payload of RunAnsweredType. WaitingSince names the mark
+// the owner answered, as the server pushed it, so that a question asked after
+// the answer was typed is not ended by it.
+type RunAnswered struct {
+	RunID        string    `json:"runId"`
+	WaitingSince time.Time `json:"waitingSince"`
 }
 
 // RunningTask represents an active task execution reported by an agent.

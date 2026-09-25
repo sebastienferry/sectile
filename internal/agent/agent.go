@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -529,6 +530,7 @@ func (d *agentDaemon) connect(ctx context.Context) error {
 
 	stopClose := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stopClose()
+	d.resendAnswers(conn)
 	log.Printf("[Agent] Connected to remote server")
 	fmt.Printf("\n✅ [Agent] Connecté avec succès au serveur Sectile (%s)\n", d.link.serverURL)
 	fmt.Printf("   Projet: [%s] | Machine: [%s]\n", d.link.projectID, d.link.deviceID)
@@ -702,7 +704,7 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 			log.Printf("[Agent] Invalid pty_input payload: %v", err)
 			return
 		}
-		if err := d.terminal.manager.SendInput(payload.SessionID, payload.Data); err != nil {
+		if err := d.terminal.manager.SendViewerInput(payload.SessionID, payload.Data); err != nil {
 			log.Printf("[Agent] Failed to send PTY input: %v", err)
 		}
 
@@ -727,7 +729,9 @@ func (d *agentDaemon) handleMessage(ctx context.Context, conn *websocket.Conn, m
 // blocked on the user, which is what the desktop banner is raised from. A run
 // the agent does not hold is someone else's business and is ignored, and a
 // headless run has nobody to wait for: a mark there would raise a false
-// "waiting for you" banner in the poll before the exit is observed.
+// "waiting for you" banner in the poll before the exit is observed. A mark the
+// owner already answered is the echo of a push that crossed the answer: the
+// answer is sent again instead of the glyph coming back.
 func (d *agentDaemon) handleRunWaiting(msg agentprotocol.Message) {
 	var payload agentprotocol.RunWaiting
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
@@ -742,9 +746,102 @@ func (d *agentDaemon) handleRunWaiting(msg agentprotocol.Message) {
 	}
 	if payload.WaitingSince == nil || run.desktop.Headless {
 		run.desktop.WaitingSince = time.Time{}
+		run.answeredAt = time.Time{}
 		return
 	}
-	run.desktop.WaitingSince = payload.WaitingSince.UTC()
+	since := payload.WaitingSince.UTC()
+	if !run.answeredAt.IsZero() && run.answeredAt.Equal(since) {
+		go d.sendAnswered(payload.RunID, since)
+		return
+	}
+	run.answeredAt = time.Time{}
+	run.desktop.WaitingSince = since
+}
+
+// watchAnswers observes what the owner types in a run's console, so that the
+// Enter answering its question ends the wait at once rather than on the
+// session's next Sectile call (#475). It is registered once per run.
+func (d *agentDaemon) watchAnswers(runID string) {
+	if d.terminal.manager == nil {
+		return
+	}
+	watch := false
+	d.queue.read(runID, func(run *controlledRun) {
+		watch = !run.answerWatched && !run.desktop.Headless
+		run.answerWatched = true
+	})
+	if !watch {
+		return
+	}
+	// Registered outside the queue lock: the listener takes it, under the
+	// session's listener lock.
+	d.terminal.manager.AddInputListener(runID, func(data []byte) {
+		if bytes.ContainsAny(data, "\r\n") {
+			d.answerRun(runID)
+		}
+	})
+}
+
+// answerRun ends, on the desktop and on the server, the wait of a run whose
+// owner pressed Enter in its console. Any other key leaves it: arrows, Escape
+// or Ctrl-C do not answer a question.
+func (d *agentDaemon) answerRun(runID string) {
+	d.queue.mu.Lock()
+	run := d.queue.runs[runID]
+	if run == nil || run.desktop.Headless || run.desktop.WaitingSince.IsZero() {
+		d.queue.mu.Unlock()
+		return
+	}
+	since := run.desktop.WaitingSince
+	run.desktop.WaitingSince = time.Time{}
+	run.answeredAt = since
+	d.queue.mu.Unlock()
+	// The listener runs on the console's read path, which must not wait on the
+	// server.
+	go d.sendAnswered(runID, since)
+}
+
+// sendAnswered tells the server the owner answered a run's wait. Without a
+// connection the answer stays on the run and is sent on reconnection.
+func (d *agentDaemon) sendAnswered(runID string, since time.Time) {
+	d.link.mu.Lock()
+	conn := d.link.conn
+	d.link.mu.Unlock()
+	if conn == nil {
+		return
+	}
+	d.writeAnswered(conn, runID, since)
+}
+
+func (d *agentDaemon) writeAnswered(conn *websocket.Conn, runID string, since time.Time) {
+	raw, err := json.Marshal(agentprotocol.RunAnswered{RunID: runID, WaitingSince: since})
+	if err != nil {
+		return
+	}
+	if err := d.link.write(conn, agentprotocol.Message{Type: agentprotocol.RunAnsweredType, Payload: raw}); err != nil {
+		log.Printf("[Agent] Cannot report the answered wait of run %s: %v", runID, err)
+	}
+}
+
+// resendAnswers sends the answers the server has not confirmed yet, on a new
+// connection, before any message is read from it: the server then records them
+// before it pulls the running tasks and sends back their waiting state.
+func (d *agentDaemon) resendAnswers(conn *websocket.Conn) {
+	type answer struct {
+		runID string
+		since time.Time
+	}
+	var pending []answer
+	d.queue.mu.Lock()
+	for id, run := range d.queue.runs {
+		if !run.answeredAt.IsZero() {
+			pending = append(pending, answer{id, run.answeredAt})
+		}
+	}
+	d.queue.mu.Unlock()
+	for _, a := range pending {
+		d.writeAnswered(conn, a.runID, a.since)
+	}
 }
 
 // handlePullTasks returns all currently queued or running executions.
@@ -1104,6 +1201,8 @@ func (d *agentDaemon) runInPty(sessionID, workDir string, envVars map[string]str
 		log.Printf("[Agent] Failed to create PTY session: %v", err)
 		return err
 	}
+
+	d.watchAnswers(sessionID)
 
 	// The console output already reaches the desktop over the WebSocket and is
 	// kept in the session history. Echoing it here as well buries the agent's
