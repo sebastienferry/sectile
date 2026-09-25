@@ -49,6 +49,11 @@ func (d *AgentDispatcher) callOperationLocal(ctx context.Context, ac *AgentConn,
 		err := d.dispatchAndWaitLocal(ctx, ac, ac.UserID, op.TaskID, agentconfig.Dispatch{SchemaVersion: agentconfig.Version, TaskID: op.TaskID, TaskKey: op.TaskID, ProjectID: op.ProjectID, SkillID: op.SkillID, Action: action, Prompt: op.Prompt, RunID: op.RunID, Mode: op.Mode, Model: op.Model})
 		return json.RawMessage("null"), err
 	}
+	// Refused here rather than relayed: an agent too old for the operation
+	// would only answer an error that names neither the cause nor the fix.
+	if !ac.Build.Supports(op.Action) {
+		return nil, ac.unsupported(op.Action)
+	}
 	raw, err := json.Marshal(op)
 	if err != nil {
 		return nil, err
@@ -69,6 +74,10 @@ func (d *AgentDispatcher) callOperationLocal(ctx context.Context, ac *AgentConn,
 	select {
 	case res := <-pending.result:
 		if res.Error != "" {
+			// An agent that announced nothing can only say so after the fact.
+			if !ac.Build.Announced && agentprotocol.IsUnknownOperationReply(res.Error, op.Action) {
+				return nil, ac.unsupported(op.Action)
+			}
 			return nil, fmt.Errorf("local agent: %s", res.Error)
 		}
 		return res.Value, nil
@@ -82,6 +91,12 @@ func (d *AgentDispatcher) callOperationLocal(ctx context.Context, ac *AgentConn,
 			op.Action, waited(started), ac.DeviceID, ctx.Err())
 	}
 }
+
+// unsupported names this agent as too old for action.
+func (ac *AgentConn) unsupported(action string) error {
+	return &agentprotocol.UnsupportedOperationError{Device: ac.DeviceID, Build: ac.Build.Describe(), Operation: action}
+}
+
 func (d *AgentDispatcher) ReportOperation(ac *AgentConn, msg AgentMessage) {
 	var res agentprotocol.Result
 	if json.Unmarshal(msg.Payload, &res) != nil || (res.Error == "" && len(res.Value) == 0) {

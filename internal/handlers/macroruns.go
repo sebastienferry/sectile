@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"tasks/internal/agentconfig"
+	"tasks/internal/agentprotocol"
 	"tasks/internal/db"
 	"tasks/internal/models"
 	"tasks/internal/skills"
@@ -198,7 +199,7 @@ func slicingReadError(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case strings.Contains(err.Error(), `unknown local operation "macro_spec_file"`):
+	case errors.Is(err, agentprotocol.ErrUnsupportedOperation):
 		return errors.New("Votre app desktop Sectile est trop ancienne pour importer la découpe : mettez-la à jour puis réessayez.")
 	case errors.Is(err, ErrNoAgentConnected), strings.Contains(err.Error(), "requires a connected agent"):
 		return errors.New("L'import de la découpe lit les spécifications sur votre poste : connectez l'app desktop Sectile puis réessayez.")

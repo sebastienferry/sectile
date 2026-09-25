@@ -325,6 +325,7 @@ func Run(args []string) {
 
 	log.Printf("🚀 Sectile Agent starting (server=%s, project=%s, device=%s)", daemon.link.serverURL, daemon.link.projectID, daemon.link.deviceID)
 
+	daemon.loopback.binarySha256 = executableSha256()
 	// Start local agent HTTP reverse proxy gateway
 	if err := daemon.startLocalProxy(ctx); err != nil {
 		log.Printf("[Agent] Cannot bootstrap MCP without the local gateway: %v", err)
@@ -589,6 +590,15 @@ func (d *agentDaemon) buildWSURL() (string, error) {
 	q := u.Query()
 	q.Set("projectId", d.link.projectID)
 	q.Set("deviceId", d.link.deviceID)
+	// The build and the operations this agent dispatches, so the server can
+	// name an agent too old for what it asks instead of relaying blindly. A
+	// server that predates them ignores the parameters.
+	build := version.Current()
+	q.Set("agentVersion", build.Version)
+	if build.Commit != "" {
+		q.Set("agentCommit", build.Commit)
+	}
+	q.Set("operations", strings.Join(agentprotocol.Operations, ","))
 	u.RawQuery = q.Encode()
 
 	return u.String(), nil
