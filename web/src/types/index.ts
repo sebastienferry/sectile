@@ -40,6 +40,11 @@ export interface TaskActivity {
   duration?: string
   /** Set while a running session is blocked on the user. Cleared when it resumes or ends. */
   waitingSince?: string
+  /**
+   * Why a run waits when it is not a question asked in its session:
+   * "repository" for a launch parked until its ticket is pinned to a repository.
+   */
+  waitingReason?: string
   /** Who started the execution. Empty on records written before ownership existed. */
   userId?: string
   /** That person's display name or e-mail, resolved server side. */
@@ -280,6 +285,16 @@ export interface Project {
   /** Étape du workflow agentique -> colonnes concernées (une ou plusieurs). */
   stageColumns?: Record<string, string[]>
   gitRemoteUrl?: string
+  /**
+   * The repositories the project's tickets work in, the code remote
+   * (gitRemoteUrl) always first. Derived server side, never stored as such.
+   */
+  repositories?: ProjectRepository[]
+  /**
+   * JSON report of the conversion of the legacy working directories into
+   * repositories. Empty until that conversion ran.
+   */
+  repositoriesMigration?: string
   githubRepo: string
   /**
    * The project's own connection parameters. Empty means "those of the user
@@ -332,8 +347,16 @@ export interface Project {
  * an empty provider to clear the optional project override; omitting the field
  * keeps the existing value on updates.
  */
-export type ProjectSavePayload = Omit<Partial<Project>, 'aiProvider'> & {
+export type ProjectSavePayload = Omit<Partial<Project>, 'aiProvider' | 'repositories'> & {
   aiProvider?: AIProvider | ''
+  /** Remote URLs of the full declared list; the code remote may be included or not. */
+  repositories?: string[]
+}
+
+/** One repository of a project: its remote URL and its host/path identity. */
+export interface ProjectRepository {
+  url: string
+  identity: string
 }
 
 /**
@@ -422,8 +445,12 @@ export interface Task {
   prUrl?: string
   /** Ensemble ordonné des pull requests du ticket, de la plus ancienne à la courante. */
   prLinks?: PullRequestLink[]
-  /** Répertoire de travail propre au ticket. Vide = hérite du projet, puis du réglage global. */
+  /** Legacy free-text working directory, ignored by the agent. Superseded by `repository`. */
   repoPath?: string
+  /** Identity of the repository the ticket is pinned to, e.g. "github.com/o/b". Empty = not pinned. */
+  repository?: string
+  /** Identities of the repositories the ticket's work changed. */
+  changedRepositories?: string[]
   /** Statut brut du tracker, tel qu'il l'écrit (« Dev Test », « To Merge »…). */
   trackerStatus?: string
   /** Sprint / itération du tracker (champ Sprint côté Jira). */

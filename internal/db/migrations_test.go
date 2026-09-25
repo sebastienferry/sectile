@@ -44,11 +44,22 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	// And it still carries the columns a migration since dropped.
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN github_token TEXT NOT NULL DEFAULT ''")
 	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN gitlab_token TEXT NOT NULL DEFAULT ''")
+	dropRepositoryColumns(d)
 }
 
-// undoMigrationSeventeen puts back the schema migration 17 changed, for the
+// dropRepositoryColumns removes what migrations 17 to 21 add, for the tests
+// that put a database back before them and reopen it.
+func dropRepositoryColumns(d *DB) {
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN repositories")
+	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN repositories_migration")
+	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN repository")
+	_, _ = d.conn.Exec("ALTER TABLE tasks DROP COLUMN changed_repositories")
+	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN waiting_reason")
+}
+
+// undoServerCredentialsMigration puts back the schema migration 22 changed, for the
 // fixtures that forget the versions after one before it and replay them.
-func undoMigrationSeventeen(t *testing.T, d *DB) {
+func undoServerCredentialsMigration(t *testing.T, d *DB) {
 	t.Helper()
 	for _, stmt := range []string{
 		"DROP TABLE server_tracker_credentials",
@@ -323,7 +334,8 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
 	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
-	undoMigrationSeventeen(t, d)
+	dropRepositoryColumns(d)
+	undoServerCredentialsMigration(t, d)
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= ?", 5); err != nil {
 		t.Fatalf("forgetting the migration: %v", err)
 	}
@@ -353,6 +365,7 @@ func TestMigrationSixteenDropsTheServerSpecificationsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("creating the database: %v", err)
 	}
+	dropRepositoryColumns(d)
 	for _, stmt := range []string{
 		"ALTER TABLE projects ADD COLUMN spec_repo_path TEXT NOT NULL DEFAULT ''",
 		`INSERT INTO projects (id, name, slug, spec_repo_path) VALUES ('p1', 'Kept', 'kept', '/server/wiki')`,
@@ -362,7 +375,7 @@ func TestMigrationSixteenDropsTheServerSpecificationsPath(t *testing.T) {
 			t.Fatalf("%s: %v", stmt, err)
 		}
 	}
-	undoMigrationSeventeen(t, d)
+	undoServerCredentialsMigration(t, d)
 	d.Close()
 
 	reopened, err := NewDB(path)

@@ -149,8 +149,8 @@ func TestUpgradeWithNothingToSealNeedsNoKey(t *testing.T) {
 	reopened.Close()
 }
 
-// Migration 17 creates the store and removes the per-project tokens.
-func TestMigrationSeventeenDropsTheProjectTokens(t *testing.T) {
+// Migration 22 creates the store and removes the per-project tokens.
+func TestTheServerCredentialsMigrationDropsTheProjectTokens(t *testing.T) {
 	d := testDB(t)
 	for _, probe := range []string{"SELECT github_token FROM projects", "SELECT gitlab_token FROM projects"} {
 		if _, err := d.conn.Exec(probe); err == nil {

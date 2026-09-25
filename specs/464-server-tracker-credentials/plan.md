@@ -30,7 +30,7 @@ tracker token screen and needs no change.
 
 ### 1. Storage: `server_tracker_credentials`
 
-Migration 17 (`internal/db/migrations.go`), shared statements:
+Migration 22 (`internal/db/migrations.go`), shared statements:
 
 ```sql
 CREATE TABLE server_tracker_credentials (
@@ -151,7 +151,7 @@ Idempotent by construction (steps 2 and 3), so it needs no version number and
 is safe under several replicas starting together: the insert uses
 `ON CONFLICT (tracker) DO NOTHING`, and step 3 covers the loser.
 
-The project token columns are dropped by migration 17 without adoption: the
+The project token columns are dropped by migration 22 without adoption: the
 owner chose to discard them (clarification Q2).
 
 ### 6. HTTP API
@@ -285,7 +285,7 @@ Settings flags for everybody: `githubTokenSet`, `githubTokenFromEnv`,
 | File | Change |
 | --- | --- |
 | `internal/secrets/secrets.go` (+ test) | server binding |
-| `internal/db/migrations.go` (+ test) | migration 17 |
+| `internal/db/migrations.go` (+ test) | migration 22 |
 | `internal/db/servercredentials.go` (new, + test) | resolution, save, clear, states, adoption |
 | `internal/db/trackercredentials.go` | resolution from the new store, no project tokens, flags |
 | `internal/db/db.go` | adoption call, sync job `RequestedBy`, `processSyncJob`, settings SQL without token writes, project SQL without token columns |
@@ -308,7 +308,7 @@ Settings flags for everybody: `githubTokenSet`, `githubTokenFromEnv`,
 - **Adoption as a Go step inside the migration runner.** The runner is
   SQL-only by design (ADR 0021); adding a Go hook for a one-off is a bigger
   change than an idempotent startup step.
-- **Dropping the clear-text columns in migration 17.** SQL migrations run
+- **Dropping the clear-text columns in migration 22.** SQL migrations run
   before any Go code, so the values would be gone before they could be sealed.
 - **Discarding clear-text tokens when no key is available.** Silent loss of
   the only working credential; refusing to start with a named fix is

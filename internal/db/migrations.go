@@ -297,12 +297,57 @@ var migrations = []migration{
 		},
 	},
 	{
+		// The repositories a multi-repo project's tickets work in (#456), as
+		// remotes: the code remote is derived and never stored here. Each
+		// workstation maps them to folders of its own.
+		version: 17,
+		name:    "projects.repositories",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN repositories TEXT NOT NULL DEFAULT '[]';",
+		},
+	},
+	{
+		// Empty until a local agent converted the legacy repo_path and
+		// repo_paths to repositories, then the JSON report of that conversion.
+		version: 18,
+		name:    "projects.repositories_migration",
+		statements: []string{
+			"ALTER TABLE projects ADD COLUMN repositories_migration TEXT NOT NULL DEFAULT '';",
+		},
+	},
+	{
+		// The repository, by identity, a ticket is pinned to.
+		version: 19,
+		name:    "tasks.repository",
+		statements: []string{
+			"ALTER TABLE tasks ADD COLUMN repository TEXT NOT NULL DEFAULT '';",
+		},
+	},
+	{
+		// The other repositories, by identity, in which a ticket has a worktree
+		// on its branch, each of which needs its pull request.
+		version: 20,
+		name:    "tasks.changed_repositories",
+		statements: []string{
+			"ALTER TABLE tasks ADD COLUMN changed_repositories TEXT NOT NULL DEFAULT '[]';",
+		},
+	},
+	{
+		// Why a run waits, when it is not a question in its session: a launch
+		// parked until its ticket is pinned to a repository says "repository".
+		version: 21,
+		name:    "task_activities.waiting_reason",
+		statements: []string{
+			"ALTER TABLE task_activities ADD COLUMN waiting_reason TEXT NOT NULL DEFAULT '';",
+		},
+	},
+	{
 		// One server credential per provider, sealed under the server key and
 		// set by an admin (#464, ADR 0028). The clear-text tokens of the
 		// settings row are moved here by adoptLegacyServerTrackerTokens, which
 		// needs the key and so cannot be SQL. The per-project tokens are
 		// discarded: one credential serves every project of its provider.
-		version: 17,
+		version: 22,
 		name:    "server_tracker_credentials",
 		statements: []string{
 			`CREATE TABLE server_tracker_credentials (

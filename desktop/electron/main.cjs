@@ -255,6 +255,14 @@ ipcMain.handle('remove-project',async(_,id)=>{
  return api('/desktop/projects?id='+encodeURIComponent(id),'DELETE')
 })
 ipcMain.handle('map-project',(_,mapping)=>api('/desktop/projects','POST',mapping))
+// The folders of a multi-repo project's repositories on this workstation
+// (#456). An agent that predates them answers nothing useful, so it is named.
+async function requireRepositories(){
+ const status=await api('/desktop/status')
+ if(!status.capabilities?.includes('repositories'))throw Error('Update and restart the local agent to map the repositories of a multi-repo project.')
+}
+ipcMain.handle('repositories',async(_,projectId)=>{await requireRepositories();return api('/desktop/repositories?projectId='+encodeURIComponent(projectId))})
+ipcMain.handle('map-repository',async(_,mapping)=>{await requireRepositories();return api('/desktop/repositories','POST',mapping)})
 ipcMain.handle('clear-history',()=>api('/desktop/history','DELETE'))
 ipcMain.handle('git-diff',async(_,id)=>{
  if(typeof id!=='string'||!id||id.length>512)throw Error('Select an execution to inspect changes.')

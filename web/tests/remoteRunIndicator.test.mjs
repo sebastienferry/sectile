@@ -168,3 +168,13 @@ test('an agent run is stoppable, never closable, and a cancelled run offers neit
   const canceled = run({ action: CLIENT, userId: 'carol', status: 'canceled', completedAt: new Date(NOW).toISOString() })
   assert.deepEqual(deriveRunIndicator([canceled], 'task-1', NOW, { userId: 'carol' }).closableRunIds, [])
 })
+
+test('the longest wait carries its reason onto the indicator', () => {
+  const parked = run({ id: 'a', waitingSince: '2026-01-01T11:00:00Z', waitingReason: 'repository' })
+  const asking = run({ id: 'b', waitingSince: '2026-01-01T11:30:00Z' })
+  const indicator = deriveRunIndicator([asking, parked], 'task-1', NOW)
+  assert.equal(indicator.state, 'waiting')
+  assert.equal(indicator.waitingSince, '2026-01-01T11:00:00Z')
+  assert.equal(indicator.waitingReason, 'repository')
+  assert.equal(deriveRunIndicator([asking], 'task-1', NOW).waitingReason, undefined)
+})

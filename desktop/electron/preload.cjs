@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('localAgent',{
  projects:()=>ipcRenderer.invoke('projects'),
  removeProject:id=>ipcRenderer.invoke('remove-project',id),
  mapProject:mapping=>ipcRenderer.invoke('map-project',mapping),
+ repositories:projectId=>ipcRenderer.invoke('repositories',projectId),
+ mapRepository:mapping=>ipcRenderer.invoke('map-repository',mapping),
  clearHistory:()=>ipcRenderer.invoke('clear-history'),
  gitDiff:id=>ipcRenderer.invoke('git-diff',id),
  runs:()=>ipcRenderer.invoke('runs'),

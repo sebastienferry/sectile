@@ -1,8 +1,9 @@
 # Tasks #464 - One server tracker credential per provider
 
 Ordered checklist. Each group is one commit (Conventional Commits). Before
-group 2, check the next free migration number against `origin/main` (17 at the
-time of writing) and renumber if main landed one.
+group 2, check the next free migration number against `origin/main` and
+renumber if main landed one. Written as 17, renumbered 22 when #456 (#470)
+landed migrations 17 to 21.
 
 ## 1. Server binding in `internal/secrets` (FR-4)
 
@@ -16,7 +17,7 @@ time of writing) and renumber if main landed one.
 
 ## 2. Schema (FR-9, US4)
 
-- [x] T2.1 Migration 17 `server_tracker_credentials` + drop
+- [x] T2.1 Migration 22 `server_tracker_credentials` + drop
   `projects.github_token`, `projects.gitlab_token` (one statement per entry).
   Never touch the baseline `CREATE TABLE`.
 - [x] T2.2 Remove the project token fields from `models.Project`, the update

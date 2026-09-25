@@ -619,7 +619,7 @@ func (h *Handler) HandleProjects(w http.ResponseWriter, r *http.Request) {
 		userID := h.webSessionUser(r)
 		project, err := h.db.CreateProjectAs(userID, req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeError(w, repositoryErrorStatus(err), err.Error())
 			return
 		}
 		if userID != "" && project != nil {
@@ -860,6 +860,39 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			"targetEpicKey": strings.ToUpper(strings.TrimSpace(req.TargetEpicKey)),
 			"count":         len(req.TaskIDs),
 		})
+		return
+	}
+
+	// Sub-action: /api/projects/{id}/legacy-repo-paths: what a local agent
+	// converts to repositories, once per project (#456).
+	if len(parts) >= 2 && parts[1] == "legacy-repo-paths" && r.Method == http.MethodGet {
+		legacy, err := h.db.LegacyRepoPaths(id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, legacy)
+		return
+	}
+
+	// Sub-action: /api/projects/{id}/repositories/convert: a local agent's
+	// conversion of the legacy paths. The first one applies, the others get 409.
+	if len(parts) >= 3 && parts[1] == "repositories" && parts[2] == "convert" && r.Method == http.MethodPost {
+		var report models.RepositoryConversion
+		if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+			writeError(w, http.StatusBadRequest, "Payload invalide: "+err.Error())
+			return
+		}
+		project, err := h.db.ApplyRepositoryConversion(h.webSessionUser(r), id, report)
+		if errors.Is(err, db.ErrRepositoriesConverted) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, project)
 		return
 	}
 
@@ -1511,7 +1544,7 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		// background synchronisation stops running as the server.
 		project, err := h.db.UpdateProjectAs(h.webSessionUser(r), id, req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeError(w, repositoryErrorStatus(err), err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, project)
@@ -2877,7 +2910,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		task, err := h.db.UpdateTaskBy(h.webPrincipal(r).Actor(), id, req)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			writeError(w, repositoryErrorStatus(err), err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, task)
@@ -3196,6 +3229,34 @@ func (h *Handler) HandleActivityDetail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"waiting": *body.Waiting})
+		return
+	}
+
+	// Sub-action: /api/activities/{id}/awaiting-repository
+	// The local agent parks a launch until its ticket is pinned to a
+	// repository (#456), autonomous runs included: the answer is a pin on the
+	// ticket, not a reply in the session. Like the engine report below, it is
+	// sent by the local agent with its own credential, which the middleware
+	// has authenticated; an identified caller must own the run or be an admin.
+	if len(parts) >= 2 && parts[1] == "awaiting-repository" && r.Method == http.MethodPost {
+		var body struct {
+			Waiting *bool `json:"waiting"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Waiting == nil {
+			writeError(w, http.StatusBadRequest, "Body must be {\"waiting\": true|false}")
+			return
+		}
+		caller := h.webPrincipal(r)
+		activity, err := h.db.MarkRunAwaitingRepository(caller.Actor(), caller.IsAdmin() || caller.Anonymous(), id, *body.Waiting)
+		if errors.Is(err, db.ErrRunNotYours) {
+			writeError(w, http.StatusForbidden, err.Error())
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, activity)
 		return
 	}
 
@@ -3890,4 +3951,13 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 			flusher.Flush()
 		}
 	}
+}
+
+// repositoryErrorStatus answers 400 for a refused repository declaration or
+// pin (#456), and 500 for anything else.
+func repositoryErrorStatus(err error) int {
+	if errors.Is(err, db.ErrDuplicateRepository) || errors.Is(err, db.ErrRepositoryNotInProject) {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
 }
