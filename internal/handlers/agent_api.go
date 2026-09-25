@@ -289,6 +289,7 @@ func (h *Handler) HandleAgentProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	projects, err := h.db.AgentProjects()
 	if err != nil {
+		log.Printf("[AgentAPI] cannot list projects: %v", err)
 		writeError(w, http.StatusInternalServerError, "Cannot list projects")
 		return
 	}
