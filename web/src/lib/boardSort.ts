@@ -49,8 +49,14 @@ export function compareSortTail(a: SortableTask, b: SortableTask): number {
   return rank(b) - rank(a) || compareKeys(a.key, b.key) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 }
 
-/** The tracker update date, else the Sectile one; NaN when neither parses. */
-const updatedTime = (task: SortableTask): number => Date.parse(task.trackerUpdatedAt || task.updatedAt)
+/**
+ * The tracker update date, else the Sectile one; NaN when neither parses. An
+ * unreadable tracker date falls back too, rather than hiding a valid Sectile one.
+ */
+const updatedTime = (task: SortableTask): number => {
+  const tracker = task.trackerUpdatedAt ? Date.parse(task.trackerUpdatedAt) : Number.NaN
+  return Number.isNaN(tracker) ? Date.parse(task.updatedAt) : tracker
+}
 
 /** Returns the criterion picked in the selector, in its natural direction. */
 export function pickBoardSortField(field: BoardSortField): BoardSort {

@@ -75,6 +75,15 @@ test('last updated descending prefers the tracker date, falls back to the Sectil
   assert.deepEqual(keys(sortTasks(tasks, { field: 'updated', asc: false })), ['#4', '#2', '#1', '#3', '#5'])
 })
 
+test('last updated: an unreadable tracker date falls back to the Sectile date', () => {
+  const tasks = [
+    task('#1', { trackerUpdatedAt: 'not a date', updatedAt: '2026-09-01T00:00:00Z' }),
+    task('#2', { trackerUpdatedAt: '2026-05-01T00:00:00Z' }),
+    task('#3', { trackerUpdatedAt: 'not a date', updatedAt: 'nor this' }),
+  ]
+  assert.deepEqual(keys(sortTasks(tasks, { field: 'updated', asc: false })), ['#1', '#2', '#3'])
+})
+
 test('last updated ascending: oldest first, undated tickets still last', () => {
   const tasks = [
     task('#3', { priority: 'low' }),
