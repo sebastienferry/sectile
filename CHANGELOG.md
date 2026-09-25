@@ -64,6 +64,12 @@ test fixtures or internal plumbing.
 
 - **One *Skills & IA* tab on a ticket.** The web ticket view merges *Skills & Copilot* and *Cadrage & Specs* into a single tab. It opens with the prompts to copy for the next step and for the autonomous pickup, as in the card menu, and ends with the generated specification. The recommended next step now opens the *Details* tab, with its description and launch button. The tab no longer shows the Copilot banner, the macro and batch skills, the mode and model selectors, the additional instruction field (put extra context in the ticket's comments), or the *Passer direct au Code* shortcut, which launched the implementation without a specification. (#461)
 
+- **A context menu on each desktop project.** A project row in the desktop sidebar now shows only its name and a *…* button. Right-click the row, or click *…*, to open tasks, switch to the execution queue, create a task, open the agent console, reach the project settings or remove the project from the desktop. The count of waiting executions moves to the *…* button.
+
+- **The desktop specifications folder follows the repository layout.** The project's General settings now state whether the project is a mono-repo or a multi-repo one. On a mono-repo project, a *Specifications live in the code repository* checkbox decides between the local repository and a folder of their own; on a multi-repo project, the folder is asked for directly. The detected kind now names the folder it was checked on, for example *Git repository · /path/to/repo*.
+
+- **Set a project as mono-repo or multi-repo from the web interface.** The Git repository section of the project settings has a *Mono-repo* checkbox, ticked by default; untick it when a project's tickets span several repositories.
+
 - **A quieter status bar.** The MCP clients indicator and the active executions counter are gone from the status bar. Who is using the board and how many runs are in flight are now on the Administration page, and the activities view still lists every execution. `GET /api/mcp/sessions` still lists the live sessions.
 
 - **The desktop sidebar reads as columns.** Each execution row now starts with its run state, then its task number, so the states of all your runs line up down one column, as in the tickets pane; the task numbers share one width, so the titles line up too, free consoles included. A longer number is still shown in full and only shifts its own title. (#446)

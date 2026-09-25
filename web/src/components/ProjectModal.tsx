@@ -154,7 +154,9 @@ export const ProjectModal: React.FC = () => {
   const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
-  // Mono-dépôt : conditionne tout ce qui parle de « la » branche courante.
+  // Mono-repo: decides whatever speaks of "the" current branch, and whether the
+  // specifications share the code repository on each workstation.
+  const [monoRepo, setMonoRepo] = useState(true)
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
 
@@ -251,6 +253,7 @@ export const ProjectModal: React.FC = () => {
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
+      setMonoRepo(editingProject.monoRepo !== false)
 
       const hasCustomAgent = hasProjectAgentOverride(editingProject.aiProvider, editingProject.aiModel)
       setUseCustomAgent(hasCustomAgent)
@@ -299,6 +302,7 @@ export const ProjectModal: React.FC = () => {
 
       setRepoPath('')
       setGitRemoteUrl('')
+      setMonoRepo(true)
 
       setUseCustomAgent(false)
       setAiProvider('')
@@ -401,6 +405,7 @@ export const ProjectModal: React.FC = () => {
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
+        monoRepo,
         ...projectAgentSettings(useCustomAgent, aiProvider, aiModel),
         aiSkillModels,
         setupProviders: [],
@@ -703,6 +708,20 @@ export const ProjectModal: React.FC = () => {
                     className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                   />
                 </div>
+                <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={monoRepo}
+                    onChange={e => setMonoRepo(e.target.checked)}
+                    className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                  />
+                  <span>
+                    Mono-repo: the code and the specifications live in this repository
+                    <span className="block text-[10px] text-[var(--text-muted)] leading-relaxed">
+                      Untick when tickets span several repositories. Each workstation then declares its specifications folder in the desktop app.
+                    </span>
+                  </span>
+                </label>
                 <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
                   Local repositories and execution consoles are managed in the desktop agent.
                 </p>

@@ -38,7 +38,7 @@ test('free consoles launch without prompts, reconnect and stop independently',as
  const open=async()=>{app=await electron.launch({args:[path.resolve(__dirname,'..')],env});const page=await app.firstWindow();page.setDefaultTimeout(7000);return page}
  try{
   let page=await open()
-  await page.getByRole('button',{name:'Open agent console in Project',exact:true}).click()
+  await page.locator('.project-row').first().click({button:'right'});await page.getByRole('menuitem',{name:'Open agent console',exact:true}).click()
   const provider=page.getByLabel('Console agent')
   await page.waitForFunction(()=>document.querySelector('[aria-label="Console agent"]').value==='claude')
   assert.equal(await page.locator('dialog textarea').count(),0)
@@ -52,7 +52,7 @@ test('free consoles launch without prompts, reconnect and stop independently',as
   assert.equal(await page.locator('#selected-pr').isHidden(),true)
   await page.locator('.xterm-helper-textarea').pressSequentially('hello agent');await page.locator('.xterm-helper-textarea').press('Enter')
   await page.waitForTimeout(150);assert.match(inputs,/hello agent\r/)
-  await page.getByRole('button',{name:'Open agent console in Project',exact:true}).click();await page.getByRole('button',{name:'Open console',exact:true}).click()
+  await page.getByRole('button',{name:'Actions for Project',exact:true}).click();await page.getByRole('menuitem',{name:'Open agent console',exact:true}).click();await page.getByRole('button',{name:'Open console',exact:true}).click()
   await page.waitForFunction(()=>document.querySelectorAll('.local-task').length===2)
   assert.equal(launches[1].provider,'claude');assert.equal(await page.locator('#execution-history').isHidden(),true)
   assert.equal(resultReads.length,0);assert.equal(taskWrites,0);assert.equal(taskReads,0)

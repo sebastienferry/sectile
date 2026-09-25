@@ -30,7 +30,7 @@ test('desktop initializes only the selected provider and retains partial results
  try{
   app=await electron.launch({args:[path.resolve(__dirname,'..')],env})
   const page=await app.firstWindow();page.setDefaultTimeout(10000)
-  await page.getByRole('button',{name:'Configure Test project',exact:true}).click()
+  await page.getByRole('button',{name:'Actions for Test project',exact:true}).click();await page.getByRole('menuitem',{name:'Project settings…',exact:true}).click()
   await page.getByRole('tab',{name:'Deployment',exact:true}).click()
   const provider=page.getByRole('combobox',{name:'Initialization provider',exact:true}),button=page.getByRole('button',{name:'Initialize',exact:true}),result=page.locator('.initialization-result')
   await provider.selectOption('codex')
