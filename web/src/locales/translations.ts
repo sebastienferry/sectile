@@ -702,6 +702,31 @@ export interface TranslationSchema {
     online: string
     lastActive: string
     never: string
+    serverCredentials: {
+      title: string
+      intro: string
+      stored: string
+      storedUnreadable: string
+      environment: string
+      none: string
+      account: string
+      checkedAt: string
+      notChecked: string
+      updatedAt: string
+      email: string
+      token: string
+      tokenPlaceholder: string
+      check: string
+      checkCurrent: string
+      save: string
+      clear: string
+      confirmClear: string
+      checked: string
+      saved: string
+      cleared: string
+      saveNeedsCheck: string
+      loadFailed: string
+    }
   }
   boardViews: {
     newView: string
@@ -1467,6 +1492,31 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       online: 'En ligne',
       lastActive: 'Vu',
       never: 'jamais',
+      serverCredentials: {
+        title: 'Accès trackers du serveur',
+        intro: 'Le compte avec lequel Sectile synchronise chaque tracker. Il sert à toutes les synchronisations, même celles lancées à la main ; les écritures faites par quelqu\'un restent faites avec son propre accès.',
+        stored: 'Enregistré',
+        storedUnreadable: 'Enregistré, illisible avec la clé du serveur : enregistrez-le à nouveau',
+        environment: 'Fourni par l\'environnement ({variables})',
+        none: 'Non configuré : définissez {variables} ou enregistrez un accès ici',
+        account: 'Compte',
+        checkedAt: 'vérifié',
+        notChecked: 'pas encore vérifié',
+        updatedAt: 'Enregistré',
+        email: 'E-mail du compte Jira',
+        token: 'Jeton',
+        tokenPlaceholder: 'Nouveau jeton',
+        check: 'Vérifier',
+        checkCurrent: 'Vérifier l\'accès en place',
+        save: 'Enregistrer',
+        clear: 'Effacer',
+        confirmClear: 'Effacer l\'accès serveur {tracker} ? Les synchronisations utiliseront l\'environnement s\'il en fournit un, sinon elles échoueront.',
+        checked: 'Connecté en tant que {account}',
+        saved: 'Accès serveur {tracker} enregistré',
+        cleared: 'Accès serveur {tracker} effacé',
+        saveNeedsCheck: 'Vérifiez le jeton avant de l\'enregistrer',
+        loadFailed: 'Accès serveur indisponibles',
+      },
     },
     boardViews: {
       newView: 'Nouvelle vue',
@@ -2230,6 +2280,31 @@ export const translations: Record<'fr' | 'en', TranslationSchema> = {
       online: 'Online',
       lastActive: 'Seen',
       never: 'never',
+      serverCredentials: {
+        title: 'Server tracker credentials',
+        intro: 'The account Sectile synchronises each tracker with. It serves every synchronisation, those started by hand included; a write somebody makes still goes with their own credential.',
+        stored: 'Stored',
+        storedUnreadable: 'Stored, unreadable with the server key: save it again',
+        environment: 'Provided by the environment ({variables})',
+        none: 'Not configured: set {variables} or save a credential here',
+        account: 'Account',
+        checkedAt: 'checked',
+        notChecked: 'not checked yet',
+        updatedAt: 'Saved',
+        email: 'Jira account e-mail',
+        token: 'Token',
+        tokenPlaceholder: 'New token',
+        check: 'Check',
+        checkCurrent: 'Check the credential in use',
+        save: 'Save',
+        clear: 'Clear',
+        confirmClear: 'Clear the {tracker} server credential? Synchronisations will use the environment if it provides one, and fail otherwise.',
+        checked: 'Connected as {account}',
+        saved: '{tracker} server credential saved',
+        cleared: '{tracker} server credential cleared',
+        saveNeedsCheck: 'Check the token before saving it',
+        loadFailed: 'Server credentials unavailable',
+      },
     },
     boardViews: {
       newView: 'New view',

@@ -169,8 +169,6 @@ interface AppContextType {
   clearUserCredential: (tracker: string) => Promise<boolean>
   /** Supprime une ligne orpheline. Réservée aux admins, refusée par le serveur sinon. */
   discardOrphanedCredential: (userId: string, tracker: string) => Promise<boolean>
-  /** Enregistre des accès déjà vérifiés, jeton en base ou dans un fichier à part. */
-  saveTrackerCredentials: (params: TrackerCredentials) => Promise<boolean>
   /**
    * Statuts du tracker affichés. Vide veut dire « tous » : c'est le choix
    * explicite de ce qu'on regarde, board comme liste, et il remplace le
@@ -1420,26 +1418,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         return data
       } catch (err: any) {
         return { ok: false, error: err.message || 'Serveur injoignable' }
-      }
-    },
-    []
-  )
-
-  const saveTrackerCredentials = useCallback(
-    async (params: TrackerCredentials): Promise<boolean> => {
-      try {
-        const res = await fetch(`${API_BASE}/setup/tracker`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(params),
-        })
-        const data = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(data.error || 'Enregistrement refusé')
-        setSettings(data)
-        return true
-      } catch (err: any) {
-        addToast({ type: 'error', title: 'Accès non enregistrés', description: err.message })
-        return false
       }
     },
     []
@@ -3786,7 +3764,6 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         unlockAllUserCredentials,
         lockAllUserCredentials,
         clearUserCredential,
-        saveTrackerCredentials,
         sourceFilter,
         setSourceFilter,
         parentFilter,

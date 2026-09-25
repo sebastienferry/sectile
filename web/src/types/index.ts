@@ -282,17 +282,13 @@ export interface Project {
   gitRemoteUrl?: string
   githubRepo: string
   /**
-   * Paramètres de connexion propres au projet. Vide veut dire « ceux de la
-   * configuration utilisateur ». Les jetons ne sont jamais renvoyés : seul le
-   * drapeau `...TokenSet` dit qu'il y en a un.
+   * The project's own connection parameters. Empty means "those of the user
+   * configuration". A project carries no token: the server credential of its
+   * provider serves every project (#464).
    */
   githubApiUrl?: string
-  githubToken?: string
-  githubTokenSet?: boolean
   gitlabUrl?: string
   gitlabProject?: string
-  gitlabToken?: string
-  gitlabTokenSet?: boolean
   /** Jira project key the sync queries on, e.g. "PE". */
   jiraProject?: string
   issueTracker: IssueTracker
@@ -664,29 +660,24 @@ export interface UserSettings {
   githubRepo: string
   jiraProject?: string
   jiraUrl?: string
-  /** Identifiants de l'API Jira, requis pour importer Sprint et Team. */
-  jiraEmail?: string
   /**
-   * Jamais renvoyé par l'API. En écriture, une chaîne vide conserve le jeton
-   * existant et la sentinelle `__clear__` l'efface.
+   * Never returned: the server credentials live in the Administration page
+   * (#464). The flags below are what the API answers instead.
    */
+  jiraEmail?: string
   jiraApiToken?: string
-  /** Un jeton est configuré, en base ou par variable d'environnement. */
+  /** A Jira server credential is stored. */
   jiraApiTokenSet?: boolean
-  /** Le jeton vient de SECTILE_JIRA_API_TOKEN et prime sur la base. */
+  /** None is stored, but the server environment provides one. */
   jiraApiTokenFromEnv?: boolean
   /** Instance GitHub, vide pour api.github.com. */
   githubApiUrl?: string
   /** Instance GitLab et projet par défaut, l'équivalent de githubRepo. */
   gitlabUrl?: string
   gitlabProject?: string
-  /**
-   * Jetons GitHub et GitLab : mêmes règles que jiraApiToken, jamais renvoyés,
-   * vide conserve, `__clear__` efface.
-   */
+  /** GitHub and GitLab server credentials: the same flags as Jira's. */
   githubToken?: string
   githubTokenSet?: boolean
-  /** Aucun jeton en base, mais l'environnement du serveur en fournit un. */
   githubTokenFromEnv?: boolean
   gitlabToken?: string
   gitlabTokenSet?: boolean
