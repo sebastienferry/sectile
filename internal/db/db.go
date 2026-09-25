@@ -138,6 +138,9 @@ type DB struct {
 	// unlocked holds the keys derived from sealing passphrases, for this
 	// server's lifetime only.
 	unlocked unlockedKeys
+	// keyRelay tells the other instances sharing the store when a derived key
+	// is held or forgotten here. Unset on a store shared with nobody.
+	keyRelay atomic.Pointer[UnlockedKeyRelay]
 	// prEvidenceLookup stands in for the forge answer on every route. It gets
 	// the repository asked (the foreign identity for a pull request in another
 	// repository), the branch and the prUrl the caller gave.

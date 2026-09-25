@@ -678,6 +678,14 @@ the event stream of `GET /mcp`. The sessions view (`GET /api/mcp/sessions`)
 lists the sessions of every live server, each with the `instance` holding it,
 and names under `unreachable` those that did not answer within two seconds.
 
+The same port carries the keys of sealed tracker credentials. A passphrase is
+typed once, on whichever server receives it: the key it derives is handed to
+the other live servers, encrypted under `SECTILE_SECRET_KEY`, and kept in their
+memory only, and a server that starts asks the others for the keys they hold.
+Locking a credential holds on every server at once, including one that could
+not be told: the lock is recorded in the database, and a key held from before
+stops opening anything. Storing the credential again does the same.
+
 ### Signing in and pairing a workstation
 
 A deployment shared by several people signs them in through an OpenID Connect

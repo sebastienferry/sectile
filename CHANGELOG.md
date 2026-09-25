@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Sealed tracker credentials unlock on every server.** When several servers share a PostgreSQL database, a credential unlocked through one of them can be used through all of them, a server started afterwards picks it up, and locking it holds on all of them at once. The passphrase is still never stored, and the key it derives stays in the servers' memory. (#409)
+
 - **Choose how Board and Backlog cards are sorted.** A selector in the Board and Backlog toolbars orders the cards by priority (the default), by epic, by key or by last update, with a button that flips the direction. Epic keeps the tickets of one epic together in each column, the epic holding the most urgent ticket first, and the tickets without an epic last. The choice is shared by both views and remembered by the browser. In the Backlog it replaces the "Priorité" button; clicking a column header of the flat table still sorts that table until the selector changes. (#402)
 
 - **Copy a ticket's key from its page.** In the web ticket detail, a button next to the ticket's key, and one next to its parent's key, copies that key to the clipboard exactly as shown (`#431`, `SFE-123`, `M-7`) and confirms it with a check mark and a toast, or says when the browser does not give access to the clipboard. The keys still open the tracker. (#431)

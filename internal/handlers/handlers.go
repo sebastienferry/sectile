@@ -60,6 +60,9 @@ type Handler struct {
 	// mcpCluster forwards MCP requests to the instance holding their session.
 	// Nil when this instance shares its store with nobody.
 	mcpCluster *mcpCluster
+	// credentialCluster shares the keys derived from sealing passphrases with
+	// the other instances of a shared store (#409). nil otherwise.
+	credentialCluster *credentialCluster
 	// identityProvider is nil when no OpenID Connect provider is configured,
 	// which leaves the interface on its single implicit user.
 	identityProvider *auth.Provider
@@ -3652,6 +3655,7 @@ func (h *Handler) EnableAgentCluster() error {
 	token, err := h.db.InternalToken()
 	h.agentDispatcher.SetCluster(h.db, token, err)
 	h.setMCPCluster(h.db, token, err)
+	h.setCredentialCluster(h.db, token, err)
 	return err
 }
 

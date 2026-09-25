@@ -156,13 +156,21 @@ func (h *Handler) HandleUserTrackerCredentials(w http.ResponseWriter, r *http.Re
 			Tracker string `json:"tracker"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		trackers := []string{req.Tracker}
 		if strings.TrimSpace(req.Tracker) == "" || req.Tracker == "*" {
 			creds, _ := h.db.UserTrackerCredentials(userID)
+			trackers = trackers[:0]
 			for _, c := range creds {
-				h.db.LockUserTrackerCredential(userID, c.Tracker)
+				trackers = append(trackers, c.Tracker)
 			}
-		} else {
-			h.db.LockUserTrackerCredential(userID, req.Tracker)
+		}
+		for _, tracker := range trackers {
+			// A lock that did not reach the database holds on this instance
+			// only, and the person must not be told it holds everywhere.
+			if err := h.db.LockUserTrackerCredential(userID, tracker); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
 		}
 		h.listUserCredentials(w, r, userID)
 
