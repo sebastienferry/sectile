@@ -17,9 +17,11 @@ import {
 import { useApp } from '../context/AppContext'
 import { TaskCard } from './TaskCard'
 import { TaskFilters } from './TaskFilters'
-import type { Task, Status, WorkflowStage, Priority } from '../types'
+import type { Task, Status, WorkflowStage } from '../types'
 import { resolveTaskStage, stageFromLabels } from '../lib/workflow'
 import { BoardGroupingToggle } from './BoardGroupingToggle'
+import { BoardSortSelect } from './BoardSortSelect'
+import { sortTasks } from '../lib/boardSort'
 import {
   isSelectableStage,
   orderSelection,
@@ -65,6 +67,7 @@ export const BoardView: React.FC = () => {
     moveTask,
     moveTaskWorkflowStage,
     boardGrouping,
+    boardSort,
     boardCardDisplayMode,
     toggleBoardCardDisplayMode,
     hideDone,
@@ -92,12 +95,10 @@ export const BoardView: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(() => new Set())
   const [launchingBatch, setLaunchingBatch] = useState(false)
 
-  // Le plus urgent en haut de chaque colonne. Le glisser-déposer ne réordonne
-  // pas à l'intérieur d'une colonne — il change d'étape — donc trier ici
-  // n'écrase aucun ordre manuel.
-  const PRIORITY_RANK: Record<Priority, number> = { urgent: 4, high: 3, medium: 2, low: 1 }
-  const byPriorityDesc = (list: Task[]) =>
-    [...list].sort((a, b) => (PRIORITY_RANK[b.priority] || 0) - (PRIORITY_RANK[a.priority] || 0))
+  // Every column follows the sort chosen in the toolbar (#402). Drag and drop
+  // never reorders inside a column — it changes the stage — so sorting here
+  // overrides no manual order.
+  const sortColumn = (list: Task[]) => sortTasks(list, boardSort)
 
   // -------------------------------------------------------------
   // MODE 1: Workflow Labels Columns (Pipeline IA)
@@ -369,7 +370,7 @@ export const BoardView: React.FC = () => {
     if (statuses.length === 0) {
       statuses.push(col.title.toLowerCase())
     }
-    return byPriorityDesc(
+    return sortColumn(
       displayedTasks.filter(t => {
         const st = (t.trackerStatus || '').toLowerCase()
         if (statuses.includes(st)) return true
@@ -383,7 +384,7 @@ export const BoardView: React.FC = () => {
   // aucune colonne atterrissent dans une colonne dédiée, affichée seulement si
   // elle contient quelque chose.
   const unassignedTasks = useTrackerBoard
-    ? byPriorityDesc(
+    ? sortColumn(
         displayedTasks.filter(t => {
           const st = (t.trackerStatus || '').toLowerCase()
           if (!st) return true
@@ -398,7 +399,7 @@ export const BoardView: React.FC = () => {
   // the same lists the selection is ordered and pruned against.
   const workflowColumnTasks = new Map<WorkflowStage, Task[]>(
     boardGrouping === 'workflow'
-      ? workflowColumns.map(col => [col.id, byPriorityDesc(displayedTasks.filter(t => resolveTaskStage(t, currentProject) === col.id))])
+      ? workflowColumns.map(col => [col.id, sortColumn(displayedTasks.filter(t => resolveTaskStage(t, currentProject) === col.id))])
       : [],
   )
   const statusColumnTasks = new Map<Status, Task[]>(
@@ -555,6 +556,7 @@ export const BoardView: React.FC = () => {
       <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-secondary)]/50 shrink-0">
         <div className="flex items-center gap-3">
           <BoardGroupingToggle size="md" />
+          <BoardSortSelect size="md" />
         </div>
 
         <div className="flex items-center gap-2">

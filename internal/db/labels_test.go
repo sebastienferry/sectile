@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"testing"
 
 	"tasks/internal/models"
@@ -184,7 +185,7 @@ func TestCloneTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 	// Scenario 3: Clone with source labels included (default and explicit true)
 	t.Run("Clone with source labels included", func(t *testing.T) {
 		incLabels := true
-		cloned, err := database.CloneTask(sourceTask.ID, models.CloneTaskRequest{
+		cloned, err := database.CloneTask(context.Background(), sourceTask.ID, models.CloneTaskRequest{
 			Title:         "Cloned Task with labels",
 			IncludeLabels: &incLabels,
 		})
@@ -224,7 +225,7 @@ func TestCloneTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 	// Scenario 4: Clone without source labels
 	t.Run("Clone without source labels", func(t *testing.T) {
 		incLabels := false
-		cloned, err := database.CloneTask(sourceTask.ID, models.CloneTaskRequest{
+		cloned, err := database.CloneTask(context.Background(), sourceTask.ID, models.CloneTaskRequest{
 			Title:         "Cloned Task without labels",
 			IncludeLabels: &incLabels,
 		})
@@ -258,7 +259,7 @@ func TestCloneTaskLowercaseDefaultWorkflowLabel(t *testing.T) {
 	// Scenario 5 (Clone): Clone with explicit status
 	t.Run("Clone with explicit status", func(t *testing.T) {
 		incLabels := true
-		cloned, err := database.CloneTask(sourceTask.ID, models.CloneTaskRequest{
+		cloned, err := database.CloneTask(context.Background(), sourceTask.ID, models.CloneTaskRequest{
 			Title:         "Cloned Task with explicit status",
 			Status:        models.StatusClarified,
 			IncludeLabels: &incLabels,
