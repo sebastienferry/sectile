@@ -58,6 +58,8 @@ test fixtures or internal plumbing.
 
 ### Changed
 
+- **The desktop sidebar reads as columns.** Each execution row now starts with its run state, then its task number, so the states of all your runs line up down one column, as in the tickets pane; the task numbers share one width, so the titles line up too, free consoles included. A longer number is still shown in full and only shifts its own title. (#446)
+
 - **A run lost with its server can still be reported on.** When the server holding an agent session restarts, or one of several servers stops, the runs that session had started are canceled as before, but their owner can now report how they really ended through `finish_run`, as after any other disconnection. (#408)
 
 - **The web quick add is roomier, files the ticket under a macro, and can hand it to an agent.** The dialog is wider, with the title and a taller Markdown description on the left and the ticket's settings on the right (stacked on a narrow window). A new *Macro* field lists the project's open macros and starts on the macro the board is filtered on; the ticket is attached on the tracker too, and if the tracker refuses, the ticket is kept and a warning says so. The *Destination* choice is gone: the ticket always goes to the project's tracker. *Après la création* lets you pick, before saving, either to rewrite the ticket as a user story (its detail modal opens with the proposal to review) or to clarify it in the background; nothing is launched unless you choose to. (#445)

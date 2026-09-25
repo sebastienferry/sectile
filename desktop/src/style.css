@@ -19,7 +19,7 @@ aside{flex-shrink:0}.sidebar-hidden #sidebar-resizer{display:none}#sidebar-resiz
 .local-task:hover .task-archive,.local-task:focus-within .task-archive{opacity:1}.task-archive:hover{color:#ffb7c3}
 @media(hover:none){.task-archive{opacity:1}}
 
-.local-task>.task-number{border:0;background:none;padding:4px 0 4px 8px;flex-shrink:0;font-size:11px;color:var(--muted,#8892a4);cursor:pointer}.local-task>.task-number:hover{text-decoration:underline;color:inherit}
+.local-task>.run-state{padding-left:8px;cursor:pointer}.local-task>.task-key-slot{display:inline-flex;flex-shrink:0;min-width:5ch;margin-left:8px;font-size:11px;white-space:nowrap}.local-task .task-key-slot>.task-number{border:0;background:none;padding:4px 0;margin:0;font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--muted,#8892a4);cursor:pointer}.local-task .task-key-slot>.task-number:hover{text-decoration:underline;color:inherit}
 
 #task-status{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;flex-shrink:0}
 #next-step-status{flex:1;min-width:160px;overflow-wrap:anywhere}
