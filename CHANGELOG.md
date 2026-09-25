@@ -15,6 +15,8 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **Keep specifications out of the repository.** A new option in the web project settings leaves the clarifications and specifications of the project's tasks in their worktree instead of committing them: Git ignores them through the checkout's local exclude file, so branches and pull requests carry code only, and the stage reports on the ticket carry what the files said. Each workstation can override the choice in the desktop project settings, which also warn when the repository already tracks specifications (they stay in its history). When the project opens its pull request at specification, it is opened after implementation instead. (#487)
+
 - **Copy a ticket's key from its page.** In the web ticket detail, a button next to the ticket's key, and one next to its parent's key, copies that key to the clipboard exactly as shown (`#431`, `SFE-123`, `M-7`) and confirms it with a check mark and a toast, or says when the browser does not give access to the clipboard. The keys still open the tracker. (#431)
 
 - **Cmd+B (Ctrl+B) toggles the sidebar.** In the web app and in the desktop app, Cmd+B on macOS and Ctrl+B on Windows and Linux collapse and expand the sidebar, as its button does; the button's tooltip and the web command palette show the shortcut. A terminal keeps Ctrl+B, and the Markdown editor keeps it for bold. The web app now also remembers a collapsed sidebar across reloads, as the desktop app already did. (#474)

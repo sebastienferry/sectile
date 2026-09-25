@@ -29,6 +29,7 @@ ambiguous tracker keys. A task lookup resolves the actual owning project.
 | `aiSkillModels` | Optional `skillId -> model` map for the skills that depart from `aiModel`. An absent or empty entry inherits; it never means "no model". Entries naming no configured skill are ignored. |
 | `externalTerminalCommand` | Terminal application/launcher selection. No silent fallback to a hidden PTY after launch failure. |
 | `skills` | Array of `{id, directory, command, content, commandContent}`. IDs and installation destinations must be unique and safe. |
+| `specArtifacts` | Optional, `keep` or `drop`. `drop` keeps the tasks' clarification and specification files out of the repository: before a task's session starts, the agent writes their ignore rules in a Sectile-managed block of the primary checkout's `.git/info/exclude`, and removes the block when the effective value is `keep`. Absent (an older server) reads as `keep`. A workstation may override it (see *Execution defaults and local overrides*). |
 | `monoRepo` | Optional repository layout. `true` lets the code checkout carry the macro specifications when no specifications folder is set on the workstation; `false` requires that folder for every macro operation. Absent (an older server) reads as `true`. |
 
 An explicit project connection downloads, validates and installs configuration
@@ -545,6 +546,15 @@ attaches its URL in the specified transition. Implementation and review update
 that same PR/MR; only completed review makes it ready. Opening the draft alone
 does not advance the task to reviewed. Tracker synchronization remains server-owned.
 
+A workstation that drops the specification artefacts (`specArtifacts`) has
+nothing to show on the branch at specification. When a `specified` transition
+of such a project names no pull request, the server asks the actor's agent
+with the `spec_artifacts` operation, which answers `{"mode":"keep"|"drop"}`
+with its effective value for the task. On `drop` the transition is accepted
+without a pull request and its note says that it is deferred to the
+implemented stage, which requires it as usual. Any other answer, including an
+error from an agent that predates the operation, keeps the requirement.
+
 ## Local console service
 
 The agent always hosts task consoles in local PTYs regardless of the
@@ -620,10 +630,18 @@ Workstation settings are saved in `~/.config/sectile/settings.json` as project-I
 {
   "projects": {"project-id": "/path/to/repository"},
   "worktrees": {"project-id": true},
+  "specArtifacts": {"project-id": "drop"},
   "parallelism": {"project-id": 2},
   "repositories": {"github.com/owner/other": "/path/to/other"}
 }
 ```
+
+`specArtifacts` overrides, per project, whether this workstation keeps or
+drops the tasks' specification artefacts (`keep` or `drop`). No entry follows
+the server, and the key is written only once an override is saved. Saving the
+desktop project settings with an effective `keep` removes the project's block
+from every checkout the workstation maps for it; lines outside the block are
+never touched.
 
 `repositories` maps each repository of a multi-repo project, by its
 `host/path` identity, to the folder holding its checkout on this workstation
