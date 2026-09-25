@@ -28,6 +28,7 @@ The slicing travelled one way only: the specification proposed lines, they were 
   - `path`, the checkout to write the specification in, and `branch`, the branch already checked out there. When `worktree` is `true`, it is this macro's own worktree, so another macro specified at the same time cannot touch your files. Read `warning` and repeat it in your report.
   - `todos`, the macro's slicing lines. That list is the truth to align on.
 - Do NOT create the branch, do NOT switch branch, and do NOT run `git checkout`: switching would carry your untracked files onto another branch. When `worktree` is `false`, check that the checkout at `path` is on `branch`; if it is not, stop and say so.
+- When `branch` is empty, `path` is a plain folder, not a Git repository: write in `path` directly, skip the branch check, and run no `git` command at all. Nothing is committed or pushed.
 - The session's own directory is the code repository, which may not hold the specifications: work in `path`, never relative to the current directory.
 - The origin of each line, which tells you where to look and what to do:
   - `sourceKind` is `tasks` or `spec`: the artefact the line was imported from, and therefore the file to align. Lines from `tasks` align the groups of `tasks.md`, lines from `spec` the entries of `spec.md`; never compare a line with the other file.
@@ -36,10 +37,10 @@ The slicing travelled one way only: the specification proposed lines, they were 
   - `sourceKind: stories` means the line was taken back from an existing story. It points at a ticket, not at an entry: leave it alone and report it.
   - Any other `sourceKind` is an origin this skill does not know: leave the line alone and report it.
 - The specification folder of this macro, `specs/<MACRO-KEY>-<slug>/` in `path`: `spec.md` carries the prioritised user stories, `tasks.md` the groups.
-- If no such folder exists on the macro branch, say so and stop: there is nothing to realign, and writing one from the slicing alone would be a specification done badly.
+- If no such folder exists in `path` (or on the macro branch), say so and stop: there is nothing to realign, and writing one from the slicing alone would be a specification done badly.
 
 ## Steps
-1. Start the run (see "Macro run" below), then call `prepare_macro_worktree` for `path`, `branch` and `todos`. Never write on the default branch.
+1. Start the run (see "Macro run" below), then call `prepare_macro_worktree` for `path`, `branch` and `todos`. Never write on the default branch; an empty `branch` means a plain folder, written in place.
 2. Read the slicing and the macro's folder. An entry is a numbered user story under the user stories heading of `spec.md`, or a level-two group heading of `tasks.md`.
 3. Compare, line by line, within the file each line came from, and classify. Each case has one answer:
    - A line whose `sourceEntry` matches an entry, with the same text: nothing to do.
@@ -57,6 +58,8 @@ The slicing travelled one way only: the specification proposed lines, they were 
 
    Never `git add -A`: with worktrees off, `path` is a working checkout that may hold other changes. Push nothing when you wrote nothing, and never push the default branch. Opening the pull request is the human's gesture: say the branch is pushed and stop there.
 
+   When `branch` is empty, skip this step entirely: the folder is not a Git repository, so there is no branch to commit on and nothing to push. Say so in the report.
+
 ## Do not
 - Do not rewrite the body of an entry that exists. Its scenarios, its acceptance criteria and its prose are not in the slicing, and regenerating them from a one-line todo would destroy them. A renamed line changes a title, not a body.
 - Do not delete an entry. Mark it, so a human decides: the line may have been dropped from the slicing for this iteration and still be worth specifying.
@@ -64,13 +67,14 @@ The slicing travelled one way only: the specification proposed lines, they were 
 - Do not write the macro's todos. They are your input, and the call that writes them replaces the whole list.
 - Do not create stories, and do not open a pull request.
 - Do not switch a checkout's branch, and do not write on the default branch.
+- On a plain folder (empty `branch`), do not run `git`: no branch check, no commit, no push.
 
 ## Report
 - What you added, one line each, with the entry you created and a note that its body is a stub.
 - What you renamed, old title then new one.
 - What you marked as to be removed, and why you did not delete it.
 - What you deliberately left alone, and why: an entry whose body you kept, a line whose entry no longer exists (unmatched), a line taken back from a story, an origin you do not know.
-- The files touched, with their paths, the branch they are on, and whether it was pushed.
+- The files touched, with their paths, the branch they are on, and whether it was pushed. On a plain folder (empty `branch`), say it is not a Git repository and nothing was committed.
 - The `warning` of `prepare_macro_worktree`, if it gave one.
 
 ## Macro run

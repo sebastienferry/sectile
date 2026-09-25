@@ -93,6 +93,43 @@ func TestMacroWorkspacePreparesWithoutATask(t *testing.T) {
 	}
 }
 
+// A multi-repo project whose specifications folder is a plain folder: the
+// launch writes in that folder, with no branch, and the command line carries
+// no dangling branch text. Without the folder the launch is refused.
+func TestMacroWorkspaceOnAPlainFolderOfAMultiRepoProject(t *testing.T) {
+	ctx := context.Background()
+	testhome.Temp(t)
+	root, _ := specRepoWithRemote(t)
+	plain := t.TempDir()
+	mono := false
+	config := agentconfig.Config{SchemaVersion: 1, ProjectID: "remote-project", UseWorktrees: true, AIProvider: "claude", MonoRepo: &mono,
+		Skills: []agentconfig.Skill{{ID: "realign_macro", Directory: "realign-macro", Command: "/realign-macro", Content: "realign instructions"}}}
+	d := &agentDaemon{repoRoot: root, loopback: loopbackServer{url: "http://127.0.0.1:8091"}, link: serverLink{serverURL: "http://127.0.0.1:9", token: "token", projectID: "remote-project"}}
+
+	if _, _, _, err := d.prepareMacroWorkspace(ctx, config, "M-7", "Ux"); err == nil || !strings.Contains(err.Error(), "Specifications folder") {
+		t.Fatalf("a multi-repo project without a folder must be refused naming the setting, got %v", err)
+	}
+
+	if err := agentconfig.WriteSettings(agentconfig.Overrides{SpecRepos: map[string]string{"remote-project": plain}}); err != nil {
+		t.Fatal(err)
+	}
+	effective, cwd, workspace, err := d.prepareMacroWorkspace(ctx, config, "M-7", "Ux")
+	if err != nil {
+		t.Fatalf("prepareMacroWorkspace: %v", err)
+	}
+	if workspace.Path != plain || workspace.Branch != "" || workspace.Worktree || workspace.Warning == "" {
+		t.Fatalf("unexpected macro workspace %+v", workspace)
+	}
+	if entries, _ := os.ReadDir(plain); len(entries) != 0 {
+		t.Fatalf("nothing must be created in the plain folder, found %v", entries)
+	}
+	line, err := dispatchCommand(effective, "M-7", "realign_macro", "realign_macro", "", "", models.SkillModeInteractive, "",
+		agentCommandContext{Branch: workspace.Branch, Directory: cwd})
+	if err != nil || !strings.Contains(line, "/realign-macro M-7") || strings.Contains(strings.ToLower(line), "branch") {
+		t.Fatalf("the command must name the macro and no branch: %q %v", line, err)
+	}
+}
+
 // Two macros each have their own worktree: their runs must not queue behind
 // each other, while two runs of one macro still do.
 func TestMacroRunsShareACheckoutOnlyForTheSameMacro(t *testing.T) {
