@@ -12,6 +12,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/db"
 	"tasks/internal/models"
+	"tasks/internal/tracker"
 )
 
 type taskInput struct {
@@ -238,9 +239,11 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 			}
 			// The task is already read. A tracker that cannot be reached costs the
 			// session its comments, not its ticket, so the failure is reported as a
-			// field and never as an empty discussion.
+			// field and never as an empty discussion. Comments are read as the
+			// caller, with their own tracker account, as the web detail view reads
+			// them for its viewer.
 			result := map[string]any{"task": task}
-			comments, err := database.GetTaskComments(task.ID)
+			comments, err := database.GetTaskCommentsAs(tracker.WithActingUser(ctx, callerOf(resolve, req).UserID), task.ID)
 			if err != nil {
 				result["commentsError"] = err.Error()
 			} else {
@@ -397,7 +400,9 @@ func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve Ca
 		if project == nil {
 			return nil, nil, fmt.Errorf("project not found: %s", projectID)
 		}
-		task, err := database.CreateTask(models.CreateTaskRequest{
+		// The ticket is filed under the caller's own tracker account; a call that
+		// names nobody falls back to the server credential.
+		task, err := database.CreateTaskAs(tracker.WithActingUser(ctx, callerOf(resolve, req).UserID), models.CreateTaskRequest{
 			// Remote creation is required, not preferred: a ticket an agent files
 			// has to exist where a human will see it.
 			RequireRemoteCreation: true,

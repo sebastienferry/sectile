@@ -294,7 +294,8 @@ func TestCreateTaskFailsRatherThanFilingLocally(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	project, err := database.CreateProject(models.CreateProjectRequest{Name: "Jira backed", IssueTracker: "jira", JiraProject: "OPS"})
+	// No adapter is registered for GitLab, so nothing can file the ticket there.
+	project, err := database.CreateProject(models.CreateProjectRequest{Name: "GitLab backed", IssueTracker: "gitlab"})
 	if err != nil {
 		t.Fatal(err)
 	}

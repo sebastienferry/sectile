@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -259,12 +260,27 @@ func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "Epic Type") {
 		t.Fatalf("the site's refusal must be quoted: %v", err)
 	}
+	// Jira names the field by id only; the refusal is completed with what the
+	// creation screen requires and the request left out.
+	if !strings.Contains(err.Error(), "fields this project requires on creation for Story: Cost centre (customfield_10050), Epic Type (customfield_10011)") {
+		t.Fatalf("the refusal must list the mandatory fields: %v", err)
+	}
+	var httpErr *HTTPError
+	if !errors.As(err, &httpErr) || httpErr.Status != http.StatusBadRequest {
+		t.Fatalf("the completed refusal must keep the HTTP error: %v", err)
+	}
 	fields := created["fields"].(map[string]any)
 	if fields["issuetype"].(map[string]any)["name"] != "Story" || fields["project"].(map[string]any)["key"] != "PE" || fields["parent"].(map[string]any)["key"] != "PE-10" {
 		t.Fatalf("creation fields: %#v", fields)
 	}
 	if fields["description"].(map[string]any)["type"] != "doc" {
 		t.Fatalf("description must be ADF: %#v", fields["description"])
+	}
+
+	// A field the request gave is not listed as missing.
+	_, err = site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: proj, Title: "New", Fields: map[string]string{"customfield_10050": "R&D"}})
+	if err == nil || !strings.Contains(err.Error(), "for Story: Epic Type (customfield_10011)") || strings.Contains(err.Error(), "Cost centre") {
+		t.Fatalf("only the fields left out are listed: %v", err)
 	}
 
 	task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: proj, Title: "New", Fields: map[string]string{"customfield_10011": "10200", "customfield_10050": "R&D"}})
@@ -286,6 +302,65 @@ func TestJiraCreateUsesTheTypeFallbackAndQuotesRefusals(t *testing.T) {
 	_, _ = site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: proj, Title: "Bare", Fields: map[string]string{"customfield_10011": "10200"}})
 	if created["fields"].(map[string]any)["issuetype"].(map[string]any)["name"] != "Task" {
 		t.Fatalf("type fallback: %#v", created["fields"])
+	}
+}
+
+func TestJiraCreateRefusalStaysAsIsWhenTheScreenCannotBeRead(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"errorMessages":[],"errors":{"customfield_10011":"Epic Type is required."}}`)
+	})
+	site.on("GET", "/rest/api/3/issue/createmeta/PE/issuetypes", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	_, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New"})
+	if err == nil || !strings.Contains(err.Error(), "customfield_10011: Epic Type is required.") {
+		t.Fatalf("Jira's refusal must be returned: %v", err)
+	}
+	if strings.Contains(err.Error(), "fields this project requires") {
+		t.Fatalf("an unreadable creation screen must not complete the refusal: %v", err)
+	}
+}
+
+func TestJiraCreateRefusalDoesNotListFieldsTheBodyCarried(t *testing.T) {
+	site := newJiraSite(t)
+	site.on("POST", "/rest/api/3/issue", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"errorMessages":[],"errors":{"parent":"Issue 'PE-999' does not exist."}}`)
+	})
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes", `{"total":1,"issueTypes":[{"id":"10002","name":"Task"}]}`)
+	// A screen that makes the description and the labels mandatory: the
+	// adapter sends both from the request, outside its custom fields.
+	site.reply("GET", "/rest/api/3/issue/createmeta/PE/issuetypes/10002", `{"total":3,"fields":[
+		{"fieldId":"description","name":"Description","required":true},
+		{"fieldId":"labels","name":"Labels","required":true},
+		{"fieldId":"customfield_10050","name":"Cost centre","required":true}
+	]}`)
+
+	_, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Description: "Body", Labels: []string{"ops"}, ParentKey: "PE-999"})
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("Jira's refusal must be quoted: %v", err)
+	}
+	if !strings.Contains(err.Error(), "for Task: Cost centre (customfield_10050)") || strings.Contains(err.Error(), "Description (") || strings.Contains(err.Error(), "Labels (") {
+		t.Fatalf("only the fields the body left out are listed: %v", err)
+	}
+}
+
+func TestJiraCreateThatSucceedsReadsNoCreationScreen(t *testing.T) {
+	site := newJiraSite(t)
+	site.reply("POST", "/rest/api/3/issue", `{"id":"1","key":"PE-42"}`)
+	site.reply("GET", "/rest/api/3/issue/PE-42", `{"key":"PE-42","fields":{"summary":"New","status":{"name":"To Do","statusCategory":{"key":"new"}}}}`)
+
+	task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New"})
+	if err != nil || task.Key != "PE-42" {
+		t.Fatalf("created task: %+v %v", task, err)
+	}
+	for _, r := range site.requests {
+		if strings.Contains(r.Path, "/createmeta/") {
+			t.Fatalf("a creation that succeeds must not read the creation screen: %s %s", r.Method, r.Path)
+		}
 	}
 }
 

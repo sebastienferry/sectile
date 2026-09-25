@@ -2556,8 +2556,22 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 		req.Source = trackerName
 	}
 
-	if req.RequireRemoteCreation && req.Source != "local" && req.Source != "github" {
-		return nil, fmt.Errorf("remote task creation is not supported for tracker %q", req.Source)
+	// Under the strict contract a task is filed on its tracker or not at all:
+	// the adapter must resolve, be the one the request names, and create.
+	ts, tsErr := d.TrackerForProject(proj)
+	if req.RequireRemoteCreation && req.Source != "local" {
+		switch {
+		case tsErr != nil:
+			return nil, fmt.Errorf("cannot create the task on tracker %q: %w", req.Source, tsErr)
+		case ts == nil || !strings.EqualFold(ts.Name(), req.Source):
+			uses := "none"
+			if ts != nil {
+				uses = ts.Name()
+			}
+			return nil, fmt.Errorf("cannot create the task on tracker %q: the project uses %q", req.Source, uses)
+		case !ts.Supports(tracker.CapCreate):
+			return nil, fmt.Errorf("cannot create the task on tracker %q: it does not support creation", req.Source)
+		}
 	}
 	// Action Create -> Status: to_clarify, Label: New
 	if req.Status == "" {
@@ -2576,7 +2590,6 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 
 	// Remote creation requires confirmation from the server HTTP adapter.
 	local := true
-	ts, tsErr := d.TrackerForProject(proj)
 	if tsErr == nil && ts != nil && req.Source != "local" && ts.Name() != "local" && ts.Supports(tracker.CapCreate) {
 		created, err := ts.CreateIssue(ctx, tracker.CreateIssueRequest{
 			Project:     proj,
@@ -2584,13 +2597,11 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			Description: req.Description,
 			Priority:    req.Priority,
 			Labels:      req.Labels,
+			IssueType:   strings.TrimSpace(req.IssueType),
+			ParentKey:   strings.TrimSpace(req.ParentKey),
 		})
 		if err != nil {
-			trackerTitle := ts.Name()
-			if strings.EqualFold(trackerTitle, "github") {
-				trackerTitle = "GitHub"
-			}
-			return nil, fmt.Errorf("%s issue creation failed: %v", trackerTitle, err)
+			return nil, fmt.Errorf("%s issue creation failed: %w", trackerDisplayName(ts.Name()), err)
 		}
 		if created != nil {
 			id = ts.FormatTaskID(projID, created.Key, created.ID)
@@ -2598,7 +2609,7 @@ func (d *DB) CreateTaskAs(ctx context.Context, req models.CreateTaskRequest) (*m
 			local = false
 			extURL = created.ExternalURL
 		} else {
-			return nil, fmt.Errorf("%s issue creation failed: empty response", ts.Name())
+			return nil, fmt.Errorf("%s issue creation failed: empty response", trackerDisplayName(ts.Name()))
 		}
 	}
 
