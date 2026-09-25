@@ -1216,13 +1216,29 @@ async function openProject(id){
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
   const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
   const repository=settingRow('Local repository',{stacked:true},picker)
-  // Macro skills write specifications here; empty means the local repository.
-  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.placeholder='Same as the local repository';specPath.setAttribute('aria-label','Specifications repository')
+  // Macro operations read and write specifications here. Only an override is
+  // stored: a mono-repo project inherits its local repository, a multi-repo
+  // project needs one. Whether it is a Git checkout is detected, not declared.
+  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.setAttribute('aria-label','Specifications folder')
   const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
   specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)specPath.value=selected}catch(err){error(err)}}
   const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
-  const specRepository=settingRow('Specifications repository',{stacked:true},specPicker)
-  specRepository.hint.textContent='Optional · Where macro skills prepare their worktree when the specifications live apart from the code.'
+  const specKind=document.createElement('span');specKind.className='spec-kind';specKind.setAttribute('role','status');specKind.setAttribute('aria-label','Specifications folder kind')
+  const specRepository=settingRow('Specifications folder',{stacked:true},specPicker,specKind)
+  function renderSpec(data){
+   const mono=data.monoRepo!==false,override=!!(data.specPath||'').trim()
+   const required=!mono&&!override
+   specPath.placeholder=mono?(data.specDefault||'Same as the local repository'):'Required for a multi-repo project'
+   specRepository.section.classList.toggle('required',required)
+   specPath.setAttribute('aria-invalid',required?'true':'false')
+   specRepository.hint.textContent=required?'Required · Macro operations of a multi-repo project need this folder. Settings can still be saved without it.'
+    :!override&&mono?'Inherited from the local repository · Choose another folder to override it.'
+    :mono?'Overrides the local repository · Clear the field to inherit it again.'
+    :'Where macro skills read and write specifications.'
+   specKind.textContent={git:'Git repository',folder:'Folder (not a Git repository)',missing:'Not found'}[data.specKind]||''
+   specKind.dataset.kind=data.specKind||''
+  }
+  renderSpec(info)
   let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
   let parallelism=info.parallelism||1
   const controls={}
@@ -1449,7 +1465,11 @@ async function openProject(id){
     const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
     await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
     projectStateVersion++;disconnectedProjects.delete(id)
-    notice.textContent='Local configuration saved';await loadProjects()
+    notice.textContent='Local configuration saved'
+    // The agent normalised the folder and detected its kind: show what it
+    // stored, not what was typed.
+    try{const fresh=await api.project(id);specPath.value=fresh.specPath||'';renderSpec(fresh)}catch(err){error(err)}
+    await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
@@ -1518,7 +1538,7 @@ async function openProject(id){
      }
      updateTerminal()
     }
-    update();commandState();renderServer(fresh.monoRepo)
+    update();commandState();renderServer(fresh.monoRepo);renderSpec({...fresh,specPath:specPath.value})
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
   }
