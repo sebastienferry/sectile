@@ -241,3 +241,4 @@ dialog.workstation-settings{width:min(1100px,94vw);max-height:90vh}
 .spec-kind{overflow-wrap:anywhere}
 
 .project-more{position:relative;flex-shrink:0}
+.git-offer{margin-top:8px;padding:10px 12px;background:#1a2633;border:1px solid #39485a;border-radius:8px}.git-offer strong{font-size:12.5px;font-weight:600}.setting-row .git-offer p{margin:4px 0 0;color:#9eaec4;font-size:11.5px;line-height:1.45}.git-offer-actions{display:flex;gap:8px;margin-top:9px}.settings-content .git-offer-actions button{color:#d8e0ec;background:#202a38;border:1px solid #39465a;padding:6px 12px;font-size:12.5px;font-weight:500}.settings-content .git-offer-actions .git-offer-action{color:#122423;background:#62d3be;border-color:#62d3be;font-weight:600}.setting-row .git-offer-status{margin:6px 0 0;color:#80e6ce;font-size:11.5px;overflow-wrap:anywhere}.git-offer-status:empty{display:none}.setting-row .git-offer-status[data-tone=error]{color:#ff9292;white-space:pre-wrap}

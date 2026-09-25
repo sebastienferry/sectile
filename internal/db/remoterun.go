@@ -219,7 +219,7 @@ func (d *DB) finishRemoteRun(taskKey, runID, status, note string, authorize func
 		closable = "(status='running' OR (status='canceled' AND summary LIKE ?))"
 		args = append(args, "%"+models.RunDisconnectNote+"%")
 	}
-	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary="+summaryExpr+", completed_at=?, waiting_since=NULL WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
+	result, err := d.conn.Exec("UPDATE task_activities SET status=?, summary="+summaryExpr+", completed_at=?, waiting_since=NULL, waiting_session='' WHERE id=? AND task_id=? AND skill_id='remote_run' AND "+closable, args...)
 	d.mu.Unlock()
 	if err != nil {
 		return nil, err
@@ -295,7 +295,7 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 				status, summary, activityID)
 		} else {
 			// A terminal status ends the run, and a terminal run is never waiting.
-			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, waiting_since = NULL WHERE id = ?`,
+			_, err = d.conn.Exec(`UPDATE task_activities SET status = ?, summary = ?, waiting_since = NULL, waiting_session = '' WHERE id = ?`,
 				status, summary, activityID)
 		}
 		if err == nil && ownerID != "" {
@@ -346,53 +346,208 @@ func (d *DB) SyncRemoteRunStatusFor(ownerID, activityID, taskID, projectID, task
 }
 
 // SetRemoteRunWaiting marks a running remote execution as blocked on the user,
-// or clears that mark when it resumes. Only a run still `running` is touched: a
-// report arriving late, after the session already ended, must not resurrect a
-// waiting state on a closed run. The first mark wins: a second waiting report
-// keeps the original instant, so the elapsed time the board shows is the real
-// one. Like its neighbours it ends on notifyPostBackListeners, which is what
-// carries the change to the UI.
+// or clears that mark when it resumes, by hand: the mark belongs to no session,
+// so no session's call ends it. A session declares its own wait through
+// ReportSessionRunWaitingAs.
 func (d *DB) SetRemoteRunWaiting(runID string, waiting bool) error {
+	return d.setRemoteRunWaiting(runID, "", waiting)
+}
+
+// setRemoteRunWaiting marks a running remote execution as blocked on the user,
+// on behalf of a session, or clears that mark. Only a run still `running` is
+// touched: a report arriving late, after the session already ended, must not
+// resurrect a waiting state on a closed run. The first mark wins: a second
+// waiting report keeps the original instant, so the elapsed time the board
+// shows is the real one, while the latest declaring session becomes the one
+// whose next call ends the wait. Like its neighbours it ends on
+// notifyPostBackListeners, which carries the change to the UI, and a change
+// of the mark itself also reaches the wait listeners.
+func (d *DB) setRemoteRunWaiting(runID, sessionID string, waiting bool) error {
 	if strings.TrimSpace(runID) == "" {
 		return fmt.Errorf("run id is required")
 	}
-	statement := "UPDATE task_activities SET waiting_since=NULL, waiting_reason='' WHERE id=? AND skill_id='remote_run' AND status='running'"
-	args := []any{runID}
+	const live = " WHERE id=? AND skill_id='remote_run' AND status='running'"
+	changed := "UPDATE task_activities SET waiting_since=NULL, waiting_session='', waiting_reason=''" + live + " AND waiting_since IS NOT NULL"
+	changedArgs := []any{runID}
+	// A clear of a run that was not waiting changes nothing, and is not an error.
+	unchanged := "UPDATE task_activities SET waiting_reason=''" + live
+	unchangedArgs := []any{runID}
 	if waiting {
-		statement = "UPDATE task_activities SET waiting_since=COALESCE(waiting_since, ?), waiting_reason='' WHERE id=? AND skill_id='remote_run' AND status='running'"
-		args = []any{time.Now(), runID}
+		changed = "UPDATE task_activities SET waiting_since=?, waiting_session=?, waiting_reason=''" + live + " AND waiting_since IS NULL"
+		changedArgs = []any{time.Now(), sessionID, runID}
+		unchanged = "UPDATE task_activities SET waiting_session=?, waiting_reason=''" + live
+		unchangedArgs = []any{sessionID, runID}
 	}
 	d.mu.Lock()
-	result, err := d.conn.Exec(statement, args...)
-	d.mu.Unlock()
-	if err != nil {
-		return err
+	count, err := d.execCount(changed, changedArgs...)
+	mark := count == 1
+	if err == nil && !mark {
+		count, err = d.execCount(unchanged, unchangedArgs...)
 	}
-	count, err := result.RowsAffected()
+	d.mu.Unlock()
 	if err != nil {
 		return err
 	}
 	if count == 0 {
 		return fmt.Errorf("remote run not found or no longer running")
 	}
-	activity, err := d.GetActivityByID(runID)
-	if err != nil || activity == nil {
-		return err
-	}
-	task, err := d.GetTaskByID(activity.TaskID)
-	if err != nil || task == nil {
-		return nil
-	}
-	d.notifyPostBackListeners(task, activity, nil)
+	d.notifyWaitChange(runID, mark)
 	return nil
 }
 
-// ReportRemoteRunWaitingAs is SetRemoteRunWaiting for a session reporting on a
-// run, under the ownership rule of FinishRemoteRunAs: the owner, an admin, or
+// execCount runs one statement and reports how many rows it changed.
+func (d *DB) execCount(statement string, args ...any) (int64, error) {
+	result, err := d.conn.Exec(statement, args...)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+// notifyWaitChange tells the listeners about a run whose waiting state was
+// written: the postback listeners always, as every write of a run does, and
+// the wait listeners when the mark itself changed.
+func (d *DB) notifyWaitChange(runID string, changed bool) {
+	activity, err := d.GetActivityByID(runID)
+	if err != nil || activity == nil {
+		return
+	}
+	task, err := d.GetTaskByID(activity.TaskID)
+	if err != nil || task == nil {
+		return
+	}
+	d.notifyPostBackListeners(task, activity, nil)
+	if changed {
+		d.notifyWaitListeners(task, activity)
+	}
+}
+
+// WaitListener is told that a run's waiting mark was set or cleared. It is not
+// told about the other writes of a run, so it can relay every one it hears.
+type WaitListener func(task *models.Task, activity *models.TaskActivity)
+
+// RegisterWaitListener registers a listener for the changes of a waiting mark.
+func (d *DB) RegisterWaitListener(listener WaitListener) {
+	d.postBackMu.Lock()
+	defer d.postBackMu.Unlock()
+	d.waitListeners = append(d.waitListeners, listener)
+}
+
+func (d *DB) notifyWaitListeners(task *models.Task, activity *models.TaskActivity) {
+	d.postBackMu.RLock()
+	defer d.postBackMu.RUnlock()
+	for _, l := range d.waitListeners {
+		fn := l
+		go fn(task, activity)
+	}
+}
+
+// ResumeWaits ends every wait a session declared, on a run still running. A
+// session that makes a call is no longer blocked on its owner, whatever it
+// forgot to report. The session is read from the run rather than from the
+// memory of the instance that served the declaration, so the call ends the
+// wait on any instance and after a restart (#475). It returns the runs it
+// cleared; an empty session id clears nothing.
+func (d *DB) ResumeWaits(sessionID string) ([]string, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, nil
+	}
+	rows, err := d.conn.Query(`SELECT id FROM task_activities
+		WHERE waiting_session = ? AND waiting_since IS NOT NULL AND status = 'running' AND skill_id = 'remote_run'`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	var candidates []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		candidates = append(candidates, id)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var cleared []string
+	for _, id := range candidates {
+		// The session is matched again: another session may have taken the
+		// wait over between the read and this write.
+		d.mu.Lock()
+		count, err := d.execCount(`UPDATE task_activities SET waiting_since=NULL, waiting_session='', waiting_reason=''
+			WHERE id = ? AND waiting_session = ? AND waiting_since IS NOT NULL AND status = 'running' AND skill_id = 'remote_run'`, id, sessionID)
+		d.mu.Unlock()
+		if err != nil {
+			return cleared, err
+		}
+		if count == 1 {
+			cleared = append(cleared, id)
+			d.notifyWaitChange(id, true)
+		}
+	}
+	return cleared, nil
+}
+
+// AnswerRemoteRunWait ends a wait its owner answered in the run's console
+// (#475). The agent names the mark it saw, and only that mark is cleared: a
+// question asked after the answer was typed carries a newer instant and stays.
+// Only a running run the agent dispatched for that same user qualifies, and
+// only a question asked in the session: a launch parked on a repository is
+// answered by a pin on the ticket, not by a key in the console. It reports
+// whether a wait was cleared.
+func (d *DB) AnswerRemoteRunWait(userID, runID string, waitingSince time.Time) (bool, error) {
+	userID, runID = strings.TrimSpace(userID), strings.TrimSpace(runID)
+	if userID == "" || runID == "" || waitingSince.IsZero() {
+		return false, fmt.Errorf("user, run and answered wait are required")
+	}
+	var current sql.NullTime
+	var reason string
+	d.mu.Lock()
+	err := d.conn.QueryRow(`SELECT waiting_since, waiting_reason FROM task_activities
+		WHERE id = ? AND user_id = ? AND action = ? AND status = 'running' AND skill_id = 'remote_run'`,
+		runID, userID, RunActionAgent).Scan(&current, &reason)
+	if errors.Is(err, sql.ErrNoRows) {
+		d.mu.Unlock()
+		return false, nil
+	}
+	if err != nil {
+		d.mu.Unlock()
+		return false, err
+	}
+	if !current.Valid || reason != "" || !sameInstant(current.Time, waitingSince) {
+		d.mu.Unlock()
+		return false, nil
+	}
+	count, err := d.execCount(`UPDATE task_activities SET waiting_since=NULL, waiting_session='', waiting_reason=''
+		WHERE id = ? AND user_id = ? AND waiting_since IS NOT NULL AND waiting_reason = '' AND status = 'running' AND skill_id = 'remote_run'`,
+		runID, userID)
+	d.mu.Unlock()
+	if err != nil || count == 0 {
+		return false, err
+	}
+	d.notifyWaitChange(runID, true)
+	return true, nil
+}
+
+// sameInstant compares two waiting marks at the precision every engine keeps,
+// since the agent sends back the instant it was pushed after a JSON round trip.
+func sameInstant(a, b time.Time) bool {
+	return a.Truncate(time.Microsecond).Equal(b.Truncate(time.Microsecond))
+}
+
+// ReportRemoteRunWaitingAs is ReportSessionRunWaitingAs for a caller with no
+// session, whose wait no later call ends.
+func (d *DB) ReportRemoteRunWaitingAs(caller Actor, admin bool, taskKey, runID string, waiting bool) (*models.TaskActivity, bool, error) {
+	return d.ReportSessionRunWaitingAs(caller, admin, "", taskKey, runID, waiting)
+}
+
+// ReportSessionRunWaitingAs is setRemoteRunWaiting for a session reporting on
+// a run, under the ownership rule of FinishRemoteRunAs: the owner, an admin, or
 // anyone on a run with no recorded owner. It reports whether the mark was
 // applied. A headless run has nobody to answer it, so a wait declared on one is
 // accepted and ignored rather than shown to an owner who cannot act on it.
-func (d *DB) ReportRemoteRunWaitingAs(caller Actor, admin bool, taskKey, runID string, waiting bool) (*models.TaskActivity, bool, error) {
+func (d *DB) ReportSessionRunWaitingAs(caller Actor, admin bool, sessionID, taskKey, runID string, waiting bool) (*models.TaskActivity, bool, error) {
 	runID = strings.TrimSpace(runID)
 	if strings.TrimSpace(taskKey) == "" || runID == "" {
 		return nil, false, fmt.Errorf("taskKey and runId are required")
@@ -417,7 +572,7 @@ func (d *DB) ReportRemoteRunWaitingAs(caller Actor, admin bool, taskKey, runID s
 	if waiting && models.NormalizeSkillMode(d.runOutcomeOf(runID).Mode) == models.SkillModeAutonomous {
 		return existing, false, nil
 	}
-	if err := d.SetRemoteRunWaiting(runID, waiting); err != nil {
+	if err := d.setRemoteRunWaiting(runID, sessionID, waiting); err != nil {
 		return nil, false, err
 	}
 	activity, err := d.GetActivityByID(runID)

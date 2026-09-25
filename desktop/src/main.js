@@ -21,6 +21,7 @@ import { consoleNotice, needsConsoleNotice, readOnlyConsole } from './run-consol
 import { previewLines } from './command-preview.mjs'
 import { runEngine } from './run-engine.mjs'
 import { pollAction } from './agent-poll.mjs'
+import { offerFor, initializedNotice } from './git-init.mjs'
 // The repository changelog, inlined by Vite at build time. The app reads it
 // with no network at all: the renderer's content security policy forbids any
 // outgoing connection, and the release notes have to stay readable with the
@@ -833,6 +834,63 @@ function readOnlyRow(name,hint){
  return row
 }
 
+// The offer to make the folder of a field a Git repository (#481), shown under
+// it while the folder is a plain one or a repository with no commit. It is
+// examined when the settings open, when Browse returns and when a typed value
+// is committed. Initializing never saves: the field takes the repository's
+// top level and the user saves it as any other change.
+function attachGitOffer(input,row,label,onReady){
+ const box=document.createElement('div');box.className='git-offer';box.hidden=true
+ box.setAttribute('role','group');box.setAttribute('aria-label',label+' Git initialization')
+ const title=document.createElement('strong'),detail=document.createElement('p')
+ const initialize=document.createElement('button');initialize.type='button';initialize.className='git-offer-action'
+ const dismiss=document.createElement('button');dismiss.type='button'
+ const actions=document.createElement('div');actions.className='git-offer-actions';actions.append(initialize,dismiss)
+ box.append(title,detail,actions)
+ const status=document.createElement('p');status.className='git-offer-status';status.setAttribute('role','status')
+ status.setAttribute('aria-label',label+' Git initialization status')
+ row.control.append(box,status)
+ // "Not now" holds for the value it was said to; another value is examined.
+ const dismissed=new Set()
+ let shown=true,offered=''
+ async function examine(){
+  const value=input.value.trim()
+  if(!shown||!value||dismissed.has(value)){box.hidden=true;return}
+  let answer
+  try{answer=await api.gitState(value)}catch{box.hidden=true;return}
+  // The field changed while the agent answered: that answer is stale.
+  if(!shown||input.value.trim()!==value)return
+  const offer=offerFor(answer?.state)
+  box.hidden=!offer;offered=offer?value:''
+  if(offer){title.textContent=offer.title;detail.textContent=offer.detail;initialize.textContent=offer.action;dismiss.textContent=offer.dismiss}
+ }
+ initialize.onclick=async()=>{
+  // The explanation was given for one folder: another value typed since is
+  // examined first, never initialized unseen.
+  const value=input.value.trim()
+  if(value!==offered){await examine();return}
+  initialize.disabled=dismiss.disabled=true;status.textContent='';status.dataset.tone=''
+  try{
+   const result=await api.gitInit(value)
+   input.value=result?.path||value;box.hidden=true
+   status.textContent=initializedNotice(input.value)
+   onReady?.(input.value)
+  }catch(err){
+   // Git's own words, then what the folder is now: a repository whose commit
+   // failed is unborn, and its offer makes the commit alone.
+   status.textContent=String(err?.message||err).replace(/^Error invoking remote method '[^']*': (Error: )?/,'');status.dataset.tone='error'
+   await examine()
+  }finally{initialize.disabled=dismiss.disabled=false}
+ }
+ dismiss.onclick=()=>{dismissed.add(input.value.trim());box.hidden=true}
+ input.addEventListener('change',()=>{status.textContent='';examine()})
+ return {
+  examine(){status.textContent='';return examine()},
+  // A field that is not shown offers nothing.
+  show(value){shown=value;if(value)examine();else{box.hidden=true;status.textContent=''}}
+ }
+}
+
 const MODEL_REGEX=/^[A-Za-z0-9][A-Za-z0-9._:@/-]*$/
 function validateModel(val){
  const trimmed=String(val||'').trim()
@@ -1315,9 +1373,10 @@ async function openProject(id){
   selectCategory('General')
   const path=document.createElement('input');path.value=info.path||'';path.required=true;path.placeholder='/path/to/repository';path.setAttribute('aria-label','Local repository')
   const browse=document.createElement('button');browse.type='button';browse.textContent='Choose folder…'
-  browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
+  browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){path.value=selected;pathOffer.examine()}}catch(err){error(err)}}
   const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
   const repository=settingRow('Local repository',{stacked:true},picker)
+  const pathOffer=attachGitOffer(path,repository,'Local repository')
   // Macro operations read and write specifications here. Only an override is
   // stored: a mono-repo project inherits its local repository, a multi-repo
   // project needs one. The layout itself is a project setting held by the
@@ -1325,7 +1384,7 @@ async function openProject(id){
   const layoutRow=readOnlyRow('Repository layout','Project setting · Change it in the project settings of the web interface.')
   const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.setAttribute('aria-label','Specifications folder')
   const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
-  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){specPath.value=selected;renderSpec({...specData,specPath:selected})}}catch(err){error(err)}}
+  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){specPath.value=selected;renderSpec({...specData,specPath:selected});specOffer.examine()}}catch(err){error(err)}}
   const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
   // Mono-repo only: the specifications either share the code checkout or live
   // in a folder of their own. Unticking reveals the folder; ticking drops the
@@ -1341,6 +1400,7 @@ async function openProject(id){
   specPath.oninput=()=>renderSpec({...specData,specPath:specPath.value},{separate:true})
   const specKind=document.createElement('span');specKind.className='spec-kind';specKind.setAttribute('role','status');specKind.setAttribute('aria-label','Specifications folder kind')
   const specRepository=settingRow('Specifications folder',{stacked:true},sameRepoLabel,specPicker,specKind)
+  const specOffer=attachGitOffer(specPath,specRepository,'Specifications folder',folder=>renderSpec({...specData,specPath:folder},{separate:true}))
   let specData=info
   function renderSpec(data,options){
    specData=data
@@ -1349,6 +1409,8 @@ async function openProject(id){
    const required=!mono&&!override
    layoutRow.value.textContent=mono?'Mono-repo':'Multi-repo'
    sameRepoLabel.hidden=!mono;sameRepo.checked=mono&&!separate
+   // Following the local repository, the folder has no offer of its own.
+   if(specPicker.hidden!==!separate)specOffer.show(separate)
    specPicker.hidden=!separate
    specPath.placeholder=mono?'Folder holding the specifications':'Required for a multi-repo project'
    specRepository.section.classList.toggle('required',required)
@@ -1368,6 +1430,7 @@ async function openProject(id){
    specKind.dataset.kind=stored?data.specKind||'':''
   }
   renderSpec(info)
+  pathOffer.examine();specOffer.show(!specPicker.hidden)
   // The other repositories of a multi-repo project, each in a folder of this
   // workstation (#456). The project's own repository is the local repository
   // above; the list itself is a project setting of the web interface.
