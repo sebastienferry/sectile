@@ -185,6 +185,12 @@ func (d *agentDaemon) localProjectRoot(ctx context.Context, c agentconfig.Config
 		}
 		local.Worktrees[c.ProjectID] = value
 	}
+	if value, ok := overrides.SpecArtifacts[c.ProjectID]; ok {
+		if local.SpecArtifacts == nil {
+			local.SpecArtifacts = map[string]string{}
+		}
+		local.SpecArtifacts[c.ProjectID] = value
+	}
 	if value, ok := overrides.Parallelism[c.ProjectID]; ok {
 		if local.Parallelism == nil {
 			local.Parallelism = map[string]int{}

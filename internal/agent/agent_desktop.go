@@ -462,6 +462,11 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		// clears the override, so a mono-repo checkout carries the
 		// specifications again.
 		SpecPath *string `json:"specPath"`
+		// SpecArtifacts overrides the project's choice to keep or drop the
+		// tasks' specification artefacts on this workstation (#487);
+		// InheritSpecArtifacts removes the override.
+		SpecArtifacts        *string `json:"specArtifacts"`
+		InheritSpecArtifacts bool    `json:"inheritSpecArtifacts"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&input) != nil || input.ProjectID == "" || !filepath.IsAbs(input.Path) {
 		http.Error(w, "Project and absolute repository path required", 400)
@@ -474,6 +479,12 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if _, err := gitLocal(r.Context(), input.Path, "rev-parse", "--show-toplevel"); err != nil {
 		http.Error(w, "Select a local Git repository", 400)
 		return
+	}
+	if input.SpecArtifacts != nil && !input.InheritSpecArtifacts {
+		if value := *input.SpecArtifacts; value != models.SpecArtifactsKeep && value != models.SpecArtifactsDrop {
+			http.Error(w, "Specifications must be keep or drop", 400)
+			return
+		}
 	}
 	specPath := ""
 	if input.SpecPath != nil {
@@ -606,6 +617,14 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if input.InheritWorktrees {
 		delete(overrides.Worktrees, input.ProjectID)
 	}
+	if input.InheritSpecArtifacts {
+		delete(overrides.SpecArtifacts, input.ProjectID)
+	} else if input.SpecArtifacts != nil {
+		if overrides.SpecArtifacts == nil {
+			overrides.SpecArtifacts = map[string]string{}
+		}
+		overrides.SpecArtifacts[input.ProjectID] = *input.SpecArtifacts
+	}
 	if input.InheritTerminal {
 		delete(overrides.Terminals, input.ProjectID)
 	} else if input.Terminal != nil {
@@ -671,6 +690,7 @@ func (d *agentDaemon) disconnectProject(w http.ResponseWriter, r *http.Request) 
 	settings.DisconnectedProjects[id] = true
 	delete(settings.Projects, id)
 	delete(settings.Worktrees, id)
+	delete(settings.SpecArtifacts, id)
 	delete(settings.Parallelism, id)
 	delete(settings.Commands, id)
 	delete(settings.CommandsAutonomous, id)
@@ -787,6 +807,7 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 		}
 		effective := agentconfig.ApplyOverrides(config, overrides)
 		_, worktreeOverride := overrides.Worktrees[id]
+		_, specArtifactsOverride := overrides.SpecArtifacts[id]
 		// The inherited folder follows the code checkout: only an override is
 		// stored, so a later change of the local repository carries it along.
 		specDefault := ""
@@ -811,6 +832,8 @@ func (d *agentDaemon) desktopProject(w http.ResponseWriter, r *http.Request) {
 			"aiCommandTemplateAutonomous": effective.AICommandTemplateAutonomous,
 			"commandOverride":             overrides.Commands[id] != "" || overrides.CommandsAutonomous[id] != "",
 			"worktreeOverride":            worktreeOverride,
+			"specArtifacts":               models.NormalizeSpecArtifacts(effective.SpecArtifacts),
+			"specArtifactsOverride":       specArtifactsOverride,
 			"parallelism":                 agentconfig.ExecutionLimit(id, effective.UseWorktrees, overrides),
 			"aiProvider":                  effective.AIProvider,
 			"aiModel":                     effective.AIModel,
