@@ -190,3 +190,45 @@ func TestServerCredentialStatesListEveryProvider(t *testing.T) {
 		t.Fatalf("a cleared credential with no environment is none: %+v", state)
 	}
 }
+
+// The store under PostgreSQL: the record column is BYTEA, the dates
+// TIMESTAMPTZ, and the upgrade seals a clear-text token there too. The key has
+// to come from the environment on this engine.
+func TestServerCredentialsOnPostgres(t *testing.T) {
+	t.Setenv(secrets.KeyEnvVar, strings.Repeat("ab", 32))
+	d := openPostgres(t)
+	d.trackers.JiraEmail, d.trackers.JiraToken = "", ""
+	if err := d.SaveServerTrackerCredential("jira", "sync@example.com", "jira-token", "Sync", "usr_admin"); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.tracker(""); got.JiraEmail != "sync@example.com" || got.JiraToken != "jira-token" {
+		t.Fatalf("resolution: %q %q", got.JiraEmail, got.JiraToken)
+	}
+	state, err := d.ServerTrackerCredentialState("jira")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Source != ServerCredentialStored || state.CheckedAt == nil || state.UpdatedAt == nil || state.Account != "Sync" {
+		t.Fatalf("state: %+v", state)
+	}
+	if err := d.RecordServerCredentialCheck("jira", "Sync bot"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ClearServerTrackerCredential("jira"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := d.conn.Exec(`INSERT INTO settings (id) VALUES (1) ON CONFLICT DO NOTHING`); err != nil {
+		t.Fatal(err)
+	}
+	writeLegacyServerTokens(t, d, "ghp-legacy", "", "")
+	if err := d.adoptLegacyServerTrackerTokens(); err != nil {
+		t.Fatal(err)
+	}
+	if got := legacyColumns(t, d); got != "|||" {
+		t.Fatalf("the clear-text column must be blank, got %q", got)
+	}
+	if got := d.tracker("").GithubToken; got != "ghp-legacy" {
+		t.Fatalf("adopted token: %q", got)
+	}
+}

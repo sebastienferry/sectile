@@ -41,6 +41,9 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
 	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
 	_, _ = d.conn.Exec("DROP TABLE server_tracker_credentials")
+	// And it still carries the columns a migration since dropped.
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN github_token TEXT NOT NULL DEFAULT ''")
+	_, _ = d.conn.Exec("ALTER TABLE projects ADD COLUMN gitlab_token TEXT NOT NULL DEFAULT ''")
 }
 
 // undoMigrationSeventeen puts back the schema migration 17 changed, for the
