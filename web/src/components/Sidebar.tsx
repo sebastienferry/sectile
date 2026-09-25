@@ -38,6 +38,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
+import { isMacPlatform, sidebarShortcutAria, sidebarShortcutLabel } from '../../../shared/sidebarShortcut.mjs'
 import { useClickOutside } from '../hooks/useClickOutside'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentBadgeStyle } from '../lib/accents'
@@ -165,6 +166,10 @@ export const Sidebar: React.FC = () => {
   } = useApp()
 
   const { user: currentUser } = useCurrentUser()
+
+  const mac = isMacPlatform(navigator)
+  const shortcutLabel = sidebarShortcutLabel(mac)
+  const shortcutAria = sidebarShortcutAria(mac)
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false)
   const [projectSearch, setProjectSearch] = useState('')
@@ -339,7 +344,8 @@ export const Sidebar: React.FC = () => {
               type="button"
               onClick={() => setSidebarCollapsed(true)}
               className="p-1.5 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors shrink-0 cursor-pointer"
-              title={t.nav.toggleSidebar || 'Replier'}
+              title={`${t.nav.toggleSidebar} (${shortcutLabel})`}
+              aria-keyshortcuts={shortcutAria}
             >
               <ChevronLeft size={16} />
             </button>
@@ -350,7 +356,8 @@ export const Sidebar: React.FC = () => {
               type="button"
               onClick={() => setSidebarCollapsed(false)}
               className="w-10 h-10 rounded-xl flex items-center justify-center hover:bg-[var(--bg-tertiary)] transition-all relative group cursor-pointer"
-              title={`${t.app.title} - ${t.nav.toggleSidebar || 'Déplier'}`}
+              title={`${t.app.title} - ${t.nav.toggleSidebar} (${shortcutLabel})`}
+              aria-keyshortcuts={shortcutAria}
             >
               <div className="p-0.5 rounded-lg bg-[var(--accent-light)] border border-[var(--accent-color)]/30 shadow-[0_0_8px_var(--accent-glow)]">
                 <SectileLogo size={24} className="shrink-0" />

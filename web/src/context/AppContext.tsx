@@ -53,6 +53,7 @@ import type { StoredUserCredential, OrphanedCredentialReport } from '../lib/trac
 import { NO_ORPHANED_CREDENTIALS, orphanedCredentialsFrom } from '../lib/trackers'
 import { activeTaskIds } from '../lib/remoteRunIndicator'
 import { isViewAvailable } from '../lib/optionalViews'
+import { isMacPlatform, sidebarShortcutAction } from '../../../shared/sidebarShortcut.mjs'
 import {
   coreFailures,
   failureDetail,
@@ -595,7 +596,24 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [myTasksIdentities, setMyTasksIdentities] = useState<AssigneeIdentities | null>(null)
   const [sourceFilter, setSourceFilter] = useState<'all' | TaskSource>('all')
   const [parentFilter, setParentFilterState] = useState<string | null>(null)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  // Remembered per browser, as the desktop app already does (#474).
+  const [sidebarCollapsed, setSidebarCollapsedState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('sectile_sidebar_collapsed') === 'true'
+    } catch {
+      return false
+    }
+  })
+
+  const setSidebarCollapsed = useCallback((val: boolean | ((prev: boolean) => boolean)) => {
+    setSidebarCollapsedState(prev => {
+      const next = typeof val === 'function' ? val(prev) : val
+      try {
+        localStorage.setItem('sectile_sidebar_collapsed', String(next))
+      } catch {}
+      return next
+    })
+  }, [])
   const [selectedTask, setSelectedTask] = useState<Task | null>(null)
   // chatTask désigne la tâche dont le PTY est affiché. Il vit dans le panneau
   // latéral ancré, pas dans une modale : on garde le board visible à côté du
@@ -3667,6 +3685,29 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       const isXterm = Boolean(document.activeElement?.closest('.xterm') || document.activeElement?.classList.contains('xterm-helper-textarea'))
       const isInputActive = activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select' || isXterm
 
+      // Cmd+B / Ctrl+B toggles the sidebar, from a plain field too. The Markdown
+      // editor spends it on bold first, which leaves it defaultPrevented here.
+      const sidebarAction = sidebarShortcutAction({
+        key: e.key,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+        repeat: e.repeat,
+        defaultPrevented: e.defaultPrevented,
+        mac: isMacPlatform(navigator),
+        inTerminal: isXterm,
+        modalOpen: Boolean(
+          isCommandPaletteOpen || isQuickAddOpen || isCloneModalOpen || selectedTask || selectedActivity || isProfileOpen
+          || document.querySelector('[aria-modal="true"]'),
+        ),
+      })
+      if (sidebarAction === 'toggle') {
+        e.preventDefault()
+        setSidebarCollapsed(prev => !prev)
+        return
+      }
+
       if (e.key === '/' && !isInputActive) {
         e.preventDefault()
         const searchInput = document.getElementById('global-search-input') as HTMLInputElement
@@ -3727,7 +3768,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isCommandPaletteOpen, isQuickAddOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, setActiveView])
+  }, [isCommandPaletteOpen, isQuickAddOpen, isCloneModalOpen, selectedTask, selectedActivity, isProfileOpen, searchQuery, setActiveView, setSidebarCollapsed])
 
   return (
     <AppContext.Provider
