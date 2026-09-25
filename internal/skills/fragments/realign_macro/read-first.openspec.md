@@ -2,6 +2,7 @@
   - `path`, the checkout to write the specification in, and `branch`, the branch already checked out there. When `worktree` is `true`, it is this macro's own worktree, so another macro specified at the same time cannot touch your files. Read `warning` and repeat it in your report.
   - `todos`, the macro's slicing lines. That list is the truth to align on.
 - Do NOT create the branch, do NOT switch branch, and do NOT run `git checkout`: switching would carry your untracked files onto another branch. When `worktree` is `false`, check that the checkout at `path` is on `branch`; if it is not, stop and say so.
+- When `branch` is empty, `path` is a plain folder, not a Git repository: write in `path` directly, skip the branch check, and run no `git` command at all. Nothing is committed or pushed.
 - The session's own directory is the code repository, which may not hold the specifications: work in `path`, never relative to the current directory.
 - The origin of each line, which tells you where to look and what to do:
   - `sourceKind` is `tasks` or `spec`: the artefact the line was imported from, and therefore the file to align. Lines from `tasks` align the groups of `tasks.md`, lines from `spec` the entries of `spec.md`; never compare a line with the other file.
@@ -10,4 +11,4 @@
   - `sourceKind: stories` means the line was taken back from an existing story. It points at a ticket, not at an entry: leave it alone and report it.
   - Any other `sourceKind` is an origin this skill does not know: leave the line alone and report it.
 - The change folder of this macro, `openspec/changes/<MACRO-KEY>-<slug>/` in `path`: its `tasks.md` carries the groups, and its `specs/<capability>/spec.md` the requirements.
-- If no such change folder exists on the macro branch, say so and stop: there is nothing to realign, and writing one from the slicing alone would be a specification done badly.
+- If no such change folder exists in `path` (or on the macro branch), say so and stop: there is nothing to realign, and writing one from the slicing alone would be a specification done badly.

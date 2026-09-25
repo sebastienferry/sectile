@@ -78,7 +78,6 @@ export const BoardView: React.FC = () => {
     selectedActivity,
     isQuickAddOpen,
     isCommandPaletteOpen,
-    isAdminOpen,
     isProfileOpen,
     searchQuery,
     t,
@@ -451,7 +450,7 @@ export const BoardView: React.FC = () => {
   // call preventDefault, and the dialogs that stop it on the way down, spend
   // it first. The surfaces AppContext closes on Escape are excluded by state.
   const appSurfaceOpen = Boolean(
-    isCommandPaletteOpen || isQuickAddOpen || selectedTask || selectedActivity || isAdminOpen || isProfileOpen || searchQuery,
+    isCommandPaletteOpen || isQuickAddOpen || selectedTask || selectedActivity || isProfileOpen || searchQuery,
   )
   useEffect(() => {
     if (!hasSelection) return

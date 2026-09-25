@@ -131,9 +131,11 @@ func (h *Handler) requireOwnerOrAdmin(w http.ResponseWriter, r *http.Request, ow
 // member creates, renames and deletes a project and configures the tracker it
 // reads from, because a board where only an admin can open a project is a board
 // that waits on one person. What stays an admin's is the roster, who exists,
-// what role they hold, and whether their account still opens.
+// what role they hold, and whether their account still opens, and the admin
+// page that watches over it.
 func adminOnlyRoute(_ string, path string) bool {
-	return path == "/api/users" || strings.HasPrefix(path, "/api/users/")
+	return path == "/api/users" || strings.HasPrefix(path, "/api/users/") ||
+		path == AdminStatsPath
 }
 
 // personalSettingsKeys is the routing table between the two settings stores

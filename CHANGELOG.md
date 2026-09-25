@@ -15,6 +15,10 @@ test fixtures or internal plumbing.
 
 ### Added
 
+- **An Administration page.** Admins now open a full page from the sidebar or the command palette instead of a dialog. It shows how many people are using the board right now, how many runs are running, queued or pending, and the account totals, and refreshes on its own. The users list says who is online and when each account was last seen, next to the role and the block and delete actions.
+
+- **Prometheus metrics.** The server exposes `/metrics` next to the interface: requests, latency and errors per controller, active users, active runs by status, and the build version.
+
 - **Runs whose client has gone quiet are shown, and closed in time.** A run whose agent session has made no call for four hours shows as *silent* on the board and in the activities view instead of *running*. After eight hours of silence, Sectile takes the client for dead and cancels the run, so it no longer holds the board or its chain; its owner can still report how it really ended. The second delay is set with `SECTILE_MCP_SESSION_ABANDON_AFTER`. (#319)
 
 - **Close a client's run from the board.** A run started by an agent session rather than by your local agent shows *Close* on its badge, for its owner and for admins. Closing records it as disconnected, and its owner can still report the real outcome. The activities view's cancel now asks the same question: only the owner or an admin may cancel such a run. (#319)
@@ -25,9 +29,9 @@ test fixtures or internal plumbing.
 
 - **Realign a macro's specification with its slicing.** *Réaligner la spec*, in the macro panel, runs the new `realign-macro` skill on your local agent, in the desktop app's Run (or type `/realign-macro <KEY>` in an agent session), and can be stopped from the same panel. It brings the specification back in line with a slicing edited by hand: lines typed by hand become stub entries, renamed lines rename their entry, and entries no line points to any more are marked *to be removed*. It never rewrites the body of an entry and never deletes one, for Spec Kit and OpenSpec alike, and it commits and pushes the macro branch only when it wrote something. (#426)
 
-- **Each macro gets its own worktree.** A macro's specification is written in `.tasks/worktrees/<KEY>` of the specifications repository, on the macro's branch, started from the up-to-date default branch, so two macros specified at the same time no longer share untracked files. An existing worktree is reused with its uncommitted work; projects with worktrees off keep using the checkout. (#426)
+- **Each macro gets its own worktree.** A macro's specification is written in `.tasks/worktrees/<KEY>` of the specifications folder, when it is a Git repository, on the macro's branch, started from the up-to-date default branch, so two macros specified at the same time no longer share untracked files. An existing worktree is reused with its uncommitted work; projects with worktrees off keep using the checkout. (#426)
 
-- **Declare where a project's specifications live.** The project options (Compétences IA & SDD) gain *Dépôt des spécifications*, for teams that keep their specifications apart from their code; the slicing import reads it, and the code repository stays the agents' working directory. On a workstation, the desktop project dialog has the matching *Specifications repository* field for macro skills. (#426)
+- **Declare where a project's specifications live, on your workstation.** The desktop project settings have a *Specifications folder* used by every macro operation: the slicing import, the macro worktree and `realign-macro`. A mono-repo project inherits its local repository unless you choose another folder; a multi-repo project needs one, and macro operations say so until it is set. The folder may be a Git repository or a plain folder, and the settings show which: in a plain folder, macro skills write in place, with no branch, commit or push. Importing the slicing from the web now reads the specification on your workstation, so it needs the desktop app connected. The code repository stays the agents' working directory. (#426, #443)
 
 - **Manage Jira sprints from the timeline.** On a Jira project, *+ Sprints* creates a batch on the board (name pattern with `{n}`, count, start date, one to four weeks each); renaming, changing dates, closing and deleting are written to Jira and the timeline shows Jira's answer, so the next synchronisation keeps them. Closing can first move the unfinished tickets to the next sprint or to the backlog. On a GitHub project the timeline is read-only. (#426)
 
@@ -57,6 +61,16 @@ test fixtures or internal plumbing.
 - Web and desktop PR indicators show the current GitHub or GitLab request as open, conflicting, merged, or closed without merge. State refresh uses grouped forge reads without synchronizing stories individually.
 
 ### Changed
+
+- **One *Skills & IA* tab on a ticket.** The web ticket view merges *Skills & Copilot* and *Cadrage & Specs* into a single tab. It opens with the prompts to copy for the next step and for the autonomous pickup, as in the card menu, and ends with the generated specification. The recommended next step now opens the *Details* tab, with its description and launch button. The tab no longer shows the Copilot banner, the macro and batch skills, the mode and model selectors, the additional instruction field (put extra context in the ticket's comments), or the *Passer direct au Code* shortcut, which launched the implementation without a specification. (#461)
+
+- **A context menu on each desktop project.** A project row in the desktop sidebar now shows only its name and a *…* button. Right-click the row, or click *…*, to open tasks, switch to the execution queue, create a task, open the agent console, reach the project settings or remove the project from the desktop. The count of waiting executions moves to the *…* button.
+
+- **The desktop specifications folder follows the repository layout.** The project's General settings now state whether the project is a mono-repo or a multi-repo one. On a mono-repo project, a *Specifications live in the code repository* checkbox decides between the local repository and a folder of their own; on a multi-repo project, the folder is asked for directly. The detected kind now names the folder it was checked on, for example *Git repository · /path/to/repo*.
+
+- **Set a project as mono-repo or multi-repo from the web interface.** The Git repository section of the project settings has a *Mono-repo* checkbox, ticked by default; untick it when a project's tickets span several repositories.
+
+- **A quieter status bar.** The MCP clients indicator and the active executions counter are gone from the status bar. Who is using the board and how many runs are in flight are now on the Administration page, and the activities view still lists every execution. `GET /api/mcp/sessions` still lists the live sessions.
 
 - **The desktop sidebar reads as columns.** Each execution row now starts with its run state, then its task number, so the states of all your runs line up down one column, as in the tickets pane; the task numbers share one width, so the titles line up too, free consoles included. A longer number is still shown in full and only shifts its own title. (#446)
 
@@ -207,6 +221,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **The desktop app no longer fails to list projects after a long pause.** On a PostgreSQL server, a database connection left idle for a long time could be dropped by the network, and the next request to use it, often the desktop app's project list, answered *Cannot list projects*. Sectile now renews its connections before that happens, and logs the cause of such errors.
 - **Search ignores case and accents.** The search bar finds `Équipe` whether you type `equipe`, `Equipe` or `ÉQUIPE`, on the board, the roadmap, triage, the activities view and the filter pickers, and `%` or `_` typed in a search now match those characters only. On a PostgreSQL server this needs the `unaccent` extension, which Sectile creates at start; a server whose database role cannot create it refuses to start and says so. (#447)
 - **An agent session keeps working whichever server receives its requests.** With several servers behind one load balancer, a request for an MCP session reaches the server that holds it, so tool calls, runs and the event stream no longer fail with "session not found" halfway through. A session whose server stopped is refused as not found, and the client starts a new one. The sessions view lists the sessions of every server. (#408)
 

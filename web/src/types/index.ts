@@ -231,11 +231,6 @@ export interface Project {
    * dès qu'un ticket épingle un nouveau CWD, le chemin est enregistré ici.
    */
   repoPaths?: string[]
-  /**
-   * Checkout that carries the project's specifications when it is not the
-   * code repository. Absent means repoPath. Read by the macro workflow only.
-   */
-  specRepoPath?: string
   /** Other Jira project keys whose story keys the slicing attaches. Read, never written. */
   roadmapProjects?: string[]
   /**
@@ -563,7 +558,7 @@ export type Language = 'fr' | 'en'
 
 export type Density = 'compact' | 'standard' | 'comfortable'
 
-export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'skills' | 'team'
+export type ViewMode = 'board' | 'list' | 'triage' | 'roadmap' | 'timeline' | 'activities' | 'sync' | 'skills' | 'team' | 'admin'
 
 /**
  * Vues de planification qu'un projet active à la demande. Elles répondent à un

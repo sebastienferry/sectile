@@ -275,6 +275,27 @@ var migrations = []migration{
 		postgres: []string{"CREATE EXTENSION IF NOT EXISTS unaccent;"},
 		hint:     `the PostgreSQL extension "unaccent" could not be created (the server's role needs CREATE on the database, and the server the contrib package)`,
 	},
+	{
+		// When a browser session last reached the server, which is what tells
+		// an active user from one who merely holds an unexpired cookie. The
+		// admin page and the sectile_active_users metric read it. NULL on the
+		// sessions opened before it existed: they count once they are used.
+		version: 15,
+		name:    "web_sessions.last_seen_at",
+		statements: []string{
+			"ALTER TABLE web_sessions ADD COLUMN last_seen_at DATETIME;",
+		},
+	},
+	{
+		// The specifications folder became a workstation setting (#443): the
+		// server column named a directory on the server, which nothing reads
+		// any more. Its values are discarded, not carried to any workstation.
+		version: 16,
+		name:    "projects.drop_spec_repo_path",
+		statements: []string{
+			"ALTER TABLE projects DROP COLUMN spec_repo_path;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

@@ -146,6 +146,11 @@ func TestAgentConfigAuthAndProjection(t *testing.T) {
 		if c.SchemaVersion != 1 || len(c.Skills) == 0 {
 			t.Fatalf("incomplete config %+v", c)
 		}
+		// The layout travels, so the agent knows whether the code checkout
+		// carries the specifications.
+		if c.MonoRepo == nil {
+			t.Fatalf("the repository layout is missing from %s", rr.Body.String())
+		}
 		for _, field := range []string{`"repoPath"`, `"jiraApiToken"`, `"userEmail"`} {
 			if strings.Contains(rr.Body.String(), field) {
 				t.Fatalf("server-only field %s leaked", field)

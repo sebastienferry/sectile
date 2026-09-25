@@ -154,7 +154,9 @@ export const ProjectModal: React.FC = () => {
   const [prCreationStage, setPRCreationStage] = useState<'specified' | 'implemented'>('implemented')
   const [defaultSkillMode, setDefaultSkillMode] = useState<SkillMode>('')
   const [fullChainStopStage, setFullChainStopStage] = useState<'implemented' | 'reviewed'>('reviewed')
-  // Mono-dépôt : conditionne tout ce qui parle de « la » branche courante.
+  // Mono-repo: decides whatever speaks of "the" current branch, and whether the
+  // specifications share the code repository on each workstation.
+  const [monoRepo, setMonoRepo] = useState(true)
   const [trackerColumns, setTrackerColumns] = useState<TrackerColumn[]>([])
   const [stageColumns, setStageColumns] = useState<Record<string, string[]>>({})
 
@@ -171,7 +173,6 @@ export const ProjectModal: React.FC = () => {
 
   // Section 4: Compétences IA & Framework SDD
   const [specFramework, setSpecFramework] = useState<SpecFramework>('speckit')
-  const [specRepoPath, setSpecRepoPath] = useState('')
   const [skillOverrides, setSkillOverrides] = useState<Record<string, string>>({})
   const [skillsStatus, setSkillsStatus] = useState<ProjectSkillsStatus | null>(null)
 
@@ -252,6 +253,7 @@ export const ProjectModal: React.FC = () => {
       setTrackerColumns(editingProject.trackerColumns || [])
       setStageColumns(editingProject.stageColumns || {})
       setGitRemoteUrl(editingProject.gitRemoteUrl || '')
+      setMonoRepo(editingProject.monoRepo !== false)
 
       const hasCustomAgent = hasProjectAgentOverride(editingProject.aiProvider, editingProject.aiModel)
       setUseCustomAgent(hasCustomAgent)
@@ -259,7 +261,6 @@ export const ProjectModal: React.FC = () => {
       setAiModel(editingProject.aiModel || '')
       setAiSkillModels(editingProject.aiSkillModels || {})
       setSpecFramework(editingProject.specFramework || settings.specFramework || 'speckit')
-      setSpecRepoPath(editingProject.specRepoPath || '')
       setUseWorktrees(editingProject.useWorktrees !== false)
       setAutoSyncEnabled(Boolean(editingProject.autoSyncEnabled))
       setAutoSyncIntervalMin(editingProject.autoSyncIntervalMin || 5)
@@ -301,13 +302,13 @@ export const ProjectModal: React.FC = () => {
 
       setRepoPath('')
       setGitRemoteUrl('')
+      setMonoRepo(true)
 
       setUseCustomAgent(false)
       setAiProvider('')
       setAiModel('')
       setAiSkillModels({})
       setSpecFramework(settings.specFramework || 'speckit')
-      setSpecRepoPath('')
       setUseWorktrees(true)
       setEpicColors(false)
       setAutoSyncEnabled(false)
@@ -404,11 +405,11 @@ export const ProjectModal: React.FC = () => {
         trackerColumns,
         stageColumns,
         gitRemoteUrl: gitRemoteUrl.trim(),
+        monoRepo,
         ...projectAgentSettings(useCustomAgent, aiProvider, aiModel),
         aiSkillModels,
         setupProviders: [],
         specFramework,
-        specRepoPath: specRepoPath.trim(),
         useWorktrees,
         autoSyncEnabled,
         autoSyncIntervalMin,
@@ -707,6 +708,20 @@ export const ProjectModal: React.FC = () => {
                     className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
                   />
                 </div>
+                <label className="flex items-start gap-2 text-xs text-[var(--text-secondary)] cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={monoRepo}
+                    onChange={e => setMonoRepo(e.target.checked)}
+                    className="mt-0.5 rounded border-[var(--border-color)] accent-[var(--accent-color)]"
+                  />
+                  <span>
+                    Mono-repo: the code and the specifications live in this repository
+                    <span className="block text-[10px] text-[var(--text-muted)] leading-relaxed">
+                      Untick when tickets span several repositories. Each workstation then declares its specifications folder in the desktop app.
+                    </span>
+                  </span>
+                </label>
                 <p className="text-[10px] text-[var(--text-muted)] leading-relaxed">
                   Local repositories and execution consoles are managed in the desktop agent.
                 </p>
@@ -1453,24 +1468,6 @@ export const ProjectModal: React.FC = () => {
                     </div>
                   </button>
                 </div>
-              </div>
-
-              {/* Where the macro workflow reads and writes specifications. */}
-              <div>
-                <label htmlFor="project-spec-repo-path" className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
-                  Dépôt des spécifications
-                </label>
-                <input
-                  id="project-spec-repo-path"
-                  type="text"
-                  value={specRepoPath}
-                  onChange={e => setSpecRepoPath(e.target.value)}
-                  placeholder="/Users/moi/Sources/mon-wiki"
-                  className="w-full px-3 py-1.5 text-xs rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-color)] text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-color)]"
-                />
-                <p className="mt-1 text-[10px] text-[var(--text-muted)] leading-relaxed">
-                  Checkout du serveur qui porte les spécifications des macros, quand l'équipe les tient à part du code : l'import de la découpe le lit. Vide : le dépôt du projet. Le worktree de macro et le réalignement tournent sur votre poste : leur dépôt des spécifications se déclare dans l'app desktop (Specifications repository). Le dépôt de code reste le répertoire de travail des agents.
-                </p>
               </div>
 
               {/* SDD toolchain installer: installs the real CLI and initializes it */}

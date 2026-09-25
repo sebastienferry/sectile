@@ -1,4 +1,4 @@
-1. Start the run (see "Macro run" below), then call `prepare_macro_worktree` for `path`, `branch` and `todos`. Never write on the default branch.
+1. Start the run (see "Macro run" below), then call `prepare_macro_worktree` for `path`, `branch` and `todos`. Never write on the default branch; an empty `branch` means a plain folder, written in place.
 2. Read the slicing and the macro's folder. An entry is a level-two group heading of `tasks.md`, or a `### Requirement:` of a capability's spec delta.
 3. Compare, line by line, within the file each line came from, and classify. Each case has one answer:
    - A line whose `sourceEntry` matches an entry, with the same text: nothing to do.
@@ -15,3 +15,5 @@
        git -C "<path>" push -u origin HEAD
 
    Never `git add -A`: with worktrees off, `path` is a working checkout that may hold other changes. Push nothing when you wrote nothing, and never push the default branch. Opening the pull request is the human's gesture: say the branch is pushed and stop there.
+
+   When `branch` is empty, skip this step entirely: the folder is not a Git repository, so there is no branch to commit on and nothing to push. Say so in the report.

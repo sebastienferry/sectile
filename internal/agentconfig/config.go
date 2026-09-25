@@ -40,7 +40,15 @@ type Config struct {
 	AISkillModels           map[string]string `json:"aiSkillModels,omitempty"`
 	ExternalTerminalCommand string            `json:"externalTerminalCommand"`
 	Skills                  []Skill           `json:"skills"`
+	// MonoRepo says the project lives in a single repository, which decides
+	// whether the code checkout also carries the specifications. Absent (a
+	// server that predates it) reads as mono-repo, the server's own default,
+	// so a newer agent never starts refusing what used to work.
+	MonoRepo *bool `json:"monoRepo,omitempty"`
 }
+
+// IsMonoRepo reads MonoRepo with its default.
+func (c Config) IsMonoRepo() bool { return c.MonoRepo == nil || *c.MonoRepo }
 
 // Dispatch carries launch intent only. Execution settings are fetched separately.
 // A zero version is accepted for legacy senders; new senders always emit Version.

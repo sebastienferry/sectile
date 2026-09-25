@@ -1102,7 +1102,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Slicing: /api/projects/{id}/macros/{key}/slicing produces the macro's
-		// todo lines from the SDD artefacts of the project's repository.
+		// todo lines from the SDD artefacts, read by the requesting user's local
+		// agent in the specifications folder of their workstation.
 		//
 		// Rien n'est écrit dans le dépôt ni sur le tracker, et aucune story
 		// n'est créée : c'est une lecture, et la découpe reste modifiable.
@@ -1126,7 +1127,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
 				meta, origin, err = h.db.TodosFromMacroStories(id, key)
 			} else {
-				meta, origin, err = h.db.TodosFromSDD(id, key, db.NormalizeSlicingSource(req.Source))
+				meta, origin, err = h.db.TodosFromSDD(r.Context(), h.webSessionUser(r), id, key, db.NormalizeSlicingSource(req.Source))
+				err = slicingReadError(err)
 			}
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
@@ -2134,6 +2136,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		// anything is recorded, so a refused launch leaves no trace at all.
 		active, activeErr := h.db.ActiveRunOnTask(task.ID)
 		if activeErr != nil {
+			log.Printf("[Dispatch] cannot check task %s for an active run: %v", task.Key, activeErr)
 			writeError(w, http.StatusInternalServerError, "Cannot check the task for an active run")
 			return
 		}
@@ -2210,6 +2213,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				finished := time.Now()
 				act.CompletedAt = &finished
 				_ = h.db.FinishAgentLaunch(act)
+				log.Printf("[Dispatch] cannot track remote execution on task %s: %v", task.Key, runErr)
 				writeError(w, http.StatusInternalServerError, "Cannot track remote execution")
 				return
 			}
@@ -3838,10 +3842,18 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 	ch := h.SubscribeEvents()
 	defer h.UnsubscribeEvents(ch)
 
+	// An open tab may go minutes without another request: the stream keeps its
+	// session marked as seen, or the person reading the board would drop out of
+	// the active users while still looking at it.
+	touch := time.NewTicker(time.Minute)
+	defer touch.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-touch.C:
+			h.webSessionUser(r)
 		case event, open := <-ch:
 			if !open {
 				return

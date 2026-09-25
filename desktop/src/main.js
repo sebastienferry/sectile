@@ -97,7 +97,8 @@ let pendingRender=false
 const sidebarList=()=>document.querySelector('#runs')
 // Only the task rows are held: project headings and the queue view keep
 // refreshing normally.
-const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!document.activeElement?.closest?.('#runs .local-task')
+// An open project menu counts too: a render would rebuild the row and drop it.
+const sidebarBusy=()=>!!document.querySelector('#runs .local-task:hover')||!!document.activeElement?.closest?.('#runs .local-task')||!!document.querySelector('#runs .project-menu:not([hidden])')
 const hiddenProject=id=>disconnectedProjects.has(id)
 const hiddenRun=run=>hiddenProject(run.projectId)||(taskState(run).archivedRuns||[]).includes(run.id)&&!activeRun(run)
 function saveLocalTasks(){localStorage.setItem('localTasks',JSON.stringify(localTasks))}
@@ -238,7 +239,7 @@ function renderQueue(project,group){
  const label=document.createElement('strong');label.textContent='Execution queue'
  const close=document.createElement('button');close.className='icon-button';close.type='button';close.title='Close queue';close.setAttribute('aria-label','Close queue for '+project.name)
  close.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>'
- close.onclick=()=>{queueProjects.delete(project.id);render();document.querySelectorAll('.project-queue-toggle').forEach(button=>{if(button.dataset.projectId===project.id)button.focus()})}
+ close.onclick=()=>{queueProjects.delete(project.id);render();document.querySelector('.project-more[data-project-id="'+CSS.escape(project.id)+'"]')?.focus()}
  header.append(label,close);panel.append(header)
  const summary=document.createElement('p');summary.className='queue-summary';summary.setAttribute('role','status')
  const list=document.createElement('div');list.className='queue-list';panel.append(summary,list);group.append(panel)
@@ -360,6 +361,76 @@ function renderHeaderState(run){
  if(text.textContent!==label)text.textContent=label
  element.title='Process: '+label
 }
+function toggleQueue(projectID){
+ selectedProject=projectID
+ if(queueProjects.has(projectID))queueProjects.delete(projectID);else queueProjects.add(projectID)
+ collapsedProjects.delete(projectID);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()
+}
+// Every action of a project, in one context menu: a right click on the row
+// opens it at the pointer, the … button under itself. The row itself carries
+// nothing else, so the menu is the only place these actions live.
+let closeProjectMenu=null
+function projectMenu(project,waitingCount=0){
+ const more=document.createElement('button');more.type='button';more.className='project-more';more.textContent='…'
+ more.setAttribute('aria-haspopup','menu');more.setAttribute('aria-expanded','false')
+ more.setAttribute('aria-label','Actions for '+project.name);more.title=more.getAttribute('aria-label');more.dataset.projectId=project.id
+ // The queue button used to carry the waiting count; the opener does now.
+ if(waitingCount){const badge=document.createElement('span');badge.className='queue-count';badge.textContent=waitingCount;badge.setAttribute('aria-hidden','true');more.append(badge);more.title+=' · '+waitingCount+' waiting'}
+ const menu=document.createElement('div');menu.className='project-menu';menu.setAttribute('role','menu');menu.setAttribute('aria-label','Actions for '+project.name);menu.hidden=true
+ let dismiss=null
+ const close=(focusOpener=false)=>{
+  if(menu.hidden)return
+  menu.hidden=true;more.setAttribute('aria-expanded','false')
+  if(dismiss){document.removeEventListener('pointerdown',dismiss,true);window.removeEventListener('blur',dismiss);dismiss=null}
+  if(closeProjectMenu===close)closeProjectMenu=null
+  if(focusOpener)more.focus()
+  scheduleFlush()
+ }
+ const openAt=(x,y)=>{
+  closeProjectMenu?.()
+  menu.hidden=false;more.setAttribute('aria-expanded','true')
+  // Fixed to the viewport, and kept inside it, so neither the sidebar's
+  // scroll nor its width can clip it.
+  const {width,height}=menu.getBoundingClientRect()
+  menu.style.left=Math.max(4,Math.min(x,innerWidth-width-4))+'px'
+  menu.style.top=Math.max(4,Math.min(y,innerHeight-height-4))+'px'
+  dismiss=event=>{if(event.type==='blur'||!menu.contains(event.target)&&event.target!==more)close()}
+  document.addEventListener('pointerdown',dismiss,true);window.addEventListener('blur',dismiss)
+  closeProjectMenu=close
+  menu.querySelector('[role=menuitem]:not(:disabled)')?.focus()
+ }
+ // Measured once shown: a hidden menu has no width to align on.
+ const open=()=>{const box=more.getBoundingClientRect();menu.hidden=false;openAt(box.right-menu.offsetWidth,box.bottom+2)}
+ const queued=queueProjects.has(project.id)
+ const items=[
+  {label:'Open tasks',run:()=>openTickets(project.id)},
+  {label:(queued?'Show tasks':'Show execution queue')+(waitingCount?' · '+waitingCount+' waiting':''),run:()=>toggleQueue(project.id)},
+  {label:'New task…',run:()=>newProjectTask(project.id)},
+  {label:'Open agent console',disabled:!project.path,run:()=>openAgentConsole(project.id)},
+  null,
+  {label:'Project settings…',run:()=>openProject(project.id)},
+  {label:'Remove from desktop',danger:true,run:()=>requestRemoveProject(project.id,project.name)}
+ ]
+ for(const item of items){
+  if(!item){const line=document.createElement('div');line.setAttribute('role','separator');menu.append(line);continue}
+  const button=document.createElement('button');button.type='button';button.setAttribute('role','menuitem')
+  button.textContent=item.label;button.disabled=!!item.disabled;if(item.danger)button.className='danger'
+  button.onclick=()=>{close();item.run()}
+  menu.append(button)
+ }
+ more.onclick=()=>{menu.hidden?open():close()}
+ const keys=event=>{
+  if(event.key==='Escape'&&!menu.hidden){event.preventDefault();event.stopPropagation();close(true);return}
+  if(event.target===more&&event.key==='ArrowDown'&&menu.hidden){event.preventDefault();open();return}
+  if(menu.hidden||!['ArrowDown','ArrowUp'].includes(event.key))return
+  const enabled=[...menu.querySelectorAll('[role=menuitem]:not(:disabled)')]
+  const at=enabled.indexOf(document.activeElement)
+  event.preventDefault()
+  enabled[(at+(event.key==='ArrowDown'?1:-1)+enabled.length)%enabled.length]?.focus()
+ }
+ more.onkeydown=menu.onkeydown=keys
+ return {more,menu,openAt}
+}
 function renderHeader(){
  const run=runs.find(item=>item.id===selected)
  let text='Select an execution'
@@ -399,21 +470,10 @@ function render(options){
   capacity.setAttribute('aria-label',capacity.title)
   heading.replaceChildren(name,capacity)
   heading.onclick=()=>{selectedProject=project.id;if(collapsedProjects.has(project.id))collapsedProjects.delete(project.id);else collapsedProjects.add(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
-  const configure=document.createElement('button');configure.textContent='⚙';configure.setAttribute('aria-label','Configure '+project.name);configure.onclick=()=>openProject(project.id)
-  const browse=document.createElement('button');browse.textContent='+';browse.title='New task';browse.setAttribute('aria-label','New task in '+project.name);browse.onclick=()=>newProjectTask(project.id)
-  const openTasks=document.createElement('button');openTasks.className='project-open-tasks';openTasks.title='Open tasks in '+project.name;openTasks.setAttribute('aria-label',openTasks.title)
-  openTasks.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 5h12M9 12h12M9 19h12M3 5h1M3 12h1M3 19h1"/></svg>'
-  openTasks.dataset.projectId=project.id
-  openTasks.onclick=()=>openTickets(project.id)
-  const queue=document.createElement('button');queue.className='project-queue-toggle icon-button';queue.dataset.projectId=project.id
   const waitingCount=runs.filter(run=>run.projectId===project.id&&run.status==='queued'&&!run.cancelRequested).length
-  queue.setAttribute('aria-label','Queue view for '+project.name);queue.setAttribute('aria-pressed',String(queueProjects.has(project.id)))
-  queue.title=(queueProjects.has(project.id)?'Show tasks':'Show execution queue')+' · '+waitingCount+' waiting'
-  queue.innerHTML='<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M3 4h18l-7 8v7l-4 2v-9Z"/></svg>'
-  if(waitingCount){const badge=document.createElement('span');badge.className='queue-count';badge.textContent=waitingCount;badge.setAttribute('aria-hidden','true');queue.append(badge)}
-  queue.onclick=()=>{selectedProject=project.id;if(queueProjects.has(project.id))queueProjects.delete(project.id);else queueProjects.add(project.id);collapsedProjects.delete(project.id);localStorage.setItem('collapsedProjects',JSON.stringify([...collapsedProjects]));render()}
-  const consoleButton=document.createElement('button');consoleButton.textContent='>_';consoleButton.title='Open agent console';consoleButton.setAttribute('aria-label','Open agent console in '+project.name);consoleButton.disabled=!project.path;consoleButton.onclick=()=>openAgentConsole(project.id)
-  projectRow.append(heading,openTasks,queue,browse,consoleButton,configure);group.append(projectRow)
+  const {more,menu,openAt}=projectMenu(project,waitingCount)
+  projectRow.oncontextmenu=event=>{event.preventDefault();openAt(event.clientX,event.clientY)}
+  projectRow.append(heading,more,menu);group.append(projectRow)
   const children=runs.filter(run=>run.projectId===project.id&&!hiddenRun(run))
   const taskGroups=new Map()
   for(const run of children){const key=taskKey(run);if(!taskGroups.has(key))taskGroups.set(key,[]);taskGroups.get(key).push(run)}
@@ -1219,13 +1279,56 @@ async function openProject(id){
   browse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)path.value=selected}catch(err){error(err)}}
   const picker=document.createElement('div');picker.className='repository-picker';picker.append(path,browse)
   const repository=settingRow('Local repository',{stacked:true},picker)
-  // Macro skills write specifications here; empty means the local repository.
-  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.placeholder='Same as the local repository';specPath.setAttribute('aria-label','Specifications repository')
+  // Macro operations read and write specifications here. Only an override is
+  // stored: a mono-repo project inherits its local repository, a multi-repo
+  // project needs one. The layout itself is a project setting held by the
+  // server, so it is stated here and changed in the web interface.
+  const layoutRow=readOnlyRow('Repository layout','Project setting · Change it in the project settings of the web interface.')
+  const specPath=document.createElement('input');specPath.value=info.specPath||'';specPath.setAttribute('aria-label','Specifications folder')
   const specBrowse=document.createElement('button');specBrowse.type='button';specBrowse.textContent='Choose folder…';specBrowse.setAttribute('aria-label','Choose specifications folder…')
-  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected)specPath.value=selected}catch(err){error(err)}}
+  specBrowse.onclick=async()=>{try{const selected=await api.chooseRepository();if(selected){specPath.value=selected;renderSpec({...specData,specPath:selected})}}catch(err){error(err)}}
   const specPicker=document.createElement('div');specPicker.className='repository-picker';specPicker.append(specPath,specBrowse)
-  const specRepository=settingRow('Specifications repository',{stacked:true},specPicker)
-  specRepository.hint.textContent='Optional · Where macro skills prepare their worktree when the specifications live apart from the code.'
+  // Mono-repo only: the specifications either share the code checkout or live
+  // in a folder of their own. Unticking reveals the folder; ticking drops the
+  // override so the folder follows the local repository again.
+  const sameRepo=document.createElement('input');sameRepo.type='checkbox';sameRepo.id='spec-same-repository'
+  const sameRepoLabel=document.createElement('label');sameRepoLabel.className='spec-same-repository';sameRepoLabel.htmlFor=sameRepo.id
+  sameRepoLabel.append(sameRepo,document.createTextNode(' Specifications live in the code repository'))
+  sameRepo.onchange=()=>{
+   if(sameRepo.checked)specPath.value=''
+   renderSpec({...specData,specPath:specPath.value},{separate:!sameRepo.checked})
+   if(!sameRepo.checked)specPath.focus()
+  }
+  specPath.oninput=()=>renderSpec({...specData,specPath:specPath.value},{separate:true})
+  const specKind=document.createElement('span');specKind.className='spec-kind';specKind.setAttribute('role','status');specKind.setAttribute('aria-label','Specifications folder kind')
+  const specRepository=settingRow('Specifications folder',{stacked:true},sameRepoLabel,specPicker,specKind)
+  let specData=info
+  function renderSpec(data,options){
+   specData=data
+   const mono=data.monoRepo!==false,override=!!(data.specPath||'').trim()
+   const separate=!mono||override||!!options?.separate
+   const required=!mono&&!override
+   layoutRow.value.textContent=mono?'Mono-repo':'Multi-repo'
+   sameRepoLabel.hidden=!mono;sameRepo.checked=mono&&!separate
+   specPicker.hidden=!separate
+   specPath.placeholder=mono?'Folder holding the specifications':'Required for a multi-repo project'
+   specRepository.section.classList.toggle('required',required)
+   specPath.setAttribute('aria-invalid',required?'true':'false')
+   specRepository.hint.textContent=required?'Required · Macro operations of a multi-repo project need this folder. Settings can still be saved without it.'
+    :!separate?'Macro skills read and write specifications in the local repository.'
+    :mono?'A folder of its own · Tick the box to use the local repository again.'
+    :'Where macro skills read and write specifications.'
+   // The kind is detected on the folder the agent resolves, which is not
+   // always the one typed: name it, so the verdict says what it is about.
+   // A value typed but not saved yet has not been examined.
+   const stored=(data.specPath||'').trim()===(info.specPath||'').trim()
+   const examined=(stored?(data.specPath||'').trim():'')||(!override?data.specDefault:'')||''
+   const verdict={git:'Git repository',folder:'Folder, not a Git repository',missing:'Folder not found'}[stored?data.specKind:'']||''
+   specKind.textContent=verdict&&examined?verdict+' · '+examined:''
+   specKind.title=specKind.textContent
+   specKind.dataset.kind=stored?data.specKind||'':''
+  }
+  renderSpec(info)
   let useWorktrees=info.useWorktrees,inheritWorktrees=!info.worktreeOverride
   let parallelism=info.parallelism||1
   const controls={}
@@ -1429,7 +1532,7 @@ async function openProject(id){
   updateTerminal()
 
   const notice=document.createElement('p');notice.setAttribute('role','status')
-  panels.General.append(repository.section,specRepository.section)
+  panels.General.append(repository.section,layoutRow.section,specRepository.section)
   panels.Execution.append(controls.worktrees.section,controls.parallel.section,terminalRow.section)
   panels.Agent.append(providerRow.section,modelRow.section,commandRow.section,autonomousRow.section)
   const remove=document.createElement('button');remove.type='button';remove.textContent='Remove from desktop';remove.className='remove-project'
@@ -1452,7 +1555,11 @@ async function openProject(id){
     const termToSend=terminalSelect.value==='custom'?customTerminalInput.value.trim():terminalSelect.value
     await api.mapProject({projectId:id,path:path.value,specPath:specPath.value.trim(),useWorktrees,inheritWorktrees,parallelism,aiProvider:selectedProvider,aiModel:modelInput.value.trim(),inheritAiProvider,inheritAiModel,aiCommandTemplate:command.value,aiCommandTemplateAutonomous:autonomousCommand.value,inheritCommand,terminal:termToSend,inheritTerminal})
     projectStateVersion++;disconnectedProjects.delete(id)
-    notice.textContent='Local configuration saved';await loadProjects()
+    notice.textContent='Local configuration saved'
+    // The agent normalised the folder and detected its kind: show what it
+    // stored, not what was typed.
+    try{const fresh=await api.project(id);info.specPath=fresh.specPath||'';specPath.value=info.specPath;renderSpec(fresh)}catch(err){error(err)}
+    await loadProjects()
     for(const button of tools.querySelectorAll('button'))button.disabled=false
    }catch(err){notice.textContent=err.message}finally{save.disabled=false}
   }
@@ -1521,7 +1628,7 @@ async function openProject(id){
      }
      updateTerminal()
     }
-    update();commandState();renderServer(fresh.monoRepo)
+    update();commandState();renderServer(fresh.monoRepo);renderSpec({...fresh,specPath:specPath.value})
     notice.textContent='Server settings refreshed. Local overrides preserved.'
    }catch(err){notice.textContent=err.message}finally{reload.disabled=false}
   }
@@ -1581,7 +1688,7 @@ function closeTickets(restoreFocus=true){
  // the app instead of dropping it on the body.
  if(!restoreFocus)return
  const reachable=element=>element?.isConnected&&element.offsetParent!==null
- const target=reachable(opener)?opener:document.querySelector('.project-open-tasks[data-project-id="'+projectID+'"]')||document.querySelector('#command-palette')
+ const target=reachable(opener)?opener:document.querySelector('.project-more[data-project-id="'+CSS.escape(projectID||'')+'"]')||document.querySelector('#command-palette')
  if(reachable(target))target.focus()
 }
 async function openTickets(projectID,initialQuery=''){

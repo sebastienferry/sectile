@@ -55,6 +55,7 @@ func (h *Handler) handleMacroRunSkill(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 	if active, err := h.db.ActiveRunOnMacro(project.ID, macroKey); err != nil {
+		log.Printf("[MacroRun] cannot check macro %s for an active run: %v", macroKey, err)
 		writeError(w, http.StatusInternalServerError, "Cannot check the macro for an active run")
 		return
 	} else if active != nil {
@@ -187,4 +188,25 @@ func (h *Handler) handleMacroCancelRun(w http.ResponseWriter, r *http.Request, p
 		return
 	}
 	writeJSON(w, http.StatusOK, activity)
+}
+
+// slicingReadError turns the two failures of reaching the local agent into
+// what the user can act on: the slicing import reads the specifications on
+// their workstation, so a missing or outdated desktop app is the cause, not a
+// configuration problem. Any other error is already written for the user.
+func slicingReadError(err error) error {
+	switch {
+	case err == nil:
+		return nil
+	case strings.Contains(err.Error(), `unknown local operation "macro_spec_file"`):
+		return errors.New("Votre app desktop Sectile est trop ancienne pour importer la découpe : mettez-la à jour puis réessayez.")
+	case errors.Is(err, ErrNoAgentConnected), strings.Contains(err.Error(), "requires a connected agent"):
+		return errors.New("L'import de la découpe lit les spécifications sur votre poste : connectez l'app desktop Sectile puis réessayez.")
+	}
+	// The agent's refusals are written for the user; the relay's prefix is
+	// not, and it would open a French sentence with an English label.
+	if refusal, ok := strings.CutPrefix(err.Error(), "local agent: "); ok {
+		return errors.New(refusal)
+	}
+	return err
 }

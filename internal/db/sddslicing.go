@@ -1,13 +1,11 @@
 package db
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"sort"
 	"strings"
 
+	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
 )
 
@@ -48,193 +46,6 @@ func sddFileName(source SlicingSource) string {
 		return "spec.md"
 	}
 	return "tasks.md"
-}
-
-// sddSearchRoots rend les répertoires où chercher le dossier d'une macro, selon
-// le cadre SDD du projet.
-//
-// L'archive d'OpenSpec est écartée : un changement archivé est un chantier
-// terminé, et en tirer une découpe reproduirait du travail déjà livré.
-func sddSearchRoots(specFramework string) []string {
-	if strings.EqualFold(strings.TrimSpace(specFramework), "openspec") {
-		// Écrit avec une barre oblique à dessein : cette racine est aussi passée
-		// à git sous la forme « <branche>:openspec/changes », et git ne fait
-		// jamais correspondre un chemin à barre inverse. Les lectures sur disque
-		// passent par filepath.Join, qui normalise le séparateur sous Windows.
-		return []string{"openspec/changes"}
-	}
-	return []string{"specs"}
-}
-
-// macroSpecRepoPath returns the checkout to read a project's specifications
-// from: its declared specifications repository, else its code repository.
-//
-// It is the single reader of that choice, so the slicing import, the macro
-// worktree and the realignment all land in the same checkout. The agents'
-// working directory stays RepoPath whatever this returns.
-func macroSpecRepoPath(proj *models.Project) string {
-	if proj == nil {
-		return ""
-	}
-	if spec := strings.TrimSpace(proj.SpecRepoPath); spec != "" {
-		return spec
-	}
-	return strings.TrimSpace(proj.RepoPath)
-}
-
-// FindMacroSpecDir cherche le dossier de spécification d'une macro dans un
-// dépôt, par le préfixe de sa clé.
-//
-// La correspondance ignore la casse : le dossier d'un changement OpenSpec porte
-// la clé en minuscules là où la branche la porte en majuscules. Le slug qui suit
-// la clé n'est pas connu de Sectile, d'où la recherche par préfixe plutôt qu'un
-// chemin construit.
-//
-// Deux dossiers pour la même clé, un abandonné et un repris, ne sont pas
-// impossibles : le plus récemment modifié gagne, et l'appelant le dit.
-func FindMacroSpecDir(repoPath string, specFramework string, macroKey string) (string, error) {
-	repoPath = strings.TrimSpace(repoPath)
-	key := strings.ToLower(strings.TrimSpace(macroKey))
-	if repoPath == "" {
-		return "", fmt.Errorf("aucun dépôt configuré pour ce projet : renseignez son chemin dans les options")
-	}
-	if key == "" {
-		return "", fmt.Errorf("clé de macro manquante")
-	}
-
-	type candidate struct {
-		path    string
-		modTime int64
-	}
-	var found []candidate
-	for _, root := range sddSearchRoots(specFramework) {
-		entries, err := os.ReadDir(filepath.Join(repoPath, root))
-		if err != nil {
-			continue
-		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := strings.ToLower(entry.Name())
-			if name != key && !strings.HasPrefix(name, key+"-") {
-				continue
-			}
-			path := filepath.Join(repoPath, root, entry.Name())
-			var mod int64
-			if info, statErr := entry.Info(); statErr == nil {
-				mod = info.ModTime().Unix()
-			}
-			found = append(found, candidate{path: path, modTime: mod})
-		}
-	}
-	if len(found) == 0 {
-		// Le dépôt est nommé, et pas seulement les racines cherchées : la
-		// première cause de ce refus est de chercher dans le dépôt de code quand
-		// les spécifications vivent ailleurs, et un message qui ne dit que
-		// « dans specs » laisse croire à un problème de branche.
-		return "", fmt.Errorf("aucun dossier de spécification pour %s dans %s (cherché sous %s) : soit la spécification est sur la branche de la macro, non fusionnée, soit ce dépôt n'est pas celui qui les porte (le « Dépôt des spécifications » se déclare dans les options du projet)",
-			strings.ToUpper(macroKey), repoPath, strings.Join(sddSearchRoots(specFramework), ", "))
-	}
-	sort.Slice(found, func(i, j int) bool { return found[i].modTime > found[j].modTime })
-	return found[0].path, nil
-}
-
-// readSDDFile lit le fichier d'une source, dans l'arbre de travail puis, à
-// défaut, sur la branche de la macro.
-//
-// Le repli existe parce que la spécification d'une macro est écrite sur sa
-// propre branche : produire la découpe depuis main doit marcher avant la fusion,
-// sans quoi le geste ne servirait qu'une fois la branche fusionnée, c'est-à-dire
-// trop tard pour découper.
-func readSDDFile(repoPath string, specFramework string, macroKey string, source SlicingSource) (string, string, error) {
-	name := sddFileName(source)
-
-	dir, dirErr := FindMacroSpecDir(repoPath, specFramework, macroKey)
-	if dirErr == nil {
-		path := filepath.Join(dir, name)
-		raw, readErr := os.ReadFile(path)
-		if readErr == nil {
-			return string(raw), path, nil
-		}
-		// Le dossier existe mais pas ce fichier : c'est la source choisie qui
-		// manque, pas la spécification, et le message doit le distinguer.
-		return "", "", fmt.Errorf("%s est absent de %s : cette source n'a rien à lire, essayez l'autre", name, dir)
-	}
-
-	// Repli sur la branche de la macro.
-	if content, path, err := readSDDFileFromBranch(repoPath, specFramework, macroKey, name); err == nil {
-		return content, path, nil
-	}
-	return "", "", dirErr
-}
-
-// readSDDFileFromBranch lit le fichier sur la branche de la macro, sans toucher
-// à l'arbre de travail.
-//
-// La branche est cherchée par le préfixe de la clé, comme le dossier : c'est la
-// convention que les skills de spécification appliquent.
-func readSDDFileFromBranch(repoPath string, specFramework string, macroKey string, fileName string) (string, string, error) {
-	branch, err := findMacroBranch(repoPath, macroKey)
-	if err != nil {
-		return "", "", err
-	}
-
-	key := strings.ToLower(strings.TrimSpace(macroKey))
-	for _, root := range sddSearchRoots(specFramework) {
-		// Le dossier est listé sur la branche, le slug n'étant pas connu.
-		out, listErr := gitOutput(repoPath, "ls-tree", "--name-only", branch+":"+root)
-		if listErr != nil {
-			continue
-		}
-		for _, entry := range strings.Split(out, "\n") {
-			name := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(entry), "/"))
-			if name == "" || (name != key && !strings.HasPrefix(name, key+"-")) {
-				continue
-			}
-			path := root + "/" + strings.TrimSuffix(strings.TrimSpace(entry), "/") + "/" + fileName
-			content, showErr := gitOutput(repoPath, "show", branch+":"+path)
-			if showErr != nil {
-				continue
-			}
-			return content, branch + ":" + path, nil
-		}
-	}
-	return "", "", fmt.Errorf("rien à lire sur la branche %s", branch)
-}
-
-// findMacroBranch cherche la branche d'une macro par le préfixe de sa clé.
-func findMacroBranch(repoPath string, macroKey string) (string, error) {
-	key := strings.ToLower(strings.TrimSpace(macroKey))
-	if key == "" {
-		return "", fmt.Errorf("clé de macro manquante")
-	}
-	out, err := gitOutput(repoPath, "for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes")
-	if err != nil {
-		return "", err
-	}
-	for _, line := range strings.Split(out, "\n") {
-		ref := strings.TrimSpace(line)
-		if ref == "" {
-			continue
-		}
-		// The agent's macro worktree uses the same rule, so both sides name the
-		// same branch.
-		if models.MacroBranchMatches(ref, key) {
-			return ref, nil
-		}
-	}
-	return "", fmt.Errorf("aucune branche pour %s", strings.ToUpper(macroKey))
-}
-
-func gitOutput(repoPath string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = repoPath
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
 }
 
 // ExtractTaskGroups reads the group headings of a tasks.md, in file order.
@@ -398,8 +209,13 @@ func (d *DB) macroMetaByKey(projectID string, macroKey string) (*models.MacroMet
 	return &models.MacroMeta{ProjectID: projectID, Key: macroKey, Todos: []models.MacroTodo{}}, nil
 }
 
-// TodosFromSDD produces the slicing of a macro from the SDD artefacts of the
-// project's repository, and returns the updated macro plus what was read.
+// TodosFromSDD produces the slicing of a macro from its SDD artefacts, and
+// returns the updated macro plus what was read.
+//
+// The file is read by the requesting user's local agent, in the
+// specifications folder of their workstation: the server holds no
+// specifications path, and its own disk carries none. Only the read moves;
+// the parsing and the merge stay here.
 //
 // Les lignes déjà présentes sont conservées : appariées sur leur texte
 // normalisé, elles gardent leur identifiant, leur case et leur story, et une
@@ -410,7 +226,7 @@ func (d *DB) macroMetaByKey(projectID string, macroKey string) (*models.MacroMet
 // « branche:chemin » : la découpe pouvant venir de deux endroits, ne pas dire
 // lequel laisserait l'utilisateur deviner pourquoi elle ne correspond pas à ce
 // qu'il a sous les yeux.
-func (d *DB) TodosFromSDD(projectID string, macroKey string, source SlicingSource) (*models.MacroMeta, string, error) {
+func (d *DB) TodosFromSDD(ctx context.Context, userID, projectID, macroKey string, source SlicingSource) (*models.MacroMeta, string, error) {
 	projectID = strings.TrimSpace(projectID)
 	macroKey = strings.TrimSpace(macroKey)
 	if projectID == "" || macroKey == "" {
@@ -422,10 +238,13 @@ func (d *DB) TodosFromSDD(projectID string, macroKey string, source SlicingSourc
 		return nil, "", fmt.Errorf("projet non trouvé")
 	}
 
-	content, origin, err := readSDDFile(macroSpecRepoPath(proj), proj.SpecFramework, macroKey, source)
+	var file agentprotocol.MacroSpecFile
+	err = d.callAgentContext(ctx, agentprotocol.Operation{UserID: strings.TrimSpace(userID), ProjectID: proj.ID,
+		Action: "macro_spec_file", MacroKey: macroKey, Framework: proj.SpecFramework, SpecFile: sddFileName(source)}, &file)
 	if err != nil {
 		return nil, "", err
 	}
+	content, origin := file.Content, file.Origin
 
 	var titles []string
 	if source == SlicingFromSpec {
