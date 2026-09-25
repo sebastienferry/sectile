@@ -283,3 +283,19 @@ func TestDispatchExcludesInThePrimaryRepositoryOnly(t *testing.T) {
 		t.Fatalf("the project root is a context repository here and gets no rule:\n%s", readExclude(t, projectRoot))
 	}
 }
+
+// Only the stages that write or read the artefacts hear about a drop.
+func TestSpecArtifactsNotice(t *testing.T) {
+	drop := agentconfig.Config{SpecArtifacts: "drop"}
+	for _, skill := range []string{"clarify", "specify", "implement", "adjust", "pickup", "pickup_issues"} {
+		if got := specArtifactsNotice(drop, skill); !strings.Contains(got, "Specification artefacts are dropped on this workstation") {
+			t.Errorf("%s: %q", skill, got)
+		}
+	}
+	if got := specArtifactsNotice(drop, "handoff"); got != "" {
+		t.Errorf("a stage outside the list must hear nothing: %q", got)
+	}
+	if got := specArtifactsNotice(agentconfig.Config{SpecArtifacts: "keep"}, "specify"); got != "" {
+		t.Errorf("keep must add nothing: %q", got)
+	}
+}

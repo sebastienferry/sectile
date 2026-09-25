@@ -1,3 +1,3 @@
-- The files written, with their paths.
+- The files written, with their paths, and whether they are committed or local to the worktree (ignored by Git).
 - The work branch.
 - Requirements that are still open, and what they block.

@@ -257,3 +257,17 @@ func clearSpecExclusions(ctx context.Context, config agentconfig.Config, overrid
 		}
 	}
 }
+
+// specArtifactsNotice is the prompt line telling a stage that writes or reads
+// the specification artefacts that this workstation drops them (#487). The
+// skill decides from Git; the line is for whoever reads the session.
+func specArtifactsNotice(config agentconfig.Config, skillID string) string {
+	if !config.DropsSpecArtifacts() {
+		return ""
+	}
+	switch skillID {
+	case "clarify", "specify", "implement", "adjust", "pickup", "pickup_issues":
+		return "\nSpecification artefacts are dropped on this workstation: write them in the worktree, never commit or push them (they are excluded through .git/info/exclude)."
+	}
+	return ""
+}
