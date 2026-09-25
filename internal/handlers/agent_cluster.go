@@ -67,7 +67,15 @@ const (
 	codeNoAgent           = "no_agent"
 	codeRunNotOwned       = "run_not_owned"
 	codeLaunchUnconfirmed = "launch_unconfirmed"
+	codeAgentOutdated     = "agent_outdated"
 )
+
+// outdatedRelay is an UnsupportedOperationError that crossed instances: the
+// holding instance's message verbatim, still matching ErrUnsupportedOperation.
+type outdatedRelay struct{ message string }
+
+func (e outdatedRelay) Error() string { return e.message }
+func (e outdatedRelay) Unwrap() error { return agentprotocol.ErrUnsupportedOperation }
 
 // SetCluster makes the dispatcher record its agents in the directory and
 // forward work for agents held by other instances. tokenErr, when set, says
@@ -254,6 +262,8 @@ func (c *agentCluster) forward(ctx context.Context, location db.AgentLocation, v
 		return nil, fmt.Errorf("%w: %s", ErrRunNotOwned, answer.Error)
 	case codeLaunchUnconfirmed:
 		return nil, fmt.Errorf("%w: %s", ErrLaunchUnconfirmed, answer.Error)
+	case codeAgentOutdated:
+		return nil, outdatedRelay{message: answer.Error}
 	}
 	return nil, errors.New(answer.Error)
 }
@@ -379,6 +389,8 @@ func internalAnswer(value json.RawMessage, err error) internalResponse {
 		answer.Code = codeRunNotOwned
 	case errors.Is(err, ErrLaunchUnconfirmed):
 		answer.Code = codeLaunchUnconfirmed
+	case errors.Is(err, agentprotocol.ErrUnsupportedOperation):
+		answer.Code = codeAgentOutdated
 	}
 	return answer
 }

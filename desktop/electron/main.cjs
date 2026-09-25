@@ -9,12 +9,17 @@ const storeKey=(saved,token)=>credentials.storeKey(saved,token,safeStorage)
 const storedKey=saved=>credentials.storedKey(saved,safeStorage)
 const {carryOverDataDirectory}=require('./datadir.cjs')
 const {readAgentLog}=require('./agent-log.cjs')
+const {fileSha256,agentOutdated}=require('./agent-identity.cjs')
 if(process.env.SECTILE_DESKTOP_DATA_DIR)app.setPath('userData',process.env.SECTILE_DESKTOP_DATA_DIR)
 // The app kept its data under the previous package name; carry it over once.
 if(!process.env.SECTILE_DESKTOP_DATA_DIR){
  carryOverDataDirectory(path.join(app.getPath('appData'),'taskflow-desktop'),app.getPath('userData'))
 }
 let window,connection,socket,starting=false
+// outdated says the running agent is not the binary this app would start;
+// promptedFor is the running agent the restart was already offered for, so a
+// refusal is not asked again for that agent during this session.
+let outdated=false,promptedFor=null
 const defaultInfoPath=()=>process.env.SECTILE_DESKTOP_DATA_DIR
  ? path.join(app.getPath('userData'),'agent-connection.json')
  : path.join(app.getPath('home'),'.taskflow','agent-connection.json')
@@ -44,7 +49,43 @@ async function connectAgent(){
  }
  return false
 }
-ipcMain.handle('connect',connectAgent)
+ipcMain.handle('connect',async()=>{
+ const connected=await connectAgent()
+ if(connected)scheduleIdentityCheck()
+ return connected
+})
+function bundledAgentBinary(){
+ // The UI tests have no bundled agent: they name a file standing for it.
+ if(process.env.SECTILE_DESKTOP_TEST==='1'&&process.env.SECTILE_DESKTOP_TEST_AGENT_BINARY)return process.env.SECTILE_DESKTOP_TEST_AGENT_BINARY
+ return require('./runtime.cjs').resolveAgentBinary({packaged:app.isPackaged,resourcesPath:process.resourcesPath,directory:__dirname})
+}
+// The bundled binary is hashed once per file state, not on every connection.
+let bundledIdentity={key:null,sha:null}
+async function bundledAgentSha256(){
+ let binary,stat
+ try{binary=bundledAgentBinary();stat=fs.statSync(binary)}catch{return null}
+ const key=binary+':'+stat.size+':'+stat.mtimeMs
+ if(bundledIdentity.key!==key)bundledIdentity={key,sha:await fileSha256(binary)}
+ return bundledIdentity.sha
+}
+function setOutdated(value){
+ outdated=value
+ if(window&&!window.isDestroyed())window.webContents.send('agent-outdated',value)
+}
+// Runs after the IPC answers, so a connection is never held up by hashing and
+// the restart it may offer never overlaps the start that connected.
+function scheduleIdentityCheck(){setImmediate(()=>checkAgentIdentity().catch(()=>{}))}
+async function checkAgentIdentity(){
+ if(starting)return
+ let running
+ try{running=await api('/desktop/version')}catch{return}
+ const bundled=await bundledAgentSha256()
+ setOutdated(agentOutdated({running,bundled}))
+ const identity=running.binarySha256||'legacy'
+ if(!outdated||promptedFor===identity)return
+ promptedFor=identity
+ await lifecycle('restart',{reason:'outdated'})
+}
 ipcMain.handle('pair',async(_,{server,code,label})=>{
  const credential=await exchangePairingCode(server,code,label)
  let previous={}
@@ -91,81 +132,107 @@ ipcMain.handle('save-settings',async(_,updates)=>{
 ipcMain.handle('version',async()=>{
  let agent=null
  try{agent=(await api('/desktop/version')).version||null}catch{}
- return {desktop:app.getVersion(),agent}
+ return {desktop:app.getVersion(),agent,outdated:Boolean(agent)&&outdated}
 })
 ipcMain.handle('start',async(_,settings)=>{
  if(starting)throw Error('Agent is starting')
  starting=true
+ let started=false
  try{
-  if(await connectAgent())return true
-  const url=new URL(settings.server)
-  if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Use an HTTP or HTTPS server URL')
-  // A pairing code is spent here, once the server address is known to be usable:
-  // burning a single-use code on a malformed URL would cost the user a new one.
-  // With no code, the credential an earlier pairing left behind restarts the
-  // agent: the form asks for a code, never for a key to paste back in.
-  let kept=''
-  try{kept=storedKey(readSettings())}catch{}
-  const credential=await resolveConnectCredential({...settings,token:kept})
-  const token=credential.token
-  await checkServer(url,token)
-  // Preserve existing mappings when upgrading; new installations use private app data.
-  let previous={}
-  try{previous=readSettings()}catch{}
-  const repo=previous.repo||path.dirname(settingsPath())
-  fs.mkdirSync(repo,{recursive:true,mode:0o700})
-  const binary=require('./runtime.cjs').resolveAgentBinary({packaged:app.isPackaged,resourcesPath:process.resourcesPath,directory:__dirname})
-  if(connection){try{await api('/desktop/runs');return true}catch{connection=null}}
-  fs.mkdirSync(app.getPath('userData'),{recursive:true})
-  let legacy={}
-  try{legacy=JSON.parse(fs.readFileSync(path.join(repo,'.taskflow','agent.json'),'utf8'))}catch{}
-  const saved={...legacy,...previous,server:settings.server,repo}
-  if(credential.deviceId)saved.deviceId=credential.deviceId
-  delete saved.binary
-  fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
-  storeKey(saved,token)
-  fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
-  fs.renameSync(settingsPath()+'.tmp',settingsPath())
-  const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
-  const info=infoPath()
-  if(fs.existsSync(info))fs.unlinkSync(info)
-  const child=spawn(binary,['--desktop-info',info,'--url',settings.server,'--repo',repo],{
-   detached:true,stdio:['ignore',output,output],
-   env:{...process.env,TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
-  })
-  let spawnError
-  child.on('error',error=>{spawnError=error})
-  child.unref();fs.closeSync(output)
-  for(let attempt=0;attempt<50;attempt++){
-   if(spawnError)throw spawnError
-   await new Promise(resolve=>setTimeout(resolve,200))
-   if(fs.existsSync(info)){
-    connection=validConnection(JSON.parse(fs.readFileSync(info,'utf8')))
-    try{await api('/desktop/runs');return true}catch{connection=null}
-   }
-  }
-  throw Error('Agent did not become ready. Check agent.log in the application data directory.')
- }finally{starting=false}
+  started=await startAgent(settings)
+  return started
+ }finally{
+  starting=false
+  if(started)scheduleIdentityCheck()
+ }
 })
-async function lifecycle(action){
+// startAgent connects to a running agent or spawns the bundled one. The caller
+// holds the lifecycle guard.
+async function startAgent(settings){
+ if(await connectAgent())return true
+ const url=new URL(settings.server)
+ if(!['http:','https:'].includes(url.protocol)||url.username||url.password)throw Error('Use an HTTP or HTTPS server URL')
+ // A pairing code is spent here, once the server address is known to be usable:
+ // burning a single-use code on a malformed URL would cost the user a new one.
+ // With no code, the credential an earlier pairing left behind restarts the
+ // agent: the form asks for a code, never for a key to paste back in.
+ let kept=''
+ try{kept=storedKey(readSettings())}catch{}
+ const credential=await resolveConnectCredential({...settings,token:kept})
+ const token=credential.token
+ await checkServer(url,token)
+ // Preserve existing mappings when upgrading; new installations use private app data.
+ let previous={}
+ try{previous=readSettings()}catch{}
+ const repo=previous.repo||path.dirname(settingsPath())
+ fs.mkdirSync(repo,{recursive:true,mode:0o700})
+ const binary=bundledAgentBinary()
+ if(connection){try{await api('/desktop/runs');return true}catch{connection=null}}
+ fs.mkdirSync(app.getPath('userData'),{recursive:true})
+ let legacy={}
+ try{legacy=JSON.parse(fs.readFileSync(path.join(repo,'.taskflow','agent.json'),'utf8'))}catch{}
+ const saved={...legacy,...previous,server:settings.server,repo}
+ if(credential.deviceId)saved.deviceId=credential.deviceId
+ delete saved.binary
+ fs.mkdirSync(path.dirname(settingsPath()),{recursive:true,mode:0o700})
+ storeKey(saved,token)
+ fs.writeFileSync(settingsPath()+'.tmp',JSON.stringify(saved),{mode:0o600})
+ fs.renameSync(settingsPath()+'.tmp',settingsPath())
+ const output=fs.openSync(path.join(app.getPath('userData'),'agent.log'),'a',0o600)
+ const info=infoPath()
+ if(fs.existsSync(info))fs.unlinkSync(info)
+ const child=spawn(binary,['--desktop-info',info,'--url',settings.server,'--repo',repo],{
+  detached:true,stdio:['ignore',output,output],
+  env:{...process.env,TOKEN:token,SECTILE_DESKTOP_TOKEN:crypto.randomBytes(32).toString('hex')}
+ })
+ let spawnError
+ child.on('error',error=>{spawnError=error})
+ child.unref();fs.closeSync(output)
+ for(let attempt=0;attempt<50;attempt++){
+  if(spawnError)throw spawnError
+  await new Promise(resolve=>setTimeout(resolve,200))
+  if(fs.existsSync(info)){
+   connection=validConnection(JSON.parse(fs.readFileSync(info,'utf8')))
+   try{await api('/desktop/runs');return true}catch{connection=null}
+  }
+ }
+ throw Error('Agent did not become ready. Check agent.log in the application data directory.')
+}
+async function lifecycle(action,{reason}={}){
  if(starting)throw Error('Agent lifecycle operation already in progress')
  starting=true
+ let restarted=false
  try{
   const runs=await api('/desktop/runs')
   const active=runs.filter(run=>['running','queued','preparing'].includes(run.status))
-  const result=await dialog.showMessageBox(window,{type:'warning',buttons:['Cancel',action==='restart'?'Restart agent':'Stop agent'],defaultId:0,cancelId:0,message:action==='restart'?'Restart the local agent?':'Stop the local agent?',detail:active.length
+  const detail=active.length
    ? active.length+' active execution(s) will be stopped. Console history will be cleared.'
-   : 'Console history will be cleared. Server settings and local project directories are preserved.'})
+   : 'Console history will be cleared. Server settings and local project directories are preserved.'
+  const result=await dialog.showMessageBox(window,{type:'warning',buttons:['Cancel',action==='restart'?'Restart agent':'Stop agent'],defaultId:0,cancelId:0,message:action==='restart'?'Restart the local agent?':'Stop the local agent?',detail:reason==='outdated'
+   ? 'The running agent is not the one bundled with this app.\n'+detail
+   : detail})
   if(result.response!==1)return false
   await Promise.all(active.map(run=>api('/desktop/stop?id='+encodeURIComponent(run.id),'POST')))
   if(socket){socket.removeAllListeners();socket.close();socket=null}
   const previous=fs.readFileSync(infoPath(),'utf8')
   const modified=fs.statSync(infoPath()).mtimeMs
-  await api('/desktop/'+(action==='restart'?'restart':'shutdown'),'POST')
-  if(action==='stop'){
+  // An outdated agent may have been started from another path, which
+  // /desktop/restart would run again: it is stopped, and the bundled binary
+  // started in its place. Without a saved server there is nothing to start it
+  // with, and the agent's own restart is the only one available.
+  let server
+  try{server=readSettings().server}catch{}
+  const replace=action==='restart'&&reason==='outdated'&&Boolean(server)
+  await api('/desktop/'+(action==='restart'&&!replace?'restart':'shutdown'),'POST')
+  if(action==='stop'||replace){
    for(let attempt=0;attempt<100;attempt++){
     await new Promise(resolve=>setTimeout(resolve,200))
-    try{await api('/desktop/runs')}catch{connection=null;return true}
+    try{await api('/desktop/runs')}catch{
+     connection=null
+     if(!replace)return true
+     restarted=await startAgent({server})
+     return restarted
+    }
    }
    throw Error('Agent has not stopped yet.')
   }
@@ -176,13 +243,20 @@ async function lifecycle(action){
     if(raw===previous&&fs.statSync(infoPath()).mtimeMs===modified)continue
     connection=validConnection(JSON.parse(raw))
     await api('/desktop/runs')
+    restarted=true
     return true
    }catch{}
   }
   throw Error('Agent did not restart. Check agent.log in the application data directory.')
- }finally{starting=false}
+ }finally{
+  starting=false
+  // A restarted agent is checked again, which clears the mark once it is the
+  // bundled one.
+  if(restarted)scheduleIdentityCheck()
+ }
 }
-ipcMain.handle('restart',()=>lifecycle('restart'))
+// Restarting an outdated agent from the settings replaces it with the bundled one too.
+ipcMain.handle('restart',()=>lifecycle('restart',outdated?{reason:'outdated'}:{}))
 ipcMain.handle('shutdown',()=>lifecycle('stop'))
 ipcMain.handle('agent-logs',()=>readAgentLog(path.join(app.getPath('userData'),'agent.log')))
 ipcMain.handle('save-log',async(_,text)=>{

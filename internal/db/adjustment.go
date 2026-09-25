@@ -196,7 +196,7 @@ func (d *DB) validateStagePRAt(task *models.Task, actorID, skillID, repoPath, br
 
 // errAgentTooOld is a failed lookup: an agent that ignores the repository of a
 // question would answer for the project checkout instead.
-var errAgentTooOld = fmt.Errorf("local agent is too old to look up a pull request in another repository; update it")
+var errAgentTooOld = fmt.Errorf("%w: local agent is too old to look up a pull request in another repository; restart or update the Sectile desktop app", agentprotocol.ErrUnsupportedOperation)
 
 // stagePRTarget says where a stage's pull request is read: the project
 // repository, as always, or the repository its link names.

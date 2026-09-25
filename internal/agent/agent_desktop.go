@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"github.com/google/uuid"
@@ -39,6 +41,41 @@ type loopbackServer struct {
 	// echoConsoles mirrors console output on the agent's own stdout. Off by
 	// default: it is a debugging aid, not a way to read runs.
 	echoConsoles bool
+	// binarySha256 fingerprints the executable this agent was started from,
+	// hashed at start: by the time the companion asks, the file on disk may
+	// already be a newer build. Empty when the executable could not be read.
+	binarySha256 string
+}
+
+// desktopVersion answers /desktop/version: the build, plus the fingerprint that
+// lets the companion tell a same-version rebuild from the binary it bundles.
+type desktopVersion struct {
+	version.Info
+	BinarySha256 string `json:"binarySha256,omitempty"`
+}
+
+// executableSha256 hashes the running executable's content, "" when it cannot
+// be read. The version and the commit do not change on a rebuild with
+// uncommitted changes; the content does.
+func executableSha256() string {
+	binary, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return fileSha256(binary)
+}
+
+func fileSha256(path string) string {
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return ""
+	}
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 type desktopRun struct {
@@ -90,7 +127,7 @@ func (d *agentDaemon) desktopHandler(w http.ResponseWriter, r *http.Request) {
 	// the version never changes while the process lives.
 	if r.URL.Path == "/desktop/version" && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(version.Current())
+		_ = json.NewEncoder(w).Encode(desktopVersion{Info: version.Current(), BinarySha256: d.loopback.binarySha256})
 		return
 	}
 	if r.URL.Path == "/desktop/mcp" {

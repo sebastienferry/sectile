@@ -1192,6 +1192,17 @@ function renderChangelog(container,releases){
 // The pane main built as the whole Settings dialog becomes one category of it:
 // what is installed sits beside the account, the connection and the logs
 // instead of replacing them.
+// The mark stays until the running agent is the one this app bundles; the main
+// process says when that changes, which is what the listener is for.
+function showAgentOutdated(row,outdated){
+ let mark=row.querySelector('.version-outdated')
+ if(!outdated){mark?.remove();return}
+ if(!mark){
+  mark=document.createElement('span');mark.className='version-outdated'
+  mark.textContent='outdated: restart the local agent'
+  row.querySelector('.setting-control').append(mark)
+ }
+}
 async function fillChangelogPanel(panel){
  const versions=document.createElement('div');versions.className='settings-versions'
  const desktopRow=versionRow('Sectile Desktop','…','The application window and its consoles.')
@@ -1215,6 +1226,11 @@ async function fillChangelogPanel(panel){
   // A stopped agent has no version to give. Saying so beats leaving an
   // ellipsis that reads as a load which never finishes.
   agentRow.querySelector('.version-value').textContent=reported.agent||'not running'
+  showAgentOutdated(agentRow,reported.outdated)
+  const unsubscribe=api.onAgentOutdated?.(value=>{
+   if(!agentRow.isConnected){unsubscribe?.();return}
+   showAgentOutdated(agentRow,value)
+  })
  }catch{
   if(!panel.isConnected)return
   desktopRow.querySelector('.version-value').textContent='unknown'

@@ -4,74 +4,74 @@ References: [`spec.md`](./spec.md), [`plan.md`](./plan.md).
 
 ## 1. Shared protocol (FR1, FR6)
 
-- [ ] T1.1 Add `Operations`, `ErrUnsupportedOperation`,
+- [x] T1.1 Add `Operations`, `ErrUnsupportedOperation`,
       `UnsupportedOperationError` and `IsUnknownOperationReply` to
       `internal/agentprotocol/operations.go`.
-- [ ] T1.2 Unit tests: the three build wordings, `errors.Is`, exact reply
+- [x] T1.2 Unit tests: the three build wordings, `errors.Is`, exact reply
       matching (another operation's reply and a longer text do not match).
 
 ## 2. Agent (FR1, FR2, FR11)
 
-- [ ] T2.1 `executeOperation` checks `op.Action` against a set built from
+- [x] T2.1 `executeOperation` checks `op.Action` against a set built from
       `agentprotocol.Operations`; the macro actions are listed there too.
-- [ ] T2.2 The dial URL carries `agentVersion`, `agentCommit` (when known) and
+- [x] T2.2 The dial URL carries `agentVersion`, `agentCommit` (when known) and
       `operations`.
-- [ ] T2.3 Hash `os.Executable()` once at daemon start; `/desktop/version`
+- [x] T2.3 Hash `os.Executable()` once at daemon start; `/desktop/version`
       answers the `version.Info` fields plus `binarySha256`.
-- [ ] T2.4 Tests: dial URL parameters, `/desktop/version` fingerprint, every
+- [x] T2.4 Tests: dial URL parameters, `/desktop/version` fingerprint, every
       listed operation passes the allow-list and an unknown one is still
       refused with `unknown local operation`.
 
 ## 3. Server relay (FR3-FR7, FR10)
 
-- [ ] T3.1 `AgentBuild` on `AgentConn`; `HandleAgentConnect` parses the three
+- [x] T3.1 `AgentBuild` on `AgentConn`; `HandleAgentConnect` parses the three
       parameters (legacy when `operations` is absent) and passes them to
       `Register` / `registerLocal`.
-- [ ] T3.2 Capability check before sending and legacy reply conversion in
+- [x] T3.2 Capability check before sending and legacy reply conversion in
       `callOperationLocal`; dispatches (`execute_skill`, `open_terminal`) and
       actions the server does not list stay unchecked.
-- [ ] T3.3 `codeAgentOutdated` in `internalAnswer`; `outdatedRelay` in
+- [x] T3.3 `codeAgentOutdated` in `internalAnswer`; `outdatedRelay` in
       `forward`.
-- [ ] T3.4 `AgentConnInfo` build fields and `outdated`, filled by
+- [x] T3.4 `AgentConnInfo` build fields and `outdated`, filled by
       `ConnectedAgents` and, for locally held connections only, by
       `clusterAgents`.
-- [ ] T3.5 Tests: connect handshake (announced and legacy), announced refusal
+- [x] T3.5 Tests: connect handshake (announced and legacy), announced refusal
       sends nothing, legacy conversion and pass-through of other replies,
       cross-instance forwarding keeps text and type, `/api/agent/status`
       fields.
 
 ## 4. Callers (FR8, FR9)
 
-- [ ] T4.1 `slicingReadError` uses `errors.Is(err,
+- [x] T4.1 `slicingReadError` uses `errors.Is(err,
       agentprotocol.ErrUnsupportedOperation)`; `macroslicing_test` covers the
       typed error, announced and legacy.
-- [ ] T4.2 `errAgentTooOld` wraps `ErrUnsupportedOperation` and names the
+- [x] T4.2 `errAgentTooOld` wraps `ErrUnsupportedOperation` and names the
       desktop fix; update the assertions that quote its text.
-- [ ] T4.3 Replace the string-injected case in `adjustment_test.go` (around
+- [x] T4.3 Replace the string-injected case in `adjustment_test.go` (around
       line 394) with an `UnsupportedOperationError`, asserting device, build,
       `"pr_evidence"`, the fix, the absence of `unknown local operation` and
       `no matching`, and the unchanged stage.
 
 ## 5. Desktop (FR12, US4)
 
-- [ ] T5.1 `desktop/electron/agent-identity.cjs`: `fileSha256`,
+- [x] T5.1 `desktop/electron/agent-identity.cjs`: `fileSha256`,
       `agentOutdated`; `desktop/tests/agent-identity.test.cjs` with the
       decision table of `plan.md`.
-- [ ] T5.2 `checkAgentIdentity()` in `main.cjs` after each successful
+- [x] T5.2 `checkAgentIdentity()` in `main.cjs` after each successful
       connection and after a spawn; `outdated` and `promptedFor` state;
       `agent-outdated` event; `version` IPC returns `outdated`.
-- [ ] T5.3 `lifecycle('restart', {reason: 'outdated'})`: extra dialog line;
+- [x] T5.3 `lifecycle('restart', {reason: 'outdated'})`: extra dialog line;
       on confirmation stop, then start the bundled binary with the saved
       settings. Cancel records the prompt and changes nothing else.
-- [ ] T5.4 Preload subscription and the settings panel mark in
+- [x] T5.4 Preload subscription and the settings panel mark in
       `fillChangelogPanel`, refreshed on `agent-outdated`.
-- [ ] T5.5 `settings-version.ui.cjs`: mark shown for an agent without
+- [x] T5.5 `settings-version.ui.cjs`: mark shown for an agent without
       `binarySha256`, hidden for the bundled hash (run `npx vite build`
       first).
 
 ## 6. Changelog (FR13)
 
-- [ ] T6.1 One `Fixed` line under `[Unreleased]`, for example: "**An outdated
+- [x] T6.1 One `Fixed` line under `[Unreleased]`, for example: "**An outdated
       local agent is named instead of failing obscurely.** When the server asks
       the local agent for something its build cannot do, stage transitions and
       the other features that rely on it now say which agent is outdated and
