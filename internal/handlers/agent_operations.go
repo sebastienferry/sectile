@@ -27,9 +27,9 @@ func (d *AgentDispatcher) CallOperation(ctx context.Context, op agentprotocol.Op
 		if d.agentWasRecentlyConnected(userID, op.ProjectID) {
 			// Saying only "no local agent connected" reads as a configuration
 			// problem, when the agent was there moments ago and will be again.
-			return nil, fmt.Errorf("no local agent connected for project %s: the local agent is reconnecting, retry in a few seconds", op.ProjectID)
+			return nil, fmt.Errorf("%w for project %s: the local agent is reconnecting, retry in a few seconds", ErrNoAgentConnected, op.ProjectID)
 		}
-		return nil, fmt.Errorf("no local agent connected for project %s", op.ProjectID)
+		return nil, fmt.Errorf("%w for project %s", ErrNoAgentConnected, op.ProjectID)
 	}
 	if route.remote != nil {
 		return d.cluster.operation(ctx, *route.remote, op)

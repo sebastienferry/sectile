@@ -1091,7 +1091,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Slicing: /api/projects/{id}/macros/{key}/slicing produces the macro's
-		// todo lines from the SDD artefacts of the project's repository.
+		// todo lines from the SDD artefacts, read by the requesting user's local
+		// agent in the specifications folder of their workstation.
 		//
 		// Rien n'est écrit dans le dépôt ni sur le tracker, et aucune story
 		// n'est créée : c'est une lecture, et la découpe reste modifiable.
@@ -1115,7 +1116,8 @@ func (h *Handler) HandleProjectDetail(w http.ResponseWriter, r *http.Request) {
 			if strings.EqualFold(strings.TrimSpace(req.Source), models.MacroTodoFromStories) {
 				meta, origin, err = h.db.TodosFromMacroStories(id, key)
 			} else {
-				meta, origin, err = h.db.TodosFromSDD(id, key, db.NormalizeSlicingSource(req.Source))
+				meta, origin, err = h.db.TodosFromSDD(r.Context(), h.webSessionUser(r), id, key, db.NormalizeSlicingSource(req.Source))
+				err = slicingReadError(err)
 			}
 			if err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())

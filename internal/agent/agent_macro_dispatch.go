@@ -14,6 +14,7 @@ import (
 	"tasks/internal/agentconfig"
 	"tasks/internal/agentprotocol"
 	"tasks/internal/models"
+	"tasks/internal/sddfiles"
 )
 
 // localSpecRepo is the folder carrying a project's specifications on this
@@ -220,6 +221,34 @@ func (d *agentDaemon) macroWorkspaceFor(ctx context.Context, projectID, macroKey
 		return macroWorkspace{}, err
 	}
 	return ensureMacroWorktree(ctx, spec, macroKey, title, config.UseWorktrees)
+}
+
+// macroSpecFileFor answers the macro_spec_file operation: the server's
+// slicing import reads the macro's specification in this workstation's
+// specifications folder, since the server's disk holds none.
+func (d *agentDaemon) macroSpecFileFor(ctx context.Context, projectID, macroKey, framework, fileName string) (agentprotocol.MacroSpecFile, error) {
+	config, err := d.fetchConfig(ctx, projectID, "")
+	if err != nil {
+		return agentprotocol.MacroSpecFile{}, err
+	}
+	d.prepareMu.Lock()
+	root, overrides, err := d.localProjectRoot(ctx, config)
+	d.prepareMu.Unlock()
+	if err != nil {
+		return agentprotocol.MacroSpecFile{}, err
+	}
+	folder, err := localSpecRepo(overrides, config.ProjectID, root, config.IsMonoRepo())
+	if err != nil {
+		return agentprotocol.MacroSpecFile{}, err
+	}
+	if strings.TrimSpace(framework) == "" {
+		framework = config.SpecFramework
+	}
+	content, origin, err := sddfiles.Read(ctx, folder, framework, macroKey, fileName)
+	if err != nil {
+		return agentprotocol.MacroSpecFile{}, err
+	}
+	return agentprotocol.MacroSpecFile{Content: content, Origin: origin}, nil
 }
 
 // macroRunIdentity is what reporting a macro run's end needs.

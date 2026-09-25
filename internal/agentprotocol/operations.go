@@ -37,6 +37,16 @@ type Operation struct {
 	// which prepares that macro's specification checkout.
 	MacroKey   string `json:"macroKey,omitempty"`
 	MacroTitle string `json:"macroTitle,omitempty"`
+	// SpecFile names the file a macro_spec_file operation reads in the
+	// macro's specification folder: "tasks.md" or "spec.md".
+	SpecFile string `json:"specFile,omitempty"`
+}
+
+// MacroSpecFile answers a macro_spec_file operation: the file's content and
+// where it was read, a workstation path or "<branch>:<path>".
+type MacroSpecFile struct {
+	Content string `json:"content"`
+	Origin  string `json:"origin"`
 }
 type Result struct {
 	Value json.RawMessage `json:"value,omitempty"`
