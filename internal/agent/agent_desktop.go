@@ -472,7 +472,8 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Project and absolute repository path required", 400)
 		return
 	}
-	if _, err := d.fetchConfig(r.Context(), input.ProjectID, ""); err != nil {
+	serverConfig, err := d.fetchConfig(r.Context(), input.ProjectID, "")
+	if err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -642,6 +643,9 @@ func (d *agentDaemon) desktopProjects(w http.ResponseWriter, r *http.Request) {
 	if err := agentconfig.WriteSettings(overrides); err != nil {
 		http.Error(w, err.Error(), 500)
 		return
+	}
+	if !agentconfig.ApplyOverrides(serverConfig, overrides).DropsSpecArtifacts() {
+		clearSpecExclusions(r.Context(), serverConfig, overrides, input.Path)
 	}
 	w.WriteHeader(204)
 }

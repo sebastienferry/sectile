@@ -133,6 +133,14 @@ func TestDesktopProjectSpecArtifactsOverride(t *testing.T) {
 		t.Fatal("a save that does not name the override must keep it")
 	}
 
+	// A save while dropping leaves the rules of the tasks in place.
+	if _, err := ensureSpecExclusions(context.Background(), s.root, "p", "#9"); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.save(nil); code != http.StatusNoContent || !strings.Contains(readExclude(t, s.root), "/specs/9-*/") {
+		t.Fatalf("a save with an effective drop must keep the block: %d\n%s", code, readExclude(t, s.root))
+	}
+
 	if code := s.save(map[string]any{"specArtifacts": "drop", "inheritSpecArtifacts": true}); code != http.StatusNoContent {
 		t.Fatalf("resetting: %d", code)
 	}
@@ -146,6 +154,9 @@ func TestDesktopProjectSpecArtifactsOverride(t *testing.T) {
 	}
 	if _, ok := settings.SpecArtifacts["p"]; ok {
 		t.Fatalf("a reset must store no override: %v", settings.SpecArtifacts)
+	}
+	if strings.Contains(readExclude(t, s.root), "sectile") {
+		t.Fatalf("a save with an effective keep must remove the block:\n%s", readExclude(t, s.root))
 	}
 	if value := s.launchValue("drop"); value != "drop" {
 		t.Fatalf("without an override a launch follows the server, got %q", value)
