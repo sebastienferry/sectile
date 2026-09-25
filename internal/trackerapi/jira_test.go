@@ -154,8 +154,9 @@ func TestJiraRefusesToWorkWithoutCredentials(t *testing.T) {
 	c.JiraToken = ""
 	_, err := NewJiraAdapter(c).GetIssue(context.Background(), tracker.GetIssueRequest{Project: jiraProject(), Key: "PE-1"})
 	// The caller wraps it, so the guidance has to be contained rather than equal.
-	if err == nil || !strings.Contains(err.Error(), missingCredential("Jira")) {
-		t.Fatalf("expected the credential error %q, got %v", missingCredential("Jira"), err)
+	want := c.missingCredential("Jira").Error()
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("expected the credential error %q, got %v", want, err)
 	}
 	if len(site.requests) != 0 {
 		t.Fatalf("no network call is allowed without credentials: %v", site.requests)
@@ -639,22 +640,21 @@ func TestJiraCredentialsComeFromTheEnvironmentWhenNothingIsStored(t *testing.T) 
 	}
 	t.Setenv("SECTILE_JIRA_URL", "acme.atlassian.net")
 	t.Setenv("SECTILE_JIRA_EMAIL", "ada@example.com")
-	t.Setenv("JIRA_API_TOKEN", "from-ci")
+	t.Setenv("SECTILE_JIRA_TOKEN", "jira-specific")
 	c := NewClient()
-	if c.JiraURL != "https://acme.atlassian.net" || c.JiraEmail != "ada@example.com" || c.JiraToken != "from-ci" {
+	if c.JiraURL != "https://acme.atlassian.net" || c.JiraEmail != "ada@example.com" || c.JiraToken != "jira-specific" {
 		t.Fatalf("environment not read: %q %q %q", c.JiraURL, c.JiraEmail, c.JiraToken)
 	}
 
-	// The provider-specific name wins, so a deployment serving two trackers
-	// cannot hand one provider's credential to another.
+	// Only the Jira variable is read (#464): neither the tracker-agnostic name
+	// nor the provider convention reaches Jira any more.
+	t.Setenv("SECTILE_JIRA_TOKEN", "")
 	t.Setenv("SECTILE_TRACKER_TOKEN", "generic")
-	if NewClient().JiraToken != "generic" {
-		t.Error("the tracker-agnostic name must outrank the provider convention")
+	t.Setenv("JIRA_API_TOKEN", "from-ci")
+	if got := NewClient().JiraToken; got != "" {
+		t.Errorf("a removed variable reached Jira: %q", got)
 	}
 	t.Setenv("SECTILE_JIRA_TOKEN", "jira-specific")
-	if NewClient().JiraToken != "jira-specific" {
-		t.Error("the Jira-specific name must win")
-	}
 
 	// A stored credential still wins over the environment.
 	resolved := NewClient()

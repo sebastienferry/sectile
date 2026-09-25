@@ -40,6 +40,22 @@ func forgetSchemaVersion(t *testing.T, d *DB) {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
 	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
+	_, _ = d.conn.Exec("DROP TABLE server_tracker_credentials")
+}
+
+// undoMigrationSeventeen puts back the schema migration 17 changed, for the
+// fixtures that forget the versions after one before it and replay them.
+func undoMigrationSeventeen(t *testing.T, d *DB) {
+	t.Helper()
+	for _, stmt := range []string{
+		"DROP TABLE server_tracker_credentials",
+		"ALTER TABLE projects ADD COLUMN github_token TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE projects ADD COLUMN gitlab_token TEXT NOT NULL DEFAULT ''",
+	} {
+		if _, err := d.conn.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt, err)
+		}
+	}
 }
 
 // appliedVersions is what the database says it has applied, in order.
@@ -304,6 +320,7 @@ func TestAStampedDatabaseStillGainsALaterColumn(t *testing.T) {
 	_, _ = d.conn.Exec("ALTER TABLE task_activities DROP COLUMN macro_key")
 	_, _ = d.conn.Exec("ALTER TABLE projects DROP COLUMN roadmap_projects")
 	_, _ = d.conn.Exec("ALTER TABLE web_sessions DROP COLUMN last_seen_at")
+	undoMigrationSeventeen(t, d)
 	if _, err := d.conn.Exec("DELETE FROM schema_migrations WHERE version >= ?", 5); err != nil {
 		t.Fatalf("forgetting the migration: %v", err)
 	}
@@ -342,6 +359,7 @@ func TestMigrationSixteenDropsTheServerSpecificationsPath(t *testing.T) {
 			t.Fatalf("%s: %v", stmt, err)
 		}
 	}
+	undoMigrationSeventeen(t, d)
 	d.Close()
 
 	reopened, err := NewDB(path)

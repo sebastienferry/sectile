@@ -296,6 +296,28 @@ var migrations = []migration{
 			"ALTER TABLE projects DROP COLUMN spec_repo_path;",
 		},
 	},
+	{
+		// One server credential per provider, sealed under the server key and
+		// set by an admin (#464, ADR 0028). The clear-text tokens of the
+		// settings row are moved here by adoptLegacyServerTrackerTokens, which
+		// needs the key and so cannot be SQL. The per-project tokens are
+		// discarded: one credential serves every project of its provider.
+		version: 17,
+		name:    "server_tracker_credentials",
+		statements: []string{
+			`CREATE TABLE server_tracker_credentials (
+				tracker TEXT PRIMARY KEY,
+				email TEXT NOT NULL DEFAULT '',
+				record BLOB NOT NULL,
+				account TEXT NOT NULL DEFAULT '',
+				checked_at DATETIME,
+				updated_at DATETIME NOT NULL,
+				updated_by TEXT NOT NULL DEFAULT ''
+			);`,
+			"ALTER TABLE projects DROP COLUMN github_token;",
+			"ALTER TABLE projects DROP COLUMN gitlab_token;",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

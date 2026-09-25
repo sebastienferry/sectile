@@ -166,15 +166,12 @@ type Project struct {
 	JiraProject  string              `json:"jiraProject"`  // Jira project key, e.g. "PE"
 	// The connection parameters below override the user configuration for this
 	// project only. Empty means "use the user configuration", which is what
-	// every project-level override in this model does. The tokens are
-	// write-only, like the ones on Settings.
+	// every project-level override in this model does. A project carries no
+	// tracker token: the server credential of its provider serves every
+	// project (#464).
 	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
-	GithubToken                 string            `json:"githubToken,omitempty"`
-	GithubTokenSet              bool              `json:"githubTokenSet"`
 	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
 	GitlabProject               string            `json:"gitlabProject,omitempty"`
-	GitlabToken                 string            `json:"gitlabToken,omitempty"`
-	GitlabTokenSet              bool              `json:"gitlabTokenSet"`
 	IssueTracker                string            `json:"issueTracker"` // "github", "jira", "local"
 	TrackerUrl                  string            `json:"trackerUrl"`   // e.g. "https://acme.atlassian.net"
 	IsDefault                   bool              `json:"isDefault"`
@@ -190,11 +187,9 @@ type Project struct {
 	AutoSyncEnabled             bool              `json:"autoSyncEnabled"`                       // Enable background sync for non-finished tickets
 	AutoSyncIntervalMin         int               `json:"autoSyncIntervalMin"`                   // Period in minutes (1 to 30)
 	// OwnerUserID is whoever owns this project: its creator, or whoever first
-	// saved it when it predates the field. The background synchronisation runs
-	// under that account, because on a tracker whose credential is personal
-	// there is no other one to run under: the owner is the person who turned
-	// the loop on, so it is their token the loop borrows. It is never read from
-	// a payload: a client naming its own owner would borrow anybody's token.
+	// saved it when it predates the field. The background synchronisation no
+	// longer runs under that account: it reads with the server credential of
+	// the project's provider (#464). It is never read from a payload.
 	OwnerUserID             string    `json:"ownerUserId,omitempty"`
 	TtyMode                 string    `json:"ttyMode,omitempty"`                 // "integrated" or "external"
 	ExternalTerminalCommand string    `json:"externalTerminalCommand,omitempty"` // e.g. "Ghostty", "Terminal", "iTerm", "alacritty", "kitty"
@@ -410,10 +405,8 @@ type CreateProjectRequest struct {
 	GitRemoteUrl                string            `json:"gitRemoteUrl,omitempty"`
 	GithubRepo                  string            `json:"githubRepo,omitempty"`
 	GithubApiUrl                string            `json:"githubApiUrl,omitempty"`
-	GithubToken                 string            `json:"githubToken,omitempty"`
 	GitlabUrl                   string            `json:"gitlabUrl,omitempty"`
 	GitlabProject               string            `json:"gitlabProject,omitempty"`
-	GitlabToken                 string            `json:"gitlabToken,omitempty"`
 	JiraProject                 string            `json:"jiraProject,omitempty"`
 	IssueTracker                string            `json:"issueTracker,omitempty"`
 	TrackerUrl                  string            `json:"trackerUrl,omitempty"`
@@ -456,10 +449,8 @@ type UpdateProjectRequest struct {
 	GitRemoteUrl                *string              `json:"gitRemoteUrl,omitempty"`
 	GithubRepo                  *string              `json:"githubRepo,omitempty"`
 	GithubApiUrl                *string              `json:"githubApiUrl,omitempty"`
-	GithubToken                 *string              `json:"githubToken,omitempty"`
 	GitlabUrl                   *string              `json:"gitlabUrl,omitempty"`
 	GitlabProject               *string              `json:"gitlabProject,omitempty"`
-	GitlabToken                 *string              `json:"gitlabToken,omitempty"`
 	JiraProject                 *string              `json:"jiraProject,omitempty"`
 	IssueTracker                *string              `json:"issueTracker,omitempty"`
 	TrackerUrl                  *string              `json:"trackerUrl,omitempty"`
@@ -875,9 +866,12 @@ type Settings struct {
 	// takes Basic auth over HTTPS, base64(email:token), so the e-mail is part
 	// of the credential and not a display name.
 	JiraEmail string `json:"jiraEmail"`
-	// JiraAPIToken never leaves the server: the API responses carry the two
-	// flags below instead, so the token cannot be read back by anything that
-	// can reach the settings endpoint.
+	// JiraEmail, JiraAPIToken, GithubToken and GitlabToken are the columns
+	// that held the server credentials in clear text before #464. The server
+	// only reads them to seal them into server_tracker_credentials, and never
+	// writes them from a payload nor returns them. The Set / FromEnv flags are
+	// what the API answers instead: Set when a server credential is stored,
+	// FromEnv when the environment supplies it.
 	JiraAPIToken        string `json:"jiraApiToken,omitempty"`
 	JiraAPITokenSet     bool   `json:"jiraApiTokenSet"`
 	JiraAPITokenFromEnv bool   `json:"jiraApiTokenFromEnv"` // e.g. "https://acme.atlassian.net"
@@ -887,9 +881,7 @@ type Settings struct {
 	GithubApiUrl  string `json:"githubApiUrl"`
 	GitlabUrl     string `json:"gitlabUrl"`
 	GitlabProject string `json:"gitlabProject"`
-	// The two tracker tokens follow JiraAPIToken exactly: never returned by the
-	// API, reported through the Set / FromEnv flags, an empty value on an update
-	// meaning "unchanged" and TrackerTokenClearSentinel meaning "delete".
+	// The two tracker tokens follow JiraAPIToken exactly (see above).
 	GithubToken             string    `json:"githubToken,omitempty"`
 	GithubTokenSet          bool      `json:"githubTokenSet"`
 	GithubTokenFromEnv      bool      `json:"githubTokenFromEnv"`

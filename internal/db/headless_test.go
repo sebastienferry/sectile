@@ -26,7 +26,7 @@ func TestHeadlessTrackerReadsWithoutAgentOrCLI(t *testing.T) {
 	}))
 	defer srv.Close()
 	t.Setenv("SECTILE_GITHUB_API_URL", srv.URL)
-	t.Setenv("SECTILE_TRACKER_TOKEN", "server-secret")
+	t.Setenv("SECTILE_GITHUB_TOKEN", "server-secret")
 	d, err := NewDB(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
