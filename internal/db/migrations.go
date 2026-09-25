@@ -374,6 +374,16 @@ var migrations = []migration{
 			"ALTER TABLE task_activities ADD COLUMN waiting_session TEXT NOT NULL DEFAULT '';",
 		},
 	},
+	{
+		// The account a personal tracker credential belongs to, as the tracker
+		// reported it when the credential was confirmed (#468). My Tasks matches
+		// tickets on it. Empty until the credential is saved or verified again.
+		version: 24,
+		name:    "user_tracker_credentials.account",
+		statements: []string{
+			"ALTER TABLE user_tracker_credentials ADD COLUMN account TEXT NOT NULL DEFAULT '';",
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is
