@@ -44,14 +44,17 @@ func internalURL(getenv func(string) string, port string) string {
 }
 
 // startInternalListener serves the endpoints other instances forward agent
-// work to, on their own port. A failure to authenticate the instances, or to
-// listen, leaves this instance serving its own agents and says why.
+// work and MCP requests to, on their own port. A failure to authenticate the
+// instances, or to listen, leaves this instance serving its own agents and
+// MCP sessions and says why.
 func startInternalListener(h *handlers.Handler, port string) {
 	if err := h.EnableAgentCluster(); err != nil {
-		log.Printf("⚠️  Relais d'agents entre instances désactivé : %v", err)
+		log.Printf("⚠️  Relais d'agents et de sessions MCP entre instances désactivé : %v", err)
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/internal/agent/", h.InternalHandler())
+	mux.Handle("/internal/mcp", h.InternalMCPHandler())
+	mux.Handle("/internal/mcp/sessions", h.InternalMCPSessionsHandler())
 	listener, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Printf("⚠️  Port interne %s indisponible, relais d'agents entre instances impossible : %v", port, err)

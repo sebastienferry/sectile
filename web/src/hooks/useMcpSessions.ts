@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { sortSessions, type McpSession } from '../lib/mcpSessions'
+import { sortSessions, type McpSession, type McpSessionsResponse } from '../lib/mcpSessions'
 
 interface McpSessionsState {
   sessions: McpSession[]
@@ -23,7 +23,7 @@ export function useMcpSessions(pollIntervalMs = 15_000): McpSessionsState {
     try {
       const response = await fetch('/api/mcp/sessions')
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      const data = await response.json()
+      const data: McpSessionsResponse = await response.json()
       setState({ sessions: sortSessions(data.sessions || []), isLoading: false, error: null })
     } catch (error: unknown) {
       // Keep the last known list: a failed poll says the status is stale, not

@@ -10,11 +10,22 @@
 /** One live session, as returned by GET /api/mcp/sessions. */
 export interface McpSession {
   id: string
+  /** The server instance holding the session, when several serve the deployment. */
+  instance?: string
   client: string
   title?: string
   version?: string
   connectedAt: string
   runs: string[]
+}
+
+/**
+ * The answer of GET /api/mcp/sessions: the sessions of every live server
+ * instance, and the instances that did not answer in time.
+ */
+export interface McpSessionsResponse {
+  sessions: McpSession[]
+  unreachable?: string[]
 }
 
 /** What the status bar counts: attached clients and the runs they hold. */

@@ -132,3 +132,41 @@ two bounds rather than one.
 
 Agent-dispatched runs are out of this: their supervisor reports the real process
 exit, as ADR 0006 established.
+
+## Third amendment (2026-09-25, #408)
+
+The decision assumed one server process. Several instances may now share one
+PostgreSQL database behind a load balancer (ADR 0021, #403), and a session still
+lives in the memory of the instance that created it. The decision is kept as it
+stands, and extended to say where a session lives and what becomes of it.
+
+- **A session is owned by one instance, and its id names it.** Every session id
+  is the instance id, a dot, and a random part, on every engine. No table
+  records sessions: the id is the only thing a request carries, and it is
+  enough.
+- **Any instance finds the owner.** A request whose session id names another
+  live instance is forwarded, unchanged, to that instance's internal listener
+  (#406), which serves it as if it had received it and never forwards it again.
+  The owner checks both the deployment's internal credential, carried in
+  `X-Sectile-Internal-Authorization`, and the client's own bearer, so a
+  forwarded call acts for the same user. Runs are therefore always adopted,
+  released and closed by the owner, whichever instance carried the call.
+- **A session dies with its instance.** It is not moved: a request for the
+  session of an instance that is no longer live is answered `404`, and the
+  client initializes a new session. An owner still listed as live but that does
+  not answer gets `503` naming it, without a retry.
+- **A run lost with a server is recoverable.** The runs such a session owned are
+  canceled by the reclaim of #403, or by the restart of a single-process engine,
+  with a summary that carries the disconnect note, so their owner may still
+  report the real outcome through `finish_run`, as after any disconnection. A
+  cancellation someone typed stays final.
+- **The sessions view is the deployment's.** Each instance lists the sessions of
+  every live instance, asking each for at most two seconds, and names those that
+  did not answer instead of failing.
+
+Without a server key, or on an engine that serves one process, nothing is
+forwarded and the view is local, as before. Balancer affinity on
+`Mcp-Session-Id` and stateless MCP were rejected (#408 Q1): the first depends on
+a balancer hashing a header and still needs the aggregated view, the second
+reverses this ADR, since runs would end on a heartbeat timeout instead of a
+disconnection.
