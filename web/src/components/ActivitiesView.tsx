@@ -29,6 +29,7 @@ import { RunStateGlyph } from './RunStateGlyph'
 import { runStateOf, runStateLabel } from '../../../shared/runStates'
 import type { ActivityStatus, TaskActivity } from '../types'
 import { runEngineLabel } from '../lib/runEngine'
+import { matchesSearch } from '../lib/searchFold'
 
 // The badge's colour stays a Tailwind class rather than the hex value the shared
 // definition carries: replacing the palette is its own change, tracked apart to
@@ -144,17 +145,10 @@ export const ActivitiesView: React.FC = () => {
         return false
       }
 
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase()
-        const matchKey = (act.taskKey || '').toLowerCase().includes(q)
-        const matchTitle = (act.taskTitle || '').toLowerCase().includes(q)
-        const matchSkill = (act.skillName || '').toLowerCase().includes(q)
-        const matchSummary = (act.summary || '').toLowerCase().includes(q)
-        const matchAction = (act.action || '').toLowerCase().includes(q)
-        const matchOutput = (act.output || '').toLowerCase().includes(q)
-        if (!matchKey && !matchTitle && !matchSkill && !matchSummary && !matchAction && !matchOutput) {
-          return false
-        }
+      if (
+        !matchesSearch(searchQuery, act.taskKey, act.taskTitle, act.skillName, act.summary, act.action, act.output)
+      ) {
+        return false
       }
 
       return true

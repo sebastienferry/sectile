@@ -199,6 +199,8 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **Search ignores case and accents.** The search bar finds `Équipe` whether you type `equipe`, `Equipe` or `ÉQUIPE`, on the board, the roadmap, triage, the activities view and the filter pickers, and `%` or `_` typed in a search now match those characters only. On a PostgreSQL server this needs the `unaccent` extension, which Sectile creates at start; a server whose database role cannot create it refuses to start and says so. (#447)
+
 - **A run canceled after a long silence can be reported again.** A run that had gone silent and was then canceled as disconnected refused its owner's report of how it really ended; it now accepts it, like any other disconnected run. (#319)
 
 - **A run you stopped stays stopped.** An agent reporting a run as running a moment after it was canceled, finished or failed used to bring it back as running on the board; a run that has ended now keeps its outcome.

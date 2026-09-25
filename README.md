@@ -224,6 +224,14 @@ Upgrading needs no schema step: a PostgreSQL database is created at the schema o
 the version that created it, and the server adds on each start whichever columns
 newer versions have declared since.
 
+Search needs the `unaccent` extension, which folds accents so that `equipe`
+finds `Équipe`. The server creates it on start. It is a trusted contrib
+extension: the server's role needs `CREATE` on the database, not superuser, and
+the PostgreSQL server needs its contrib package (the official images and most
+managed offerings ship it). When the extension cannot be created, the server
+refuses to start and its error names `unaccent`; an administrator can create it
+once with `CREATE EXTENSION unaccent;` and the server starts from then on.
+
 To move an existing SQLite database across, once:
 
 ```sh
