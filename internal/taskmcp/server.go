@@ -3,6 +3,7 @@ package taskmcp
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net/http"
 	"strings"
@@ -180,16 +181,28 @@ func NewServer(database *db.DB, sessions *SessionRegistry) *mcp.Server {
 	return NewServerWithCallers(database, sessions, nil)
 }
 
+// sessionIDFor makes the session ids of an instance: the instance id, a dot,
+// then the SDK's own random part. Any instance that receives a request can then
+// tell which one holds the session (see SessionOwner). Instance ids are UUIDs,
+// so the id stays a header-safe token.
+func sessionIDFor(instanceID string) func() string {
+	return func() string { return instanceID + "." + rand.Text() }
+}
+
 // NewServerWithCallers is NewServer with the host's caller resolver, so a run,
 // a transition or a comment records the user whose key made the call.
 func NewServerWithCallers(database *db.DB, sessions *SessionRegistry, resolve CallerResolver) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, &mcp.ServerOptions{
+	options := &mcp.ServerOptions{
 		// A session begins when its client finishes initializing, which is the
 		// first moment the server knows who connected.
 		InitializedHandler: func(_ context.Context, req *mcp.InitializedRequest) {
 			sessions.Watch(req.Session)
 		},
-	})
+	}
+	if database != nil {
+		options.GetSessionID = sessionIDFor(database.InstanceID())
+	}
+	s := mcp.NewServer(&mcp.Implementation{Name: "sectile", Version: "1.0.0"}, options)
 	// Any message proves the client is alive, whichever tool or protocol method
 	// it invoked, so activity is observed in the one place they all pass
 	// through rather than tool by tool.

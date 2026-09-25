@@ -2,16 +2,16 @@
 // Run with Playwright available: node tests/optional-views.browser.mjs
 // PLAYWRIGHT_MODULE can point to an existing installation; Chrome is used with a fresh profile.
 // It must name the ESM entry point, not the package directory, e.g.
-//   PLAYWRIGHT_MODULE=../desktop/node_modules/playwright/index.mjs node tests/optional-views.browser.mjs
+//   PLAYWRIGHT_MODULE=/absolute/path/to/desktop/node_modules/playwright/index.mjs node tests/optional-views.browser.mjs
 //
 // What it guards: Triage, Roadmap and Timeline are hidden unless the current
 // project enabled them, and the settings toggles survive several clicks in one
 // render pass (a stale closure there silently dropped every click but the last).
 import { createServer } from 'vite';
-import { fileURLToPath } from 'node:url';
+import { browserRoot } from './browserRoot.mjs';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 import assert from 'node:assert/strict';
-const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '');
+const { root, preserveSymlinks } = browserRoot(import.meta.url);
 
 const sidebarHarness = `import React from 'react'; import {createRoot} from 'react-dom/client'; import {Sidebar} from '/src/components/Sidebar.tsx'; import {translations} from '/src/locales/translations.ts'; import '/src/index.css';
 const noop=()=>{};
@@ -30,7 +30,7 @@ window.ctx={isProjectModalOpen:true,setIsProjectModalOpen:noop,get editingProjec
 const app=createRoot(document.getElementById('root'));app.render(<ProjectModal/>);`;
 
 const server = await createServer({
-  root, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
+  root, resolve: { preserveSymlinks }, configFile: root + '/vite.config.ts', server: { port: 0, host: '127.0.0.1' },
   plugins: [{
     name: 'fixture', enforce: 'pre',
     transform(code, id) {

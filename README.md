@@ -168,6 +168,28 @@ SECTILE_TEST_POSTGRES_DSN='postgres://localhost/sectile_test?sslmode=disable' \
     go test ./internal/db/ -run Postgres
 ```
 
+### Browser tests
+
+`npm test` in `web/` runs the unit tests only. The `web/tests/*.browser.mjs`
+files drive real components in Chrome through Playwright, one file at a time,
+from `web/`:
+
+```sh
+cd web
+PLAYWRIGHT_MODULE=/absolute/path/to/desktop/node_modules/playwright/index.mjs \
+    node tests/condensed-card.browser.mjs
+```
+
+`PLAYWRIGHT_MODULE` must name Playwright's `index.mjs` by an absolute path: a
+relative one resolves from `tests/`, and a task worktree has no
+`desktop/node_modules` of its own, so point it at the main checkout's. Task
+worktrees are named after the ticket key (`.tasks/worktrees/#387`) and Vite
+cannot serve a path that contains `#`, so a test started from such a checkout
+runs itself again through a temporary symbolic link without `#`, with Node
+keeping the link (`web/tests/browserRoot.mjs`): the same command works there,
+whether the worktree has its own `web/node_modules` or links the main
+checkout's.
+
 ### PostgreSQL instead of SQLite
 
 SQLite is the default and the only engine the desktop application ships with. A
@@ -557,6 +579,16 @@ The servers authenticate each other with a token derived from
 a server keep working through that server, and forwarding refuses with the
 reason. An operation forwarded to a server that stops before answering fails
 with an explicit error and is not replayed.
+
+The same port carries MCP sessions. A session lives on the server that created
+it, and its id names that server: a request that reaches another one is relayed
+to it on the internal port, event stream included, and answered as if it had
+gone there directly. A session whose server stopped is answered `404`, and the
+client starts a new one on a server that is up; one whose server is listed as up
+but does not answer gets `503` with its name. The load balancer must not buffer
+the event stream of `GET /mcp`. The sessions view (`GET /api/mcp/sessions`)
+lists the sessions of every live server, each with the `instance` holding it,
+and names under `unreachable` those that did not answer within two seconds.
 
 ### Signing in and pairing a workstation
 

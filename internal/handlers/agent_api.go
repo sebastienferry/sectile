@@ -206,15 +206,29 @@ func (h *Handler) HandleAgentIdentity(w http.ResponseWriter, r *http.Request) {
 // Statefulness is what makes a connection observable: a stateless endpoint
 // builds a throwaway session per request, so it can neither tell two clients
 // apart nor notice that one went away.
+//
+// A request for a session another instance holds is forwarded to it (see
+// mcpRouter).
 func (h *Handler) MCPHandler() http.Handler {
-	server := taskmcp.NewServerWithCallers(h.db, h.mcpSessions, h.mcpCaller)
-	return h.AgentAPIAuth(mcp.NewStreamableHTTPHandler(
-		func(*http.Request) *mcp.Server { return server },
-		// The transport is given no bound of its own: its timeout closes the
-		// session, which would cancel every run it adopted. Sectile owns the
-		// bound instead and only marks the silence (see SessionRegistry).
-		&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: 0},
-	))
+	return h.AgentAPIAuth(h.mcpRouter(h.mcpStreamableHandler()))
+}
+
+// mcpStreamableHandler is the one transport handler of this instance. It holds
+// the sessions in memory, so the public and the internal routes share it, and
+// building it twice would split them.
+func (h *Handler) mcpStreamableHandler() http.Handler {
+	h.mcpOnce.Do(func() {
+		server := taskmcp.NewServerWithCallers(h.db, h.mcpSessions, h.mcpCaller)
+		h.mcpServer = server
+		h.mcpStreamable = mcp.NewStreamableHTTPHandler(
+			func(*http.Request) *mcp.Server { return server },
+			// The transport is given no bound of its own: its timeout closes the
+			// session, which would cancel every run it adopted. Sectile owns the
+			// bound instead and only marks the silence (see SessionRegistry).
+			&mcp.StreamableHTTPOptions{JSONResponse: true, SessionTimeout: 0},
+		)
+	})
+	return h.mcpStreamable
 }
 
 // mcpCaller names the user behind an MCP call from the bearer key of the HTTP
@@ -235,12 +249,24 @@ func (h *Handler) mcpCaller(header http.Header) (taskmcp.Caller, bool) {
 // HandleMCPSessions reports the clients currently connected to the MCP
 // endpoint. It is a browser-facing status view, so it stays outside the
 // machine-API authentication that guards the endpoint itself.
+//
+// When several instances serve the deployment, the view lists the sessions of
+// every live one, and names in unreachable those that did not answer in time
+// rather than failing for them.
 func (h *Handler) HandleMCPSessions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": h.mcpSessions.Snapshot()})
+	sessions := h.mcpSessions.Snapshot()
+	unreachable := []string{}
+	if peers := h.mcpCluster.peers(); len(peers) > 0 {
+		var remote []taskmcp.SessionView
+		remote, unreachable = h.mcpCluster.peerSessions(r.Context(), peers)
+		sessions = append(sessions, remote...)
+		taskmcp.SortSessions(sessions)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions, "unreachable": unreachable})
 }
 
 func (h *Handler) HandleAgentConfig(w http.ResponseWriter, r *http.Request) {

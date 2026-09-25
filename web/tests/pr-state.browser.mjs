@@ -1,9 +1,9 @@
 // Run with PLAYWRIGHT_MODULE pointing to a Playwright installation.
 import { createServer } from 'vite'
-import { fileURLToPath } from 'node:url'
+import { browserRoot } from './browserRoot.mjs'
 import assert from 'node:assert/strict'
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright')
-const root = fileURLToPath(new URL('..', import.meta.url)).replace(/\/$/, '')
+const { root, preserveSymlinks } = browserRoot(import.meta.url)
 const harness = `import React from 'react'; import {createRoot} from 'react-dom/client';
 import {TaskCard} from '/src/components/TaskCard.tsx';
 import {PullRequestStateIcon} from '/src/components/PullRequestStateIcon.tsx';
@@ -13,7 +13,7 @@ const task={id:'fixture',key:'#233',title:'PR state fixture',projectId:'p',statu
 const root=createRoot(document.getElementById('root'));
 window.render=(state,compact)=>root.render(<div style={{width:320,margin:20}}><TaskCard compact={compact} task={{...task,prLinks:[{url:'https://github.com/acme/app/pull/1',state:'merged'},{url:task.prUrl,state}]}}/><div id="history"><PullRequestStateIcon link={{url:'old',state:'merged'}}/></div></div>);
 window.render('open',false);`
-const server = await createServer({root,configFile:root+'/vite.config.ts',server:{port:0,host:'127.0.0.1'},plugins:[{
+const server = await createServer({root,resolve:{preserveSymlinks},configFile:root+'/vite.config.ts',server:{port:0,host:'127.0.0.1'},plugins:[{
  name:'pr-state-fixture',enforce:'pre',
  transform(code,id){if(id.endsWith('.tsx'))return code.replace("import { useApp } from '../context/AppContext'","const useApp = () => window.ctx")},
  configureServer(s){s.middlewares.use(async(req,res,next)=>{

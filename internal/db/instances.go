@@ -1,11 +1,15 @@
 package db
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"sync"
 	"time"
+
+	"tasks/internal/models"
 )
 
 // Several server instances may share one PostgreSQL database. Each one is a row
@@ -33,11 +37,57 @@ var (
 const interruptedByRestart = "Interrupted by server restart"
 
 // interruptedClientRun is the summary of a reclaimed client-owned remote run.
-const interruptedClientRun = "Interrupted by server restart: the client session that owned this run is gone"
+// It carries the disconnect note on purpose: the session that owned the run
+// died with its instance, which is a disconnection the client did not choose,
+// so the owner may still report the real outcome through finish_run exactly as
+// after any other disconnection (#408).
+const interruptedClientRun = "Interrupted by server restart: " + models.RunDisconnectNote
 
 // InstanceID names this process among the server instances sharing the
 // database.
 func (d *DB) InstanceID() string { return d.instanceID }
+
+// InstanceLocation is a live server instance and where the others reach it.
+type InstanceLocation struct {
+	ID      string
+	Address string
+}
+
+// LiveInstance returns an instance seen within the liveness bound. An instance
+// that is not, or was never registered, is not somewhere to send anything. A
+// failed lookup is an error rather than a dead instance: the caller cannot
+// tell, and must not end a session that may well be alive.
+func (d *DB) LiveInstance(id string) (InstanceLocation, bool, error) {
+	cutoff := time.Now().UTC().Add(-instanceDeadAfter)
+	location := InstanceLocation{ID: id}
+	err := d.conn.QueryRow(`SELECT address FROM server_instances WHERE id = ? AND last_seen >= ?`, id, cutoff).Scan(&location.Address)
+	if errors.Is(err, sql.ErrNoRows) {
+		return InstanceLocation{}, false, nil
+	}
+	if err != nil {
+		return InstanceLocation{}, false, err
+	}
+	return location, true, nil
+}
+
+// LiveInstances lists the instances seen within the liveness bound, this one
+// included, ordered by id.
+func (d *DB) LiveInstances() []InstanceLocation {
+	cutoff := time.Now().UTC().Add(-instanceDeadAfter)
+	rows, err := d.conn.Query(`SELECT id, address FROM server_instances WHERE last_seen >= ? ORDER BY id`, cutoff)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []InstanceLocation
+	for rows.Next() {
+		var l InstanceLocation
+		if rows.Scan(&l.ID, &l.Address) == nil {
+			out = append(out, l)
+		}
+	}
+	return out
+}
 
 // recoverInterruptedRuns reclaims, at start, the work an earlier process left
 // unfinished. It runs on every start, on every engine.
