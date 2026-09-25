@@ -290,10 +290,10 @@ func (d *DB) MarkRunAwaitingRepository(caller Actor, admin bool, runID string, w
 	if !admin && existing.UserID != "" && existing.UserID != caller.ID {
 		return nil, ErrRunNotYours
 	}
-	statement := "UPDATE task_activities SET waiting_since=NULL, waiting_reason='' WHERE id=? AND skill_id='remote_run' AND status='running'"
+	statement := "UPDATE task_activities SET waiting_since=NULL, waiting_session='', waiting_reason='' WHERE id=? AND skill_id='remote_run' AND status='running'"
 	args := []any{runID}
 	if waiting {
-		statement = "UPDATE task_activities SET waiting_since=COALESCE(waiting_since, ?), waiting_reason='repository' WHERE id=? AND skill_id='remote_run' AND status='running'"
+		statement = "UPDATE task_activities SET waiting_since=COALESCE(waiting_since, ?), waiting_session='', waiting_reason='repository' WHERE id=? AND skill_id='remote_run' AND status='running'"
 		args = []any{time.Now(), runID}
 	}
 	d.mu.Lock()

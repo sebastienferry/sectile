@@ -231,6 +231,7 @@ test fixtures or internal plumbing.
 
 ### Fixed
 
+- **The waiting glyph clears once you answer.** Pressing Enter in a run's console, in the desktop app or the web terminal, now clears its *waiting* mark at once, on the desktop and on the board; other keys leave it. The mark also no longer stays after the server restarts or the desktop reconnects, and a session's next Sectile call ends its wait whichever server instance serves it. (#475)
 - **The missing repository mapping error points at the right file.** When the agent cannot find a project's local repository, the error now names `~/.config/sectile/settings.json`, the file Sectile actually reads, instead of a `taskflow` path that does not exist.
 - **The desktop app no longer fails to list projects after a long pause.** On a PostgreSQL server, a database connection left idle for a long time could be dropped by the network, and the next request to use it, often the desktop app's project list, answered *Cannot list projects*. Sectile now renews its connections before that happens, and logs the cause of such errors.
 - **Search ignores case and accents.** The search bar finds `Équipe` whether you type `equipe`, `Equipe` or `ÉQUIPE`, on the board, the roadmap, triage, the activities view and the filter pickers, and `%` or `_` typed in a search now match those characters only. On a PostgreSQL server this needs the `unaccent` extension, which Sectile creates at start; a server whose database role cannot create it refuses to start and says so. (#447)

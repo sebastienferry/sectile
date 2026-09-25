@@ -38,7 +38,7 @@ implementation choices.
 
 ### 1. The wait is attached to its session in the database (cause C)
 
-- Migration 17 `task_activities.waiting_session`: `ALTER TABLE
+- Migration 23 `task_activities.waiting_session`: `ALTER TABLE
   task_activities ADD COLUMN waiting_session TEXT NOT NULL DEFAULT '';`
   in `internal/db/migrations.go` only, never in the baseline
   (see the project memory on new columns).
@@ -105,6 +105,33 @@ implementation choices.
 - Cross-instance: `Dispatch` already reaches an agent held by another
   instance; nothing new is needed there.
 
+## Adjustments made during implementation
+
+- **Migration 23, not 17.** Main landed migrations 17 to 22 (#456, #464) while
+  this ticket was specified.
+- **`waiting_reason` (#456).** A launch parked until its ticket is pinned to a
+  repository also sets `waiting_since`, with `waiting_reason = 'repository'`.
+  `AnswerRemoteRunWait` leaves such a wait: it is answered by a pin on the
+  ticket, not by a key in the console. `MarkRunAwaitingRepository` resets
+  `waiting_session`.
+- **Viewer input only.** `terminal.Manager.SendInput` also carries the lines
+  the agent types itself (the launch line, the next step of a ticket sent to
+  a running agent). The listeners are therefore not called from it: the relayed
+  web terminal input goes through a new `SendViewerInput`, and the console
+  WebSocket paths call the listeners directly.
+- **Where the listener is registered.** `runInPty` is the one place every
+  interactive launch passes through (task, macro, free console, desktop
+  launch), with the run id as session id; `watchAnswers` registers once per run
+  (`controlledRun.answerWatched`), outside the queue lock, since the listener
+  takes that lock under the session's listener lock.
+- **API shape.** `SetRemoteRunWaiting(runID, waiting)` stays for the hand-set
+  route and sets no session; `ReportSessionRunWaitingAs` carries the session
+  for `report_waiting`. `SessionRegistry.Close` clears the session's waits
+  through `ResumeWaits` too.
+- **Wait listeners** are registered with `RegisterWaitListener` and run the
+  same way as the postback listeners (one goroutine each); `pushRunWaiting`
+  still re-reads the run so the last message sent is the true one.
+
 ## Rejected alternatives
 
 - **Clear on any keystroke.** Rejected by the owner: arrows, Escape and
@@ -122,7 +149,7 @@ implementation choices.
 
 ## Data contracts
 
-- `task_activities.waiting_session TEXT NOT NULL DEFAULT ''` (migration 17).
+- `task_activities.waiting_session TEXT NOT NULL DEFAULT ''` (migration 23).
   Not exposed in `models.TaskActivity` JSON: it is a server-side key.
 - `run_waiting` (server -> agent): unchanged.
 - `run_answered` (agent -> server): `{"runId": string, "waitingSince": RFC 3339}`.
@@ -142,7 +169,7 @@ implementation choices.
 
 ## Risks
 
-- Migration 17 breaks the tests that rewind `schema_migrations` unless their
+- Migration 23 breaks the tests that rewind `schema_migrations` unless their
   helpers drop `waiting_session` too (project memory). Run the whole
   `go test ./internal/db/`, and on PostgreSQL with a throwaway DSN.
 - The input listener runs on the WebSocket read path: it must not block
