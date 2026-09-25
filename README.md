@@ -184,9 +184,11 @@ PLAYWRIGHT_MODULE=/absolute/path/to/desktop/node_modules/playwright/index.mjs \
 relative one resolves from `tests/`, and a task worktree has no
 `desktop/node_modules` of its own, so point it at the main checkout's. Task
 worktrees are named after the ticket key (`.tasks/worktrees/#387`) and Vite
-cannot serve a path that contains `#`, so the tests serve such a checkout
-through a temporary symbolic link without `#` (`web/tests/browserRoot.mjs`):
-the same command works there.
+cannot serve a path that contains `#`, so a test started from such a checkout
+runs itself again through a temporary symbolic link without `#`, with Node
+keeping the link (`web/tests/browserRoot.mjs`): the same command works there,
+whether the worktree has its own `web/node_modules` or links the main
+checkout's.
 
 ### PostgreSQL instead of SQLite
 
