@@ -22,12 +22,14 @@ import {
   Layers,
   Download,
   Shield,
+  PanelLeft,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { accentTextStyle } from '../lib/accents'
 import { enabledOptionalViews } from '../lib/optionalViews'
 import { useBackdropDismiss } from '../hooks/useBackdropDismiss'
+import { isMacPlatform, sidebarShortcutLabel } from '../../../shared/sidebarShortcut.mjs'
 
 export const CommandPalette: React.FC = () => {
   const {
@@ -40,6 +42,7 @@ export const CommandPalette: React.FC = () => {
     setEditingProject,
     setActiveView,
     setIsQuickAddOpen,
+    setSidebarCollapsed,
     setIsProfileOpen,
     setSelectedTask,
     settings,
@@ -167,6 +170,17 @@ export const CommandPalette: React.FC = () => {
       action: () => {
         setIsCommandPaletteOpen(false)
         setIsQuickAddOpen(true)
+      },
+    },
+    {
+      id: 'toggle_sidebar',
+      title: t.nav.toggleSidebar,
+      icon: <PanelLeft size={16} className="text-sky-400" />,
+      shortcut: sidebarShortcutLabel(isMacPlatform(navigator)),
+      keywords: ['sidebar', 'menu', 'barre', 'laterale', 'replier', 'deplier', 'toggle', 'collapse', 'expand'],
+      action: () => {
+        setSidebarCollapsed(prev => !prev)
+        setIsCommandPaletteOpen(false)
       },
     },
     {

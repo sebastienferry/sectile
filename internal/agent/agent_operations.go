@@ -8,6 +8,7 @@ import (
 	"github.com/gorilla/websocket"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"tasks/internal/agentconfig"
@@ -105,10 +106,9 @@ func (d *agentDaemon) executeOperation(ctx context.Context, op agentprotocol.Ope
 		}
 		return d.macroSpecFileFor(ctx, op.ProjectID, op.MacroKey, op.Framework, op.SpecFile)
 	}
-	switch op.Action {
-	case "git_status", "git_branches", "git_checkout", "git_clean", "git_delete", "open_editor", "cli_status", "prepare_workspace", "remove_workspace", "repository_worktree", "workspace_info", "git_diff", "git_evidence", "pr_evidence", "run_prompt", "skills_status", "skill_files", "sync_config", "read_skill", "spec_status", "spec_install", "init_git":
-	default:
-		return nil, fmt.Errorf("unknown local operation %q", op.Action)
+	// The list the agent announces is the one it dispatches on.
+	if !slices.Contains(agentprotocol.Operations, op.Action) {
+		return nil, errors.New(agentprotocol.UnknownOperationReply(op.Action))
 	}
 	config, err := d.fetchConfig(ctx, op.ProjectID, op.TaskID, op.Framework)
 	if err != nil {

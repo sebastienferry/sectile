@@ -1,7 +1,6 @@
 package trackerapi
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -167,7 +166,7 @@ func TestJiraWritesAPriorityTheProjectsSchemeHas(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent})
+	task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +182,7 @@ func TestJiraWritesAPriorityTheProjectsSchemeHas(t *testing.T) {
 	// An update is judged by the work item's own edit screen, which is the
 	// only place a key alone can name its project and type.
 	low := models.PriorityLow
-	if err := site.adapter().UpdateIssue(context.Background(), tracker.UpdateIssueRequest{Project: jiraProject(), Key: "PE-7", Priority: &low}); err != nil {
+	if err := site.adapter().UpdateIssue(unattended(), tracker.UpdateIssueRequest{Project: jiraProject(), Key: "PE-7", Priority: &low}); err != nil {
 		t.Fatal(err)
 	}
 	if got := updated["fields"].(map[string]any)["priority"]; !sameJSON(got, map[string]any{"id": "4"}) {
@@ -215,7 +214,7 @@ func TestJiraPutsThePriorityOnAfterACreationScreenRefusesIt(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	if _, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
+	if _, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := created["fields"].(map[string]any)["priority"]; ok {
@@ -258,7 +257,7 @@ func TestJiraKeepsACreationThatCouldNotTakeItsPriority(t *testing.T) {
 				site.on("PUT", "/rest/api/3/issue/PE-42", c.put)
 			}
 
-			task, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent})
+			task, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent})
 			if err != nil {
 				t.Fatalf("the work item exists; its creation must stand: %v", err)
 			}
@@ -288,7 +287,7 @@ func TestJiraFallsBackOnTheSiteListWhenTheScreenCannotBeRead(t *testing.T) {
 		fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
 	})
 
-	if _, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
+	if _, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
 		t.Fatal(err)
 	}
 	// Blocker: the first option the site list names urgent. It happens to be
@@ -327,7 +326,7 @@ func TestJiraFallsBackThroughTheBareListToTheDefaultNames(t *testing.T) {
 				fmt.Fprint(w, `{"id":"1","key":"PE-42"}`)
 			})
 
-			if _, err := site.adapter().CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
+			if _, err := site.adapter().CreateIssue(unattended(), tracker.CreateIssueRequest{Project: jiraProject(), Title: "New", Priority: models.PriorityUrgent}); err != nil {
 				t.Fatal(err)
 			}
 			if got := created["fields"].(map[string]any)["priority"]; !sameJSON(got, c.want) {
@@ -349,7 +348,7 @@ func TestJiraSyncPlacesUnnamedPrioritiesByRank(t *testing.T) {
 		{"key":"PE-2","fields":{"summary":"Two","priority":{"name":"P4"},"status":{"name":"To Do","statusCategory":{"key":"new"}},"labels":[]}}
 	]}`)
 
-	tasks, err := site.adapter().SyncIssues(context.Background(), tracker.SyncRequest{Project: jiraProject()})
+	tasks, err := site.adapter().SyncIssues(unattended(), tracker.SyncRequest{Project: jiraProject()})
 	if err != nil {
 		t.Fatal(err)
 	}

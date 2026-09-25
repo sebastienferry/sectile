@@ -71,11 +71,14 @@ window.fetch = async (input, init = {}) => {
       list = list.filter(t => t.projectId === q.get('projectId'));
     }
     if (q.get('assignee')) list = list.filter(t => t.assignee === q.get('assignee'));
+    // The server resolves "me" (#468); the fake knows it is Alice.
+    if (q.get('mine') === '1') list = list.filter(t => t.assignee === 'Alice');
     if (url.pathname === '/api/tasks/facets') {
       return json({ sprints: [], teams: [], macros: [], assignees: [], trackerStatuses: [], statuses: [], sources: [], issueTypes: [], labels: [{ value: 'platform', count: 3 }], total: list.length });
     }
     return json(list);
   }
+  if (url.pathname === '/api/me/assignee-identities') return json({ signedIn: true, fallback: ['Alice', 'a@b.c'], trackers: [] });
   if (url.pathname === '/api/settings') return json({ userName: 'Alice', language: 'fr' });
   if (/stats|settings|status/.test(url.pathname)) return json({});
   return json([]);
@@ -166,9 +169,12 @@ try {
   assert.equal(await page.getByText('Gamma platform').count(), 0, 'a project outside the view stays out');
 
   // ---------- S8: filters are remembered per view, apart from projects ----------
-  await page.getByRole('button', { name: 'Mes tâches' }).click();
-  await waitForTaskQuery(q => q.get('viewId') === 'v1' && q.get('assignee') === 'Alice');
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('sectile_filters_view_v1') || '{}').assignee), 'Alice');
+  // My Tasks sends no name: the server knows who "me" is on each tracker (#468).
+  const myTasks = page.getByRole('button', { name: 'Mes tâches' });
+  await myTasks.click();
+  await waitForTaskQuery(q => q.get('viewId') === 'v1' && q.get('mine') === '1' && !q.get('assignee'));
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('sectile_filters_view_v1') || '{}').mine), '1');
+  assert.equal(await myTasks.getAttribute('aria-pressed'), 'true');
   await page.evaluate(() => localStorage.setItem('sectile_filters_a', JSON.stringify({})));
   // Leaving through the project switcher drops the view and its filters.
   await page.locator('button:has-text("Tous les projets")').first().click();
@@ -176,14 +182,47 @@ try {
   // Switching scope sends one request with the previous filters before the
   // destination's are restored, as a project switch always did: what matters
   // is where the board settles.
-  await waitForTaskQuery(q => q.get('projectId') === 'a' && !q.get('viewId') && !q.get('assignee'));
+  await waitForTaskQuery(q => q.get('projectId') === 'a' && !q.get('viewId') && !q.get('mine'));
   assert.equal(new URL(page.url()).searchParams.get('view'), null, 'leaving the view clears the address');
   await page.locator('[data-board-view="v1"] button').first().click();
-  await waitForTaskQuery(q => q.get('viewId') === 'v1' && q.get('assignee') === 'Alice');
+  await waitForTaskQuery(q => q.get('viewId') === 'v1' && q.get('mine') === '1');
+  // The header shows one chip named after the button, whose × turns it off.
+  // The chips only show on a wide screen.
+  await page.setViewportSize({ width: 1600, height: 860 });
+  const chip = page.locator('header span').filter({ hasText: /^Mes tâches$/ });
+  await chip.waitFor();
+  assert.equal(await chip.count(), 1);
+  await page.setViewportSize({ width: 1280, height: 860 });
+
+  // A stage shortcut clears My Tasks, as it clears the person filter. They
+  // are the sidebar's in the workflow grouping.
+  const grouping = page.getByRole('group', { name: 'Workflow / Statuts' });
+  await grouping.getByRole('button', { name: 'Workflow' }).click();
+  await page.getByTitle('À tester', { exact: true }).first().click();
+  await waitForTaskQuery(q => q.get('viewId') === 'v1' && q.get('status') === 'to_test' && !q.get('mine'));
+  assert.equal(await myTasks.getAttribute('aria-pressed'), 'false');
+  await page.getByTitle('Toutes les tâches', { exact: true }).first().click();
+  await waitForTaskQuery(q => q.get('viewId') === 'v1' && !q.get('status') && !q.get('mine'));
+  await grouping.getByRole('button', { name: 'Statuts' }).click();
+
+  // A person remembered by an earlier version stays a person filter.
+  await page.evaluate(() => localStorage.setItem('sectile_filters_view_v1', JSON.stringify({ assignee: 'Alice' })));
+  await page.locator('button:has-text("Tous les projets")').first().click();
+  await page.locator('[class*="group/item"]').filter({ hasText: 'Alpha' }).first().click();
+  await waitForTaskQuery(q => q.get('projectId') === 'a' && !q.get('viewId'));
+  await page.locator('[data-board-view="v1"] button').first().click();
+  await waitForTaskQuery(q => q.get('viewId') === 'v1' && q.get('assignee') === 'Alice' && !q.get('mine'));
+  assert.equal(await myTasks.getAttribute('aria-pressed'), 'false', 'a remembered name is not My Tasks');
 
   // ---------- S12: editing the open view reloads its board ----------
-  await page.getByRole('button', { name: 'Mes tâches' }).click();
-  await waitForTaskQuery(q => q.get('viewId') === 'v1' && !q.get('assignee'));
+  // Turning My Tasks on replaces the person filter, and off again clears both.
+  await myTasks.click();
+  await waitForTaskQuery(q => q.get('viewId') === 'v1' && q.get('mine') === '1' && !q.get('assignee'));
+  await page.setViewportSize({ width: 1600, height: 860 });
+  await chip.locator('button').click();
+  await waitForTaskQuery(q => q.get('viewId') === 'v1' && !q.get('mine') && !q.get('assignee'));
+  assert.equal(await myTasks.getAttribute('aria-pressed'), 'false');
+  await page.setViewportSize({ width: 1280, height: 860 });
   const before = (await taskRequests()).length;
   await page.locator('[data-open-board-view="v1"]').click();
   await dialog.waitFor();

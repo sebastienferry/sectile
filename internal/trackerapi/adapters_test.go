@@ -48,6 +48,10 @@ func TestNewDefaultRegistryResolvesTrackers(t *testing.T) {
 
 }
 
+// unattended is the context of work nobody asked for, the only one a write may
+// make with the server credential (#482).
+func unattended() context.Context { return tracker.WithUnattended(context.Background()) }
+
 func TestGithubAdapterCreateAndSync(t *testing.T) {
 	calls := 0
 	c := fixture(t, func(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +71,7 @@ func TestGithubAdapterCreateAndSync(t *testing.T) {
 	proj := &models.Project{IssueTracker: "github", GithubRepo: "org/repo"}
 
 	// Create
-	task, err := adapter.CreateIssue(context.Background(), tracker.CreateIssueRequest{
+	task, err := adapter.CreateIssue(unattended(), tracker.CreateIssueRequest{
 		Project:     proj,
 		Title:       "New Feature",
 		Description: "Description",
@@ -158,9 +162,9 @@ func TestGithubWritesUseTheActingPersonsToken(t *testing.T) {
 		t.Fatalf("the write must carry the acting person's token, got %v", seen)
 	}
 
-	// Work nobody asked for keeps the server's token rather than failing.
+	// Work nobody asked for, and says so, keeps the server's token.
 	seen = nil
-	if _, err := adapter.CreateIssue(context.Background(), tracker.CreateIssueRequest{Project: project, Title: "T"}); err != nil {
+	if _, err := adapter.CreateIssue(unattended(), tracker.CreateIssueRequest{Project: project, Title: "T"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) == 0 || !strings.Contains(seen[0], "server-token") {

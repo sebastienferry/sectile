@@ -36,6 +36,8 @@ export const Header: React.FC = () => {
     setParentFilter,
     assigneeFilter,
     setAssigneeFilter,
+    myTasksOnly,
+    setMyTasksOnly,
     setIsQuickAddOpen,
     currentBoardView,
     openBoardViewModal,
@@ -44,7 +46,7 @@ export const Header: React.FC = () => {
 
   const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const hasActiveFilters = Boolean(statusFilter || priorityFilter || labelFilter || sprintFilter || teamFilter || parentFilter || assigneeFilter || searchQuery || pinnedOnly || activeOnly)
+  const hasActiveFilters = Boolean(statusFilter || priorityFilter || labelFilter || sprintFilter || teamFilter || parentFilter || assigneeFilter || myTasksOnly || searchQuery || pinnedOnly || activeOnly)
 
   return (
     <header
@@ -184,6 +186,14 @@ export const Header: React.FC = () => {
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
               {assigneeFilter}
               <button onClick={() => setAssigneeFilter(null)} className="hover:opacity-75 cursor-pointer">
+                <X size={11} />
+              </button>
+            </span>
+          )}
+          {myTasksOnly && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+              {t.nav.myTasks}
+              <button onClick={() => setMyTasksOnly(false)} className="hover:opacity-75 cursor-pointer">
                 <X size={11} />
               </button>
             </span>

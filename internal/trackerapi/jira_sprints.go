@@ -64,7 +64,7 @@ func (j *JiraAdapter) CreateSprint(ctx context.Context, req tracker.SprintCreate
 	if _, err := fmt.Sscanf(boardID, "%d", &board); err != nil {
 		return models.TrackerSprint{}, fmt.Errorf("board Jira invalide %q", boardID)
 	}
-	c, err := j.forProject(ctx, req.Project)
+	c, err := j.forWrite(ctx, req.Project)
 	if err != nil {
 		return models.TrackerSprint{}, err
 	}
@@ -120,7 +120,7 @@ func (j *JiraAdapter) UpdateSprint(ctx context.Context, project *models.Project,
 	if len(body) == 0 {
 		return models.TrackerSprint{}, fmt.Errorf("rien à modifier sur ce sprint")
 	}
-	c, err := j.forProject(ctx, project)
+	c, err := j.forWrite(ctx, project)
 	if err != nil {
 		return models.TrackerSprint{}, err
 	}
@@ -139,7 +139,7 @@ func (j *JiraAdapter) DeleteSprint(ctx context.Context, project *models.Project,
 	if id == "" {
 		return fmt.Errorf("sprint manquant")
 	}
-	c, err := j.forProject(ctx, project)
+	c, err := j.forWrite(ctx, project)
 	if err != nil {
 		return err
 	}
