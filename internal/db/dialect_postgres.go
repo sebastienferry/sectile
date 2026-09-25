@@ -23,6 +23,14 @@ import (
 // every restart and silently orphan every stored token.
 type postgresDialect struct{}
 
+// How long the pool keeps a PostgreSQL connection: idle, and at all. Both stay
+// well under the idle timeouts a network path between a pod and a managed
+// server commonly applies, so the pool drops a connection before they do.
+const (
+	postgresConnMaxIdleTime = 5 * time.Minute
+	postgresConnMaxLifetime = 30 * time.Minute
+)
+
 func (postgresDialect) Name() string { return "PostgreSQL" }
 
 func (p postgresDialect) Open(cfg Config) (*sql.DB, error) {
@@ -33,6 +41,12 @@ func (p postgresDialect) Open(cfg Config) (*sql.DB, error) {
 	conn := stdlib.OpenDB(*connConfig)
 	conn.SetMaxOpenConns(25)
 	conn.SetMaxIdleConns(10)
+	// A connection left idle for long can be dropped by the network between
+	// the pod and the server without the pool noticing; the next query to pick
+	// it up then fails once. Closing idle connections early, and recycling
+	// every connection after a while, keeps the pool from holding dead ones.
+	conn.SetConnMaxIdleTime(postgresConnMaxIdleTime)
+	conn.SetConnMaxLifetime(postgresConnMaxLifetime)
 	return conn, nil
 }
 
@@ -69,7 +83,7 @@ func (postgresDialect) Rebind(query string) string { return rebindNumbered(query
 // `É` alone, one using an ICU or builtin C.UTF-8 locale folds it to `é`. A
 // predicate comparing the column against a value folded in Go therefore matched
 // on one server and not on the next. `COLLATE "C"` is built in, exists in every
-// database whatever its encoding, and folds ASCII letters only — which is
+// database whatever its encoding, and folds ASCII letters only, which is
 // exactly what SQLite's LOWER does, so both engines mean the same thing.
 func (postgresDialect) LowerASCII(expr string) string { return `LOWER(` + expr + ` COLLATE "C")` }
 
@@ -212,8 +226,8 @@ func (postgresDialect) AcquireProjectWorker(conn *sqlConn, projectID string) (fu
 // fail it, so the constraint can only be created once the backfill has run.
 //
 // The guard is the last constraint the migration creates, and every statement
-// tolerates having run before. An attempt that stops halfway — the backfill
-// failing, say — is therefore retried in full on the next start-up, instead of
+// tolerates having run before. An attempt that stops halfway (the backfill
+// failing, say) is therefore retried in full on the next start-up, instead of
 // leaving a table that has project_id but never regained its foreign keys and
 // that no later start would ever look at again.
 func (postgresDialect) MigrateActivityAttachment(conn *sqlConn, backfill func(*sqlConn) error) error {

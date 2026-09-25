@@ -55,6 +55,7 @@ func (h *Handler) handleMacroRunSkill(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 	if active, err := h.db.ActiveRunOnMacro(project.ID, macroKey); err != nil {
+		log.Printf("[MacroRun] cannot check macro %s for an active run: %v", macroKey, err)
 		writeError(w, http.StatusInternalServerError, "Cannot check the macro for an active run")
 		return
 	} else if active != nil {

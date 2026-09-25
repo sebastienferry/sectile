@@ -2134,6 +2134,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		// anything is recorded, so a refused launch leaves no trace at all.
 		active, activeErr := h.db.ActiveRunOnTask(task.ID)
 		if activeErr != nil {
+			log.Printf("[Dispatch] cannot check task %s for an active run: %v", task.Key, activeErr)
 			writeError(w, http.StatusInternalServerError, "Cannot check the task for an active run")
 			return
 		}
@@ -2210,6 +2211,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 				finished := time.Now()
 				act.CompletedAt = &finished
 				_ = h.db.FinishAgentLaunch(act)
+				log.Printf("[Dispatch] cannot track remote execution on task %s: %v", task.Key, runErr)
 				writeError(w, http.StatusInternalServerError, "Cannot track remote execution")
 				return
 			}
