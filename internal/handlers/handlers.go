@@ -3842,10 +3842,18 @@ func (h *Handler) HandleEventsSSE(w http.ResponseWriter, r *http.Request) {
 	ch := h.SubscribeEvents()
 	defer h.UnsubscribeEvents(ch)
 
+	// An open tab may go minutes without another request: the stream keeps its
+	// session marked as seen, or the person reading the board would drop out of
+	// the active users while still looking at it.
+	touch := time.NewTicker(time.Minute)
+	defer touch.Stop()
+
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-touch.C:
+			h.webSessionUser(r)
 		case event, open := <-ch:
 			if !open {
 				return

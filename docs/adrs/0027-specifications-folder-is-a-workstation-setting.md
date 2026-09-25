@@ -32,7 +32,7 @@ repository layout reaches the agent as `monoRepo` in its configuration; an
 older server that does not send it reads as mono-repo, the server's own
 default.
 
-**The server stores no specifications path.** Migration 15 drops
+**The server stores no specifications path.** Migration 16 drops
 `projects.spec_repo_path` with its values, which named server directories and
 cannot be carried to any workstation. The web option disappears, and API
 clients that still send `specRepoPath` are ignored.

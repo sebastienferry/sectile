@@ -229,11 +229,13 @@ erased at the next visit. Every read of a user resolves
 
 The one part of the interface reserved to admins. Everything else on the board,
 projects included, is a member's to use; what stays here is the roster: who
-exists, what role they hold, and whether their account still opens.
+exists, what role they hold, and whether their account still opens, and the
+admin page's summary of what the board is doing.
 
 | Method | Path | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/users` | (none) | Every account with its role, its last sign-in and whether it is blocked, plus `rolesFromProvider` when the identity provider supplies the roles. |
+| `GET` | `/api/users` | (none) | Every account with its role, its last sign-in, whether it is blocked, `lastActiveAt` (when one of its browser sessions last reached the server, absent when never) and `active` (seen within the active window, five minutes), plus `rolesFromProvider` when the identity provider supplies the roles. |
+| `GET` | `/api/admin/stats` | (none) | `{users: {total, admins, blocked, active}, runs: {active, byStatus: {running, queued, pending}}, activeWindowSeconds, generatedAt}`. `active` counts the accounts with an unexpired, unrevoked session seen within the window; runs are the activities `activeRunPredicate` selects. Read from the database, so every server sharing it answers the same. |
 | `PUT` | `/api/users/{id}` | `{role?, blocked?}` | Changes the role, the blocked state, or both. An absent field is left alone. `400` on neither field and on a role that is not `admin` or `member`; `404` on an unknown account; `409` on the last admin, on blocking or deleting your own account, and on the implicit account. |
 | `DELETE` | `/api/users/{id}` | (none) | Removes the account, its sessions and its workstation keys. Same refusals as above. The tasks, comments and executions it owns stay on the board and read as having no owner. |
 
