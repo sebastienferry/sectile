@@ -114,11 +114,11 @@ documents every variable the server, the agent and the MCP bridge read; copy it
 to `.env`, which the server loads at startup and which is gitignored:
 
 ```sh
-# Optional: the tracker credential is usually typed in the interface instead,
-# but a headless deployment can export it here.
-export SECTILE_TRACKER_TOKEN='<tracker API token>'
-# Serving several providers at once? Override per provider:
-# export SECTILE_GITHUB_TOKEN='<GitHub API token>'
+# Optional: an admin usually stores the server credential of each tracker from
+# Administration instead, but a headless deployment can export it here. One
+# variable per provider, and nothing else is read.
+export SECTILE_GITHUB_TOKEN='<GitHub API token>'
+# export SECTILE_JIRA_EMAIL='<Jira account e-mail>' SECTILE_JIRA_TOKEN='<Jira API token>'
 # export SECTILE_GITLAB_TOKEN='<GitLab API token>'
 DB_PATH=/path/to/tasks.db PORT=8090 ./bin/server
 ```
@@ -269,27 +269,37 @@ port 5173 and proxies `/api` to `http://localhost:8090`.
 ### Tracker connection parameters
 
 **The interface is the primary way to configure them.** *Connect your tracker*
-asks for the instance URL, the repository or project slug and the token of the
-selected tracker — Jira, GitHub or GitLab — checks them against the instance, and
-saves them in the user configuration only once the instance has accepted them. No
-file to edit on the server, and no restart. A project can override the instance,
-the slug and the token for itself, which is what lets two GitHub organisations
-with two different tokens live side by side.
+asks for the instance URL and the repository or project slug of the selected
+tracker (Jira, GitHub or GitLab) and saves them in the user configuration. No
+file to edit on the server, and no restart. A project can override the instance
+and the slug for itself, never the credential.
 
-Tokens are write-only: the API never returns one. It reports `githubTokenSet` /
-`gitlabTokenSet` / `jiraApiTokenSet` instead, plus `...FromEnv` when no token is
-stored and the server environment supplies one. Saving with an empty token field
-keeps the stored token; sending the sentinel `__clear__` deletes it.
+**Every synchronisation uses the server credential of its provider.** There is
+one per provider, GitHub, Jira and GitLab, and it is what the auto-sync timer and
+a *Sync* started by hand both authenticate with; the activity says who asked, the
+tracker call never borrows their token nor the project owner's. An admin stores
+it from *Administration > Server tracker credentials*, which checks it against
+the instance first, shows the account it authenticates as, and says when it comes
+from the environment instead. It is sealed in the database under the server key,
+without a passphrase, since nobody is there to unlock it. A stored credential
+wins over the environment; clearing it hands the provider back to the
+environment. Members see whether each provider is configured, never the value,
+and cannot write it. A stored credential the key no longer opens fails the sync
+with an error saying so, rather than fall back to another account. See
+[ADR 0028](./docs/adrs/0028-tracker-sync-uses-a-server-credential-per-provider.md).
 
-**A Jira credential is personal, and only personal.** An Atlassian account
-belongs to a site, so the site, the account e-mail and the token travel
-together: all three are stored from the person's own profile, in *Connect your
-tracker*. A project put on Jira prefills its tracker URL from the
-instance of whoever creates it. No server-wide Jira credential appears in the
-interface at all; the `SECTILE_JIRA_*` variables remain only as a fallback for
-unattended work. An operation somebody asked for either carries their own token
-or is refused, because writing it under the server account would put a name on
-it that nobody chose.
+Tokens are write-only: the API never returns one. The settings report
+`githubTokenSet` / `gitlabTokenSet` / `jiraApiTokenSet` when a server credential
+is stored, and `...FromEnv` when none is stored and the server environment
+supplies one.
+
+**A Jira write is personal, and only personal.** An Atlassian account belongs
+to a site, so the site, the account e-mail and the token travel together: all
+three are stored from the person's own profile, in *Connect your tracker*. A
+project put on Jira prefills its tracker URL from the instance of whoever
+creates it. An operation somebody asked for either carries their own token or is
+refused, because writing it under the server account would put a name on it
+that nobody chose. The Jira server credential serves the synchronisation only.
 
 **A tracker credential can be personal.** On Jira a comment, an assignment and
 a transition are attributed to the account whose token made the call, so a
@@ -310,36 +320,35 @@ unusable there until its owner unlocks it. A locked credential fails the
 operation rather than falling back to the server token, which would write under
 a name nobody chose. See [ADR 0014](./docs/adrs/0014-personal-tracker-credentials-are-sealed.md).
 
-The background queue carries whoever asked: a sync, a field update and every
+The background queue carries whoever asked a write: a field update and every
 tracker operation record the acting user on the job, and the worker puts them
-back before resolving a credential. Work nobody asked for, the auto-sync timer,
-reads as the project's owner instead: the owner is its creator, or whoever first
-saves a project older than the field, and the loop borrows their token for the
-re-reads it queues. A project with no owner keeps the server credential. See
-[ADR 0018](./docs/adrs/0018-the-background-synchronisation-runs-as-the-project-owner.md).
+back before resolving a credential. A synchronisation is the exception: it
+records who asked on its activity, and reads with the server credential.
 
 Jira asks for the site (`mon-org.atlassian.net`), the account e-mail and an
 Atlassian API token, which authenticate as `email:token`. Its environment
-fallbacks are `SECTILE_JIRA_URL`, `SECTILE_JIRA_EMAIL` and `SECTILE_JIRA_TOKEN`,
-then `SECTILE_TRACKER_TOKEN` and `JIRA_API_TOKEN`. A project overrides the site
-through its `trackerUrl`; the e-mail and the token stay global, one Atlassian
+fallbacks are `SECTILE_JIRA_URL`, and the pair `SECTILE_JIRA_EMAIL` +
+`SECTILE_JIRA_TOKEN` for the server credential. A project overrides the site
+through its `trackerUrl`; the server credential stays global, one Atlassian
 token being valid on every site of the account.
 
-GitLab parameters can be stored, but no GitLab ticketing adapter is registered
-yet: a project whose tracker is GitLab still fails with the tracker registry's
+GitLab parameters and a GitLab server credential can be stored, but no GitLab
+ticketing adapter is registered yet: a project whose tracker is GitLab still fails with the tracker registry's
 unconfigured-tracker error. That adapter is a separate piece of work.
 
 The environment variables below stay supported, as the fallback for headless and
 CI deployments where no one opens the interface. **Stored configuration wins**:
-for each parameter the server resolves the project override, then the user
-configuration, then the environment.
+for a URL the server resolves the project override, then the user configuration,
+then the environment; for a credential, the stored server credential, then the
+environment. `SECTILE_TRACKER_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`,
+`JIRA_API_TOKEN` and `GITLAB_TOKEN` are no longer read: a server that still has
+one set logs a warning at startup naming its replacement.
 
 | Setting | Meaning |
 | --- | --- |
-| `SECTILE_TRACKER_TOKEN` | Tracker API credential, used by every provider that has no override below. |
-| `SECTILE_GITHUB_TOKEN` | GitHub-only override; takes precedence over `SECTILE_TRACKER_TOKEN`. `GH_TOKEN` then `GITHUB_TOKEN` are environment-only fallbacks. |
+| `SECTILE_GITHUB_TOKEN` | GitHub server credential, when none is stored from Administration. |
 | `SECTILE_GITHUB_API_URL` | REST base URL; defaults to `https://api.github.com`. GitHub Enterprise uses `https://<host>/api/v3`. |
-| `SECTILE_GITLAB_TOKEN` | GitLab-only override; `GITLAB_TOKEN` is an environment-only fallback. |
+| `SECTILE_GITLAB_TOKEN` | GitLab server credential, when none is stored from Administration. |
 | `SECTILE_GITLAB_API_URL` | GitLab REST base URL; defaults to `https://gitlab.com/api/v4`. |
 | `SECTILE_GITLAB_PROJECT` | Default GitLab project slug, e.g. `group/app`. |
 
@@ -349,10 +358,9 @@ itself**, at startup only. `make serve`, `go run ./cmd/server` and
 variable in another terminal — or after the server is already running — has no
 effect: restart the server, or, better, type the value in the interface, which
 takes effect on the next request. A `gh` login on the same machine is not picked
-up either; for GitHub only `SECTILE_GITHUB_TOKEN`, then `SECTILE_TRACKER_TOKEN`,
-then `GH_TOKEN`, then `GITHUB_TOKEN` are consulted. The provider-specific
-variable comes first so a server driving several providers cannot send one
-provider's credential to another.
+up either; for GitHub only `SECTILE_GITHUB_TOKEN` is consulted. Each provider
+reads its own variable only, so a server driving several providers cannot send
+one provider's credential to another.
 
 The tokens are kept in the server database and in the agent's reach only through
 the server: `~/.config/sectile/settings.json`, the agent's own configuration,
@@ -362,16 +370,19 @@ For a GitHub project the token needs, at minimum, read and write access to the
 issues of the configured repositories, plus repository metadata. A fine-grained
 token therefore grants **Issues: read and write** and **Metadata: read** on those
 repositories; a classic token uses the `repo` scope. For a quick local setup,
-`SECTILE_TRACKER_TOKEN="$(gh auth token)"` reuses an existing `gh` login, which is
+`SECTILE_GITHUB_TOKEN="$(gh auth token)"` reuses an existing `gh` login, which is
 convenient but tied to that CLI session rather than being a durable credential.
 
 Without a usable token the server keeps serving the board from its database, but
-every tracker round-trip fails with `configure SECTILE_TRACKER_TOKEN on the
-server`: task comments do not load and workflow stage transitions do not reach
+every synchronisation fails with `no GitHub server credential: set
+SECTILE_GITHUB_TOKEN or save one in Administration` (and its Jira and GitLab
+equivalents), and a write somebody asks for without a credential of their own
+fails too: task comments do not load and workflow stage transitions do not reach
 the ticket. Verify the server picked the credential up by opening a task and
 checking that its comments load — that read goes through the tracker API.
 
-Credentials are read at server startup and are excluded from agent configuration.
+Environment credentials are read at server startup, stored ones on every call;
+both are excluded from agent configuration.
 Supply access to the configured repositories/teams and the operations you use
 (issues, comments, milestones and PR reads). Configure `githubRepo` as
 `owner/repository`. The server never discovers
@@ -476,6 +487,38 @@ max by (status) (sectile_active_runs)
 ```
 
 See [ADR 0027](docs/adrs/0027-prometheus-metrics-and-active-users.md).
+
+### Grafana dashboard
+
+[`deploy/grafana/sectile.json`](deploy/grafana/sectile.json) is a Grafana
+dashboard for these metrics, in three rows: an overview (running version,
+replicas, active users, active runs by status), the HTTP controllers (requests,
+server and client errors, latency percentiles, busiest controllers; the scrapes
+of `/metrics` are left out) and the runtime of each replica (goroutines, memory,
+CPU, garbage collection, file descriptors).
+
+Import it from *Dashboards › New › Import*, or through the API:
+
+```bash
+jq '{dashboard: ., overwrite: true}' deploy/grafana/sectile.json \
+  | curl -sf -H "Authorization: Bearer $GRAFANA_TOKEN" -H 'Content-Type: application/json' \
+      -d @- "$GRAFANA_URL/api/dashboards/db"
+```
+
+The file names no datasource and no deployment, so it imports into any Grafana
+as is. Three selectors at the top pick them: *Datasource* (any
+Prometheus-compatible one holding the series), *Deployment* (every Kubernetes
+`namespace` that reports `sectile_build_info`) and *Replica* (the `pod`s of that
+deployment, all by default). The series are therefore expected to carry the
+`namespace` and `pod` labels, which a Kubernetes scrape adds. To make a
+deployment the default, select it and save the dashboard with *Update default
+variable values*. Importing again replaces the dashboard rather than copying
+it, since its `uid` is fixed; the defaults saved this way are lost and have to
+be saved again.
+
+`go test ./internal/metrics/` fails when a panel queries a `sectile_*` series
+the server does not register, adds up a board series across replicas, or names
+a datasource or a namespace of its own.
 
 ## Versioning and changelog
 

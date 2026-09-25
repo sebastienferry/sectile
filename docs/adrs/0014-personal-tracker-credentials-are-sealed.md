@@ -1,6 +1,8 @@
 # ADR 0014: A tracker credential is personal, encrypted, and optionally sealed by its owner
 
-Status: Accepted
+Status: Accepted. Superseded in part by
+[ADR 0028](0028-tracker-sync-uses-a-server-credential-per-provider.md) for
+unattended work.
 
 ## Context
 
@@ -67,6 +69,8 @@ the server credential, which is what the background queue does.
   acting user to resolve. Carrying one onto the job is ticket #237's work
   (`task_activities.user_id`), and this change deliberately does not duplicate
   it.
+  ADR 0028 settles it the other way: every synchronisation uses the server
+  credential of its provider, and none borrows a personal token.
 
 ## Alternatives rejected
 

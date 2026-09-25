@@ -1778,8 +1778,13 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 // reaches the settings, and the answer names what is wrong instead of leaving a
 // sync to fail later with nothing to show. `tracker` selects the fields that
 // matter: GitHub, GitLab and Jira are checked against the instance and
-// persisted here. storeTokenInFile is accepted for older clients and ignored:
-// no file store exists, the token goes to the user configuration.
+// persisted here. storeTokenInFile is accepted for older clients and ignored.
+//
+// A token (or a Jira e-mail) in a save is a server credential, which is an
+// admin's to set (#464): a member is refused, an admin's is checked as the
+// server's, never against their own personal token, and sealed with the
+// server credentials. The check alone stays open to everybody: the personal
+// credential form uses it.
 func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "Method not allowed")
@@ -1802,7 +1807,10 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	trackerName := strings.ToLower(strings.TrimSpace(req.Tracker))
 	checkOnly := strings.HasSuffix(strings.TrimSuffix(r.URL.Path, "/"), "/check")
 	verified := ""
-	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
+	known := trackerName == "github" || trackerName == "gitlab" || trackerName == "jira"
+	serverCredential := !checkOnly && known &&
+		(strings.TrimSpace(req.Token) != "" || (trackerName == "jira" && strings.TrimSpace(req.Email) != ""))
+	if known && !serverCredential {
 		// A check is the one call somebody waits in front of, so how long it
 		// actually took is worth knowing: it separates a slow instance from a
 		// slow screen, which look identical from a chair.
@@ -1824,7 +1832,26 @@ func (h *Handler) HandleTrackerSetup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if trackerName == "github" || trackerName == "gitlab" || trackerName == "jira" {
-		settings, err := h.db.SaveTrackerCredentials(trackerName, req.SiteURL, req.Project, req.Email, req.Token)
+		if serverCredential {
+			caller, ok := h.requireSession(w, r)
+			if !ok {
+				return
+			}
+			if !caller.IsAdmin() {
+				writeError(w, http.StatusForbidden, msgServerCredentialAdminOnly)
+				return
+			}
+			account, err := h.db.CheckServerTrackerCredentials(r.Context(), trackerName, req.SiteURL, req.Email, req.Token)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			if err := h.db.SaveServerTrackerCredential(trackerName, req.Email, req.Token, account, caller.UserID); err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		settings, err := h.db.SaveTrackerCredentials(trackerName, req.SiteURL, req.Project)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
