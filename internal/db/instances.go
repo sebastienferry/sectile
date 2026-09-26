@@ -120,6 +120,9 @@ func (d *DB) recoverInterruptedRuns() {
 	// merely became unknowable.
 	_, _ = d.conn.Exec("UPDATE task_activities SET status = 'canceled', summary = ?, completed_at = ?, waiting_since = NULL, waiting_session = '' WHERE status IN ('running', 'queued', 'pending') AND skill_id = 'remote_run' AND action != ?;",
 		interruptedClientRun, time.Now(), RunActionAgent)
+	if err := d.keepAgentPresenceInUnlocks(time.Now().UTC()); err != nil {
+		log.Printf("⚠️  Présence des agents avant redémarrage : %v", err)
+	}
 	_, _ = d.conn.Exec("DELETE FROM server_instances;")
 	_, _ = d.conn.Exec("DELETE FROM agent_presence;")
 }
@@ -153,6 +156,9 @@ func (d *DB) reclaimDeadInstances(now time.Time) (int64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("reclaiming client runs: %w", err)
 	}
+	if err := d.keepAgentPresenceInUnlocks(cutoff); err != nil {
+		return 0, fmt.Errorf("keeping the presence of the agents of dead instances: %w", err)
+	}
 	if _, err := d.conn.Exec(`DELETE FROM server_instances WHERE last_seen < ?`, cutoff); err != nil {
 		return 0, fmt.Errorf("forgetting dead instances: %w", err)
 	}
@@ -167,7 +173,10 @@ func (d *DB) reclaimDeadInstances(now time.Time) (int64, error) {
 }
 
 // StartInstance registers this process as a serving instance, then keeps its
-// row fresh and reclaims the work of instances that went away. Only a serving
+// row fresh, reclaims the work of instances that went away and forgets the
+// credential unlocks of people who left. The first sweep runs before it
+// returns, so a server that was down longer than the idle window serves no
+// unlock that expired meanwhile. Only a serving
 // process calls it: a tool that opens the store, such as sectile-migrate, or a
 // test, is not an instance and must not look like one.
 //
@@ -177,6 +186,7 @@ func (d *DB) StartInstance() (stop func(), err error) {
 	if err := d.registerInstance(time.Now().UTC()); err != nil {
 		return nil, err
 	}
+	d.sweepIdleUnlocks(time.Now().UTC())
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {
@@ -185,6 +195,8 @@ func (d *DB) StartInstance() (stop func(), err error) {
 		defer heartbeat.Stop()
 		reclaim := time.NewTicker(instanceReclaimEvery)
 		defer reclaim.Stop()
+		unlockSweep := time.NewTicker(unlockSweepEvery)
+		defer unlockSweep.Stop()
 		for {
 			select {
 			case <-done:
@@ -198,6 +210,8 @@ func (d *DB) StartInstance() (stop func(), err error) {
 				} else if ended > 0 {
 					log.Printf("Reprise de %d exécution(s) laissée(s) par une instance disparue", ended)
 				}
+			case <-unlockSweep.C:
+				d.sweepIdleUnlocks(time.Now().UTC())
 			}
 		}
 	}()

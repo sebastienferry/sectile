@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"tasks/internal/secrets"
@@ -23,7 +22,8 @@ import (
 // A user may additionally seal their credential behind a passphrase only they
 // know. The cost is exact and stated at the point of choice: the server can
 // only open it while they are there, so nothing running in the background can
-// use it.
+// use it once they have left. Their unlock is kept in user_credential_unlocks,
+// under the server key, while they are connected; see credentialunlocks.go.
 
 // UserCredential is what the interface may know about a stored credential:
 // everything except the token.
@@ -39,7 +39,7 @@ type UserCredential struct {
 	// credential is sealed and locked.
 	Account string `json:"account,omitempty"`
 	// Sealed says the credential needs its owner's passphrase; Unlocked says
-	// the passphrase was supplied in this server's lifetime.
+	// the passphrase was supplied and its unlock has not been forgotten since.
 	Sealed    bool      `json:"sealed"`
 	Unlocked  bool      `json:"unlocked"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -57,39 +57,10 @@ var ErrCredentialLocked = secrets.ErrSealed
 // unsealed, and the server key already opens it.
 var ErrNotSealed = errors.New("this credential is not sealed")
 
-// unlockedKeys holds the keys derived from a sealing passphrase, for as long as
-// the server runs. They are deliberately nowhere else: written down, they would
-// defeat the passphrase.
-type unlockedKeys struct {
-	mu   sync.RWMutex
-	keys map[string]secrets.Key
-}
-
-func (u *unlockedKeys) get(key string) (secrets.Key, bool) {
-	u.mu.RLock()
-	defer u.mu.RUnlock()
-	value, ok := u.keys[key]
-	return value, ok
-}
-
-func (u *unlockedKeys) set(key string, value secrets.Key) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	if u.keys == nil {
-		u.keys = map[string]secrets.Key{}
-	}
-	u.keys[key] = value
-}
-
-func (u *unlockedKeys) clear(key string) {
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	delete(u.keys, key)
-}
-
-func unlockKey(userID, tracker string) string {
-	return strings.TrimSpace(userID) + "\x00" + strings.ToLower(strings.TrimSpace(tracker))
-}
+// ErrServerKeyUnavailable means an unlock cannot be kept: it is stored under the
+// server key, and without it the unlock would either be lost at once or have to
+// be written down in clear, which would defeat the passphrase.
+var ErrServerKeyUnavailable = errors.New("la clé de chiffrement du serveur est indisponible")
 
 // ensureUserCredentialsTable creates the table and applies its one additive
 // migration. It is called once, while the schema is being built: doing it on
@@ -169,6 +140,15 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	if err != nil {
 		return err
 	}
+	// Saving a sealed credential unlocks it with its new passphrase. Without a
+	// server key there is nowhere to keep that unlock: the credential is saved
+	// locked, and unlocking it says why.
+	var wrapped []byte
+	if sealed && d.serverKeyErr == nil {
+		if wrapped, err = secrets.WrapKey(d.serverKey, secrets.UnlockBinding(userID, tracker), key); err != nil {
+			return err
+		}
+	}
 
 	sealedValue := 0
 	if sealed {
@@ -178,7 +158,12 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if _, err := d.conn.Exec(`
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`
 		INSERT INTO user_tracker_credentials (user_id, tracker, site_url, email, record, sealed, salt, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(user_id, tracker) DO UPDATE SET
@@ -196,13 +181,18 @@ func (d *DB) SetUserTrackerCredential(userID, tracker, siteURL, email, token, pa
 	// which is why the upsert empties the account: keeping the previous one
 	// would name an account the new token may not belong to.
 	//
-	// Storing it again replaces the key it was sealed with, so any key held
+	// Storing it again replaces the key it was sealed with, so any unlock kept
 	// from a previous passphrase must go.
-	d.unlocked.clear(unlockKey(userID, tracker))
-	if sealed {
-		d.unlocked.set(unlockKey(userID, tracker), key)
+	if _, err := tx.Exec(`DELETE FROM user_credential_unlocks WHERE user_id = ? AND tracker = ?`, userID, tracker); err != nil {
+		return err
 	}
-	return nil
+	if wrapped != nil {
+		if _, err := tx.Exec(`INSERT INTO user_credential_unlocks (user_id, tracker, wrapped_key, unlocked_at) VALUES (?, ?, ?, ?)`,
+			userID, tracker, wrapped, now.UTC()); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // SetUserTrackerCredentialAccount records the account the tracker confirmed a
@@ -260,21 +250,28 @@ func (d *DB) ClearUserTrackerCredential(userID, tracker string) error {
 	}
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	result, err := d.conn.Exec(`DELETE FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker)
+	tx, err := d.conn.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.Exec(`DELETE FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker)
 	if err != nil {
 		return err
 	}
 	if affected, err := result.RowsAffected(); err == nil && affected == 0 {
 		return ErrNoUserCredential
 	}
-	d.unlocked.clear(unlockKey(userID, tracker))
-	return nil
+	if _, err := tx.Exec(`DELETE FROM user_credential_unlocks WHERE user_id = ? AND tracker = ?`, userID, tracker); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // UnlockUserTrackerCredential accepts the sealing passphrase and keeps the key
-// it derives for as long as the server runs. A wrong passphrase is refused
-// without saying whether the credential exists, which is also what a wrong
-// owner gets.
+// it derives, under the server key, until its owner has been gone for the idle
+// window (credentialunlocks.go). A wrong passphrase is refused without saying
+// whether the credential exists, which is also what a wrong owner gets.
 func (d *DB) UnlockUserTrackerCredential(userID, tracker, passphrase string) error {
 	userID = strings.TrimSpace(userID)
 	tracker = strings.ToLower(strings.TrimSpace(tracker))
@@ -300,14 +297,31 @@ func (d *DB) UnlockUserTrackerCredential(userID, tracker, passphrase string) err
 	if _, err := secrets.Open(key, secrets.Binding{UserID: userID, Tracker: tracker}, record); err != nil {
 		return secrets.ErrWrongKey
 	}
-	d.unlocked.set(unlockKey(userID, tracker), key)
-	return nil
+	if d.serverKeyErr != nil {
+		// Saying "unlocked" here would be true until the next restart or the
+		// next instance, which is the failure this storage exists to end.
+		return fmt.Errorf("%w (%w) : définissez %s sur le serveur pour desceller un jeton", ErrServerKeyUnavailable, d.serverKeyErr, secrets.KeyEnvVar)
+	}
+	wrapped, err := secrets.WrapKey(d.serverKey, secrets.UnlockBinding(userID, tracker), key)
+	if err != nil {
+		return err
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, err = d.conn.Exec(`INSERT INTO user_credential_unlocks (user_id, tracker, wrapped_key, unlocked_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT (user_id, tracker) DO UPDATE SET wrapped_key = excluded.wrapped_key, unlocked_at = excluded.unlocked_at`,
+		userID, tracker, wrapped, time.Now().UTC())
+	return err
 }
 
-// LockUserTrackerCredential forgets the derived key, so the credential needs
-// its passphrase again.
-func (d *DB) LockUserTrackerCredential(userID, tracker string) {
-	d.unlocked.clear(unlockKey(strings.TrimSpace(userID), tracker))
+// LockUserTrackerCredential forgets the unlock, on every instance, so the
+// credential needs its passphrase again.
+func (d *DB) LockUserTrackerCredential(userID, tracker string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	_, err := d.conn.Exec(`DELETE FROM user_credential_unlocks WHERE user_id = ? AND tracker = ?`,
+		strings.TrimSpace(userID), strings.ToLower(strings.TrimSpace(tracker)))
+	return err
 }
 
 // UserTrackerCredentials lists what one person stored, tokens excluded.
@@ -317,7 +331,10 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 		return []UserCredential{}, nil
 	}
 	d.mu.RLock()
-	rows, err := d.conn.Query(`SELECT tracker, site_url, email, account, sealed, updated_at FROM user_tracker_credentials WHERE user_id = ? ORDER BY tracker`, userID)
+	rows, err := d.conn.Query(`SELECT c.tracker, c.site_url, c.email, c.account, c.sealed, c.updated_at, u.wrapped_key
+		FROM user_tracker_credentials c
+		LEFT JOIN user_credential_unlocks u ON u.user_id = c.user_id AND u.tracker = c.tracker
+		WHERE c.user_id = ? ORDER BY c.tracker`, userID)
 	d.mu.RUnlock()
 	if err != nil {
 		return nil, err
@@ -328,14 +345,16 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 	for rows.Next() {
 		var credential UserCredential
 		var sealed int
-		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &credential.Account, &sealed, &credential.UpdatedAt); err != nil {
+		var wrapped []byte
+		if err := rows.Scan(&credential.Tracker, &credential.SiteURL, &credential.Email, &credential.Account, &sealed, &credential.UpdatedAt, &wrapped); err != nil {
 			// Skipping it silently showed a profile with no credential while
 			// the tracker kept using one.
 			return nil, err
 		}
 		credential.Sealed = sealed == 1
 		if credential.Sealed {
-			_, credential.Unlocked = d.unlocked.get(unlockKey(userID, credential.Tracker))
+			_, ok := d.unwrapUnlock(userID, credential.Tracker, wrapped)
+			credential.Unlocked = ok
 		} else {
 			credential.Unlocked = true
 		}
@@ -346,7 +365,7 @@ func (d *DB) UserTrackerCredentials(userID string) ([]UserCredential, error) {
 
 // userTrackerCredential opens one person's token for one tracker. It answers
 // ErrNoUserCredential when there is none, and ErrCredentialLocked when the
-// owner sealed it and has not unlocked it in this server's lifetime.
+// owner sealed it and holds no unlock of it.
 //
 // It takes no lock of its own, on purpose and like trackerCredentials: the
 // tracker client resolves a credential from paths that already hold d.mu, and
@@ -360,9 +379,12 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 		return "", "", "", ErrNoUserCredential
 	}
 
-	var record []byte
+	var record, wrapped []byte
 	var sealed int
-	scanErr := d.conn.QueryRow(`SELECT site_url, email, record, sealed FROM user_tracker_credentials WHERE user_id = ? AND tracker = ?`, userID, tracker).Scan(&siteURL, &email, &record, &sealed)
+	scanErr := d.conn.QueryRow(`SELECT c.site_url, c.email, c.record, c.sealed, u.wrapped_key
+		FROM user_tracker_credentials c
+		LEFT JOIN user_credential_unlocks u ON u.user_id = c.user_id AND u.tracker = c.tracker
+		WHERE c.user_id = ? AND c.tracker = ?`, userID, tracker).Scan(&siteURL, &email, &record, &sealed, &wrapped)
 	if scanErr == sql.ErrNoRows {
 		return "", "", "", ErrNoUserCredential
 	}
@@ -375,8 +397,14 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 		return "", "", "", fmt.Errorf("la clé de chiffrement du serveur est indisponible : %w", d.serverKeyErr)
 	}
 	if sealed == 1 {
-		held, ok := d.unlocked.get(unlockKey(userID, tracker))
+		held, ok := d.unwrapUnlock(userID, tracker, wrapped)
 		if !ok {
+			if wrapped != nil && d.serverKeyErr == nil {
+				// The server key was replaced since the unlock: it will
+				// never open again, so it is not kept. Best effort and
+				// without a lock, like the rest of this function.
+				_, _ = d.conn.Exec(`DELETE FROM user_credential_unlocks WHERE user_id = ? AND tracker = ?`, userID, tracker)
+			}
 			return "", "", "", ErrCredentialLocked
 		}
 		key = held
@@ -386,6 +414,16 @@ func (d *DB) userTrackerCredential(userID, tracker string) (siteURL string, emai
 		return "", "", "", err
 	}
 	return siteURL, email, token, nil
+}
+
+// unwrapUnlock opens a stored unlock. No unlock, no server key, or one the
+// server key cannot open all answer false: the credential is locked.
+func (d *DB) unwrapUnlock(userID, tracker string, wrapped []byte) (secrets.Key, bool) {
+	if wrapped == nil || d.serverKeyErr != nil {
+		return secrets.Key{}, false
+	}
+	key, err := secrets.UnwrapKey(d.serverKey, secrets.UnlockBinding(userID, tracker), wrapped)
+	return key, err == nil
 }
 
 // userTrackerCredentialToken opens just the token of a stored credential, for

@@ -158,6 +158,20 @@ func (d *DB) UserForWebSession(token string) string {
 	return userID
 }
 
+// WebSessionOwner is the user a session cookie belongs to, revoked or expired
+// alike, or "". Unlike UserForWebSession it marks nothing as seen: sign-out
+// reads it to know whose presence just ended.
+func (d *DB) WebSessionOwner(token string) string {
+	if strings.TrimSpace(token) == "" {
+		return ""
+	}
+	var userID string
+	if err := d.conn.QueryRow(`SELECT user_id FROM web_sessions WHERE token_hash = ?`, hashSecret(token)).Scan(&userID); err != nil {
+		return ""
+	}
+	return userID
+}
+
 // RevokeWebSession ends one browser session, on sign-out.
 func (d *DB) RevokeWebSession(token string) error {
 	_, err := d.conn.Exec(`UPDATE web_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL`,

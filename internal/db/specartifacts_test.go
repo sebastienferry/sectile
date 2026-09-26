@@ -112,6 +112,7 @@ func TestMigrationTwentyFiveKeepsExistingProjectsArtefacts(t *testing.T) {
 	}
 	for _, stmt := range []string{
 		"ALTER TABLE projects DROP COLUMN spec_artifacts",
+		"DROP TABLE user_credential_unlocks",
 		`INSERT INTO projects (id, name, slug) VALUES ('p1', 'Old', 'old')`,
 		"DELETE FROM schema_migrations WHERE version >= 25",
 	} {

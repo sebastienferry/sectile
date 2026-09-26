@@ -135,9 +135,6 @@ type DB struct {
 	// worse than refusing.
 	serverKey    secrets.Key
 	serverKeyErr error
-	// unlocked holds the keys derived from sealing passphrases, for this
-	// server's lifetime only.
-	unlocked unlockedKeys
 	// prEvidenceLookup stands in for the forge answer on every route. It gets
 	// the repository asked (the foreign identity for a pull request in another
 	// repository), the branch and the prUrl the caller gave.

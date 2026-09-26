@@ -394,6 +394,26 @@ var migrations = []migration{
 			"ALTER TABLE projects ADD COLUMN spec_artifacts TEXT NOT NULL DEFAULT 'keep';",
 		},
 	},
+	{
+		// The unlock of a sealed personal credential (#501, ADR 0031): the key
+		// its passphrase derived, sealed under the server key, so the unlock
+		// survives a restart and holds on every instance. It lasts while its
+		// owner is present (web sessions, agent_presence) and is forgotten 30
+		// minutes after. agent_seen_at keeps the last presence of an agent
+		// whose agent_presence row was dropped with its instance.
+		version: 26,
+		name:    "user_credential_unlocks",
+		statements: []string{
+			`CREATE TABLE user_credential_unlocks (
+				user_id TEXT NOT NULL,
+				tracker TEXT NOT NULL,
+				wrapped_key BLOB NOT NULL,
+				unlocked_at DATETIME NOT NULL,
+				agent_seen_at DATETIME,
+				PRIMARY KEY (user_id, tracker)
+			);`,
+		},
+	},
 }
 
 // migrateSchema brings the database to the schema this binary expects, and is

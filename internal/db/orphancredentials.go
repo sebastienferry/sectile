@@ -169,8 +169,7 @@ func (d *DB) DiscardOrphanedTrackerCredential(userID, tracker string) error {
 		}
 		return ErrCredentialNotOrphaned
 	}
-	// A key derived from a passphrase in this server's lifetime would otherwise
-	// outlive the row it opens.
-	d.unlocked.clear(unlockKey(userID, tracker))
-	return nil
+	// An unlock kept for it would otherwise outlive the row it opens.
+	_, err = d.conn.Exec(`DELETE FROM user_credential_unlocks WHERE user_id = ? AND tracker = ?`, userID, tracker)
+	return err
 }

@@ -19,6 +19,8 @@ import (
 // daily_digests is absent on purpose: it is retired storage that startup drops.
 // server_instances too: it describes the processes serving a database, and
 // none of the source's processes serves the destination.
+// user_credential_unlocks too: an unlock lasts while its owner is connected to
+// the source, and they unlock again on the destination.
 var migrationTables = []string{
 	"settings",
 	"users",
